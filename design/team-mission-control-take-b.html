@@ -1,0 +1,1474 @@
+<!doctype html>
+<html lang="en" data-ct-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team view as mission control — take B</title>
+<style>
+/* ==========================================================================
+   Artboards for the CodeTerm team view. Tokens are the product's own: the
+   :root blocks below are the literal output of themeToCSS() in
+   src/lib/themeCss.ts for the shipped github-dark and github-light themes.
+   Nothing here invents a colour; every surface derives from those vars.
+   ========================================================================== */
+
+:root {
+  --ct-font-ui: "Inter", "Segoe UI", "Avenir Next", "Helvetica Neue", sans-serif;
+  --ct-font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, Menlo, monospace;
+  --ct-radius-sm: 4px;
+  --ct-radius-md: 8px;
+  --ct-radius-lg: 12px;
+  --ct-duration-normal: 200ms;
+}
+
+/* github-dark — themeToCSS(DEFAULT_THEME) */
+html[data-ct-theme="dark"] {
+  --ct-bg: #0d1117;
+  --ct-fg: #c9d1d9;
+  --ct-titlebar-bg: #131921;
+  --ct-border: #232930;
+  --ct-border-subtle: #191d24;
+  --ct-surface: #141b24;
+  --ct-bg-elev: #141b24;
+  --ct-bg-hover: #171e29;
+  --ct-bg-active: #1d2634;
+  --ct-muted: #484f58;
+  --ct-muted-fg: #828a92;
+  --ct-accent: #58a6ff;
+  --ct-green: #7ee787;
+  --ct-yellow: #d29922;
+  --ct-red: #ff7b72;
+  --mc-desk: #07090d;
+}
+
+/* github-light — themeToCSS(github-light.toml) */
+html[data-ct-theme="light"] {
+  --ct-bg: #f6f8fa;
+  --ct-fg: #1f2328;
+  --ct-titlebar-bg: #ecf0f4;
+  --ct-border: #babec3;
+  --ct-border-subtle: #d6dadd;
+  --ct-surface: #e9eef3;
+  --ct-bg-elev: #e9eef3;
+  --ct-bg-hover: #e4eaf0;
+  --ct-bg-active: #d9e2ea;
+  --ct-muted: #57606a;
+  --ct-muted-fg: #3e454c;
+  --ct-accent: #0969da;
+  --ct-green: #1a7f37;
+  --ct-yellow: #9a6700;
+  --ct-red: #cf222e;
+  --mc-desk: #dfe4ea;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 40px 40px 96px;
+  background: var(--mc-desk);
+  color: var(--ct-fg);
+  font-family: var(--ct-font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Canvas chrome (frames the artboards; not part of the design) ──────── */
+.mc-canvas-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 1400px;
+  margin: 0 auto 44px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 16%, transparent);
+}
+.mc-canvas-head h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.mc-canvas-head p { margin: 0; max-width: 66ch; color: color-mix(in srgb, var(--ct-fg) 62%, transparent); font-size: 13px; }
+.mc-canvas-head code { font-family: var(--ct-font-mono); font-size: 12px; }
+
+.mc-theme-toggle {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 18%, transparent);
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-bg);
+}
+.mc-theme-toggle button {
+  padding: 5px 13px;
+  border: 0;
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mc-theme-toggle button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 28%, var(--ct-bg));
+  color: var(--ct-fg);
+}
+
+.mc-stack { display: flex; flex-direction: column; gap: 72px; align-items: flex-start; max-width: 1400px; margin: 0 auto; }
+.mc-row { display: flex; gap: 48px; align-items: flex-start; flex-wrap: wrap; }
+
+.mc-board-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-family: var(--ct-font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--ct-fg) 55%, transparent);
+}
+.mc-board-label b { color: var(--ct-fg); font-size: 12.5px; font-weight: 600; font-family: var(--ct-font-ui); }
+.mc-board-label i { font-style: normal; color: color-mix(in srgb, var(--ct-fg) 40%, transparent); }
+
+.mc-board {
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 15%, transparent);
+  border-radius: var(--ct-radius-lg);
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  overflow: hidden;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+/* ── Product chrome: the four-way switcher ─────────────────────────────── */
+.mc-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--ct-border);
+  background: var(--ct-titlebar-bg);
+}
+.mc-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ct-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ct-bg) 92%, var(--ct-surface));
+}
+.mc-seg button {
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mc-seg button[aria-current="page"] {
+  background: color-mix(in srgb, var(--ct-accent) 28%, var(--ct-bg));
+  color: var(--ct-fg);
+}
+.mc-chrome-close {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg);
+  color: var(--ct-muted-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ── The page ──────────────────────────────────────────────────────────── */
+.mc-page { padding: 20px 22px 24px; }
+
+.mc-masthead { margin-bottom: 20px; }
+.mc-masthead h2 { margin: 0 0 4px; font-size: 20px; font-weight: 650; letter-spacing: -0.015em; }
+.mc-standing {
+  margin: 0;
+  max-width: 68ch;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--ct-fg) 82%, var(--ct-bg));
+}
+.mc-standing em { font-style: normal; color: var(--ct-fg); font-weight: 600; }
+.mc-standing .mc-attn { color: var(--ct-yellow); font-weight: 600; }
+.mc-masthead-meta { margin: 7px 0 0; font-family: var(--ct-font-mono); font-size: 11px; color: var(--ct-muted-fg); }
+
+.mc-split { display: grid; grid-template-columns: minmax(0, 1fr) 336px; gap: 30px; align-items: start; }
+
+/* ── Crew column: the only contained surface on the page ───────────────── */
+.mc-crew-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.mc-crew-head h3 { margin: 0; font-size: 13.5px; font-weight: 650; }
+.mc-count { font-family: var(--ct-font-mono); font-size: 11px; color: var(--ct-muted-fg); }
+
+.mc-crew { display: flex; flex-direction: column; gap: 8px; }
+
+.mc-agent {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 14px;
+  padding: 11px 13px 11px 18px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-lg);
+  background: color-mix(in srgb, var(--ct-bg) 94%, var(--ct-surface));
+  overflow: hidden;
+}
+.mc-agent::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--mc-state, var(--ct-muted));
+}
+.mc-agent[data-state="working"] { border-color: color-mix(in srgb, var(--ct-accent) 34%, var(--ct-border)); --mc-state: var(--ct-accent); }
+.mc-agent[data-state="waiting"] {
+  border-color: color-mix(in srgb, var(--ct-yellow) 46%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-yellow) 7%, var(--ct-bg));
+  --mc-state: var(--ct-yellow);
+}
+.mc-agent[data-state="idle"] { --mc-state: color-mix(in srgb, var(--ct-muted) 80%, var(--ct-bg)); }
+.mc-agent[data-state="gone"] { --mc-state: var(--ct-red); border-style: dashed; }
+.mc-agent[data-state="unstaffed"] { --mc-state: transparent; border-style: dashed; background: transparent; }
+.mc-agent[data-state="unstaffed"]::before {
+  background: repeating-linear-gradient(180deg, var(--ct-muted) 0 4px, transparent 4px 8px);
+  opacity: 0.6;
+}
+
+/* The only motion on the page: a working row breathes. */
+.mc-agent[data-state="working"]::before { animation: mc-breathe 2.6s ease-in-out infinite; }
+@keyframes mc-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.34; } }
+@media (prefers-reduced-motion: reduce) {
+  .mc-agent[data-state="working"]::before { animation: none; }
+}
+
+.mc-agent-id { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.mc-role { font-size: 13.5px; font-weight: 650; letter-spacing: -0.005em; white-space: nowrap; }
+.mc-role-none { color: var(--ct-muted-fg); }
+.mc-handle { font-family: var(--ct-font-mono); font-size: 11px; color: var(--ct-muted-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mc-agent-right { display: flex; align-items: center; gap: 10px; justify-self: end; white-space: nowrap; }
+.mc-model { font-family: var(--ct-font-mono); font-size: 11px; color: var(--ct-muted-fg); }
+.mc-state-label { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--mc-state, var(--ct-muted-fg)); }
+.mc-agent[data-state="idle"] .mc-state-label { color: var(--ct-muted-fg); }
+.mc-agent[data-state="unstaffed"] .mc-state-label { color: var(--ct-muted-fg); }
+.mc-agent[data-state="gone"] .mc-state-label { color: var(--ct-red); }
+
+.mc-live {
+  grid-column: 1 / -1;
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--ct-fg) 88%, var(--ct-bg));
+  overflow-wrap: anywhere;
+}
+.mc-live-quiet { color: var(--ct-muted-fg); }
+.mc-live-question { color: var(--ct-yellow); font-weight: 550; }
+
+.mc-hold { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 7px; min-width: 0; }
+.mc-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 9px 2px 7px;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-bg) 88%, var(--ct-surface));
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.mc-task-chip:hover { border-color: color-mix(in srgb, var(--ct-accent) 50%, var(--ct-border)); }
+.mc-dot { width: 6px; height: 6px; border-radius: 999px; flex: none; }
+.mc-task-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-hold-meta { font-family: var(--ct-font-mono); font-size: 10.5px; color: var(--ct-muted-fg); white-space: nowrap; }
+.mc-hold-none { font-size: 11.5px; color: var(--ct-muted-fg); font-style: italic; }
+
+.mc-kebab {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--ct-duration-normal);
+}
+.mc-agent:hover .mc-kebab, .mc-kebab[aria-expanded="true"], .mc-kebab:focus-visible { opacity: 1; }
+.mc-kebab[aria-expanded="true"] { border-color: var(--ct-border); background: var(--ct-bg-active); color: var(--ct-fg); }
+.mc-kebab-shown { opacity: 1; }
+
+.mc-crew-more {
+  margin-top: 4px;
+  padding: 7px 0;
+  border: 0;
+  background: none;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.mc-crew-more:hover { color: var(--ct-accent); }
+
+/* ── Rail: hairline sections, nothing boxed ────────────────────────────── */
+.mc-rail { display: flex; flex-direction: column; min-width: 0; }
+.mc-sec { padding: 16px 0; border-top: 1px solid var(--ct-border-subtle); }
+.mc-sec:first-child { padding-top: 0; border-top: 0; }
+.mc-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.mc-sec-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+}
+.mc-sec-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ct-accent);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.mc-sec-action:hover { text-decoration: underline; }
+
+.mc-plan-title-row { display: flex; align-items: flex-start; gap: 8px; }
+.mc-plan-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.mc-plan-title:hover { color: var(--ct-accent); }
+.mc-plan-id { margin: 4px 0 0; font-family: var(--ct-font-mono); font-size: 10.5px; color: var(--ct-muted-fg); }
+
+.mc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+.mc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-bg) 88%, var(--ct-surface));
+  font-size: 11px;
+  line-height: 1.5;
+}
+.mc-chip-selected { border-color: color-mix(in srgb, var(--ct-accent) 55%, var(--ct-border)); background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-bg)); font-weight: 600; }
+.mc-chip-approved { border-color: color-mix(in srgb, var(--ct-green) 60%, var(--ct-border)); background: color-mix(in srgb, var(--ct-green) 16%, var(--ct-bg)); font-weight: 600; }
+.mc-chip-drafting { border-color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-border)); background: color-mix(in srgb, var(--ct-yellow) 12%, var(--ct-bg)); font-weight: 600; }
+
+.mc-progress { margin-top: 12px; }
+.mc-progress-bar { display: flex; height: 6px; gap: 2px; border-radius: 999px; overflow: hidden; }
+.mc-progress-bar i { display: block; }
+.mc-progress-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ct-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+.mc-progress-legend b { color: var(--ct-fg); font-weight: 600; }
+.mc-key { display: inline-flex; align-items: center; gap: 5px; }
+.mc-key i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; flex: none; }
+
+/* Status colours mirror TASK_STATUS_COLORS in src/components/Canvas/settings.ts */
+.mc-st-done { background: rgba(82, 180, 145, 0.9); }
+.mc-st-review { background: rgba(245, 158, 11, 0.92); }
+.mc-st-running { background: rgba(129, 140, 248, 0.92); }
+.mc-st-pending { background: rgba(148, 163, 184, 0.85); }
+.mc-st-blocked { background: rgba(239, 130, 130, 0.92); }
+
+/* KPI compact in the rail */
+.mc-kpi-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.mc-kpi-num {
+  font-family: var(--ct-font-mono);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.mc-kpi-num-sm { font-size: 19px; }
+.mc-kpi-warn { color: var(--ct-yellow); }
+.mc-kpi-quiet { color: var(--ct-muted-fg); }
+.mc-kpi-sub { margin: 4px 0 0; font-size: 11px; color: var(--ct-muted-fg); line-height: 1.4; }
+.mc-kpi-sub b { color: color-mix(in srgb, var(--ct-fg) 80%, var(--ct-bg)); font-weight: 600; font-family: var(--ct-font-mono); }
+
+.mc-spark { display: flex; align-items: flex-end; gap: 3px; height: 34px; margin-top: 14px; }
+.mc-spark-sm { height: 26px; }
+.mc-spark i { flex: 1; display: flex; flex-direction: column-reverse; gap: 1px; }
+.mc-spark i b { display: block; border-radius: 1px; }
+
+/* Documents */
+.mc-doc { padding: 10px 0; border-top: 1px dashed color-mix(in srgb, var(--ct-border) 70%, transparent); }
+.mc-doc:first-of-type { border-top: 0; padding-top: 0; }
+.mc-doc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.mc-doc-name { font-size: 12.5px; font-weight: 650; }
+.mc-doc-meta { font-family: var(--ct-font-mono); font-size: 10.5px; color: var(--ct-muted-fg); }
+.mc-doc-excerpt {
+  margin: 6px 0 7px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--ct-fg) 72%, var(--ct-bg));
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Skills */
+.mc-skill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  padding: 8px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--ct-border) 70%, transparent);
+  cursor: pointer;
+}
+.mc-skill:first-of-type { border-top: 0; }
+.mc-skill:hover .mc-skill-title { color: var(--ct-accent); }
+.mc-skill-title { font-size: 12.5px; font-weight: 600; }
+.mc-skill-slug { grid-column: 1 / -1; font-family: var(--ct-font-mono); font-size: 10.5px; color: var(--ct-muted-fg); }
+.mc-skill-purpose { grid-column: 1 / -1; margin: 3px 0 0; font-size: 11.5px; line-height: 1.45; color: color-mix(in srgb, var(--ct-fg) 70%, var(--ct-bg)); }
+.mc-verdict { font-family: var(--ct-font-mono); font-size: 10.5px; color: var(--ct-green); }
+
+/* Empty-state invitations */
+.mc-invite p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; color: color-mix(in srgb, var(--ct-fg) 76%, var(--ct-bg)); }
+.mc-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 13px;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 55%, var(--ct-border));
+  border-radius: var(--ct-radius-md);
+  background: color-mix(in srgb, var(--ct-accent) 20%, var(--ct-bg));
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mc-btn-quiet { border-color: var(--ct-border); background: transparent; color: var(--ct-muted-fg); font-weight: 500; }
+.mc-btn-danger { border-color: color-mix(in srgb, var(--ct-red) 65%, var(--ct-border)); background: color-mix(in srgb, var(--ct-red) 18%, var(--ct-bg)); color: var(--ct-red); }
+.mc-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.mc-empty-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ct-muted-fg); }
+.mc-flag { color: var(--ct-yellow); font-weight: 600; }
+
+/* ── Overflow menu ─────────────────────────────────────────────────────── */
+.mc-menu-anchor { position: relative; }
+.mc-menu-anchor-end { margin-left: auto; }
+.mc-menu {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 5px);
+  right: 0;
+  min-width: 214px;
+  padding: 4px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-bg-elev);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35), 0 24px 64px rgba(0, 0, 0, 0.3);
+}
+.mc-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.mc-menu-item:hover { background: var(--ct-bg-hover); }
+.mc-menu-item kbd { font-family: var(--ct-font-mono); font-size: 10px; color: var(--ct-muted-fg); }
+.mc-menu-sep { height: 1px; margin: 4px 6px; background: var(--ct-border-subtle); }
+.mc-menu-danger { color: var(--ct-red); }
+.mc-menu-danger:hover { background: color-mix(in srgb, var(--ct-red) 14%, var(--ct-bg)); }
+
+.mc-confirm {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 5px);
+  right: 0;
+  width: 282px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--ct-red) 55%, var(--ct-border));
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-bg-elev);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35), 0 24px 64px rgba(0, 0, 0, 0.3);
+}
+.mc-confirm h4 { margin: 0 0 5px; font-size: 12.5px; font-weight: 650; color: var(--ct-red); }
+.mc-confirm p { margin: 0 0 11px; font-size: 11.5px; line-height: 1.5; color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-bg)); }
+
+/* ── Annotations (artboards C, E, F) ───────────────────────────────────── */
+.mc-annot { display: grid; grid-template-columns: minmax(0, 1fr) 236px; gap: 12px 22px; align-items: start; }
+.mc-annot-wide { gap: 40px 22px; }
+.mc-note {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
+  font-family: var(--ct-font-mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--ct-muted-fg);
+  white-space: pre-line;
+}
+.mc-note b { display: block; margin-bottom: 4px; color: var(--ct-accent); font-weight: 500; }
+.mc-note-drop { margin-top: 44px; }
+
+/* ── KPI detail ────────────────────────────────────────────────────────── */
+.mc-kpi-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 20px; flex-wrap: wrap; }
+.mc-kpi-head h3 { margin: 0 0 3px; font-size: 16px; font-weight: 650; }
+.mc-kpi-head p { margin: 0; font-size: 12px; color: var(--ct-muted-fg); }
+
+.mc-headline { display: flex; gap: 34px; flex-wrap: wrap; margin-bottom: 22px; }
+.mc-headline > div { min-width: 156px; }
+.mc-headline .mc-kpi-num { font-size: 27px; }
+.mc-headline-label { margin: 0 0 5px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ct-muted-fg); }
+
+.mc-chart { display: flex; align-items: flex-end; gap: 6px; height: 156px; padding-top: 6px; border-bottom: 1px solid var(--ct-border); }
+.mc-chart-col { flex: 1; display: flex; flex-direction: column-reverse; gap: 2px; min-width: 0; }
+.mc-chart-col i { display: block; border-radius: 1px; }
+.mc-bar-work { background: var(--ct-green); }
+.mc-bar-direction { background: var(--ct-accent); }
+.mc-bar-chase { background: var(--ct-yellow); }
+.mc-chart-axis { display: flex; justify-content: space-between; margin-top: 7px; font-family: var(--ct-font-mono); font-size: 10px; color: var(--ct-muted-fg); }
+.mc-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 14px; font-size: 11.5px; color: var(--ct-muted-fg); }
+.mc-legend b { color: var(--ct-fg); font-weight: 600; }
+
+.mc-kpi-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 30px; margin-top: 26px; }
+
+.mc-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.mc-table th {
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--ct-border);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+  text-align: right;
+}
+.mc-table th:first-child { text-align: left; }
+.mc-table td {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--ct-border-subtle);
+  font-family: var(--ct-font-mono);
+  font-size: 11.5px;
+  text-align: right;
+  color: color-mix(in srgb, var(--ct-fg) 86%, var(--ct-bg));
+}
+.mc-table td:first-child { text-align: left; color: var(--ct-fg); }
+.mc-table td.mc-cell-quiet { color: var(--ct-muted-fg); }
+.mc-table tr[data-class="chase"] td:first-child { color: var(--ct-yellow); }
+.mc-kindmark { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 7px; vertical-align: 1px; }
+
+.mc-planbar { display: flex; flex-direction: column; gap: 12px; }
+.mc-planbar-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+.mc-planbar-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-unattributed { color: var(--ct-muted-fg); font-weight: 500; font-style: italic; }
+.mc-planbar-val { font-family: var(--ct-font-mono); font-size: 11px; color: var(--ct-muted-fg); white-space: nowrap; }
+.mc-planbar-track { height: 8px; border-radius: 2px; background: color-mix(in srgb, var(--ct-fg) 8%, transparent); overflow: hidden; }
+.mc-planbar-fill { height: 100%; background: var(--ct-accent); border-radius: 2px; }
+.mc-planbar-fill.mc-dim { background: color-mix(in srgb, var(--ct-muted) 80%, var(--ct-bg)); }
+
+.mc-split-by { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--ct-border); border-radius: 8px; background: color-mix(in srgb, var(--ct-bg) 92%, var(--ct-surface)); }
+.mc-split-by button { padding: 3px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ct-muted-fg); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.mc-split-by button[aria-pressed="true"] { background: color-mix(in srgb, var(--ct-accent) 28%, var(--ct-bg)); color: var(--ct-fg); }
+
+.mc-footnote {
+  margin: 22px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--ct-border-subtle);
+  max-width: 88ch;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ct-muted-fg);
+}
+.mc-footnote code { font-family: var(--ct-font-mono); font-size: 11px; color: color-mix(in srgb, var(--ct-fg) 82%, var(--ct-bg)); }
+
+/* ── Phone ─────────────────────────────────────────────────────────────── */
+.mc-phone { width: 390px; }
+.mc-phone .mc-page { padding: 14px 14px 20px; }
+.mc-phone .mc-split { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.mc-phone .mc-masthead { margin-bottom: 14px; }
+.mc-phone .mc-masthead h2 { font-size: 17px; }
+.mc-phone .mc-standing { font-size: 13px; }
+.mc-phone .mc-chrome { padding: 8px 10px; }
+.mc-phone .mc-seg button { padding: 4px 9px; font-size: 11.5px; }
+.mc-phone .mc-agent { padding: 10px 11px 10px 16px; }
+.mc-phone .mc-agent-right { gap: 7px; }
+.mc-phone .mc-kebab { opacity: 1; }
+.mc-phone .mc-model { display: none; }
+
+.mc-planstrip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 34%, var(--ct-border));
+  border-radius: var(--ct-radius-md);
+  background: color-mix(in srgb, var(--ct-accent) 10%, var(--ct-bg));
+  color: var(--ct-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mc-planstrip-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ct-green); flex: none; }
+.mc-planstrip-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-planstrip-count { font-family: var(--ct-font-mono); font-size: 11px; color: var(--ct-muted-fg); white-space: nowrap; }
+
+.mc-accordion { margin-top: 18px; border-top: 1px solid var(--ct-border-subtle); }
+.mc-acc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--ct-border-subtle);
+  background: transparent;
+  color: var(--ct-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mc-acc-name { flex: 1; font-size: 12.5px; font-weight: 600; }
+.mc-acc-val { font-family: var(--ct-font-mono); font-size: 11px; color: var(--ct-muted-fg); }
+.mc-acc-caret { color: var(--ct-muted-fg); font-size: 11px; }
+.mc-acc-body { padding: 4px 2px 16px; border-bottom: 1px solid var(--ct-border-subtle); }
+
+/* Accessibility floor */
+button:focus-visible, a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ct-accent) 65%, transparent);
+  outline-offset: 2px;
+}
+</style>
+</head>
+<body>
+
+<div class="mc-canvas-head">
+  <div>
+    <h1>Team view as mission control — take B</h1>
+    <p>One crew list dominates and everything else is a rail. Colours are the product's own, read from <code>themeToCSS()</code>, so both shipped themes are live below. The cost cell is drawn against the real <code>kpi_events</code> table.</p>
+  </div>
+  <div class="mc-theme-toggle" role="group" aria-label="Theme">
+    <button type="button" data-theme="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-theme="light" aria-pressed="false">Light</button>
+  </div>
+</div>
+
+<div class="mc-stack">
+
+<!-- ══ A — Board, a team with a plan ══════════════════════════════════ -->
+<section>
+  <div class="mc-board-label"><b>A</b>Board · a team with a plan<i>1320 wide</i></div>
+  <div class="mc-board" style="width: 1320px;">
+    <div class="mc-chrome">
+      <div class="mc-seg" role="tablist" aria-label="Team view">
+        <button type="button" aria-current="page">Board</button>
+        <button type="button">Spec</button>
+        <button type="button">Plan</button>
+        <button type="button">Tasks</button>
+      </div>
+      <button type="button" class="mc-chrome-close" aria-label="Close team">×</button>
+    </div>
+
+    <div class="mc-page">
+      <div class="mc-masthead">
+        <h2>Release wave</h2>
+        <p class="mc-standing">Five agents. <em>Two are working</em>, <span class="mc-attn">one is waiting on you</span>, two are idle. One task has sat pending for two hours with nobody on it.</p>
+        <p class="mc-masthead-meta">last activity 41s ago · created 3 days ago · 2 plans</p>
+      </div>
+
+      <div class="mc-split">
+        <div>
+          <div class="mc-crew-head">
+            <h3>Crew</h3>
+            <span class="mc-count">5 agents · 4 tasks in flight</span>
+          </div>
+          <div class="mc-crew">
+
+            <article class="mc-agent" data-state="working">
+              <div class="mc-agent-id"><span class="mc-role">Orchestrator</span><span class="mc-handle">@rc-wave</span></div>
+              <div class="mc-agent-right"><span class="mc-model">claude · opus</span><span class="mc-state-label">working 6m</span></div>
+              <p class="mc-live">Merging the design lane and re-running the source-size gate in canonical.</p>
+              <div class="mc-hold">
+                <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Integrate both design lanes</span></button>
+                <span class="mc-hold-meta">in progress · 22m</span>
+                <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <article class="mc-agent" data-state="working">
+              <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@design-mc2</span></div>
+              <div class="mc-agent-right"><span class="mc-model">claude · opus</span><span class="mc-state-label">working 41s</span></div>
+              <p class="mc-live">Drawing the cost cell against the ledger's per-kind aggregate.</p>
+              <div class="mc-hold">
+                <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Design the team view as mission control, second take</span></button>
+                <span class="mc-hold-meta">in progress · 1h 04m</span>
+                <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <article class="mc-agent" data-state="waiting">
+              <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@design-mc1</span></div>
+              <div class="mc-agent-right"><span class="mc-model">claude · fable</span><span class="mc-state-label">waiting on you 12m</span></div>
+              <p class="mc-live mc-live-question">Asks: should the cost cell default to tokens or to coordination volume?</p>
+              <div class="mc-hold">
+                <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Design the team view as mission control, first take</span></button>
+                <span class="mc-hold-meta">in progress · 1h 06m</span>
+                <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <article class="mc-agent" data-state="idle">
+              <div class="mc-agent-id"><span class="mc-role">Planner</span><span class="mc-handle">@rc-planner</span></div>
+              <div class="mc-agent-right"><span class="mc-model">claude · sonnet</span><span class="mc-state-label">idle 1h 12m</span></div>
+              <p class="mc-live mc-live-quiet">Last turn: cut the verification wave into six tasks and wrote the acceptance bars.</p>
+              <div class="mc-hold">
+                <span class="mc-hold-none">Holds no task.</span>
+                <button type="button" class="mc-kebab" aria-label="Agent actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <article class="mc-agent" data-state="idle">
+              <div class="mc-agent-id"><span class="mc-role">Watcher</span><span class="mc-handle">@gate-watch</span></div>
+              <div class="mc-agent-right"><span class="mc-model">codex · gpt-5.6-sol</span><span class="mc-state-label">idle 3m</span></div>
+              <p class="mc-live mc-live-quiet">Last turn: checked the gate queue and found nothing to escalate.</p>
+              <div class="mc-hold">
+                <span class="mc-hold-none">Holds no task.</span>
+                <button type="button" class="mc-kebab" aria-label="Agent actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <article class="mc-agent" data-state="unstaffed">
+              <div class="mc-agent-id"><span class="mc-role mc-role-none">Nobody assigned</span><span class="mc-handle">task_p1kz08</span></div>
+              <div class="mc-agent-right"><span class="mc-model">p1 · implement</span><span class="mc-state-label">pending 2h 08m</span></div>
+              <p class="mc-live">Publish both design takes as a canvas for review.</p>
+              <div class="mc-hold">
+                <span class="mc-hold-meta">Needs a Worker. Blocks nothing.</span>
+                <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <button type="button" class="mc-crew-more">9 finished tasks and 2 closed agents, hidden</button>
+          </div>
+        </div>
+
+        <aside class="mc-rail">
+          <section class="mc-sec">
+            <div class="mc-sec-head">
+              <span class="mc-sec-label">Current plan</span>
+              <button type="button" class="mc-sec-action">Switch · 1 of 2</button>
+            </div>
+            <div class="mc-plan-title-row">
+              <button type="button" class="mc-plan-title">Release-candidate verification wave</button>
+              <div class="mc-menu-anchor">
+                <button type="button" class="mc-kebab mc-kebab-shown" aria-label="Plan actions" aria-expanded="false">⋯</button>
+              </div>
+            </div>
+            <p class="mc-plan-id">pl_ad3tcu</p>
+            <div class="mc-chips">
+              <span class="mc-chip mc-chip-selected">Open here</span>
+              <span class="mc-chip mc-chip-approved">Approved</span>
+              <span class="mc-chip">6 sections</span>
+            </div>
+            <div class="mc-progress">
+              <div class="mc-progress-bar" role="img" aria-label="Nine done, one in review, two running, one pending, one blocked, of fourteen tasks">
+                <i class="mc-st-done" style="flex: 9"></i>
+                <i class="mc-st-review" style="flex: 1"></i>
+                <i class="mc-st-running" style="flex: 2"></i>
+                <i class="mc-st-pending" style="flex: 1"></i>
+                <i class="mc-st-blocked" style="flex: 1"></i>
+              </div>
+              <div class="mc-progress-legend">
+                <span class="mc-key"><i class="mc-st-done"></i><b>9</b> done</span>
+                <span class="mc-key"><i class="mc-st-review"></i><b>1</b> in review</span>
+                <span class="mc-key"><i class="mc-st-running"></i><b>2</b> running</span>
+                <span class="mc-key"><i class="mc-st-pending"></i><b>1</b> pending</span>
+                <span class="mc-key"><i class="mc-st-blocked"></i><b>1</b> blocked</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="mc-sec">
+            <div class="mc-sec-head">
+              <span class="mc-sec-label">Cost and chasing</span>
+              <button type="button" class="mc-sec-action">Open the ledger</button>
+            </div>
+            <div class="mc-kpi-pair">
+              <div>
+                <div class="mc-kpi-num">4.20M</div>
+                <p class="mc-kpi-sub">tokens billed<br><b>1.02M</b> uncached in · <b>284k</b> out</p>
+              </div>
+              <div>
+                <div class="mc-kpi-num mc-kpi-warn">39%</div>
+                <p class="mc-kpi-sub">of <b>1,840</b> events were the crew chasing itself</p>
+              </div>
+            </div>
+            <div class="mc-spark" role="img" aria-label="Events per day over fourteen days, split into delivered work, direction and chasing">
+              <i><b class="mc-bar-work" style="height:6px"></b><b class="mc-bar-direction" style="height:7px"></b><b class="mc-bar-chase" style="height:8px"></b></i>
+              <i><b class="mc-bar-work" style="height:6px"></b><b class="mc-bar-direction" style="height:8px"></b><b class="mc-bar-chase" style="height:9px"></b></i>
+              <i><b class="mc-bar-work" style="height:4px"></b><b class="mc-bar-direction" style="height:6px"></b><b class="mc-bar-chase" style="height:7px"></b></i>
+              <i><b class="mc-bar-work" style="height:8px"></b><b class="mc-bar-direction" style="height:11px"></b><b class="mc-bar-chase" style="height:13px"></b></i>
+              <i><b class="mc-bar-work" style="height:9px"></b><b class="mc-bar-direction" style="height:13px"></b><b class="mc-bar-chase" style="height:15px"></b></i>
+              <i><b class="mc-bar-work" style="height:7px"></b><b class="mc-bar-direction" style="height:10px"></b><b class="mc-bar-chase" style="height:11px"></b></i>
+              <i><b class="mc-bar-work" style="height:4px"></b><b class="mc-bar-direction" style="height:5px"></b><b class="mc-bar-chase" style="height:6px"></b></i>
+              <i><b class="mc-bar-work" style="height:3px"></b><b class="mc-bar-direction" style="height:3px"></b><b class="mc-bar-chase" style="height:4px"></b></i>
+              <i><b class="mc-bar-work" style="height:11px"></b><b class="mc-bar-direction" style="height:15px"></b><b class="mc-bar-chase" style="height:17px"></b></i>
+              <i><b class="mc-bar-work" style="height:12px"></b><b class="mc-bar-direction" style="height:17px"></b><b class="mc-bar-chase" style="height:20px"></b></i>
+              <i><b class="mc-bar-work" style="height:11px"></b><b class="mc-bar-direction" style="height:16px"></b><b class="mc-bar-chase" style="height:18px"></b></i>
+              <i><b class="mc-bar-work" style="height:9px"></b><b class="mc-bar-direction" style="height:13px"></b><b class="mc-bar-chase" style="height:14px"></b></i>
+              <i><b class="mc-bar-work" style="height:13px"></b><b class="mc-bar-direction" style="height:17px"></b><b class="mc-bar-chase" style="height:20px"></b></i>
+              <i><b class="mc-bar-work" style="height:9px"></b><b class="mc-bar-direction" style="height:13px"></b><b class="mc-bar-chase" style="height:15px"></b></i>
+            </div>
+          </section>
+
+          <section class="mc-sec">
+            <div class="mc-sec-head"><span class="mc-sec-label">What the team wrote down</span></div>
+            <div class="mc-doc">
+              <div class="mc-doc-head"><span class="mc-doc-name">Spec</span><span class="mc-doc-meta">6 sections · edited 2d ago</span></div>
+              <p class="mc-doc-excerpt">Every claim a task makes must be checked against repository source, an executable fixture, or the exact GitHub object named. A green check and a pending check are different observations and must never be reported as one.</p>
+              <button type="button" class="mc-sec-action">Read the Spec</button>
+            </div>
+            <div class="mc-doc">
+              <div class="mc-doc-head"><span class="mc-doc-name">Plan</span><span class="mc-doc-meta">4 sections · edited 6h ago</span></div>
+              <p class="mc-doc-excerpt">Ship from a bounded backlog: every selected item names its repository, its user impact, and the exact surface it owns. Isolated lanes write source only, and canonical runs every gate after a real merge.</p>
+              <button type="button" class="mc-sec-action">Read the Plan</button>
+            </div>
+          </section>
+
+          <section class="mc-sec">
+            <div class="mc-sec-head">
+              <span class="mc-sec-label">Skills this team wrote</span>
+              <span class="mc-doc-meta">2</span>
+            </div>
+            <div class="mc-skill">
+              <span class="mc-skill-title">Verify Before Claim</span>
+              <span class="mc-verdict">[keep]</span>
+              <span class="mc-skill-slug">verify-before-claim · 2 ledger edits</span>
+              <p class="mc-skill-purpose">List every structural claim a task makes, then check each one against source before changing it.</p>
+            </div>
+            <div class="mc-skill">
+              <span class="mc-skill-title">Lane Integration Preserves Ancestry</span>
+              <span class="mc-verdict">[keep]</span>
+              <span class="mc-skill-slug">lane-ancestry · 1 ledger edit</span>
+              <p class="mc-skill-purpose">Merge a lane branch with a real merge commit; never cherry-pick or squash work out of a worktree.</p>
+            </div>
+            <button type="button" class="mc-sec-action" style="margin-top: 10px">Browse both skills</button>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ B — Board, a team with no plan ═════════════════════════════════ -->
+<section>
+  <div class="mc-board-label"><b>B</b>Board · a team with no plan<i>1320 wide</i></div>
+  <div class="mc-board" style="width: 1320px;">
+    <div class="mc-chrome">
+      <div class="mc-seg" role="tablist" aria-label="Team view">
+        <button type="button" aria-current="page">Board</button>
+        <button type="button">Spec</button>
+        <button type="button">Plan</button>
+        <button type="button">Tasks</button>
+      </div>
+      <button type="button" class="mc-chrome-close" aria-label="Close team">×</button>
+    </div>
+
+    <div class="mc-page">
+      <div class="mc-masthead">
+        <h2>Plugin repairs</h2>
+        <p class="mc-standing">Three agents, all idle, none holding a task. There is no plan yet, so the crew is waiting for one.</p>
+        <p class="mc-masthead-meta">last activity 34m ago · created 5h ago · no plans</p>
+      </div>
+
+      <div class="mc-split">
+        <div>
+          <div class="mc-crew-head">
+            <h3>Crew</h3>
+            <span class="mc-count">3 agents · 0 tasks in flight</span>
+          </div>
+          <div class="mc-crew">
+            <article class="mc-agent" data-state="idle">
+              <div class="mc-agent-id"><span class="mc-role">Orchestrator</span><span class="mc-handle">@plugin-fix</span></div>
+              <div class="mc-agent-right"><span class="mc-model">claude · opus</span><span class="mc-state-label">idle 34m</span></div>
+              <p class="mc-live mc-live-quiet">Last turn: read the Bitwarden connection view and listed three candidate causes.</p>
+              <div class="mc-hold">
+                <span class="mc-hold-none">Holds no task.</span>
+                <button type="button" class="mc-kebab" aria-label="Agent actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <article class="mc-agent" data-state="idle">
+              <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@sdk-audit</span></div>
+              <div class="mc-agent-right"><span class="mc-model">claude · sonnet</span><span class="mc-state-label">idle 51m</span></div>
+              <p class="mc-live mc-live-quiet">Last turn: compared every plugin manifest version against the app version.</p>
+              <div class="mc-hold">
+                <span class="mc-hold-none">Holds no task.</span>
+                <button type="button" class="mc-kebab" aria-label="Agent actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+
+            <article class="mc-agent" data-state="gone">
+              <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@quickjs-probe</span></div>
+              <div class="mc-agent-right"><span class="mc-model">codex · gpt-5.6-terra</span><span class="mc-state-label">tab closed</span></div>
+              <p class="mc-live mc-live-quiet">Its tab is gone, so nothing is running. Its last turn ended two hours ago without a report.</p>
+              <div class="mc-hold">
+                <span class="mc-hold-meta">Reopen the tab, or remove the agent.</span>
+                <button type="button" class="mc-kebab" aria-label="Agent actions" aria-expanded="false">⋯</button>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <aside class="mc-rail">
+          <section class="mc-sec">
+            <div class="mc-sec-head"><span class="mc-sec-label">Current plan</span></div>
+            <div class="mc-invite">
+              <p>No plan yet. The crew is here and idle; a plan is what gives them tasks.</p>
+              <div class="mc-btn-row">
+                <button type="button" class="mc-btn">Ask the Planner for a plan</button>
+                <button type="button" class="mc-btn mc-btn-quiet">Import one</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="mc-sec">
+            <div class="mc-sec-head">
+              <span class="mc-sec-label">Cost and chasing</span>
+              <button type="button" class="mc-sec-action">Open the ledger</button>
+            </div>
+            <div class="mc-kpi-pair">
+              <div>
+                <div class="mc-kpi-num">118k</div>
+                <p class="mc-kpi-sub">tokens billed<br><b>41k</b> uncached in · <b>9.4k</b> out</p>
+              </div>
+              <div>
+                <div class="mc-kpi-num mc-kpi-quiet">62</div>
+                <p class="mc-kpi-sub">events, none of them charged to a plan</p>
+              </div>
+            </div>
+            <p class="mc-empty-note" style="margin-top: 12px">Work done before a plan exists is still recorded. It moves under the plan as soon as one is created.</p>
+          </section>
+
+          <section class="mc-sec">
+            <div class="mc-sec-head"><span class="mc-sec-label">What the team wrote down</span></div>
+            <div class="mc-doc">
+              <div class="mc-doc-head"><span class="mc-doc-name">Spec</span><span class="mc-doc-meta">not started</span></div>
+              <p class="mc-empty-note">The Spec says what the team is building. It appears here as soon as the Planner drafts one.</p>
+            </div>
+            <div class="mc-doc">
+              <div class="mc-doc-head"><span class="mc-doc-name">Plan</span><span class="mc-doc-meta">not started</span></div>
+              <p class="mc-empty-note">The Plan says how, and it arrives with the first plan.</p>
+            </div>
+          </section>
+
+          <section class="mc-sec">
+            <div class="mc-sec-head"><span class="mc-sec-label">Skills this team wrote</span></div>
+            <p class="mc-empty-note">None yet. When an agent writes a skill during a task it lands here, and the whole team reads it.</p>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ C — the crew cell in detail ════════════════════════════════════ -->
+<section>
+  <div class="mc-board-label"><b>C</b>The crew cell · every state, and the field behind it<i>1060 wide</i></div>
+  <div class="mc-board" style="width: 1060px;">
+    <div class="mc-page">
+      <div class="mc-crew-head">
+        <h3>Crew</h3>
+        <span class="mc-count">one row per agent, plus one row per unstaffed task</span>
+      </div>
+
+      <div class="mc-annot">
+        <div class="mc-crew">
+          <article class="mc-agent" data-state="working">
+            <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@design-mc2</span></div>
+            <div class="mc-agent-right"><span class="mc-model">claude · opus</span><span class="mc-state-label">working 41s</span></div>
+            <p class="mc-live">Drawing the cost cell against the ledger's per-kind aggregate.</p>
+            <div class="mc-hold">
+              <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Design the team view as mission control</span></button>
+              <span class="mc-hold-meta">in progress · 1h 04m</span>
+              <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+        </div>
+        <p class="mc-note"><b>working</b>agent_state.state + status_line
+role_profile resolves to "Worker"
+agent_type + agent_session_model
+the left rail breathes only here</p>
+
+        <div class="mc-crew">
+          <article class="mc-agent" data-state="waiting">
+            <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@design-mc1</span></div>
+            <div class="mc-agent-right"><span class="mc-model">claude · fable</span><span class="mc-state-label">waiting on you 12m</span></div>
+            <p class="mc-live mc-live-question">Asks: should the cost cell default to tokens or to coordination volume?</p>
+            <div class="mc-hold">
+              <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Design the team view, first take</span></button>
+              <span class="mc-hold-meta">in progress · 1h 06m</span>
+              <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+        </div>
+        <p class="mc-note"><b>waiting on you</b>agent_state.state is "question",
+agent_state.question is the text
+the whole row tints, because it is
+the only state that costs the user
+something by being missed</p>
+
+        <div class="mc-crew">
+          <article class="mc-agent" data-state="idle">
+            <div class="mc-agent-id"><span class="mc-role">Planner</span><span class="mc-handle">@rc-planner</span></div>
+            <div class="mc-agent-right"><span class="mc-model">claude · sonnet</span><span class="mc-state-label">idle 1h 12m</span></div>
+            <p class="mc-live mc-live-quiet">Last turn: cut the verification wave into six tasks and wrote the acceptance bars.</p>
+            <div class="mc-hold">
+              <span class="mc-hold-none">Holds no task.</span>
+              <button type="button" class="mc-kebab" aria-label="Agent actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+        </div>
+        <p class="mc-note"><b>idle</b>agent_state.last_turn_summary
+an idle agent still says what it
+last did, so the row is never an
+empty slot with a grey dot</p>
+
+        <div class="mc-crew">
+          <article class="mc-agent" data-state="gone">
+            <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@quickjs-probe</span></div>
+            <div class="mc-agent-right"><span class="mc-model">codex · gpt-5.6-terra</span><span class="mc-state-label">tab closed</span></div>
+            <p class="mc-live mc-live-quiet">Its tab is gone, so nothing is running. Its last turn ended two hours ago without a report.</p>
+            <div class="mc-hold">
+              <span class="mc-hold-meta">Reopen the tab, or remove the agent.</span>
+              <button type="button" class="mc-kebab" aria-label="Agent actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+        </div>
+        <p class="mc-note"><b>tab closed</b>assigned_tab_id is not in tabs
+the dashed border says this row is
+a record, not a live agent — the
+in_progress_tab_gone drift, shown
+where a person will actually see it</p>
+
+        <div class="mc-crew">
+          <article class="mc-agent" data-state="unstaffed">
+            <div class="mc-agent-id"><span class="mc-role mc-role-none">Nobody assigned</span><span class="mc-handle">task_p1kz08</span></div>
+            <div class="mc-agent-right"><span class="mc-model">p1 · implement</span><span class="mc-state-label">pending 2h 08m</span></div>
+            <p class="mc-live">Publish both design takes as a canvas for review.</p>
+            <div class="mc-hold">
+              <span class="mc-hold-meta">Needs a Worker. Blocks nothing.</span>
+              <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+        </div>
+        <p class="mc-note"><b>unstaffed task</b>task.assigned_tab_id is null
+the same row shell, read from the
+task end instead of the agent end.
+This is why the page has no second
+cell listing tasks.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ D — the cost cell in detail ════════════════════════════════════ -->
+<section>
+  <div class="mc-board-label"><b>D</b>Cost and chasing · the page behind "Open the ledger"<i>1060 wide</i></div>
+  <div class="mc-board" style="width: 1060px;">
+    <div class="mc-page">
+      <div class="mc-kpi-head">
+        <div>
+          <h3>Cost and chasing</h3>
+          <p>Every row this team wrote to the event ledger, last fourteen days.</p>
+        </div>
+        <div class="mc-split-by" role="group" aria-label="Range">
+          <button type="button">24h</button>
+          <button type="button" aria-pressed="true">14d</button>
+          <button type="button">30d</button>
+        </div>
+      </div>
+
+      <div class="mc-headline">
+        <div>
+          <p class="mc-headline-label">Tokens billed</p>
+          <div class="mc-kpi-num">4.20M</div>
+          <p class="mc-kpi-sub"><b>3.92M</b> in, of which <b>1.02M</b> uncached · <b>284k</b> out</p>
+        </div>
+        <div>
+          <p class="mc-headline-label">Chasing</p>
+          <div class="mc-kpi-num mc-kpi-warn">39%</div>
+          <p class="mc-kpi-sub"><b>725</b> of <b>1,840</b> events were nudge, poll, heartbeat, bounce or compaction</p>
+        </div>
+        <div>
+          <p class="mc-headline-label">Sent back</p>
+          <div class="mc-kpi-num">22</div>
+          <p class="mc-kpi-sub">bounces against <b>126</b> accepts — <b>15%</b> of finished work came back</p>
+        </div>
+      </div>
+
+      <div class="mc-chart" role="img" aria-label="Events per day for fourteen days, stacked as delivered work, direction and chasing">
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:17px"></i><i class="mc-bar-direction" style="height:23px"></i><i class="mc-bar-chase" style="height:26px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:19px"></i><i class="mc-bar-direction" style="height:25px"></i><i class="mc-bar-chase" style="height:29px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:14px"></i><i class="mc-bar-direction" style="height:19px"></i><i class="mc-bar-chase" style="height:21px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:26px"></i><i class="mc-bar-direction" style="height:36px"></i><i class="mc-bar-chase" style="height:40px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:30px"></i><i class="mc-bar-direction" style="height:40px"></i><i class="mc-bar-chase" style="height:46px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:23px"></i><i class="mc-bar-direction" style="height:31px"></i><i class="mc-bar-chase" style="height:36px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:12px"></i><i class="mc-bar-direction" style="height:17px"></i><i class="mc-bar-chase" style="height:19px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:8px"></i><i class="mc-bar-direction" style="height:11px"></i><i class="mc-bar-chase" style="height:12px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:34px"></i><i class="mc-bar-direction" style="height:47px"></i><i class="mc-bar-chase" style="height:53px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:40px"></i><i class="mc-bar-direction" style="height:54px"></i><i class="mc-bar-chase" style="height:61px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:37px"></i><i class="mc-bar-direction" style="height:50px"></i><i class="mc-bar-chase" style="height:57px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:29px"></i><i class="mc-bar-direction" style="height:40px"></i><i class="mc-bar-chase" style="height:45px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:40px"></i><i class="mc-bar-direction" style="height:55px"></i><i class="mc-bar-chase" style="height:61px"></i></div>
+        <div class="mc-chart-col"><i class="mc-bar-work" style="height:31px"></i><i class="mc-bar-direction" style="height:41px"></i><i class="mc-bar-chase" style="height:47px"></i></div>
+      </div>
+      <div class="mc-chart-axis"><span>Aug 29</span><span>Sep 5</span><span>today</span></div>
+      <div class="mc-legend">
+        <span class="mc-key"><i class="mc-bar-work"></i>delivered work <b>472</b> — report, accept, token_usage</span>
+        <span class="mc-key"><i class="mc-bar-direction"></i>direction <b>643</b> — send, spawn</span>
+        <span class="mc-key"><i class="mc-bar-chase"></i>chasing <b>725</b> — nudge, poll, heartbeat, bounce, compaction</span>
+      </div>
+
+      <div class="mc-kpi-grid">
+        <div>
+          <div class="mc-sec-head" style="margin-bottom: 12px">
+            <span class="mc-sec-label">By event kind</span>
+            <div class="mc-split-by" role="group" aria-label="Split by">
+              <button type="button" aria-pressed="true">kind</button>
+              <button type="button">role</button>
+              <button type="button">model</button>
+              <button type="button">agent</button>
+            </div>
+          </div>
+          <table class="mc-table">
+            <thead>
+              <tr><th>Kind</th><th>Count</th><th>Median</th><th>p95</th></tr>
+            </thead>
+            <tbody>
+              <tr data-class="chase"><td><i class="mc-kindmark mc-bar-chase"></i>heartbeat</td><td>366</td><td>180 B</td><td>420 B</td></tr>
+              <tr><td><i class="mc-kindmark mc-bar-direction"></i>send</td><td>612</td><td>1.9 kB</td><td>24 kB</td></tr>
+              <tr data-class="chase"><td><i class="mc-kindmark mc-bar-chase"></i>nudge</td><td>204</td><td>240 B</td><td>1.1 kB</td></tr>
+              <tr><td><i class="mc-kindmark mc-bar-work"></i>token_usage</td><td>198</td><td>18.4k tok</td><td>96k tok</td></tr>
+              <tr><td><i class="mc-kindmark mc-bar-work"></i>report</td><td>148</td><td>4.2 kB</td><td>61 kB</td></tr>
+              <tr><td><i class="mc-kindmark mc-bar-work"></i>accept</td><td>126</td><td>310 B</td><td>1.4 kB</td></tr>
+              <tr data-class="chase"><td><i class="mc-kindmark mc-bar-chase"></i>poll</td><td>118</td><td>96 B</td><td>310 B</td></tr>
+              <tr><td><i class="mc-kindmark mc-bar-direction"></i>spawn</td><td>31</td><td>3.1 kB</td><td>7.4 kB</td></tr>
+              <tr data-class="chase"><td><i class="mc-kindmark mc-bar-chase"></i>bounce</td><td>22</td><td>2.8 kB</td><td>18 kB</td></tr>
+              <tr data-class="chase"><td><i class="mc-kindmark mc-bar-chase"></i>compaction</td><td>15</td><td class="mc-cell-quiet">—</td><td class="mc-cell-quiet">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div class="mc-sec-head" style="margin-bottom: 12px"><span class="mc-sec-label">Where it went</span></div>
+          <div class="mc-planbar">
+            <div>
+              <div class="mc-planbar-top"><span class="mc-planbar-name">Release-candidate verification wave</span><span class="mc-planbar-val">1,204 · 18.9 MB</span></div>
+              <div class="mc-planbar-track"><div class="mc-planbar-fill" style="width: 100%"></div></div>
+            </div>
+            <div>
+              <div class="mc-planbar-top"><span class="mc-planbar-name">Plan documents get their own views</span><span class="mc-planbar-val">402 · 6.1 MB</span></div>
+              <div class="mc-planbar-track"><div class="mc-planbar-fill" style="width: 32%"></div></div>
+            </div>
+            <div>
+              <div class="mc-planbar-top"><span class="mc-planbar-name mc-unattributed">charged to no plan</span><span class="mc-planbar-val">234 · 2.7 MB</span></div>
+              <div class="mc-planbar-track"><div class="mc-planbar-fill mc-dim" style="width: 14%"></div></div>
+            </div>
+          </div>
+
+          <div class="mc-sec-head" style="margin: 24px 0 12px"><span class="mc-sec-label">What to do about it</span></div>
+          <p class="mc-empty-note" style="margin-bottom: 9px"><span class="mc-flag">Reports run wide.</span> A report's p95 is fifteen times its median, so some workers are pasting whole files into reports instead of naming them.</p>
+          <p class="mc-empty-note"><span class="mc-flag">Heartbeats outnumber work.</span> 366 heartbeats against 148 reports means the crew spends more turns announcing itself than delivering.</p>
+        </div>
+      </div>
+
+      <p class="mc-footnote">Read from <code>kpi_events</code>. Token counts exist only on <code>token_usage</code> rows, so they are never folded into a byte total; on those rows <code>bytes</code> holds <code>input + output</code> tokens, which is why the table labels them <code>tok</code>. <code>compaction</code> rows carry no tokens and zero bytes, so their size columns stay blank rather than reading zero. Rows with a null plan id are the "charged to no plan" bucket, not an error. There is no price table anywhere in this product, so nothing here is shown in money.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ E — overflow menus and confirmation ════════════════════════════ -->
+<section>
+  <div class="mc-board-label"><b>E</b>Controls live on the object · the menu, and the confirm behind a destructive item<i>1060 wide</i></div>
+  <div class="mc-board" style="width: 1060px;">
+    <div class="mc-page">
+      <div class="mc-annot mc-annot-wide">
+
+        <div>
+          <div class="mc-crew-head" style="margin-bottom: 10px"><h3>On a task</h3></div>
+          <div class="mc-crew">
+            <article class="mc-agent" data-state="working" style="overflow: visible">
+              <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@design-mc2</span></div>
+              <div class="mc-agent-right"><span class="mc-model">claude · opus</span><span class="mc-state-label">working 41s</span></div>
+              <p class="mc-live">Drawing the cost cell against the ledger's per-kind aggregate.</p>
+              <div class="mc-hold">
+                <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Design the team view as mission control</span></button>
+                <span class="mc-hold-meta">in progress · 1h 04m</span>
+                <div class="mc-menu-anchor mc-menu-anchor-end">
+                  <button type="button" class="mc-kebab mc-kebab-shown" aria-label="Task actions" aria-expanded="true">⋯</button>
+                  <div class="mc-menu" role="menu">
+                    <button type="button" class="mc-menu-item" role="menuitem">Open the task<kbd>↵</kbd></button>
+                    <button type="button" class="mc-menu-item" role="menuitem">Go to the agent's tab</button>
+                    <button type="button" class="mc-menu-item" role="menuitem">Reassign to another agent</button>
+                    <button type="button" class="mc-menu-item" role="menuitem">Copy the task id</button>
+                    <div class="mc-menu-sep"></div>
+                    <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+        <p class="mc-note mc-note-drop"><b>where the object is</b>the menu opens on the row that owns
+the task, never in a page toolbar.
+The destructive item sits alone under
+a rule, last, and nothing else in the
+menu is red.</p>
+
+        <div>
+          <div class="mc-crew-head" style="margin-bottom: 10px"><h3>Confirming a removal</h3></div>
+          <div class="mc-crew">
+            <article class="mc-agent" data-state="unstaffed" style="overflow: visible">
+              <div class="mc-agent-id"><span class="mc-role mc-role-none">Nobody assigned</span><span class="mc-handle">task_p1kz08</span></div>
+              <div class="mc-agent-right"><span class="mc-model">p1 · implement</span><span class="mc-state-label">pending 2h 08m</span></div>
+              <p class="mc-live">Publish both design takes as a canvas for review.</p>
+              <div class="mc-hold">
+                <span class="mc-hold-meta">Needs a Worker. Blocks nothing.</span>
+                <div class="mc-menu-anchor mc-menu-anchor-end">
+                  <button type="button" class="mc-kebab mc-kebab-shown" aria-label="Task actions" aria-expanded="true">⋯</button>
+                  <div class="mc-confirm" role="dialog" aria-label="Remove task">
+                    <h4>Remove this task?</h4>
+                    <p>“Publish both design takes as a canvas for review” and its three milestones are deleted. The plan keeps its other thirteen tasks. This cannot be undone.</p>
+                    <div class="mc-btn-row">
+                      <button type="button" class="mc-btn mc-btn-danger">Remove the task</button>
+                      <button type="button" class="mc-btn mc-btn-quiet">Keep it</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+        <p class="mc-note mc-note-drop"><b>destructive looks destructive</b>red item, red confirm, and the
+confirm names what disappears and
+what survives. Two deliberate
+clicks, never one.</p>
+
+        <div>
+          <div class="mc-crew-head" style="margin-bottom: 10px"><h3>On the plan</h3></div>
+          <section class="mc-sec" style="max-width: 336px; padding-top: 0">
+            <div class="mc-sec-head">
+              <span class="mc-sec-label">Current plan</span>
+              <button type="button" class="mc-sec-action">Switch · 1 of 2</button>
+            </div>
+            <div class="mc-plan-title-row">
+              <button type="button" class="mc-plan-title">Release-candidate verification wave</button>
+              <div class="mc-menu-anchor">
+                <button type="button" class="mc-kebab mc-kebab-shown" aria-label="Plan actions" aria-expanded="true">⋯</button>
+                <div class="mc-menu" role="menu">
+                  <button type="button" class="mc-menu-item" role="menuitem">Approve the plan</button>
+                  <button type="button" class="mc-menu-item" role="menuitem">Open it in Tasks</button>
+                  <button type="button" class="mc-menu-item" role="menuitem">Archive it</button>
+                  <button type="button" class="mc-menu-item" role="menuitem">Copy the plan id</button>
+                  <div class="mc-menu-sep"></div>
+                  <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Delete the plan</button>
+                </div>
+              </div>
+            </div>
+            <p class="mc-plan-id">pl_ad3tcu</p>
+            <div class="mc-chips">
+              <span class="mc-chip mc-chip-selected">Open here</span>
+              <span class="mc-chip mc-chip-drafting">Structure ready</span>
+            </div>
+          </section>
+        </div>
+        <p class="mc-note mc-note-drop"><b>approval is an action, not a badge</b>the chip says where the plan stands;
+the menu is how it moves. Approve
+sits first because it is the thing a
+person opens this menu to press.</p>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ F — phone ══════════════════════════════════════════════════════ -->
+<section>
+  <div class="mc-board-label"><b>F</b>Phone · opened over Tailscale, one hand, ten seconds<i>390 wide</i></div>
+  <div class="mc-row">
+    <div class="mc-board mc-phone">
+      <div class="mc-chrome">
+        <div class="mc-seg" role="tablist" aria-label="Team view">
+          <button type="button" aria-current="page">Board</button>
+          <button type="button">Spec</button>
+          <button type="button">Plan</button>
+          <button type="button">Tasks</button>
+        </div>
+      </div>
+      <div class="mc-page">
+        <div class="mc-masthead">
+          <h2>Release wave</h2>
+          <p class="mc-standing">Two working, <span class="mc-attn">one waiting on you</span>, two idle.</p>
+        </div>
+
+        <button type="button" class="mc-planstrip">
+          <i class="mc-planstrip-dot"></i>
+          <span class="mc-planstrip-title">Release-candidate verification wave</span>
+          <span class="mc-planstrip-count">9/14</span>
+        </button>
+
+        <div class="mc-crew">
+          <article class="mc-agent" data-state="waiting">
+            <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@design-mc1</span></div>
+            <div class="mc-agent-right"><span class="mc-state-label">waiting 12m</span></div>
+            <p class="mc-live mc-live-question">Asks: tokens or coordination volume in the cost cell?</p>
+            <div class="mc-hold">
+              <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Design the team view, take one</span></button>
+              <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+
+          <article class="mc-agent" data-state="working">
+            <div class="mc-agent-id"><span class="mc-role">Orchestrator</span><span class="mc-handle">@rc-wave</span></div>
+            <div class="mc-agent-right"><span class="mc-state-label">working 6m</span></div>
+            <p class="mc-live">Merging the design lane and re-running the size gate.</p>
+            <div class="mc-hold">
+              <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Integrate both design lanes</span></button>
+              <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+
+          <article class="mc-agent" data-state="working">
+            <div class="mc-agent-id"><span class="mc-role">Worker</span><span class="mc-handle">@design-mc2</span></div>
+            <div class="mc-agent-right"><span class="mc-state-label">working 41s</span></div>
+            <p class="mc-live">Drawing the cost cell against the per-kind aggregate.</p>
+            <div class="mc-hold">
+              <button type="button" class="mc-task-chip"><i class="mc-dot mc-st-running"></i><span>Design the team view, take two</span></button>
+              <button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button>
+            </div>
+          </article>
+
+          <button type="button" class="mc-crew-more">2 idle agents and 1 unstaffed task</button>
+        </div>
+
+        <div class="mc-accordion">
+          <button type="button" class="mc-acc-row" aria-expanded="true">
+            <span class="mc-acc-name">Cost and chasing</span>
+            <span class="mc-acc-val">4.20M tok</span>
+            <span class="mc-acc-caret">▾</span>
+          </button>
+          <div class="mc-acc-body">
+            <div class="mc-kpi-pair">
+              <div>
+                <div class="mc-kpi-num mc-kpi-num-sm">4.20M</div>
+                <p class="mc-kpi-sub">tokens billed</p>
+              </div>
+              <div>
+                <div class="mc-kpi-num mc-kpi-num-sm mc-kpi-warn">39%</div>
+                <p class="mc-kpi-sub">of 1,840 events spent chasing</p>
+              </div>
+            </div>
+            <div class="mc-spark mc-spark-sm" role="img" aria-label="Events per day over fourteen days">
+              <i><b class="mc-bar-work" style="height:5px"></b><b class="mc-bar-direction" style="height:6px"></b><b class="mc-bar-chase" style="height:6px"></b></i>
+              <i><b class="mc-bar-work" style="height:5px"></b><b class="mc-bar-direction" style="height:6px"></b><b class="mc-bar-chase" style="height:7px"></b></i>
+              <i><b class="mc-bar-work" style="height:3px"></b><b class="mc-bar-direction" style="height:5px"></b><b class="mc-bar-chase" style="height:5px"></b></i>
+              <i><b class="mc-bar-work" style="height:6px"></b><b class="mc-bar-direction" style="height:9px"></b><b class="mc-bar-chase" style="height:10px"></b></i>
+              <i><b class="mc-bar-work" style="height:7px"></b><b class="mc-bar-direction" style="height:10px"></b><b class="mc-bar-chase" style="height:11px"></b></i>
+              <i><b class="mc-bar-work" style="height:6px"></b><b class="mc-bar-direction" style="height:8px"></b><b class="mc-bar-chase" style="height:9px"></b></i>
+              <i><b class="mc-bar-work" style="height:3px"></b><b class="mc-bar-direction" style="height:4px"></b><b class="mc-bar-chase" style="height:5px"></b></i>
+              <i><b class="mc-bar-work" style="height:2px"></b><b class="mc-bar-direction" style="height:3px"></b><b class="mc-bar-chase" style="height:3px"></b></i>
+              <i><b class="mc-bar-work" style="height:8px"></b><b class="mc-bar-direction" style="height:12px"></b><b class="mc-bar-chase" style="height:13px"></b></i>
+              <i><b class="mc-bar-work" style="height:9px"></b><b class="mc-bar-direction" style="height:13px"></b><b class="mc-bar-chase" style="height:15px"></b></i>
+              <i><b class="mc-bar-work" style="height:9px"></b><b class="mc-bar-direction" style="height:12px"></b><b class="mc-bar-chase" style="height:14px"></b></i>
+              <i><b class="mc-bar-work" style="height:7px"></b><b class="mc-bar-direction" style="height:10px"></b><b class="mc-bar-chase" style="height:11px"></b></i>
+              <i><b class="mc-bar-work" style="height:10px"></b><b class="mc-bar-direction" style="height:13px"></b><b class="mc-bar-chase" style="height:15px"></b></i>
+              <i><b class="mc-bar-work" style="height:7px"></b><b class="mc-bar-direction" style="height:10px"></b><b class="mc-bar-chase" style="height:11px"></b></i>
+            </div>
+            <button type="button" class="mc-sec-action" style="margin-top: 12px">Open the ledger</button>
+          </div>
+
+          <button type="button" class="mc-acc-row" aria-expanded="false">
+            <span class="mc-acc-name">Spec and Plan</span>
+            <span class="mc-acc-val">6 + 4 sections</span>
+            <span class="mc-acc-caret">▸</span>
+          </button>
+          <button type="button" class="mc-acc-row" aria-expanded="false">
+            <span class="mc-acc-name">Skills this team wrote</span>
+            <span class="mc-acc-val">2</span>
+            <span class="mc-acc-caret">▸</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div style="max-width: 380px; padding-top: 34px">
+      <p class="mc-note"><b>the phone ordering is the argument, compressed</b>The standing line and the plan strip
+answer "which plan, and does anything
+need me" above the fold.
+
+Then the crew, sorted by claim on the
+user: waiting first, working next, idle
+and unstaffed folded away.
+
+Production — documents, skills, the full
+ledger — is three taps that nobody takes
+while walking. That is correct.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+  const root = document.documentElement;
+  const toggles = document.querySelectorAll(".mc-theme-toggle button");
+  toggles.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      root.dataset.ctTheme = btn.dataset.theme;
+      toggles.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+    });
+  });
+</script>
+</body>
+</html>
