@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use crate::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
-use crate::service::LaneProtection;
+use crate::service::{classify_mutating_lane, LaneProtection, UnsafeMutatingLane};
 
 use super::super::safety_nudge::{
     SafetyNudge, NUDGE_LANE_BASE_UNRECORDED, NUDGE_LANE_BRANCH_UNRECORDED,
@@ -14,30 +14,7 @@ pub(crate) const REFUSAL_MUTATING_WRITE_IN_CANONICAL: &str =
 pub(crate) const REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE: &str =
     "lane.mutating_write_in_foreign_lane";
 
-pub(crate) fn canonical_path_of(plan: &Plan) -> &str {
-    if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.as_str()
-    } else {
-        plan.canonical_project_path.as_str()
-    }
-}
-
-fn same_checkout(a: &str, b: &str) -> bool {
-    codeterm_paths::normalize_cwd(a) == codeterm_paths::normalize_cwd(b)
-}
-
-fn foreign_lane_owner<'a>(plan: &'a Plan, task_id: &str, worktree: &str) -> Option<&'a str> {
-    plan.tasks
-        .iter()
-        .filter(|task| task.id != task_id && task.handle.as_deref() != Some(task_id))
-        .find(|task| {
-            task.lane
-                .worktree_path
-                .as_deref()
-                .is_some_and(|recorded| same_checkout(recorded, worktree))
-        })
-        .map(|task| task.id.as_str())
-}
+pub(crate) use crate::service::canonical_path_of;
 
 fn refusal(id: &'static str, message: String, safe_alternative: String) -> JsonRpcError {
     JsonRpcError {
@@ -64,29 +41,26 @@ pub(crate) fn refuse_unsafe_mutating_write(
     if intent != ExecutionIntent::Mutating {
         return Ok(());
     }
-    let canonical = canonical_path_of(plan);
-    if same_checkout(resolved_worktree, canonical) {
-        return Err(refusal(
+    match classify_mutating_lane(plan, task_id, resolved_worktree) {
+        None => Ok(()),
+        Some(UnsafeMutatingLane::Canonical { canonical }) => Err(refusal(
             REFUSAL_MUTATING_WRITE_IN_CANONICAL,
             format!(
                 "dispatch refused: a mutating Worker for task '{task_id}' would write in the \
                  canonical checkout '{canonical}'. No Worker was spawned."
             ),
             isolated_lane_update_command(&plan.id, task_id),
-        ));
-    }
-    if let Some(owner) = foreign_lane_owner(plan, task_id, resolved_worktree) {
-        return Err(refusal(
+        )),
+        Some(UnsafeMutatingLane::ForeignLane { worktree, owner }) => Err(refusal(
             REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE,
             format!(
                 "dispatch refused: a mutating Worker for task '{task_id}' would write in \
-                 '{resolved_worktree}', the lane recorded for task '{owner}'. No Worker was \
+                 '{worktree}', the lane recorded for task '{owner}'. No Worker was \
                  spawned."
             ),
             isolated_lane_update_command(&plan.id, task_id),
-        ));
+        )),
     }
-    Ok(())
 }
 
 /// Team identity and lane isolation are committed as one value, so no persisted

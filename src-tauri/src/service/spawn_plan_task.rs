@@ -272,6 +272,9 @@ impl ServiceContext {
         &self,
         params: &SpawnAgentParams,
     ) -> Result<(), String> {
+        // Every task-bound mutating route reaches this before a tab exists, by
+        // either flag that binds a task, so none can write canonical silently.
+        self.refuse_unsafe_task_bound_mutating_spawn(params)?;
         let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
             return Ok(());
         };
