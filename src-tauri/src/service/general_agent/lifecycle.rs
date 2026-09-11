@@ -32,6 +32,24 @@ fn launch_delivery_evidence(
         })
 }
 
+/// Bytes that reached the PTY make the launch delivery uncertain, never failed:
+/// the ledger keeps the pending evidence and the session binding resolves it.
+/// Only a refusal that wrote nothing is a spawn failure.
+fn launch_delivery_failure(
+    tab_id: &str,
+    outcome: Result<(), crate::service::delivery_error::DeliveryError>,
+) -> Option<String> {
+    let error = outcome.err()?;
+    if error.surfaces_as_failure(crate::service::delivery_error::SendOrigin::Programmatic) {
+        return Some(format!("{}: {error}", error.code()));
+    }
+    log::warn!(
+        "[general-agent] launch delivery for Tab {tab_id} state={}; pending evidence retained",
+        error.code()
+    );
+    None
+}
+
 fn deliver_confirmed_general_message(
     svc: &crate::ServiceState,
     tab_id: &str,
@@ -43,8 +61,11 @@ fn deliver_confirmed_general_message(
         tab_id,
         svc.send_launch_text_optimistic(pty_id, provider_id, text, true),
     );
-    svc.reconcile_pending_delivery(tab_id, evidence)
-        .map_err(|error| format!("{}: {error}", error.code()))
+    let outcome = svc.reconcile_pending_delivery(tab_id, evidence);
+    match launch_delivery_failure(tab_id, outcome) {
+        Some(reason) => Err(reason),
+        None => Ok(()),
+    }
 }
 
 fn compose_startup_message(

@@ -378,6 +378,35 @@ fn bind(driver: &mut LaunchRegistry, launch: &LaunchGeneration, nonce: &str) {
     assert!(driver.bind_provider_session(launch, nonce.into()));
 }
 
+/// A launch failure must not be outranked by a binding proof when the failure
+/// is itself the evidence that the proving process is gone.
+#[test]
+fn process_death_faults_void_the_binding_proof_that_deadlines_do_not() {
+    for failure in [
+        LaunchFailure::PtySpawn("no pty".into()),
+        LaunchFailure::PtyEof,
+        LaunchFailure::TabClosed,
+        LaunchFailure::ReaderSetup("no reader".into()),
+        LaunchFailure::ReaderRuntime("reader died".into()),
+    ] {
+        assert!(
+            failure.proves_process_gone(),
+            "{failure:?} is evidence the process is gone",
+        );
+    }
+    for failure in [
+        LaunchFailure::ReaderReadyTimeout,
+        LaunchFailure::ShellReadyTimeout,
+        LaunchFailure::LaunchWrite("write refused".into()),
+        LaunchFailure::TaskDelivery("submit_unconfirmed".into()),
+    ] {
+        assert!(
+            !failure.proves_process_gone(),
+            "{failure:?} is an observer giving up, not a dead process",
+        );
+    }
+}
+
 #[test]
 fn shell_idle_to_working_cannot_resolve_launch_readiness() {
     let launch = LaunchRegistry::default().begin("shell-transition", "pty-a".into());

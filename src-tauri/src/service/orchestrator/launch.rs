@@ -163,6 +163,19 @@ impl LaunchFailure {
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
         }
     }
+
+    /// Structural faults of the process or its stream, as opposed to an
+    /// observer's deadline. A live agent's own binding proof cannot survive one.
+    fn proves_process_gone(&self) -> bool {
+        matches!(
+            self,
+            Self::PtySpawn(_)
+                | Self::PtyEof
+                | Self::TabClosed
+                | Self::ReaderSetup(_)
+                | Self::ReaderRuntime(_)
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +246,11 @@ impl LaunchGeneration {
     }
 
     fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
+        // A fault that shows the process died voids the proof it left behind,
+        // so an honest failure is never outranked by a dead agent's binding.
+        if failure.proves_process_gone() {
+            svc.void_launch_session_proof(&self.tab_id);
+        }
         let reason = failure.reason();
         self.finish_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
@@ -274,6 +292,7 @@ impl LaunchGeneration {
 
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
+        svc.void_launch_session_proof(&launch.tab_id);
         let reason = LaunchFailure::PtyEof.reason();
         svc.emit_boot_stage(&launch.tab_id, BootStage::SpawnFailed, Some(&reason));
     });

@@ -168,6 +168,45 @@ fn observed_submission_is_the_only_source_of_confirmation() {
     );
 }
 
+/// The observed first-run bug: a bootstrap paste whose submit key was never
+/// acknowledged is uncertainty the ledger already holds, not a failed spawn.
+#[test]
+fn an_unconfirmed_startup_submit_is_not_a_spawn_failure() {
+    let unconfirmed = crate::service::delivery_error::DeliveryError::SubmitUnconfirmed {
+        tab: "general".into(),
+        detail: "delivery acknowledgement not observed".into(),
+    };
+    assert!(unconfirmed.bytes_written());
+    assert_eq!(
+        super::launch_delivery_failure("general", Err(unconfirmed)),
+        None,
+    );
+    assert_eq!(super::launch_delivery_failure("general", Ok(())), None);
+}
+
+/// The over-correction guard: a refusal that wrote nothing still fails the spawn.
+#[test]
+fn a_startup_refusal_that_wrote_nothing_still_fails_the_spawn() {
+    for error in [
+        crate::service::delivery_error::DeliveryError::PtyUnavailable {
+            tab: "general".into(),
+            detail: "no pty".into(),
+        },
+        crate::service::delivery_error::DeliveryError::TabBusyRefused {
+            tab: "general".into(),
+            detail: "booting".into(),
+        },
+        crate::service::delivery_error::DeliveryError::TabNotReachableOnPeer {
+            tab: "general".into(),
+        },
+    ] {
+        let code = error.code();
+        let reason = super::launch_delivery_failure("general", Err(error))
+            .expect("a pre-write refusal is a spawn failure");
+        assert!(reason.starts_with(code), "{reason} must carry {code}");
+    }
+}
+
 #[test]
 fn startup_turn_is_delivered_before_session_binding_wait() {
     let steps = std::cell::RefCell::new(Vec::new());

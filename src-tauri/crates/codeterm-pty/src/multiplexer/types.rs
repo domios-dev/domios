@@ -779,6 +779,15 @@ impl Tab {
         })
     }
 
+    /// The agent of this tab's CURRENT launch echoed that launch's nonce with
+    /// an accepted session, so that exact process proved it owns the tab.
+    pub fn launch_session_authenticated(&self) -> bool {
+        self.agent_type.is_some()
+            && self.agent_session_id.is_some()
+            && self.session_binding_nonce.is_some()
+            && self.session_binding_nonce == self.reported_session_binding_nonce
+    }
+
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
         if session_id.is_empty()
             || self

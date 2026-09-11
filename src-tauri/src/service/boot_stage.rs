@@ -79,6 +79,34 @@ pub(crate) fn wait_for_restart_readiness(
     RestartReadiness::TimedOut { pty_id }
 }
 
+/// A spawn failure cannot describe a tab whose provider is already up — its own
+/// TUI frame, or a sealed launch — and whose agent proved that launch with a
+/// nonce-verified session binding. Two independent observations of a running
+/// process outrank the one observer that gave up on it. Faults that are
+/// themselves evidence the process died void the proof first, and a tab still
+/// short of `ProviderReady` is not covered at all, so genuine failures latch.
+pub(crate) fn honest_boot_stage(
+    stage: BootStage,
+    current: Option<BootStage>,
+    launch_session_authenticated: bool,
+) -> BootStage {
+    let provider_up = matches!(
+        current,
+        Some(BootStage::ProviderReady | BootStage::AgentReady)
+    );
+    if stage == BootStage::SpawnFailed && provider_up && launch_session_authenticated {
+        BootStage::AgentReady
+    } else {
+        stage
+    }
+}
+
+/// A latched failure that the tab's own nonce-verified session binding
+/// contradicts. The binding is the agent naming itself on its own launch.
+pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
+    tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
+}
+
 /// Record a stage on the tab. Only SpawnFailed carries a reason, so any other
 /// stage clears a previously latched failure.
 pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
@@ -99,6 +127,10 @@ impl ServiceContext {
     /// snapshot) and fan the transition out on the event bridge. Fire-and-forget
     /// — never blocks the launch thread.
     pub(crate) fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        let stage = self.stage_reconciled_with_session_binding(tab_id, stage);
+        let reason = (stage == BootStage::SpawnFailed)
+            .then_some(reason)
+            .flatten();
         if let Some(p) = self.mux.write().get_tab_mut(tab_id) {
             apply_boot_stage(p, stage, reason);
         }
@@ -134,6 +166,44 @@ impl ServiceContext {
                     reason: reason.unwrap_or("spawn failed").to_string(),
                 },
             );
+        }
+    }
+
+    fn stage_reconciled_with_session_binding(&self, tab_id: &str, stage: BootStage) -> BootStage {
+        if stage != BootStage::SpawnFailed {
+            return stage;
+        }
+        let honest = {
+            let mux = self.mux.read();
+            match mux.get_tab(tab_id) {
+                Some(tab) => {
+                    honest_boot_stage(stage, tab.boot_stage, tab.launch_session_authenticated())
+                }
+                None => stage,
+            }
+        };
+        if honest != stage {
+            log::info!(
+                "[boot-stage] Tab {tab_id} spawn_failed refused: its live agent proved this launch"
+            );
+        }
+        honest
+    }
+
+    /// A nonce-verified session-start report is the agent naming itself on its
+    /// own launch, which disproves a failure another observer already latched.
+    /// Event-driven by the proof's arrival — never a poll or a retry.
+    pub(crate) fn reconcile_boot_stage_with_session_binding(&self, tab_id: &str) {
+        let contradicted = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(binding_disproves_latched_failure);
+        if contradicted {
+            log::info!(
+                "[boot-stage] Tab {tab_id} spawn_failed disproved by its nonce-verified session binding"
+            );
+            self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
         }
     }
 
@@ -284,6 +354,179 @@ mod tests {
         let mut tab = tab_with_prompt(None);
         apply_boot_stage(&mut tab, BootStage::AgentReady, None);
         assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    }
+
+    const EVERY_STAGE: [BootStage; 12] = [
+        BootStage::PtyStarting,
+        BootStage::PtySpawned,
+        BootStage::ReaderReady,
+        BootStage::ShellReady,
+        BootStage::AgentLaunching,
+        BootStage::LaunchWritten,
+        BootStage::ProviderReady,
+        BootStage::PreparingRoleInstructions,
+        BootStage::DeliveringInstructions,
+        BootStage::AgentReady,
+        BootStage::PtyReattached,
+        BootStage::SpawnFailed,
+    ];
+
+    /// Keeps the cross-product below honest: a new variant fails to compile
+    /// here until `EVERY_STAGE` learns about it.
+    #[test]
+    fn every_stage_covers_the_enum() {
+        fn index(stage: BootStage) -> usize {
+            match stage {
+                BootStage::PtyStarting => 0,
+                BootStage::PtySpawned => 1,
+                BootStage::ReaderReady => 2,
+                BootStage::ShellReady => 3,
+                BootStage::AgentLaunching => 4,
+                BootStage::LaunchWritten => 5,
+                BootStage::ProviderReady => 6,
+                BootStage::PreparingRoleInstructions => 7,
+                BootStage::DeliveringInstructions => 8,
+                BootStage::AgentReady => 9,
+                BootStage::PtyReattached => 10,
+                BootStage::SpawnFailed => 11,
+            }
+        }
+        let mut seen = vec![false; EVERY_STAGE.len()];
+        for stage in EVERY_STAGE {
+            seen[index(stage)] = true;
+        }
+        assert!(seen.into_iter().all(|covered| covered));
+    }
+
+    fn authenticated_tab(current: Option<BootStage>) -> Tab {
+        let mut tab = tab_with_prompt(None);
+        tab.boot_stage = current;
+        tab.agent_type = Some("codex".into());
+        tab.agent_session_id = Some("01a090f2".into());
+        tab.session_binding_nonce = Some("nonce-a".into());
+        tab.reported_session_binding_nonce = Some("nonce-a".into());
+        tab
+    }
+
+    #[test]
+    fn launch_nonce_is_proven_only_when_this_launch_echoed_it() {
+        assert!(authenticated_tab(Some(BootStage::ProviderReady)).launch_session_authenticated());
+
+        let mut unreported = authenticated_tab(Some(BootStage::ProviderReady));
+        unreported.reported_session_binding_nonce = None;
+        assert!(!unreported.launch_session_authenticated());
+
+        let mut superseded = authenticated_tab(Some(BootStage::ProviderReady));
+        superseded.session_binding_nonce = Some("nonce-b".into());
+        assert!(!superseded.launch_session_authenticated());
+
+        let mut nonceless = authenticated_tab(Some(BootStage::ProviderReady));
+        nonceless.session_binding_nonce = None;
+        nonceless.reported_session_binding_nonce = None;
+        assert!(!nonceless.launch_session_authenticated());
+
+        let mut unbound = authenticated_tab(Some(BootStage::ProviderReady));
+        unbound.agent_session_id = None;
+        assert!(!unbound.launch_session_authenticated());
+    }
+
+    /// The contradiction the daemon used to report: a live, nonce-verified
+    /// agent behind a tab whose boot stage called the spawn failed.
+    #[test]
+    fn spawn_failure_is_refused_once_the_agent_proved_this_launch() {
+        for current in [BootStage::ProviderReady, BootStage::AgentReady] {
+            assert_eq!(
+                honest_boot_stage(BootStage::SpawnFailed, Some(current), true),
+                BootStage::AgentReady,
+            );
+        }
+    }
+
+    #[test]
+    fn spawn_failure_stands_without_a_binding_proof() {
+        for current in EVERY_STAGE {
+            assert_eq!(
+                honest_boot_stage(BootStage::SpawnFailed, Some(current), false),
+                BootStage::SpawnFailed,
+            );
+        }
+        assert_eq!(
+            honest_boot_stage(BootStage::SpawnFailed, None, false),
+            BootStage::SpawnFailed,
+        );
+    }
+
+    /// The over-correction guard: a proof alone never excuses a launch that
+    /// never got the provider up, so a real early failure still latches.
+    #[test]
+    fn spawn_failure_stands_before_the_provider_is_up() {
+        let short_of_provider = EVERY_STAGE
+            .into_iter()
+            .map(Some)
+            .chain(std::iter::once(None))
+            .filter(|stage| {
+                !matches!(
+                    stage,
+                    Some(BootStage::ProviderReady) | Some(BootStage::AgentReady)
+                )
+            });
+        for current in short_of_provider {
+            assert_eq!(
+                honest_boot_stage(BootStage::SpawnFailed, current, true),
+                BootStage::SpawnFailed,
+            );
+        }
+    }
+
+    #[test]
+    fn no_other_stage_is_ever_rewritten() {
+        for stage in EVERY_STAGE
+            .into_iter()
+            .filter(|s| *s != BootStage::SpawnFailed)
+        {
+            for current in EVERY_STAGE.into_iter().map(Some).chain([None]) {
+                for proven in [false, true] {
+                    assert_eq!(honest_boot_stage(stage, current, proven), stage);
+                }
+            }
+        }
+    }
+
+    /// The invariant itself, over every reachable combination: a recorded
+    /// spawn failure and a proven live launch cannot coexist on one tab.
+    #[test]
+    fn a_recorded_spawn_failure_never_coexists_with_a_proven_live_launch() {
+        for current in EVERY_STAGE.into_iter().map(Some).chain([None]) {
+            for stage in EVERY_STAGE {
+                let mut tab = authenticated_tab(current);
+                let honest =
+                    honest_boot_stage(stage, tab.boot_stage, tab.launch_session_authenticated());
+                apply_boot_stage(&mut tab, honest, Some("boom"));
+                let provider_was_up = matches!(
+                    current,
+                    Some(BootStage::ProviderReady) | Some(BootStage::AgentReady)
+                );
+                assert!(
+                    !(tab.boot_stage == Some(BootStage::SpawnFailed) && provider_was_up),
+                    "spawn_failed recorded from {current:?} on a tab whose agent proved this launch",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_late_binding_disproves_the_failure_it_arrives_after() {
+        let mut failed = authenticated_tab(Some(BootStage::SpawnFailed));
+        assert!(binding_disproves_latched_failure(&failed));
+
+        failed.reported_session_binding_nonce = None;
+        assert!(
+            !binding_disproves_latched_failure(&failed),
+            "an unproven launch keeps its failure",
+        );
+
+        let ready = authenticated_tab(Some(BootStage::AgentReady));
+        assert!(!binding_disproves_latched_failure(&ready));
     }
 
     #[test]

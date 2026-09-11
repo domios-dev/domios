@@ -330,9 +330,7 @@ impl ServiceContext {
 
     pub(crate) fn rearm_authenticated_agent_input(&self, tab_id: &str) {
         let pty_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
-            (tab.agent_type.is_some()
-                && tab.agent_session_id.is_some()
-                && tab.session_binding_nonce == tab.reported_session_binding_nonce)
+            tab.launch_session_authenticated()
                 .then(|| tab.pty_id.clone())
                 .flatten()
         });
