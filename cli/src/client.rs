@@ -521,18 +521,19 @@ fn discover_windows_pipe() -> Result<String, String> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 /// Whether a `/tmp` entry can name a CodeTerm daemon socket.
 ///
 /// `build.sh` leaves `codeterm-gateway-mutex-*.sock` behind for its cargo and
 /// rustc build locks. Those match the daemon prefix but never speak the CLI
 /// protocol, so a leftover one must never be offered as a candidate.
+#[cfg(not(target_os = "windows"))]
 fn is_daemon_socket_name(name: &str) -> bool {
     name.starts_with("codeterm-")
         && name.ends_with(".sock")
         && !name.starts_with("codeterm-gateway-mutex-")
 }
 
+#[cfg(not(target_os = "windows"))]
 fn discover_unix_socket() -> Result<String, String> {
     use std::fs;
 
@@ -580,6 +581,8 @@ fn discover_unix_socket() -> Result<String, String> {
 mod tests {
     use super::*;
 
+    // The helper under test only exists off Windows, where /tmp socket files do.
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn build_gateway_mutex_files_are_not_daemon_sockets() {
         assert!(!is_daemon_socket_name(
