@@ -18,8 +18,8 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-test("PLAN_VIEW_MODES exposes exactly Spec Plan Board in order", () => {
-  assert(PLAN_VIEW_MODES.join(",") === "spec,plan,board", `modes=${PLAN_VIEW_MODES.join(",")}`);
+test("PLAN_VIEW_MODES exposes exactly Board Spec Plan Tasks in order", () => {
+  assert(PLAN_VIEW_MODES.join(",") === "board,spec,plan,tasks", `modes=${PLAN_VIEW_MODES.join(",")}`);
   assert(!PLAN_VIEW_MODES.includes("list" as never), "List is parked");
   assert(!PLAN_VIEW_MODES.includes("canvas" as never), "Canvas is parked");
 });
@@ -34,6 +34,7 @@ test("isPlanViewMode accepts only known modes", () => {
   assert(isPlanViewMode("spec"), "spec");
   assert(isPlanViewMode("plan"), "plan");
   assert(isPlanViewMode("board"), "board");
+  assert(isPlanViewMode("tasks"), "tasks");
   assert(!isPlanViewMode("grid"), "grid rejected");
   assert(!isPlanViewMode(""), "empty rejected");
 });
@@ -50,7 +51,8 @@ test("planViewModeLabel returns exact UI labels", () => {
 test("resolvePlanViewMode falls back to board", () => {
   assert(resolvePlanViewMode("spec") === "spec", "spec preserved");
   assert(resolvePlanViewMode("plan") === "plan", "plan preserved");
-  assert(resolvePlanViewMode("list") === "list", "list preserved");
+  assert(resolvePlanViewMode("list") === "board", "list -> board");
+  assert(resolvePlanViewMode("canvas") === "board", "canvas -> board");
   assert(resolvePlanViewMode("bogus") === "board", "bogus -> board");
   assert(resolvePlanViewMode(null) === "board", "null -> board");
   assert(resolvePlanViewMode(undefined) === "board", "undefined -> board");

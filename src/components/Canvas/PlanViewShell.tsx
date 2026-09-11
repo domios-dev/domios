@@ -11,15 +11,12 @@ import {
 import { PlanBoardView } from "./planView/PlanBoardView";
 import { PlanListView } from "./planView/PlanListView";
 import { PlanPlanView, PlanSpecView } from "./planView/PlanDocumentView";
-import { PlanCompanionBubble } from "./planView/PlanCompanionBubble";
-import { TabSessionChat } from "../Terminal/TabSessionChat";
 
-const BoardSurface = memo(PlanBoardView);
+const BoardSurface = memo(MissionControlPlanSurface);
 const ListSurface = memo(PlanListView);
-const CanvasSurface = memo(MissionControlPlanSurface);
 const SpecSurface = memo(PlanSpecView);
 const PlanSurface = memo(PlanPlanView);
-const CompanionSurface = memo(PlanCompanionBubble);
+const TasksSurface = memo(PlanBoardView);
 
 const PLAN_VIEW_MODE_STORAGE_KEY = "codeterm.planViewMode";
 
@@ -57,19 +54,12 @@ export function useFrozenWhenHidden<T>(props: T, visible: boolean): T {
 
 export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [viewMode, setViewMode] = usePersistedPlanViewMode();
-  const canvasProps = useFrozenWhenHidden(props, viewMode === "canvas");
   const listProps = useFrozenWhenHidden(props, viewMode === "list");
   const specProps = useFrozenWhenHidden(props, viewMode === "spec");
   const planProps = useFrozenWhenHidden(props, viewMode === "plan");
   const boardProps = useFrozenWhenHidden(props, viewMode === "board");
+  const tasksProps = useFrozenWhenHidden(props, viewMode === "tasks");
   const openSpec = useCallback(() => setViewMode("spec"), [setViewMode]);
-
-  const renderCompanionChat = useCallback(
-    ({ tabId, chatBackend }: { tabId: string; chatBackend: boolean }) => (
-      <TabSessionChat tabId={tabId} api={props.api} chatBackend={chatBackend} isVisible />
-    ),
-    [props.api],
-  );
 
   return (
     <div
@@ -115,10 +105,10 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         </div>
         <div
           className="absolute inset-0"
-          hidden={viewMode !== "canvas"}
-          aria-hidden={viewMode !== "canvas"}
+          hidden={viewMode !== "board"}
+          aria-hidden={viewMode !== "board"}
         >
-          <CanvasSurface {...canvasProps} />
+          <BoardSurface {...boardProps} />
         </div>
         <div
           className="absolute inset-0"
@@ -129,19 +119,11 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         </div>
         <div
           className="absolute inset-0"
-          hidden={viewMode !== "board"}
-          aria-hidden={viewMode !== "board"}
+          hidden={viewMode !== "tasks"}
+          aria-hidden={viewMode !== "tasks"}
         >
-          <BoardSurface {...boardProps} />
+          <TasksSurface {...tasksProps} />
         </div>
-        <CompanionSurface
-          plans={props.plans}
-          tabs={props.tabs ?? {}}
-          planId={props.planId}
-          orchestratorTabId={props.orchestratorTabId}
-          onOpenTab={props.onOpenTab}
-          renderChat={renderCompanionChat}
-        />
       </div>
     </div>
   );
