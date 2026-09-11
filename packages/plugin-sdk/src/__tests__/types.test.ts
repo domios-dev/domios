@@ -10,6 +10,10 @@ import type {
   Model,
   ModelInfo,
   NormalizedChatMessage,
+  PluginModule,
+  WebhookDelivery,
+  WebhookReceiveContext,
+  WebhookReceiver,
 } from "../capabilities";
 import type { Host, Backend, TabRef, UsageSnapshot } from "../host";
 
@@ -63,6 +67,34 @@ const pre: ChatPreprocessor = {
     ctx.text.length > 0 ? { text: ctx.text.toUpperCase() } : null,
 };
 void pre;
+
+const webhookContext: WebhookReceiveContext = {
+  payload: { event_id: "evt-1" },
+  receivedAt: "2026-09-11T07:00:00Z",
+};
+const delivery: WebhookDelivery = { text: "Pebble event", eventId: "evt-1" };
+const receiver: WebhookReceiver = {
+  webhookReceive: (ctx) => (ctx.payload ? delivery : null),
+};
+void webhookContext;
+void receiver;
+
+const plugin: PluginModule = {
+  webhookReceive: () => ({ text: "Pebble event" }),
+};
+void plugin;
+
+// The receiver is synchronous and may intentionally suppress delivery.
+const synchronousNoOp: WebhookReceiver = {
+  webhookReceive: () => null,
+};
+void synchronousNoOp;
+
+const malformedReceiver: WebhookReceiver = {
+  // @ts-expect-error webhookReceive must return a normalized delivery or null
+  webhookReceive: () => ({ message: "not a delivery" }),
+};
+void malformedReceiver;
 
 // match is the literal "text" — anything else is a type error.
 const wrongSlot: ChatPreprocessor = {
