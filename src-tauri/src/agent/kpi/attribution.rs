@@ -112,7 +112,7 @@ impl KpiAttribution {
 /// would double-charge the same bytes.
 pub fn deliver_event_kind(kind: MessageKind) -> Option<KpiEventKind> {
     match kind {
-        MessageKind::Message | MessageKind::Mesh | MessageKind::Telegram => {
+        MessageKind::Message | MessageKind::Mesh | MessageKind::Telegram | MessageKind::Pebble => {
             Some(KpiEventKind::Send)
         }
         MessageKind::Report | MessageKind::Reminder | MessageKind::System => None,

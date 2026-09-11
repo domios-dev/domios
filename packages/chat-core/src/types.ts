@@ -110,7 +110,7 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "system" | "mesh" | "telegram";
+  inboundKind?: "tab" | "report" | "reminder" | "system" | "mesh" | "telegram" | "pebble";
   /** Interactive prompts the provider extracted from this message (answerable widgets). */
   interactive?: InteractiveElement[];
   /** `shell_command` items only — the command line, lifecycle status, exit code
@@ -142,6 +142,7 @@ export type ChatOrigin =
       report?: boolean;
     }
   | { kind: "telegram"; userId: string; messageId?: string }
+  | { kind: "pebble" }
   | { kind: "mesh"; peerId: string }
   | { kind: "service"; service: string; userId: string }
   | { kind: "plugin_config"; pluginId: string; name: string }
