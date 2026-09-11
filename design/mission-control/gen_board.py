@@ -46,11 +46,14 @@ def strip(width, label_w, phone=False):
                     end = a["closed"] or now
                     x2, x3 = x(a["reported"]), x(end)
                     over = (not a.get("closed")) and (end - a["reported"] > FLOOR)
-                    color = "#d29922" if over else ("#828a92" if not a.get("closed") else "rgba(72,79,88,0.55)")
-                    segs.append(f'<div title="waiting for a verdict {dur((end-a["reported"])/60000)}" style="position: absolute; left: {x2+1:.1f}px; width: {max(2, x3-x2-1):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: {color};"></div>')
+                    color = "#d29922" if over else "rgba(72,79,88,0.55)"
+                    segs.append(f'<div title="waiting for a verdict {dur((end-a["reported"])/60000)}{"" if a.get("closed") else ", still running"}" style="position: absolute; left: {x2+1:.1f}px; width: {max(2, x3-x2-1):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: {color};"></div>')
+                    if not a.get("closed"):
+                        segs.append(f'<div title="still running" style="position: absolute; left: {x3-1:.1f}px; width: 2px; top: {(rh-bar)//2 - 3}px; height: {bar+6}px; background: #c9d1d9;"></div>')
             elif a.get("assigned"):
                 x0 = x(a["assigned"])
                 segs.append(f'<div title="{html.escape(who)} working {dur((now-a["assigned"])/60000)}, no report yet" style="position: absolute; left: {x0:.1f}px; width: {max(2, width-x0):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: #58a6ff;"></div>')
+                segs.append(f'<div title="still running" style="position: absolute; left: {width-1:.1f}px; width: 2px; top: {(rh-bar)//2 - 3}px; height: {bar+6}px; background: #c9d1d9;"></div>')
         for h in r["holds"]:
             segs.append(f'<div title="held {hm(h)}" style="position: absolute; left: {x(h)-1:.1f}px; width: 2px; top: {(rh-bar)//2 - 4}px; height: {bar+8}px; background: #d29922;"></div>')
         clusters = []
@@ -87,8 +90,9 @@ def strip(width, label_w, phone=False):
 
 def split_bar(width):
     tot = work + wait + pickup
-    parts = [("waiting to be picked up", pickup, "#232930"), ("working", work, "#58a6ff"), ("waiting for a verdict, elapsed", wait_closed, "#484f58"), ("waiting for a verdict, still running", wait_open, "#828a92")]
+    parts = [("waiting to be picked up", pickup, "#232930"), ("working", work, "#58a6ff"), ("waiting for a verdict, elapsed", wait_closed, "rgba(72,79,88,0.55)"), ("waiting for a verdict, still running", wait_open, "rgba(72,79,88,0.55)")]
     cells = "".join(f'<div title="{n} {dur(v)}" style="width: {max(2, v/tot*width-2):.1f}px; height: 8px; border-radius: 1px; background: {c};"></div>' for n, v, c in parts)
+    cells += '<div title="still running" style="width: 2px; height: 14px; margin-left: -2px; background: #c9d1d9;"></div>'
     return (f'<div style="display: flex; flex-direction: column; gap: 6px;">'
             f'<div class="fig"><span class="figure">{dur(tot)}</span><span class="unit">of task time today, summed over tasks; up to four agents ran at once, so this is not the clock</span></div>'
             f'<div style="display: flex; gap: 2px; align-items: center;">{cells}</div>'
@@ -183,8 +187,8 @@ def day_card(width, label_w, phone=False, watcher=False):
         ms = "".join(f'<span style="position: absolute; left: {max(0,(day0 + m*60000 - approved)*scale):.1f}px; transform: translateX(-50%); font-size: .6875rem; color: #c9d1d9; white-space: nowrap;">{t} {who}</span>' for t, who, m in pts)
         marks = (f'<div style="display: grid; grid-template-columns: {label_w}px minmax(0, 1fr); gap: 8px; height: 18px;"><span class="q" style="font-size: .6875rem;">the watcher wrote</span>'
                  f'<div style="position: relative; height: 18px;">{ms}</div></div>')
-    cap = ("Today, by task: blue while a worker held it, grey while it waited for a verdict, amber only where that wait is still open past the two-hour floor. A tick for each report, a taller one for each hold; a numeral where reports fell too close to draw apart."
-           if not phone else "Blue: a worker held it. Grey: waiting for a verdict. Amber: still waiting past the floor. Ticks: reports.")
+    cap = ("Today, by task: dark before pickup, blue while a worker held it, grey while it waited for a verdict. A bright edge at the end of a bar is a clock still running; amber is that clock past the two-hour floor. A tick for each report, a taller one for each hold; a numeral where reports fell too close to draw apart."
+           if not phone else "Blue: a worker held it. Grey: waiting for a verdict. A bright end: still running. Amber: past the floor. Ticks: reports.")
     return (f'<div class="ct-panel-card kpi" style="gap: 10px;">'
             f'{split_bar(width + label_w + 8)}'
             f'<div style="padding-top: 10px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent);"><p class="q">{cap}</p></div>{marks}{strip(width, label_w, phone)}</div>')

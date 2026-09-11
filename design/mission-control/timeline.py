@@ -12,13 +12,8 @@ for t in sorted(p["tasks"], key=lambda t: t["created_at"]):
             (r["holds"] if (m.get("text") or "").startswith("Hold") else r["verdicts"]).append(m["ts"])
         if m.get("kind")=="worker_report": r["reports"].append(m["ts"])
     rows.append(r)
-work = sum((a["reported"]-a["assigned"]) for r in rows for a in r["attempts"] if a.get("reported") and a.get("assigned"))/60000
-wait_closed = sum((a["closed"]-a["reported"]) for r in rows for a in r["attempts"] if a.get("closed") and a.get("reported"))/60000
-wait_open = sum((now-a["reported"]) for r in rows for a in r["attempts"] if a.get("reported") and not a.get("closed"))/60000
-pending = sum(((r["attempts"][0]["assigned"] if r["attempts"] and r["attempts"][0].get("assigned") else now) - r["created"]) for r in rows)/60000
-json.dump({"now": now, "approved": approved, "rows": rows, "sum": {"work": work, "wait_closed": wait_closed, "wait_open": wait_open, "pending": pending}}, open(os.path.join(os.environ.get("SC", "."), "timeline.json"), "w"))
+json.dump({"now": now, "approved": approved, "rows": rows}, open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "timeline.json"), "w"))
 print("approved", time.strftime("%H:%M", time.localtime(approved/1000)), "now", time.strftime("%H:%M", time.localtime(now/1000)), "span min %.0f" % ((now-approved)/60000))
-print("minutes: working %.0f · verdict wait closed %.0f · open %.0f · before pickup %.0f" % (work, wait_closed, wait_open, pending))
 for r in rows:
     a = r["attempts"][0] if r["attempts"] else {}
     f = lambda ts: time.strftime("%H:%M", time.localtime(ts/1000)) if ts else "--:--"

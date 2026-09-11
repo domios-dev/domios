@@ -32,3 +32,10 @@ store into `timeline.json`; `gen_board.py` draws `Main`, `Watcher` and `Phone`
 from that file, so every bar, tick and figure on the board is a timestamp the
 daemon recorded. Re-run both, then paste `_kit.css` into the style block (the
 generator leaves a `/*KIT*/` marker), to redraw the board for another night.
+
+To check the headline figure by hand: the four segments of the summary bar are
+the sums over `timeline.json` rows of assigned minus created, reported minus
+assigned, closed minus reported for closed attempts, and now minus reported for
+open ones. On the night of drawing they were 55.4 + 300.5 + 298.7 + 252.2 =
+906.4 minutes, the 15 h 06 m on the card. A cancelled task with no attempt is
+not a row, because nobody is waiting for it.
