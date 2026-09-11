@@ -183,12 +183,21 @@ fn pick_general_agent_session(candidates: &mut [SessionCandidate]) -> Option<Str
         .map(|c| c.session_id.clone())
 }
 
+/// Cap on how much of a session transcript is scanned for the markers below.
+const MARKER_SCAN_LIMIT: usize = 512 * 1024;
+
 fn is_general_agent_session_file(path: &Path) -> bool {
     let Ok(mut text) = std::fs::read_to_string(path) else {
         return false;
     };
-    if text.len() > 512 * 1024 {
-        text.truncate(512 * 1024);
+    if text.len() > MARKER_SCAN_LIMIT {
+        // `String::truncate` panics off a char boundary, and a non-ASCII
+        // transcript lands mid-codepoint here often enough to kill startup.
+        let mut end = MARKER_SCAN_LIMIT;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
     }
     let markers = [
         "# CodeTerm General Agent",
@@ -253,6 +262,34 @@ mod tests {
         }];
 
         assert_eq!(pick_general_agent_session(&mut candidates), None);
+    }
+
+    #[test]
+    fn scans_oversized_session_with_multibyte_text_at_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let ga = dir.path().join("ga.jsonl");
+
+        // Pad so a Cyrillic codepoint straddles MARKER_SCAN_LIMIT, leaving a
+        // UTF-8 continuation byte at the limit — what used to panic startup.
+        let mut line =
+            String::from(r##"{"type":"system","message":{"content":"# CodeTerm General Agent"}}"##);
+        line.push_str(&"a".repeat(MARKER_SCAN_LIMIT - line.len() - 1));
+        line.push('я');
+        line.push_str(&"b".repeat(1024));
+        assert!(line.len() > MARKER_SCAN_LIMIT);
+        assert!(!line.is_char_boundary(MARKER_SCAN_LIMIT));
+        write_jsonl(&ga, &line);
+
+        let mut candidates = vec![SessionCandidate {
+            session_id: "ga-session".into(),
+            file_path: ga.to_string_lossy().to_string(),
+            sort_ts: 10,
+        }];
+
+        assert_eq!(
+            pick_general_agent_session(&mut candidates).as_deref(),
+            Some("ga-session")
+        );
     }
 
     fn write_jsonl(path: &Path, line: &str) {
