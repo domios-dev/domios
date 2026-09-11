@@ -204,7 +204,7 @@ fn receive_plugin(
 }
 
 fn receive_and_deliver(
-    svc: crate::service::ServiceContext,
+    svc: crate::service::ServiceState,
     plugin_id: String,
     receiver: std::sync::Arc<dyn WebhookReceiver>,
     context: WebhookReceiveContext,
@@ -488,7 +488,7 @@ mod tests {
             crate::multiplexer::state::MultiplexerState::empty(),
         );
         let result = receive_and_deliver(
-            fixture.service,
+            fixture.service.clone(),
             "pebble".into(),
             std::sync::Arc::new(NoopReceiver),
             WebhookReceiveContext {
