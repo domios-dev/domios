@@ -214,7 +214,31 @@ function missionControlState(): MissionControlState {
         tokens: { input: 1_400_000_000, uncached_input: 1_500_000, output: 5_300_000, total: 1_405_300_000 },
       },
     },
-    runway: { state: "not_reporting", providers: [] },
+    runway: {
+      state: "reporting",
+      providers: [
+        {
+          provider: "claude",
+          label: "Claude",
+          captured_at: NOW,
+          session_pct: 58,
+          session_resets_at: NOW + 2 * H,
+          weekly_pct: 34,
+          weekly_resets_at: NOW + 48 * H,
+          stale_reason: null,
+        },
+        {
+          provider: "codex",
+          label: "Codex",
+          captured_at: NOW,
+          session_pct: 42,
+          session_resets_at: NOW + 3 * H,
+          weekly_pct: 81,
+          weekly_resets_at: NOW + 72 * H,
+          stale_reason: null,
+        },
+      ],
+    },
   };
 }
 
@@ -283,6 +307,17 @@ describe("mission control narrow shell", () => {
     expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
+    expect(text(narrow.host, "mc-board-areas")).toContain("Tasks by area");
+    expect(text(narrow.host, "mc-board-area-tokens-relation")).toContain("Tokens plan total");
+    expect(narrow.host.querySelectorAll('[data-testid="mc-board-runway-gauge"]')).toHaveLength(4);
+    for (const label of [
+      "Claude · session allowance used",
+      "Claude · weekly allowance used",
+      "Codex · session allowance used",
+      "Codex · weekly allowance used",
+    ]) {
+      expect(text(narrow.host, "mc-board-runway")).toContain(label);
+    }
     expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).not.toBe(
       narrow.host.querySelector('[data-testid="mc-board-card-grid"]'),
     );
