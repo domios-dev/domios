@@ -246,8 +246,11 @@ fn restarted_recorder_resumes_from_the_persisted_cursor_instead_of_reingesting()
 #[test]
 fn disabled_recorder_writes_nothing_and_creates_no_ledger_file() {
     let dir = scratch("flag-off");
-    let config = crate::config::schema::AppConfig::default();
-    assert!(!config.kpi.enabled, "flag is off by default");
+    let config = crate::config::schema::AppConfig {
+        kpi: crate::config::schema::KpiConfig { enabled: false },
+        ..Default::default()
+    };
+    assert!(!crate::agent::kpi_ledger::kpi_ledger_enabled(&config));
 
     let recorder = KpiRecorder::from_config(&config, &dir);
     assert!(!recorder.is_enabled());

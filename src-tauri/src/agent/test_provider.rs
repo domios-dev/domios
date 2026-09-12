@@ -19,6 +19,7 @@ pub struct MockProvider {
     status_bar_rows: u16,
     update_command: Option<String>,
     sessions: std::collections::HashSet<String>,
+    session_file: Option<PathBuf>,
 }
 
 impl MockProvider {
@@ -31,6 +32,16 @@ impl MockProvider {
             status_bar_rows: 0,
             update_command: None,
             sessions: Default::default(),
+            session_file: None,
+        }
+    }
+
+    /// Declares the provider's own session log, so a test can drive the host paths
+    /// that read one through the capability instead of a hardcoded layout.
+    pub fn with_session_file(id: &str, path: PathBuf) -> Self {
+        Self {
+            session_file: Some(path),
+            ..Self::new(id)
         }
     }
 
@@ -142,7 +153,7 @@ impl AgentProvider for MockProvider {
         text.to_lowercase().contains(&self.id)
     }
     fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
-        None
+        self.session_file.clone()
     }
     fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
         self.sessions.contains(session_id)

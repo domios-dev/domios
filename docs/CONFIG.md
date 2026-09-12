@@ -105,7 +105,18 @@ default_collection = ""          # Default collection id for new items (Bitwarde
 [integrations.secrets.bitwarden]
 server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaultwarden URL
 persist_master_password = false              # Save master password in OS keychain on unlock (auto-unlock after restart). Off by default.
+
+[kpi]
+enabled = true                   # Local orchestration-economics ledger; false opts out
 ```
+
+`kpi.enabled` owns the ledger behind Mission Control's Tokens and Turns cards. It
+records plan, task and tab ids, event kinds, byte counts, token counts and
+timestamps in `~/.codeterm/kpi_ledger.db` — never message text, and nothing leaves
+the machine. Opt out with `codeterm config set kpi.enabled false`; opt back in with
+`codeterm config set kpi.enabled true`. Either way the change takes effect on the
+next CodeTerm start, and while it is off the Board shows an explicit not-recording
+state naming this key rather than a zero.
 
 The API listens only on loopback by default. A non-loopback `host` requires a
 non-empty Bearer token. The existing Mesh switch is the only network-access
@@ -191,4 +202,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->

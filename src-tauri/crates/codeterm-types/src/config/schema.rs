@@ -76,17 +76,22 @@ impl Default for AppConfig {
     }
 }
 
-/// Orchestration-economics KPI event ledger. Off by default until phase 3 wires the
-/// choke-point counters and phase 4 ships a query surface.
+/// Orchestration-economics KPI event ledger. On by default: the choke-point counters
+/// and the `aggregate_by_plan` query surface it waited for both ship, and the ledger
+/// stores only local ids, counts and timestamps. Opt out with [`KPI_ENABLED_KEY`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KpiConfig {
     pub enabled: bool,
 }
 
+/// Dot path of the opt-out, as `codeterm config get/set` and the REST config route
+/// address it. Surfaces that name the setting read it from here instead of retyping it.
+pub const KPI_ENABLED_KEY: &str = "kpi.enabled";
+
 impl Default for KpiConfig {
     fn default() -> Self {
-        Self { enabled: false }
+        Self { enabled: true }
     }
 }
 
