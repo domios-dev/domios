@@ -271,7 +271,7 @@ describe("mission control board visual system", () => {
       const { spend, unmount } = await renderAt(width);
 
       expect(spend.querySelector('[data-testid="mc-board-spend-scope"]')?.textContent).toBe(SPEND_SCOPE_CAPTION);
-      expect(spend.querySelectorAll("p")).toHaveLength(1);
+      expect(spend.querySelectorAll("p")).toHaveLength(0);
       const rows = modelRows(spend);
       expect(rows.map((row) => row.querySelector("th")?.textContent)).toEqual(["haiku", UNASSIGNED_MODEL_LABEL, "luna"]);
       expect(rows.map((row) => row.getAttribute("data-unassigned"))).toEqual(["false", "true", "false"]);

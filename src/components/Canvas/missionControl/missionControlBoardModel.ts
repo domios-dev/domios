@@ -344,8 +344,8 @@ export interface SpendProviderGroup {
 
 export interface SpendReading {
   recording: boolean;
-  /** The one line under the heading: the units when measuring, else why not. */
-  note: string;
+  /** Why the ledger is not measuring; null while it is. */
+  note: string | null;
   /** Replaces the rows when there is nothing at all to show; never a dash. */
   emptyCopy: string | null;
   groups: SpendProviderGroup[];
@@ -353,10 +353,6 @@ export interface SpendReading {
 
 /** The row label for a ledger model the provider never resolved. */
 export const UNASSIGNED_MODEL_LABEL = "Unassigned model";
-
-/** The one explanatory line the card is allowed. */
-export const SPEND_UNITS_LINE =
-  "% is share of measured tokens · bars are provider allowance used";
 
 export const SPEND_SCOPE_CAPTION = "this machine";
 
@@ -376,7 +372,7 @@ function providerWindows(provider: ProviderSpend): SpendWindow[] {
     const complete = hasAllowanceWindow(pct, resetsAt);
     return {
       key: `${provider.provider}-${reading.variant}`,
-      label: `${provider.label.trim() || provider.provider} · ${reading.variant}`,
+      label: reading.variant,
       variant: reading.variant,
       pct: complete ? pct : null,
       resetsAt: complete ? resetsAt : null,
@@ -429,7 +425,7 @@ export function spendNotRecordingCopy(
 export function spendReading(spend: MissionControlSpend): SpendReading {
   const recording = spend.state === "recording";
   const note = recording
-    ? SPEND_UNITS_LINE
+    ? null
     : spendNotRecordingCopy(spend.not_recording_reason, spend.enable_setting);
   const groups = spend.providers.map((provider) => ({
     key: provider.provider || "unassigned-provider",
@@ -440,7 +436,7 @@ export function spendReading(spend: MissionControlSpend): SpendReading {
   return {
     recording,
     note,
-    emptyCopy: groups.length === 0 ? note : null,
+    emptyCopy: groups.length === 0 ? note ?? SPEND_NOT_RECORDING_COPY.no_rows_for_plan : null,
     groups,
   };
 }
