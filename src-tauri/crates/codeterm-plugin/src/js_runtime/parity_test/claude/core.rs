@@ -484,7 +484,7 @@ fn hook_contract_repair_ownership_covers_all_historical_generations() {
                 "hooks":{
                     "Notification":[
                         {"matcher":"perm","hooks":[{"type":"command","command":"my-user-script","timeout":1}]},
-                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission"}]},
+                        {"matcher":"perm","hooks":[{"type":"command","command":"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/permission"}]},
                         {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission","_source":"codeterm"}]},
                         {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission","_source":"codeterm-hook-v2"}]}
                     ]

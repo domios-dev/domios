@@ -18,4 +18,11 @@ impl PluginProviderRegistrar for AgentRegistry {
     fn native_fallback(&self, id: &str) -> Option<Arc<dyn codeterm_plugin::AgentProvider>> {
         AgentRegistry::native_fallback(self, id)
     }
+
+    // The one consented reconciliation, reached from the upgrade side. It is
+    // the same operation the daemon-start pass runs and refuses identically
+    // without a recorded consent.
+    fn provider_reloaded(&self, id: &str) {
+        crate::commands::ensure_integration_for_provider(self, id);
+    }
 }

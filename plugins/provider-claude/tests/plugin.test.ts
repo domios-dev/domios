@@ -727,8 +727,10 @@ console.log("\n--- versionless Claude alias catalog ---\n");
 }
 
 
-// A marker-less hook is user-owned even when it resembles an old CodeTerm
-// command. The installer must preserve it and add a separately-owned entry.
+// A marker-less hook that does not match an exact CodeTerm command fingerprint
+// is user-owned even when it resembles one. The installer must preserve it and
+// add a separately-owned entry. (The exact installed forms ARE recognised and
+// migrated — see hook-ownership.test.ts.)
 {
   const settingsPath = "/home/test/.claude/settings.json";
   const legacy = {
@@ -739,7 +741,8 @@ console.log("\n--- versionless Claude alias catalog ---\n");
           hooks: [
             {
               type: "command",
-              // The shipped shape: env-var URL, no port literal, no _source marker.
+              // Near the shipped shape but not it: no auth header, so it fails
+              // the migration fingerprint and stays unclassified.
               command:
                 'if [ -n "${CODETERM_API_URL:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start"; fi',
               timeout: 5000,
