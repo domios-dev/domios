@@ -782,6 +782,10 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mem/dream", post(mem_routes::mem_dream))
         .route(
+            "/api/mem/dream/diary",
+            get(mem_routes::mem_dream_diary),
+        )
+        .route(
             "/api/mem/extract-pending",
             post(mem_routes::mem_extract_pending),
         )
