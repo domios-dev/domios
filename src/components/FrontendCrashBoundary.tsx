@@ -39,6 +39,25 @@ type Props = {
 };
 type State = { error: Error | null; safeStart: boolean };
 
+const FALLBACK_ERROR_MESSAGE = "The interface failed without an error message.";
+const FALLBACK_STACK = "No stack trace was available.";
+
+function crashDetails(error: Error): { message: string; stack: string } {
+  const rawMessage = error.message.trim();
+  const message = rawMessage || FALLBACK_ERROR_MESSAGE;
+  const stack = error.stack?.trimEnd() ?? "";
+  if (!stack.trim()) return { message, stack: FALLBACK_STACK };
+
+  const lines = stack.split(/\r?\n/);
+  const firstLine = lines[0]?.trim() ?? "";
+  if (rawMessage && !firstLine.startsWith("at ") && !firstLine.startsWith("at\t") && firstLine.endsWith(rawMessage)) {
+    lines.shift();
+  }
+
+  const remainingStack = lines.join("\n").trimEnd();
+  return { message, stack: remainingStack.trim() ? remainingStack : FALLBACK_STACK };
+}
+
 function CrashWindowChrome() {
   const appWindow = "__TAURI_INTERNALS__" in window ? getCurrentWindow() : null;
   return (
@@ -104,6 +123,8 @@ export class FrontendCrashBoundary extends Component<Props, State> {
 
     if (!this.state.error) return this.props.children;
 
+    const details = crashDetails(this.state.error);
+
     return (
       <div className="frontend-crash__shell">
         <CrashWindowChrome />
@@ -112,7 +133,18 @@ export class FrontendCrashBoundary extends Component<Props, State> {
             <p className="frontend-crash__eyebrow">CodeTerm UI error</p>
             <h1 id="frontend-crash-title">The interface could not render</h1>
             <p>The daemon and terminals may still be running. Reload the interface after reviewing the error.</p>
-            <pre>{this.state.error.stack ?? this.state.error.message}</pre>
+            <section className="frontend-crash__detail" aria-labelledby="frontend-crash-message-label">
+              <h2 id="frontend-crash-message-label">Error message</h2>
+              <p className="frontend-crash__message" id="frontend-crash-message" data-testid="frontend-crash-message">
+                {details.message}
+              </p>
+            </section>
+            <section className="frontend-crash__detail" aria-labelledby="frontend-crash-stack-label">
+              <h2 id="frontend-crash-stack-label">Stack trace</h2>
+              <pre className="frontend-crash__stack" id="frontend-crash-stack" data-testid="frontend-crash-stack">
+                {details.stack}
+              </pre>
+            </section>
             <div className="frontend-crash__actions">
               <button type="button" onClick={this.leaveCrashedLocation}>
                 Leave this location

@@ -11,6 +11,9 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const CRASHING_URL = "http://blackstar.example/app?e2e=1#relay=peer-1";
 const PEER_ID = "peer-1";
+const CRASH_MESSAGE = "render exploded with an actionable message";
+const LONG_MINIFIED_FRAME = `    at t (https://blackstar.example/assets/index-9f8e7d6c.js?source=${"x".repeat(220)}:1:48291)`;
+const CRASH_STACK = [`Error: ${CRASH_MESSAGE}`, LONG_MINIFIED_FRAME, "    at n (https://blackstar.example/assets/index-9f8e7d6c.js:1:48302)"].join("\n");
 
 const testWindow = new Window({ url: CRASHING_URL });
 for (const key of [
@@ -32,9 +35,12 @@ for (const key of [
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let brokenRenders = 0;
+const renderError = new Error(CRASH_MESSAGE);
+renderError.stack = CRASH_STACK;
+
 function BrokenView(): React.ReactNode {
   brokenRenders += 1;
-  throw new Error("render exploded");
+  throw renderError;
 }
 
 function HealthyView(): React.ReactNode {
@@ -81,7 +87,21 @@ async function main() {
   );
 
   assert(crashHost.querySelector('[role="alert"]'), "render errors show an in-app crash surface");
-  assert(crashHost.textContent?.includes("render exploded"), "crash surface includes the actionable error");
+  const messageDetail = crashHost.querySelector<HTMLElement>("#frontend-crash-message");
+  const stackDetail = crashHost.querySelector<HTMLElement>("#frontend-crash-stack");
+  assert(messageDetail, "crash surface has a stable error-message detail");
+  assert(stackDetail, "crash surface has a stable stack-trace detail");
+  assert(messageDetail.dataset.testid === "frontend-crash-message", "error message has a test anchor");
+  assert(stackDetail.dataset.testid === "frontend-crash-stack", "stack trace has a test anchor");
+  assert(messageDetail.classList.contains("frontend-crash__message"), "error message has a readable presentation anchor");
+  assert(stackDetail.classList.contains("frontend-crash__stack"), "stack trace has a contained presentation anchor");
+  assert(messageDetail.textContent?.trim() === CRASH_MESSAGE, "crash surface presents the thrown message as primary detail");
+  assert(stackDetail.textContent?.includes(LONG_MINIFIED_FRAME), "long minified frames remain available in the stack detail");
+  assert(!stackDetail.textContent?.includes(CRASH_MESSAGE), "the stack detail does not duplicate its message header");
+  assert(
+    Boolean(messageDetail.compareDocumentPosition(stackDetail) & Node.DOCUMENT_POSITION_FOLLOWING),
+    "the error message appears before the stack detail",
+  );
   assert(crashHost.querySelector("[data-tauri-drag-region]"), "crash surface keeps a draggable titlebar");
   assert(crashHost.textContent?.includes("Reload interface"), "crash surface keeps the reload action");
 
