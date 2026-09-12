@@ -142,6 +142,13 @@ impl ServiceContext {
         self.kpi.record(attribution.into_event(kind, bytes as u64));
     }
 
+    /// The tab's agent turn just settled, which is the one event that means its
+    /// provider log grew. Bound to the turn boundary itself and never to a tab
+    /// status value: a tab whose status never flips still finishes turns.
+    pub(crate) fn on_agent_turn_settled(&self, tab_id: &str) {
+        self.request_kpi_usage_ingest(tab_id);
+    }
+
     /// Queues a forward-only pass over the tab's provider session log. The path comes
     /// from the provider capability, so core never encodes a per-provider layout.
     pub(crate) fn request_kpi_usage_ingest(&self, tab_id: &str) {
