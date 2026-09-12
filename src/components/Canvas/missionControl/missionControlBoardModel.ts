@@ -24,8 +24,12 @@ export function boardLayout(width: number): BoardLayout {
   return width > 0 && width <= BOARD_NARROW_MAX_PX ? "narrow" : "wide";
 }
 
+/** The wide card grid's lead fraction; Spend's label column is derived from it in CSS. */
+export const BOARD_LEAD_FRACTION = 1.6;
+export const BOARD_TRAILING_TRACKS = 3;
+
 export const BOARD_CARD_COLUMNS: Record<BoardLayout, string> = {
-  wide: "1.6fr minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)",
+  wide: `minmax(0, ${BOARD_LEAD_FRACTION}fr) repeat(${BOARD_TRAILING_TRACKS}, minmax(0, 1fr))`,
   narrow: "repeat(2, minmax(0, 1fr))",
 };
 
@@ -381,18 +385,28 @@ function providerWindows(provider: ProviderSpend): SpendWindow[] {
   });
 }
 
+export const SPEND_MODEL_COLUMN_LABEL = "model";
+export const SPEND_SHARE_COLUMN_LABEL = "share";
+
+/** Fixed column order shared by the table header and every model row. */
+export const SPEND_FIGURE_COLUMNS = [
+  { key: "turns", label: "turns", field: "turns" },
+  { key: "input", label: "input", field: "input_tokens" },
+  { key: "uncached", label: "uncached", field: "uncached_input_tokens" },
+  { key: "output", label: "output", field: "output_tokens" },
+] as const;
+
 function modelRows(provider: ProviderSpend): SpendModelRow[] {
   return provider.models.map((model, index) => ({
     key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
     label: model.model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model.model) ?? model.model,
     unassigned: model.model == null,
     sharePct: model.token_share_pct,
-    figures: [
-      { key: "turns", label: "turns", value: model.turns },
-      { key: "input", label: "input", value: model.input_tokens },
-      { key: "uncached", label: "uncached", value: model.uncached_input_tokens },
-      { key: "output", label: "output", value: model.output_tokens },
-    ],
+    figures: SPEND_FIGURE_COLUMNS.map((column) => ({
+      key: column.key,
+      label: column.label,
+      value: model[column.field],
+    })),
   }));
 }
 

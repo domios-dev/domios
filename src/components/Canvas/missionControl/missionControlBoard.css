@@ -1,11 +1,24 @@
-/* Board layout: one 12px gap between and inside the wells; the host is chrome. */
+/* Board system: three text sizes, a 4px spacing step, and one lead column that
+   the card grid, Spend and every later grid-aligned row share. */
 .mc-board {
+  --mc-text-meta: 11px;
+  --mc-text-body: 13px;
+  --mc-text-figure: 22px;
+  --mc-space-1: 4px;
+  --mc-space-2: 8px;
+  --mc-space-3: 12px;
+  --mc-space-4: 16px;
+  --mc-gap: var(--mc-space-3);
+  --mc-card-pad: var(--mc-space-3);
+  --mc-card-inset: calc(var(--mc-card-pad) + 1px);
+  /* Resolved inside a card: the first card-grid track (1.6 of 4.6 fr, three gaps) minus the card inset. */
+  --mc-lead: calc((100% + 2 * var(--mc-card-inset) - 3 * var(--mc-gap)) * 1.6 / 4.6 - var(--mc-card-inset));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--mc-gap);
   min-width: 0;
   height: 100%;
-  padding: 12px 12px 16px;
+  padding: var(--mc-space-3) var(--mc-space-3) var(--mc-space-4);
   overflow-x: hidden;
   overflow-y: auto;
   background: var(--ct-surface);
@@ -107,27 +120,28 @@
 .mc-board-card-grid,
 .mc-board-spend-window-grid {
   display: grid;
-  gap: 12px;
+  gap: var(--mc-gap);
   align-items: stretch;
   min-width: 0;
 }
 
 .mc-board[data-board-layout="narrow"] .mc-board-card-grid {
-  gap: 8px;
+  gap: var(--mc-space-2);
 }
 
 .mc-board-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--mc-space-2);
   min-width: 0;
-  padding: 12px;
+  padding: var(--mc-card-pad);
 }
 
 .mc-board-card h2 {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--mc-text-body);
   font-weight: 600;
+  line-height: 1.3;
   color: var(--ct-fg);
 }
 
@@ -135,25 +149,55 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--mc-space-2);
   min-width: 0;
 }
 
 .mc-board-card-head .mc-board-caption {
   min-width: 0;
   text-align: right;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+
+/* A row of figure cards shares one height; the title holds the top edge and the
+   reading holds the bottom edge, so a taller neighbour never leaves dead space below. */
+.mc-board-card-grid > .mc-board-figure-card {
+  justify-content: space-between;
+}
+
+.mc-board-reading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-1);
+  min-width: 0;
+}
+
+.mc-board-figure {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mc-board-card-tasks .mc-board-reading {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--mc-space-4);
+  align-items: end;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-card-grid > .mc-board-card-tasks,
+.mc-board[data-board-layout="narrow"] .mc-board-card-grid > .mc-board-card:nth-child(even):last-child {
+  grid-column: 1 / -1;
 }
 
 .mc-board-amount {
   font-family: var(--ct-font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 26px;
+  font-size: var(--mc-text-figure);
   font-weight: 600;
   line-height: 1.1;
-  letter-spacing: 0.01em;
   color: var(--ct-fg);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .mc-board-amount-warn {
@@ -161,16 +205,18 @@
 }
 
 .mc-board-caption {
-  font-size: 11px;
+  font-size: var(--mc-text-meta);
+  font-weight: 400;
+  line-height: 1.35;
   color: var(--ct-muted-fg);
 }
 
 .mc-board-detail {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--mc-text-meta);
   line-height: 1.5;
   color: var(--ct-muted-fg);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .mc-board-detail b {
@@ -181,23 +227,27 @@
 
 .mc-board-status-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 10px;
+  grid-template-columns: repeat(4, minmax(0, max-content));
+  gap: var(--mc-space-1) var(--mc-space-3);
+  justify-content: end;
   min-width: 0;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-status-list {
+  grid-template-columns: repeat(3, minmax(0, max-content));
 }
 
 .mc-board-status {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--mc-space-2);
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--mc-text-meta);
 }
 
 .mc-board-status-label {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .mc-board-status b {
@@ -206,112 +256,172 @@
 
 .mc-board-note {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--mc-text-body);
+  font-weight: 400;
   line-height: 1.5;
   color: var(--ct-muted-fg);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .mc-board-note-error {
   color: var(--ct-red);
 }
 
-.mc-board[data-board-layout="narrow"] .mc-board-status-list {
-  column-gap: 6px;
+/* Spend is a real table drawn on grid rows: the label column is the board's
+   lead column, so share starts exactly under the second top card. */
+.mc-board-spend-table {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.mc-board-spend-table > thead,
+.mc-board-spend-table > tbody {
+  display: block;
+  min-width: 0;
+}
+
+.mc-board-spend-row {
+  display: grid;
+  grid-template-columns: var(--mc-lead) repeat(5, minmax(0, 1fr));
+  column-gap: var(--mc-gap);
+  align-items: baseline;
+  min-width: 0;
+  padding-block: var(--mc-space-1);
+}
+
+.mc-board-spend-row > th,
+.mc-board-spend-row > td {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  font-size: var(--mc-text-body);
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+}
+
+.mc-board-spend-row > .mc-board-spend-num {
+  text-align: right;
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mc-board-spend-columns {
+  padding-block: 0 var(--mc-space-1);
+}
+
+.mc-board-spend-columns > th,
+.mc-board-spend-columns > .mc-board-spend-num {
+  font-family: inherit;
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-spend-group {
+  align-items: start;
+  margin-top: var(--mc-space-2);
+  padding-top: var(--mc-space-3);
+  padding-bottom: var(--mc-space-2);
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
+}
+
+.mc-board-spend-row > .mc-board-spend-provider-name {
+  font-weight: 600;
+}
+
+.mc-board-spend-allowance {
+  grid-column: 2 / -1;
+}
+
+.mc-board-spend-row > .mc-board-spend-model-share {
+  font-weight: 600;
+}
+
+.mc-board-spend-model[data-unassigned="true"] > .mc-board-spend-model-name {
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-spend-row > .mc-board-spend-empty {
+  grid-column: 1 / -1;
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
 }
 
 .mc-board-spend-gauge {
   min-width: 0;
 }
 
-.mc-board-spend-gauge .ct-usage-gauge .label {
+.mc-board-spend .ct-usage-gauge .label {
   min-width: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.mc-board-spend-provider {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.mc-board-spend-provider-name {
-  margin: 0;
-  font-size: 0.75rem;
+.mc-board-spend .ct-usage-gauge .pct {
+  font-size: var(--mc-text-body);
   font-weight: 600;
-  letter-spacing: 0.02em;
 }
 
-.mc-board-spend-model {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-  min-width: 0;
+.mc-board-spend .ct-usage-gauge .reset {
+  font-size: var(--mc-text-meta);
+  font-weight: 400;
 }
 
-.mc-board-spend-model-name {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow-wrap: anywhere;
-  font-variant-numeric: tabular-nums;
+/* Phone: each model reads as two lines of one four-track grid, name and share
+   first, the four figures under their own labels, with the header drawn the same way. */
+.mc-board[data-board-layout="narrow"] .mc-board-spend-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: var(--mc-space-2);
+  row-gap: var(--mc-space-1);
 }
 
-.mc-board-spend-model[data-unassigned="true"] .mc-board-spend-model-name {
-  opacity: 0.7;
-  font-style: italic;
+.mc-board[data-board-layout="narrow"] .mc-board-spend-row > :first-child {
+  grid-column: 1 / 4;
 }
 
-.mc-board-spend-model-share {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+.mc-board[data-board-layout="narrow"] .mc-board-spend-group > .mc-board-spend-provider-name,
+.mc-board[data-board-layout="narrow"] .mc-board-spend-group > .mc-board-spend-allowance,
+.mc-board[data-board-layout="narrow"] .mc-board-spend-row > .mc-board-spend-empty {
+  grid-column: 1 / -1;
 }
 
-.mc-board-spend-figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  min-width: 0;
+.mc-board[data-board-layout="narrow"] .mc-board-spend-model {
+  padding-block: var(--mc-space-2);
 }
 
-.mc-board-spend-figure {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  min-width: 0;
+.mc-board[data-board-layout="narrow"] .mc-board-spend-model + .mc-board-spend-model {
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 40%, transparent);
 }
 
-.mc-board-spend-figure i {
-  font-style: normal;
-  opacity: 0.65;
-}
-
-.mc-board-spend-figure b {
-  font-variant-numeric: tabular-nums;
-}
-
+/* Role counts sit in a column sized by the longest role name, beside the names they count. */
 .mc-board-kv-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) max-content max-content;
+  justify-content: start;
+  gap: var(--mc-space-1) var(--mc-space-4);
+  align-items: baseline;
   min-width: 0;
 }
 
 .mc-board-kv {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 72px) minmax(0, 48px);
-  gap: 10px;
-  align-items: baseline;
+  display: contents;
 }
 
 .mc-board-kv-key {
   min-width: 0;
-  font-size: 0.8125rem;
+  font-size: var(--mc-text-body);
   color: var(--ct-fg);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .mc-board-kv-value,
@@ -322,13 +432,13 @@
 }
 
 .mc-board-kv-value {
-  font-size: 12px;
+  font-size: var(--mc-text-body);
   font-weight: 600;
   color: var(--ct-fg);
 }
 
 .mc-board-kv-share {
-  font-size: 11px;
+  font-size: var(--mc-text-meta);
   color: var(--ct-muted-fg);
 }
 
@@ -338,7 +448,7 @@
   gap: 3px 10px;
   align-items: baseline;
   min-width: 0;
-  font-size: 0.8125rem;
+  font-size: var(--mc-text-body);
   line-height: 1.45;
 }
 
@@ -352,20 +462,20 @@
   padding-top: 6px;
   border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
   font-family: var(--ct-font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--mc-text-meta);
   color: var(--ct-muted);
 }
 
 .mc-board-log-time {
   font-family: var(--ct-font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--mc-text-meta);
   color: var(--ct-muted);
 }
 
 .mc-board-log-kind,
 .mc-board-log-author {
   min-width: 0;
-  font-size: 0.6875rem;
+  font-size: var(--mc-text-meta);
   color: var(--ct-muted-fg);
   white-space: nowrap;
   overflow: hidden;
@@ -434,7 +544,7 @@
   background: none;
   color: var(--ct-muted);
   font: inherit;
-  font-size: 0.6875rem;
+  font-size: var(--mc-text-meta);
   line-height: inherit;
   cursor: pointer;
 }

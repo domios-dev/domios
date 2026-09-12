@@ -1,34 +1,28 @@
 import type { ReactNode } from "react";
-import { UsageGauge } from "../../Usage/UsageGauge";
 import {
   areaReading,
-  BOARD_SPEND_WINDOW_COLUMNS,
   decisionsWaitingReading,
   formatAgeMs,
   formatCompact,
   formatCount,
-  formatSharePct,
   longestWaitReading,
   notRecordingCopy,
-  spendReading,
-  SPEND_SCOPE_CAPTION,
   taskStatusBreakdown,
-  type BoardLayout,
-  type SpendProviderGroup,
-  type SpendWindow,
 } from "./missionControlBoardModel";
-import { AnimatedNumber, useAnimatedNumber } from "./AnimatedNumber";
+import { AnimatedNumber } from "./AnimatedNumber";
 import type {
   AreaGrouping,
   BounceSummary,
   HeldForDecision,
   MissionControlKpi,
-  MissionControlSpend,
   PlanTaskCounts,
 } from "./missionControlState";
 
+export { SpendCard } from "./BoardSpendCard";
+
 interface FigureCardProps {
   testId: string;
+  className?: string;
   title: string;
   amount: ReactNode;
   amountTone?: "plain" | "warn";
@@ -36,20 +30,25 @@ interface FigureCardProps {
   detail?: ReactNode;
 }
 
-function FigureCard({ testId, title, amount, amountTone = "plain", caption, detail }: FigureCardProps) {
+function FigureCard({ testId, className, title, amount, amountTone = "plain", caption, detail }: FigureCardProps) {
   return (
-    <section data-testid={testId} className="ct-panel-card mc-board-card">
+    <section
+      data-testid={testId}
+      className={`ct-panel-card mc-board-card mc-board-figure-card${className ? ` ${className}` : ""}`}
+    >
       <h2>{title}</h2>
-      <div>
-        <div
-          data-testid={`${testId}-amount`}
-          className={`mc-board-amount${amountTone === "warn" ? " mc-board-amount-warn" : ""}`}
-        >
-          {amount}
+      <div data-testid={`${testId}-reading`} className="mc-board-reading">
+        <div className="mc-board-figure">
+          <div
+            data-testid={`${testId}-amount`}
+            className={`mc-board-amount${amountTone === "warn" ? " mc-board-amount-warn" : ""}`}
+          >
+            {amount}
+          </div>
+          <div className="mc-board-caption">{caption}</div>
         </div>
-        <div className="mc-board-caption">{caption}</div>
+        {detail != null && <div className="mc-board-detail">{detail}</div>}
       </div>
-      {detail != null && <div className="mc-board-detail">{detail}</div>}
     </section>
   );
 }
@@ -207,103 +206,12 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
   );
 }
 
-export function SpendCard({
-  spend,
-  layout,
-  now,
-}: {
-  spend: MissionControlSpend;
-  layout: BoardLayout;
-  now: number;
-}) {
-  const reading = spendReading(spend);
-  return (
-    <section data-testid="mc-board-spend" className="ct-panel-card mc-board-card">
-      <div className="mc-board-card-head">
-        <h2>Spend</h2>
-        <span data-testid="mc-board-spend-scope" className="mc-board-caption">
-          {SPEND_SCOPE_CAPTION}
-        </span>
-      </div>
-      {reading.emptyCopy ? (
-        <p data-testid="mc-board-spend-empty" className="mc-board-note">
-          {reading.emptyCopy}
-        </p>
-      ) : (
-        <>
-          <p data-testid="mc-board-spend-units" className="mc-board-caption">
-            {reading.note}
-          </p>
-          {reading.groups.map((group) => (
-            <SpendProvider key={group.key} group={group} layout={layout} now={now} />
-          ))}
-        </>
-      )}
-    </section>
-  );
-}
-
-function SpendProvider({
-  group,
-  layout,
-  now,
-}: {
-  group: SpendProviderGroup;
-  layout: BoardLayout;
-  now: number;
-}) {
-  return (
-    <div data-testid="mc-board-spend-provider" data-provider={group.key} className="mc-board-spend-provider">
-      <h3 className="mc-board-spend-provider-name">{group.label}</h3>
-      <div
-        data-testid="mc-board-spend-window-grid"
-        className="mc-board-spend-window-grid"
-        style={{ gridTemplateColumns: BOARD_SPEND_WINDOW_COLUMNS[layout] }}
-      >
-        {group.windows.map((gauge) => (
-          <SpendWindowGauge key={gauge.key} gauge={gauge} now={now} />
-        ))}
-      </div>
-      {group.models.length === 0 ? (
-        <p data-testid="mc-board-spend-provider-empty" className="mc-board-note">
-          no data
-        </p>
-      ) : (
-        group.models.map((model) => (
-          <div
-            key={model.key}
-            data-testid="mc-board-spend-model"
-            data-model-key={model.key}
-            data-unassigned={model.unassigned ? "true" : "false"}
-            className="mc-board-spend-model"
-          >
-            <span className="mc-board-spend-model-name">{model.label}</span>
-            <span className="mc-board-spend-model-share">{formatSharePct(model.sharePct)}</span>
-            <span className="mc-board-spend-figures">
-              {model.figures.map((figure) => (
-                <span key={figure.key} className="mc-board-spend-figure">
-                  <i>{figure.label}</i>
-                  <b>
-                    <AnimatedNumber
-                      value={figure.value}
-                      format={figure.key === "turns" ? formatCount : formatCompact}
-                    />
-                  </b>
-                </span>
-              ))}
-            </span>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
 export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
   const statuses = taskStatusBreakdown(counts);
   return (
     <FigureCard
       testId="mc-board-tasks"
+      className="mc-board-card-tasks"
       title="Tasks"
       amount={<AnimatedNumber value={counts.total} format={formatCount} />}
       caption="total tasks"
@@ -320,21 +228,5 @@ export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
         </div>
       }
     />
-  );
-}
-
-function SpendWindowGauge({ gauge, now }: { gauge: SpendWindow; now: number }) {
-  const pct = useAnimatedNumber(gauge.pct);
-  return (
-    <div data-testid="mc-board-spend-gauge" data-window-key={gauge.key} className="mc-board-spend-gauge">
-      <UsageGauge
-        label={gauge.label}
-        variant={gauge.variant}
-        pct={pct}
-        resetsAt={gauge.resetsAt}
-        state={gauge.state}
-        now={now}
-      />
-    </div>
   );
 }
