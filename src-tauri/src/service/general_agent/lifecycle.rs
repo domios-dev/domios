@@ -556,7 +556,13 @@ pub fn start_general_agent(
         return;
     }
     if !launched {
-        fail_general_agent_start(svc, mux, &tab_id, "agent output deadline elapsed");
+        defer_general_agent_start_to_late_readiness(
+            svc,
+            mux,
+            &tab_id,
+            &pty_id,
+            "agent output deadline elapsed",
+        );
         return;
     }
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
@@ -847,6 +853,23 @@ fn fail_general_agent_start(
         tab.agent_booting = false;
     }
     svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
+    svc.emit_state_changed();
+}
+
+/// An output deadline is this observer giving up, not the launch failing: the
+/// tab keeps a provisional stage bound to this PTY and this launch attempt, so
+/// the agent's own late session binding can still retire it.
+fn defer_general_agent_start_to_late_readiness(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    tab_id: &str,
+    pty_id: &str,
+    reason: &str,
+) {
+    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+        tab.agent_booting = false;
+    }
+    svc.record_launch_output_deadline(tab_id, pty_id, reason);
     svc.emit_state_changed();
 }
 
