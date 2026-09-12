@@ -802,9 +802,77 @@ fn claude_status_elapsed_freeze_does_not_latch_working() {
     let mut restarted = quiescent_input(&restarted_screen);
     restarted.status_elapsed = tracker.observe(super::observed_status_elapsed_ms(&restarted_screen));
     assert_eq!(restarted.status_elapsed.previous_ms, None);
+    assert!(
+        !restarted.status_elapsed.progressed,
+        "a restarted counter is a new turn and inherits no progress"
+    );
     assert_eq!(
         classify_state(&restarted, working()).state,
         TimelineState::Idle
+    );
+}
+
+/// The cadence the fix exists for: the live sweep re-classifies every 350ms, so a
+/// multi-second repaint gap is mostly frozen ticks. Progress already observed for
+/// this widget carries them, and expires at `STUCK_WORKING_IDLE_MS` so a turn that
+/// ended leaving frozen paint behind still settles.
+#[test]
+fn claude_status_elapsed_progress_survives_frozen_ticks_then_expires() {
+    let baseline_screen = claude_quiet_working_screen("14s");
+    let advanced_screen = claude_quiet_working_screen("21s");
+
+    let mut tracker = StatusElapsedTracker::new();
+    tracker.observe(super::observed_status_elapsed_ms(&baseline_screen));
+    assert!(tracker
+        .observe(super::observed_status_elapsed_ms(&advanced_screen))
+        .advancing());
+
+    let frozen = tracker.observe(super::observed_status_elapsed_ms(&advanced_screen));
+    assert!(!frozen.advancing());
+    assert!(frozen.progressed);
+
+    // Past the working grace, so only observed progress can carry this tick.
+    let mut within_window = quiescent_input(&advanced_screen);
+    within_window.status_elapsed = frozen;
+    within_window.byte_idle_ms = super::STUCK_WORKING_IDLE_MS - 1_000;
+    within_window.semantic_idle_ms = super::STUCK_WORKING_IDLE_MS - 1_000;
+    assert!(within_window.byte_idle_ms > super::WORKING_GRACE_MS);
+    assert_eq!(
+        classify_state(&within_window, working()).state,
+        TimelineState::Working,
+        "a frozen tick inside the anti-stuck window rides the observed progress"
+    );
+
+    let mut past_window = quiescent_input(&advanced_screen);
+    past_window.status_elapsed = frozen;
+    past_window.byte_idle_ms = super::STUCK_WORKING_IDLE_MS;
+    past_window.semantic_idle_ms = super::STUCK_WORKING_IDLE_MS;
+    assert_eq!(
+        classify_state(&past_window, working()).state,
+        TimelineState::Idle,
+        "observed progress expires at the deadline the file already promises"
+    );
+}
+
+/// The screen the stale-status pin uses was never observed advancing, so sticky
+/// progress cannot resurrect it. Pinned next to the sticky case on purpose.
+#[test]
+fn claude_status_elapsed_never_advanced_widget_stays_idle_at_the_prompt() {
+    let stale = claude_quiet_working_screen("12m 57s");
+    let mut tracker = StatusElapsedTracker::new();
+
+    let first_sight = tracker.observe(super::observed_status_elapsed_ms(&stale));
+    assert!(!first_sight.progressed);
+
+    let mut input = quiescent_input(&stale);
+    input.status_elapsed = tracker.observe(super::observed_status_elapsed_ms(&stale));
+    input.byte_idle_ms = 2_000;
+    input.semantic_idle_ms = 2_000;
+    assert!(!input.status_elapsed.progressed);
+    assert_eq!(
+        classify_state(&input, working()).state,
+        TimelineState::Idle,
+        "paint never seen advancing must not be carried by stickiness"
     );
 }
 
@@ -871,9 +939,10 @@ fn live_and_offline_status_elapsed_sequences_match() {
     );
 }
 
-/// The same sequence through the REAL replay adapter: a painted grid, the
-/// extractor's own quiescence clocks, and `classify_signals` threading the
-/// shared tracker.
+/// The same arc through the REAL replay adapter: a painted grid, the extractor's
+/// own quiescence clocks, and `classify_signals` threading the shared tracker.
+/// Repaint, advance, a frozen repaint inside the anti-stuck window, then silence
+/// past it.
 #[test]
 fn cast_replay_status_elapsed_advance_keeps_working_after_bytes_go_quiet() {
     let builder = ClassifyInputBuilder::for_rows(StatusBarRows::fixture(0));
@@ -882,24 +951,45 @@ fn cast_replay_status_elapsed_advance_keeps_working_after_bytes_go_quiet() {
     let mut previous = working();
     let mut states = Vec::new();
 
-    for (index, elapsed) in ["14s", "20s", "20s"].iter().enumerate() {
-        let painted_ms = index as u64 * 10_000;
-        extractor.step(&paint(&claude_quiet_working_screen(elapsed)), painted_ms);
-        let signals = extractor.step(b"", painted_ms + 6_000);
-        assert_eq!(signals.quiescence.byte_idle_ms, 6_000);
-        assert!(signals.quiescence.semantic_idle_ms >= 6_000);
-        previous =
-            super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
-        states.push(previous.state);
-    }
+    extractor.step(&paint(&claude_quiet_working_screen("14s")), 0);
+    let signals = extractor.step(b"", 6_000);
+    assert_eq!(signals.quiescence.byte_idle_ms, 6_000);
+    previous =
+        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    states.push(previous.state);
+
+    extractor.step(&paint(&claude_quiet_working_screen("20s")), 10_000);
+    let signals = extractor.step(b"", 16_000);
+    assert_eq!(signals.quiescence.byte_idle_ms, 6_000);
+    previous =
+        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    states.push(previous.state);
+
+    // Same counter repainted: a frozen pair, but this widget has been seen
+    // advancing and the anti-stuck deadline has not passed.
+    extractor.step(&paint(&claude_quiet_working_screen("20s")), 20_000);
+    let signals = extractor.step(b"", 23_000);
+    assert_eq!(signals.quiescence.byte_idle_ms, 3_000);
+    assert!(signals.quiescence.byte_idle_ms < super::STUCK_WORKING_IDLE_MS);
+    previous =
+        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    states.push(previous.state);
+
+    let signals = extractor.step(b"", 26_000);
+    assert!(signals.quiescence.byte_idle_ms >= super::STUCK_WORKING_IDLE_MS);
+    assert!(signals.quiescence.semantic_idle_ms >= super::STUCK_WORKING_IDLE_MS);
+    previous =
+        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    states.push(previous.state);
 
     assert_eq!(
         states,
         vec![
             TimelineState::Idle,
             TimelineState::Working,
+            TimelineState::Working,
             TimelineState::Idle,
         ],
-        "replay agrees with the live oracle: only the advancing frame is Working"
+        "replay agrees with the live oracle across advance, frozen tick and expiry"
     );
 }
