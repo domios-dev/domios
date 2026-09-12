@@ -16,6 +16,7 @@ import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./com
 import "./styles/globals.css";
 import "./components/FrontendCrashBoundary.css";
 import "./components/Canvas/missionControl/missionControl.css";
+import "./components/Canvas/missionControl/missionControlBoard.css";
 
 const root = document.getElementById("root")!;
 const missionControlPrototype = isMissionControlPrototypeRoute();

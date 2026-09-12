@@ -11,7 +11,8 @@ import { PlanDetailOverlay, type PlanDetailKind } from "../planView/PlanDetailOv
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
 import type { Plan, Section, Task } from "../types";
-import { MissionControlLiveView } from "./MissionControlLiveView";
+import { MissionControlBoard } from "./MissionControlBoard";
+import { usePlanBoardState } from "./usePlanBoardState";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
 
@@ -140,6 +141,8 @@ export function MissionControlPlanSurface({
     setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections });
   }, [selectedPlan, selectedSpecSections]);
 
+  const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
+
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
@@ -179,13 +182,14 @@ export function MissionControlPlanSurface({
           </p>
         )}
         {showsData && selectedPlan && (
-          <MissionControlLiveView
-            plans={orderedPlans}
-            activePlanId={selectedPlan.id}
+          <MissionControlBoard
+            plan={selectedPlan}
+            state={boardState.state}
+            loading={boardState.loading}
+            error={boardState.error}
             tabs={tabs}
-            onTaskClick={openTask}
             onOpenPlan={openPlanDetail}
-            onAgentClick={onOpenTab}
+            onOpenTab={onOpenTab}
           />
         )}
       </div>
