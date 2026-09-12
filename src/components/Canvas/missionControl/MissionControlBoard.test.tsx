@@ -1,4 +1,5 @@
 import { act, type ReactElement } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
@@ -235,6 +236,28 @@ beforeEach(() => {
 });
 
 describe("mission control board cards", () => {
+  it("mission_control_board_paints_theme_backed_opaque_surface", async () => {
+    const { host, unmount } = await render(board(recordingState()));
+
+    const root = host.querySelector('[data-testid="mission-control-board"]');
+    expect(root?.classList.contains("mc-board")).toBe(true);
+
+    const boardCss = readFileSync("src/components/Canvas/missionControl/missionControlBoard.css", "utf8");
+    const boardRule = boardCss.match(/\.mc-board\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(boardRule).toContain("background: var(--ct-surface);");
+    expect(boardRule).not.toMatch(/background(?:-color)?\s*:\s*transparent/);
+
+    const appSource = readFileSync("src/App.tsx", "utf8");
+    expect(appSource).toContain(
+      'const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;',
+    );
+    const terminalTabSource = readFileSync("src/components/Terminal/TerminalTab.tsx", "utf8");
+    expect(terminalTabSource).toContain(
+      'visibility: isVisible && terminalVisible && !historyReplaying ? "visible" : "hidden",',
+    );
+    await unmount();
+  });
+
   it("reads progress and ledger-backed spend into the status header", async () => {
     const { host, unmount } = await render(board(recordingState()));
 

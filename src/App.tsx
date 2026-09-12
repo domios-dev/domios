@@ -700,7 +700,7 @@ function AppInner() {
                   ws.protected === true && tab.protected === true;
                 const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
                 if (!shouldMountTab) return null;
-                const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab;
+                const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;
                 return (
               <div
                 key={tabId}
