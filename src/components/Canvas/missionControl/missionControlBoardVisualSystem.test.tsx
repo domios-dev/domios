@@ -426,6 +426,19 @@ describe("mission control board visual system", () => {
     expect(template).toContain("grid-template-columns: minmax(0, max-content) max-content max-content;");
     expect(template).toContain("justify-content: start;");
     expect(template).not.toContain("1fr");
+    const wide = rule(css, '.mc-board[data-board-layout="wide"] .mc-board-kv-list');
+    expect(wide).toContain("grid-template-columns: repeat(2, minmax(0, max-content) max-content max-content);");
+    expect(wide).not.toContain("1fr");
+    expect(rule(css, '.mc-board[data-board-layout="wide"] .mc-board-kv:nth-child(even) > .mc-board-kv-key')).toContain(
+      "padding-left: var(--mc-space-4);",
+    );
+    for (const row of rows) {
+      expect(Array.from(row.children).map((cell) => cell.className)).toEqual([
+        "mc-board-kv-key",
+        "mc-board-kv-value",
+        "mc-board-kv-share",
+      ]);
+    }
     await unmount();
   });
 
