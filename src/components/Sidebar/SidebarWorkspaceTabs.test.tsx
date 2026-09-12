@@ -225,37 +225,89 @@ test("team header renders the live compact status tally", async () => {
   await act(async () => root.unmount());
 });
 
-test("Team card keeps plan activation separate from collapse and menu controls", async () => {
+test("team_card_activation_covers_title_tally_and_lower_area", async () => {
   const tabs = {
     orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };
   const currentPlan = plan([task("done", TaskStatus.Done)]);
+  const activatedTabs: string[] = [];
   canvasFocusStore.closeWorkspace();
   const { host, root } = await renderSidebar({
     tabs,
     sortedTabs: [tab("tab-orchestrator", "orchestrator", 0)],
     plans: [currentPlan],
     onRenameTeam: () => {},
+    onActivateTab: (tabId) => activatedTabs.push(tabId),
   });
   const card = host.querySelector('[data-testid="team-card-activation"]') as HTMLButtonElement;
   const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement;
   const menu = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement;
   const header = host.querySelector('.sidebar-team-header') as HTMLElement;
+  const sampledAreas = [
+    host.querySelector('[data-testid="team-card-title-area"]'),
+    host.querySelector('[data-testid="team-status-tally"]'),
+    host.querySelector('[data-team-card-region="lower-card"]'),
+  ];
   assert(card.tabIndex === 0 && chevron.tabIndex === 0 && menu.tabIndex === 0, "card, chevron, and menu are distinct keyboard stops");
   assert(!header.hasAttribute("role"), "header does not nest controls in a button role");
-  for (const key of ["Enter", " "]) {
-    canvasFocusStore.closeWorkspace();
-    const keydown = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
-    await act(async () => {
-      card.focus();
-      card.dispatchEvent(keydown);
-      if (!keydown.defaultPrevented) card.click();
-    });
-    assert(document.activeElement === card, `${key} keeps the card focused`);
-    assert(!keydown.defaultPrevented, `${key} keeps native button activation enabled`);
-    assert(canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id, `${key} opens the bound plan`);
+  assert(card.parentElement === host.querySelector('[data-testid="team-unit"]'), "card activation is a sibling of the Team visual regions");
+  assert(!card.querySelector("button, input, select, textarea, a, [role=button], [tabindex]"), "full-card activation contains no nested controls");
+  assert(card.nextElementSibling === header, "card activation sits beside the title header instead of wrapping it");
+  assert(!card.contains(menu) && !card.contains(chevron), "menu and disclosure stay outside the full-card activation");
+  assert(sampledAreas.every((area) => area?.getAttribute("data-team-card-hit-target") === card.dataset.testid), "title, tally, and lower card resolve to the one activation target");
+  assert(/\.sidebar-team-unit-activatable \.sidebar-team-card-activation:hover[\s\S]*?background:\s*var\(--ct-hover\)/.test(sidebarStyles), "full-card hover exposes a visible affordance");
+  assert(/\.sidebar-team-card-activation:focus-visible[\s\S]*?outline:\s*2px solid var\(--ct-accent\)/.test(sidebarStyles), "full-card activation exposes a visible focus ring");
+  assert(card.tagName === "BUTTON" && host.querySelector('[data-testid="team-name"]')?.tagName === "SPAN", "Team title remains a text heading rather than becoming the activation control");
+  const originalOpenWorkspace = canvasFocusStore.openWorkspace;
+  let boardOpenCount = 0;
+  canvasFocusStore.openWorkspace = (target) => {
+    boardOpenCount += 1;
+    originalOpenWorkspace(target);
+  };
+  try {
+    for (const [index, area] of sampledAreas.entries()) {
+      assert(area, `sampled ${["title", "status tally", "lower card"][index]} area renders`);
+      canvasFocusStore.closeWorkspace();
+      await act(async () => {
+        const resolvedTarget = area.getAttribute("data-team-card-hit-target") === card.dataset.testid ? card : area;
+        resolvedTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+      assert(boardOpenCount === index + 1, `${["title", "status tally", "lower card"][index]} opens the board exactly once`);
+      assert(canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id, `${["title", "status tally", "lower card"][index]} opens the bound plan`);
+    }
+  } finally {
+    canvasFocusStore.openWorkspace = originalOpenWorkspace;
   }
+  const originalKeyboardOpenWorkspace = canvasFocusStore.openWorkspace;
+  let keyboardOpenCount = 0;
+  canvasFocusStore.openWorkspace = (target) => {
+    keyboardOpenCount += 1;
+    originalKeyboardOpenWorkspace(target);
+  };
+  try {
+    for (const key of ["Enter", " "]) {
+      canvasFocusStore.closeWorkspace();
+      const keydown = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      await act(async () => {
+        card.focus();
+        card.dispatchEvent(keydown);
+        if (!keydown.defaultPrevented) card.click();
+      });
+      assert(document.activeElement === card, `${key} keeps the card focused`);
+      assert(!keydown.defaultPrevented, `${key} keeps native button activation enabled`);
+      assert(canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id, `${key} opens the bound plan`);
+    }
+  } finally {
+    canvasFocusStore.openWorkspace = originalKeyboardOpenWorkspace;
+  }
+  assert(keyboardOpenCount === 2, "Enter and Space each open the bound plan exactly once");
   canvasFocusStore.closeWorkspace();
+  const memberRow = host.querySelector('[data-testid="tab-item"]') as HTMLElement;
+  const memberActivation = memberRow?.querySelector(".sidebar-tab-activation") as HTMLButtonElement;
+  assert(memberRow && memberActivation && memberRow.closest(".sidebar-team-member") && !card.contains(memberRow), "member row remains a sibling layered outside the card activation");
+  await act(async () => memberActivation.click());
+  assert(activatedTabs.join(",") === "orchestrator", "member row keeps its own tab activation handler");
+  assert(canvasFocusStore.getWorkspaceTarget() === null, "member row does not open the Team plan through card activation");
   await act(async () => chevron.click());
   assert(chevron.getAttribute("aria-expanded") === "false", "chevron changes only collapse state");
   assert(canvasFocusStore.getWorkspaceTarget() === null, "chevron never opens a plan");
@@ -276,6 +328,21 @@ test("Team card keeps plan activation separate from collapse and menu controls",
   terminalFallbackSurface.focus();
   assert(forwardTerminalFallback(terminalEnter, document.activeElement, (data) => ptyWrites.push(data)), "unfocused terminal fallback forwards Enter");
   assert(terminalEnter.defaultPrevented && ptyWrites.join("") === "\r", "terminal fallback preserves its PTY write");
+  for (const key of ["Enter", " "]) {
+    canvasFocusStore.closeWorkspace();
+    if (document.querySelector('[data-testid="team-menu"]')) {
+      await act(async () => menu.click());
+    }
+    await act(async () => {
+      const keydown = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      menu.focus();
+      menu.dispatchEvent(keydown);
+      if (!keydown.defaultPrevented) menu.click();
+    });
+    assert(document.querySelector('[data-testid="team-menu"]'), `${key} opens the Team menu from its own control`);
+    assert(canvasFocusStore.getWorkspaceTarget() === null, `${key} on the Team menu never opens the plan`);
+  }
+  await act(async () => menu.click());
   await act(async () => {
     header.dispatchEvent(new MouseEvent("contextmenu", {
       bubbles: true,

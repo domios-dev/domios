@@ -572,24 +572,33 @@ export function TeamUnit({
       data-testid="team-unit"
       data-team-id={team.id}
       data-expanded={expanded ? "true" : "false"}
-      className="sidebar-team-unit"
+      className={`sidebar-team-unit${plan && !editing ? " sidebar-team-unit-activatable" : ""}`}
       onAnimationEnd={planMotion.onAnimationEnd}
     >
+      {plan && !editing && (
+        <button
+          type="button"
+          data-testid="team-card-activation"
+          data-team-card-hit-target="team-card-activation"
+          className="sidebar-team-card-activation"
+          aria-label={`Open ${displayTitle}`}
+          onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
+        />
+      )}
       <div
         ref={headerRef}
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
       >
         {plan && !editing ? (
-          <button
-            type="button"
-            data-testid="team-card-activation"
-            className="sidebar-team-card-activation"
-            aria-label={`Open ${displayTitle}`}
-            onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
+          <div
+            data-testid="team-card-title-area"
+            data-team-card-region="title"
+            data-team-card-hit-target="team-card-activation"
+            className="sidebar-team-card-visual"
           >
             {cardContents}
-          </button>
+          </div>
         ) : (
           <div className="sidebar-team-card-static">{cardContents}</div>
         )}
@@ -618,13 +627,19 @@ export function TeamUnit({
         <PlanStatusBreakdown
           key={`tally-${planMotion.revision}`}
           data-testid="team-status-tally"
+          data-team-card-region="status-tally"
+          data-team-card-hit-target="team-card-activation"
           className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
           counts={statusCounts}
           itemTestIdPrefix="team-status"
         />
       )}
       {expanded && (
-        <div className="sidebar-team-body">
+        <div
+          className="sidebar-team-body"
+          data-team-card-region="lower-card"
+          data-team-card-hit-target="team-card-activation"
+        >
           {managerCount > 0 && (
             <div
               role="group"
