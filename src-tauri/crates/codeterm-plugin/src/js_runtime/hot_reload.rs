@@ -539,6 +539,7 @@ impl HotReloadRegistry {
                     provider.set_registrar(self.registrar.clone());
                     self.registrar.register_provider(Box::new(provider));
                     log::info!("[plugin-watcher] registered {id}");
+                    self.registrar.provider_reloaded(&id);
                     self.emit_agent_provider_changed();
                 } else {
                     if was_spawnable_chatbackend

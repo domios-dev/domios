@@ -16,9 +16,11 @@ case "${1:-all}" in
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
+      plugins/provider-claude/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/activity.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts
       plugins/provider-codex/tests/trust-grant.test.ts
@@ -50,6 +52,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
+      plugins/provider-claude/tests/hook-ownership.test.ts
     )
     ;;
   provider-codex)
@@ -57,6 +60,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/activity.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts
       plugins/provider-codex/tests/trust-grant.test.ts

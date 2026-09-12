@@ -701,9 +701,18 @@ const plugin: PluginModule = {
     const s = present("Stop");
     const pc = present("PreCompact");
     const ss = sessionStartCurrent();
+    const installed = n && pr && s && ss;
+    // False means the machine still runs pre-marker hooks the consented
+    // reconciliation migrates once; it never means the hooks are broken.
+    let marked = true;
+    for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
+      const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
+      if (Array.isArray(arr) && !entriesCarryMarker(arr)) { marked = false; break; }
+    }
     return {
       settings_exists: true,
-      hooks_installed: n && pr && s && ss,
+      hooks_installed: installed,
+      hook_contract_current: installed && marked,
       notification_hook: n,
       permission_request_hook: pr,
       stop_hook: s,
@@ -751,7 +760,7 @@ const plugin: PluginModule = {
     if (!json.hooks) json.hooks = {};
 
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
+    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN" ' + CODETERM_HOOK_MARKER_ARG;
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const finish = " || true; fi";
 
@@ -978,7 +987,44 @@ interface HookEntry { matcher?: string; hooks?: HookCmd[] }
 interface ClaudeSettings { hooks?: Record<string, HookEntry[]> }
 
 const CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+// Claude's serializer drops `_source`, so ownership lives inside the command.
+// Inert, instance-agnostic, and free of any host, port or credential.
+const CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+const CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 const INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+
+// Exact route literals the current generator emits; the unmarked-form
+// fingerprint below accepts nothing outside this list.
+const CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush",
+];
+
+function commandCarriesMarker(cmd: string): boolean {
+  return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+
+// Migration compatibility only: the current command as it exists on machines
+// installed before the marker. Never a bare route or port shape.
+function commandIsCurrentUnmarked(cmd: string): boolean {
+  if (cmd.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (cmd.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (cmd.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  for (let i = 0; i < CODETERM_CURRENT_ROUTES.length; i++) {
+    if (cmd.indexOf(CODETERM_CURRENT_ROUTES[i]) !== -1) return true;
+  }
+  return false;
+}
+
+// Migration compatibility only: the pane-era v2 command, whose `_source` a
+// later settings rewrite may already have removed.
+function commandIsLegacyV2(cmd: string): boolean {
+  if (cmd.indexOf("$CODETERM_PANE_ID") === -1) return false;
+  return cmd.indexOf("/api/panes/$CODETERM_PANE_ID/hook/") !== -1
+    || cmd.indexOf("/api/mem/flush") !== -1;
+}
 
 function isCodetermHook(entry: HookEntry): boolean {
   const hooks = entry && entry.hooks;
@@ -991,19 +1037,29 @@ function isCodetermHook(entry: HookEntry): boolean {
       return true;
     }
     const cmd = h.command;
-    if (typeof cmd === "string") {
-      const codetermOrigin = cmd.indexOf("7685") !== -1
-        || cmd.indexOf("7686") !== -1;
-      const hookRoute = cmd.indexOf("/api/notifications") !== -1
-        || cmd.indexOf("/api/tabs/") !== -1
-        || cmd.indexOf("/hook/permission") !== -1
-        || cmd.indexOf("/hook/stop") !== -1
-        || cmd.indexOf("/hook/session_start") !== -1
-        || cmd.indexOf("/api/mem/flush") !== -1;
-      if (codetermOrigin && hookRoute) return true;
+    if (typeof cmd === "string"
+        && (commandCarriesMarker(cmd) || commandIsCurrentUnmarked(cmd) || commandIsLegacyV2(cmd))) {
+      return true;
     }
   }
   return false;
+}
+
+// Every owned entry in this event carries the durable marker. An event with no
+// owned entry is vacuously current — absence is the install path's problem.
+function entriesCarryMarker(entries: HookEntry[]): boolean {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!isCodetermHook(entry)) continue;
+    const hooks = (entry && entry.hooks) || [];
+    let marked = false;
+    for (let j = 0; j < hooks.length; j++) {
+      const cmd = hooks[j] && hooks[j].command;
+      if (typeof cmd === "string" && commandCarriesMarker(cmd)) { marked = true; break; }
+    }
+    if (!marked) return false;
+  }
+  return true;
 }
 
 export default plugin;

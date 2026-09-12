@@ -486,6 +486,7 @@ fn facts_with_hash(state: IntegrationState, hash: Option<&str>) -> IntegrationFa
         target: Some(FIXTURE_TARGET.to_string()),
         state: Some(state),
         content_hash: hash.map(str::to_string),
+        contract_current: None,
     }
 }
 
@@ -621,4 +622,71 @@ fn concurrent_records_neither_lose_a_key_nor_tear_the_file() {
         );
         clear_announced(id);
     }
+}
+
+/// The daemon-start gate. Every branch is read off the provider's own report
+/// plus the consent record, never off which provider it is.
+#[test]
+fn reconciliation_is_authorized_only_by_consent_and_the_install_report() {
+    fn facts(status: serde_json::Value, consent_recorded: bool) -> IntegrationFacts {
+        facts_from_status(&status, true, consent_recorded)
+    }
+
+    // A working but pre-marker install: repaired silently under recorded
+    // consent, and left alone without it.
+    let unmarked = json!({ "hooks_installed": true, "hook_contract_current": false });
+    assert_eq!(
+        authorize_reconciliation(&facts(unmarked.clone(), true)),
+        ReconcileAuthorization::Reconcile
+    );
+    assert_eq!(
+        authorize_reconciliation(&facts(unmarked, false)),
+        ReconcileAuthorization::ConsentMissing
+    );
+
+    // Already carrying the current contract: nothing to write, so a second
+    // daemon observing the same state must not touch the shared file.
+    assert_eq!(
+        authorize_reconciliation(&facts(
+            json!({ "hooks_installed": true, "hook_contract_current": true }),
+            true
+        )),
+        ReconcileAuthorization::AlreadyCurrent
+    );
+    // A provider that publishes no contract field is current when installed.
+    assert_eq!(
+        authorize_reconciliation(&facts(json!({ "hooks_installed": true }), true)),
+        ReconcileAuthorization::AlreadyCurrent
+    );
+
+    // Missing and stale both reconcile once consent is on record.
+    for status in [
+        json!({ "hooks_installed": false }),
+        json!({ "integration_state": INTEGRATION_STATE_STALE_VERSION }),
+    ] {
+        assert_eq!(
+            authorize_reconciliation(&facts(status.clone(), true)),
+            ReconcileAuthorization::Reconcile
+        );
+        assert_eq!(
+            authorize_reconciliation(&facts(status, false)),
+            ReconcileAuthorization::ConsentMissing
+        );
+    }
+
+    // Trust is granted by content hash, so rewriting would disarm the hooks.
+    // Consent does not extend to that; only the user can re-grant it.
+    assert_eq!(
+        authorize_reconciliation(&facts(
+            json!({ "integration_state": INTEGRATION_STATE_UNTRUSTED_HASH }),
+            true
+        )),
+        ReconcileAuthorization::TrustGrantRequired
+    );
+
+    // An unreadable report stays unreadable; it never becomes a repair.
+    assert_eq!(
+        authorize_reconciliation(&facts(json!({ "something_else": 1 }), true)),
+        ReconcileAuthorization::Unreadable
+    );
 }
