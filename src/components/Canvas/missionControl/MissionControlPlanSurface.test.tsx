@@ -99,9 +99,16 @@ test("renders the selected plan board without the removed status band", async ()
   );
   assert(host.querySelector('[data-testid="mission-control-board"]'), "board rendered");
   assert(!host.querySelector('[data-testid="plan-board-status"]'), "status header removed");
-  const trigger = host.querySelector('[data-testid="mission-control-board-menu-trigger"]');
-  assert(trigger?.tagName === "BUTTON", "board actions remain reachable");
-  assert(!trigger?.closest('[data-testid="plan-board-status"]'), "board actions are outside status band");
+  const header = host.querySelector('[data-testid="mission-control-surface-header"]');
+  assert(header, "surface header rendered");
+  const trigger = header.querySelector('[data-testid="mission-control-board-menu-trigger"]') as HTMLButtonElement | null;
+  assert(trigger?.tagName === "BUTTON", "board actions live in the surface header");
+  assert(trigger.tabIndex === 0, "board actions are keyboard reachable");
+  assert(
+    !host.querySelector('[data-testid="mission-control-board"] [data-testid="mission-control-board-actions"]'),
+    "the board itself carries no actions band",
+  );
+  assert(!trigger.closest('[data-testid="plan-board-status"]'), "board actions are outside status band");
   await act(async () => (trigger as HTMLButtonElement).click());
   const labels = Array.from(host.querySelectorAll('[data-testid="mission-control-board-menu"] [role="menuitem"]'))
     .map((item) => item.textContent?.trim());
