@@ -545,7 +545,7 @@ fn enabled_kpi_hooks_produce_plan_token_and_turn_aggregate() {
     );
 
     let snapshot = fixture.service.build_plan_state(&plan.id, NOW).unwrap();
-    let kpi = snapshot.mission_control.kpi;
+    let kpi = &snapshot.mission_control.kpi;
     assert_eq!(kpi.state, KpiLedgerState::Recording);
     assert_eq!(kpi.not_recording_reason, None);
     assert_eq!(
