@@ -6,7 +6,8 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
-pub(crate) mod integration;
+pub mod hook_ownership;
+pub mod integration;
 mod interactive;
 mod launch;
 mod schemas;

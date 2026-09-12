@@ -57,6 +57,9 @@ pub trait PluginProviderRegistrar: Send + Sync {
     fn unregister_provider(&self, id: &str) -> bool;
     /// Return the native provider displaced by a JS drop-in with this id, if any.
     fn native_fallback(&self, id: &str) -> Option<std::sync::Arc<dyn AgentProvider>>;
+    /// A provider plugin finished installing or upgrading and is registered.
+    /// The host decides what that warrants; this crate owns no consent record.
+    fn provider_reloaded(&self, _id: &str) {}
 }
 
 /// Event sink for `PluginManager` — fires `ContributionsChanged` when the
