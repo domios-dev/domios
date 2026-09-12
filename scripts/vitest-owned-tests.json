@@ -1,4 +1,5 @@
 [
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
-  "src/components/Canvas/missionControl/MissionControlBoard.test.tsx"
+  "src/components/Canvas/missionControl/MissionControlBoard.test.tsx",
+  "src/components/Canvas/missionControl/MissionControlControls.test.tsx"
 ]

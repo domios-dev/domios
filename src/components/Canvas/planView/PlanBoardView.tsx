@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
-import { fetchSpecSections } from "../plansApi";
+import { deleteTask, fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { Plan, Section, Task } from "../types";
 import {
@@ -69,6 +69,8 @@ function BoardColumn({
   doneExpanded,
   onToggleDone,
   onOpenTask,
+  planId,
+  onDeleteTask,
 }: {
   columnKey: BoardColumnKey;
   label: string;
@@ -76,6 +78,8 @@ function BoardColumn({
   doneExpanded: boolean;
   onToggleDone: () => void;
   onOpenTask: (task: Task) => void;
+  planId: string;
+  onDeleteTask?: (planId: string, taskId: string) => void | Promise<void>;
 }) {
   const isDone = columnKey === "done";
   const bounds = isDone ? boundDoneColumnCards(cards, doneExpanded) : { visible: cards, total: cards.length, hidden: 0 };
@@ -101,7 +105,13 @@ function BoardColumn({
           </p>
         )}
         {bounds.visible.map((card) => (
-          <BoardTaskCard key={card.task.id} card={card} onOpen={() => onOpenTask(card.task)} />
+          <BoardTaskCard
+            key={card.task.id}
+            card={card}
+            planId={planId}
+            onOpen={() => onOpenTask(card.task)}
+            onDeleteTask={onDeleteTask}
+          />
         ))}
         {isDone && bounds.hidden > 0 && (
           <button
@@ -132,12 +142,14 @@ function BoardPlanBoard({
   model,
   plan,
   specSections,
+  onDeleteTask,
   onOpenDetail,
   onOpenTab,
 }: {
   model: BoardPlanModel;
   plan: Plan;
   specSections: Section[];
+  onDeleteTask?: (planId: string, taskId: string) => void | Promise<void>;
   onOpenDetail: (detail: BoardDetail) => void;
   onOpenTab?: (tabId: string) => void;
 }) {
@@ -162,6 +174,8 @@ function BoardPlanBoard({
             doneExpanded={doneExpanded}
             onToggleDone={() => setDoneExpanded((v) => !v)}
             onOpenTask={(task) => onOpenDetail({ kind: "task", task, plan })}
+            planId={plan.id}
+            onDeleteTask={onDeleteTask}
           />
         ))}
       </div>
@@ -206,6 +220,11 @@ export function PlanBoardView({
   api,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
+  const deleteSelectedTask = useCallback((selectedPlanId: string, taskId: string) => {
+    if (!api) return;
+    void deleteTask(api, selectedPlanId, taskId).catch(() => undefined);
+  }, [api]);
 
   const activeWork = useMemo(
     () => selectActiveWork(effectivePlans, tabs),
@@ -373,6 +392,7 @@ export function PlanBoardView({
             model={boardModel}
             plan={selectedPlan}
             specSections={selectedSpecSections}
+            onDeleteTask={deleteSelectedTask}
             onOpenDetail={setDetail}
             onOpenTab={onOpenTab}
           />
