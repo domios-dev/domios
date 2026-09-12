@@ -8,7 +8,7 @@ use crate::agent::native_prompt::{
     pending_prompt_from_input, resolve_pending_prompt, NativePromptInput,
 };
 use crate::agent::offline_state_classifier::{
-    classify_state, ClassifyInput, TabVerdict, TimelineState,
+    classify_state, ClassifyInput, StatusElapsedProgress, TabVerdict, TimelineState,
 };
 use crate::agent::prompt::PromptDetector;
 use crate::agent::signal_extractor::Motion;
@@ -42,6 +42,7 @@ fn settled(screen: &[String], cursor_hidden: bool) -> ClassifyInput<'_> {
         motion: Motion::Still,
         cursor_hidden,
         composer_ready: false,
+        status_elapsed: StatusElapsedProgress::NONE,
     })
 }
 
@@ -149,6 +150,7 @@ fn question_removal_bracketed_log_line_does_not_veto_idle() {
         motion: Motion::Still,
         cursor_hidden: false,
         composer_ready: false,
+        status_elapsed: StatusElapsedProgress::NONE,
     });
     let verdict = classify_state(&input, working());
     assert_eq!(
@@ -185,6 +187,7 @@ fn question_removal_working_corpus_frame_does_not_become_idle() {
         motion: Motion::Still,
         cursor_hidden: false,
         composer_ready: false,
+        status_elapsed: StatusElapsedProgress::NONE,
     });
     let verdict = classify_state(&input, working());
     assert_eq!(

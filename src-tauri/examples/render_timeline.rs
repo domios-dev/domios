@@ -19,7 +19,8 @@ use codeterm_lib::agent::attributed_screen::detect_picker;
 use codeterm_lib::agent::classify_input::{ClassifyInputBuilder, StatusBarRows};
 use codeterm_lib::agent::motion_decoder::{MotionDecoder, MotionFrame};
 use codeterm_lib::agent::offline_state_classifier::{
-    classify_signals, extract_completion_summary, extract_status_line, TabVerdict, TimelineState,
+    classify_signals, extract_completion_summary, extract_status_line, StatusElapsedTracker,
+    TabVerdict, TimelineState,
 };
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals};
 use serde_json::{json, Value};
@@ -62,6 +63,9 @@ struct DetectorOverlay {
     /// The SAME shared builder the live path uses. This renderer has no registry,
     /// so `--status-bar-rows` is required fixture data rather than a default.
     builder: ClassifyInputBuilder,
+    /// The SAME elapsed baseline the live path keeps per tab, so replayed and
+    /// live observation sequences yield identical progress.
+    status_elapsed: StatusElapsedTracker,
 }
 
 impl DetectorOverlay {
@@ -72,6 +76,7 @@ impl DetectorOverlay {
                 subtype: None,
             },
             builder,
+            status_elapsed: StatusElapsedTracker::new(),
         }
     }
 }
@@ -200,7 +205,13 @@ fn detector_json(
     card: Value,
     overlay: &mut DetectorOverlay,
 ) -> Value {
-    let verdict = classify_signals(extractor, sig, overlay.previous, &overlay.builder);
+    let verdict = classify_signals(
+        extractor,
+        sig,
+        overlay.previous,
+        &overlay.builder,
+        &mut overlay.status_elapsed,
+    );
     overlay.previous = verdict;
 
     let status = extract_status_line(&sig.screen.lines);

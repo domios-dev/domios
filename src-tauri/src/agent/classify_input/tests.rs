@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use super::*;
 use crate::agent::offline_state_classifier::{
-    classify_state, composer_cursor_ready, TabVerdict, TimelineState,
+    classify_state, composer_cursor_ready, StatusElapsedProgress, TabVerdict, TimelineState,
 };
 use crate::agent::registry::AgentRegistry;
 use crate::agent::signal_extractor::{SignalExtractor, StreamSignals};
@@ -33,6 +33,7 @@ fn offline_parts(signals: &StreamSignals) -> ClassifyParts<'_> {
             signals.cursor.row,
             signals.rows,
         ),
+        status_elapsed: StatusElapsedProgress::NONE,
     }
 }
 
@@ -77,6 +78,7 @@ fn classify_input_is_identical_across_live_and_offline_call_shapes() {
             signals.cursor.row,
             signals.rows,
         ),
+        status_elapsed: StatusElapsedProgress::NONE,
     });
 
     assert_eq!(live, offline, "live and offline built inputs must be equal");
@@ -134,6 +136,7 @@ fn classify_input_refuses_an_unresolvable_provider_without_classifying() {
                 motion: Motion::Still,
                 cursor_hidden: false,
                 composer_ready: false,
+                status_elapsed: StatusElapsedProgress::NONE,
             }),
             TabVerdict {
                 state: TimelineState::Idle,
