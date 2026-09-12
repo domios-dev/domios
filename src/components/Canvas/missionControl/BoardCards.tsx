@@ -147,7 +147,7 @@ export function LongestWaitCard({ held }: { held: HeldForDecision }) {
       testId="mc-board-longest-wait"
       title="Longest wait"
       amount={reading.ageMs == null ? "—" : formatAgeMs(reading.ageMs)}
-      caption={reading.taskName ?? "task name unavailable"}
+      caption={reading.ageMs == null ? "nothing held" : reading.taskName ?? "task name unavailable"}
     />
   );
 }
