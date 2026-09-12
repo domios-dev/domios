@@ -288,7 +288,7 @@ fn launch_readiness_shared_owner_is_not_duplicated() {
 
     assert!(launch.contains("launch_readiness::arm("));
     assert!(launch.contains("observe_launch_readiness"));
-    assert!(launch.contains("settle_observed_launch_exit"));
+    assert!(launch.contains("take_published_failure"));
 
     assert_eq!(owner.matches("\"agent-launch-failed\"").count(), 1);
     for source in [lifecycle, launch] {
@@ -393,26 +393,30 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
         LaunchSettlement::Superseded,
     );
 
-    let output = include_str!("../output.rs");
-    let settle = output
-        .find("settle_launch_exit_observation")
-        .expect("the shell exit source settles launch readiness");
-    let teardown = output
-        .find("note_provider_exit_in_surviving_shell")
-        .expect("the shell exit source tears identity down");
-    assert!(
-        settle < teardown,
-        "settle must precede the identity teardown"
-    );
-
-    let tab_source = include_str!("../tab.rs");
-    let funnel = tab_source
-        .find("settle_launch_exit_observation")
-        .expect("the lifecycle-exit funnel settles launch readiness");
-    let clear = tab_source
-        .find("is_some_and(clear_agent_identity_for_lifecycle_exit)")
-        .expect("the funnel clears identity");
-    assert!(funnel < clear, "the funnel must settle before it clears");
+    // Claim, tear down, then publish: the verdict has to be decided while the
+    // tab still carries the launch, and recorded after the teardown resets it.
+    for (source, teardown_anchor) in [
+        (
+            include_str!("../output.rs"),
+            "note_provider_exit_in_surviving_shell",
+        ),
+        (
+            include_str!("../tab.rs"),
+            "is_some_and(clear_agent_identity_for_lifecycle_exit)",
+        ),
+    ] {
+        let claim = source
+            .find("claim_launch_exit")
+            .expect("the exit source claims the launch");
+        let teardown = source
+            .find(teardown_anchor)
+            .expect("the exit source tears identity down");
+        let publish = source
+            .find("publish_launch_exit")
+            .expect("the exit source publishes the verdict");
+        assert!(claim < teardown, "the claim must precede the teardown");
+        assert!(teardown < publish, "the verdict must be published after it");
+    }
 }
 
 /// A launch verdict is published after the teardown, so it is the stage that
