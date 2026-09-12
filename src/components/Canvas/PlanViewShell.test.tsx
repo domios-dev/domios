@@ -97,10 +97,10 @@ test("PlanViewShell defaults to board mode", async () => {
   assert(shell?.getAttribute("data-plan-view-mode") === "board", "default mode attr");
   const modeLabels = Array.from(host.querySelectorAll('[data-testid="plan-view-mode-switch"] [role="tab"]'))
     .map((tab) => tab.textContent?.trim());
-  assert(modeLabels.join(",") === "Spec,Plan,Board", `switcher entries=${modeLabels.join(",")}`);
+  assert(modeLabels.join(",") === "Board,Spec,Plan,Tasks", `switcher entries=${modeLabels.join(",")}`);
   assert(!modeLabels.includes("List") && !modeLabels.includes("Canvas"), "parked views absent from switcher");
-  const board = panelFor(host, "plan-board-view");
-  assert(board && !board.hasAttribute("hidden"), "board visible");
+  const missionControl = panelFor(host, "mission-control-plan-surface");
+  assert(missionControl && !missionControl.hasAttribute("hidden"), "mission control visible");
   const list = panelFor(host, "plan-list-view");
   assert(list?.hasAttribute("hidden"), "list hidden");
   await unmount();
@@ -116,9 +116,9 @@ test("PlanViewShell restores persisted mode from localStorage", async () => {
     root.render(<PlanViewShell {...SHELL_PROPS} />);
   });
   const shell = hostEl.querySelector('[data-testid="plan-view-shell"]');
-  assert(shell?.getAttribute("data-plan-view-mode") === "list", "restored mode attr");
-  const list = panelFor(hostEl, "plan-list-view");
-  assert(list && !list.hasAttribute("hidden"), "list visible");
+  assert(shell?.getAttribute("data-plan-view-mode") === "board", "parked mode resolves to board");
+  const missionControl = panelFor(hostEl, "mission-control-plan-surface");
+  assert(missionControl && !missionControl.hasAttribute("hidden"), "mission control visible");
   await act(async () => {
     root.unmount();
   });
@@ -147,8 +147,8 @@ test("PlanViewShell switches between Spec, Plan, and Board without losing shell 
   assert(shell?.getAttribute("data-plan-view-mode") === "plan", "plan mode attr");
   const plan = panelFor(host, "plan-plan-surface");
   assert(plan && !plan.hasAttribute("hidden"), "plan visible");
-  const canvas = panelFor(host, "mission-control-plan-surface");
-  assert(canvas?.hasAttribute("hidden"), "canvas hidden but mounted");
+  const board = panelFor(host, "mission-control-plan-surface");
+  assert(board?.hasAttribute("hidden"), "board hidden but mounted");
 
   await act(async () => {
     clickTab(host, "Spec");
@@ -156,9 +156,18 @@ test("PlanViewShell switches between Spec, Plan, and Board without losing shell 
   assert(shell?.getAttribute("data-plan-view-mode") === "spec", "spec mode attr");
   const spec = panelFor(host, "plan-spec-surface");
   assert(spec && !spec.hasAttribute("hidden"), "spec visible");
-  const board = panelFor(host, "plan-board-view");
-  assert(board?.hasAttribute("hidden"), "board hidden but mounted");
+  const tasks = panelFor(host, "plan-board-view");
+  assert(tasks?.hasAttribute("hidden"), "tasks hidden but mounted");
 
+  await act(async () => {
+    clickTab(host, "Board");
+  });
+  assert(shell?.getAttribute("data-plan-view-mode") === "board", "board mode attr");
+  await act(async () => {
+    clickTab(host, "Tasks");
+  });
+  assert(shell?.getAttribute("data-plan-view-mode") === "tasks", "tasks mode attr");
+  assert(tasks && !tasks.hasAttribute("hidden"), "tasks visible");
   await act(async () => {
     clickTab(host, "Board");
   });

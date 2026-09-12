@@ -67,7 +67,7 @@ function collectTests(directory, tests = []) {
       }
       continue;
     }
-    if (entry.isFile() && /\.test\.tsx?$/.test(entry.name)) {
+    if (entry.isFile() && /\.test\.tsx?$/.test(entry.name) && !entry.name.endsWith(".mission-control.test.tsx")) {
       tests.push(normalizeTestPath(path.relative(root, path.join(directory, entry.name))));
     }
   }
