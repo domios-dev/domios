@@ -7,10 +7,13 @@ import { TaskExecutionBadges } from "./TaskExecutionBadges";
 import { WorkingOnRow } from "./WorkingOnRowView";
 import { deriveTaskCardMetadata, type TaskCardMetaRow } from "./taskCardMetadata";
 import { TaskStatus } from "../types";
+import { MissionControlControls, type MissionControlTaskAction } from "../missionControl/MissionControlControls";
 
 export interface BoardTaskCardProps {
   card: BoardTaskCardModel;
   onOpen?: () => void;
+  planId?: string;
+  onDeleteTask?: MissionControlTaskAction;
 }
 
 function metaIcon(kind: TaskCardMetaRow["kind"]) {
@@ -29,7 +32,7 @@ function metaTestId(kind: TaskCardMetaRow["kind"]): string {
   return "plan-board-task-age";
 }
 
-export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
+export function BoardTaskCard({ card, onOpen, planId, onDeleteTask }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
   const isPaused = task.status === TaskStatus.Paused;
@@ -69,6 +72,16 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           : undefined,
       }}
     >
+      {planId && (
+        <div className="plan-board-task-actions">
+          <MissionControlControls
+            scope="task"
+            planId={planId}
+            taskId={task.id}
+            onDeleteTask={onDeleteTask}
+          />
+        </div>
+      )}
       <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
         {task.name}
       </h4>
