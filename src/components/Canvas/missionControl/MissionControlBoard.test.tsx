@@ -80,6 +80,12 @@ function gridTemplate(el: HTMLElement): string {
   return el.style.gridTemplateColumns || el.getAttribute("style") || "";
 }
 
+const TASK_STATUS_KEYS = ["pending", "in_progress", "in_review", "blocked", "paused", "done", "cancelled"] as const;
+
+function taskStatusValues(host: HTMLElement): number[] {
+  return TASK_STATUS_KEYS.map((key) => Number(text(host, `mc-board-task-status-${key}-count`).replace(/,/g, "")));
+}
+
 function recordingState(): MissionControlState {
   return {
     held: {
@@ -227,11 +233,11 @@ function boardState(mission: MissionControlState): PlanBoardState {
       pending: 1,
       in_progress: 0,
       in_review: 2,
-      blocked: 0,
-      paused: 0,
+      blocked: 1,
+      paused: 1,
       done: 10,
       cancelled: 1,
-      total: 14,
+      total: 16,
     },
     mission_control: mission,
   };
@@ -317,6 +323,29 @@ describe("mission control board cards", () => {
     await unmount();
   });
 
+  it("places Spend by area beside Held in the wide card grid", async () => {
+    const { host, unmount } = await render(board(recordingState()));
+
+    const grid = host.querySelector('[data-testid="mc-board-card-grid"]');
+    const held = host.querySelector('[data-testid="mc-board-held"]');
+    const spend = host.querySelector('[data-testid="mc-board-areas"]');
+    expect(held?.parentElement).toBe(grid);
+    expect(spend?.parentElement).toBe(grid);
+    expect(spend?.previousElementSibling).toBe(held);
+    await unmount();
+  });
+
+  it("renders every PlanTaskCounts status and the values sum to total", async () => {
+    const { host, unmount } = await render(board(recordingState()));
+
+    expect(taskStatusValues(host)).toEqual([1, 0, 2, 1, 1, 10, 1]);
+    expect(taskStatusValues(host).reduce((sum, value) => sum + value, 0)).toBe(
+      Number(text(host, "mc-board-tasks-amount").replace(/,/g, "")),
+    );
+    expect(host.querySelectorAll('[data-testid^="mc-board-task-status-"][role="listitem"]')).toHaveLength(7);
+    await unmount();
+  });
+
   it("renders one gauge per reported provider cycle with its own reset", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
@@ -329,8 +358,31 @@ describe("mission control board cards", () => {
     const first = gauges[0] as HTMLElement;
     expect(first.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("58%");
     expect(first.querySelector(".ct-usage-gauge .reset")?.textContent).toContain("resets");
+    expect(first.textContent).toContain("Claude · session allowance used");
+    expect((gauges[1] as HTMLElement).textContent).toContain("Claude · weekly allowance used");
+    expect((gauges[2] as HTMLElement).textContent).toContain("Codex · weekly allowance used");
+    for (const gauge of gauges) {
+      expect(gauge.textContent).toContain("allowance used");
+      expect(gauge.textContent).toContain("resets");
+    }
     const warned = gauges[2] as HTMLElement;
     expect(warned.querySelector(".ct-usage-gauge")?.className).toContain("warn");
+    await unmount();
+  });
+
+  it("omits a runway percentage when its reset window is missing", async () => {
+    const state = recordingState();
+    const provider = state.runway.providers[0]!;
+    state.runway.providers = [{
+      ...provider,
+      session_resets_at: null,
+      weekly_pct: null,
+      weekly_resets_at: null,
+    }];
+    const { host, unmount } = await render(board(state));
+
+    expect(host.querySelectorAll('[data-testid="mc-board-runway-gauge"]')).toHaveLength(0);
+    expect(text(host, "mc-board-runway-empty")).toBe("No complete allowance window available.");
     await unmount();
   });
 
@@ -399,7 +451,7 @@ describe("mission control board fallback states", () => {
       expect(text(host, "mc-board-tokens-amount")).toBe("—");
       expect(text(host, "mc-board-turns-amount")).toBe("—");
       expect(text(host, "mc-board-tokens")).toContain("not recording");
-      expect(text(host, "mc-board-turns").toLowerCase()).toContain("no figure is shown");
+      expect(text(host, "mc-board-turns").toLowerCase()).toContain("no figure");
       await unmount();
     }
   });
@@ -437,7 +489,9 @@ describe("mission control board fallback states", () => {
     expect(rows[0]?.share).toBe("67%");
     expect(rows[1]?.label).toContain("No role recorded");
     expect(rows[1]?.share).toBe("33%");
-    expect(text(host, "mc-board-area-no-facet")).toContain("declares no area facet");
+    expect(text(host, "mc-board-area-no-facet")).toBe(
+      "No area facet declared; stored executor roles are the fallback grouping.",
+    );
     await unmount();
   });
 
@@ -445,7 +499,7 @@ describe("mission control board fallback states", () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
     expect(host.querySelectorAll('[data-testid="mc-board-runway-gauge"]')).toHaveLength(0);
-    expect(text(host, "mc-board-runway-empty")).toContain("No provider reports usage");
+    expect(text(host, "mc-board-runway-empty")).toBe("No provider usage reported.");
     await unmount();
   });
 });

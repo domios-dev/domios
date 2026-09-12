@@ -8,6 +8,7 @@ import type {
   EventLog,
   KpiNotRecordingReason,
   PlanEvent,
+  PlanTaskCounts,
   ProviderRunway,
 } from "./missionControlState";
 
@@ -169,7 +170,7 @@ export function eventLogRows(
 
 export function eventLogCaption(log: EventLog): string {
   const truncated = log.truncated ? ", newest kept" : "";
-  return `${formatCount(log.recorded_events)} recorded events, ${formatCount(log.entries.length)} lines${truncated}; a run of reports by one agent on one task is one line with a count`;
+  return `${formatCount(log.recorded_events)} events · ${formatCount(log.entries.length)} lines · report runs collapsed${truncated}`;
 }
 
 export interface AreaRow {
@@ -191,7 +192,7 @@ export interface AreaReading {
 }
 
 const NO_FACET_MESSAGE =
-  "This plan declares no area facet, so nothing is grouped by area. These are the executor roles stored on its tasks; the Planner sets an area from the plan's own list and nothing is inferred.";
+  "No area facet declared; stored executor roles are the fallback grouping.";
 
 function share(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 100) : 0;
@@ -241,33 +242,59 @@ export interface RunwayGauge {
   staleReason: string | null;
 }
 
+function hasAllowanceWindow(pct: number | null, resetsAt: number | null): pct is number {
+  return pct != null && Number.isFinite(pct) && resetsAt != null && Number.isFinite(resetsAt);
+}
+
 export function runwayGauges(providers: readonly ProviderRunway[]): RunwayGauge[] {
   const gauges: RunwayGauge[] = [];
   for (const provider of providers) {
-    if (provider.session_pct != null) {
+    const providerLabel = provider.label.trim() || provider.provider;
+    const sessionPct = provider.session_pct;
+    const sessionResetsAt = provider.session_resets_at;
+    if (hasAllowanceWindow(sessionPct, sessionResetsAt)) {
       gauges.push({
         key: `${provider.provider}-session`,
-        label: `${provider.label} session`,
+        label: `${providerLabel} · session allowance used`,
         variant: "session",
-        pct: provider.session_pct,
-        resetsAt: provider.session_resets_at,
-        state: classify(provider.session_pct),
+        pct: sessionPct,
+        resetsAt: sessionResetsAt,
+        state: classify(sessionPct),
         staleReason: provider.stale_reason,
       });
     }
-    if (provider.weekly_pct != null) {
+    const weeklyPct = provider.weekly_pct;
+    const weeklyResetsAt = provider.weekly_resets_at;
+    if (hasAllowanceWindow(weeklyPct, weeklyResetsAt)) {
       gauges.push({
         key: `${provider.provider}-weekly`,
-        label: `${provider.label} weekly`,
+        label: `${providerLabel} · weekly allowance used`,
         variant: "weekly",
-        pct: provider.weekly_pct,
-        resetsAt: provider.weekly_resets_at,
-        state: classify(provider.weekly_pct),
+        pct: weeklyPct,
+        resetsAt: weeklyResetsAt,
+        state: classify(weeklyPct),
         staleReason: provider.stale_reason,
       });
     }
   }
   return gauges;
+}
+
+export const TASK_STATUS_FIELDS = [
+  { key: "pending", label: "pending" },
+  { key: "in_progress", label: "in progress" },
+  { key: "in_review", label: "in review" },
+  { key: "blocked", label: "blocked" },
+  { key: "paused", label: "paused" },
+  { key: "done", label: "done" },
+  { key: "cancelled", label: "cancelled" },
+] as const;
+
+export function taskStatusBreakdown(counts: PlanTaskCounts) {
+  return TASK_STATUS_FIELDS.map((status) => ({
+    ...status,
+    count: counts[status.key],
+  }));
 }
 
 const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
@@ -297,15 +324,13 @@ export function notRecordingDetail(
   switch (reason ?? "not_read") {
     case "disabled":
       return enableSetting
-        ? `No figure is shown while recording is off. Set ${enableSetting} to true — run ${kpiEnableCommand(
-            enableSetting,
-          )} — then restart CodeTerm.`
-        : "No figure is shown while recording is off. Turn it back on in the [kpi] section of config.toml, then restart CodeTerm.";
+        ? `Recording off; no figure. Set ${enableSetting}=true, run ${kpiEnableCommand(enableSetting)}, then restart CodeTerm.`
+        : "Recording off; no figure. Re-enable [kpi] in config.toml, then restart CodeTerm.";
     case "no_rows_for_plan":
-      return "No event is attributed to this plan yet, so no figure is shown.";
+      return "No ledger row for this plan yet; no figure.";
     case "unreadable":
-      return "The KPI ledger could not be read, so no figure is shown. The daemon log names the ledger error.";
+      return "Ledger unreadable; no figure. See the daemon log for the error.";
     default:
-      return "This reading was built without a ledger reader, so no figure is shown.";
+      return "No ledger reader attached; no figure.";
   }
 }

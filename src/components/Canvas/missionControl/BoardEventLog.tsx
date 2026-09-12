@@ -18,7 +18,7 @@ export function BoardEventLog({ log, milestoneKinds }: BoardEventLogProps) {
       </div>
       {rows.length === 0 ? (
         <p data-testid="mc-board-event-log-empty" className="mc-board-note">
-          No events are recorded on this plan yet.
+          No events yet.
         </p>
       ) : (
         <div className="mc-board-log">

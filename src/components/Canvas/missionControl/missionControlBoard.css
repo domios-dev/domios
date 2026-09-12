@@ -179,6 +179,31 @@
   color: var(--ct-fg);
 }
 
+.mc-board-status-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.mc-board-status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.mc-board-status-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mc-board-status b {
+  flex: 0 0 auto;
+}
+
 .mc-board-source {
   margin: 6px 0 0;
   padding-top: 6px;
@@ -203,6 +228,10 @@
 
 .mc-board-note-error {
   color: var(--ct-red);
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-status-list {
+  column-gap: 6px;
 }
 
 .mc-board-kv-list {
