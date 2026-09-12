@@ -687,10 +687,10 @@ pub struct Tab {
     /// with a reason-carrying `boot_stage`; cleared by any later plain stage.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub boot_failure_reason: Option<String>,
-    /// Identity of the launch a provisional deadline stage describes. Paired
-    /// with `boot_stage == LaunchDeadlineElapsed` and cleared by any other stage.
+    /// Identity of the launch a provisional stage describes. Paired with a
+    /// provisional `boot_stage` and cleared by any stage that is not one.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub deadline_latched_launch: Option<codeterm_types::pty::DeadlineLatchedLaunch>,
+    pub provisional_launch: Option<codeterm_types::pty::ProvisionalLaunch>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -884,7 +884,7 @@ mod tests {
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,
-            deadline_latched_launch: None,
+            provisional_launch: None,
         }
     }
 

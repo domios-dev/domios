@@ -312,7 +312,7 @@ impl MultiplexerState {
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,
-            deadline_latched_launch: None,
+            provisional_launch: None,
         };
 
         let workspace = Workspace {
