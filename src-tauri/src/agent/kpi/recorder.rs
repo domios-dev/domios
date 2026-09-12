@@ -186,6 +186,23 @@ fn ingest_into_ledger(
     if batch.is_empty() && offset_before == Some(new_offset) {
         return;
     }
+    // The cursor commits past every byte this pass read, so anything consumed and
+    // not recorded is gone for good. Never silent: unreadable lines are real loss,
+    // and a stretch that simply carried no usage still says so.
+    if batch.unreadable_lines > 0 {
+        log::warn!(
+            "[kpi] {}: {} unreadable lines in {} consumed bytes; their usage is unrecoverable",
+            source.path.display(),
+            batch.unreadable_lines,
+            batch.consumed
+        );
+    } else if batch.consumed_without_recording() {
+        log::debug!(
+            "[kpi] {}: consumed {} bytes carrying no usage record",
+            source.path.display(),
+            batch.consumed
+        );
+    }
     let events: Vec<KpiEventInput> = batch
         .records
         .iter()

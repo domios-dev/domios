@@ -83,6 +83,15 @@ fn agent_tab(fixture: &ServiceFixture, agent: &str, session_id: &str) -> String 
     tab_id
 }
 
+fn usage_rows(ledger: &KpiLedger) -> Vec<crate::agent::kpi_ledger::KpiEventRecord> {
+    ledger
+        .list_all()
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.kind == KpiEventKind::TokenUsage)
+        .collect()
+}
+
 fn model_row<'a>(providers: &'a [ProviderSpend], provider: &str) -> &'a [ModelSpend] {
     providers
         .iter()
@@ -578,4 +587,79 @@ fn mission_control_spend_ingests_a_settled_turn_with_no_status_transition() {
         usage.iter().all(|row| row.tab_id == tab_id),
         "the rows are charged to the tab whose turn settled"
     );
+}
+
+/// One usage line in the provider's own shape. Written by the test so a second turn
+/// can be appended to the same file, which is what a long-lived session does.
+fn codex_usage_line(ts: &str, input: u64, cached: u64, output: u64) -> String {
+    let usage =
+        format!(r#"{{"input_tokens":{input},"cached_input_tokens":{cached},"output_tokens":{output}}}"#);
+    format!(
+        r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{usage}}}}}}}"#
+    ) + "\n"
+}
+
+/// A session that stays open across turns is the normal case, and it was the broken
+/// one: every other fixture ingests once into a fresh ledger, so none of them proves
+/// that turn two of the same session records anything at all.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn mission_control_spend_records_a_second_turn_in_the_same_session() {
+    use std::io::Write;
+
+    let mut fixture = fixture();
+    let session = fixture.temp.path().join("rollout-live.jsonl");
+    std::fs::write(
+        &session,
+        codex_usage_line("2026-09-12T10:00:00.000Z", 100, 40, 10),
+    )
+    .unwrap();
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::with_session_file("codex-live", session.clone())
+            .with_session_model("sess-long", "gpt-5.6-luna"),
+    ));
+    let tab_id = agent_tab(&fixture, "codex-live", "sess-long");
+    let ledger = ledger_on(&mut fixture);
+
+    fixture.service.request_kpi_usage_ingest(&tab_id);
+    fixture.service.kpi.drain();
+    let after_first = usage_rows(&ledger);
+    assert_eq!(after_first.len(), 1, "turn one records its own row");
+
+    // The same session keeps growing; nothing rotates and no id changes.
+    let mut appended = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&session)
+        .unwrap();
+    appended
+        .write_all(codex_usage_line("2026-09-12T10:05:00.000Z", 300, 250, 25).as_bytes())
+        .unwrap();
+    drop(appended);
+
+    fixture.service.request_kpi_usage_ingest(&tab_id);
+    fixture.service.kpi.drain();
+
+    let rows = usage_rows(&ledger);
+    assert_eq!(
+        rows.len(),
+        2,
+        "turn two of a live session must record its own row, not dedup into turn one"
+    );
+    let second = rows.last().unwrap();
+    assert_eq!(
+        second.tokens.map(|t| t.input),
+        Some(300),
+        "the second row carries the second turn's tokens"
+    );
+    assert_eq!(second.tokens.map(|t| t.uncached_input), Some(50));
+    assert_eq!(second.tokens.map(|t| t.output), Some(25));
+    assert!(
+        rows.iter().all(|row| row.dedup_key.is_none()),
+        "usage rows carry no dedup key, so a repeat turn can never be ignored"
+    );
+
+    // A third pass with nothing appended adds nothing and loses nothing.
+    fixture.service.request_kpi_usage_ingest(&tab_id);
+    fixture.service.kpi.drain();
+    assert_eq!(usage_rows(&ledger).len(), 2);
 }
