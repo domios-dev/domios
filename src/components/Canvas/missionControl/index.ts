@@ -13,11 +13,10 @@ export { modelToSnapshot, missionControlHealth, extractStreamEvents } from "./mo
 export { buildFlowRiver, type FlowRiverModel, type MilestoneStation } from "./flowModel";
 export { PlanRiver } from "./PlanRiver";
 export { resolveMissionControlLod, MC_LOD_FAR_MAX, MC_LOD_MID_MAX, type MissionControlLodLevel } from "./missionControlLod";
-export { MissionControlLiveView } from "./MissionControlLiveView";
+export { MissionControlBoard } from "./MissionControlBoard";
 export { MissionControlPlanSurface } from "./MissionControlPlanSurface";
 export { MissionControlPrototype } from "./MissionControlPrototype";
 export { useReducedMotion } from "./useReducedMotion";
-export { missionControlInputRevision } from "./missionControlInputRevision";
 export { MissionControlStage } from "./MissionControlStage";
 export { MISSION_CONTROL_FIXTURE, activeLaneCount, dispatchFrontierCount, totalBlockedPaused } from "./fixtures";
 export type { MissionControlSnapshot, MissionControlVariant, MissionControlLod } from "./types";

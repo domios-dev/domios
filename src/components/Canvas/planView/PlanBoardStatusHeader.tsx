@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PlanningState } from "../types";
 import type { BoardPlanSummary } from "./boardModel";
 import { PairAffordance } from "../../shared/PairAffordance";
@@ -6,6 +7,8 @@ export interface PlanBoardStatusHeaderProps {
   summary: BoardPlanSummary;
   onOpenPlan: () => void;
   onOpenTab?: (tabId: string) => void;
+  /** Replaces the bare done/total count; Mission Control passes its fuller reading. */
+  progress?: ReactNode;
 }
 
 const PLANNING_STATE_LABEL: Record<PlanningState, string> = {
@@ -22,7 +25,12 @@ function progressLabel(done: number, total: number): string {
   return `${done}/${total} done`;
 }
 
-export function PlanBoardStatusHeader({ summary, onOpenPlan, onOpenTab }: PlanBoardStatusHeaderProps) {
+export function PlanBoardStatusHeader({
+  summary,
+  onOpenPlan,
+  onOpenTab,
+  progress,
+}: PlanBoardStatusHeaderProps) {
   const stateLabel = planningStateLabel(summary.planningState);
   const plannerLabel = summary.plannerLabel ?? "No planner";
 
@@ -60,7 +68,7 @@ export function PlanBoardStatusHeader({ summary, onOpenPlan, onOpenTab }: PlanBo
           />
         </div>
         <span data-testid="plan-board-done-count" className="plan-board-done-count">
-          {progressLabel(summary.done, summary.total)}
+          {progress ?? progressLabel(summary.done, summary.total)}
         </span>
       </div>
       <div className="plan-board-status-title-row">

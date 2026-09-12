@@ -93,13 +93,22 @@ function mkPlan(): Plan {
   };
 }
 
-test("renders the flow river with milestone derived from task groups", async () => {
+test("renders the stored board for the selected plan", async () => {
   const { host, unmount } = await render(
     <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
   );
-  assert(host.querySelector('[data-testid="plan-river-pl_flow"]'), "plan river rendered");
-  assert(host.textContent?.includes("Wave 26"), "milestone label from task group");
-  assert(host.textContent?.includes("2 of 3 left"), "N-of-M from group members");
+  assert(host.querySelector('[data-testid="mission-control-board"]'), "board rendered");
+  assert(host.querySelector('[data-testid="plan-board-status"]'), "status header rendered");
+  assert(host.textContent?.includes("Plan views UX redesign"), "plan title from the record");
+  await unmount();
+});
+
+test("waits for the stored reading instead of inventing card figures", async () => {
+  const { host, unmount } = await render(
+    <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
+  );
+  assert(host.querySelector('[data-testid="mc-board-pending"]'), "pending state without an api config");
+  assert(!host.querySelector('[data-testid="mc-board-card-grid"]'), "no cards without a snapshot");
   await unmount();
 });
 
