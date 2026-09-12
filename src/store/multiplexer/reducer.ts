@@ -88,7 +88,11 @@ function reconcileTabStatuses(
 const MAX_QUEUED_TOASTS = 12;
 
 /** Mirrors `BootStage::carries_reason`: the stage's reason is its own evidence. */
-const STAGES_CARRYING_REASON = new Set<BootStage>(["spawn_failed", "launch_deadline_elapsed"]);
+const STAGES_CARRYING_REASON = new Set<BootStage>([
+  "spawn_failed",
+  "launch_deadline_elapsed",
+  "launch_binding_unconfirmed",
+]);
 
 function capToasts(toasts: Notification[]): Notification[] {
   if (toasts.length <= MAX_QUEUED_TOASTS) return toasts;

@@ -12,7 +12,7 @@ pub use agent_liveness::{
     agent_bracket_label, classify_agent_liveness, AgentBacking, AgentLiveness, LivenessEvidence,
 };
 pub use agent_role::{AgentRole, PendingPrompt, PromptOption, PromptSection};
-pub use boot_stage::{BootStage, BootStageSink, DeadlineLatchedLaunch};
+pub use boot_stage::{BootStage, BootStageSink, ProvisionalLaunch};
 pub use remote_ownership::{RemoteOwnership, RemoteOwnershipTeam};
 pub use status_elapsed::{StatusElapsedProgress, StatusElapsedTracker};
 pub use tab_status::{reconcile_status, TabStatus};

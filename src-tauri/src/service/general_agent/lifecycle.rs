@@ -595,12 +595,7 @@ pub fn start_general_agent(
         }
     };
     let Some(bound_session) = bound_session else {
-        fail_general_agent_start(
-            svc,
-            mux,
-            &tab_id,
-            "authoritative provider session binding was not reported",
-        );
+        defer_general_agent_start_to_late_binding(svc, mux, &tab_id, &pty_id);
         return;
     };
     if !use_resume {
@@ -853,6 +848,52 @@ fn fail_general_agent_start(
         tab.agent_booting = false;
     }
     svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
+    svc.emit_state_changed();
+}
+
+const BINDING_UNREPORTED: &str = "authoritative provider session binding was not reported";
+const UNCONFIRMED_DELIVERY: &str =
+    "submit_unconfirmed: launch payload written, pending evidence retained";
+const UNACKNOWLEDGED_DELIVERY: &str = "pending: launch delivery is unacknowledged";
+
+/// What the launch records when the binding never arrived, read from the
+/// delivery the ledger still holds rather than inferred from a return code.
+/// Bytes on the PTY make this uncertainty about one attempt, never a verdict.
+fn missing_binding_provisional(
+    delivery: Option<crate::multiplexer::types::PendingDeliveryState>,
+) -> (BootStage, String) {
+    use crate::multiplexer::types::PendingDeliveryState;
+    let evidence = match delivery {
+        Some(PendingDeliveryState::Unconfirmed) => Some(UNCONFIRMED_DELIVERY),
+        Some(state) if state.needs_delivery() => Some(UNACKNOWLEDGED_DELIVERY),
+        _ => None,
+    };
+    let reason = match evidence {
+        Some(evidence) => format!("{evidence}; {BINDING_UNREPORTED}"),
+        None => BINDING_UNREPORTED.to_string(),
+    };
+    (BootStage::LaunchBindingUnconfirmed, reason)
+}
+
+/// A missing session binding is this observer giving up, not the launch
+/// failing. The tab keeps a provisional stage bound to this PTY and this launch
+/// attempt, carrying the delivery evidence, so the agent's own late binding can
+/// still retire it.
+fn defer_general_agent_start_to_late_binding(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    tab_id: &str,
+    pty_id: &str,
+) {
+    let delivery = mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.pending_delivery.as_ref().map(|record| record.state()));
+    let (stage, reason) = missing_binding_provisional(delivery);
+    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+        tab.agent_booting = false;
+    }
+    svc.record_provisional_launch(tab_id, pty_id, stage, &reason);
     svc.emit_state_changed();
 }
 

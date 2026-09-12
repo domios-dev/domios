@@ -207,6 +207,132 @@ fn a_startup_refusal_that_wrote_nothing_still_fails_the_spawn() {
     }
 }
 
+/// A tab at the exact point the first-run launch reaches the binding wait: the
+/// payload was written on this PTY under this attempt's nonce, the ledger holds
+/// the unconfirmed delivery, and no binding has arrived.
+fn tab_after_unconfirmed_launch_delivery() -> crate::multiplexer::types::Tab {
+    let mut mux = MultiplexerState::empty();
+    super::super::workspace::ensure_general_workspace(&mut mux, true);
+    let tab_id = mux
+        .resolve_tab_id(super::GENERAL_ALIAS)
+        .expect("general Tab");
+    let mut pending = PendingDeliveryRecord::new(
+        "bootstrap-digest".into(),
+        PendingDeliveryChannel::InteractiveInput,
+    );
+    pending.mark_unconfirmed();
+    let tab = mux.get_tab_mut(&tab_id).expect("general Tab");
+    tab.pty_id = Some("pty-a".into());
+    tab.agent_type = Some("codex".into());
+    tab.session_binding_nonce = Some("nonce-a".into());
+    tab.reported_session_binding_nonce = None;
+    tab.agent_session_id = None;
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    tab.pending_delivery = Some(pending);
+    tab.clone()
+}
+
+/// Mirrors `defer_general_agent_start_to_late_binding`: the producer reads the
+/// retained delivery, then latches under the shared provisional rule.
+fn record_missing_binding(tab: &mut crate::multiplexer::types::Tab) -> (BootStage, String) {
+    let delivery = tab.pending_delivery.as_ref().map(|record| record.state());
+    let (stage, reason) = super::missing_binding_provisional(delivery);
+    let latch = crate::service::boot_stage::provisional_launch_for(tab, "pty-a", &reason)
+        .expect("a current launch is latchable while it is unresolved");
+    crate::service::boot_stage::apply_boot_stage(tab, stage, Some(&reason));
+    tab.provisional_launch = Some(latch);
+    (stage, reason)
+}
+
+/// The live #477 regression: a first-run launch whose payload reached the PTY
+/// and whose binding never arrived was recorded as a terminal spawn failure.
+#[test]
+fn submit_unconfirmed_does_not_latch_terminal_spawn_failed() {
+    let unconfirmed = crate::service::delivery_error::DeliveryError::SubmitUnconfirmed {
+        tab: "general".into(),
+        detail: "delivery acknowledgement not observed".into(),
+    };
+    let unconfirmed_code = unconfirmed.code();
+    assert!(unconfirmed.bytes_written());
+    assert_eq!(
+        super::launch_delivery_failure("general", Err(unconfirmed)),
+        None,
+        "a written payload is never a spawn failure",
+    );
+
+    let (stage, reason) =
+        super::missing_binding_provisional(Some(PendingDeliveryState::Unconfirmed));
+
+    assert_eq!(stage, BootStage::LaunchBindingUnconfirmed);
+    assert_ne!(stage, BootStage::SpawnFailed);
+    assert!(stage.is_provisional());
+    assert!(stage.carries_reason());
+    assert!(
+        reason.starts_with(unconfirmed_code),
+        "the provisional stage carries its concrete delivery evidence: {reason}",
+    );
+    assert!(reason.contains(super::BINDING_UNREPORTED), "{reason}");
+}
+
+#[test]
+fn submit_unconfirmed_stays_provisional_without_binding() {
+    let mut tab = tab_after_unconfirmed_launch_delivery();
+
+    let (stage, reason) = record_missing_binding(&mut tab);
+
+    assert_eq!(stage, BootStage::LaunchBindingUnconfirmed);
+    assert_eq!(tab.boot_stage, Some(stage));
+    assert_ne!(tab.boot_stage, Some(BootStage::SpawnFailed));
+    assert!(tab.boot_stage.is_some_and(|stage| stage.is_provisional()));
+    assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason.as_str()));
+    assert_eq!(
+        tab.provisional_launch
+            .as_ref()
+            .map(|latch| (latch.pty_id.as_str(), latch.binding_nonce.as_str())),
+        Some(("pty-a", "nonce-a")),
+        "the provisional state is scoped to this PTY and this launch attempt",
+    );
+    assert_eq!(
+        tab.pending_delivery.as_ref().map(|record| record.state()),
+        Some(PendingDeliveryState::Unconfirmed),
+        "the pending delivery evidence survives the provisional record",
+    );
+    assert!(
+        !tab.launch_session_authenticated(),
+        "no binding arrived, so nothing unlocks this launch yet",
+    );
+}
+
+/// The over-correction guard at the producer: a refusal that wrote nothing is
+/// still a spawn failure, and a launch that dies after the provisional record
+/// still latches terminally.
+#[test]
+fn genuine_launch_failure_remains_blocked_after_unconfirmed() {
+    for error in [
+        crate::service::delivery_error::DeliveryError::PtyUnavailable {
+            tab: "general".into(),
+            detail: "no pty".into(),
+        },
+        crate::service::delivery_error::DeliveryError::TabBusyRefused {
+            tab: "general".into(),
+            detail: "booting".into(),
+        },
+    ] {
+        let code = error.code();
+        let reason = super::launch_delivery_failure("general", Err(error))
+            .expect("a pre-write refusal is a spawn failure");
+        assert!(reason.starts_with(code), "{reason} must carry {code}");
+    }
+
+    let mut tab = tab_after_unconfirmed_launch_delivery();
+    record_missing_binding(&mut tab);
+    crate::service::boot_stage::apply_boot_stage(&mut tab, BootStage::SpawnFailed, Some("PtyEof"));
+
+    assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+    assert_eq!(tab.boot_failure_reason.as_deref(), Some("PtyEof"));
+    assert_eq!(tab.provisional_launch, None);
+}
+
 #[test]
 fn startup_turn_is_delivered_before_session_binding_wait() {
     let steps = std::cell::RefCell::new(Vec::new());

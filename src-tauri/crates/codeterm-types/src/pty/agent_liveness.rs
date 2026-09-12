@@ -98,11 +98,11 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         Some(BootStage::ProviderReady) | Some(BootStage::AgentReady) => AgentLiveness::Live,
         Some(BootStage::SpawnFailed) => AgentLiveness::Absent,
         // A restored tab that proved only its PTY is live has proved nothing
-        // about the agent inside it, and an observer's deadline is not evidence
-        // that the process it gave up on died.
-        Some(BootStage::PtyReattached) | Some(BootStage::LaunchDeadlineElapsed) => {
-            AgentLiveness::Unobserved
-        }
+        // about the agent inside it, and an observer giving up on a launch is
+        // not evidence that the process it gave up on died.
+        Some(BootStage::PtyReattached)
+        | Some(BootStage::LaunchDeadlineElapsed)
+        | Some(BootStage::LaunchBindingUnconfirmed) => AgentLiveness::Unobserved,
         // Everything up to and including `shell_ready` is a shell, not an
         // agent. Absent unless a launch is still running.
         _ if evidence.boot_in_flight => AgentLiveness::Unobserved,
