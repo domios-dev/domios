@@ -593,7 +593,7 @@ fn install_leaf(
             pending_greeting: None,
             boot_stage: restored_identity.and_then(|identity| identity.boot_stage),
             boot_failure_reason: None,
-            deadline_latched_launch: None,
+            provisional_launch: None,
         },
     );
     Some(tab_id.clone())

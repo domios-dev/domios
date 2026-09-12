@@ -137,6 +137,7 @@ export type BootStage =
   | "agent_ready"
   | "pty_reattached"
   | "launch_deadline_elapsed"
+  | "launch_binding_unconfirmed"
   | "spawn_failed";
 
 /** Payload of the `tab-boot-stage` event. */
