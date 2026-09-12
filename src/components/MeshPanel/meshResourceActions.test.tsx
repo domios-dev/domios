@@ -66,6 +66,7 @@ function cronJob(): CronJob {
     enabled: true,
     agent: "test",
     model: null,
+    reasoning_effort: null,
     task: "backup",
     cwd: null,
     role: null,

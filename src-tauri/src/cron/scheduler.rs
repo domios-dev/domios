@@ -9,7 +9,7 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use tauri::Emitter;
 
-use super::store::{CronRunInfo, CronRunStatus, CronStore};
+use super::store::{CronJob, CronRunInfo, CronRunStatus, CronStore};
 use crate::service::ServiceState;
 
 pub type CronState = Arc<Mutex<CronStore>>;
@@ -37,6 +37,7 @@ struct FireSpec {
     job_id: String,
     agent: String,
     model: Option<String>,
+    reasoning_effort: Option<String>,
     task: String,
     cwd: Option<String>,
     role: Option<String>,
@@ -46,6 +47,24 @@ struct FireSpec {
     report_target_tab_id: Option<String>,
     timeout_seconds: Option<u64>,
     skill: Option<String>,
+}
+
+fn fire_spec(job: &CronJob) -> FireSpec {
+    FireSpec {
+        job_id: job.id.clone(),
+        agent: job.agent.clone(),
+        model: job.model.clone(),
+        reasoning_effort: job.reasoning_effort.clone(),
+        task: job.task.clone(),
+        cwd: job.cwd.clone(),
+        role: job.role.clone(),
+        workspace_id: job.workspace_id.clone(),
+        team_id: job.team_id.clone(),
+        creator_tab_id: job.creator_tab_id.clone(),
+        report_target_tab_id: job.report_target_tab_id.clone(),
+        timeout_seconds: job.timeout_seconds,
+        skill: job.skill.clone(),
+    }
 }
 
 /// One scheduler tick: fire any overdue jobs, return ms until next fire.
@@ -68,20 +87,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                         });
                         continue;
                     }
-                    to_fire.push(FireSpec {
-                        job_id: job.id.clone(),
-                        agent: job.agent.clone(),
-                        model: job.model.clone(),
-                        task: job.task.clone(),
-                        cwd: job.cwd.clone(),
-                        role: job.role.clone(),
-                        workspace_id: job.workspace_id.clone(),
-                        team_id: job.team_id.clone(),
-                        creator_tab_id: job.creator_tab_id.clone(),
-                        report_target_tab_id: job.report_target_tab_id.clone(),
-                        timeout_seconds: job.timeout_seconds,
-                        skill: job.skill.clone(),
-                    });
+                    to_fire.push(fire_spec(job));
                 } else {
                     next_fire = Some(match next_fire {
                         Some(current) => current.min(nr),
@@ -127,6 +133,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     let job_id = spec.job_id.as_str();
     let agent = spec.agent.as_str();
     let model = spec.model.as_deref();
+    let reasoning_effort = spec.reasoning_effort.as_deref();
     let task = spec.task.as_str();
     let cwd = spec.cwd.as_deref();
     let role = spec.role.as_deref();
@@ -198,6 +205,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
             job_name,
             agent: agent.to_string(),
             model,
+            reasoning_effort: reasoning_effort.map(str::to_string),
             task_text,
             role: role.map(|s| s.to_string()),
             cwd: cwd.map(|s| s.to_string()),
@@ -328,6 +336,7 @@ mod tests {
                 description: None,
                 agent: None,
                 model: None,
+                reasoning_effort: None,
                 cwd: None,
                 role: None,
                 skill: None,
@@ -353,6 +362,7 @@ mod tests {
                 description: None,
                 agent: None,
                 model: None,
+                reasoning_effort: None,
                 cwd: None,
                 role: None,
                 skill: None,
@@ -370,5 +380,67 @@ mod tests {
         let enabled = store.list_enabled();
         assert_eq!(enabled.len(), 1);
         assert_eq!(enabled[0].name, "Enabled");
+    }
+
+    #[test]
+    fn cron_old_job_without_reasoning_effort_fires_at_provider_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        let mut store = CronStore::new_with_path(path.clone());
+        let job = store
+            .create(CronCreateParams {
+                name: "legacy".into(),
+                workspace_id: "ws".into(),
+                team_id: None,
+                detach_from_team: false,
+                schedule: "0 * * * *".into(),
+                task: "run once".into(),
+                description: None,
+                agent: Some("tiered".into()),
+                model: None,
+                reasoning_effort: None,
+                cwd: None,
+                role: None,
+                skill: None,
+                creator_tab_id: None,
+                report_target_tab_id: None,
+                enabled: Some(false),
+                max_history: None,
+                oneshot: None,
+                jitter_max_ms: Some(0),
+                tz: None,
+                timeout_seconds: None,
+            })
+            .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("reasoning_effort"));
+
+        let loaded = CronStore::new_with_path(path);
+        let fire = super::fire_spec(loaded.get(&job.id).unwrap());
+        assert_eq!(fire.reasoning_effort, None);
+
+        let spec = crate::cron::spawn_spec::build_cron_spawn_spec(
+            &crate::chatbackend::ChatBackendRegistry::new(),
+            crate::cron::spawn_spec::CronSpawnInputs {
+                job_id: fire.job_id,
+                job_name: "legacy".into(),
+                agent: fire.agent,
+                model: fire.model,
+                reasoning_effort: fire.reasoning_effort,
+                task_text: fire.task,
+                role: fire.role,
+                cwd: fire.cwd,
+                workspace_id: Some(fire.workspace_id),
+                team_id: fire.team_id,
+                creator_tab_id: fire.creator_tab_id,
+                report_target_tab_id: fire.report_target_tab_id,
+            },
+        );
+        match spec.command {
+            crate::service::spawn::TabCommand::Agent(agent) => {
+                assert_eq!(agent.reasoning_effort, None)
+            }
+            other => panic!("expected PTY agent spawn, got {other:?}"),
+        }
     }
 }
