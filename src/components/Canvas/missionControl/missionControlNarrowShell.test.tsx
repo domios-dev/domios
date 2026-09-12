@@ -200,6 +200,7 @@ function missionControlState(): MissionControlState {
     kpi: {
       state: "recording",
       not_recording_reason: null,
+      enable_setting: null,
       spend: {
         events: 4023,
         bytes: 65_000_000,

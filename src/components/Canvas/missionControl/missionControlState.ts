@@ -113,6 +113,8 @@ export interface MissionControlKpi {
   state: KpiLedgerState;
   not_recording_reason: KpiNotRecordingReason | null;
   spend: PlanKpiSpend | null;
+  /** Config key that turns recording back on; non-null only for the opt-out state. */
+  enable_setting: string | null;
 }
 
 export type RunwayState = "reporting" | "not_reporting";

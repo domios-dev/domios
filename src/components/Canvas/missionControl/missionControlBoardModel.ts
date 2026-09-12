@@ -271,7 +271,7 @@ export function runwayGauges(providers: readonly ProviderRunway[]): RunwayGauge[
 }
 
 const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
-  disabled: "not recording — the KPI ledger is off",
+  disabled: "not recording — the KPI ledger is switched off",
   no_rows_for_plan: "not recording — the ledger holds no row for this plan",
   unreadable: "not recording — the ledger could not be read",
   not_read: "not recording — no ledger reader is attached",
@@ -279,4 +279,33 @@ const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
 
 export function notRecordingCopy(reason: KpiNotRecordingReason | null): string {
   return reason ? NOT_RECORDING_COPY[reason] : NOT_RECORDING_COPY.not_read;
+}
+
+export function kpiEnableCommand(setting: string): string {
+  return `codeterm config set ${setting} true`;
+}
+
+/**
+ * What a person must do about this state. The opt-out branch names the exact setting
+ * the snapshot carries, so a not-recording card is never a bare label; every other
+ * branch says why no figure exists rather than offering a switch that would not help.
+ */
+export function notRecordingDetail(
+  reason: KpiNotRecordingReason | null,
+  enableSetting: string | null,
+): string {
+  switch (reason ?? "not_read") {
+    case "disabled":
+      return enableSetting
+        ? `No figure is shown while recording is off. Set ${enableSetting} to true — run ${kpiEnableCommand(
+            enableSetting,
+          )} — then restart CodeTerm.`
+        : "No figure is shown while recording is off. Turn it back on in the [kpi] section of config.toml, then restart CodeTerm.";
+    case "no_rows_for_plan":
+      return "No event is attributed to this plan yet, so no figure is shown.";
+    case "unreadable":
+      return "The KPI ledger could not be read, so no figure is shown. The daemon log names the ledger error.";
+    default:
+      return "This reading was built without a ledger reader, so no figure is shown.";
+  }
 }
