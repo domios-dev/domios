@@ -87,6 +87,9 @@ function reconcileTabStatuses(
  */
 const MAX_QUEUED_TOASTS = 12;
 
+/** Mirrors `BootStage::carries_reason`: the stage's reason is its own evidence. */
+const STAGES_CARRYING_REASON = new Set<BootStage>(["spawn_failed", "launch_deadline_elapsed"]);
+
 function capToasts(toasts: Notification[]): Notification[] {
   if (toasts.length <= MAX_QUEUED_TOASTS) return toasts;
   const expendable = (toast: Notification) => !toast.sticky && !toast.actions?.length;
@@ -616,7 +619,9 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           [action.tabId]: {
             ...tab,
             boot_stage: action.stage,
-            boot_failure_reason: action.stage === "spawn_failed" ? (action.reason ?? null) : null,
+            boot_failure_reason: STAGES_CARRYING_REASON.has(action.stage)
+              ? (action.reason ?? null)
+              : null,
           },
         },
       };
