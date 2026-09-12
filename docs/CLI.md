@@ -309,6 +309,7 @@ Create a cron job
 - `<name>` — Cron job name
 - `--no-team` — Keep this job outside the calling tab's Team
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
+- `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Leave unset to use the provider default
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
 - `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
 - `--tab` — Tab ID to receive reports. Omit to keep runs private to the cron
@@ -341,6 +342,7 @@ Edit a cron job
 - `--jitter-max-ms` — Max jitter in milliseconds added to each scheduled fire. Set 0 to disable jitter. Omit to leave unchanged
 - `--model` — Model within the agent provider. Pass empty string to clear
 - `--name`
+- `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Pass empty string to clear
 - `--schedule`
 - `--skill` — Mem skill slug to resolve and inject into the task brief at fire time. Pass an empty string to clear
 - `--task`

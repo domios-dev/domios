@@ -453,6 +453,8 @@ export interface CronJob {
   agent: string;
   /** Model id within the agent provider (e.g. "opus", "gpt-5.4-mini"). `null` = provider default. */
   model: string | null;
+  /** Reasoning-effort id advertised by the agent provider. `null` = provider default. */
+  reasoning_effort: string | null;
   task: string;
   cwd: string | null;
   role: string | null;

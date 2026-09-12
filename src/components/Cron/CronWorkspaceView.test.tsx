@@ -45,6 +45,7 @@ function cronJob(): CronJob {
     enabled: true,
     agent: "claude",
     model: null,
+    reasoning_effort: null,
     task: "sync notes",
     cwd: null,
     role: null,

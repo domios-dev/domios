@@ -722,6 +722,11 @@ impl ServiceContext {
             &agent.provider,
             launch_model.as_deref(),
         )?;
+        validate_agent_reasoning_effort(
+            &self.agent_registry,
+            &agent.provider,
+            agent.reasoning_effort.as_deref(),
+        )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }
@@ -909,13 +914,22 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        let model_args: Vec<String> = launch_model
+        let mut model_args: Vec<String> = launch_model
             .as_ref()
             .and_then(|m| {
                 self.agent_registry
                     .with_provider(&agent.provider, |p| p.model_launch_args(m))
             })
             .unwrap_or_default();
+        if let Some(ref effort) = agent.reasoning_effort {
+            if !effort.is_empty() {
+                let effort_args = self
+                    .agent_registry
+                    .with_provider(&agent.provider, |p| p.reasoning_effort_launch_args(effort))
+                    .unwrap_or_default();
+                model_args.extend(effort_args);
+            }
+        }
 
         let svc_outer = std::sync::Arc::new(self.clone());
         let tab_id_outer = tab_id.clone();
