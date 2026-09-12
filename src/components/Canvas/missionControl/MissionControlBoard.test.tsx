@@ -9,6 +9,7 @@ import {
   BOARD_NARROW_MAX_PX,
   BOARD_RUNWAY_COLUMNS,
   boardLayout,
+  formatClock,
 } from "./missionControlBoardModel";
 import type { MissionControlState, PlanBoardState } from "./missionControlState";
 
@@ -324,6 +325,33 @@ describe("mission control board fallback states", () => {
 });
 
 describe("mission control board event log", () => {
+  it("mission_control_event_log_renders_each_title_once", async () => {
+    const title = "Verify clean first run";
+    const event = {
+      ts: DAY + H,
+      last_ts: DAY + H,
+      count: 1,
+      kind: "task_created",
+      author: "Planner",
+      author_tab_id: "tab-planner",
+      task_id: "verify-clean-first-run",
+      task_name: title,
+      text: title,
+    };
+    const mission = recordingState();
+    mission.event_log.entries = [event];
+
+    const { host, unmount } = await render(board(mission));
+
+    const row = host.querySelector('[data-testid="mc-board-event-row"]') as HTMLElement;
+    const rowText = row.textContent ?? "";
+    expect(row.querySelector(".mc-board-log-time")?.textContent).toBe(formatClock(event.ts));
+    expect(row.querySelector(".mc-board-log-kind")?.textContent).toBe("Task added");
+    expect(row.querySelector('[data-testid="mc-board-event-author"]')?.textContent).toBe("Planner");
+    expect(rowText.split(title).length - 1).toBe(1);
+    await unmount();
+  });
+
   it("keeps events in time order under hour bands and collapses one agent's report run", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
