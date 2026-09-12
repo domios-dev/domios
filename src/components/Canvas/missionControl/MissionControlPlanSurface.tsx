@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { filterPlansForCanvas } from "../planTabMatch";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
-import { fetchSpecSections } from "../plansApi";
+import { deletePlan, fetchSpecSections, parkPlan, setPlanMode } from "../plansApi";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import { PlanSwitcher } from "../planView/PlanSwitcher";
 import { usePlanSwitcherActions } from "../planView/usePlanSwitcherActions";
@@ -143,6 +143,21 @@ export function MissionControlPlanSurface({
 
   const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
 
+  const approvePlan = useCallback((id: string) => {
+    if (!api) return;
+    void setPlanMode(api, id, "approved").catch(() => undefined);
+  }, [api]);
+
+  const pausePlan = useCallback((id: string) => {
+    if (!api) return;
+    void parkPlan(api, id, "Paused from Mission Control").catch(() => undefined);
+  }, [api]);
+
+  const clearEverything = useCallback((id: string) => {
+    if (!api) return;
+    void deletePlan(api, id).catch(() => undefined);
+  }, [api]);
+
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
@@ -190,6 +205,9 @@ export function MissionControlPlanSurface({
             tabs={tabs}
             onOpenPlan={openPlanDetail}
             onOpenTab={onOpenTab}
+            onApprovePlan={approvePlan}
+            onPausePlan={pausePlan}
+            onClearEverything={clearEverything}
           />
         )}
       </div>
