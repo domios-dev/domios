@@ -477,8 +477,8 @@ export const TerminalTab = memo(function TerminalTab({
           borderBottom: mobileSheet ? "none" : undefined,
           boxShadow: fallbackChat && !mobileSheet ? FB_SHADOW : undefined,
           background: terminalBackground,
-          visibility: terminalVisible && !historyReplaying ? "visible" : "hidden",
-          pointerEvents: terminalVisible ? "auto" : "none",
+          visibility: isVisible && terminalVisible && !historyReplaying ? "visible" : "hidden",
+          pointerEvents: isVisible && terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
           animation: mobileSheet
             ? "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)"
