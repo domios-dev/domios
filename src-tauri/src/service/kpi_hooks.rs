@@ -162,22 +162,42 @@ impl ServiceContext {
         self.kpi.request_ingest(source, attribution);
     }
 
+    /// An unresolvable source used to return `None` without a trace, so a tab whose
+    /// session was never bound recorded nothing and said nothing. Name the missing
+    /// input instead: silence here reads exactly like a tab that spent nothing.
     fn tab_usage_source(&self, tab_id: &str) -> Option<UsageSource> {
         let (agent_type, cwd, session_id) = {
             let mux = self.mux.read();
             let resolved = mux.resolve_tab_id(tab_id)?;
             let tab = mux.get_tab(&resolved)?;
             (
-                tab.agent_type.clone()?,
-                tab.cwd.clone()?,
-                tab.agent_session_id.clone()?,
+                tab.agent_type.clone(),
+                tab.cwd.clone(),
+                tab.agent_session_id.clone(),
             )
         };
-        self.agent_registry
+        let missing = match (&agent_type, &cwd, &session_id) {
+            (None, _, _) => Some("agent_type"),
+            (_, None, _) => Some("cwd"),
+            (_, _, None) => Some("session_id"),
+            _ => None,
+        };
+        if let Some(missing) = missing {
+            log::debug!("[kpi] tab {tab_id}: no usage source, {missing} unknown");
+            return None;
+        }
+        let (agent_type, cwd, session_id) = (agent_type?, cwd?, session_id?);
+        let path = self
+            .agent_registry
             .with_provider(&agent_type, |provider| {
                 provider.session_file_path(&cwd, &session_id)
             })
-            .flatten()
-            .map(UsageSource::new)
+            .flatten();
+        if path.is_none() {
+            log::debug!(
+                "[kpi] tab {tab_id}: provider {agent_type} names no session file for {session_id}"
+            );
+        }
+        path.map(UsageSource::new)
     }
 }
