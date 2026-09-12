@@ -87,7 +87,7 @@ console.log("\n--- session_index folding and shared store paths ---\n");
   const folded = sessions.find((session: any) => session.sessionId === projectSession);
   eq(folded?.title, "new project prompt", "folding keeps the record with the newest updated_at");
   eq(folded?.filePath, indexPath, "enumeration reports the current session index store");
-  eq(p.sessionFilePath("/work/proj", projectSession), null, "the new store has no JSONL session file");
+  eq(p.sessionFilePath("/work/proj", projectSession), null, "a thread with no state row names no transcript");
   eq(p.sessionJsonlPath("/work/proj", projectSession), null, "chat path stays honest when no JSONL transcript exists");
   eq(p.sessionExists?.("/work/proj", projectSession), true, "claimed indexed session exists without a JSONL path");
   eq(p.sessionExists?.("/work/proj", "unknown-session"), false, "another indexed session cannot prove the claimed session");
@@ -118,6 +118,65 @@ console.log("\n--- detection accepts one exact SQLite project match ---\n");
   const p = loadCodexWithHost(fixture.host);
   eq(p.detectSessionId("/work/proj", [], 24 * 60 * 60 * 1000), projectSession, "exact SQLite cwd match wins over a newer foreign session");
   eq(p.detectSessionId("/work/proj", projectSession, 24 * 60 * 60 * 1000), null, "an excluded exact match leaves detection unknown");
+}
+
+console.log("\n--- the running model and the rollout come from the thread row ---\n");
+{
+  // Codex writes the model on its own per-thread row. `thread_items` carries no
+  // turn_context and no model column on this schema, so querying it can never
+  // answer, which is how every Codex turn recorded a null model.
+  const rollout = "/tmp/home/.codex/sessions/2026/09/01/rollout-2026-09-01T15-02-00-" + projectSession + ".jsonl";
+  const stateDb = "/tmp/home/.codex/state_5.sqlite";
+  const queries: { db: string; sql: string; params: unknown[] }[] = [];
+  const fixture = baseHost(index, (db, sql, params) => {
+    queries.push({ db, sql, params });
+    if (!/FROM threads/.test(sql)) return [];
+    return params[0] === projectSession ? [{ model: "gpt-5.6-luna", rollout_path: rollout }] : [];
+  });
+  const host = fixture.host as any;
+  const indexed = host.fs.fileExists;
+  host.fs.readDir = () => [
+    { name: "state_4.sqlite", isFile: true },
+    { name: "state_5.sqlite", isFile: true },
+    { name: "sessions", isFile: false },
+    { name: "thread_history_1.sqlite", isFile: true },
+  ];
+  host.fs.fileExists = (file: string) => file === stateDb || file === rollout || indexed(file);
+  const p = loadCodexWithHost(host);
+
+  eq(p.detectSessionModel("/work/proj", projectSession), "gpt-5.6-luna",
+    "the running model is read from the thread row Codex maintains");
+  eq(p.sessionFilePath("/work/proj", projectSession), rollout,
+    "the rollout the session appends to is a real file the usage parser can read");
+
+  const threadQueries = queries.filter((q) => /FROM threads/.test(q.sql));
+  assert(threadQueries.length > 0, "the model query goes to the thread row");
+  assert(threadQueries.every((q) => q.db === stateDb),
+    "the newest state database wins, so a version bump does not silently stop answering");
+  assert(threadQueries.every((q) => !q.sql.includes("thread_items")),
+    "the item table is not consulted for a model it does not carry");
+  eq(threadQueries[threadQueries.length - 1].params, [projectSession],
+    "the query is scoped to this tab's own session id");
+
+  eq(p.detectSessionModel("/work/proj", foreignSession), null,
+    "a session with no thread row stays unknown instead of borrowing a neighbour's model");
+  eq(p.sessionFilePath("/work/proj", foreignSession), null,
+    "and names no transcript either");
+}
+
+console.log("\n--- an absent rollout is reported, not handed to the parser ---\n");
+{
+  const stateDb = "/tmp/home/.codex/state_5.sqlite";
+  const fixture = baseHost(index, (_db, sql) =>
+    /FROM threads/.test(sql) ? [{ model: "gpt-5.6-luna", rollout_path: "/tmp/gone.jsonl" }] : []);
+  const host = fixture.host as any;
+  host.fs.readDir = () => [{ name: "state_5.sqlite", isFile: true }];
+  host.fs.fileExists = (file: string) => file === stateDb;
+  const p = loadCodexWithHost(host);
+  eq(p.sessionFilePath("/work/proj", projectSession), null,
+    "a rollout path that is not on disk is reported as no transcript");
+  eq(p.detectSessionModel("/work/proj", projectSession), "gpt-5.6-luna",
+    "the model stays known even when the transcript file has been cleaned up");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

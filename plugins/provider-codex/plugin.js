@@ -993,8 +993,10 @@ function scoreAuthPrompt(screen) {
 var sessionStoreOverrides = {
   root: "CODETERM_CODEX_SESSIONS_ROOT",
   index: "CODETERM_CODEX_SESSION_INDEX_PATH",
-  threadHistory: "CODETERM_CODEX_THREAD_HISTORY_PATH"
+  threadHistory: "CODETERM_CODEX_THREAD_HISTORY_PATH",
+  state: "CODETERM_CODEX_STATE_DB_PATH"
 };
+var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
 function foldSessionIndex(contents) {
   const folded = /* @__PURE__ */ new Map();
   const lines = String(contents || "").split("\n");
@@ -1021,9 +1023,8 @@ function foldSessionIndex(contents) {
   return Array.from(folded.values());
 }
 function sessionFilePath(_cwd, sessionId) {
-  const store = codexSessionStore();
-  if (!store || !sessionIndexEntry(store.indexPath, sessionId)) return null;
-  return null;
+  const path = trimmedField(threadRow(sessionId), "rollout_path");
+  return path && host.fs.fileExists(path) ? path : null;
 }
 function sessionExists(_cwd, sessionId) {
   if (!sessionId) return false;
@@ -1066,25 +1067,49 @@ function enumerateSessions() {
   }));
 }
 function detectSessionModel(_cwd, sessionId) {
-  const store = codexSessionStore();
-  if (!store || !host.fs.fileExists(store.threadHistoryPath)) return null;
-  let rows;
+  return trimmedField(threadRow(sessionId), "model");
+}
+function threadRow(sessionId) {
+  if (!sessionId) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
   try {
-    rows = host.fs.sqliteQuery(
-      store.threadHistoryPath,
-      "SELECT item_type, item_json FROM thread_items WHERE thread_id = ? ORDER BY rollout_ordinal ASC, created_at_ms ASC",
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT model, rollout_path FROM threads WHERE id = ? LIMIT 1",
       [sessionId]
     );
+    return rows.length > 0 ? rows[0] : null;
   } catch (_) {
     return null;
   }
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const item = parseItem(rows[i]);
-    if (!item || item.type !== "turn_context") continue;
-    const model = item.payload && item.payload.model;
-    if (typeof model === "string" && model.trim()) return model.trim();
+}
+function trimmedField(row, field) {
+  const value = row ? row[field] : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function codexStateDbPath() {
+  const override = host.envGet(sessionStoreOverrides.state);
+  if (override) return override;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  let entries;
+  try {
+    entries = host.fs.readDir(root);
+  } catch (_) {
+    return null;
   }
-  return null;
+  let best = null;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.isFile) continue;
+    const match = STATE_DB_NAME.exec(entry.name);
+    if (!match) continue;
+    const version = parseInt(match[1], 10);
+    if (!best || version > best.version) best = { name: entry.name, version };
+  }
+  return best ? root + sep + best.name : null;
 }
 function extractSessionUuid(stem) {
   if (typeof stem !== "string") return null;
