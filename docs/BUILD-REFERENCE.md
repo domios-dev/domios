@@ -11,6 +11,28 @@ Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 - **Socket prefix:** `codeterm-dev` (vs `codeterm`)
 - **Single-instance:** Disabled (dev and prod can run side by side)
 
+### macOS dev launch contract
+
+The supported dev GUI path is the raw Tauri debug executable, not a `.app`
+bundle. `tauri.dev.conf.json` has no bundle target, and `build.sh` resolves
+`dev_app_path` to `src-tauri/target/debug/codeterm`; the prebuilt launcher
+starts that executable from the repository checkout. The production config
+does enable the `.app` bundle target, so its absence from a dev target is
+intentional rather than a missing production package.
+
+Use the repository launcher when reproducing or verifying a dev daemon; it
+selects the isolated dev ports and performs the health/build-identity check:
+
+```bash
+./build.sh dev-prebuilt --wait
+```
+
+If a fresh dev artifact is required, use `./build.sh dev --wait` first. Do not
+launch `src-tauri/target/debug/codeterm` through macOS `open`; that is outside
+the supported dev lifecycle and does not carry the launcher’s instance
+environment. Production `.app` verification belongs to the release bundle
+path (`pnpm tauri build`), not this raw-executable dev oracle.
+
 ## Git Hooks
 
 Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook is intentionally a no-op: pushing never compiles, formats, lints, or prepares resources. Run focused checks before handoff and broad gates in the canonical checkout; CI remains the remote enforcement boundary.

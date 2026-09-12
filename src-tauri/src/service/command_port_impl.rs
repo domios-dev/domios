@@ -3,6 +3,17 @@ use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
 use crate::multiplexer::types::ClosedTab;
 use crate::service::ServiceContext;
 
+fn try_mux_snapshot(
+    mux: &crate::MuxState,
+    agent_tracker: &crate::AgentTrackerState,
+) -> Option<MultiplexerSnapshot> {
+    // Keep the same mux-before-agent_tracker order as the blocking snapshot,
+    // but refuse immediately when startup or a lifecycle transition owns one.
+    let mux = mux.try_read()?;
+    let tracker = agent_tracker.try_lock()?;
+    Some(mux.snapshot_with_status(&tracker))
+}
+
 impl CommandPort for ServiceContext {
     fn mark_user_activity(&self) {
         self.user_last_activity.mark();
@@ -14,6 +25,10 @@ impl CommandPort for ServiceContext {
         let mux = self.mux.read();
         let tracker = self.agent_tracker.lock();
         mux.snapshot_with_status(&tracker)
+    }
+
+    fn try_mux_snapshot(&self) -> Option<MultiplexerSnapshot> {
+        try_mux_snapshot(&self.mux, &self.agent_tracker)
     }
 
     fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
@@ -97,5 +112,77 @@ impl CommandPort for ServiceContext {
 
     fn list_agent_providers(&self) -> Vec<serde_json::Value> {
         crate::api::agent_routes::list_agent_provider_values(&self.provider_registry)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::try_mux_snapshot;
+    use crate::agent::status::TabStatusTracker;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
+    use crate::multiplexer::state::MultiplexerState;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    #[test]
+    fn tabs_initialization_wait_is_bounded_and_observable() {
+        let (state, _) = MultiplexerState::new();
+        let mux = Arc::new(TimedRwLock::new("mux", state));
+        let tracker = Arc::new(TimedMutex::new("agent_tracker", TabStatusTracker::new()));
+        let _startup_write = mux.write();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker_mux = mux.clone();
+        let worker_tracker = tracker.clone();
+        let worker = std::thread::spawn(move || {
+            done_tx
+                .send(try_mux_snapshot(&worker_mux, &worker_tracker).is_none())
+                .unwrap();
+        });
+
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("the tab snapshot refusal must be observable"));
+        worker.join().unwrap();
+
+        drop(_startup_write);
+        let _startup_status = tracker.lock();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker_mux = mux.clone();
+        let worker_tracker = tracker.clone();
+        let worker = std::thread::spawn(move || {
+            done_tx
+                .send(try_mux_snapshot(&worker_mux, &worker_tracker).is_none())
+                .unwrap();
+        });
+
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("the tracker refusal must be observable"));
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn gui_launch_keeps_authenticated_tabs_responsive() {
+        use crate::api::access_policy::check_access;
+        use crate::mesh::types::AccessLevel;
+        use axum::http::Method;
+        use std::time::Instant;
+
+        let (state, _) = MultiplexerState::new();
+        let mux = Arc::new(TimedRwLock::new("mux", state));
+        let tracker = Arc::new(TimedMutex::new("agent_tracker", TabStatusTracker::new()));
+
+        // GUI startup may still be waiting for frontend_ready. That gate owns
+        // only startup work; it must not gate an authenticated tab read.
+        let generation = crate::startup::arm_frontend_readiness();
+        assert!(!crate::startup::wait_for_frontend_ready_until(
+            generation,
+            Instant::now()
+        ));
+        assert!(check_access(&AccessLevel::Full, &Method::GET, "/api/tabs"));
+        assert!(
+            try_mux_snapshot(&mux, &tracker).is_some(),
+            "an authenticated tab read remains available before the GUI readiness event"
+        );
     }
 }
