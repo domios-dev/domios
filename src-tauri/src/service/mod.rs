@@ -80,6 +80,7 @@ mod spawn_cli;
 mod spawn_factory;
 mod spawn_params;
 mod spawn_plan_task;
+pub(crate) use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
 pub(crate) mod spawn_title;
