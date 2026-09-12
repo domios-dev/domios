@@ -130,6 +130,10 @@ worktree_cargo_line="$(grep -n 'cargo check' <<< "$worktree_flow" | head -1 | cu
   exit 1
 }
 
+test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
+expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
+expect_log 'cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
+
 verify_flow="$(sed -n '/^  verify)/,/^    ;;/p' build.sh)"
 verify_coverage_checks_typescript() {
   grep -q 'node node_modules/typescript/bin/tsc --noEmit' <<< "$verify_flow"
