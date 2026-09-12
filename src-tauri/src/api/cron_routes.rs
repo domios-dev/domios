@@ -34,15 +34,15 @@ pub async fn cron_create(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(mut body): Json<crate::cron::store::CronCreateParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     if body.creator_tab_id.is_none() {
         body.creator_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
     }
     let job = state
         .svc
         .cron_create(&state.cron, &state.cron_wake, body)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to create cron job"))?;
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
 
@@ -51,12 +51,19 @@ pub async fn cron_update(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<crate::cron::store::CronUpdateParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let job = state
         .svc
         .cron_update(&state.cron, &state.cron_wake, &id, body)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+        .map_err(|error| {
+            let status = if error.starts_with("Cron job not found:") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, error)
+        })?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
 

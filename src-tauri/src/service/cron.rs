@@ -20,6 +20,13 @@ impl ServiceContext {
         )?;
         params.team_id = inherited_attachment.map(|attachment| attachment.team_id);
         self.validate_cron_ownership(&params)?;
+        let provider = params
+            .agent
+            .as_deref()
+            .filter(|agent| !agent.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(crate::config::default_agent_provider);
+        self.validate_cron_reasoning_effort(&provider, params.reasoning_effort.as_deref())?;
         let job = cron.lock().create(params)?;
         wake.notify_all();
         self.emit_cron_changed();
@@ -60,6 +67,26 @@ impl ServiceContext {
         }
     }
 
+    fn validate_cron_reasoning_effort(
+        &self,
+        provider: &str,
+        effort: Option<&str>,
+    ) -> Result<(), String> {
+        if effort
+            .map(str::trim)
+            .filter(|effort| !effort.is_empty())
+            .is_none()
+        {
+            return Ok(());
+        }
+        self.require_agent_provider_ready(provider)?;
+        crate::service::spawn::validate_agent_reasoning_effort(
+            &self.agent_registry,
+            provider,
+            effort,
+        )
+    }
+
     pub fn cron_list(&self, cron: &CronState, workspace_id: Option<&str>) -> Vec<CronJob> {
         let store = cron.lock();
         match workspace_id {
@@ -82,6 +109,24 @@ impl ServiceContext {
         id: &str,
         patch: CronUpdateParams,
     ) -> Result<CronJob, String> {
+        let (provider, effort) = {
+            let store = cron.lock();
+            let job = store
+                .get(id)
+                .ok_or_else(|| format!("Cron job not found: {}", id))?;
+            let provider = patch
+                .agent
+                .as_deref()
+                .filter(|agent| !agent.trim().is_empty())
+                .unwrap_or(job.agent.as_str())
+                .to_string();
+            let effort = patch
+                .reasoning_effort
+                .clone()
+                .or_else(|| job.reasoning_effort.clone());
+            (provider, effort)
+        };
+        self.validate_cron_reasoning_effort(&provider, effort.as_deref())?;
         let job = cron.lock().update(id, patch)?;
         wake.notify_all();
         self.emit_cron_changed();
@@ -173,6 +218,7 @@ impl ServiceContext {
         let (
             agent,
             model,
+            reasoning_effort,
             task,
             cwd,
             role,
@@ -194,6 +240,7 @@ impl ServiceContext {
             (
                 job.agent.clone(),
                 job.model.clone(),
+                job.reasoning_effort.clone(),
                 job.task.clone(),
                 job.cwd.clone(),
                 job.role.clone(),
@@ -258,6 +305,7 @@ impl ServiceContext {
                 job_name,
                 agent,
                 model,
+                reasoning_effort,
                 task_text,
                 role,
                 cwd,
@@ -410,5 +458,176 @@ impl ServiceContext {
         std::thread::spawn(move || {
             crate::api::events::emit_everywhere(&handle, "cron-run-finished", ());
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+
+    use super::*;
+    use crate::agent::test_provider::MockProvider;
+    use crate::cron::store::{CronCreateParams, CronStore, CronUpdateParams};
+    use crate::service::test_fixture::ServiceFixture;
+
+    fn fixture() -> (
+        ServiceFixture,
+        crate::CronState,
+        crate::CronWake,
+        std::path::PathBuf,
+    ) {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::with_reasoning_efforts("tiered", &["low", "medium", "high"]),
+        ));
+        let path = fixture.temp.path().join("crons.json");
+        let cron = Arc::new(Mutex::new(CronStore::new_with_path(path.clone())));
+        let wake = Arc::new(std::sync::Condvar::new());
+        (fixture, cron, wake, path)
+    }
+
+    fn create_params(name: &str, effort: Option<&str>) -> CronCreateParams {
+        CronCreateParams {
+            name: name.into(),
+            workspace_id: "workspace".into(),
+            team_id: None,
+            detach_from_team: false,
+            schedule: "0 * * * *".into(),
+            task: "run the job".into(),
+            description: None,
+            agent: Some("tiered".into()),
+            model: None,
+            reasoning_effort: effort.map(str::to_string),
+            cwd: None,
+            role: None,
+            skill: None,
+            creator_tab_id: None,
+            report_target_tab_id: None,
+            enabled: Some(false),
+            max_history: None,
+            oneshot: None,
+            jitter_max_ms: Some(0),
+            tz: None,
+            timeout_seconds: None,
+        }
+    }
+
+    fn effort_patch(effort: &str) -> CronUpdateParams {
+        CronUpdateParams {
+            name: None,
+            description: None,
+            schedule: None,
+            task: None,
+            cwd: None,
+            role: None,
+            skill: None,
+            enabled: None,
+            max_history: None,
+            agent: None,
+            model: None,
+            reasoning_effort: Some(effort.into()),
+            jitter_max_ms: None,
+            tz: None,
+            timeout_seconds: None,
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_reasoning_effort_round_trips_for_advertised_levels() {
+        let (fixture, cron, wake, path) = fixture();
+        for effort in ["low", "medium", "high"] {
+            let job = fixture
+                .service
+                .cron_create(&cron, &wake, create_params(effort, Some(effort)))
+                .unwrap();
+            assert_eq!(job.reasoning_effort.as_deref(), Some(effort));
+        }
+
+        let reloaded = CronStore::new_with_path(path);
+        let persisted: Vec<_> = reloaded
+            .list()
+            .iter()
+            .map(|job| job.reasoning_effort.as_deref())
+            .collect();
+        assert_eq!(persisted, vec![Some("low"), Some("medium"), Some("high")]);
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_create_rejects_unsupported_effort_without_write() {
+        let (fixture, cron, wake, path) = fixture();
+        fixture
+            .service
+            .cron_create(&cron, &wake, create_params("existing", Some("low")))
+            .unwrap();
+        let before = fs::read(&path).unwrap();
+
+        let error = fixture
+            .service
+            .cron_create(&cron, &wake, create_params("invalid", Some("ultra")))
+            .expect_err("unsupported effort must be rejected before persistence");
+
+        assert!(error.contains("tiered"), "provider name missing: {error}");
+        assert!(
+            error.contains("low, medium, high"),
+            "advertised levels missing: {error}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(cron.lock().list().len(), 1);
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_edit_rejects_unsupported_effort_without_write() {
+        let (fixture, cron, wake, path) = fixture();
+        let job = fixture
+            .service
+            .cron_create(&cron, &wake, create_params("existing", Some("low")))
+            .unwrap();
+        let before = fs::read(&path).unwrap();
+
+        let error = fixture
+            .service
+            .cron_update(&cron, &wake, &job.id, effort_patch("ultra"))
+            .expect_err("unsupported effort must be rejected before persistence");
+
+        assert!(error.contains("tiered"), "provider name missing: {error}");
+        assert!(
+            error.contains("low, medium, high"),
+            "advertised levels missing: {error}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(
+            cron.lock()
+                .get(&job.id)
+                .unwrap()
+                .reasoning_effort
+                .as_deref(),
+            Some("low")
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_empty_reasoning_effort_clears_override() {
+        let (fixture, cron, wake, path) = fixture();
+        let job = fixture
+            .service
+            .cron_create(&cron, &wake, create_params("clearable", Some("high")))
+            .unwrap();
+
+        let updated = fixture
+            .service
+            .cron_update(&cron, &wake, &job.id, effort_patch(""))
+            .unwrap();
+
+        assert_eq!(updated.reasoning_effort, None);
+        let raw = fs::read_to_string(path).unwrap();
+        assert!(!raw.contains("reasoning_effort"));
     }
 }

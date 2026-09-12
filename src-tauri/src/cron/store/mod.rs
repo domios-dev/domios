@@ -66,6 +66,8 @@ pub struct CronJob {
     pub agent: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     pub task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
@@ -209,6 +211,8 @@ pub struct CronCreateParams {
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
@@ -257,6 +261,8 @@ pub struct CronUpdateParams {
     pub agent: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub jitter_max_ms: Option<u64>,
     /// `Some("")` clears tz back to UTC. `Some(non-empty)` sets it. `None` leaves unchanged.

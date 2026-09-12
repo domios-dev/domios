@@ -60,6 +60,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             no_team,
             agent,
             model,
+            reasoning_effort,
             cwd,
             skill,
             description,
@@ -79,6 +80,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 no_team,
                 &agent,
                 model.as_deref(),
+                reasoning_effort.as_deref(),
                 cwd.as_deref(),
                 description.as_deref(),
                 std::env::var("CODETERM_TAB_ID").ok().as_deref(),
@@ -117,6 +119,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             description,
             agent,
             model,
+            reasoning_effort,
             jitter_max_ms,
             tz,
             timeout_secs,
@@ -145,6 +148,9 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             }
             if let Some(m) = model {
                 params["model"] = serde_json::json!(m);
+            }
+            if let Some(effort) = reasoning_effort {
+                params["reasoning_effort"] = serde_json::json!(effort);
             }
             if let Some(j) = jitter_max_ms {
                 params["jitter_max_ms"] = serde_json::json!(j);

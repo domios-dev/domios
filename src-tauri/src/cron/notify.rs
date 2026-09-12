@@ -137,6 +137,7 @@ mod tests {
                 description: None,
                 agent: None,
                 model: None,
+                reasoning_effort: None,
                 cwd: None,
                 role: None,
                 skill: None,
