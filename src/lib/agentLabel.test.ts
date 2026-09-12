@@ -71,6 +71,16 @@ describe("classifyAgentLiveness", () => {
     ).toBe("absent");
   });
 
+  it("proves nothing about the agent from an elapsed launch deadline", () => {
+    expect(
+      classifyAgentLiveness({
+        declaresAgent: true,
+        ptyLive: true,
+        bootStage: "launch_deadline_elapsed",
+      }),
+    ).toBe("unobserved");
+  });
+
   it("proves nothing about the agent from a re-attached PTY", () => {
     expect(
       classifyAgentLiveness({ declaresAgent: true, ptyLive: true, bootStage: "pty_reattached" }),

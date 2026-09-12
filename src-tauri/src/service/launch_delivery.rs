@@ -665,6 +665,46 @@ mod tests {
         confirm_fallback("tab", &mut pending, false).unwrap();
     }
 
+    /// A launch that stops at its output deadline leaves the bootstrap payload
+    /// undelivered. Only the delivery's own evidence resolves that record: the
+    /// deadline never clears it, an acknowledged write accepts it exactly once,
+    /// and a write that produced nothing leaves it deliverable rather than lost.
+    #[test]
+    fn pending_delivery_reconciles_from_delivery_evidence() {
+        let mut pending = pending_record_for("general bootstrap");
+        assert_eq!(pending.state(), PendingDeliveryState::Pending);
+        assert!(pending.state().needs_delivery());
+
+        // Nothing was written, so the record is neither accepted nor discarded.
+        let unwritten = reconcile_pending_delivery(
+            "ga-tab",
+            &mut pending,
+            Err(DeliveryError::TabBusyRefused {
+                tab: "ga-tab".into(),
+                detail: "agent launch deadline elapsed".into(),
+            }),
+        );
+        assert!(unwritten.is_err());
+        assert_eq!(pending.state(), PendingDeliveryState::Pending);
+        assert!(pending.state().needs_delivery());
+
+        // An unacknowledged submit is uncertainty, not delivery: still owed.
+        assert!(reconcile_pending_delivery("ga-tab", &mut pending, Ok(false)).is_err());
+        assert_eq!(pending.state(), PendingDeliveryState::Unconfirmed);
+        assert!(pending.state().needs_delivery());
+
+        // Acknowledged delivery, and only that, retires the record.
+        reconcile_pending_delivery("ga-tab", &mut pending, Ok(true)).unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
+        assert!(!pending.state().needs_delivery());
+
+        // A second reconciliation of the same record is a no-op, so an accepted
+        // payload can never be replayed by a later evidence event.
+        reconcile_pending_delivery("ga-tab", &mut pending, Ok(true)).unwrap();
+        reconcile_pending_delivery("ga-tab", &mut pending, Ok(false)).unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
+    }
+
     #[test]
     fn pair_fallback_bootstrap_submits_identity_once_without_work() {
         let bootstrap = crate::service::role_identity::ManagerBootstrapInputs {

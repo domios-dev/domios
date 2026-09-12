@@ -5,7 +5,7 @@
 use super::ServiceContext;
 use crate::multiplexer::types::Tab;
 
-pub use codeterm_types::pty::{BootStage, BootStageSink};
+pub use codeterm_types::pty::{BootStage, BootStageSink, DeadlineLatchedLaunch};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RestartReadiness {
@@ -107,13 +107,59 @@ pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
 }
 
-/// Record a stage on the tab. Only SpawnFailed carries a reason, so any other
-/// stage clears a previously latched failure.
+/// Record a stage on the tab. Only a reason-carrying stage keeps its reason, so
+/// any other stage clears a previously latched failure and its launch identity.
 pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
     tab.boot_stage = Some(stage);
-    tab.boot_failure_reason = (stage == BootStage::SpawnFailed)
+    tab.boot_failure_reason = stage
+        .carries_reason()
         .then(|| reason.map(str::to_string))
         .flatten();
+    if !stage.is_provisional() {
+        tab.deadline_latched_launch = None;
+    }
+}
+
+/// The launch a deadline describes, captured while the tab still owns the PTY
+/// that was launched on and still carries that launch's binding nonce. A launch
+/// that already reached a verdict — ready or failed — is never latched.
+pub(crate) fn deadline_latch_for(
+    tab: &Tab,
+    pty_id: &str,
+    reason: &str,
+) -> Option<DeadlineLatchedLaunch> {
+    let settled = matches!(
+        tab.boot_stage,
+        Some(BootStage::AgentReady | BootStage::SpawnFailed)
+    );
+    if settled || tab.pty_id.as_deref() != Some(pty_id) {
+        return None;
+    }
+    Some(DeadlineLatchedLaunch {
+        pty_id: pty_id.to_string(),
+        binding_nonce: tab.session_binding_nonce.clone()?,
+        reason: reason.to_string(),
+    })
+}
+
+/// The smallest authoritative late-readiness event: a nonce-verified session
+/// binding naming both the PTY and the launch attempt the deadline was latched
+/// on, while the tab still owns that PTY, that nonce, and an accepted session.
+pub(crate) fn late_readiness_retires_deadline(
+    tab: &Tab,
+    evidence: &crate::service::ProviderSessionBinding,
+) -> bool {
+    if tab.boot_stage != Some(BootStage::LaunchDeadlineElapsed) {
+        return false;
+    }
+    let Some(latch) = tab.deadline_latched_launch.as_ref() else {
+        return false;
+    };
+    latch.pty_id == evidence.pty_id
+        && tab.pty_id.as_deref() == Some(latch.pty_id.as_str())
+        && latch.binding_nonce == evidence.binding_nonce
+        && tab.session_binding_nonce.as_deref() == Some(latch.binding_nonce.as_str())
+        && tab.launch_session_authenticated()
 }
 
 impl BootStageSink for ServiceContext {
@@ -128,9 +174,7 @@ impl ServiceContext {
     /// — never blocks the launch thread.
     pub(crate) fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
         let stage = self.stage_reconciled_with_session_binding(tab_id, stage);
-        let reason = (stage == BootStage::SpawnFailed)
-            .then_some(reason)
-            .flatten();
+        let reason = stage.carries_reason().then_some(reason).flatten();
         if let Some(p) = self.mux.write().get_tab_mut(tab_id) {
             apply_boot_stage(p, stage, reason);
         }
@@ -188,6 +232,54 @@ impl ServiceContext {
             );
         }
         honest
+    }
+
+    /// The output deadline elapsed: provisional evidence about one PTY and one
+    /// launch attempt, never a verdict. The reason rides along so the deadline
+    /// stays diagnosable whichever way recovery goes.
+    pub(crate) fn record_launch_output_deadline(&self, tab_id: &str, pty_id: &str, reason: &str) {
+        let latch = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| deadline_latch_for(tab, pty_id, reason))
+        };
+        let Some(latch) = latch else {
+            log::info!(
+                "[boot-stage] Tab {tab_id} output deadline ignored; launch on PTY {pty_id} is no longer current"
+            );
+            return;
+        };
+        self.emit_boot_stage(tab_id, BootStage::LaunchDeadlineElapsed, Some(reason));
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            if tab.boot_stage == Some(BootStage::LaunchDeadlineElapsed) {
+                tab.deadline_latched_launch = Some(latch);
+            }
+        }
+        super::boot_wait::notify_boot_changed();
+    }
+
+    /// Retire a provisional deadline on authoritative late readiness from the
+    /// same PTY and launch attempt. Driven by the binding's arrival, so no
+    /// further PTY output is required and nothing else retires it.
+    pub(crate) fn retire_deadline_latched_launch(
+        &self,
+        tab_id: &str,
+        evidence: &crate::service::ProviderSessionBinding,
+    ) -> bool {
+        let retires = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| late_readiness_retires_deadline(tab, evidence));
+        if !retires {
+            return false;
+        }
+        log::info!(
+            "[boot-stage] Tab {tab_id} launch deadline retired by late readiness on its own PTY {} and launch attempt",
+            evidence.pty_id
+        );
+        self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
+        true
     }
 
     /// A nonce-verified session-start report is the agent naming itself on its
@@ -356,7 +448,7 @@ mod tests {
         assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
     }
 
-    const EVERY_STAGE: [BootStage; 12] = [
+    const EVERY_STAGE: [BootStage; 13] = [
         BootStage::PtyStarting,
         BootStage::PtySpawned,
         BootStage::ReaderReady,
@@ -368,6 +460,7 @@ mod tests {
         BootStage::DeliveringInstructions,
         BootStage::AgentReady,
         BootStage::PtyReattached,
+        BootStage::LaunchDeadlineElapsed,
         BootStage::SpawnFailed,
     ];
 
@@ -388,7 +481,8 @@ mod tests {
                 BootStage::DeliveringInstructions => 8,
                 BootStage::AgentReady => 9,
                 BootStage::PtyReattached => 10,
-                BootStage::SpawnFailed => 11,
+                BootStage::LaunchDeadlineElapsed => 11,
+                BootStage::SpawnFailed => 12,
             }
         }
         let mut seen = vec![false; EVERY_STAGE.len()];
@@ -529,10 +623,238 @@ mod tests {
         assert!(!binding_disproves_latched_failure(&ready));
     }
 
+    fn binding(pty_id: &str, nonce: &str) -> crate::service::ProviderSessionBinding {
+        crate::service::ProviderSessionBinding {
+            pty_id: pty_id.to_string(),
+            binding_nonce: nonce.to_string(),
+        }
+    }
+
+    const DEADLINE_REASON: &str = "agent output deadline elapsed";
+
+    /// A launch that wrote its command and then produced nothing observable.
+    fn launching_tab(pty_id: &str, nonce: &str) -> Tab {
+        let mut tab = tab_with_prompt(None);
+        tab.pty_id = Some(pty_id.into());
+        tab.agent_type = Some("codex".into());
+        tab.session_binding_nonce = Some(nonce.into());
+        tab.reported_session_binding_nonce = None;
+        tab.agent_session_id = None;
+        tab.boot_stage = Some(BootStage::ShellReady);
+        tab
+    }
+
+    fn latch_deadline(tab: &mut Tab, pty_id: &str) {
+        let latch = deadline_latch_for(tab, pty_id, DEADLINE_REASON)
+            .expect("a current launch is latchable at its deadline");
+        apply_boot_stage(tab, BootStage::LaunchDeadlineElapsed, Some(DEADLINE_REASON));
+        tab.deadline_latched_launch = Some(latch);
+    }
+
+    /// The agent naming itself on the latched launch: its own accepted session
+    /// plus this attempt's nonce echoed back.
+    fn report_own_launch(tab: &mut Tab, nonce: &str) {
+        tab.agent_session_id = Some("01a090f2".into());
+        tab.reported_session_binding_nonce = Some(nonce.into());
+    }
+
+    #[test]
+    fn deadline_failure_is_provisional_until_current_attempt_late_readiness() {
+        let mut tab = launching_tab("pty-a", "nonce-a");
+        latch_deadline(&mut tab, "pty-a");
+
+        assert_eq!(tab.boot_stage, Some(BootStage::LaunchDeadlineElapsed));
+        assert_ne!(tab.boot_stage, Some(BootStage::SpawnFailed));
+        assert!(tab.boot_stage.is_some_and(|stage| stage.is_provisional()));
+        assert_eq!(tab.boot_failure_reason.as_deref(), Some(DEADLINE_REASON));
+        assert_eq!(
+            tab.deadline_latched_launch
+                .as_ref()
+                .map(|latch| latch.reason.as_str()),
+            Some(DEADLINE_REASON),
+            "the deadline stays diagnosable while it is provisional",
+        );
+        assert!(
+            !late_readiness_retires_deadline(&tab, &binding("pty-a", "nonce-a")),
+            "an unechoed nonce is not the agent naming itself",
+        );
+
+        report_own_launch(&mut tab, "nonce-a");
+        assert!(late_readiness_retires_deadline(
+            &tab,
+            &binding("pty-a", "nonce-a")
+        ));
+
+        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
+        assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+        assert_eq!(tab.boot_failure_reason, None);
+        assert_eq!(tab.deadline_latched_launch, None);
+    }
+
+    /// The retirement reads the launch record, never the grid: a PTY that never
+    /// paints another cell after the deadline still recovers.
+    #[test]
+    fn late_readiness_without_screen_update_reconciles_current_attempt() {
+        let screen_state = codeterm_util::lock_hold::TimedMutex::new(
+            "screen_state",
+            codeterm_pty::pty::screen_state::ScreenState::new(),
+        );
+        let signal = screen_state.lock().arm_screen_change_signal("pty-a");
+        let quiet = signal.generation();
+
+        let mut tab = launching_tab("pty-a", "nonce-a");
+        latch_deadline(&mut tab, "pty-a");
+        report_own_launch(&mut tab, "nonce-a");
+
+        assert!(late_readiness_retires_deadline(
+            &tab,
+            &binding("pty-a", "nonce-a")
+        ));
+        apply_boot_stage(&mut tab, BootStage::AgentReady, None);
+
+        assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+        assert_eq!(
+            signal.generation(),
+            quiet,
+            "recovery consumed no screen update",
+        );
+        assert!(!signal.wait_after(quiet, std::time::Duration::ZERO));
+    }
+
+    /// Mirrors `retire_deadline_latched_launch`: the rule is the only gate on
+    /// the write, so evidence it rejects leaves the latched launch untouched.
+    fn offer_late_readiness(tab: &mut Tab, evidence: &crate::service::ProviderSessionBinding) {
+        if late_readiness_retires_deadline(tab, evidence) {
+            apply_boot_stage(tab, BootStage::AgentReady, None);
+        }
+    }
+
+    #[test]
+    fn stale_or_invalid_evidence_cannot_unlock_deadline_failure() {
+        // A prior PTY, a superseded attempt, and both at once.
+        let mut latched = launching_tab("pty-a", "nonce-a");
+        latch_deadline(&mut latched, "pty-a");
+        report_own_launch(&mut latched, "nonce-a");
+        let latch = latched.deadline_latched_launch.clone();
+        for evidence in [
+            binding("pty-old", "nonce-a"),
+            binding("pty-a", "nonce-old"),
+            binding("pty-old", "nonce-old"),
+        ] {
+            offer_late_readiness(&mut latched, &evidence);
+        }
+        assert_eq!(latched.boot_stage, Some(BootStage::LaunchDeadlineElapsed));
+        assert_eq!(latched.deadline_latched_launch, latch);
+        assert_eq!(
+            latched.boot_failure_reason.as_deref(),
+            Some(DEADLINE_REASON)
+        );
+
+        // A bare session id, with no nonce echoed at all, never unlocks input.
+        let mut bare_session = launching_tab("pty-a", "nonce-a");
+        latch_deadline(&mut bare_session, "pty-a");
+        bare_session.agent_session_id = Some("01a090f2".into());
+        offer_late_readiness(&mut bare_session, &binding("pty-a", "nonce-a"));
+        assert_eq!(
+            bare_session.boot_stage,
+            Some(BootStage::LaunchDeadlineElapsed)
+        );
+
+        // An invalid nonce: the agent echoed something other than this attempt,
+        // so neither the attempt's nonce nor the echoed one is authoritative.
+        let mut invalid = launching_tab("pty-a", "nonce-a");
+        latch_deadline(&mut invalid, "pty-a");
+        report_own_launch(&mut invalid, "nonce-b");
+        for evidence in [binding("pty-a", "nonce-a"), binding("pty-a", "nonce-b")] {
+            offer_late_readiness(&mut invalid, &evidence);
+        }
+        assert_eq!(invalid.boot_stage, Some(BootStage::LaunchDeadlineElapsed));
+        assert_eq!(
+            invalid.session_binding_nonce.as_deref(),
+            Some("nonce-a"),
+            "rejected evidence never overwrites the current attempt",
+        );
+
+        // The tab relinked to a new PTY after the deadline: the latched launch
+        // is no longer current, so nothing can speak for it.
+        let mut relinked = launching_tab("pty-a", "nonce-a");
+        latch_deadline(&mut relinked, "pty-a");
+        report_own_launch(&mut relinked, "nonce-a");
+        relinked.pty_id = Some("pty-b".into());
+        for evidence in [binding("pty-a", "nonce-a"), binding("pty-b", "nonce-a")] {
+            offer_late_readiness(&mut relinked, &evidence);
+        }
+        assert_eq!(relinked.boot_stage, Some(BootStage::LaunchDeadlineElapsed));
+    }
+
+    #[test]
+    fn genuine_failed_launch_remains_blocked() {
+        let mut failed = launching_tab("pty-a", "nonce-a");
+        apply_boot_stage(
+            &mut failed,
+            BootStage::SpawnFailed,
+            Some("PtySpawnFailed: boom"),
+        );
+        assert_eq!(failed.boot_stage, Some(BootStage::SpawnFailed));
+        assert_eq!(
+            failed.boot_failure_reason.as_deref(),
+            Some("PtySpawnFailed: boom")
+        );
+        assert_eq!(failed.deadline_latched_launch, None);
+
+        report_own_launch(&mut failed, "nonce-a");
+        assert!(
+            !late_readiness_retires_deadline(&failed, &binding("pty-a", "nonce-a")),
+            "a genuine failure is not a deadline and is not retired by this rule",
+        );
+        assert_eq!(
+            honest_boot_stage(BootStage::SpawnFailed, Some(BootStage::ShellReady), true),
+            BootStage::SpawnFailed,
+        );
+
+        // A launch that dies AFTER a deadline latched still latches: the
+        // provisional stage is evidence about the deadline, not a shield.
+        let mut latched = launching_tab("pty-a", "nonce-a");
+        latch_deadline(&mut latched, "pty-a");
+        apply_boot_stage(&mut latched, BootStage::SpawnFailed, Some("PtyEof"));
+        assert_eq!(latched.boot_stage, Some(BootStage::SpawnFailed));
+        assert_eq!(latched.boot_failure_reason.as_deref(), Some("PtyEof"));
+        assert_eq!(latched.deadline_latched_launch, None);
+        assert!(!late_readiness_retires_deadline(
+            &latched,
+            &binding("pty-a", "nonce-a")
+        ));
+    }
+
+    /// The producer refuses to latch a launch the tab no longer owns, so a
+    /// deadline from a superseded attempt cannot overwrite the current one.
+    #[test]
+    fn a_deadline_never_latches_a_launch_the_tab_moved_on_from() {
+        let mut relinked = launching_tab("pty-b", "nonce-b");
+        assert!(deadline_latch_for(&relinked, "pty-a", DEADLINE_REASON).is_none());
+
+        for settled in [BootStage::AgentReady, BootStage::SpawnFailed] {
+            relinked.boot_stage = Some(settled);
+            assert!(deadline_latch_for(&relinked, "pty-b", DEADLINE_REASON).is_none());
+        }
+
+        let mut nonceless = launching_tab("pty-b", "nonce-b");
+        nonceless.session_binding_nonce = None;
+        assert!(deadline_latch_for(&nonceless, "pty-b", DEADLINE_REASON).is_none());
+    }
+
     #[test]
     fn stage_serializes_snake_case() {
         let json = serde_json::to_string(&BootStage::AgentLaunching).unwrap();
         assert_eq!(json, "\"agent_launching\"");
         assert_eq!(BootStage::SpawnFailed.as_str(), "spawn_failed");
+        assert_eq!(
+            serde_json::to_string(&BootStage::LaunchDeadlineElapsed).unwrap(),
+            "\"launch_deadline_elapsed\"",
+        );
+        assert_eq!(
+            BootStage::LaunchDeadlineElapsed.as_str(),
+            "launch_deadline_elapsed"
+        );
     }
 }

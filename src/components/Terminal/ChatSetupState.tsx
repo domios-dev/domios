@@ -18,6 +18,7 @@ const STAGE_PROGRESS: Record<BootStage, number> = {
   delivering_instructions: 84,
   agent_ready: 100,
   pty_reattached: 100,
+  launch_deadline_elapsed: 92,
   spawn_failed: 0,
 };
 
@@ -50,6 +51,8 @@ export function chatSetupStageLabel(stage: BootStage | null | undefined, subject
       return "Ready";
     case "pty_reattached":
       return "Session attached…";
+    case "launch_deadline_elapsed":
+      return "Waiting for provider…";
     case "spawn_failed":
       return "Connecting to terminal…";
   }
@@ -66,7 +69,7 @@ export function chatSetupView(
 ): ChatBodyView {
   if (chatSessionAttached) return { kind: "none" };
   const stage = tab?.boot_stage;
-  if (stage === "spawn_failed") {
+  if (stage === "spawn_failed" || stage === "launch_deadline_elapsed") {
     return { kind: "starting", label: "Starting" };
   }
   if (tab?.agent_booting && !stage) return { kind: "starting", label: "Starting" };
