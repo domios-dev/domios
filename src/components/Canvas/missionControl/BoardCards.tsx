@@ -197,11 +197,6 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
           <b><AnimatedNumber value={reading.untagged} format={formatCount} /></b> untagged tasks
         </p>
       )}
-      {reading.noFacetMessage && (
-        <p data-testid="mc-board-area-no-facet" className="mc-board-detail">
-          {reading.noFacetMessage}
-        </p>
-      )}
     </section>
   );
 }
