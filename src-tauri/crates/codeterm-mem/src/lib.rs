@@ -2,6 +2,7 @@
 
 pub mod activity;
 pub mod auto_extract;
+pub mod dream_status;
 pub mod dreaming;
 pub mod embed_queue;
 pub mod embeddings;

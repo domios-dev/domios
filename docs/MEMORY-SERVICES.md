@@ -49,7 +49,7 @@ Hidden headless agents. Live in Memory Tabl, invisible in tab bar.
 4. Launch agent via provider's `build_launch_command()` with `model_launch_args()` for the configured model
 5. Register in `GraphWorkerRegistry` with provider/model/intent metadata
 6. Worker calls `codeterm mem save`/`delete`/`graph create` — standard CLI
-7. On completion, `codeterm mem worker report` marks done, full PTY log saved to `~/.codeterm/mem/workers/<id>.log`
+7. On completion, `codeterm mem worker report` records that execution ended (and, with `--diary`/`--finalization`, whether the artifact actually landed); full PTY log saved to `~/.codeterm/mem/workers/<id>.log`
 
 **Limits:** max 200 workers in registry, oldest done + log files auto-evicted.
 
@@ -102,4 +102,4 @@ SQL precomputes optimization targets so agent doesn't re-scan everything:
 
 Available at `GET /api/mem/dream/report`.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

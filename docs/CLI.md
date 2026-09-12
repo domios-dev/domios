@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 58 -->
+<!-- revision: 59 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1096,8 +1096,11 @@ Report progress (called by worker itself; uses $CODETERM_WORKER_ID)
 
 #### `codeterm mem worker report`
 
-Submit final report and mark done (uses $CODETERM_WORKER_ID)
+Submit final report: execution ended (uses $CODETERM_WORKER_ID)
 
+- `--diary` — Mem id of the artifact this run produced, e.g. its dream diary id
+- `--finalization` — Diary finalization outcome: succeeded | partial | failed
+- `--reason` — Concrete reason for a partial or failed finalization
 - `<summary>`
 
 #### `codeterm mem worker spawn`
