@@ -98,8 +98,11 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         Some(BootStage::ProviderReady) | Some(BootStage::AgentReady) => AgentLiveness::Live,
         Some(BootStage::SpawnFailed) => AgentLiveness::Absent,
         // A restored tab that proved only its PTY is live has proved nothing
-        // about the agent inside it.
-        Some(BootStage::PtyReattached) => AgentLiveness::Unobserved,
+        // about the agent inside it, and an observer's deadline is not evidence
+        // that the process it gave up on died.
+        Some(BootStage::PtyReattached) | Some(BootStage::LaunchDeadlineElapsed) => {
+            AgentLiveness::Unobserved
+        }
         // Everything up to and including `shell_ready` is a shell, not an
         // agent. Absent unless a launch is still running.
         _ if evidence.boot_in_flight => AgentLiveness::Unobserved,
@@ -188,6 +191,16 @@ mod tests {
     fn a_reattached_pty_proves_the_pty_not_the_agent() {
         assert_eq!(
             classify_agent_liveness(evidence(Some(BootStage::PtyReattached))),
+            AgentLiveness::Unobserved
+        );
+    }
+
+    /// The deadline that latched issue 477: an observer gave up, which says
+    /// nothing about whether the process it was watching is running.
+    #[test]
+    fn a_launch_deadline_is_unobserved_not_absent() {
+        assert_eq!(
+            classify_agent_liveness(evidence(Some(BootStage::LaunchDeadlineElapsed))),
             AgentLiveness::Unobserved
         );
     }
