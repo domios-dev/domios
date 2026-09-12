@@ -768,10 +768,17 @@ pub(crate) async fn finish_session_binding(
         );
     }
     crate::service::general_agent::binding_wait::notify_session_bound();
+    let launch_identity =
+        authenticated_launch_identity(&state.svc.mux, tab_id, &claim, report_nonce);
     acknowledge_authenticated_launch(&state.svc.mux, tab_id, &claim, report_nonce);
     if claim.nonce_verified {
         state.svc.rearm_authenticated_agent_input(&tab_id);
         state.svc.reconcile_boot_stage_with_session_binding(&tab_id);
+    }
+    // Ordering: the identity above is read from state the nonce check already
+    // committed, so an unverified report reaches this with nothing to offer.
+    if let Some(evidence) = launch_identity.as_ref() {
+        state.svc.retire_deadline_latched_launch(tab_id, evidence);
     }
 
     // while it runs — not only after completion.
@@ -899,31 +906,39 @@ async fn durable_transcript_progress(
     .unwrap_or(false)
 }
 
+/// The authoritative launch identity of a session-start report: the tab's own
+/// live PTY paired with the launch nonce its agent echoed and the commit above
+/// already verified against this tab's current launch.
+fn authenticated_launch_identity(
+    mux: &crate::multiplexer::commands::MuxState,
+    tab_id: &str,
+    claim: &SessionStartClaim,
+    report_nonce: Option<&str>,
+) -> Option<crate::service::ProviderSessionBinding> {
+    if !claim.nonce_verified {
+        return None;
+    }
+    let binding_nonce = report_nonce?;
+    let mux = mux.read();
+    mux.get_tab(tab_id).and_then(|tab| {
+        (tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce))
+            .then(|| tab.pty_id.clone())
+            .flatten()
+            .map(|pty_id| crate::service::ProviderSessionBinding {
+                pty_id,
+                binding_nonce: binding_nonce.to_string(),
+            })
+    })
+}
+
 fn acknowledge_authenticated_launch(
     mux: &crate::multiplexer::commands::MuxState,
     tab_id: &str,
     claim: &SessionStartClaim,
     report_nonce: Option<&str>,
 ) -> bool {
-    if !claim.nonce_verified {
-        return false;
-    }
-    let Some(binding_nonce) = report_nonce else {
-        return false;
-    };
-    let binding = {
-        let mux = mux.read();
-        mux.get_tab(tab_id).and_then(|tab| {
-            (tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce))
-                .then(|| tab.pty_id.clone())
-                .flatten()
-                .map(|pty_id| crate::service::ProviderSessionBinding {
-                    pty_id,
-                    binding_nonce: binding_nonce.to_string(),
-                })
-        })
-    };
-    binding.is_some_and(|binding| crate::service::record_provider_session(tab_id, &binding))
+    authenticated_launch_identity(mux, tab_id, claim, report_nonce)
+        .is_some_and(|binding| crate::service::record_provider_session(tab_id, &binding))
 }
 
 /// A report carrying a binding nonce that disagrees with the tab's own launch

@@ -22,11 +22,6 @@ interface Props {
   api: ApiConfig;
 }
 
-interface SearchHit {
-  item: DreamDiaryEntry;
-  score: number;
-}
-
 function relativeTime(target: number): string {
   const diff = target - Date.now();
   const abs = Math.abs(diff);
@@ -55,6 +50,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
   const [openDream, setOpenDream] = useState<DreamDiaryEntry | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
+  const [diaryTotal, setDiaryTotal] = useState(0);
   const [diaryLoading, setDiaryLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -112,19 +108,16 @@ function MemoryDreamsTabImpl({ api }: Props) {
     async (showLoading = false) => {
       if (showLoading) setDiaryLoading(true);
       try {
-        const params = new URLSearchParams({ q: "dream", kind: "daily", limit: "30" });
-        const res = await fetch(`${baseUrl(api)}/api/mem/search?${params}`, {
+        const params = new URLSearchParams({ limit: "30" });
+        const res = await fetch(`${baseUrl(api)}/api/mem/dream/diary?${params}`, {
           headers: authHeaders(api),
         });
         if (!res.ok || !mountedRef.current) return;
-        const data = (await res.json()) as { hits: SearchHit[] };
-        const entries = (data.hits || [])
-          .map((h) => h.item)
+        const data = (await res.json()) as { items: DreamDiaryEntry[]; total: number };
+        const entries = (data.items || [])
           .filter((entry) => hasRenderableDreamInsight(entry.body));
-        entries.sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        );
         setDiaryEntries(entries);
+        setDiaryTotal(data.total);
       } catch {
         /* network */
       } finally {
@@ -209,12 +202,13 @@ function MemoryDreamsTabImpl({ api }: Props) {
     (w) => !isTerminalWorkerStatus(w.status),
   );
 
-  // A placeholder diary is history awaiting recovery, not a recorded dream.
   const diaryStates = diaryEntries.map((entry) =>
     diaryRecordState(entry.id, entry.body, dreamWorkers),
   );
-  const completeDreams = diaryStates.filter((s) => s.state === "complete").length;
-  const incompleteDreams = diaryStates.length - completeDreams;
+  // diaryTotal is the store's scoped count; incompleteness can only be judged
+  // from bodies this page loaded, so it is a flag over what's shown, never a
+  // second count the reader could read as a total.
+  const unfinishedInView = diaryStates.some((s) => s.state === "incomplete_recoverable");
 
   const scrollCarousel = useCallback((dir: 1 | -1) => {
     const el = carouselRef.current;
@@ -240,7 +234,10 @@ function MemoryDreamsTabImpl({ api }: Props) {
             <Moon size={18} className="opacity-70" />
             <span>What memory dreamt.</span>
           </div>
-          <div className="mt-1.5 text-[11px] text-[var(--ct-muted-fg)] flex items-center gap-2 flex-wrap">
+          <div
+            className="mt-1.5 text-[11px] text-[var(--ct-muted-fg)] flex items-center gap-2 flex-wrap"
+            data-testid="memory-dream-meta"
+          >
             {(() => {
               const statusText = inflight
                 ? `Dreaming now · ${formatDuration(inflight.spawned_at, Date.now())}`
@@ -257,10 +254,18 @@ function MemoryDreamsTabImpl({ api }: Props) {
                       <span className="opacity-30">·</span>
                     </>
                   )}
-                  <span>
-                    {completeDreams} dream{completeDreams === 1 ? "" : "s"} recorded
-                    {incompleteDreams > 0 ? ` · ${incompleteDreams} incomplete` : ""}
-                  </span>
+                  <span>{diaryTotal} dream{diaryTotal === 1 ? "" : "s"} recorded</span>
+                  {unfinishedInView && (
+                    <>
+                      <span className="opacity-30">·</span>
+                      <span
+                        data-testid="memory-dream-unfinished-flag"
+                        style={{ color: "#fb923c" }}
+                      >
+                        unfinished diaries in view need recovery
+                      </span>
+                    </>
+                  )}
                 </>
               );
             })()}

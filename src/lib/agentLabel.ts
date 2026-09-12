@@ -41,8 +41,11 @@ export function classifyAgentLiveness(evidence: LivenessEvidence): AgentLiveness
   const stage = evidence.bootStage ?? null;
   if (stage != null && PROVEN_UP.has(stage)) return "live";
   if (stage === "spawn_failed") return "absent";
-  // A re-attached PTY proves the PTY, not the agent inside it.
-  if (stage === "pty_reattached" || stage == null) return "unobserved";
+  // A re-attached PTY proves the PTY, not the agent inside it, and an
+  // observer's deadline is not evidence the process it gave up on died.
+  if (stage === "pty_reattached" || stage === "launch_deadline_elapsed" || stage == null) {
+    return "unobserved";
+  }
   if (evidence.bootInFlight || LAUNCH_IN_FLIGHT.has(stage)) return "unobserved";
   return "absent";
 }
