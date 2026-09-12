@@ -93,10 +93,16 @@ function buildInitialState(): ExtendedState {
   };
 }
 
-/** The daemon refuses snapshots past its concurrency bound. Distinct from a
- *  failure: the state is fine, the request was declined. */
-function isSnapshotRefusal(error: unknown): boolean {
-  return error instanceof WebApiError && error.status === 503;
+/** The daemon refuses snapshots under load or while lifecycle locks are held.
+ * Distinct from a failure: the state is fine, the request was declined and a
+ * state event will schedule the next read. */
+export function isSnapshotRefusal(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    (error instanceof WebApiError && error.status === 503 && message.includes("state snapshot")) ||
+    message.includes("state snapshot unavailable while tab state is initializing or changing") ||
+    message.includes("tab summary unavailable while tab state is initializing or changing")
+  );
 }
 
 export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refresh" {
@@ -152,6 +158,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (IS_WEB) saveStateSnapshot(s);
   }, [applyRemoteProjection]);
 
+  const acceptBackendState = useCallback((s: MultiplexerState) => {
+    const wasReconciled = reconciledRef.current;
+    applyBackendState(s);
+    reconciledRef.current = true;
+    writeGateRef.current.unlock();
+    if (IS_WEB && !wasReconciled) window.dispatchEvent(new Event("codeterm-cache-reconciled"));
+  }, [applyBackendState]);
+
   // letting a cache-painted UI act on a target that may no longer exist.
   const guardedInvoke = useCallback(
     <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
@@ -173,79 +187,70 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Load initial state from Rust backend (which already spawned PTY)
-  useEffect(() => {
-    const hydratedAtBoot = IS_WEB && stateRef.current.generation === HYDRATED_GENERATION;
-    if (hydratedAtBoot) {
-      writeGateRef.current.lock();
-      window.dispatchEvent(new Event("codeterm-cache-hydrated"));
-    } else if (IS_WEB) {
-      loadCachedStateAsync().then((cached) => {
-        if (!cached || reconciledRef.current) return;
-        writeGateRef.current.lock();
-        dispatch({ type: "SET_STATE", state: { ...cached, generation: HYDRATED_GENERATION } });
-        window.dispatchEvent(new Event("codeterm-cache-hydrated"));
-      });
-    }
-
-    invoke<MultiplexerState>("mux_get_state")
-      .then((backendState) => {
-        if (backendState) applyBackendState(backendState);
-        reconciledRef.current = true;
-        writeGateRef.current.unlock();
-        if (IS_WEB) window.dispatchEvent(new Event("codeterm-cache-reconciled"));
-      })
-      .catch((err) => {
-        console.warn("Failed to load backend state, using local state:", err);
-      });
-    invoke<Notification[]>("list_notifications", { unreadOnly: false })
-      .then((notifications) =>
-        dispatch({
-          type: "HYDRATE_NOTIFICATIONS",
-          // Ingress for stored rows: an action written before actions carried
-          // daemon provenance loads with its invoke stripped, never accepted.
-          notifications: notifications.map((notification) => ({
-            ...notification,
-            actions: adoptStoredActions(notification.actions),
-          })),
-        }),
-      )
-      .catch((err) => console.warn("Failed to load notification history:", err));
-  }, [applyBackendState]);
-
   useEffect(() => mountWebLifecycle(), []);
 
+  const remoteProjectionActiveRef = useRef(true);
   const refreshRemoteProjection = useCallback(async () => {
     const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
+    if (!remoteProjectionActiveRef.current) return;
     const remote = remoteTabsFromOrdinaryProjection(ordinary);
     applyRemoteProjection(remote);
     resumeRemoteOutputStreams();
     resumeRemoteTabEvents();
   }, [applyRemoteProjection]);
 
+  const remoteRefreshRunRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
+  const remoteRefreshCoalescerRef = useRef(
+    createRefreshCoalescer(() => remoteRefreshRunRef.current(), isSnapshotRefusal),
+  );
+  const requestRemoteRefresh = useCallback(
+    (): Promise<boolean> => remoteRefreshCoalescerRef.current.request(),
+    [],
+  );
+  const runRemoteRefresh = useCallback(async (): Promise<boolean> => {
+    try {
+      await refreshRemoteProjection();
+      return remoteProjectionActiveRef.current;
+    } catch (error) {
+      if (isSnapshotRefusal(error)) throw error;
+      console.warn("Failed to refresh ordinary tabs:", error);
+      return false;
+    }
+  }, [refreshRemoteProjection]);
+  remoteRefreshRunRef.current = runRemoteRefresh;
+
   useEffect(() => {
+    remoteProjectionActiveRef.current = true;
+    void requestRemoteRefresh();
     let active = true;
-    const refreshRemoteTabs = async () => {
-      const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
-      if (!active) return;
-      const remote = remoteTabsFromOrdinaryProjection(ordinary);
-      applyRemoteProjection(remote);
-      resumeRemoteOutputStreams();
-      resumeRemoteTabEvents();
-    };
-    void refreshRemoteTabs().catch(() => undefined);
-    let unlisten: (() => void) | undefined;
-    void listen("mesh-state-changed", () => {
+    let meshUnlisten: (() => void) | undefined;
+    let muxUnlisten: (() => void) | undefined;
+    const onMeshStateChanged = () => {
       for (const tab of Object.values(stateRef.current.tabs)) {
         if (!tab.remote_peer_id) continue;
         for (const channel of ["control", "output", "chat"] as const) {
           dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: tab.id, channel, availability: "reconnecting" });
         }
       }
-      void refreshRemoteTabs();
-    }).then((fn) => { unlisten = fn; });
-    return () => { active = false; unlisten?.(); };
-  }, [applyRemoteProjection]);
+      void requestRemoteRefresh();
+    };
+    void listen("mesh-state-changed", onMeshStateChanged).then((fn) => {
+      if (active) meshUnlisten = fn;
+      else fn();
+    });
+    void listen("mux-state-changed", () => {
+      void requestRemoteRefresh();
+    }).then((fn) => {
+      if (active) muxUnlisten = fn;
+      else fn();
+    });
+    return () => {
+      active = false;
+      remoteProjectionActiveRef.current = false;
+      meshUnlisten?.();
+      muxUnlisten?.();
+    };
+  }, [requestRemoteRefresh]);
 
   const attachRemoteTab = useCallback((workspaceId: string, peer: RemotePeerTabs, tab: Tab) => {
     const projected = projectAttachedRemoteTab(tab, peer, workspaceId);
@@ -355,7 +360,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       eventStats.__ctEvents.lastAt = Date.now();
       const s = event.payload;
       if (muxStateEventAction(s) === "apply-snapshot") {
-        applyBackendState(s);
+        acceptBackendState(s);
         // Resize tabs after layout changes so xterms fit new container sizes.
         requestAnimationFrame(() => {
           window.dispatchEvent(new Event("codeterm-tab-resize"));
@@ -364,6 +369,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         refreshFromBackend();
       }
     };
+    let firstListenerRenewal = true;
     const renewMuxListener = () => {
       const generation = ++muxListenGeneration;
       muxUnlisten?.();
@@ -378,7 +384,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).reconnects++;
         })
         .catch((error) => console.warn("Failed to renew mux event listener:", error));
-      refreshFromBackend();
+      if (firstListenerRenewal) {
+        firstListenerRenewal = false;
+      } else {
+        refreshFromBackend();
+      }
     };
     renewMuxListener();
     if (isCodeTermFrontendTestMode()) {
@@ -453,7 +463,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       clearInterval(saveInterval);
       window.removeEventListener("beforeunload", beforeUnload);
     };
-  }, [applyBackendState]);
+  }, [acceptBackendState, refreshFromBackend]);
 
   // A bare `mux-state-changed` frame carries no snapshot, so every one of them
   // asks for a full state fetch. The coalescer keeps a burst to one in flight.
@@ -461,7 +471,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s) {
-        applyBackendState(s);
+        acceptBackendState(s);
         peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
       }
       return !!s;
@@ -474,7 +484,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
       return false;
     }
-  }, [applyBackendState]);
+  }, [acceptBackendState]);
   const runRefreshRef = useRef(runRefresh);
   runRefreshRef.current = runRefresh;
   const refreshCoalescerRef = useRef(
@@ -493,6 +503,39 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (): Promise<boolean> => refreshCoalescerRef.current.request(),
     [],
   );
+
+  // A startup lock refusal is a not-yet result, not a local-state fallback.
+  // The mux-state-changed listener above owns the next read; no timer or
+  // caller-side retry is needed.
+  useEffect(() => {
+    const hydratedAtBoot = IS_WEB && stateRef.current.generation === HYDRATED_GENERATION;
+    if (hydratedAtBoot) {
+      writeGateRef.current.lock();
+      window.dispatchEvent(new Event("codeterm-cache-hydrated"));
+    } else if (IS_WEB) {
+      loadCachedStateAsync().then((cached) => {
+        if (!cached || reconciledRef.current) return;
+        writeGateRef.current.lock();
+        dispatch({ type: "SET_STATE", state: { ...cached, generation: HYDRATED_GENERATION } });
+        window.dispatchEvent(new Event("codeterm-cache-hydrated"));
+      });
+    }
+
+    void refreshFromBackend();
+    invoke<Notification[]>("list_notifications", { unreadOnly: false })
+      .then((notifications) =>
+        dispatch({
+          type: "HYDRATE_NOTIFICATIONS",
+          // Ingress for stored rows: an action written before actions carried
+          // daemon provenance loads with its invoke stripped, never accepted.
+          notifications: notifications.map((notification) => ({
+            ...notification,
+            actions: adoptStoredActions(notification.actions),
+          })),
+        }),
+      )
+      .catch((err) => console.warn("Failed to load notification history:", err));
+  }, [refreshFromBackend]);
 
   const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
     try {
@@ -746,17 +789,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
               attachedRemoteTabsRef.current = remaining;
               saveAttachedRemoteTabs(remaining);
             }
-            void refreshRemoteProjection();
+            void requestRemoteRefresh();
           }
           else refreshFromBackend();
         })
         .catch(() => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
-          if (isRemote) void refreshRemoteProjection();
+          if (isRemote) void requestRemoteRefresh();
           else refreshFromBackend();
         });
     },
-    [refreshFromBackend, refreshRemoteProjection, guardedInvoke],
+    [refreshFromBackend, requestRemoteRefresh, guardedInvoke],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
