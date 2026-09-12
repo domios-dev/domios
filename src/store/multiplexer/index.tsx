@@ -219,6 +219,45 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [refreshRemoteProjection]);
   remoteRefreshRunRef.current = runRemoteRefresh;
 
+  // A bare `mux-state-changed` frame carries no snapshot, so every one of them
+  // asks for a full state fetch. The coalescer keeps a burst to one in flight.
+  const runRefresh = useCallback(async (): Promise<boolean> => {
+    try {
+      const s = await invoke<MultiplexerState>("mux_get_state");
+      if (s) {
+        acceptBackendState(s);
+        peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
+      }
+      return !!s;
+    } catch (e) {
+      // Back-pressure, not failure: rethrow so the coalescer records it and
+      // the next event's request retries. Never logged as an error.
+      if (isSnapshotRefusal(e)) throw e;
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        console.warn("Failed to refresh state:", e);
+      }
+      return false;
+    }
+  }, [acceptBackendState]);
+  const runRefreshRef = useRef(runRefresh);
+  runRefreshRef.current = runRefresh;
+  const refreshCoalescerRef = useRef(
+    createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal),
+  );
+  const peerRebindGateRef = useRef(
+    createPeerRebindGate({
+      unlock: () => writeGateRef.current.unlock(),
+      announce: (switchId, success) =>
+        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
+          detail: { switchId, success },
+        })),
+    }),
+  );
+  const refreshFromBackend = useCallback(
+    (): Promise<boolean> => refreshCoalescerRef.current.request(),
+    [],
+  );
+
   useEffect(() => {
     remoteProjectionActiveRef.current = true;
     void requestRemoteRefresh();
@@ -465,44 +504,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     };
   }, [acceptBackendState, refreshFromBackend]);
 
-  // A bare `mux-state-changed` frame carries no snapshot, so every one of them
-  // asks for a full state fetch. The coalescer keeps a burst to one in flight.
-  const runRefresh = useCallback(async (): Promise<boolean> => {
-    try {
-      const s = await invoke<MultiplexerState>("mux_get_state");
-      if (s) {
-        acceptBackendState(s);
-        peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
-      }
-      return !!s;
-    } catch (e) {
-      // Back-pressure, not failure: rethrow so the coalescer records it and
-      // the next event's request retries. Never logged as an error.
-      if (isSnapshotRefusal(e)) throw e;
-      if (!(e instanceof DOMException && e.name === "AbortError")) {
-        console.warn("Failed to refresh state:", e);
-      }
-      return false;
-    }
-  }, [acceptBackendState]);
-  const runRefreshRef = useRef(runRefresh);
-  runRefreshRef.current = runRefresh;
-  const refreshCoalescerRef = useRef(
-    createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal),
-  );
-  const peerRebindGateRef = useRef(
-    createPeerRebindGate({
-      unlock: () => writeGateRef.current.unlock(),
-      announce: (switchId, success) =>
-        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
-          detail: { switchId, success },
-        })),
-    }),
-  );
-  const refreshFromBackend = useCallback(
-    (): Promise<boolean> => refreshCoalescerRef.current.request(),
-    [],
-  );
 
   // A startup lock refusal is a not-yet result, not a local-state fallback.
   // The mux-state-changed listener above owns the next read; no timer or
