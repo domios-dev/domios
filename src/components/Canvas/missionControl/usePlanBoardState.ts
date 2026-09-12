@@ -18,6 +18,7 @@ const PLAN_BOARD_EVENTS = [
   "cron-run-finished",
   "config-changed",
   "plan-changed",
+  "kpi-recorded",
 ] as const;
 
 function planIdFromPayload(payload: unknown): string | null {

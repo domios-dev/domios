@@ -452,3 +452,26 @@ fn unattributed_tab_still_produces_a_workspace_scoped_event() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn recorder_announces_the_plans_of_each_committed_batch() {
+    let dir = scratch("commit-listener");
+    let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
+    let recorder = KpiRecorder::with_ledger(ledger);
+    let heard: Arc<parking_lot::Mutex<Vec<Vec<String>>>> = Arc::default();
+    let sink = Arc::clone(&heard);
+    recorder.on_commit(move |plans| sink.lock().push(plans));
+
+    recorder.drain();
+    assert!(heard.lock().is_empty(), "an empty drain commits nothing");
+
+    let unattributed = KpiAttribution::for_tab("tab-loose").provider(Some("codex".into()));
+    recorder.record(orchestrator("tab-orch").event_at(KpiEventKind::Send, 12, 1_700_000_001));
+    recorder.record(unattributed.event_at(KpiEventKind::Send, 7, 1_700_000_002));
+    recorder.drain();
+    assert_eq!(heard.lock().clone(), vec![vec!["pl_dwojf1".to_string()]]);
+
+    recorder.record(unattributed.event_at(KpiEventKind::Send, 3, 1_700_000_003));
+    recorder.drain();
+    assert_eq!(heard.lock().last().cloned(), Some(Vec::new()), "a machine-only row still announces a commit");
+}

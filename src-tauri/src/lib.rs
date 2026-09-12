@@ -773,6 +773,16 @@ pub fn run() {
                 &startup_config,
                 &crate::paths::data_dir(),
             );
+            {
+                let handle = app_handle.clone();
+                kpi.on_commit(move |plan_ids| {
+                    crate::api::events::emit_everywhere(
+                        &handle,
+                        "kpi-recorded",
+                        serde_json::json!({ "plan_ids": plan_ids }),
+                    );
+                });
+            }
             let secrets =
                 crate::secrets::new_state(&startup_config.integrations.secrets, &secret_registry);
             let services_store = crate::service::store::ServicesStore::open(
