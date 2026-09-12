@@ -652,7 +652,18 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                 svc.workers
                     .set_run_session(worker_id, sid.clone(), run_cwd.clone());
             }
-            let _ = svc.workers.complete(worker_id.clone().as_str(), summary);
+            // Execution ending is not the same fact as the run finishing its
+            // work: a process that died or timed out never reports `done`.
+            let end = if success {
+                codeterm_mem::dream_status::ExecutionEnd::Reported
+            } else {
+                codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                    detail: summary.clone(),
+                }
+            };
+            let _ = svc
+                .workers
+                .finish_execution(worker_id.clone().as_str(), Some(summary), end);
             let _ = svc.close_tab_with_reason(&state.tab_id, TabCloseReason::AgentRunEnded);
         }
         AgentRunKind::Cron { job_id, run_id } => {

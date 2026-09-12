@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::dream_status::{DiaryFinalization, DreamRunStatus, ExecutionEnd};
+
 pub fn build_worker_task(intent: &str, worker_id: &str, task: &str) -> String {
     crate::prompt_text::WORKER_TASK_PREAMBLE
         .replace("{intent}", intent)
@@ -108,6 +110,24 @@ pub struct GraphWorkerInfo {
     // inverse seam — recorded from `host.agent.spawn(commands)` (C2 MINOR-2).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<String>,
+    // How execution ended. Absent means execution has not ended; it never
+    // implies the run's artifact was finalized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_end: Option<ExecutionEnd>,
+    // The artifact this run claimed, by identity. Separate from execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diary_id: Option<String>,
+    #[serde(default)]
+    pub finalization: DiaryFinalization,
+}
+
+impl GraphWorkerInfo {
+    /// The two facts composed for display. Pre-contract records carry no
+    /// execution_end / finalization, so they surface as unverified rather than
+    /// as a truthful completion.
+    pub fn dream_run_status(&self) -> DreamRunStatus {
+        crate::dream_status::run_status(self.status.is_terminal(), &self.finalization)
+    }
 }
 
 pub struct GraphWorkerRegistry {
@@ -284,19 +304,75 @@ impl GraphWorkerRegistry {
         self.persist();
     }
 
+    /// Explicit self-report from the worker: execution ended. Finalization of
+    /// whatever artifact it produced is a separate fact, recorded separately.
     pub fn complete(&self, worker_id: &str, report: String) -> Result<GraphWorkerInfo, String> {
+        self.finish_execution(worker_id, Some(report), ExecutionEnd::Reported)
+    }
+
+    /// Record how execution ended. A non-reported end (process exit, hard
+    /// timeout) is an error state, not a completion.
+    pub fn finish_execution(
+        &self,
+        worker_id: &str,
+        report: Option<String>,
+        end: ExecutionEnd,
+    ) -> Result<GraphWorkerInfo, String> {
         let info = {
             let mut map = self.inner.write();
             let w = map
                 .get_mut(worker_id)
                 .ok_or_else(|| format!("worker not found: {}", worker_id))?;
-            w.status = WorkerStatus::Done;
-            w.report = Some(report);
+            w.status = match &end {
+                ExecutionEnd::Reported | ExecutionEnd::Cancelled => WorkerStatus::Done,
+                ExecutionEnd::ProcessEnded { .. } | ExecutionEnd::TimedOut { .. } => {
+                    WorkerStatus::Error
+                }
+                ExecutionEnd::Orphaned => WorkerStatus::Orphaned,
+            };
+            w.execution_end = Some(end);
+            if let Some(report) = report {
+                w.report = Some(report);
+            }
             w.done_at = Some(now_ms());
             w.clone()
         };
         self.persist();
         Ok(info)
+    }
+
+    /// Bind this run to the artifact it produced and store the reconciled
+    /// finalization fact. Identity-scoped: only the named worker is touched.
+    pub fn record_finalization(
+        &self,
+        worker_id: &str,
+        diary_id: Option<String>,
+        finalization: DiaryFinalization,
+    ) -> Result<GraphWorkerInfo, String> {
+        let info = {
+            let mut map = self.inner.write();
+            let w = map
+                .get_mut(worker_id)
+                .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            if let Some(diary_id) = diary_id.or_else(|| finalization.diary_id().map(str::to_string))
+            {
+                w.diary_id = Some(diary_id);
+            }
+            w.finalization = finalization;
+            w.clone()
+        };
+        self.persist();
+        Ok(info)
+    }
+
+    /// The live run that owns this diary, by identity. Never derived from the
+    /// diary's own body text.
+    pub fn live_owner_of_diary(&self, diary_id: &str) -> Option<String> {
+        self.inner
+            .read()
+            .values()
+            .find(|w| w.diary_id.as_deref() == Some(diary_id) && !w.status.is_terminal())
+            .map(|w| w.worker_id.clone())
     }
 
     pub fn kill(&self, worker_id: &str) -> Result<GraphWorkerInfo, String> {
@@ -307,6 +383,9 @@ impl GraphWorkerRegistry {
                 .ok_or_else(|| format!("worker not found: {}", worker_id))?;
             if !w.status.is_terminal() {
                 w.status = WorkerStatus::Done;
+            }
+            if w.execution_end.is_none() {
+                w.execution_end = Some(ExecutionEnd::Cancelled);
             }
             if w.done_at.is_none() {
                 w.done_at = Some(now_ms());
@@ -359,6 +438,7 @@ fn load_worker_records(
             Ok(mut item) => {
                 if !item.status.is_terminal() {
                     item.status = WorkerStatus::Orphaned;
+                    item.execution_end = Some(ExecutionEnd::Orphaned);
                     if item.done_at.is_none() {
                         item.done_at = Some(now_ms());
                     }
@@ -411,6 +491,9 @@ pub fn make_info(
         session_id: None,
         cwd: None,
         commands: Vec::new(),
+        execution_end: None,
+        diary_id: None,
+        finalization: DiaryFinalization::Pending,
     }
 }
 

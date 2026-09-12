@@ -169,7 +169,7 @@ exact command).
 | `mem.worker.list` | — | List all graph workers. |
 | `mem.worker.get` | `{id}` | Fetch one graph worker by id. |
 | `mem.worker.progress` | `{id, text, status?}` | Report worker progress (called by the worker itself). |
-| `mem.worker.report` | `{id, summary}` | Submit a worker's final report and mark it done. |
+| `mem.worker.report` | `{id, summary, diary?, finalization?, reason?}` | Record that a worker's execution ended. Diary finalization is a separate fact: pass `diary` plus `finalization` (`succeeded`/`partial`/`failed`) and `reason`. |
 | `mem.worker.kill` | `{id}` | Kill a graph worker. |
 | `mem.graph.create` | `{id, type, scope?, properties?}` | Create a graph entity. |
 | `mem.graph.relate` | `{from, rel, to, valid_from?, valid_to?, confidence?, scope?, reason?}` | Create a relation. |
@@ -237,4 +237,4 @@ A `team pair` mints its Team together with the two launch attempts it reserves, 
 `team.adopt_agent` and the `agent.spawn` / `tab` creation `{team_id, creator_tab_id}` pair share one membership check: the caller tab must exist, already carry that `team_id`, sit in the Team's workspace, and the Team must have a live anchoring Orchestrator. Failing any of those refuses before the tab is created or mutated. `team.adopt_agent` additionally refuses a missing tab, a tab already bound to a Team, and a role-bearing tab — a role- or plan-task-bound spawn derives its Team from that binding, so `agent.spawn` rejects `team_id` combined with `role` or `plan_task`.
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
-<!-- revision: 18 -->
+<!-- revision: 19 -->
