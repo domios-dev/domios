@@ -12,7 +12,7 @@ pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 mod rename_guard;
 
-pub(crate) use rename_guard::{refuse_task_bound_rename, TASK_BOUND_RENAME_REFUSAL_PREFIX};
+pub(crate) use rename_guard::refuse_task_bound_rename;
 
 /// A coordinator must not self-terminate. Planner identity comes from the plan
 /// graph, not from the structural role.
