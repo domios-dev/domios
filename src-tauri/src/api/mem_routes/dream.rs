@@ -172,10 +172,16 @@ pub async fn mem_dream_diary(
     let limit = p.limit.unwrap_or(30).clamp(1, 100);
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || {
-        svc.mem.with_conn(|conn| diary_page(conn, svc.mem.blobs_dir(), offset, limit))
+        svc.mem
+            .with_conn(|conn| diary_page(conn, svc.mem.blobs_dir(), offset, limit))
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("diary join: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("diary join: {e}"),
+        )
+    })?
     .map(Json)
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
