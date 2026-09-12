@@ -8,6 +8,7 @@ use codeterm_plan::service_plan::state::mission_control::{
 
 use crate::agent::kpi::KpiRecorder;
 use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, KpiLedger, TokenCounts};
+use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef};
@@ -479,5 +480,102 @@ fn mission_control_spend_reaches_the_plan_state_route_as_a_machine_scope() {
     assert_eq!(
         payload["mission_control"]["kpi"]["state"], "not_recording",
         "the machine figure never fills the plan-scoped block"
+    );
+}
+
+/// The regression this exists for: ingestion used to hang off a tab status VALUE
+/// changing, so a tab that finished turn after turn without ever flipping status
+/// recorded nothing at all. The turn boundary is the live classifier settling to
+/// idle, and that alone has to produce one pass. Every other fixture in this file
+/// calls `request_kpi_usage_ingest` itself, so only this one proves a caller.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn mission_control_spend_ingests_a_settled_turn_with_no_status_transition() {
+    let mut fixture = fixture();
+    let session = fixture.temp.path().join("session.jsonl");
+    std::fs::write(
+        &session,
+        include_str!("../../agent/kpi/usage/fixtures/claude-session.jsonl"),
+    )
+    .unwrap();
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::with_session_file("turn-mock", session)
+            .with_session_model("sess-turn", "claude-opus-5"),
+    ));
+
+    let pty_id = "pty-turn";
+    let workspace = fixture
+        .service
+        .mux
+        .write()
+        .create_workspace("turn".into(), None)
+        .id;
+    let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        mux.link_pty(&tab_id, pty_id.to_string());
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("turn-mock".into());
+        tab.cwd = Some(fixture.temp.path().display().to_string());
+        tab.agent_session_id = Some("sess-turn".into());
+        // Anything but idle, so settling to idle is a boundary the classifier crosses.
+        tab.agent_state = Some(
+            TabVerdict {
+                state: TimelineState::Question,
+                subtype: None,
+            }
+            .into(),
+        );
+    }
+
+    // The composer's ready glyph: the screen the classifier reads as a settled turn.
+    let hash = {
+        let mut screen = fixture.service.screen_state.lock();
+        screen.process(pty_id, "assistant finished\r\n\u{276f} \r\n".as_bytes());
+        screen.get_content_hash(pty_id, 0).unwrap()
+    };
+    // One observation, so the tab has a quiescence reading. Status is Working here
+    // and stays Working: nothing in this test moves it.
+    {
+        let mut tracker = fixture.service.agent_tracker.lock();
+        tracker.update_output(pty_id, hash);
+    }
+    let status_before = fixture.service.agent_tracker.lock().get_status(pty_id);
+
+    let ledger = ledger_on(&mut fixture);
+    fixture.service.recompute_agent_state(pty_id);
+    fixture.service.kpi.drain();
+
+    let settled = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.agent_state.clone())
+        .map(|state| state.state);
+    assert_eq!(
+        settled,
+        Some(TimelineState::Idle),
+        "the fixture screen must actually settle the turn, or this proves nothing"
+    );
+    assert_eq!(
+        fixture.service.agent_tracker.lock().get_status(pty_id),
+        status_before,
+        "the tab status never moved; the turn boundary alone drove the pass"
+    );
+
+    let usage: Vec<_> = ledger
+        .list_all()
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.kind == KpiEventKind::TokenUsage)
+        .collect();
+    assert!(
+        !usage.is_empty(),
+        "a settled turn records the provider's usage rows"
+    );
+    assert!(
+        usage.iter().all(|row| row.tab_id == tab_id),
+        "the rows are charged to the tab whose turn settled"
     );
 }
