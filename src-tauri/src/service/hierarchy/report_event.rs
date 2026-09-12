@@ -59,6 +59,16 @@ pub(super) fn agent_report_event(
     report: &AgentReport,
     task_report: Option<Value>,
 ) -> Value {
+    // The submission decides the class; a consumer must not have to dig it out
+    // of the nested transition to learn what the producer already knows.
+    let outcome = match report.report_outcome {
+        Some(class) => json!(class),
+        None => task_report
+            .as_ref()
+            .and_then(|value| value.get("report_outcome"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    };
     json!({
         "target_tab_id": target_tab_id,
         "from_tab_id": from_tab_id,
@@ -66,7 +76,7 @@ pub(super) fn agent_report_event(
         "message": report.message,
         "report": report,
         "task_report": task_report,
-        "report_outcome": report.report_outcome,
+        "report_outcome": outcome,
     })
 }
 
