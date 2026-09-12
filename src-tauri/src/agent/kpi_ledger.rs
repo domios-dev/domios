@@ -551,7 +551,9 @@ impl KpiLedger {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare(
-                r#"SELECT plan_id, COUNT(*), COALESCE(SUM(bytes), 0),
+                // Token rows store their token total in `bytes`; only message payloads are bytes.
+                r#"SELECT plan_id, COUNT(*),
+                          COALESCE(SUM(CASE WHEN input_tokens IS NULL THEN bytes END), 0),
                           COUNT(input_tokens),
                           COALESCE(SUM(input_tokens), 0),
                           COALESCE(SUM(uncached_input_tokens), 0),
