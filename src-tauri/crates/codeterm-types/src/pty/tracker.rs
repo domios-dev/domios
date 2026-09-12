@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use super::status_elapsed::{StatusElapsedProgress, StatusElapsedTracker};
 use super::tab_status::TabStatus;
 
 pub struct TabStatusTracker {
@@ -61,6 +62,10 @@ struct TabStatusEntry {
     last_byte_time: Instant,
     #[allow(dead_code)]
     last_check_time: Instant,
+    /// Structural turn progress: the last elapsed value this tab's status widget
+    /// reported, so the live classifier sees the same current-versus-previous
+    /// pair the offline replay derives from a cast.
+    status_elapsed: StatusElapsedTracker,
 }
 
 impl TabStatusTracker {
@@ -102,6 +107,7 @@ impl TabStatusTracker {
                 last_output_time: now,
                 last_byte_time: now,
                 last_check_time: now,
+                status_elapsed: StatusElapsedTracker::new(),
             });
 
         // Byte clock resets on every chunk regardless of content change.
@@ -171,6 +177,19 @@ impl TabStatusTracker {
                     .as_millis() as u64,
             )
         })
+    }
+
+    /// One status-widget elapsed observation for this pty. Untracked ptys report
+    /// no progress rather than minting a baseline for a tab that does not exist.
+    pub fn observe_status_elapsed(
+        &mut self,
+        pty_id: &str,
+        current_ms: Option<u64>,
+    ) -> StatusElapsedProgress {
+        self.statuses
+            .get_mut(pty_id)
+            .map(|entry| entry.status_elapsed.observe(current_ms))
+            .unwrap_or(StatusElapsedProgress::NONE)
     }
 
     pub fn get_status(&self, pty_id: &str) -> TabStatus {
