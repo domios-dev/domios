@@ -29,10 +29,9 @@ interface FigureCardProps {
   amountTone?: "plain" | "warn";
   caption: ReactNode;
   detail: ReactNode;
-  source: string;
 }
 
-function FigureCard({ testId, title, amount, amountTone = "plain", caption, detail, source }: FigureCardProps) {
+function FigureCard({ testId, title, amount, amountTone = "plain", caption, detail }: FigureCardProps) {
   return (
     <section data-testid={testId} className="ct-panel-card mc-board-card">
       <h2>{title}</h2>
@@ -46,7 +45,6 @@ function FigureCard({ testId, title, amount, amountTone = "plain", caption, deta
         <div className="mc-board-caption">{caption}</div>
       </div>
       <div className="mc-board-detail">{detail}</div>
-      <p className="mc-board-source">{source}</p>
     </section>
   );
 }
@@ -69,7 +67,6 @@ export function TokensCard({ kpi }: { kpi: MissionControlKpi }) {
           notRecordingDetail(kpi.not_recording_reason, kpi.enable_setting)
         )
       }
-      source="KPI ledger · plan rows"
     />
   );
 }
@@ -91,7 +88,6 @@ export function TurnsCard({ kpi }: { kpi: MissionControlKpi }) {
           notRecordingDetail(kpi.not_recording_reason, kpi.enable_setting)
         )
       }
-      source="KPI ledger · plan rows"
     />
   );
 }
@@ -110,7 +106,6 @@ export function BouncesCard({ bounces }: { bounces: BounceSummary }) {
             finished on the first · <b><AnimatedNumber value={bounces.labelled_bounced} format={formatCount} /></b> labelled bounced
         </>
       }
-      source="Stored attempts and status labels"
     />
   );
 }
@@ -135,7 +130,6 @@ export function HeldCard({ held }: { held: HeldForDecision }) {
             <b><AnimatedNumber value={held.verdicts_on_held} format={formatCount} /></b> verdicts on the held tasks
         </>
       }
-      source="Stored review-held labels and open gates"
     />
   );
 }
@@ -145,10 +139,8 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
   return (
     <section data-testid="mc-board-areas" className="ct-panel-card mc-board-card">
       <div className="mc-board-card-head">
-        <h2>Spend by area</h2>
-        <span className="mc-board-caption">
-          {reading.declared ? `${reading.facetLabel ?? "Area"} facet declared` : "No area facet declared"}
-        </span>
+        <h2>{reading.title}</h2>
+        <span className="mc-board-caption">{reading.caption}</span>
       </div>
       {reading.rows.length === 0 ? (
         <p className="mc-board-note">No tasks to group.</p>
@@ -180,8 +172,8 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
           {reading.noFacetMessage}
         </p>
       )}
-      <p className="mc-board-source">
-        Task groups only; tokens are not area-attributed.
+      <p data-testid="mc-board-area-tokens-relation" className="mc-board-detail mc-board-relation">
+        Task counts only · Tokens plan total · no area token attribution
       </p>
     </section>
   );
@@ -199,10 +191,7 @@ export function RunwayCard({
   const gauges = runwayGauges(runway.providers);
   return (
     <section data-testid="mc-board-runway" className="ct-panel-card mc-board-card">
-      <div className="mc-board-card-head">
-        <h2>Runway</h2>
-        <span className="mc-board-caption">Provider allowance snapshots · reset per gauge</span>
-      </div>
+      <h2>Runway</h2>
       {gauges.length === 0 ? (
         <p data-testid="mc-board-runway-empty" className="mc-board-note">
           {runway.providers.length > 0
@@ -220,9 +209,6 @@ export function RunwayCard({
           ))}
         </div>
       )}
-      <p className="mc-board-source">
-        Latest parsed provider rows · 60% and 85% marks retained
-      </p>
     </section>
   );
 }
@@ -247,7 +233,6 @@ export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
           ))}
         </div>
       }
-      source="PlanTaskCounts snapshot"
     />
   );
 }
@@ -255,7 +240,7 @@ export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
 function RunwayGauge({ gauge, now }: { gauge: ReturnType<typeof runwayGauges>[number]; now: number }) {
   const pct = useAnimatedNumber(gauge.pct);
   return (
-    <div data-testid="mc-board-runway-gauge" data-runway-key={gauge.key}>
+    <div data-testid="mc-board-runway-gauge" data-runway-key={gauge.key} className="mc-board-runway-gauge">
       <UsageGauge
         label={gauge.label}
         variant={gauge.variant}
@@ -264,7 +249,6 @@ function RunwayGauge({ gauge, now }: { gauge: ReturnType<typeof runwayGauges>[nu
         state={gauge.state}
         now={now}
       />
-      {gauge.staleReason && <span className="mc-board-source">{gauge.staleReason}</span>}
     </div>
   );
 }
