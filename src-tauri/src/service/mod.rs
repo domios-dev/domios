@@ -88,6 +88,7 @@ mod spawn_shell;
 pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
 mod status_reconciliation;
+pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;

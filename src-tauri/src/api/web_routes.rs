@@ -20,8 +20,9 @@ pub use crate::api::web_plugin_routes::plugin_ui;
 /// Full multiplexer snapshot — the web bundle's `mux_get_state`.
 ///
 /// Bounded: the snapshot clones the whole multiplexer under two locks, so a
-/// request storm is refused at the door instead of queued. The build itself runs
-/// on the blocking pool — on the async runtime it starves every other IPC caller.
+/// request storm or lifecycle contention is refused at the door instead of
+/// queued. The build itself runs on the blocking pool — it never starves the
+/// async runtime.
 pub async fn mux_state(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -36,9 +37,13 @@ pub async fn mux_state(
     };
 
     let svc = state.svc.clone();
-    let snapshot = tokio::task::spawn_blocking(move || svc.snapshot_with_reconciled_status())
+    let snapshot = tokio::task::spawn_blocking(move || svc.try_snapshot_with_reconciled_status())
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let snapshot = snapshot.ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        crate::service::SNAPSHOT_BUSY_ERROR.to_string(),
+    ))?;
     Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
 }
 
