@@ -1,0 +1,234 @@
+/* Board layout: one 12px gap between and inside the wells; the host is chrome. */
+.mc-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  height: 100%;
+  padding: 12px 12px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.mc-board-card-grid,
+.mc-board-runway-grid {
+  display: grid;
+  gap: 12px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-card-grid {
+  gap: 8px;
+}
+
+.mc-board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.mc-board-card h2 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.mc-board-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mc-board-card-head .mc-board-caption {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.mc-board-amount {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  color: var(--ct-fg);
+  overflow-wrap: anywhere;
+}
+
+.mc-board-amount-warn {
+  color: var(--ct-yellow);
+}
+
+.mc-board-caption {
+  font-size: 11px;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-detail {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ct-muted-fg);
+  overflow-wrap: anywhere;
+}
+
+.mc-board-detail b {
+  font-family: var(--ct-font-mono);
+  font-weight: 500;
+  color: var(--ct-fg);
+}
+
+.mc-board-source {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ct-muted);
+  overflow-wrap: anywhere;
+}
+
+.mc-board-card > .mc-board-source {
+  margin-top: auto;
+}
+
+.mc-board-note {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ct-muted-fg);
+  overflow-wrap: anywhere;
+}
+
+.mc-board-note-error {
+  color: var(--ct-red);
+}
+
+.mc-board-kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mc-board-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 72px) minmax(0, 48px);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.mc-board-kv-key {
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--ct-fg);
+  overflow-wrap: anywhere;
+}
+
+.mc-board-kv-qualifier {
+  margin-left: 0.35rem;
+  font-style: normal;
+  font-size: 0.6875rem;
+  color: var(--ct-muted);
+}
+
+.mc-board-kv-value,
+.mc-board-kv-share {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.mc-board-kv-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.mc-board-kv-share {
+  font-size: 11px;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log {
+  display: grid;
+  grid-template-columns: 40px 96px 76px minmax(0, 1fr);
+  gap: 3px 10px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.mc-board-log-row {
+  display: contents;
+}
+
+.mc-board-log-hour {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
+  font-family: var(--ct-font-mono);
+  font-size: 0.6875rem;
+  color: var(--ct-muted);
+}
+
+.mc-board-log-time {
+  font-family: var(--ct-font-mono);
+  font-size: 0.6875rem;
+  color: var(--ct-muted);
+}
+
+.mc-board-log-kind,
+.mc-board-log-author {
+  min-width: 0;
+  font-size: 0.6875rem;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-board-log-kind-strong {
+  color: var(--ct-fg);
+  font-weight: 600;
+}
+
+.mc-board-log-message {
+  min-width: 0;
+  color: var(--ct-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-board-log-message-quiet {
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log-task {
+  margin-right: 0.35rem;
+  color: var(--ct-muted);
+}
+
+.mc-board-log-run {
+  margin-left: 0.35rem;
+  color: var(--ct-muted);
+}
+
+/* The board draws no projection markers, so the gauge keeps no room for their labels. */
+.mc-board .ct-usage-gauge {
+  margin-bottom: 0;
+}
+
+.mc-board .ct-usage-gauge .bar-wrap {
+  margin-top: 6px;
+}
