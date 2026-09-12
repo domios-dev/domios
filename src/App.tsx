@@ -535,10 +535,10 @@ function AppInner() {
       >
         {sidebarMounted && (
           <>
-            {/* Mobile: sidebar overlays the content with a tap-to-close
-                backdrop; ≥sm it participates in the flex row as before. */}
+            {/* Narrow shell: the sidebar overlays the content with a tap-to-close
+                backdrop; wide shell it participates in the flex row as before. */}
             <div
-              className={`sm:hidden fixed inset-0 z-30 bg-black/40 ct-sidebar-backdrop ${sidebarShown ? "is-open" : ""}`}
+              className={`shell-wide:hidden fixed inset-0 z-30 bg-black/40 ct-sidebar-backdrop ${sidebarShown ? "is-open" : ""}`}
               onClick={closeSidebar}
               aria-hidden={!sidebarShown}
               style={{ pointerEvents: sidebarOpen ? "auto" : "none" }}
@@ -546,7 +546,7 @@ function AppInner() {
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
             <div
               data-testid="sidebar-drawer"
-              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}
+              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} shell-narrow:fixed shell-narrow:inset-y-0 shell-narrow:left-0 shell-narrow:z-40 shell-narrow:shadow-2xl shell-narrow:pt-[var(--ct-safe-top,0px)] shell-narrow:pb-[var(--ct-safe-bottom,0px)] shell-narrow:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}
               aria-hidden={!sidebarShown}
               inert={!sidebarShown || undefined}
             >

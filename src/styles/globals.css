@@ -7,6 +7,11 @@
 @import "./agent-state.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 
+/* The app shell's one responsive boundary, px so the terminal font size cannot move it.
+   Mirrors SHELL_NARROW_QUERY / SHELL_WIDE_QUERY in src/lib/shellBreakpoint.ts. */
+@custom-variant shell-narrow (@media (max-width: 640px));
+@custom-variant shell-wide (@media not all and (max-width: 640px));
+
 :root {
   font-family: var(--ct-font-ui);
   color-scheme: dark;
