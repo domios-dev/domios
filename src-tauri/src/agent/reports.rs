@@ -68,6 +68,8 @@ pub struct AgentReport {
     pub test_result: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<crate::plan::AttachmentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -263,6 +265,27 @@ impl ReportStore {
         details: ReportDetails,
         model_identity: Option<ReportModelIdentity>,
     ) -> AgentReport {
+        self.add_detailed_with_model_identity_and_outcome(
+            orchestrator_tab_id,
+            from_tab_id,
+            from_title,
+            message,
+            details,
+            model_identity,
+            None,
+        )
+    }
+
+    pub fn add_detailed_with_model_identity_and_outcome(
+        &mut self,
+        orchestrator_tab_id: &str,
+        from_tab_id: &str,
+        from_title: &str,
+        message: &str,
+        details: ReportDetails,
+        model_identity: Option<ReportModelIdentity>,
+        report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
+    ) -> AgentReport {
         let actual_model = model_identity
             .as_ref()
             .and_then(|identity| identity.actual_model.clone());
@@ -303,6 +326,7 @@ impl ReportStore {
             test_cmd: details.test_cmd.clone(),
             test_result: details.test_result.clone(),
             skipped: details.skipped.clone(),
+            report_outcome,
             attachments: Vec::new(),
             model: actual_model.clone(),
             planned_model,

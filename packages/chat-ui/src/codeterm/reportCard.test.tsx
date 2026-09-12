@@ -33,6 +33,7 @@ const DELIVERED_REJECTED = [
   "",
   SUMMARY,
 ].join("\n");
+const DELIVERED_REJECTED_BODY = DELIVERED_REJECTED.split("\n").slice(4).join("\n");
 
 async function mount(node: React.ReactElement) {
   const host = document.createElement("div");
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
       expanded
       onToggle={() => {}}
       onFocusTab={() => {}}
+      taskOutcome={{ persisted: false, transitionRejected: true, cause: "missing caller session id", reportOutcome: "stale_binding_conflict" }}
     />,
   );
   const card = inbound.host.querySelector('[data-testid="chat-inbound-report"]');
@@ -92,6 +94,7 @@ async function main(): Promise<void> {
   );
   const inboundBody = inbound.host.querySelector('[data-testid="chat-inbound-report-body"]');
   assert(inboundBody?.textContent === SUMMARY, "the inbound card did not lead with the report summary");
+  assert(inbound.host.querySelector('[data-testid="chat-inbound-report-diagnostics"]')?.textContent === DELIVERED_REJECTED_BODY, "the typed inbound card dropped the exact diagnostic");
   assert(
     inboundBody?.parentElement?.className.includes("ct-compact-scroll")
       && inboundBody.parentElement.className.includes("overflow-y-auto")
@@ -107,6 +110,58 @@ async function main(): Promise<void> {
   await act(async () => inbound.root.unmount());
   inbound.host.remove();
 
+  const deliveredDiagnostic = "REPORT NOT SENT\nreadiness checkout is gone\n\nThe report body is preserved verbatim.";
+  const calmInbound = await mount(
+    <InboundReportCard
+      message={{ id: "inbound-unattached", type: "user", content: deliveredDiagnostic }}
+      sender="ChatUI fixer"
+      expanded
+      onToggle={() => {}}
+      taskOutcome={{ persisted: false, transitionRejected: false, cause: null, reportOutcome: "delivered_unattached" }}
+    />,
+  );
+  assert(
+    calmInbound.host.querySelector('[data-testid="chat-inbound-report-outcome"]')?.textContent
+      === "Report delivered, not attached to a task",
+    "delivered-unattached inbound report did not use the calm line",
+  );
+  assert(!calmInbound.host.querySelector('[data-testid="chat-inbound-report-incident"]'), "calm inbound report became an incident");
+  assert(calmInbound.host.querySelector('[data-testid="chat-inbound-report"]')?.getAttribute("data-tool-status") === "success", "calm inbound report became an error card");
+  assert(!calmInbound.host.querySelector('[data-testid="chat-inbound-report-body"]'), "calm inbound diagnostic leaked into the summary body");
+  assert(calmInbound.host.textContent?.includes("readiness checkout is gone"), "unattached diagnostic was not preserved");
+  await act(async () => calmInbound.root.unmount());
+  calmInbound.host.remove();
+
+  const structuralInbound = await mount(
+    <InboundReportCard
+      message={{ id: "inbound-structural", type: "user", content: "Planner evidence delivered" }}
+      sender="Planner"
+      expanded
+      onToggle={() => {}}
+      taskOutcome={{ persisted: false, transitionRejected: false, cause: null, reportOutcome: "structurally_not_attachable" }}
+    />,
+  );
+  assert(!structuralInbound.host.querySelector('[data-testid="chat-inbound-report-outcome"]'), "structural report rendered a refusal line");
+  assert(!structuralInbound.host.querySelector('[data-testid="chat-inbound-report-incident"]'), "structural report rendered an incident");
+  assert(structuralInbound.host.querySelector('[data-testid="chat-inbound-report"]')?.getAttribute("data-tool-status") === "success", "structural report became an error card");
+  await act(async () => structuralInbound.root.unmount());
+  structuralInbound.host.remove();
+
+  const structuralStatusInbound = await mount(
+    <InboundReportCard
+      message={{ id: "inbound-structural-status", type: "user", content: "status: Error\nPlanner evidence delivered" }}
+      sender="Planner"
+      expanded
+      onToggle={() => {}}
+      onFocusTab={() => {}}
+      taskOutcome={{ persisted: false, transitionRejected: false, cause: null, reportOutcome: "structurally_not_attachable" }}
+    />,
+  );
+  assert(structuralStatusInbound.host.querySelector('[data-testid="chat-inbound-report"]')?.getAttribute("data-tool-status") === "success", "structural status became an error card");
+  assert(!structuralStatusInbound.host.textContent?.includes("transition rejected"), "structural status rendered a refusal verdict");
+  await act(async () => structuralStatusInbound.root.unmount());
+  structuralStatusInbound.host.remove();
+
   // Outbound: the same report, as its sender sees it, from structured truth
   // only — no transcript text, no delivery state, no screen scraping.
   const descriptor: OutboundReportDescriptor = {
@@ -115,8 +170,8 @@ async function main(): Promise<void> {
     task: "pl_chatui/task_transcript",
     status: "In Review",
     sha: SHA,
-    message: SUMMARY,
-    taskOutcome: { persisted: false, transitionRejected: true, cause: "missing caller session id" },
+    message: DELIVERED_REJECTED_BODY,
+    taskOutcome: { persisted: false, transitionRejected: true, cause: "missing caller session id", reportOutcome: "stale_binding_conflict" },
   };
   const outbound = await mount(
     <OutboundReportCard report={descriptor} onFocusTab={() => {}} defaultExpanded />,
@@ -138,6 +193,7 @@ async function main(): Promise<void> {
     outbound.host.querySelector('[data-testid="chat-outbound-report-body"]')?.textContent === SUMMARY,
     "the outbound card did not lead with the report summary",
   );
+  assert(outbound.host.querySelector('[data-testid="chat-outbound-report-diagnostics"]')?.textContent === DELIVERED_REJECTED_BODY, "the typed outbound card dropped the exact diagnostic");
   assert(
     outbound.host.querySelector('[data-testid="chat-outbound-report-body"]')?.parentElement
       ?.className.includes("ct-compact-scroll"),
@@ -165,6 +221,44 @@ async function main(): Promise<void> {
   await act(async () => outbound.root.unmount());
   outbound.host.remove();
 
+  const calmOutbound = await mount(
+    <OutboundReportCard
+      report={{
+        ...descriptor,
+        reportId: "f0e2c1d3-7b4a-4c9e-8f10-2a6d5b7c9e01",
+        message: deliveredDiagnostic,
+        taskOutcome: { persisted: false, transitionRejected: false, cause: null, reportOutcome: "delivered_unattached" },
+      }}
+      defaultExpanded
+    />,
+  );
+  assert(calmOutbound.host.querySelector('[data-testid="chat-outbound-report-outcome"]')?.textContent === "Report delivered, not attached to a task", "delivered-unattached outbound report did not use the calm line");
+  assert(!calmOutbound.host.querySelector('[data-testid="chat-outbound-report-incident"]'), "calm outbound report became an incident");
+  assert(calmOutbound.host.querySelector('[data-testid="chat-outbound-report"]')?.getAttribute("data-tool-status") === "success", "calm outbound report became an error card");
+  assert(!calmOutbound.host.querySelector('[data-testid="chat-outbound-report-body"]'), "calm outbound diagnostic leaked into the summary body");
+  assert(calmOutbound.host.textContent?.includes("readiness checkout is gone"), "outbound diagnostic was not preserved");
+  await act(async () => calmOutbound.root.unmount());
+  calmOutbound.host.remove();
+
+  const structuralOutbound = await mount(
+    <OutboundReportCard
+      report={{
+        ...descriptor,
+        reportId: "c2d3e4f5-6a7b-48c9-8d0e-1f2a3b4c5d67",
+        status: "Error",
+        message: "Planner evidence delivered",
+        taskOutcome: { persisted: false, transitionRejected: false, cause: null, reportOutcome: "structurally_not_attachable" },
+      }}
+      defaultExpanded
+    />,
+  );
+  assert(!structuralOutbound.host.querySelector('[data-testid="chat-outbound-report-outcome"]'), "structural outbound report rendered a refusal line");
+  assert(!structuralOutbound.host.querySelector('[data-testid="chat-outbound-report-incident"]'), "structural outbound report rendered an incident");
+  assert(structuralOutbound.host.querySelector('[data-testid="chat-outbound-report"]')?.getAttribute("data-tool-status") === "success", "structural outbound report became an error card");
+  assert(!structuralOutbound.host.textContent?.includes("Error"), "structural outbound report exposed an alarming status");
+  await act(async () => structuralOutbound.root.unmount());
+  structuralOutbound.host.remove();
+
   // A persisted report keeps its own status as the verdict on both sides.
   const persisted = await mount(
     <OutboundReportCard
@@ -172,7 +266,7 @@ async function main(): Promise<void> {
         ...descriptor,
         reportId: "5f1c0f1e-1f2a-4c1a-9f31-2b7b6f2f0c11",
         status: "Done",
-        taskOutcome: { persisted: true, transitionRejected: false, cause: null },
+        taskOutcome: { persisted: true, transitionRejected: false, cause: null, reportOutcome: null },
       }}
       defaultExpanded
     />,
