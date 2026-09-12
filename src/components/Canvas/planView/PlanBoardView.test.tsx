@@ -68,7 +68,7 @@ test("renders loading gate", async () => {
   assert(host.querySelector('[data-testid="plan-board-loading"]'), "loading visible");
 });
 
-test("renders board columns with context header and task cards", async () => {
+test("renders board columns without the repeated status header and with task cards", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     primary_spec_id: "spec-fixture",
@@ -108,16 +108,18 @@ test("renders board columns with context header and task cards", async () => {
     />,
   );
   assert(host.querySelector('[data-testid="plan-board-view"]'), "board root");
-  assert(host.querySelector('[data-testid="plan-board-status"]'), "board status");
-  assert(host.querySelector('[data-testid="plan-board-plan-title"]')?.textContent?.includes("Auth rollout"), "plan title");
-  assert(host.querySelector('[data-testid="plan-board-approval-state"]')?.textContent === "Approved", "approval state");
-  assert(host.querySelector('[data-testid="plan-board-peer-orchestrator"]')?.textContent?.includes("Orchestrator"), "orchestrator identity");
-  assert(host.querySelector('[data-testid="plan-board-peer-planner"]')?.textContent?.includes("Planner"), "planner identity");
-  assert(host.querySelector('[data-testid="plan-board-done-count"]')?.textContent?.includes("0/2 done"), "done count");
+  assert(!host.querySelector('[data-testid="plan-board-status"]'), "status header removed");
   assert(!host.querySelector('[data-testid="plan-board-spec-title"]'), "spec summary removed from board");
   assert(!host.querySelector('[data-testid="plan-board-plan-goal"]'), "goal summary removed from board");
+  const planBoard = host.querySelector('[data-testid="plan-board-plan"]');
+  assert(planBoard?.firstElementChild?.getAttribute("data-testid") === "plan-board-columns", "columns start the task surface");
   const columns = host.querySelectorAll('[data-testid="plan-board-column"]');
   assert(columns.length === 5, `column count=${columns.length}`);
+  assert(
+    Array.from(columns).map((column) => column.querySelector('[data-testid="plan-board-column-label"]')?.textContent?.trim().toUpperCase()).join("|") ===
+      "PENDING|IN PROGRESS|IN REVIEW|BLOCKED|DONE",
+    "all kanban headings remain",
+  );
   const inProgress = host.querySelector('[data-testid="plan-board-column"][data-column="in_progress"]');
   const card = inProgress?.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "in-progress card");
@@ -205,18 +207,6 @@ test("clicking another task updates the open slide-over panel", async () => {
   });
   assert(host.querySelector('[data-testid="plan-detail-panel"]') === panel, "same panel element reused");
   assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "Second task", "second task title");
-});
-
-test("clicking plan title opens plan detail overlay", async () => {
-  const plan: Plan = { ...FIXTURE_PLAN, tasks: [task({ id: "t1", status: TaskStatus.Pending })] };
-  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} />);
-  const title = host.querySelector('[data-testid="plan-board-plan-title"]') as HTMLElement;
-  await act(async () => {
-    title.click();
-  });
-  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
-  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "document", "plan uses document overlay");
-  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
 });
 
 test("done column collapses to recent N with show-all toggle", async () => {

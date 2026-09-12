@@ -8,19 +8,16 @@
   padding: 12px 12px 16px;
   overflow-x: hidden;
   overflow-y: auto;
+  background: var(--ct-surface);
 }
 
-.mc-board-header {
+.mc-board-actions-row {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  justify-content: flex-end;
   min-width: 0;
-}
-
-.mc-board-header > .plan-board-status {
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
 }
 
 .mission-control-actions {
@@ -328,4 +325,36 @@
 
 .mc-board .ct-usage-gauge .bar-wrap {
   margin-top: 6px;
+}
+
+/* The four fixed log columns leave no room for a title on a phone, so the
+   meta line sits above a full-width message and nothing is ellipsised away. */
+.mc-board[data-board-layout="narrow"] .mc-board-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-message {
+  grid-column: 1 / -1;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-kind,
+.mc-board[data-board-layout="narrow"] .mc-board-log-author,
+.mc-board[data-board-layout="narrow"] .mc-board-log-message {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-hour {
+  margin-top: 0;
 }

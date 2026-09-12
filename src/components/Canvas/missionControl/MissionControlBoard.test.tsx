@@ -1,6 +1,7 @@
 import { act, type ReactElement } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
@@ -9,6 +10,7 @@ import {
   BOARD_NARROW_MAX_PX,
   BOARD_RUNWAY_COLUMNS,
   boardLayout,
+  formatClock,
 } from "./missionControlBoardModel";
 import type { MissionControlState, PlanBoardState } from "./missionControlState";
 
@@ -235,14 +237,60 @@ beforeEach(() => {
 });
 
 describe("mission control board cards", () => {
-  it("reads progress and ledger-backed spend into the status header", async () => {
+  it("mission_control_board_paints_theme_backed_opaque_surface", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    expect(host.querySelector('[data-testid="plan-board-status"]')).not.toBeNull();
-    expect(text(host, "mc-board-progress")).toBe("10 of 13 done · 2 in review · 1 cancelled");
-    expect(text(host, "mc-board-total-spend")).toContain("5.3M");
-    expect(text(host, "mc-board-total-spend")).toContain("1.4B");
+    const root = host.querySelector('[data-testid="mission-control-board"]');
+    expect(root?.classList.contains("mc-board")).toBe(true);
+
+    const boardCss = readFileSync("src/components/Canvas/missionControl/missionControlBoard.css", "utf8");
+    const boardRule = boardCss.match(/\.mc-board\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(boardRule).toContain("background: var(--ct-surface);");
+    expect(boardRule).not.toMatch(/background(?:-color)?\s*:\s*transparent/);
+
+    const appSource = readFileSync("src/App.tsx", "utf8");
+    expect(appSource).toContain(
+      'const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;',
+    );
+    const terminalTabSource = readFileSync("src/components/Terminal/TerminalTab.tsx", "utf8");
+    expect(terminalTabSource).toContain(
+      'visibility: isVisible && terminalVisible && !historyReplaying ? "visible" : "hidden",',
+    );
     await unmount();
+  });
+
+  it("keeps board actions reachable outside the removed status band", async () => {
+    const previousConfirm = window.confirm;
+    const confirm = vi.fn(() => false);
+    const { host, unmount } = await render(board(recordingState()));
+
+    window.confirm = confirm;
+    try {
+      expect(host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
+      const actionsRow = host.querySelector('[data-testid="mission-control-board-actions-row"]');
+      expect(actionsRow).not.toBeNull();
+      const trigger = actionsRow?.querySelector<HTMLButtonElement>(
+        '[data-testid="mission-control-board-menu-trigger"]',
+      );
+      expect(trigger).not.toBeNull();
+      expect(trigger?.closest('[data-testid="plan-board-status"]')).toBeNull();
+
+      const labels = ["Approve plan", "Pause plan", "Clear everything"];
+      for (const [index, label] of labels.entries()) {
+        await act(async () => trigger?.click());
+        const menuItems = Array.from(
+          host.querySelectorAll<HTMLButtonElement>('[data-testid="mission-control-board-menu"] [role="menuitem"]'),
+        );
+        expect(menuItems.map((item) => item.textContent)).toEqual(labels);
+        const item = menuItems.find((candidate) => candidate.textContent === label);
+        expect(item).not.toBeUndefined();
+        await act(async () => item?.click());
+        if (index === labels.length - 1) expect(confirm).toHaveBeenCalledTimes(labels.length);
+      }
+    } finally {
+      window.confirm = previousConfirm;
+      await unmount();
+    }
   });
 
   it("reads tokens, turns, bounces and held decisions from the stored figures", async () => {
@@ -295,7 +343,6 @@ describe("mission control board fallback states", () => {
     expect(text(host, "mc-board-tokens-amount")).toBe("—");
     expect(text(host, "mc-board-turns-amount")).toBe("—");
     expect(text(host, "mc-board-tokens")).toContain("not recording");
-    expect(host.querySelector('[data-testid="mc-board-total-spend"]')).toBeNull();
     await unmount();
   });
 
@@ -324,6 +371,33 @@ describe("mission control board fallback states", () => {
 });
 
 describe("mission control board event log", () => {
+  it("mission_control_event_log_renders_each_title_once", async () => {
+    const title = "Verify clean first run";
+    const event = {
+      ts: DAY + H,
+      last_ts: DAY + H,
+      count: 1,
+      kind: "task_created",
+      author: "Planner",
+      author_tab_id: "tab-planner",
+      task_id: "verify-clean-first-run",
+      task_name: title,
+      text: title,
+    };
+    const mission = recordingState();
+    mission.event_log.entries = [event];
+
+    const { host, unmount } = await render(board(mission));
+
+    const row = host.querySelector('[data-testid="mc-board-event-row"]') as HTMLElement;
+    const rowText = row.textContent ?? "";
+    expect(row.querySelector(".mc-board-log-time")?.textContent).toBe(formatClock(event.ts));
+    expect(row.querySelector(".mc-board-log-kind")?.textContent).toBe("Task added");
+    expect(row.querySelector('[data-testid="mc-board-event-author"]')?.textContent).toBe("Planner");
+    expect(rowText.split(title).length - 1).toBe(1);
+    await unmount();
+  });
+
   it("keeps events in time order under hour bands and collapses one agent's report run", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
