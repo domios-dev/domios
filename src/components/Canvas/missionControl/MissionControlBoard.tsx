@@ -13,6 +13,7 @@ import {
   progressReading,
   type BoardLayout,
 } from "./missionControlBoardModel";
+import { MissionControlControls, type MissionControlPlanAction } from "./MissionControlControls";
 import type { PlanBoardState } from "./missionControlState";
 
 export interface MissionControlBoardProps {
@@ -25,6 +26,9 @@ export interface MissionControlBoardProps {
   now?: number;
   onOpenPlan?: (planId: string) => void;
   onOpenTab?: (tabId: string) => void;
+  onApprovePlan?: MissionControlPlanAction;
+  onPausePlan?: MissionControlPlanAction;
+  onClearEverything?: MissionControlPlanAction;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -75,6 +79,9 @@ export function MissionControlBoard({
   now = Date.now(),
   onOpenPlan,
   onOpenTab,
+  onApprovePlan,
+  onPausePlan,
+  onClearEverything,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -88,12 +95,21 @@ export function MissionControlBoard({
       data-board-layout={layout}
       className="mc-board"
     >
-      <PlanBoardStatusHeader
-        summary={summary}
-        onOpenPlan={() => onOpenPlan?.(plan.id)}
-        onOpenTab={onOpenTab}
-        progress={progressLine(state)}
-      />
+      <div className="mc-board-header">
+        <PlanBoardStatusHeader
+          summary={summary}
+          onOpenPlan={() => onOpenPlan?.(plan.id)}
+          onOpenTab={onOpenTab}
+          progress={progressLine(state)}
+        />
+        <MissionControlControls
+          scope="board"
+          planId={plan.id}
+          onApprovePlan={onApprovePlan}
+          onPausePlan={onPausePlan}
+          onClearEverything={onClearEverything}
+        />
+      </div>
       {error && (
         <p data-testid="mc-board-error" className="mc-board-note mc-board-note-error">
           {error}

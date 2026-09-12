@@ -417,12 +417,14 @@ describe("mission control board layout", () => {
     await unmount();
   });
 
-  it("offers no mutation affordance on the board", async () => {
+  it("offers keyboard-reachable mutation controls without drag affordances", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     const boardRoot = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(boardRoot.querySelector("[draggable]")).toBeNull();
-    expect(boardRoot.querySelector('[data-testid*="menu"]')).toBeNull();
+    const trigger = boardRoot.querySelector('[data-testid="mission-control-board-menu-trigger"]') as HTMLButtonElement;
+    expect(trigger).not.toBeNull();
+    expect(trigger.tabIndex).toBe(0);
     expect(boardRoot.querySelector("input, select, textarea")).toBeNull();
     await unmount();
   });
