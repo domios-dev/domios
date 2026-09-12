@@ -12,7 +12,10 @@ pub use status::{
     extract_completion_summary, extract_status_line, has_active_turn_footer, StatusLine,
 };
 
-pub use codeterm_types::pty::{AgentLiveState, QuestionSubtype, TabVerdict, TimelineState};
+pub use codeterm_types::pty::{
+    AgentLiveState, QuestionSubtype, StatusElapsedProgress, StatusElapsedTracker, TabVerdict,
+    TimelineState,
+};
 
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
@@ -89,6 +92,12 @@ pub struct ClassifyInput<'a> {
     /// providers settle to Idle promptly (structurally) instead of via the
     /// stuck-Working timeout. Computed by both adapters via [`composer_cursor_ready`].
     pub composer_ready: bool,
+    /// The status widget's own elapsed counter, current versus the previous
+    /// observation of the same widget, plus whether this widget has ever been
+    /// seen advancing. Progress spans a quiet repaint gap that neither idle clock
+    /// can express, and expires at `STUCK_WORKING_IDLE_MS`. Both adapters derive
+    /// it from a shared [`StatusElapsedTracker`].
+    pub status_elapsed: StatusElapsedProgress,
 }
 
 /// Structural input-composer readiness from VT cursor geometry (NOT prose): a
@@ -121,8 +130,14 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         completion_summary_immediately_precedes_status_repaint(input.screen_lines);
     // A still-animating turn (fresh bytes, no completed-turn summary) is genuinely live:
     // a long think repaints only the excluded status band, so semantic-idle keeps growing.
+    // Progress observed for THIS widget spans the quiet gap between repaints, and
+    // decays at the same deadline that already caps an evidence-free Working.
+    let elapsed_progress_live = input.status_elapsed.advancing()
+        || (input.status_elapsed.progressed
+            && (input.byte_idle_ms < STUCK_WORKING_IDLE_MS
+                || input.semantic_idle_ms < STUCK_WORKING_IDLE_MS));
     let live_turn = (live_status_widget || active_footer)
-        && input.byte_idle_ms < WORKING_GRACE_MS
+        && (input.byte_idle_ms < WORKING_GRACE_MS || elapsed_progress_live)
         && extract_completion_summary(input.screen_lines).is_none()
         && !completed_status_repaint;
     let stale_working_status_at_prompt =
@@ -207,6 +222,7 @@ pub struct BoundarySignals {
 pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let builder = ClassifyInputBuilder::for_rows(cast.status_bar_rows);
     let mut extractor = SignalExtractor::new(cast.height, cast.width, builder.volatile_hint());
+    let mut status_elapsed = StatusElapsedTracker::new();
     let mut samples = Vec::new();
     let mut previous = TabVerdict {
         state: TimelineState::Idle,
@@ -219,7 +235,8 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             let mut tick = last_ms + TICK_MS;
             while tick < event.now_ms() {
                 let signals = extractor.step(b"", tick);
-                previous = classify_signals(&extractor, &signals, previous, &builder);
+                previous =
+                    classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
                 samples.push((tick, previous));
                 tick += TICK_MS;
             }
@@ -232,7 +249,8 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             }
             CastEvent::Output { now_ms, bytes } => {
                 let signals = extractor.step(bytes, *now_ms);
-                previous = classify_signals(&extractor, &signals, previous, &builder);
+                previous =
+                    classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
                 samples.push((*now_ms, previous));
                 last_ms = *now_ms;
             }
@@ -243,7 +261,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let mut tick = last_ms + TICK_MS;
     while tick <= end_ms {
         let signals = extractor.step(b"", tick);
-        previous = classify_signals(&extractor, &signals, previous, &builder);
+        previous = classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
         samples.push((tick, previous));
         tick += TICK_MS;
     }
@@ -254,6 +272,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
 pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignals {
     let builder = ClassifyInputBuilder::for_rows(cast.status_bar_rows);
     let mut extractor = SignalExtractor::new(cast.height, cast.width, builder.volatile_hint());
+    let mut status_elapsed = StatusElapsedTracker::new();
 
     for event in &cast.events {
         if event.now_ms() > at_ms {
@@ -264,7 +283,8 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
                 extractor.resize(*rows, *cols);
             }
             CastEvent::Output { now_ms, bytes } => {
-                extractor.step(bytes, *now_ms);
+                let signals = extractor.step(bytes, *now_ms);
+                status_elapsed.observe(observed_status_elapsed_ms(&signals.screen.lines));
             }
         }
     }
@@ -280,6 +300,7 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
             subtype: None,
         },
         &builder,
+        &mut status_elapsed,
     );
     BoundarySignals {
         state: verdict.state,
@@ -302,8 +323,10 @@ pub fn classify_signals(
     signals: &StreamSignals,
     previous: TabVerdict,
     builder: &ClassifyInputBuilder,
+    status_elapsed: &mut StatusElapsedTracker,
 ) -> TabVerdict {
     let attributed = extractor.attributed_screen();
+    let status_elapsed = status_elapsed.observe(observed_status_elapsed_ms(&signals.screen.lines));
     let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
         || active_turn_footer(&signals.screen.lines);
     let within_working_grace = previous.state == TimelineState::Working
@@ -326,9 +349,17 @@ pub fn classify_signals(
                 signals.cursor.row,
                 signals.rows,
             ),
+            status_elapsed,
         }),
         previous,
     )
+}
+
+/// The one elapsed value an observation contributes: the status widget's own
+/// counter, or nothing when no widget is on screen. Shared so live and offline
+/// feed their trackers identical sequences.
+pub fn observed_status_elapsed_ms(screen_lines: &[String]) -> Option<u64> {
+    extract_status_line(screen_lines).and_then(|status| status.elapsed_ms)
 }
 
 fn offline_picker_is_coherent(picker: &PickerDetection, signals: &StreamSignals) -> bool {
