@@ -340,6 +340,10 @@
   grid-column: 2 / -1;
 }
 
+.mc-board-spend-row > .mc-board-spend-model-name {
+  padding-left: var(--mc-space-3);
+}
+
 .mc-board-spend-row > .mc-board-spend-model-share {
   font-weight: 600;
 }
@@ -358,13 +362,22 @@
   min-width: 0;
 }
 
+/* The reading follows its window name instead of pinning to the far edge, where it read as a column figure. */
+.mc-board-spend .ct-usage-gauge {
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--mc-space-2);
+}
+
 .mc-board-spend .ct-usage-gauge .label {
-  min-width: 0;
   font-size: var(--mc-text-meta);
   font-weight: 400;
+  color: var(--ct-muted-fg);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.mc-board-spend-gauge[data-reading="none"] .bar-wrap,
+.mc-board-spend-gauge[data-reading="none"] .reset {
+  display: none;
 }
 
 .mc-board-spend .ct-usage-gauge .pct {

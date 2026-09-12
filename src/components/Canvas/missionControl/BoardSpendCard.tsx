@@ -35,7 +35,7 @@ export function SpendCard({
   return (
     <section
       data-testid="mc-board-spend"
-      className="ct-panel-card mc-board-card mc-board-spend"
+      className="ct-panel-card ct-usage mc-board-card mc-board-spend"
       aria-labelledby={headingId}
     >
       <div className="mc-board-card-head">
@@ -50,9 +50,11 @@ export function SpendCard({
         </p>
       ) : (
         <>
-          <p data-testid="mc-board-spend-units" className="mc-board-caption">
-            {reading.note}
-          </p>
+          {reading.note && (
+            <p data-testid="mc-board-spend-units" className="mc-board-caption">
+              {reading.note}
+            </p>
+          )}
           <table
             data-testid="mc-board-spend-table"
             className="mc-board-spend-table"
@@ -111,7 +113,7 @@ function SpendProvider({
             style={{ gridTemplateColumns: BOARD_SPEND_WINDOW_COLUMNS[layout] }}
           >
             {group.windows.map((gauge) => (
-              <SpendWindowGauge key={gauge.key} gauge={gauge} now={now} />
+              <SpendWindowGauge key={gauge.key} gauge={gauge} provider={group.label} now={now} />
             ))}
           </div>
         </td>
@@ -163,10 +165,17 @@ function SpendProvider({
   );
 }
 
-function SpendWindowGauge({ gauge, now }: { gauge: SpendWindow; now: number }) {
+function SpendWindowGauge({ gauge, provider, now }: { gauge: SpendWindow; provider: string; now: number }) {
   const pct = useAnimatedNumber(gauge.pct);
   return (
-    <div data-testid="mc-board-spend-gauge" data-window-key={gauge.key} className="mc-board-spend-gauge">
+    <div
+      data-testid="mc-board-spend-gauge"
+      data-window-key={gauge.key}
+      data-reading={gauge.pct == null ? "none" : "present"}
+      className="mc-board-spend-gauge"
+      role="group"
+      aria-label={`${provider} ${gauge.variant} allowance`}
+    >
       <UsageGauge
         label={gauge.label}
         variant={gauge.variant}

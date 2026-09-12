@@ -5,7 +5,6 @@ import { SpendCard } from "./BoardCards";
 import {
   BOARD_SPEND_WINDOW_COLUMNS,
   SPEND_SCOPE_CAPTION,
-  SPEND_UNITS_LINE,
   UNASSIGNED_MODEL_LABEL,
   spendReading,
 } from "./missionControlBoardModel";
@@ -175,16 +174,44 @@ describe("mission control spend card", () => {
     await unmount();
   });
 
-  it("mission_control_spend_keeps_a_heading_the_figures_and_one_short_line", async () => {
+  it("mission_control_spend_keeps_a_heading_and_the_figures_without_prose", async () => {
     const { host, unmount } = await render(recordingSpend());
 
     const card = host.querySelector('[data-testid="mc-board-spend"]') as HTMLElement;
     expect(card.querySelectorAll("h2")).toHaveLength(1);
     expect(card.querySelector("h2")?.textContent).toBe("Spend");
     expect(text(host, "mc-board-spend-scope")).toBe(SPEND_SCOPE_CAPTION);
-    expect(card.querySelectorAll("p")).toHaveLength(1);
-    expect(text(host, "mc-board-spend-units")).toBe(SPEND_UNITS_LINE);
-    expect(SPEND_UNITS_LINE.length).toBeLessThanOrEqual(80);
+    expect(card.querySelectorAll("p")).toHaveLength(0);
+    expect(host.querySelector('[data-testid="mc-board-spend-units"]')).toBeNull();
+    await unmount();
+  });
+
+  it("mission_control_spend_names_each_allowance_window_once_under_its_provider", async () => {
+    const { host, unmount } = await render(recordingSpend());
+
+    const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]'));
+    expect(gauges.map((gauge) => gauge.querySelector(".label")?.textContent)).toEqual([
+      "session",
+      "weekly",
+      "session",
+      "weekly",
+    ]);
+    expect(gauges.map((gauge) => gauge.getAttribute("aria-label"))).toEqual([
+      "Claude session allowance",
+      "Claude weekly allowance",
+      "Codex session allowance",
+      "Codex weekly allowance",
+    ]);
+    expect(gauges.map((gauge) => gauge.getAttribute("data-reading"))).toEqual([
+      "present",
+      "present",
+      "none",
+      "present",
+    ]);
+    for (const group of Array.from(host.querySelectorAll('[data-testid="mc-board-spend-provider"]'))) {
+      const name = group.querySelector('th[scope="rowgroup"]')?.textContent ?? "";
+      expect(group.textContent?.split(name)).toHaveLength(2);
+    }
     await unmount();
   });
 
