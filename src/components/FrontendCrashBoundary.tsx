@@ -45,8 +45,8 @@ const FALLBACK_STACK = "No stack trace was available.";
 function crashDetails(error: Error): { message: string; stack: string } {
   const rawMessage = error.message.trim();
   const message = rawMessage || FALLBACK_ERROR_MESSAGE;
-  const stack = error.stack?.trim() ?? "";
-  if (!stack) return { message, stack: FALLBACK_STACK };
+  const stack = error.stack?.trimEnd() ?? "";
+  if (!stack.trim()) return { message, stack: FALLBACK_STACK };
 
   const lines = stack.split(/\r?\n/);
   const firstLine = lines[0]?.trim() ?? "";
@@ -54,7 +54,8 @@ function crashDetails(error: Error): { message: string; stack: string } {
     lines.shift();
   }
 
-  return { message, stack: lines.join("\n").trim() || FALLBACK_STACK };
+  const remainingStack = lines.join("\n").trimEnd();
+  return { message, stack: remainingStack.trim() ? remainingStack : FALLBACK_STACK };
 }
 
 function CrashWindowChrome() {
