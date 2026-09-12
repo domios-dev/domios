@@ -191,11 +191,12 @@ fn dispatch_treats_planner_personality_as_provisional() {
         "type": "code",
         "status": "pending",
         "personality": "Ada",
+        "executor_role": "frontend-dev",
         "personality_provenance": IdentityProvenance::Suggested,
     }));
     let (title, provenance) = dispatch_worker_identity(&t);
     assert_eq!(title.as_deref(), Some("Ada"));
-    assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
+    assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
 }
 
 #[test]
@@ -205,14 +206,13 @@ fn task_dispatch_uses_planned_executor_name() {
         "name": "Keep identity stable",
         "type": "code",
         "status": "pending",
-        "personality": "Ada",
         "executor_role": "dispatch-identity-dev",
     }));
 
     let (title, provenance) = dispatch_worker_identity(&t);
 
     assert_eq!(title.as_deref(), Some("dispatch-identity-dev"));
-    assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
+    assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() 
     }));
     let (title, provenance) = dispatch_worker_identity(&t);
     assert_eq!(title.as_deref(), Some("Lamport"));
-    assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
+    assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
 }
 
 #[test]
