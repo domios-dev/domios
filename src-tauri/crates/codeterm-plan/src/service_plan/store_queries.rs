@@ -199,6 +199,41 @@ impl PlanStore {
         None
     }
 
+    /// Every active plan this tab is bound to *without* a task assignment: the owner
+    /// of an execution plan that still has open work, and the plan this tab is the
+    /// registered live Planner of. Both readings come from the stored binding, never
+    /// from UI selection. The whole list is returned rather than a first match,
+    /// because more than one candidate is genuinely ambiguous and only the caller can
+    /// say what an ambiguous tab should be charged to.
+    pub fn taskless_plan_context_candidates_for_tab(&self, tab_id: &str) -> Vec<String> {
+        if tab_id.trim().is_empty() {
+            return Vec::new();
+        }
+        let mut candidates: Vec<String> = Vec::new();
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active {
+                continue;
+            }
+            let owns_open_work = plan.mode == PlanMode::Execution
+                && plan.owner.tab_id.as_deref() == Some(tab_id)
+                && plan.tasks.iter().any(|t| t.status.counts_as_open_work());
+            let is_planner = matches!(
+                &plan.planner,
+                Some(crate::plan::PlannerRef::Tab {
+                    tab_id: planner_tab_id,
+                    ..
+                }) if planner_tab_id == tab_id
+            );
+            if owns_open_work || is_planner {
+                candidates.push(plan.id.clone());
+            }
+        }
+        candidates.sort();
+        candidates.dedup();
+        candidates
+    }
+
     pub fn task_bindings_for_tab(&self, tab_id: &str) -> Vec<(String, String)> {
         if tab_id.trim().is_empty() {
             return Vec::new();

@@ -143,6 +143,25 @@ pub struct PlanAggregate {
     pub output_tokens: u64,
 }
 
+/// One `(provider, model)` bucket of machine-wide `token_usage` rows. `model: None`
+/// is the ledger's own unresolved identity, kept as its own bucket rather than
+/// folded into a neighbour or guessed from the provider.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderModelUsage {
+    pub provider: String,
+    pub model: Option<String>,
+    pub turns: u64,
+    pub input_tokens: u64,
+    pub uncached_input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+impl ProviderModelUsage {
+    pub fn measured_tokens(&self) -> u64 {
+        self.input_tokens.saturating_add(self.output_tokens)
+    }
+}
+
 pub struct KpiLedger {
     conn: Mutex<Connection>,
 }
@@ -488,6 +507,43 @@ impl KpiLedger {
         .filter_map(Result::ok)
         .map(|b| b as u64)
         .collect();
+        Ok(rows)
+    }
+
+    /// Machine-wide, not plan-scoped: every `token_usage` row in the ledger grouped
+    /// by the provider and model recorded on it. `turns` counts the rows themselves,
+    /// which for this kind is one row per usage record the provider wrote.
+    pub fn aggregate_token_usage_by_provider_model(
+        &self,
+    ) -> Result<Vec<ProviderModelUsage>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                r#"SELECT provider, model, COUNT(*),
+                          COALESCE(SUM(input_tokens), 0),
+                          COALESCE(SUM(uncached_input_tokens), 0),
+                          COALESCE(SUM(output_tokens), 0)
+                   FROM kpi_events
+                   WHERE kind = ?1
+                   GROUP BY provider, model
+                   ORDER BY COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) DESC,
+                            provider ASC"#,
+            )
+            .map_err(|e| format!("kpi ledger provider/model prepare: {}", e))?;
+        let rows = stmt
+            .query_map(params![KpiEventKind::TokenUsage.label()], |r| {
+                Ok(ProviderModelUsage {
+                    provider: r.get(0)?,
+                    model: r.get::<_, Option<String>>(1)?,
+                    turns: r.get::<_, i64>(2)? as u64,
+                    input_tokens: r.get::<_, i64>(3)? as u64,
+                    uncached_input_tokens: r.get::<_, i64>(4)? as u64,
+                    output_tokens: r.get::<_, i64>(5)? as u64,
+                })
+            })
+            .map_err(|e| format!("kpi ledger provider/model query: {}", e))?
+            .filter_map(Result::ok)
+            .collect();
         Ok(rows)
     }
 

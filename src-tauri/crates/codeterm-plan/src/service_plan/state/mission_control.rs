@@ -3,7 +3,7 @@
 //! Every value here is read from a field the plan store already writes: no note
 //! prose, no session-log scan, and no provider jsonl. A held review is the stored
 //! `review held` label, a bounce is an `execution_attempts` count, an author is a
-//! title recorded on the plan record. The ledger-backed and provider-runway blocks
+//! title recorded on the plan record. The ledger-backed KPI and machine-spend blocks
 //! stay in their explicit not-recording states for the service layer to fill from
 //! the KPI ledger and the usage store.
 
@@ -33,7 +33,7 @@ pub struct MissionControl {
     pub event_log: EventLog,
     pub areas: AreaGrouping,
     pub kpi: MissionControlKpi,
-    pub runway: RunwaySection,
+    pub spend: MissionControlSpend,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
@@ -209,32 +209,113 @@ pub struct PlanKpiTokens {
     pub total: u64,
 }
 
+/// The only scope this section can honestly claim today: plan attribution reaches
+/// task, owner and planner bindings, so a ledger-wide total is a machine total and
+/// is labelled one rather than being reported as a plan's spend.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum RunwayState {
-    Reporting,
+pub enum SpendScope {
     #[default]
-    NotReporting,
+    Machine,
+}
+
+/// Measured spend on this machine, grouped by provider and model. Every figure is a
+/// sum over `token_usage` rows; the provider percentages beside them are a separate
+/// provider/window allowance reading and are never apportioned across models.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct MissionControlSpend {
+    pub scope: SpendScope,
+    pub state: KpiLedgerState,
+    pub not_recording_reason: Option<KpiNotRecordingReason>,
+    /// `Some` exactly when recording is off because of the opt-out.
+    pub enable_setting: Option<&'static str>,
+    /// Denominator behind every `token_share_pct`: input + output over all rows.
+    pub measured_tokens: u64,
+    pub turns: u64,
+    pub providers: Vec<ProviderSpend>,
+}
+
+impl Default for MissionControlSpend {
+    fn default() -> Self {
+        Self::not_recording(KpiNotRecordingReason::NotRead)
+    }
+}
+
+impl MissionControlSpend {
+    pub fn not_recording(reason: KpiNotRecordingReason) -> Self {
+        let enable_setting =
+            matches!(reason, KpiNotRecordingReason::Disabled).then_some(KPI_ENABLED_SETTING);
+        Self {
+            scope: SpendScope::Machine,
+            state: KpiLedgerState::NotRecording,
+            not_recording_reason: Some(reason),
+            enable_setting,
+            measured_tokens: 0,
+            turns: 0,
+            providers: Vec::new(),
+        }
+    }
+
+    /// Allowance readings survive a missing ledger: they are a real observation
+    /// about this machine even when nothing measured is recorded.
+    pub fn with_providers(mut self, providers: Vec<ProviderSpend>) -> Self {
+        self.providers = providers;
+        self
+    }
+
+    pub fn recording(measured_tokens: u64, turns: u64, providers: Vec<ProviderSpend>) -> Self {
+        Self {
+            scope: SpendScope::Machine,
+            state: KpiLedgerState::Recording,
+            not_recording_reason: None,
+            enable_setting: None,
+            measured_tokens,
+            turns,
+            providers,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
-pub struct RunwaySection {
-    pub state: RunwayState,
-    pub providers: Vec<ProviderRunway>,
-}
-
-/// One provider's latest parsed usage row: percentages and resets are read from
-/// that same row, never mixed across providers or snapshots.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct ProviderRunway {
+pub struct ProviderSpend {
     pub provider: String,
     pub label: String,
+    /// `None` when this provider reports no usage snapshot at all; a provider that
+    /// reports one window only keeps the other window null rather than zero.
+    pub allowance: Option<ProviderAllowance>,
+    pub turns: u64,
+    pub input_tokens: u64,
+    pub uncached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub models: Vec<ModelSpend>,
+}
+
+/// One provider's latest parsed usage row, read as allowance already consumed.
+/// Both shipped parsers store a consumed figure — Claude's `five_hour.utilization`
+/// and Codex's `used_percent`, with Codex's text path converting a "left" reading to
+/// used before it is stored — so nothing here inverts a percentage. The granularity
+/// is the provider and the window; no per-model denominator exists in either source.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ProviderAllowance {
     pub captured_at: i64,
-    pub session_pct: Option<f32>,
+    pub session_used_pct: Option<f32>,
     pub session_resets_at: Option<i64>,
-    pub weekly_pct: Option<f32>,
+    pub weekly_used_pct: Option<f32>,
     pub weekly_resets_at: Option<i64>,
     pub stale_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+pub struct ModelSpend {
+    /// `None` is the ledger's unresolved model identity, carried as its own visible
+    /// row. It is never guessed from the provider and never dropped.
+    pub model: Option<String>,
+    pub turns: u64,
+    pub input_tokens: u64,
+    pub uncached_input_tokens: u64,
+    pub output_tokens: u64,
+    /// Share of the machine's measured token total. Never a share of allowance.
+    pub token_share_pct: f32,
 }
 
 pub fn build_mission_control(plan: &Plan, now_ms: u64) -> MissionControl {
@@ -244,7 +325,7 @@ pub fn build_mission_control(plan: &Plan, now_ms: u64) -> MissionControl {
         event_log: event_log(plan),
         areas: area_grouping(plan),
         kpi: MissionControlKpi::default(),
-        runway: RunwaySection::default(),
+        spend: MissionControlSpend::default(),
     }
 }
 

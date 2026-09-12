@@ -75,6 +75,31 @@ impl ServiceContext {
         }
     }
 
+    /// The model this tab's own claimed session is running. Runtime evidence first,
+    /// else the provider re-reads its own record for that exact session id — the same
+    /// authority the poller writes from, never a provider or launch-time guess.
+    /// Read-only, so an observation path can call it without touching the badge.
+    pub(crate) fn verified_session_model(&self, tab_id: &str) -> Option<String> {
+        let (recorded, agent_id, cwd, session_id) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id)?;
+            (
+                tab.agent_session_model.clone(),
+                tab.agent_type.clone(),
+                tab.cwd.clone(),
+                tab.agent_session_id.clone(),
+            )
+        };
+        if recorded.is_some() {
+            return recorded;
+        }
+        let (agent_id, cwd, session_id) = (agent_id?, cwd?, session_id?);
+        self.agent_registry
+            .with_provider(&agent_id, |p| p.detect_session_model(&cwd, &session_id))
+            .flatten()
+            .map(|model| crate::service::spawn::normalize_session_model(&model))
+    }
+
     pub(crate) fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
         let (cwd, session_id) = {
             let mux = self.mux.read();

@@ -416,7 +416,8 @@ fn mission_control_state_endpoint_uses_ledger_without_jsonl_scan() {
     let payload = serde_json::to_value(&snapshot).unwrap();
     assert_eq!(payload["mission_control"]["kpi"]["state"], "recording");
     assert_eq!(payload["mission_control"]["kpi"]["spend"]["turns"], 1);
-    assert!(payload["mission_control"]["runway"]["state"].is_string());
+    assert!(payload["mission_control"]["spend"]["state"].is_string());
+    assert_eq!(payload["mission_control"]["spend"]["scope"], "machine");
 }
 
 /// The plan the live Board proof runs against; the aggregate here is written by the
