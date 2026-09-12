@@ -17,6 +17,7 @@ use crate::plan::{
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::AuthenticatedPlanCaller;
+use codeterm_types::agent::ReportOutcomeClass;
 
 mod plan_evidence_owner_test;
 mod plan_evidence_role_test;
@@ -392,6 +393,10 @@ fn stale_task_report_transitions_nothing_and_names_the_mismatch() {
     let rejection = result
         .rejected_task_transition
         .expect("the transition must be refused, not silently applied");
+    assert_eq!(
+        rejection.report_outcome,
+        Some(ReportOutcomeClass::StaleBindingConflict)
+    );
     assert!(rejection.cause.contains(STALE_TASK_HINT_REFUSAL));
     assert!(
         rejection.cause.contains(&h.stale) && rejection.cause.contains(&h.caller),
@@ -725,6 +730,10 @@ fn planner_report_with_live_matching_session_reaches_the_plan_owner() {
             .expect("a live, session-verified Planner must be authorized");
 
     assert_eq!(result.orchestrator_tab_id, h.root);
+    assert_eq!(
+        result.report_outcome,
+        Some(ReportOutcomeClass::StructurallyNotAttachable)
+    );
     assert!(h.reports().contains("PLANNER_STATUS_PAYLOAD"));
 }
 
@@ -1041,6 +1050,10 @@ fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without
     assert!(result.persisted_task.is_none());
     assert!(result.rejected_task_transition.is_none());
     assert!(result.persisted_plan_evidence.is_some());
+    assert_eq!(
+        result.report_outcome,
+        Some(ReportOutcomeClass::StructurallyNotAttachable)
+    );
     let plan = h.plan();
     let evidence = plan
         .strides

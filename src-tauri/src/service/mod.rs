@@ -895,6 +895,8 @@ pub struct ReportResult {
     pub persisted_task: Option<(String, String)>,
     pub persisted_plan_evidence: Option<(String, String)>,
     pub rejected_task_transition: Option<RejectedTaskTransition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -902,6 +904,8 @@ pub struct RejectedTaskTransition {
     pub plan_id: Option<String>,
     pub task_id: Option<String>,
     pub cause: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
 }
 
 /// Helper: extract optional string from JSON value.

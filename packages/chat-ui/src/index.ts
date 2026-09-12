@@ -25,7 +25,9 @@ export {
   parseDeliveredTaskOutcome,
   reportContentBody,
   reportIncidentLine,
+  reportOutcomeLine,
+  reportOutcomeTone,
   reportVerdict,
   shortSha,
 } from "./codeterm/reportOutcome";
-export type { ReportTaskOutcome } from "./codeterm/reportOutcome";
+export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";

@@ -101,6 +101,15 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("kind"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            let source_outcome = params
+                .as_ref()
+                .and_then(|p| p.get("report_outcome"))
+                .and_then(|value| {
+                    serde_json::from_value::<codeterm_types::agent::ReportOutcomeClass>(
+                        value.clone(),
+                    )
+                    .ok()
+                });
             // the freeform message; absent keys deserialize to None.
             let details = params
                 .as_ref()
@@ -108,13 +117,14 @@ pub(super) fn dispatch(
                 .unwrap_or_default();
             let svc_ref = &**svc;
             let result = svc_ref
-                .submit_report(
+                .submit_report_with_source_outcome(
                     &tab_id,
                     &message,
                     details,
                     plan_id.as_deref(),
                     task_id.as_deref(),
                     milestone_kind.as_deref(),
+                    source_outcome,
                 )
                 .map_err(|e| JsonRpcError {
                     code: e.code,
@@ -127,12 +137,14 @@ pub(super) fn dispatch(
                 "state": "delivered",
                 "report_id": result.report_id,
                 "target_tab_id": result.orchestrator_tab_id,
+                "report_outcome": result.report_outcome,
             });
             if let Some((plan_id, task_id)) = result.persisted_task {
                 resp["task_report"] = serde_json::json!({
                     "persisted": true,
                     "plan_id": plan_id,
                     "task_id": task_id,
+                    "report_outcome": result.report_outcome,
                 });
             }
             if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
@@ -151,6 +163,7 @@ pub(super) fn dispatch(
                     "task_id": rejection.task_id,
                     "transition_rejected": true,
                     "cause": rejection.cause,
+                    "report_outcome": rejection.report_outcome,
                 });
             }
             if !result.notices.is_empty() {

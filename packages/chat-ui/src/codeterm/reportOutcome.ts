@@ -1,8 +1,14 @@
+export type ReportOutcomeClass =
+  | "stale_binding_conflict"
+  | "structurally_not_attachable"
+  | "delivered_unattached";
+
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface ReportTaskOutcome {
   persisted: boolean;
   transitionRejected: boolean;
   cause: string | null;
+  reportOutcome?: ReportOutcomeClass | null;
 }
 
 const REJECTED_HEADLINE = "TASK TRANSITION REJECTED";
@@ -22,7 +28,12 @@ export function parseDeliveredTaskOutcome(body: string): ReportTaskOutcome | nul
       break;
     }
   }
-  return { persisted: false, transitionRejected: true, cause };
+  return {
+    persisted: false,
+    transitionRejected: true,
+    cause,
+    reportOutcome: "stale_binding_conflict",
+  };
 }
 
 /** The report's own content, with the delivered incident header lifted out so
@@ -45,14 +56,34 @@ export function reportVerdict(
   status: string | null | undefined,
   outcome: ReportTaskOutcome | null,
 ): string {
-  if (outcome?.transitionRejected) return "transition rejected";
+  if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) {
+    return "transition rejected";
+  }
+  if (outcome?.reportOutcome === "structurally_not_attachable") return "reported";
+  if (outcome?.reportOutcome === "delivered_unattached") return "delivered";
   return status?.trim() || "reported";
 }
 
-export function reportIncidentLine(outcome: ReportTaskOutcome | null): string | null {
-  if (!outcome?.transitionRejected) return null;
-  const cause = outcome.cause?.trim();
-  return cause
-    ? `Report delivered, task transition rejected — ${cause}`
-    : "Report delivered, task transition rejected";
+export function reportOutcomeLine(outcome: ReportTaskOutcome | null): string | null {
+  if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) {
+    const cause = outcome.cause?.trim();
+    return cause
+      ? `Report delivered, task transition rejected — ${cause}`
+      : "Report delivered, task transition rejected";
+  }
+  if (outcome?.reportOutcome === "structurally_not_attachable") return null;
+  if (outcome?.reportOutcome === "delivered_unattached") return "Report delivered, not attached to a task";
+  return null;
+}
+
+/** Compatibility name for callers that still render the legacy refusal row. */
+export const reportIncidentLine = reportOutcomeLine;
+
+export function reportOutcomeTone(outcome: ReportTaskOutcome | null): "error" | "calm" | null {
+  if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) return "error";
+  if (
+    outcome?.reportOutcome === "structurally_not_attachable"
+    || outcome?.reportOutcome === "delivered_unattached"
+  ) return "calm";
+  return null;
 }

@@ -4,6 +4,11 @@ import { normalizeEpochMs } from "./outboundReportPlacement";
 
 export const AGENT_REPORT_EVENT = "agent-report";
 
+export type AgentReportOutcomeClass =
+  | "stale_binding_conflict"
+  | "structurally_not_attachable"
+  | "delivered_unattached";
+
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface AgentReportTaskOutcome {
   persisted: boolean;
@@ -11,6 +16,7 @@ export interface AgentReportTaskOutcome {
   plan_id?: string | null;
   task_id?: string | null;
   cause?: string | null;
+  report_outcome?: AgentReportOutcomeClass | null;
 }
 
 export interface AgentReportPayloadReport {
@@ -24,6 +30,7 @@ export interface AgentReportPayloadReport {
   status?: string | null;
   branch?: string | null;
   sha?: string | null;
+  report_outcome?: AgentReportOutcomeClass | null;
 }
 
 export interface AgentReportEventPayload {
@@ -33,6 +40,7 @@ export interface AgentReportEventPayload {
   message?: string;
   report: AgentReportPayloadReport;
   task_report?: AgentReportTaskOutcome | null;
+  report_outcome?: AgentReportOutcomeClass | null;
 }
 
 export type AgentReportSide = "outbound" | "inbound";
@@ -88,6 +96,14 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function reportOutcome(value: unknown): AgentReportOutcomeClass | null {
+  return value === "stale_binding_conflict"
+    || value === "structurally_not_attachable"
+    || value === "delivered_unattached"
+    ? value
+    : null;
+}
+
 function taskRef(report: AgentReportPayloadReport, outcome: AgentReportTaskOutcome | null): string | null {
   const planId = text(report.plan_id) ?? text(outcome?.plan_id);
   const taskId = text(report.task_id) ?? text(outcome?.task_id);
@@ -97,14 +113,36 @@ function taskRef(report: AgentReportPayloadReport, outcome: AgentReportTaskOutco
 
 function taskOutcomeOf(payload: AgentReportEventPayload): AgentReportTaskOutcome | null {
   const outcome = payload.task_report;
-  if (outcome == null || typeof outcome !== "object") return null;
+  const reportOutcome = reportOutcomeValue(payload, outcome);
+  if (outcome == null || typeof outcome !== "object") {
+    return reportOutcome == null
+      ? null
+      : {
+          persisted: false,
+          transition_rejected: false,
+          plan_id: null,
+          task_id: null,
+          cause: null,
+          report_outcome: reportOutcome,
+        };
+  }
   return {
     persisted: outcome.persisted === true,
     transition_rejected: outcome.transition_rejected === true,
     plan_id: text(outcome.plan_id),
     task_id: text(outcome.task_id),
     cause: text(outcome.cause),
+    report_outcome: reportOutcome,
   };
+}
+
+function reportOutcomeValue(
+  payload: AgentReportEventPayload,
+  taskReport: AgentReportTaskOutcome | null | undefined,
+): AgentReportOutcomeClass | null {
+  return reportOutcome(payload.report_outcome)
+    ?? reportOutcome(taskReport?.report_outcome)
+    ?? reportOutcome(payload.report?.report_outcome);
 }
 
 function invalidate(tabId: string): void {
