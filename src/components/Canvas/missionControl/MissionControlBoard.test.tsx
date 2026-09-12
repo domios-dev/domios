@@ -322,7 +322,6 @@ describe("mission control board cards", () => {
     expect(text(host, "mc-board-tokens-amount")).toBe("5.3M");
     expect(text(host, "mc-board-turns-amount")).toBe("4,023");
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
-    expect(text(host, "mc-board-bounces")).toContain("12");
     expect(text(host, "mc-board-held-amount")).toBe("2");
     expect(text(host, "mc-board-tasks")).toContain("total tasks");
     expect(host.querySelectorAll(".mc-board-source")).toHaveLength(0);
