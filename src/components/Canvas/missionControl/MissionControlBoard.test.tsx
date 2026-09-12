@@ -591,7 +591,7 @@ describe("mission control board fallback states", () => {
     await unmount();
   });
 
-  it("falls back to stored executor roles with an explicit no-facet message", async () => {
+  it("falls back to stored executor roles and says once that no area facet is declared", async () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
     const rows = areaRows(host);
@@ -603,8 +603,9 @@ describe("mission control board fallback states", () => {
     expect(rows[1]?.label).toContain("No role recorded");
     expect(rows[1]?.share).toBe("33%");
     expect(text(host, "mc-board-areas")).toContain("Tasks by role");
-    expect(text(host, "mc-board-areas")).toContain("executor role fallback");
-    expect(text(host, "mc-board-area-no-facet")).toBe("Area facet not declared · using executor roles");
+    expect(text(host, "mc-board-areas")).toContain("no area facet declared");
+    expect(host.querySelector('[data-testid="mc-board-area-no-facet"]')).toBeNull();
+    expect(host.querySelectorAll('[data-testid="mc-board-areas"] p')).toHaveLength(0);
     expect(text(host, "mc-board-areas")).not.toContain("Tokens plan total");
     await unmount();
   });
