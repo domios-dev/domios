@@ -83,7 +83,10 @@ mod tests {
 
         let frozen = tracker.observe(Some(15_000));
         assert!(!frozen.advancing());
-        assert!(frozen.progressed, "a frozen tick keeps the widget's progress");
+        assert!(
+            frozen.progressed,
+            "a frozen tick keeps the widget's progress"
+        );
     }
 
     #[test]

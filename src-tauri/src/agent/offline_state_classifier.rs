@@ -235,8 +235,13 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             let mut tick = last_ms + TICK_MS;
             while tick < event.now_ms() {
                 let signals = extractor.step(b"", tick);
-                previous =
-                    classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+                previous = classify_signals(
+                    &extractor,
+                    &signals,
+                    previous,
+                    &builder,
+                    &mut status_elapsed,
+                );
                 samples.push((tick, previous));
                 tick += TICK_MS;
             }
@@ -249,8 +254,13 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             }
             CastEvent::Output { now_ms, bytes } => {
                 let signals = extractor.step(bytes, *now_ms);
-                previous =
-                    classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+                previous = classify_signals(
+                    &extractor,
+                    &signals,
+                    previous,
+                    &builder,
+                    &mut status_elapsed,
+                );
                 samples.push((*now_ms, previous));
                 last_ms = *now_ms;
             }
@@ -261,7 +271,13 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let mut tick = last_ms + TICK_MS;
     while tick <= end_ms {
         let signals = extractor.step(b"", tick);
-        previous = classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+        previous = classify_signals(
+            &extractor,
+            &signals,
+            previous,
+            &builder,
+            &mut status_elapsed,
+        );
         samples.push((tick, previous));
         tick += TICK_MS;
     }
