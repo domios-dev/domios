@@ -29,7 +29,7 @@ export function matchesMediaQuery(query: string, widthPx: number, rootFontPx: nu
 }
 
 export function customVariantQuery(css: string, name: string): string {
-  const found = new RegExp(`@custom-variant\s+${name}\s+\(@media\s+(.+?)\);`).exec(css);
+  const found = new RegExp(String.raw`@custom-variant\s+${name}\s+\(@media\s+(.+?)\);`).exec(css);
   if (!found) throw new Error(`globals.css declares no @custom-variant ${name}`);
   return found[1].trim();
 }

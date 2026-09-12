@@ -41,7 +41,8 @@ async function main() {
   assert.equal(indicator?.style.getPropertyValue("--sx-to"), "300%");
   assert.equal(host.querySelector('[role="tablist"]')?.getAttribute("aria-label"), "Memory sections");
   const css = readFileSync(resolve(import.meta.dirname, "../../styles/globals.css"), "utf8");
-  const mobileStart = css.indexOf("@media (max-width: 640px)");
+  // Anchor on the block, not the bare query: the shell breakpoint variants mention the same text.
+  const mobileStart = css.indexOf("\n@media (max-width: 640px) {");
   const mobile = css.slice(mobileStart, css.indexOf(".ct-liquid-toggle", mobileStart));
   assert.match(mobile, /\.ct-section-toolbar__tabs[\s\S]*flex:\s*0 0 100%/);
   assert.match(mobile, /\.ct-liquid-tab-rail[\s\S]*min-width:\s*0/);
