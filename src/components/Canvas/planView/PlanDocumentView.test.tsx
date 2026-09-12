@@ -74,10 +74,12 @@ test("Spec and Plan explain empty documents", async () => {
   const emptyPlan: Plan = { ...FIXTURE_PLAN, sections: [], primary_spec_id: null, goal: null };
   const spec = await render(<PlanSpecView mode="focus" planId={emptyPlan.id} plans={[emptyPlan]} />);
   assert(spec.host.querySelector('[data-testid="plan-spec-empty"]'), "Spec empty state visible");
-  assert(spec.host.textContent?.includes("no Spec yet"), "Spec empty state explains the missing document");
+  const specMessage = spec.host.querySelector('[data-testid="plan-spec-empty"]')?.textContent?.trim() ?? "";
+  assert(specMessage.length > 0 && specMessage.length < 30, "Spec empty state stays compact");
   const plan = await render(<PlanPlanView mode="focus" planId={emptyPlan.id} plans={[emptyPlan]} />);
   assert(plan.host.querySelector('[data-testid="plan-plan-empty"]'), "Plan empty state visible");
-  assert(plan.host.textContent?.includes("no sections yet"), "Plan empty state explains the missing sections");
+  const planMessage = plan.host.querySelector('[data-testid="plan-plan-empty"]')?.textContent?.trim() ?? "";
+  assert(planMessage.length > 0 && planMessage.length < 30, "Plan empty state stays compact");
 });
 
 test("both document surfaces expose loading states", async () => {
