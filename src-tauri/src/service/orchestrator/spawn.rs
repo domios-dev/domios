@@ -565,7 +565,16 @@ impl ServiceContext {
             params.agent_name.as_deref(),
         ) {
             match level {
-                crate::multiplexer::types::TitleLevel::User => self.rename_tab(&tab_id, &title)?,
+                crate::multiplexer::types::TitleLevel::User => {
+                    let task_bound = self
+                        .mux
+                        .read()
+                        .get_tab(&tab_id)
+                        .is_some_and(|tab| tab.task_binding.is_some());
+                    if !task_bound {
+                        self.rename_tab(&tab_id, &title)?;
+                    }
+                }
                 _ => self.set_tab_title(&tab_id, &title)?,
             }
         }
