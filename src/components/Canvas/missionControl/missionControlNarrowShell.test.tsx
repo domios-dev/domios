@@ -142,6 +142,12 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
+const TASK_STATUS_KEYS = ["pending", "in_progress", "in_review", "blocked", "paused", "done", "cancelled"] as const;
+
+function taskStatusValues(host: HTMLElement): number[] {
+  return TASK_STATUS_KEYS.map((key) => Number(text(host, `mc-board-task-status-${key}-count`).replace(/,/g, "")));
+}
+
 function find(host: HTMLElement, selector: string): HTMLElement {
   const el = host.querySelector(selector);
   if (!el) throw new Error(`the board rendered no ${selector}`);
@@ -219,11 +225,11 @@ function boardState(): PlanBoardState {
       pending: 1,
       in_progress: 0,
       in_review: 2,
-      blocked: 0,
-      paused: 0,
+      blocked: 1,
+      paused: 1,
       done: 10,
       cancelled: 1,
-      total: 14,
+      total: 16,
     },
     mission_control: missionControlState(),
   };
@@ -273,6 +279,14 @@ describe("mission control narrow shell", () => {
     expect(attr(narrow.host, "mission-control-board", "data-board-layout")).toBe("narrow");
     expect(text(narrow.host, "mc-board-tokens-amount")).toBe("5.3M");
     expect(text(narrow.host, "mc-board-turns-amount")).toBe("4,023");
+    expect(taskStatusValues(narrow.host)).toEqual([1, 0, 2, 1, 1, 10, 1]);
+    expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
+      Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
+    );
+    expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).toBe(
+      narrow.host.querySelector('[data-testid="mc-board-card-grid"]'),
+    );
+    expect(narrow.host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(6);
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions"]')).not.toBeNull();
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).not.toBeNull();
     expect(narrow.host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
