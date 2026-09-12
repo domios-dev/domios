@@ -15,7 +15,11 @@ const props = {
   mode: "workspace" as const,
   plans: [FIXTURE_PLAN, { ...FIXTURE_PLAN, id: "plan-second", title: "Second plan" }],
   tabs: {},
+  workspaceId: "ws-test",
+  workspaces: [{ id: "ws-test", name: "Test", tabs: ["orch-1"], active_tab_id: null, cwd: null }],
 };
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 async function render(ui: ReactElement) {
   const host = document.createElement("div");
@@ -77,7 +81,9 @@ describe("team plan view shell", () => {
     expect(isSurfaceHidden(host, "plan-board-view")).toBe(false);
     await clickMode(host, "Board");
 
-    const options = host.querySelectorAll<HTMLButtonElement>('[data-testid="plan-switcher-option"]');
+    const options = host.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="mission-control-plan-surface"] [data-testid="plan-switcher-option"]',
+    );
     expect(options).toHaveLength(2);
     expect(options[0]?.getAttribute("data-active")).toBe("true");
     await act(async () => options[1]?.click());
