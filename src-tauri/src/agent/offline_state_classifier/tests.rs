@@ -672,7 +672,6 @@ fn coordination_envelope_picker_question_subtype_is_not_reliably_unknown() {
     assert_eq!(without_model.subtype, Some(QuestionSubtype::Unknown));
 }
 
-
 // ── status-widget elapsed as structural turn progress ────────────────
 
 const COMPOSER_DIVIDER: &str = "────────────────────────────────────────";
@@ -800,7 +799,8 @@ fn claude_status_elapsed_freeze_does_not_latch_working() {
     tracker.observe(Some(30_000));
     let restarted_screen = claude_quiet_working_screen("2s");
     let mut restarted = quiescent_input(&restarted_screen);
-    restarted.status_elapsed = tracker.observe(super::observed_status_elapsed_ms(&restarted_screen));
+    restarted.status_elapsed =
+        tracker.observe(super::observed_status_elapsed_ms(&restarted_screen));
     assert_eq!(restarted.status_elapsed.previous_ms, None);
     assert!(
         !restarted.status_elapsed.progressed,
@@ -954,15 +954,25 @@ fn cast_replay_status_elapsed_advance_keeps_working_after_bytes_go_quiet() {
     extractor.step(&paint(&claude_quiet_working_screen("14s")), 0);
     let signals = extractor.step(b"", 6_000);
     assert_eq!(signals.quiescence.byte_idle_ms, 6_000);
-    previous =
-        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    previous = super::classify_signals(
+        &extractor,
+        &signals,
+        previous,
+        &builder,
+        &mut status_elapsed,
+    );
     states.push(previous.state);
 
     extractor.step(&paint(&claude_quiet_working_screen("20s")), 10_000);
     let signals = extractor.step(b"", 16_000);
     assert_eq!(signals.quiescence.byte_idle_ms, 6_000);
-    previous =
-        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    previous = super::classify_signals(
+        &extractor,
+        &signals,
+        previous,
+        &builder,
+        &mut status_elapsed,
+    );
     states.push(previous.state);
 
     // Same counter repainted: a frozen pair, but this widget has been seen
@@ -971,15 +981,25 @@ fn cast_replay_status_elapsed_advance_keeps_working_after_bytes_go_quiet() {
     let signals = extractor.step(b"", 23_000);
     assert_eq!(signals.quiescence.byte_idle_ms, 3_000);
     assert!(signals.quiescence.byte_idle_ms < super::STUCK_WORKING_IDLE_MS);
-    previous =
-        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    previous = super::classify_signals(
+        &extractor,
+        &signals,
+        previous,
+        &builder,
+        &mut status_elapsed,
+    );
     states.push(previous.state);
 
     let signals = extractor.step(b"", 26_000);
     assert!(signals.quiescence.byte_idle_ms >= super::STUCK_WORKING_IDLE_MS);
     assert!(signals.quiescence.semantic_idle_ms >= super::STUCK_WORKING_IDLE_MS);
-    previous =
-        super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+    previous = super::classify_signals(
+        &extractor,
+        &signals,
+        previous,
+        &builder,
+        &mut status_elapsed,
+    );
     states.push(previous.state);
 
     assert_eq!(
