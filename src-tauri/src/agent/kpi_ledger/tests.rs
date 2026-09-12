@@ -571,3 +571,28 @@ size = 16
         assert_eq!(from_json.kpi.enabled, expected);
     }
 }
+
+#[test]
+fn aggregate_by_plan_counts_only_message_payloads_as_bytes() {
+    let db = temp_db();
+    let ledger = KpiLedger::open_at(&db).unwrap();
+
+    ledger
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 40))
+        .unwrap();
+    ledger
+        .insert(&KpiEventInput {
+            tokens: Some(TokenCounts { input: 146_534, uncached_input: 3_430, output: 5 }),
+            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 146_539)
+        })
+        .unwrap();
+
+    let agg = ledger.aggregate_by_plan().unwrap();
+    let pl1 = agg.iter().find(|a| a.plan_id.as_deref() == Some("pl_1")).unwrap();
+    assert_eq!(pl1.count, 2);
+    assert_eq!(pl1.turns, 1);
+    assert_eq!(pl1.total_bytes, 40);
+    assert_eq!(pl1.input_tokens, 146_534);
+
+    cleanup(&db);
+}
