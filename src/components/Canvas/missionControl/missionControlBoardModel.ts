@@ -226,11 +226,7 @@ export interface AreaReading {
   caption: string;
   rows: AreaRow[];
   untagged: number;
-  noFacetMessage: string | null;
 }
-
-const NO_FACET_MESSAGE =
-  "Area facet not declared · using executor roles";
 
 function share(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 100) : 0;
@@ -252,7 +248,6 @@ export function areaReading(areas: AreaGrouping): AreaReading {
         sharePct: share(group.task_count, total),
       })),
       untagged: areas.untagged_task_count,
-      noFacetMessage: null,
     };
   }
   const total = areas.role_fallback.reduce((sum, group) => sum + group.task_count, 0);
@@ -260,7 +255,7 @@ export function areaReading(areas: AreaGrouping): AreaReading {
     declared: false,
     facetLabel: null,
     title: "Tasks by role",
-    caption: "executor role fallback",
+    caption: "no area facet declared",
     rows: areas.role_fallback.map((group, index) => ({
       key: group.executor_role ?? `no-role-${index}`,
       label: group.executor_role ?? "No role recorded",
@@ -268,7 +263,6 @@ export function areaReading(areas: AreaGrouping): AreaReading {
       sharePct: share(group.task_count, total),
     })),
     untagged: 0,
-    noFacetMessage: NO_FACET_MESSAGE,
   };
 }
 

@@ -384,11 +384,26 @@ describe("mission control board visual system", () => {
     const tasksReading = host.querySelector('[data-testid="mc-board-tasks-reading"]') as HTMLElement;
     expect(tasksReading.querySelector('[data-testid="mc-board-task-statuses"]')).not.toBeNull();
     expect(getComputedStyle(tasksReading).display).toBe("grid");
-    expect(rule(css, ".mc-board-card-grid > .mc-board-figure-card")).toContain("justify-content: space-between;");
+    for (const card of cards) {
+      expect(getComputedStyle(card).justifyContent).not.toBe("space-between");
+    }
     expect(rule(css, ".mc-board-card-tasks .mc-board-reading")).toContain(
       "grid-template-columns: max-content minmax(0, 1fr);",
     );
-    expect(rule(css, ".mc-board-status-list")).toContain("grid-template-columns: repeat(4, minmax(0, max-content));");
+    expect(rule(css, ".mc-board-card-tasks .mc-board-reading")).toContain("align-items: start;");
+    const statusList = rule(css, ".mc-board-status-list");
+    expect(statusList).toContain("flex-wrap: wrap;");
+    expect(rule(css, ".mc-board-status")).toContain("white-space: nowrap;");
+    const statuses = Array.from(host.querySelectorAll('[data-testid^="mc-board-task-status-"][role="listitem"]'));
+    expect(statuses.map((status) => status.getAttribute("data-zero"))).toEqual([
+      "true",
+      "true",
+      "true",
+      "true",
+      "false",
+      "true",
+      "true",
+    ]);
     expect(
       rule(
         css,
