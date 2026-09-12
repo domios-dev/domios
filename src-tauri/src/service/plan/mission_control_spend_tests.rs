@@ -11,7 +11,7 @@ use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, KpiLedger, TokenCoun
 use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef};
+use crate::plan::{AgentRef, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 
@@ -311,6 +311,74 @@ fn mission_control_spend_leaves_unbound_and_ambiguous_tabs_unassigned() {
             "tab {} must stay unassigned, not be charged to a chosen plan",
             row.tab_id
         );
+        assert_eq!(row.task_id, None);
+    }
+}
+
+/// A plan whose every task is paused still costs its owner tokens, so the owner is
+/// charged to it; only the planner branch used to survive this state.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn mission_control_spend_charges_the_owner_of_a_fully_paused_plan() {
+    let mut fixture = fixture();
+    let orchestrator = agent_tab(&fixture, "mock", "sess-paused-owner");
+
+    let mut plan = Plan::new(
+        "Paused plan".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef {
+            tab_id: Some(orchestrator.clone()),
+            session_id: None,
+            title: Some("Hudson".into()),
+        },
+    );
+    plan.status = PlanStatus::Active;
+    plan.mode = PlanMode::Execution;
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Paused work".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .pause_task(
+            &plan.id,
+            &task_id,
+            "waiting on a decision",
+            AgentRef::from_tab(&orchestrator),
+            3,
+        )
+        .unwrap();
+
+    assert_eq!(
+        fixture
+            .service
+            .plan_store
+            .taskless_plan_context_candidates_for_tab(&orchestrator),
+        vec![plan.id.clone()],
+        "no task counts as open work, yet the owner still belongs to this plan"
+    );
+
+    let ledger = ledger_on(&mut fixture);
+    fixture
+        .service
+        .record_kpi_event(&orchestrator, KpiEventKind::Poll, 16);
+    fixture.service.kpi.drain();
+
+    let rows = ledger.list_all().unwrap();
+    assert!(!rows.is_empty(), "the owner event must reach the ledger");
+    for row in rows {
+        assert_eq!(row.plan_id.as_deref(), Some(plan.id.as_str()));
         assert_eq!(row.task_id, None);
     }
 }
