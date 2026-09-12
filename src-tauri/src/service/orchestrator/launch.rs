@@ -880,6 +880,20 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
 
+        // A written launch command is not readiness: the shared owner observes
+        // this exact attempt until the bounded deadline, so a provider that
+        // exits before proving itself becomes one structured launch failure.
+        let readiness_attempt = crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab_id.clone(),
+            pty_id: pty_id.clone(),
+            binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
+        };
+        crate::service::launch_readiness::arm(readiness_attempt.clone());
+        svc.observe_launch_readiness(
+            readiness_attempt.clone(),
+            crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+        );
+
         let provider_readiness = svc
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
@@ -1001,6 +1015,15 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
 
         set_booting(false);
+        // Readiness the shared owner already refuted: this launch never claims
+        // ready over a process that is gone.
+        if let Some(error) = svc.settle_observed_launch_exit(&readiness_attempt) {
+            LAUNCH_REGISTRY.lock().finish(&launch);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
         if !launch.emit(&svc, BootStage::AgentReady) {
             return;
         }

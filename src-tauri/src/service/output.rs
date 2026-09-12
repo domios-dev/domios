@@ -492,10 +492,20 @@ impl ServiceContext {
         };
         for event in &events {
             if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
+                command_line,
+                exit_code,
+                ..
             } = event
             {
                 self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
+                // The shell finished the command a launch is still waiting on:
+                // that launch's process is gone before it proved readiness.
+                crate::service::launch_readiness::note_launch_command_exit(
+                    tab_id,
+                    pty_id,
+                    command_line.as_deref(),
+                    *exit_code,
+                );
                 // The shell finished its foreground command: if that command was
                 // a proven-up agent, the agent process is gone.
                 self.note_provider_exit_in_surviving_shell(tab_id);

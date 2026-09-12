@@ -924,8 +924,15 @@ fn acknowledge_authenticated_launch(
     claim: &SessionStartClaim,
     report_nonce: Option<&str>,
 ) -> bool {
-    authenticated_launch_identity(mux, tab_id, claim, report_nonce)
-        .is_some_and(|binding| crate::service::record_provider_session(tab_id, &binding))
+    authenticated_launch_identity(mux, tab_id, claim, report_nonce).is_some_and(|binding| {
+        // The same proof the launch registry takes is this launch's readiness.
+        crate::service::launch_readiness::note_acknowledged(
+            tab_id,
+            &binding.pty_id,
+            &binding.binding_nonce,
+        );
+        crate::service::record_provider_session(tab_id, &binding)
+    })
 }
 
 /// A report carrying a binding nonce that disagrees with the tab's own launch
