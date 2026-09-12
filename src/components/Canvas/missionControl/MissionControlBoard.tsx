@@ -7,7 +7,7 @@ import {
   DoneFirstTryCard,
   HeldCard,
   LongestWaitCard,
-  RunwayCard,
+  SpendCard,
   TaskCountsCard,
   TokensCard,
   TurnsCard,
@@ -103,7 +103,7 @@ export function MissionControlBoard({
             <DoneFirstTryCard bounces={mc.bounces} />
           </div>
           <AreasCard areas={mc.areas} />
-          <RunwayCard runway={mc.runway} layout={layout} now={now} />
+          <SpendCard spend={mc.spend} layout={layout} now={now} />
           <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} />
         </>
       )}
