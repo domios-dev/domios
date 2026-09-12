@@ -87,8 +87,8 @@ export function MissionControlBoard({
             <TurnsCard kpi={mc.kpi} />
             <BouncesCard bounces={mc.bounces} />
             <HeldCard held={mc.held} />
-            <AreasCard areas={mc.areas} />
           </div>
+          <AreasCard areas={mc.areas} />
           <RunwayCard runway={mc.runway} layout={layout} now={now} />
           <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} />
         </>
