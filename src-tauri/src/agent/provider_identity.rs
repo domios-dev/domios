@@ -87,7 +87,7 @@ pub(crate) fn clear_unproven_provider_identity(tab: &mut Tab) -> Option<String> 
     tab.exit_suspected_at = None;
     // Provider and model are one identity: a surviving model would label an
     // agent that is not there.
-    crate::service::tab::clear_runtime_model_evidence(tab);
+    crate::service::session_model::clear_runtime_model_evidence(tab);
     previous
 }
 
