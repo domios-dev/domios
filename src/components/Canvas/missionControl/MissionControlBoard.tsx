@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
-import { AreasCard, BouncesCard, HeldCard, RunwayCard, TokensCard, TurnsCard } from "./BoardCards";
+import { AreasCard, BouncesCard, HeldCard, RunwayCard, TaskCountsCard, TokensCard, TurnsCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
 import { BOARD_CARD_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
 import { MissionControlControls, type MissionControlPlanAction } from "./MissionControlControls";
@@ -81,6 +81,7 @@ export function MissionControlBoard({
             className="mc-board-card-grid"
             style={{ gridTemplateColumns: BOARD_CARD_COLUMNS[layout] }}
           >
+            <TaskCountsCard counts={state.task_counts} />
             <TokensCard kpi={mc.kpi} />
             <TurnsCard kpi={mc.kpi} />
             <BouncesCard bounces={mc.bounces} />
