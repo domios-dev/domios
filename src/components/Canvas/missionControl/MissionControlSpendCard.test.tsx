@@ -123,16 +123,24 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
+/** Each figure is labelled by the column header at its own cell index, as a screen reader pairs them. */
 function modelRows(host: HTMLElement) {
-  return Array.from(host.querySelectorAll('[data-testid="mc-board-spend-model"]')).map((row) => ({
-    label: row.querySelector(".mc-board-spend-model-name")?.textContent?.trim() ?? "",
-    share: row.querySelector(".mc-board-spend-model-share")?.textContent?.trim() ?? "",
-    unassigned: row.getAttribute("data-unassigned") === "true",
-    figures: Array.from(row.querySelectorAll(".mc-board-spend-figure")).map((figure) => ({
-      label: figure.querySelector("i")?.textContent?.trim() ?? "",
-      value: figure.querySelector("b")?.textContent?.trim() ?? "",
-    })),
-  }));
+  const table = host.closest("table") ?? host.querySelector("table");
+  const headers = Array.from(table?.querySelectorAll('thead [role="columnheader"]') ?? []).map(
+    (th) => th.textContent?.trim() ?? "",
+  );
+  return Array.from(host.querySelectorAll('[data-testid="mc-board-spend-model"]')).map((row) => {
+    const cells = Array.from(row.children);
+    return {
+      label: row.querySelector(".mc-board-spend-model-name")?.textContent?.trim() ?? "",
+      share: row.querySelector(".mc-board-spend-model-share")?.textContent?.trim() ?? "",
+      unassigned: row.getAttribute("data-unassigned") === "true",
+      figures: Array.from(row.querySelectorAll(".mc-board-spend-figure")).map((figure) => ({
+        label: headers[cells.indexOf(figure)] ?? "",
+        value: figure.textContent?.trim() ?? "",
+      })),
+    };
+  });
 }
 
 describe("mission control spend card", () => {
