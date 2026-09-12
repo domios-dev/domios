@@ -37,8 +37,8 @@ impl ServiceContext {
             .model(model)
     }
 
-    /// A task assignment carries both ids. Without one, a plan's owner with open work
-    /// and its registered Planner still take the `plan_id` with a null `task_id`. An
+    /// A task assignment carries both ids. Without one, a plan's owner and its
+    /// registered Planner still take the `plan_id` with a null `task_id`. An
     /// unbound tab and a tab two active plans claim both stay unassigned.
     fn kpi_plan_context(&self, tab_id: &str) -> (Option<String>, Option<String>) {
         if let Some((plan_id, task_id)) = self.plan_store.task_binding_for_tab(tab_id) {
