@@ -389,7 +389,7 @@ mod tests {
             {"id":"ws_empty","name":"empty","tab_count":0,"cwd":"D:/empty","is_active":true,"tab_ids":[]}
         ]);
         let tabs = json!([
-            {"id":"worker","tab_title":"Docs audit","workspace_id":"ws_code","team_id":"team_cli","parent_tab_id":"orch","agent_type":"codex","agent_session_model":"sonnet","agent_liveness":"live","role_profile":"worker","status":"working"},
+            {"id":"worker","tab_title":"Docs audit","workspace_id":"ws_code","team_id":"team_cli","parent_tab_id":"orch","agent_type":"codex","agent_session_model":"gpt-5.6-sol","agent_liveness":"live","role_profile":"worker","status":"working"},
             {"id":"orch","tab_title":"CLI audit","workspace_id":"ws_code","team_id":"team_cli","agent_type":"claude","agent_session_model":"opus","agent_liveness":"live","role_profile":"orchestrator","status":"idle"},
             {"id":"other","tab_title":"A second independent team with a title that is too long","workspace_id":"ws_code","team_id":"team_other"},
             {"id":"shell","tab_title":"logs","workspace_id":"ws_code"}
@@ -411,14 +411,14 @@ mod tests {
 
         assert_eq!(
             output,
-            "codeterm  ws_code  4 tabs  D:/Developer/codeterm  (self, protected)\n  team CLI council  team_cli  plan=pl_cli\n    orch  CLI audit  [claude:opus · orchestrator · idle]  (self)\n      worker  Docs audit  [codex:sonnet · worker · working]\n  team  team_other\n    other  A second independent team with …\n  (no team)\n    shell  logs\n\nempty  ws_empty  0 tabs  D:/empty  (active, empty)\n"
+            "codeterm  ws_code  4 tabs  D:/Developer/codeterm  (self, protected)\n  team CLI council  team_cli  plan=pl_cli\n    orch  CLI audit  [opus · orchestrator · idle]  (self)\n      worker  Docs audit  [sol · worker · working]\n  team  team_other\n    other  A second independent team with …\n  (no team)\n    shell  logs\n\nempty  ws_empty  0 tabs  D:/empty  (active, empty)\n"
         );
         assert_eq!(output.matches("ws_code").count(), 1);
     }
 
     /// A tab that came back from restore without an agent must not render a
-    /// model. Provider and model are one identity, so half of it is a label for
-    /// an agent that is not there.
+    /// model. The model is shown INSTEAD of the provider, so a tab whose
+    /// provider was cleared would otherwise label an agent that is not there.
     #[test]
     fn a_tab_restored_without_an_agent_renders_no_model() {
         let workspaces = json!([{"id":"ws","name":"w","tab_count":2,"tab_ids":["ghost","live"]}]);
@@ -435,12 +435,16 @@ mod tests {
             output.contains("ghost  Ghost  [worker]"),
             "a cleared identity renders no model at all:\n{output}"
         );
+        let ghost_row = output
+            .lines()
+            .find(|line| line.contains("ghost  Ghost"))
+            .expect("the ghost tab renders");
         assert!(
-            !output.contains("[opus"),
-            "a bare model must never stand in for an absent provider:\n{output}"
+            !ghost_row.contains("opus"),
+            "a bare model must never stand in for an absent provider:\n{ghost_row}"
         );
         assert!(
-            output.contains("[claude:opus! \u{b7} worker]"),
+            output.contains("[opus! \u{b7} worker]"),
             "a declared provider with no live agent is marked, not hidden:\n{output}"
         );
     }

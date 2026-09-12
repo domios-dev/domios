@@ -210,10 +210,12 @@ function TabItemInner({
     bootInFlight: tab.agent_booting ?? false,
   });
   // The daemon composes the label with the resolved-model fallback; recompute
-  // only for a projection that predates the field, through the same rule.
+  // only for a projection that predates the field, through the same rule. The
+  // raw id goes in: the shared rule owns the catalogue-to-short-name policy,
+  // and a badge-truncated id would no longer match any catalogue entry.
   const tabAgentLabel = tab.agent_label ?? agentBracketLabel(
     tab.agent_type,
-    tabModel ? formatModelBadge(tabModel) : null,
+    tabModel,
     agentLiveness,
   );
   // Only a chatBackend shell's own detected model stands alone; a PTY tab that
