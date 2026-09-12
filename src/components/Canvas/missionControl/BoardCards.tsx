@@ -218,7 +218,13 @@ export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
       detail={
         <div data-testid="mc-board-task-statuses" className="mc-board-status-list" role="list">
           {statuses.map((status) => (
-            <div key={status.key} data-testid={`mc-board-task-status-${status.key}`} className="mc-board-status" role="listitem">
+            <div
+              key={status.key}
+              data-testid={`mc-board-task-status-${status.key}`}
+              data-zero={status.count === 0 ? "true" : "false"}
+              className="mc-board-status"
+              role="listitem"
+            >
               <span className="mc-board-status-label">{status.label}</span>
               <b data-testid={`mc-board-task-status-${status.key}-count`}>
                 <AnimatedNumber value={status.count} format={formatCount} />

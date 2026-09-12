@@ -159,12 +159,6 @@
   overflow-wrap: break-word;
 }
 
-/* A row of figure cards shares one height; the title holds the top edge and the
-   reading holds the bottom edge, so a taller neighbour never leaves dead space below. */
-.mc-board-card-grid > .mc-board-figure-card {
-  justify-content: space-between;
-}
-
 .mc-board-reading {
   display: flex;
   flex-direction: column;
@@ -182,7 +176,7 @@
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   column-gap: var(--mc-space-4);
-  align-items: end;
+  align-items: start;
 }
 
 .mc-board[data-board-layout="narrow"] .mc-board-card-grid > .mc-board-card-tasks,
@@ -225,33 +219,24 @@
   color: var(--ct-fg);
 }
 
+/* Each status is one unbreakable label and count; the list wraps between statuses, never inside a word. */
 .mc-board-status-list {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, max-content));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--mc-space-1) var(--mc-space-3);
-  justify-content: end;
   min-width: 0;
-}
-
-.mc-board[data-board-layout="narrow"] .mc-board-status-list {
-  grid-template-columns: repeat(3, minmax(0, max-content));
 }
 
 .mc-board-status {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--mc-space-2);
-  min-width: 0;
+  gap: var(--mc-space-1);
   font-size: var(--mc-text-meta);
+  white-space: nowrap;
 }
 
-.mc-board-status-label {
-  min-width: 0;
-}
-
-.mc-board-status b {
-  flex: 0 0 auto;
+.mc-board-status[data-zero="true"] b {
+  color: var(--ct-muted-fg);
 }
 
 .mc-board-note {
