@@ -92,6 +92,118 @@ fn test_command_result_into_json() {
     assert_eq!(json["test"], true);
 }
 
+/// A startup/lifecycle lock must affect only the tab snapshot request. Health
+/// has no state dependency and must remain answerable while the tab path
+/// reports its bounded busy condition.
+struct StartupBlockedPort;
+
+impl CommandPort for StartupBlockedPort {
+    fn mark_user_activity(&self) {}
+
+    fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot {
+        panic!("the blocking snapshot path must not be used by this API seam")
+    }
+
+    fn send_text(&self, _: &str, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn read_tab_output(
+        &self,
+        _: &str,
+        _: Option<usize>,
+        _: Option<usize>,
+        _: bool,
+        _: bool,
+    ) -> Result<serde_json::Value, String> {
+        unreachable!()
+    }
+
+    fn read_tab_screen(&self, _: &str, _: bool) -> Result<serde_json::Value, String> {
+        unreachable!()
+    }
+
+    fn close_tab_guarded(&self, _: Option<&str>, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn focus_tab(&self, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn rename_tab(&self, _: &str, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn set_tab_description(&self, _: &str, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn create_workspace(
+        &self,
+        _: String,
+        _: Option<String>,
+        _: bool,
+    ) -> crate::multiplexer::state::WorkspaceInfo {
+        unreachable!()
+    }
+
+    fn rename_workspace(&self, _: &str, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn close_workspace_guarded(&self, _: Option<&str>, _: &str, _: bool) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo> {
+        unreachable!()
+    }
+
+    fn list_recently_closed(&self, _: &str) -> Vec<crate::multiplexer::types::ClosedTab> {
+        unreachable!()
+    }
+
+    fn reopen_closed_tab(&self, _: &str, _: Option<usize>) -> Result<String, String> {
+        unreachable!()
+    }
+
+    fn reopen_closed_group(&self, _: &str) -> Result<(String, String), String> {
+        unreachable!()
+    }
+
+    fn resize_tab(&self, _: &str, _: u16, _: u16) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn kill_tab_pty(&self, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn list_agent_providers(&self) -> Vec<serde_json::Value> {
+        unreachable!()
+    }
+}
+
+#[test]
+fn health_and_tabs_do_not_share_a_blocking_startup_wait() {
+    let port = StartupBlockedPort;
+    let health = dispatch(&Command::Health, &port).unwrap().into_json();
+    assert_eq!(health["status"], "ok");
+
+    let tabs = dispatch_tab_summary_if_ready(
+        &Command::TabSummary {
+            workspace_id: None,
+            caller_tab_id: None,
+            focused_workspace: false,
+            agents_only: false,
+        },
+        &port,
+    )
+    .unwrap_err();
+    assert_eq!(tabs, TAB_SUMMARY_BUSY_ERROR);
+}
+
 // ── Command enum round-trip tests ───────────────────────────────
 
 #[test]
