@@ -386,15 +386,31 @@ describe("mission control board cards", () => {
     const { host, unmount } = await render(board(recordingState()));
 
     expect(text(host, "mc-board-decisions-waiting-amount")).toBe("1");
-    expect(text(host, "mc-board-decisions-waiting")).toContain("gate open");
-    expect(text(host, "mc-board-decisions-waiting")).toContain("oldest 2 h · 2 tasks blocked");
+    const facts = Array.from(host.querySelectorAll('[data-testid="mc-board-decisions-waiting"] .mc-board-fact')).map(
+      (fact) => fact.textContent,
+    );
+    expect(facts).toEqual(["gate open", "oldest 2 h", "2 tasks blocked"]);
+    expect(text(host, "mc-board-decisions-waiting")).not.toContain("·");
+    const grid = host.querySelector('[data-testid="mc-board-card-grid"]') as HTMLElement;
+    expect(Array.from(grid.children).map((card) => card.getAttribute("data-testid"))).toEqual([
+      "mc-board-tasks",
+      "mc-board-tokens",
+      "mc-board-turns",
+      "mc-board-bounces",
+      "mc-board-decisions-waiting",
+      "mc-board-held",
+      "mc-board-longest-wait",
+      "mc-board-done-first-try",
+    ]);
     expect(text(host, "mc-board-held")).not.toContain("decision gates open");
 
     expect(text(host, "mc-board-longest-wait-amount")).toBe("1 h 07 m");
     expect(text(host, "mc-board-longest-wait")).toContain("Land the wave");
 
     expect(text(host, "mc-board-done-first-try-amount")).toBe("10");
-    expect(text(host, "mc-board-done-first-try")).toContain("12 attempts · finished first try");
+    expect(text(host, "mc-board-done-first-try")).toContain("of 12 attempts");
+    expect(text(host, "mc-board-tokens")).not.toContain("·");
+    expect(text(host, "mc-board-turns")).not.toContain("·");
     expect(text(host, "mc-board-bounces")).not.toContain("finished on the first");
     expect(text(host, "mc-board-bounces")).not.toContain("labelled bounced");
     await unmount();
