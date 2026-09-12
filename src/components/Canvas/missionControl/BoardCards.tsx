@@ -20,6 +20,19 @@ import type {
 
 export { SpendCard } from "./BoardSpendCard";
 
+/** Short readings that wrap between each other, never inside one. */
+function Facts({ items }: { items: Array<{ key: string; node: ReactNode }> }) {
+  return (
+    <ul className="mc-board-facts" role="list">
+      {items.map((item) => (
+        <li key={item.key} className="mc-board-fact">
+          {item.node}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 interface FigureCardProps {
   testId: string;
   className?: string;
@@ -67,10 +80,13 @@ export function TokensCard({ kpi }: { kpi: MissionControlKpi }) {
       }
       detail={
         spend ? (
-          <>
-            <b><AnimatedNumber value={spend.tokens.input} format={formatCompact} /></b> input · <b><AnimatedNumber value={spend.tokens.uncached_input} format={formatCompact} /></b>{" "}
-            of it uncached · <b><AnimatedNumber value={spend.tokens.total} format={formatCompact} /></b> in total
-          </>
+          <Facts
+            items={[
+              { key: "input", node: <><b><AnimatedNumber value={spend.tokens.input} format={formatCompact} /></b> input</> },
+              { key: "uncached", node: <><b><AnimatedNumber value={spend.tokens.uncached_input} format={formatCompact} /></b> uncached</> },
+              { key: "total", node: <><b><AnimatedNumber value={spend.tokens.total} format={formatCompact} /></b> total</> },
+            ]}
+          />
         ) : null
       }
     />
@@ -91,9 +107,12 @@ export function TurnsCard({ kpi }: { kpi: MissionControlKpi }) {
       }
       detail={
         spend ? (
-          <>
-            <b><AnimatedNumber value={spend.events} format={formatCount} /></b> ledger events · <b><AnimatedNumber value={spend.bytes} format={formatCompact} /></b> bytes
-          </>
+          <Facts
+            items={[
+              { key: "events", node: <><b><AnimatedNumber value={spend.events} format={formatCount} /></b> ledger events</> },
+              { key: "bytes", node: <><b><AnimatedNumber value={spend.bytes} format={formatCompact} /></b> bytes</> },
+            ]}
+          />
         ) : null
       }
     />
@@ -130,9 +149,20 @@ export function DecisionsWaitingCard({ held }: { held: HeldForDecision }) {
   const gateLabel = reading.gateCount === 1 ? "gate open" : "gates open";
   const taskLabel = reading.blockedTaskCount === 1 ? "task blocked" : "tasks blocked";
   const caption =
-    reading.gateCount === 0
-      ? "no open gates"
-      : `${gateLabel} · ${reading.oldestAgeMs == null ? "age unavailable" : `oldest ${formatAgeMs(reading.oldestAgeMs)}`} · ${formatCount(reading.blockedTaskCount)} ${taskLabel}`;
+    reading.gateCount === 0 ? (
+      "no open gates"
+    ) : (
+      <Facts
+        items={[
+          { key: "gates", node: gateLabel },
+          {
+            key: "oldest",
+            node: reading.oldestAgeMs == null ? "age unavailable" : `oldest ${formatAgeMs(reading.oldestAgeMs)}`,
+          },
+          { key: "blocked", node: `${formatCount(reading.blockedTaskCount)} ${taskLabel}` },
+        ]}
+      />
+    );
   return (
     <FigureCard
       testId="mc-board-decisions-waiting"
@@ -162,7 +192,7 @@ export function DoneFirstTryCard({ bounces }: { bounces: BounceSummary }) {
       testId="mc-board-done-first-try"
       title="Done first try"
       amount={<AnimatedNumber value={bounces.first_try_done} format={formatCount} />}
-      caption={`${formatCount(bounces.total_attempts)} ${attemptLabel} · finished first try`}
+      caption={`of ${formatCount(bounces.total_attempts)} ${attemptLabel}`}
     />
   );
 }
