@@ -29,6 +29,7 @@ import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSele
 import { useConfig } from "./hooks/useConfig";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
+import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
@@ -82,37 +83,16 @@ function AppInner() {
     }
   }, []);
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
-  // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
-  const [sidebarOpen, setSidebarOpen] = useState(
-    () => typeof window === "undefined" || window.innerWidth > 640,
-  );
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
-  const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
-  // On phones the sidebar is an overlay (≤640px) — collapse it right after a selection so picking a tab/panel is one tap, not two.
-  const closeSidebarOnMobile = useCallback(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches) {
-      setSidebarOpen(false);
-    }
-  }, []);
-  // translate/opacity (toggled a frame after mount so the transition runs); `mounted` survives until it finishes.
-  const [sidebarMounted, setSidebarMounted] = useState(sidebarOpen);
-  const [sidebarShown, setSidebarShown] = useState(sidebarOpen);
-  useEffect(() => {
-    if (sidebarOpen) {
-      setSidebarMounted(true);
-      const r = requestAnimationFrame(() => setSidebarShown(true));
-      return () => cancelAnimationFrame(r);
-    }
-    setSidebarShown(false);
-    // Desktop sidebar is in-flow (no slide) — unmount immediately; phones wait out the 300ms slide-out.
-    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
-    if (!isMobile) {
-      setSidebarMounted(false);
-      return;
-    }
-    const t = window.setTimeout(() => setSidebarMounted(false), 300);
-    return () => window.clearTimeout(t);
-  }, [sidebarOpen]);
+  // Phone width owns the sidebar: it becomes an overlay drawer and yields the viewport to the content until the hamburger reopens it.
+  const {
+    open: sidebarOpen,
+    mounted: sidebarMounted,
+    shown: sidebarShown,
+    toggle: toggleSidebar,
+    close: closeSidebar,
+    closeOnPhone: closeSidebarOnMobile,
+    phone: phoneViewport,
+  } = useSidebarViewport();
 
   const viewLayerStyle = (active: boolean): React.CSSProperties => ({
     zIndex: active ? 2 : 0,
@@ -417,7 +397,7 @@ function AppInner() {
             .catch(() => {});
         },
         openSettings: () => { setSettingsSection(undefined); setSettingsOpen(true); },
-        toggleSidebar: () => setSidebarOpen((v) => !v),
+        toggleSidebar,
         spawnClaude: async () => {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (!wsId) return;
@@ -450,6 +430,7 @@ function AppInner() {
       createWorkspace,
       config.agent.full_access,
       spawnClaudeTab,
+      toggleSidebar,
     ],
   );
 
@@ -547,19 +528,24 @@ function AppInner() {
         onNavigateToast={navigateToNotificationTab}
       />
       <PlansProvider api={stableApiConfig} enabled={!configLoading}>
-      <div className="flex flex-1 min-h-0 relative">
+      <div
+        data-testid="app-shell-body"
+        data-shell-viewport={phoneViewport ? "phone" : "desktop"}
+        className="flex flex-1 min-h-0 relative"
+      >
         {sidebarMounted && (
           <>
             {/* Mobile: sidebar overlays the content with a tap-to-close
                 backdrop; ≥sm it participates in the flex row as before. */}
             <div
               className={`sm:hidden fixed inset-0 z-30 bg-black/40 ct-sidebar-backdrop ${sidebarShown ? "is-open" : ""}`}
-              onClick={() => setSidebarOpen(false)}
+              onClick={closeSidebar}
               aria-hidden={!sidebarShown}
               style={{ pointerEvents: sidebarOpen ? "auto" : "none" }}
             />
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
             <div
+              data-testid="sidebar-drawer"
               className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}
               aria-hidden={!sidebarShown}
               inert={!sidebarShown || undefined}
