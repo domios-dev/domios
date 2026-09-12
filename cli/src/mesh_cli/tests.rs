@@ -531,6 +531,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
             no_team: false,
             agent: "claude".into(),
             model: None,
+            reasoning_effort: Some("high".into()),
             cwd: None,
             skill: None,
             description: None,
@@ -551,6 +552,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
     assert_eq!(body["tz"], "Europe/Riga");
     assert_eq!(body["timeout_seconds"], 1800);
     assert_eq!(body["report_target_tab_id"], "tab_9");
+    assert_eq!(body["reasoning_effort"], "high");
 }
 
 #[test]

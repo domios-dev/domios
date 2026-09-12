@@ -217,6 +217,7 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
             description: None,
             agent: None,
             model: None,
+            reasoning_effort: None,
             cwd: None,
             role: None,
             skill: None,

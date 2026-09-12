@@ -90,6 +90,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 description: params.description,
                 agent: params.agent,
                 model: params.model,
+                reasoning_effort: None,
                 cwd: params.cwd,
                 role: params.role,
                 skill: None,

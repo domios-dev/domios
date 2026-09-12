@@ -36,6 +36,9 @@ pub enum CronAction {
         /// "gpt-5.4-mini"). Leave unset to use the provider default.
         #[arg(long)]
         model: Option<String>,
+        /// Reasoning-effort level advertised by the agent provider. Leave unset to use the provider default.
+        #[arg(long)]
+        reasoning_effort: Option<String>,
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
@@ -88,6 +91,9 @@ pub enum CronAction {
         /// Model within the agent provider. Pass empty string to clear.
         #[arg(long)]
         model: Option<String>,
+        /// Reasoning-effort level advertised by the agent provider. Pass empty string to clear.
+        #[arg(long)]
+        reasoning_effort: Option<String>,
         /// Max jitter in milliseconds added to each scheduled fire. Set
         /// 0 to disable jitter. Omit to leave unchanged.
         #[arg(long)]
@@ -158,6 +164,7 @@ pub fn cron_create_body(
     detach_from_team: bool,
     agent: &str,
     model: Option<&str>,
+    reasoning_effort: Option<&str>,
     cwd: Option<&str>,
     description: Option<&str>,
     creator_tab: Option<&str>,
@@ -177,6 +184,9 @@ pub fn cron_create_body(
     });
     if let Some(m) = model {
         body["model"] = serde_json::json!(m);
+    }
+    if let Some(effort) = reasoning_effort {
+        body["reasoning_effort"] = serde_json::json!(effort);
     }
     if let Some(c) = cwd {
         body["cwd"] = serde_json::json!(c);
