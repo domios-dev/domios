@@ -10,20 +10,22 @@ import {
   runwayGauges,
   type BoardLayout,
 } from "./missionControlBoardModel";
+import { AnimatedNumber, useAnimatedNumber } from "./AnimatedNumber";
 import type {
   AreaGrouping,
   BounceSummary,
   HeldForDecision,
   MissionControlKpi,
+  PlanTaskCounts,
   RunwaySection,
 } from "./missionControlState";
 
 interface FigureCardProps {
   testId: string;
   title: string;
-  amount: string;
+  amount: ReactNode;
   amountTone?: "plain" | "warn";
-  caption: string;
+  caption: ReactNode;
   detail: ReactNode;
   source: string;
 }
@@ -53,13 +55,13 @@ export function TokensCard({ kpi }: { kpi: MissionControlKpi }) {
     <FigureCard
       testId="mc-board-tokens"
       title="Tokens"
-      amount={spend ? formatCompact(spend.tokens.output) : "—"}
+      amount={spend ? <AnimatedNumber value={spend.tokens.output} format={formatCompact} /> : "—"}
       caption={spend ? "output tokens on this plan" : notRecordingCopy(kpi.not_recording_reason)}
       detail={
         spend ? (
           <>
-            <b>{formatCompact(spend.tokens.input)}</b> input · <b>{formatCompact(spend.tokens.uncached_input)}</b>{" "}
-            of it uncached · <b>{formatCompact(spend.tokens.total)}</b> in total
+            <b><AnimatedNumber value={spend.tokens.input} format={formatCompact} /></b> input · <b><AnimatedNumber value={spend.tokens.uncached_input} format={formatCompact} /></b>{" "}
+            of it uncached · <b><AnimatedNumber value={spend.tokens.total} format={formatCompact} /></b> in total
           </>
         ) : (
           "No token figure is shown while the ledger is not recording."
@@ -76,12 +78,12 @@ export function TurnsCard({ kpi }: { kpi: MissionControlKpi }) {
     <FigureCard
       testId="mc-board-turns"
       title="Turns"
-      amount={spend ? formatCount(spend.turns) : "—"}
+      amount={spend ? <AnimatedNumber value={spend.turns} format={formatCount} /> : "—"}
       caption={spend ? "model turns on this plan" : notRecordingCopy(kpi.not_recording_reason)}
       detail={
         spend ? (
           <>
-            <b>{formatCount(spend.events)}</b> ledger events · <b>{formatCompact(spend.bytes)}</b> bytes
+            <b><AnimatedNumber value={spend.events} format={formatCount} /></b> ledger events · <b><AnimatedNumber value={spend.bytes} format={formatCompact} /></b> bytes
           </>
         ) : (
           "No turn figure is shown while the ledger is not recording."
@@ -97,13 +99,13 @@ export function BouncesCard({ bounces }: { bounces: BounceSummary }) {
     <FigureCard
       testId="mc-board-bounces"
       title="Bounces"
-      amount={formatCount(bounces.tasks_on_second_attempt)}
+      amount={<AnimatedNumber value={bounces.tasks_on_second_attempt} format={formatCount} />}
       amountTone={bounces.tasks_on_second_attempt > 0 ? "warn" : "plain"}
       caption="tasks on a second attempt"
       detail={
         <>
-          <b>{formatCount(bounces.total_attempts)}</b> attempts · <b>{formatCount(bounces.first_try_done)}</b>{" "}
-          finished on the first · <b>{formatCount(bounces.labelled_bounced)}</b> labelled bounced
+          <b><AnimatedNumber value={bounces.total_attempts} format={formatCount} /></b> attempts · <b><AnimatedNumber value={bounces.first_try_done} format={formatCount} /></b>{" "}
+            finished on the first · <b><AnimatedNumber value={bounces.labelled_bounced} format={formatCount} /></b> labelled bounced
         </>
       }
       source="stored execution attempts and status labels"
@@ -118,7 +120,7 @@ export function HeldCard({ held }: { held: HeldForDecision }) {
     <FigureCard
       testId="mc-board-held"
       title="Held for a decision"
-      amount={formatCount(count)}
+      amount={<AnimatedNumber value={count} format={formatCount} />}
       amountTone={count > 0 ? "warn" : "plain"}
       caption={
         oldest == null
@@ -127,8 +129,8 @@ export function HeldCard({ held }: { held: HeldForDecision }) {
       }
       detail={
         <>
-          <b>{formatCount(held.open_gates.length)}</b> decision gates open ·{" "}
-          <b>{formatCount(held.verdicts_on_held)}</b> verdicts on the held tasks
+          <b><AnimatedNumber value={held.open_gates.length} format={formatCount} /></b> decision gates open ·{" "}
+            <b><AnimatedNumber value={held.verdicts_on_held} format={formatCount} /></b> verdicts on the held tasks
         </>
       }
       source="the stored review-held label and the plan's open gates"
@@ -158,15 +160,19 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
                 {row.label}
                 {row.qualifier && <i className="mc-board-kv-qualifier">{row.qualifier}</i>}
               </span>
-              <span className="mc-board-kv-value">{formatCount(row.taskCount)}</span>
-              <span className="mc-board-kv-share">{row.sharePct}%</span>
+              <span className="mc-board-kv-value">
+                <AnimatedNumber value={row.taskCount} format={formatCount} />
+              </span>
+              <span className="mc-board-kv-share">
+                <AnimatedNumber value={row.sharePct} />%
+              </span>
             </div>
           ))}
         </div>
       )}
       {reading.declared && reading.untagged > 0 && (
         <p data-testid="mc-board-area-untagged" className="mc-board-detail">
-          <b>{formatCount(reading.untagged)}</b> tasks carry no area tag and are not placed under one.
+          <b><AnimatedNumber value={reading.untagged} format={formatCount} /></b> tasks carry no area tag and are not placed under one.
         </p>
       )}
       {reading.noFacetMessage && (
@@ -208,19 +214,7 @@ export function RunwayCard({
           style={{ gridTemplateColumns: BOARD_RUNWAY_COLUMNS[layout] }}
         >
           {gauges.map((gauge) => (
-            <div key={gauge.key} data-testid="mc-board-runway-gauge" data-runway-key={gauge.key}>
-              <UsageGauge
-                label={gauge.label}
-                variant={gauge.variant}
-                pct={gauge.pct}
-                resetsAt={gauge.resetsAt}
-                state={gauge.state}
-                now={now}
-              />
-              {gauge.staleReason && (
-                <span className="mc-board-source">{gauge.staleReason}</span>
-              )}
-            </div>
+            <RunwayGauge key={gauge.key} gauge={gauge} now={now} />
           ))}
         </div>
       )}
@@ -228,5 +222,40 @@ export function RunwayCard({
         usage snapshots, the latest parsed row per provider; 60% and 85% are marked on every bar
       </p>
     </section>
+  );
+}
+
+export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
+  return (
+    <FigureCard
+      testId="mc-board-tasks"
+      title="Tasks"
+      amount={<AnimatedNumber value={counts.total} format={formatCount} />}
+      caption={<><AnimatedNumber value={counts.in_progress + counts.in_review} format={formatCount} /> active or in review</>}
+      detail={
+        <>
+          <b><AnimatedNumber value={counts.pending} format={formatCount} /></b> pending · <b><AnimatedNumber value={counts.in_progress} format={formatCount} /></b> in progress ·{" "}
+            <b><AnimatedNumber value={counts.in_review} format={formatCount} /></b> in review · <b><AnimatedNumber value={counts.done} format={formatCount} /></b> done
+        </>
+      }
+      source="stored task status counts for this plan"
+    />
+  );
+}
+
+function RunwayGauge({ gauge, now }: { gauge: ReturnType<typeof runwayGauges>[number]; now: number }) {
+  const pct = useAnimatedNumber(gauge.pct);
+  return (
+    <div data-testid="mc-board-runway-gauge" data-runway-key={gauge.key}>
+      <UsageGauge
+        label={gauge.label}
+        variant={gauge.variant}
+        pct={pct}
+        resetsAt={gauge.resetsAt}
+        state={gauge.state}
+        now={now}
+      />
+      {gauge.staleReason && <span className="mc-board-source">{gauge.staleReason}</span>}
+    </div>
   );
 }
