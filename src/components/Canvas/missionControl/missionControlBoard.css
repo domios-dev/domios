@@ -213,6 +213,19 @@
   overflow-wrap: break-word;
 }
 
+.mc-board-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--mc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-board-fact {
+  white-space: nowrap;
+}
+
 .mc-board-detail b {
   font-family: var(--ct-font-mono);
   font-weight: 500;
