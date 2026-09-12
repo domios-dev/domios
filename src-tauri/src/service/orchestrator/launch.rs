@@ -1017,7 +1017,9 @@ pub(crate) fn launch_agent_in_background_with_env(
         set_booting(false);
         // Readiness the shared owner already refuted: this launch never claims
         // ready over a process that is gone.
-        if let Some(error) = svc.settle_observed_launch_exit(&readiness_attempt) {
+        if let Some(error) =
+            crate::service::launch_readiness::take_published_failure(&readiness_attempt)
+        {
             LAUNCH_REGISTRY.lock().finish(&launch);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));

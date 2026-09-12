@@ -365,11 +365,19 @@ impl ServiceContext {
         tab_id: &str,
         cause: &str,
     ) -> bool {
+        // Every observed lifecycle exit funnels through here, whatever saw it,
+        // so this is where a launch still under observation learns its process
+        // is gone — claimed before the clear below retires the launch it names.
+        let exited = self.claim_launch_exit(tab_id, None, None);
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .is_some_and(clear_agent_identity_for_lifecycle_exit)
         };
+        // After the clear, so the launch verdict is the stage that stands.
+        if let Some(exited) = exited {
+            self.publish_launch_exit(&exited);
+        }
         if !cleared {
             return false;
         }

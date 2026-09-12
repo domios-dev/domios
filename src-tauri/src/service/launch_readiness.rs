@@ -79,6 +79,15 @@ pub(crate) enum LaunchSettlement {
     Superseded,
 }
 
+/// A launch failure already decided against the launch it names, waiting to be
+/// recorded once its observer has finished whatever teardown it performs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LaunchExitFailure {
+    attempt: LaunchAttempt,
+    exit_code: Option<i32>,
+    reason: String,
+}
+
 /// The result of waiting on one armed observation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LaunchObservation {
@@ -138,6 +147,9 @@ pub(crate) fn settle_evidence(
 struct Armed {
     attempt: LaunchAttempt,
     evidence: Option<LaunchEvidence>,
+    /// A verdict already published for this attempt. Kept so the launch thread
+    /// can see it and never claims ready over a launch known to be gone.
+    failure: Option<String>,
 }
 
 struct Observations {
@@ -158,6 +170,7 @@ pub(crate) fn arm(attempt: LaunchAttempt) {
         Armed {
             attempt,
             evidence: None,
+            failure: None,
         },
     );
     // Releases any observer still waiting on the launch this one supersedes.
@@ -180,6 +193,7 @@ fn note(
     if observed.attempt.pty_id != pty_id
         || !owns_attempt(&observed.attempt)
         || observed.evidence.is_some()
+        || observed.failure.is_some()
     {
         return false;
     }
@@ -195,37 +209,55 @@ pub(crate) fn note_acknowledged(tab_id: &str, pty_id: &str, binding_nonce: &str)
     })
 }
 
-/// The tab's shell reported a finished foreground command while this launch was
-/// still short of readiness. The shell's own command line names this launch by
-/// its nonce, so nothing else in the tab can be mistaken for it; a shell that
-/// reports no command line is taken at its word about its only command.
-pub(crate) fn note_launch_command_exit(
+/// Take this tab's launch for an exit observed right now. One lock does the
+/// whole claim, so the observer waiting on this launch cannot take it away
+/// mid-claim. It asks nothing of the shell's reported command line: the
+/// observation is already bound to one PTY and one launch nonce, and a shell
+/// that reports an empty command line is the ordinary case, not a foreign
+/// command. An acknowledged or already-failed launch is refused.
+fn claim_exit(
     tab_id: &str,
-    pty_id: &str,
-    command_line: Option<&str>,
+    pty_id: Option<&str>,
     exit_code: Option<i32>,
-) -> bool {
-    note(
-        tab_id,
-        pty_id,
-        LaunchEvidence::ProcessExited { exit_code },
-        |attempt| match command_line {
-            Some(line) => line.contains(&attempt.binding_nonce),
-            None => true,
-        },
-    )
+) -> Option<(LaunchAttempt, Option<i32>)> {
+    let mut armed = OBSERVATIONS.armed.lock();
+    let observed = armed.get_mut(tab_id)?;
+    if pty_id.is_some_and(|pty_id| pty_id != observed.attempt.pty_id)
+        || observed.failure.is_some()
+        || matches!(observed.evidence, Some(LaunchEvidence::Acknowledged))
+    {
+        return None;
+    }
+    let exit_code = match observed.evidence.take() {
+        Some(LaunchEvidence::ProcessExited { exit_code }) => exit_code,
+        _ => exit_code,
+    };
+    Some((observed.attempt.clone(), exit_code))
 }
 
-/// Take whatever this observation already holds, without waiting.
-pub(crate) fn take_evidence(attempt: &LaunchAttempt) -> Option<LaunchEvidence> {
+/// Mark this attempt's verdict as published.
+fn record_published_failure(attempt: &LaunchAttempt, reason: &str) {
     let mut armed = OBSERVATIONS.armed.lock();
-    let observed = armed.get_mut(&attempt.tab_id)?;
+    if let Some(observed) = armed.get_mut(&attempt.tab_id) {
+        if &observed.attempt == attempt {
+            observed.evidence = None;
+            observed.failure = Some(reason.to_string());
+        }
+    }
+    OBSERVATIONS.changed.notify_all();
+}
+
+/// Take the verdict already published for this attempt, so the launch thread
+/// stops instead of claiming ready over a launch that is known to be gone.
+pub(crate) fn take_published_failure(attempt: &LaunchAttempt) -> Option<String> {
+    let mut armed = OBSERVATIONS.armed.lock();
+    let observed = armed.get(&attempt.tab_id)?;
     if &observed.attempt != attempt {
         return None;
     }
-    let evidence = observed.evidence.take()?;
+    let reason = observed.failure.clone()?;
     armed.remove(&attempt.tab_id);
-    Some(evidence)
+    Some(reason)
 }
 
 /// Wait for this launch's own readiness evidence until the bounded deadline.
@@ -237,7 +269,7 @@ pub(crate) fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObser
         let Some(observed) = armed.get_mut(&attempt.tab_id) else {
             return LaunchObservation::Retired;
         };
-        if &observed.attempt != attempt {
+        if &observed.attempt != attempt || observed.failure.is_some() {
             return LaunchObservation::Retired;
         }
         if let Some(evidence) = observed.evidence.take() {
@@ -289,10 +321,57 @@ impl ServiceContext {
                 }
             },
             LaunchSettlement::Failed { reason, exit_code } => {
-                self.emit_launch_readiness_failure(attempt, reason, *exit_code);
+                self.publish_launch_exit(&LaunchExitFailure {
+                    attempt: attempt.clone(),
+                    exit_code: *exit_code,
+                    reason: reason.clone(),
+                });
             }
         }
         settlement
+    }
+
+    /// One exit observation: record it against the launch under observation and
+    /// decide the verdict, both while the tab still carries that launch. Every
+    /// observer that sees an exit also tears the tab's agent identity down, and
+    /// the teardown clears the launch a verdict names, so the decision is taken
+    /// here and published afterwards.
+    pub(crate) fn claim_launch_exit(
+        &self,
+        tab_id: &str,
+        pty_id: Option<&str>,
+        exit_code: Option<i32>,
+    ) -> Option<LaunchExitFailure> {
+        let (attempt, exit_code) = claim_exit(tab_id, pty_id, exit_code)?;
+        self.launch_exit_verdict(&attempt, exit_code)
+    }
+
+    fn launch_exit_verdict(
+        &self,
+        attempt: &LaunchAttempt,
+        exit_code: Option<i32>,
+    ) -> Option<LaunchExitFailure> {
+        let mux = self.mux.read();
+        let tab = mux.get_tab(&attempt.tab_id)?;
+        // A live agent that proved this launch outranks one exit observer.
+        if tab.launch_session_authenticated() {
+            return None;
+        }
+        match settle_evidence(tab, attempt, LaunchEvidence::ProcessExited { exit_code }) {
+            LaunchSettlement::Failed { reason, exit_code } => Some(LaunchExitFailure {
+                attempt: attempt.clone(),
+                exit_code,
+                reason,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Record a claimed verdict. Safe after a teardown, because the verdict was
+    /// decided while the launch it names was still the tab's own.
+    pub(crate) fn publish_launch_exit(&self, failure: &LaunchExitFailure) {
+        record_published_failure(&failure.attempt, &failure.reason);
+        self.emit_launch_readiness_failure(&failure.attempt, &failure.reason, failure.exit_code);
     }
 
     /// The structured launch failure: identity and exit code, never terminal
@@ -321,26 +400,6 @@ impl ServiceContext {
             }),
         );
         self.emit_boot_stage(&attempt.tab_id, BootStage::SpawnFailed, Some(reason));
-    }
-
-    /// Settle an exit this launch already produced, before the launch thread
-    /// claims readiness. Returns the failure reason when the process is gone.
-    pub(crate) fn settle_observed_launch_exit(&self, attempt: &LaunchAttempt) -> Option<String> {
-        let Some(evidence @ LaunchEvidence::ProcessExited { .. }) = take_evidence(attempt) else {
-            return None;
-        };
-        let LaunchSettlement::Failed { reason, .. } =
-            self.settle_launch_readiness(attempt, evidence)
-        else {
-            return None;
-        };
-        // Recording refuses a failure the tab's own live agent disproved; only
-        // a failure that latched means this launch is genuinely gone.
-        self.mux
-            .read()
-            .get_tab(&attempt.tab_id)
-            .is_some_and(|tab| tab.boot_stage == Some(BootStage::SpawnFailed))
-            .then_some(reason)
     }
 
     /// Own one launch's bounded readiness observation to its end. Runs on its
