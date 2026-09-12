@@ -1597,8 +1597,9 @@ EOF
     ;;
   worktree-check)
     prepare_exceptional_worktree_target
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo check --manifest-path src-tauri/Cargo.toml "${@:2}"
+    cargo check --manifest-path src-tauri/Cargo.toml --all-targets "${@:2}"
     ;;
   build)
     enter_build_gateway "$CMD ${*:2}"

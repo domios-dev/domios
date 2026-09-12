@@ -121,6 +121,14 @@ if grep -q 'enter_build_gateway' <<< "$worktree_flow"; then
   echo "isolated worktree check must not wait behind the shared dev gateway" >&2
   exit 1
 fi
+expect_log 'prepare_dev_frontend_dist "$(pwd -P)"' <<< "$worktree_flow"
+expect_log 'cargo check --manifest-path src-tauri/Cargo.toml --all-targets' <<< "$worktree_flow"
+worktree_preflight_line="$(grep -n 'prepare_dev_frontend_dist' <<< "$worktree_flow" | head -1 | cut -d: -f1)"
+worktree_cargo_line="$(grep -n 'cargo check' <<< "$worktree_flow" | head -1 | cut -d: -f1)"
+[ -n "$worktree_preflight_line" ] && [ -n "$worktree_cargo_line" ] && [ "$worktree_preflight_line" -lt "$worktree_cargo_line" ] || {
+  echo "worktree check must prepare dev frontend resources before cargo" >&2
+  exit 1
+}
 
 verify_flow="$(sed -n '/^  verify)/,/^    ;;/p' build.sh)"
 verify_coverage_checks_typescript() {
