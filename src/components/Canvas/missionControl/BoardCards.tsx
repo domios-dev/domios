@@ -2,16 +2,20 @@ import type { ReactNode } from "react";
 import { UsageGauge } from "../../Usage/UsageGauge";
 import {
   areaReading,
-  BOARD_RUNWAY_COLUMNS,
+  BOARD_SPEND_WINDOW_COLUMNS,
   decisionsWaitingReading,
   formatAgeMs,
   formatCompact,
   formatCount,
+  formatSharePct,
   longestWaitReading,
   notRecordingCopy,
-  runwayGauges,
+  spendReading,
+  SPEND_SCOPE_CAPTION,
   taskStatusBreakdown,
   type BoardLayout,
+  type SpendProviderGroup,
+  type SpendWindow,
 } from "./missionControlBoardModel";
 import { AnimatedNumber, useAnimatedNumber } from "./AnimatedNumber";
 import type {
@@ -19,8 +23,8 @@ import type {
   BounceSummary,
   HeldForDecision,
   MissionControlKpi,
+  MissionControlSpend,
   PlanTaskCounts,
-  RunwaySection,
 } from "./missionControlState";
 
 interface FigureCardProps {
@@ -203,32 +207,95 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
   );
 }
 
-export function RunwayCard({
-  runway,
+export function SpendCard({
+  spend,
   layout,
   now,
 }: {
-  runway: RunwaySection;
+  spend: MissionControlSpend;
   layout: BoardLayout;
   now: number;
 }) {
-  const gauges = runwayGauges(runway.providers);
+  const reading = spendReading(spend);
   return (
-    <section data-testid="mc-board-runway" className="ct-panel-card mc-board-card">
+    <section data-testid="mc-board-spend" className="ct-panel-card mc-board-card">
       <div className="mc-board-card-head">
-        <h2>Runway</h2>
-        <span className="mc-board-caption">allowance used</span>
+        <h2>Spend</h2>
+        <span data-testid="mc-board-spend-scope" className="mc-board-caption">
+          {SPEND_SCOPE_CAPTION}
+        </span>
       </div>
+      {reading.emptyCopy ? (
+        <p data-testid="mc-board-spend-empty" className="mc-board-note">
+          {reading.emptyCopy}
+        </p>
+      ) : (
+        <>
+          <p data-testid="mc-board-spend-units" className="mc-board-caption">
+            {reading.note}
+          </p>
+          {reading.groups.map((group) => (
+            <SpendProvider key={group.key} group={group} layout={layout} now={now} />
+          ))}
+        </>
+      )}
+    </section>
+  );
+}
+
+function SpendProvider({
+  group,
+  layout,
+  now,
+}: {
+  group: SpendProviderGroup;
+  layout: BoardLayout;
+  now: number;
+}) {
+  return (
+    <div data-testid="mc-board-spend-provider" data-provider={group.key} className="mc-board-spend-provider">
+      <h3 className="mc-board-spend-provider-name">{group.label}</h3>
       <div
-        data-testid="mc-board-runway-grid"
-        className="mc-board-runway-grid"
-        style={{ gridTemplateColumns: BOARD_RUNWAY_COLUMNS[layout] }}
+        data-testid="mc-board-spend-window-grid"
+        className="mc-board-spend-window-grid"
+        style={{ gridTemplateColumns: BOARD_SPEND_WINDOW_COLUMNS[layout] }}
       >
-        {gauges.map((gauge) => (
-          <RunwayGauge key={gauge.key} gauge={gauge} now={now} />
+        {group.windows.map((gauge) => (
+          <SpendWindowGauge key={gauge.key} gauge={gauge} now={now} />
         ))}
       </div>
-    </section>
+      {group.models.length === 0 ? (
+        <p data-testid="mc-board-spend-provider-empty" className="mc-board-note">
+          no data
+        </p>
+      ) : (
+        group.models.map((model) => (
+          <div
+            key={model.key}
+            data-testid="mc-board-spend-model"
+            data-model-key={model.key}
+            data-unassigned={model.unassigned ? "true" : "false"}
+            className="mc-board-spend-model"
+          >
+            <span className="mc-board-spend-model-name">{model.label}</span>
+            <span className="mc-board-spend-model-share">{formatSharePct(model.sharePct)}</span>
+            <span className="mc-board-spend-figures">
+              {model.figures.map((figure) => (
+                <span key={figure.key} className="mc-board-spend-figure">
+                  <i>{figure.label}</i>
+                  <b>
+                    <AnimatedNumber
+                      value={figure.value}
+                      format={figure.key === "turns" ? formatCount : formatCompact}
+                    />
+                  </b>
+                </span>
+              ))}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
@@ -256,10 +323,10 @@ export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
   );
 }
 
-function RunwayGauge({ gauge, now }: { gauge: ReturnType<typeof runwayGauges>[number]; now: number }) {
+function SpendWindowGauge({ gauge, now }: { gauge: SpendWindow; now: number }) {
   const pct = useAnimatedNumber(gauge.pct);
   return (
-    <div data-testid="mc-board-runway-gauge" data-runway-key={gauge.key} className="mc-board-runway-gauge">
+    <div data-testid="mc-board-spend-gauge" data-window-key={gauge.key} className="mc-board-spend-gauge">
       <UsageGauge
         label={gauge.label}
         variant={gauge.variant}

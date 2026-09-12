@@ -47,7 +47,7 @@ impl ServiceContext {
             now_ms,
         );
         snapshot.mission_control.kpi = super::mission_control_ext::plan_kpi(self, plan_id);
-        snapshot.mission_control.runway = super::mission_control_ext::provider_runway(self);
+        snapshot.mission_control.spend = super::mission_control_ext::machine_spend(self);
         Ok(snapshot)
     }
 }

@@ -8,7 +8,7 @@ import { MissionControlBoard } from "./MissionControlBoard";
 import {
   BOARD_CARD_COLUMNS,
   BOARD_NARROW_MAX_PX,
-  BOARD_RUNWAY_COLUMNS,
+  BOARD_SPEND_WINDOW_COLUMNS,
   EVENT_PART_SEPARATOR,
   EVENT_PREVIEW_MAX,
   EVENT_REVEAL_HIDE_LABEL,
@@ -185,28 +185,65 @@ function recordingState(): MissionControlState {
         tokens: { input: 1_400_000_000, uncached_input: 1_500_000, output: 5_300_000, total: 1_405_300_000 },
       },
     },
-    runway: {
-      state: "reporting",
+    spend: {
+      scope: "machine",
+      state: "recording",
+      not_recording_reason: null,
+      enable_setting: null,
+      measured_tokens: 1000,
+      turns: 30,
       providers: [
         {
           provider: "claude",
           label: "Claude",
-          captured_at: NOW,
-          session_pct: 58,
-          session_resets_at: NOW + 2 * H,
-          weekly_pct: 34,
-          weekly_resets_at: NOW + 48 * H,
-          stale_reason: null,
+          allowance: {
+            captured_at: NOW,
+            session_used_pct: 58,
+            session_resets_at: NOW + 2 * H,
+            weekly_used_pct: 34,
+            weekly_resets_at: NOW + 48 * H,
+            stale_reason: null,
+          },
+          turns: 20,
+          input_tokens: 600,
+          uncached_input_tokens: 120,
+          output_tokens: 0,
+          models: [
+            {
+              model: "haiku",
+              turns: 20,
+              input_tokens: 600,
+              uncached_input_tokens: 120,
+              output_tokens: 0,
+              token_share_pct: 60,
+            },
+          ],
         },
         {
           provider: "codex",
           label: "Codex",
-          captured_at: NOW,
-          session_pct: null,
-          session_resets_at: null,
-          weekly_pct: 81,
-          weekly_resets_at: NOW + 72 * H,
-          stale_reason: null,
+          allowance: {
+            captured_at: NOW,
+            session_used_pct: null,
+            session_resets_at: null,
+            weekly_used_pct: 81,
+            weekly_resets_at: NOW + 72 * H,
+            stale_reason: null,
+          },
+          turns: 10,
+          input_tokens: 300,
+          uncached_input_tokens: 90,
+          output_tokens: 100,
+          models: [
+            {
+              model: null,
+              turns: 10,
+              input_tokens: 300,
+              uncached_input_tokens: 90,
+              output_tokens: 100,
+              token_share_pct: 40,
+            },
+          ],
         },
       ],
     },
@@ -234,7 +271,15 @@ function notRecordingState(): MissionControlState {
         { executor_role: null, task_count: 1, task_ids: ["t3"] },
       ],
     },
-    runway: { state: "not_reporting", providers: [] },
+    spend: {
+      scope: "machine",
+      state: "not_recording",
+      not_recording_reason: "disabled",
+      enable_setting: "kpi.enabled",
+      measured_tokens: 0,
+      turns: 0,
+      providers: [],
+    },
   };
 }
 
@@ -389,11 +434,11 @@ describe("mission control board cards", () => {
     await unmount();
   });
 
-  it("renders one gauge per supported provider window with its own reset", async () => {
+  it("mission_control_spend_renders_one_gauge_per_provider_window_with_its_own_reset", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    const gauges = host.querySelectorAll('[data-testid="mc-board-runway-gauge"]');
-    expect(Array.from(gauges).map((g) => g.getAttribute("data-runway-key"))).toEqual([
+    const gauges = host.querySelectorAll('[data-testid="mc-board-spend-gauge"]');
+    expect(Array.from(gauges).map((g) => g.getAttribute("data-window-key"))).toEqual([
       "claude-session",
       "claude-weekly",
       "codex-session",
@@ -410,42 +455,38 @@ describe("mission control board cards", () => {
     expect((gauges[1] as HTMLElement).textContent).toContain("resets");
     expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .reset")?.textContent).toBe("—");
     expect((gauges[3] as HTMLElement).textContent).toContain("resets");
-    expect(text(host, "mc-board-runway")).toContain("allowance used");
-    expect(text(host, "mc-board-runway").split("allowance used").length - 1).toBe(1);
     const firstLabel = first.querySelector(".ct-usage-gauge .label");
     expect(firstLabel?.nextElementSibling).toBe(first.querySelector(".ct-usage-gauge .pct"));
     const warned = gauges[3] as HTMLElement;
     expect(warned.querySelector(".ct-usage-gauge")?.className).toContain("warn");
-    expect(BOARD_RUNWAY_COLUMNS.wide).toBe("repeat(4, minmax(0, 1fr))");
+    expect(BOARD_SPEND_WINDOW_COLUMNS.wide).toBe("repeat(2, minmax(0, 1fr))");
     const usageCss = readFileSync("src/components/Usage/styles.css", "utf8");
     expect(usageCss).toContain(".ct-usage-gauge .bar::before { left: 60%; }");
     expect(usageCss).toContain(".ct-usage-gauge .bar::after { left: 85%; }");
-    expect(text(host, "mc-board-runway")).not.toContain("snapshot");
     await unmount();
   });
 
-  it("keeps a fixed runway slot and marks an incomplete window unknown", async () => {
+  it("mission_control_spend_marks_an_incomplete_allowance_window_unknown", async () => {
     const state = recordingState();
-    const provider = state.runway.providers[0]!;
-    state.runway.providers = [{
-      ...provider,
-      session_resets_at: null,
-    }];
+    state.spend.providers = [
+      {
+        ...state.spend.providers[0]!,
+        allowance: { ...state.spend.providers[0]!.allowance!, session_resets_at: null },
+      },
+    ];
     const { host, unmount } = await render(board(state));
 
-    const gauges = host.querySelectorAll('[data-testid="mc-board-runway-gauge"]');
-    expect(Array.from(gauges).map((gauge) => gauge.getAttribute("data-runway-key"))).toEqual([
+    const gauges = host.querySelectorAll('[data-testid="mc-board-spend-gauge"]');
+    expect(Array.from(gauges).map((gauge) => gauge.getAttribute("data-window-key"))).toEqual([
       "claude-session",
       "claude-weekly",
-      "codex-session",
-      "codex-weekly",
     ]);
     expect((gauges[0] as HTMLElement).querySelector(".ct-usage-gauge .pct")?.textContent).toBe("—");
     expect((gauges[1] as HTMLElement).querySelector(".ct-usage-gauge .pct")?.textContent).toBe("34%");
     await unmount();
   });
 
-  it("formats runway reset dates with the Board language", () => {
+  it("mission_control_spend_formats_allowance_reset_dates_with_the_board_language", () => {
     expect(formatResetsAt(NOW + 48 * H, NOW)).toMatch(/resets [A-Z][a-z]{2} \d+ ·/);
   });
 
@@ -565,13 +606,13 @@ describe("mission control board fallback states", () => {
     await unmount();
   });
 
-  it("keeps four runway slots when provider usage is unavailable", async () => {
+  it("mission_control_spend_says_not_recording_instead_of_drawing_empty_gauges", async () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
-    const gauges = host.querySelectorAll('[data-testid="mc-board-runway-gauge"]');
-    expect(gauges).toHaveLength(4);
-    expect(Array.from(gauges).every((gauge) => gauge.querySelector(".ct-usage-gauge .pct")?.textContent === "—")).toBe(true);
-    expect(host.querySelector('[data-testid="mc-board-runway-empty"]')).toBeNull();
+    expect(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(0);
+    expect(host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(0);
+    expect(text(host, "mc-board-spend-empty")).toBe("not recording · enable kpi.enabled");
+    expect(text(host, "mc-board-spend")).not.toContain("—");
     await unmount();
   });
 });
@@ -870,7 +911,7 @@ describe("mission control board layout", () => {
     expect(boardLayout(BOARD_NARROW_MAX_PX)).toBe("narrow");
     expect(boardLayout(BOARD_NARROW_MAX_PX + 1)).toBe("wide");
     expect(BOARD_CARD_COLUMNS.narrow).toBe("repeat(2, minmax(0, 1fr))");
-    expect(BOARD_RUNWAY_COLUMNS.narrow).toBe("minmax(0, 1fr)");
+    expect(BOARD_SPEND_WINDOW_COLUMNS.narrow).toBe("minmax(0, 1fr)");
   });
 
   it("binds every grid track to a zero minimum at 390px so nothing can push the board wider", async () => {
@@ -881,8 +922,8 @@ describe("mission control board layout", () => {
     expect(root.getAttribute("data-board-layout")).toBe("narrow");
 
     const cards = host.querySelector('[data-testid="mc-board-card-grid"]') as HTMLElement;
-    const runway = host.querySelector('[data-testid="mc-board-runway-grid"]') as HTMLElement;
-    const tracks = `${gridTemplate(cards)} ${gridTemplate(runway)}`;
+    const windows = host.querySelector('[data-testid="mc-board-spend-window-grid"]') as HTMLElement;
+    const tracks = `${gridTemplate(cards)} ${gridTemplate(windows)}`;
 
     expect(tracks).toContain("repeat(2, minmax(0, 1fr))");
     expect(tracks).toContain("minmax(0, 1fr)");

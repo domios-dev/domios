@@ -214,28 +214,65 @@ function missionControlState(): MissionControlState {
         tokens: { input: 1_400_000_000, uncached_input: 1_500_000, output: 5_300_000, total: 1_405_300_000 },
       },
     },
-    runway: {
-      state: "reporting",
+    spend: {
+      scope: "machine",
+      state: "recording",
+      not_recording_reason: null,
+      enable_setting: null,
+      measured_tokens: 1_000,
+      turns: 30,
       providers: [
         {
           provider: "claude",
           label: "Claude",
-          captured_at: NOW,
-          session_pct: 58,
-          session_resets_at: NOW + 2 * H,
-          weekly_pct: 34,
-          weekly_resets_at: NOW + 48 * H,
-          stale_reason: null,
+          allowance: {
+            captured_at: NOW,
+            session_used_pct: 58,
+            session_resets_at: NOW + 2 * H,
+            weekly_used_pct: 34,
+            weekly_resets_at: NOW + 48 * H,
+            stale_reason: null,
+          },
+          turns: 20,
+          input_tokens: 600,
+          uncached_input_tokens: 120,
+          output_tokens: 0,
+          models: [
+            {
+              model: "claude-opus-5-with-a-deliberately-long-identifier",
+              turns: 20,
+              input_tokens: 600,
+              uncached_input_tokens: 120,
+              output_tokens: 0,
+              token_share_pct: 60,
+            },
+          ],
         },
         {
           provider: "codex",
           label: "Codex",
-          captured_at: NOW,
-          session_pct: null,
-          session_resets_at: null,
-          weekly_pct: 81,
-          weekly_resets_at: NOW + 72 * H,
-          stale_reason: null,
+          allowance: {
+            captured_at: NOW,
+            session_used_pct: null,
+            session_resets_at: null,
+            weekly_used_pct: 81,
+            weekly_resets_at: NOW + 72 * H,
+            stale_reason: null,
+          },
+          turns: 10,
+          input_tokens: 300,
+          uncached_input_tokens: 90,
+          output_tokens: 100,
+          models: [
+            {
+              model: null,
+              turns: 10,
+              input_tokens: 300,
+              uncached_input_tokens: 90,
+              output_tokens: 100,
+              token_share_pct: 40,
+            },
+          ],
         },
       ],
     },
@@ -309,15 +346,17 @@ describe("mission control narrow shell", () => {
     );
     expect(text(narrow.host, "mc-board-areas")).toContain("Tasks by area");
     expect(text(narrow.host, "mc-board-areas")).not.toContain("Tokens plan total");
-    expect(narrow.host.querySelectorAll('[data-testid="mc-board-runway-gauge"]')).toHaveLength(4);
+    expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(4);
     for (const label of [
       "Claude · session",
       "Claude · weekly",
       "Codex · session",
       "Codex · weekly",
     ]) {
-      expect(text(narrow.host, "mc-board-runway")).toContain(label);
+      expect(text(narrow.host, "mc-board-spend")).toContain(label);
     }
+    expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
+    expect(text(narrow.host, "mc-board-spend")).toContain("Unassigned model");
     expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).not.toBe(
       narrow.host.querySelector('[data-testid="mc-board-card-grid"]'),
     );

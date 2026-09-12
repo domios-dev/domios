@@ -8,9 +8,10 @@ import type {
   EventLog,
   HeldForDecision,
   KpiNotRecordingReason,
+  MissionControlSpend,
   PlanEvent,
   PlanTaskCounts,
-  ProviderRunway,
+  ProviderSpend,
 } from "./missionControlState";
 
 export type BoardLayout = "wide" | "narrow";
@@ -27,8 +28,8 @@ export const BOARD_CARD_COLUMNS: Record<BoardLayout, string> = {
   narrow: "repeat(2, minmax(0, 1fr))",
 };
 
-export const BOARD_RUNWAY_COLUMNS: Record<BoardLayout, string> = {
-  wide: "repeat(4, minmax(0, 1fr))",
+export const BOARD_SPEND_WINDOW_COLUMNS: Record<BoardLayout, string> = {
+  wide: "repeat(2, minmax(0, 1fr))",
   narrow: "minmax(0, 1fr)",
 };
 
@@ -53,6 +54,13 @@ export function formatCompact(value: number): string {
 
 export function formatCount(value: number): string {
   return Math.round(value).toLocaleString("en-US");
+}
+
+/** A small share keeps one decimal so a real model never rounds away to 0%. */
+export function formatSharePct(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded}%`;
 }
 
 export function formatAgeMs(ms: number): string {
@@ -298,7 +306,8 @@ export function longestWaitReading(held: HeldForDecision): LongestWaitReading {
   };
 }
 
-export interface RunwayGauge {
+/** One provider/window allowance reading, as consumed. Never a per-model figure. */
+export interface SpendWindow {
   key: string;
   label: string;
   variant: "session" | "weekly";
@@ -307,32 +316,118 @@ export interface RunwayGauge {
   state: UsageState;
 }
 
+export interface SpendFigure {
+  key: string;
+  label: string;
+  value: number;
+}
+
+export interface SpendModelRow {
+  key: string;
+  label: string;
+  unassigned: boolean;
+  sharePct: number;
+  figures: SpendFigure[];
+}
+
+export interface SpendProviderGroup {
+  key: string;
+  label: string;
+  windows: SpendWindow[];
+  models: SpendModelRow[];
+}
+
+export interface SpendReading {
+  recording: boolean;
+  /** The one line under the heading: the units when measuring, else why not. */
+  note: string;
+  /** Replaces the rows when there is nothing at all to show; never a dash. */
+  emptyCopy: string | null;
+  groups: SpendProviderGroup[];
+}
+
+/** The row label for a ledger model the provider never resolved. */
+export const UNASSIGNED_MODEL_LABEL = "Unassigned model";
+
+/** The one explanatory line the card is allowed. */
+export const SPEND_UNITS_LINE =
+  "% is share of measured tokens · bars are provider allowance used";
+
+export const SPEND_SCOPE_CAPTION = "this machine";
+
 function hasAllowanceWindow(pct: number | null, resetsAt: number | null): pct is number {
   return pct != null && Number.isFinite(pct) && resetsAt != null && Number.isFinite(resetsAt);
 }
 
-const RUNWAY_READINGS = [
-  { provider: "claude", label: "Claude", variant: "session", pct: "session_pct", reset: "session_resets_at" },
-  { provider: "claude", label: "Claude", variant: "weekly", pct: "weekly_pct", reset: "weekly_resets_at" },
-  { provider: "codex", label: "Codex", variant: "session", pct: "session_pct", reset: "session_resets_at" },
-  { provider: "codex", label: "Codex", variant: "weekly", pct: "weekly_pct", reset: "weekly_resets_at" },
+const SPEND_WINDOWS = [
+  { variant: "session", pct: "session_used_pct", reset: "session_resets_at" },
+  { variant: "weekly", pct: "weekly_used_pct", reset: "weekly_resets_at" },
 ] as const;
 
-export function runwayGauges(providers: readonly ProviderRunway[]): RunwayGauge[] {
-  return RUNWAY_READINGS.map((reading) => {
-    const provider = providers.find((candidate) => candidate.provider.toLowerCase() === reading.provider);
-    const pct = provider?.[reading.pct] ?? null;
-    const resetsAt = provider?.[reading.reset] ?? null;
+function providerWindows(provider: ProviderSpend): SpendWindow[] {
+  return SPEND_WINDOWS.map((reading) => {
+    const pct = provider.allowance?.[reading.pct] ?? null;
+    const resetsAt = provider.allowance?.[reading.reset] ?? null;
     const complete = hasAllowanceWindow(pct, resetsAt);
     return {
-      key: `${reading.provider}-${reading.variant}`,
-      label: `${provider?.label.trim() || reading.label} · ${reading.variant}`,
+      key: `${provider.provider}-${reading.variant}`,
+      label: `${provider.label.trim() || provider.provider} · ${reading.variant}`,
       variant: reading.variant,
       pct: complete ? pct : null,
       resetsAt: complete ? resetsAt : null,
       state: classify(complete ? pct : null),
     };
   });
+}
+
+function modelRows(provider: ProviderSpend): SpendModelRow[] {
+  return provider.models.map((model, index) => ({
+    key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
+    label: model.model ?? UNASSIGNED_MODEL_LABEL,
+    unassigned: model.model == null,
+    sharePct: model.token_share_pct,
+    figures: [
+      { key: "turns", label: "turns", value: model.turns },
+      { key: "input", label: "input", value: model.input_tokens },
+      { key: "uncached", label: "uncached", value: model.uncached_input_tokens },
+      { key: "output", label: "output", value: model.output_tokens },
+    ],
+  }));
+}
+
+/** Machine scope has no plan to miss: an empty ledger is simply no data. */
+const SPEND_NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
+  disabled: "not recording",
+  no_rows_for_plan: "no data",
+  unreadable: "ledger unavailable",
+  not_read: "ledger not read",
+};
+
+export function spendNotRecordingCopy(
+  reason: KpiNotRecordingReason | null,
+  enableSetting: string | null = null,
+): string {
+  if (reason === "disabled" && enableSetting) return `not recording · enable ${enableSetting}`;
+  return reason ? SPEND_NOT_RECORDING_COPY[reason] : SPEND_NOT_RECORDING_COPY.not_read;
+}
+
+export function spendReading(spend: MissionControlSpend): SpendReading {
+  const recording = spend.state === "recording";
+  const note = recording
+    ? SPEND_UNITS_LINE
+    : spendNotRecordingCopy(spend.not_recording_reason, spend.enable_setting);
+  const groups = spend.providers.map((provider) => ({
+    key: provider.provider || "unassigned-provider",
+    label: provider.label.trim() || provider.provider,
+    windows: providerWindows(provider),
+    models: modelRows(provider),
+  }));
+  return {
+    recording,
+    note,
+    emptyCopy: groups.length === 0 ? note : null,
+    groups,
+  };
 }
 
 export const TASK_STATUS_FIELDS = [
