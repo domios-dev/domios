@@ -1939,7 +1939,7 @@ button,
 
 .sidebar-disclosure[aria-expanded="true"] .sidebar-disclosure-glyph { transform: rotate(90deg); }
 
-.sidebar-team-card-activation,
+.sidebar-team-card-visual,
 .sidebar-team-card-static {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1949,12 +1949,52 @@ button,
 }
 
 .sidebar-team-card-activation {
+  position: absolute;
+  inset: 3px 0 14px;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  min-height: 0;
   border: 0;
   padding: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-header,
+.sidebar-team-unit-activatable .sidebar-team-readout,
+.sidebar-team-unit-activatable .sidebar-team-body {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-progress-slot {
+  pointer-events: none;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-body .sidebar-team-member,
+.sidebar-team-unit-activatable .sidebar-team-body button,
+.sidebar-team-unit-activatable .sidebar-team-body a,
+.sidebar-team-unit-activatable .sidebar-team-body input,
+.sidebar-team-unit-activatable .sidebar-team-body select,
+.sidebar-team-unit-activatable .sidebar-team-body textarea,
+.sidebar-team-unit-activatable .sidebar-team-body [role="button"],
+.sidebar-team-unit-activatable .sidebar-team-body [tabindex]:not([tabindex="-1"]) {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-disclosure-bar {
+  z-index: 2;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-card-activation:hover,
+.sidebar-team-unit-activatable .sidebar-team-card-activation:focus-visible {
+  background: var(--ct-hover);
 }
 
 .sidebar-disclosure:focus-visible {
@@ -2431,8 +2471,19 @@ button,
   transition: opacity 160ms ease;
 }
 
+.sidebar-team-unit-activatable .sidebar-team-progress-slot,
+.sidebar-team-unit-activatable .sidebar-team-menu-root .sidebar-team-kebab {
+  z-index: 2;
+}
+
 .sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,
 .sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-menu-root .sidebar-team-kebab {
   opacity: 1;
   pointer-events: auto;
 }
