@@ -3,8 +3,23 @@
 //! gate tokens it was spawned with.
 
 use crate::multiplexer::types::TabCloseReason;
+use crate::plan::Task;
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
+
+pub(crate) fn planned_task_title(task: &Task) -> Option<String> {
+    task.personality
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            task.executor_role
+                .as_deref()
+                .map(str::trim)
+                .filter(|role| !role.is_empty())
+        })
+        .map(str::to_string)
+}
 
 pub(crate) fn worker_spawn_plan_task_ref(params: &SpawnAgentParams) -> Option<&str> {
     params
@@ -115,14 +130,8 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let detail = store
         .show_task(&resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
-    if let Some(executor_role) = detail
-        .task
-        .executor_role
-        .as_deref()
-        .map(str::trim)
-        .filter(|role| !role.is_empty())
-    {
-        params.title = Some(executor_role.to_string());
+    if let Some(title) = planned_task_title(&detail.task) {
+        params.title = Some(title);
         params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
     }
     if params.planned_reasoning_effort.is_none() {
