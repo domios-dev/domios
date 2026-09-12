@@ -778,7 +778,7 @@ pub(crate) async fn finish_session_binding(
     // Ordering: the identity above is read from state the nonce check already
     // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {
-        state.svc.retire_deadline_latched_launch(tab_id, evidence);
+        state.svc.retire_provisional_launch(tab_id, evidence);
     }
 
     // while it runs — not only after completion.

@@ -77,7 +77,7 @@ impl MultiplexerState {
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,
-            deadline_latched_launch: None,
+            provisional_launch: None,
         };
         self.tabs.insert(tab_id.clone(), tab);
         tab_id
