@@ -108,7 +108,7 @@ function deferred<T>(): Deferred<T> {
 
 /** `mux_get_state` responses stay pending until explicitly resolved; calls
  * are counted synchronously at invocation, before any settling. */
-async function mountProvider() {
+async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitialOrdinary?: boolean } = {}) {
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   (globalThis as unknown as { sessionStorage: FakeStorage }).sessionStorage.clear();
 
@@ -117,19 +117,39 @@ async function mountProvider() {
   const { MultiplexerProvider } = await import("./index");
 
   let muxGetStateCalls = 0;
+  let ordinaryTabsCalls = 0;
+  let refusedInitialMux = false;
+  let refusedInitialOrdinary = false;
   const pendingMuxGetState: Array<Deferred<unknown>> = [];
+  const eventListeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
   __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
     if (cmd === "mux_get_state") {
       muxGetStateCalls++;
+      if (options.refuseInitialMux && !refusedInitialMux) {
+        refusedInitialMux = true;
+        return Promise.reject(new Error("state snapshot unavailable while tab state is initializing or changing"));
+      }
       const d = deferred<unknown>();
       pendingMuxGetState.push(d);
       return d.promise as Promise<T>;
     }
     if (cmd === "list_notifications") return [] as unknown as T;
-    if (cmd === "ordinary_tabs_list") return [] as unknown as T;
+    if (cmd === "ordinary_tabs_list") {
+      ordinaryTabsCalls++;
+      if (options.refuseInitialOrdinary && !refusedInitialOrdinary) {
+        refusedInitialOrdinary = true;
+        return Promise.reject(new Error("tab summary unavailable while tab state is initializing or changing"));
+      }
+      return [] as unknown as T;
+    }
     return undefined as unknown as T;
   });
-  __setListenForTest(async () => () => {});
+  __setListenForTest(async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+    const listeners = eventListeners.get(event) ?? new Set();
+    listeners.add(handler as (event: { payload: unknown }) => void);
+    eventListeners.set(event, listeners);
+    return () => listeners.delete(handler as (event: { payload: unknown }) => void);
+  });
 
   // Structural spy over the owned scheduler seam: counts real
   // window.setInterval registrations without faking their behavior.
@@ -172,10 +192,16 @@ async function mountProvider() {
     get muxGetStateCalls() {
       return muxGetStateCalls;
     },
+    get ordinaryTabsCalls() {
+      return ordinaryTabsCalls;
+    },
     get intervalCalls() {
       return intervalCalls;
     },
     settleMuxGetState,
+    emit(event: string, payload: unknown = null) {
+      for (const handler of eventListeners.get(event) ?? []) handler({ payload });
+    },
     unmount: async () => {
       await act(async () => root.unmount());
       __setInvokeForTest(null);
@@ -202,6 +228,41 @@ test("healthy stream: no renewal interval, no growth from non-resync events", as
     `expected no growth in mux_get_state calls, baseline=${baseline} after=${harness.muxGetStateCalls}`,
   );
   assert(harness.intervalCalls === 0, "no renewal interval may be registered afterward either");
+  await harness.unmount();
+});
+
+test("authoritative snapshot refusal waits for mux-state-changed", async () => {
+  const harness = await mountProvider({ refuseInitialMux: true });
+  assert(harness.muxGetStateCalls === 1, "the initial authoritative read must be attempted once");
+
+  await harness.act(async () => {
+    harness.emit("mux-state-changed");
+  });
+  await waitUntil(() => harness.muxGetStateCalls === 2, harness.act);
+  await harness.settleMuxGetState();
+  assert(harness.muxGetStateCalls === 2, "one mux event must drive exactly one recovery read");
+
+  await harness.act(async () => {
+    await Promise.resolve();
+  });
+  assert(harness.muxGetStateCalls === 2, "a refusal must not start a timer or caller-side retry");
+  await harness.unmount();
+});
+
+test("ordinary tab refusal waits for mesh-state-changed", async () => {
+  const harness = await mountProvider({ refuseInitialOrdinary: true });
+  assert(harness.ordinaryTabsCalls === 1, "the initial ordinary-tab read must be attempted once");
+
+  await harness.act(async () => {
+    harness.emit("mesh-state-changed");
+  });
+  await waitUntil(() => harness.ordinaryTabsCalls === 2, harness.act);
+  assert(harness.ordinaryTabsCalls === 2, "one mesh event must drive exactly one recovery read");
+
+  await harness.act(async () => {
+    await Promise.resolve();
+  });
+  assert(harness.ordinaryTabsCalls === 2, "ordinary tabs must not poll after a refusal");
   await harness.unmount();
 });
 

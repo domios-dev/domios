@@ -44,7 +44,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
-| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) — the browser bundle's `mux_get_state`. **Bounded:** at most `MAX_CONCURRENT_STATE_SNAPSHOTS` (`api::snapshot_bound`) snapshots build at once; over that the request is answered **503** immediately rather than queued. See *Full-state snapshot overload* below. |
+| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) — the browser bundle's `mux_get_state`. **Bounded:** at most `MAX_CONCURRENT_STATE_SNAPSHOTS` (`api::snapshot_bound`) snapshots build at once; over that, or while a lifecycle writer owns the mux/tracker lock, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. See *Full-state snapshot overload* below. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
@@ -64,9 +64,11 @@ once held >1000 concurrent snapshot requests. The bundle now coalesces to **one
 snapshot fetch in flight** (`src/store/multiplexer/refreshCoalescer.ts`): a request
 arriving mid-fetch never joins it -- that fetch may predate the request's event --
 so it waits for the next one and a burst of any size costs at most two round trips.
-The daemon independently refuses past its own concurrency bound with `503`; that is
-back-pressure, not failure, and a client must retry on its next event rather than
-on a timer.
+The daemon independently refuses past its own concurrency bound with `503`; it also
+refuses immediately when a lifecycle writer owns either snapshot lock. Both are
+back-pressure, not failure: the provider keeps its state in a not-yet-reconciled
+state and the next `mux-state-changed` or `mesh-state-changed` event schedules one
+coalesced read. There is no timer or polling retry.
 
 **Known defect (`rollacode/codeterm#428` family).** The "never by a silent gap"
 guarantee above does not hold today. `EventBus::send_bus` allocates the seq under

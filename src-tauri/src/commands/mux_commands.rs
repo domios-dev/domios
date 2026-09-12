@@ -18,9 +18,20 @@ pub struct OrphanedRestoreInfo {
 }
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
+pub(crate) async fn mux_get_state_from_service(
+    svc: ServiceState,
+) -> Result<MultiplexerSnapshot, String> {
+    tokio::task::spawn_blocking(move || {
+        svc.try_snapshot_with_reconciled_status()
+            .ok_or_else(|| crate::service::SNAPSHOT_BUSY_ERROR.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
-pub fn mux_get_state(svc: State<'_, ServiceState>) -> Result<MultiplexerSnapshot, String> {
-    Ok(svc.snapshot_with_reconciled_status())
+pub async fn mux_get_state(svc: State<'_, ServiceState>) -> Result<MultiplexerSnapshot, String> {
+    mux_get_state_from_service(svc.inner().clone()).await
 }
 
 /// Create a new workspace.
@@ -61,6 +72,44 @@ pub fn mux_rename_workspace(
     name: String,
 ) -> Result<(), String> {
     svc.rename_workspace(&workspace_id, &name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mux_get_state_from_service;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use crate::service::SNAPSHOT_BUSY_ERROR;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    #[test]
+    fn authoritative_command_refuses_without_blocking_runtime() {
+        let (state, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(state);
+        let svc = Arc::new(fixture.service.clone());
+        let _lifecycle_owner = fixture.service.mux.write();
+        let (done_tx, done_rx) = mpsc::channel();
+
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let error = runtime
+                .block_on(mux_get_state_from_service(svc))
+                .expect_err("a lifecycle-owned mux must be refused");
+            done_tx.send(error).unwrap();
+        });
+
+        assert_eq!(
+            done_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("the Tauri command must not block its runtime"),
+            SNAPSHOT_BUSY_ERROR
+        );
+        worker.join().unwrap();
+    }
 }
 
 #[cfg(test)]
