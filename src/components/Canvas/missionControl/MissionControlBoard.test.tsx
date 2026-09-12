@@ -11,7 +11,6 @@ import {
   BOARD_RUNWAY_COLUMNS,
   boardLayout,
   formatClock,
-  kpiEnableCommand,
 } from "./missionControlBoardModel";
 import type {
   KpiNotRecordingReason,
@@ -190,8 +189,8 @@ function recordingState(): MissionControlState {
           provider: "codex",
           label: "Codex",
           captured_at: NOW,
-          session_pct: null,
-          session_resets_at: null,
+          session_pct: 42,
+          session_resets_at: NOW + 3 * H,
           weekly_pct: 81,
           weekly_resets_at: NOW + 72 * H,
           stale_reason: null,
@@ -320,18 +319,28 @@ describe("mission control board cards", () => {
     expect(text(host, "mc-board-held-amount")).toBe("2");
     expect(text(host, "mc-board-held")).toContain("1 h 07 m");
     expect(text(host, "mc-board-held")).toContain("8");
+    expect(host.querySelectorAll(".mc-board-source")).toHaveLength(0);
+    expect(host.textContent?.toLowerCase()).not.toContain("report runs collapsed");
+    expect(host.textContent?.toLowerCase()).not.toContain("provider allowance snapshots reset per gauge");
+    expect(host.textContent?.toLowerCase()).not.toContain("provider allowance snapshots");
     await unmount();
   });
 
-  it("keeps Spend by area full width below the card grid", async () => {
+  it("keeps task distribution full width below the card grid and separate from Tokens", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     const grid = host.querySelector('[data-testid="mc-board-card-grid"]');
     const held = host.querySelector('[data-testid="mc-board-held"]');
-    const spend = host.querySelector('[data-testid="mc-board-areas"]');
+    const areas = host.querySelector('[data-testid="mc-board-areas"]');
     expect(held?.parentElement).toBe(grid);
-    expect(spend?.parentElement).not.toBe(grid);
-    expect(grid?.nextElementSibling).toBe(spend);
+    expect(areas?.parentElement).not.toBe(grid);
+    expect(grid?.nextElementSibling).toBe(areas);
+    expect(text(host, "mc-board-areas")).toContain("Tasks by area");
+    expect(text(host, "mc-board-area-tokens-relation")).toBe(
+      "Task counts only · Tokens plan total · no area token attribution",
+    );
+    expect(text(host, "mc-board-areas")).not.toContain("Spend by area");
+    expect(text(host, "mc-board-areas")).not.toContain("token spend");
     await unmount();
   });
 
@@ -346,13 +355,14 @@ describe("mission control board cards", () => {
     await unmount();
   });
 
-  it("renders one gauge per reported provider cycle with its own reset", async () => {
+  it("renders one gauge per supported provider window with its own reset", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     const gauges = host.querySelectorAll('[data-testid="mc-board-runway-gauge"]');
     expect(Array.from(gauges).map((g) => g.getAttribute("data-runway-key"))).toEqual([
       "claude-session",
       "claude-weekly",
+      "codex-session",
       "codex-weekly",
     ]);
     const first = gauges[0] as HTMLElement;
@@ -360,13 +370,19 @@ describe("mission control board cards", () => {
     expect(first.querySelector(".ct-usage-gauge .reset")?.textContent).toContain("resets");
     expect(first.textContent).toContain("Claude · session allowance used");
     expect((gauges[1] as HTMLElement).textContent).toContain("Claude · weekly allowance used");
-    expect((gauges[2] as HTMLElement).textContent).toContain("Codex · weekly allowance used");
+    expect((gauges[2] as HTMLElement).textContent).toContain("Codex · session allowance used");
+    expect((gauges[3] as HTMLElement).textContent).toContain("Codex · weekly allowance used");
     for (const gauge of gauges) {
       expect(gauge.textContent).toContain("allowance used");
       expect(gauge.textContent).toContain("resets");
     }
-    const warned = gauges[2] as HTMLElement;
+    const warned = gauges[3] as HTMLElement;
     expect(warned.querySelector(".ct-usage-gauge")?.className).toContain("warn");
+    expect(BOARD_RUNWAY_COLUMNS.wide).toBe("repeat(4, minmax(0, 1fr))");
+    const usageCss = readFileSync("src/components/Usage/styles.css", "utf8");
+    expect(usageCss).toContain(".ct-usage-gauge .bar::before { left: 60%; }");
+    expect(usageCss).toContain(".ct-usage-gauge .bar::after { left: 85%; }");
+    expect(text(host, "mc-board-runway")).not.toContain("snapshot");
     await unmount();
   });
 
@@ -376,13 +392,13 @@ describe("mission control board cards", () => {
     state.runway.providers = [{
       ...provider,
       session_resets_at: null,
-      weekly_pct: null,
-      weekly_resets_at: null,
     }];
     const { host, unmount } = await render(board(state));
 
-    expect(host.querySelectorAll('[data-testid="mc-board-runway-gauge"]')).toHaveLength(0);
-    expect(text(host, "mc-board-runway-empty")).toBe("No complete allowance window available.");
+    expect(Array.from(host.querySelectorAll('[data-testid="mc-board-runway-gauge"]')).map((gauge) =>
+      gauge.getAttribute("data-runway-key"),
+    )).toEqual(["claude-weekly"]);
+    expect(text(host, "mc-board-runway")).not.toContain("58%");
     await unmount();
   });
 
@@ -409,7 +425,7 @@ describe("mission control board fallback states", () => {
     await unmount();
   });
 
-  it("names the exact setting that turns recording on when it is switched off", async () => {
+  it("keeps the disabled KPI state concise and names its setting", async () => {
     const setting = "kpi.enabled";
     const state = notRecordingState();
     state.kpi = {
@@ -423,8 +439,7 @@ describe("mission control board fallback states", () => {
     for (const card of ["mc-board-tokens", "mc-board-turns"]) {
       const reading = text(host, card);
       expect(reading).toContain(setting);
-      expect(reading).toContain(kpiEnableCommand(setting));
-      expect(reading).toContain("restart CodeTerm");
+      expect(reading).toContain("Recording off");
     }
     expect(text(host, "mc-board-tokens-amount")).toBe("—");
     expect(text(host, "mc-board-turns-amount")).toBe("—");
@@ -438,6 +453,12 @@ describe("mission control board fallback states", () => {
       "unreadable",
       "not_read",
     ];
+    const emptyCopy: Record<KpiNotRecordingReason, string> = {
+      disabled: "not recording",
+      no_rows_for_plan: "no plan ledger row",
+      unreadable: "ledger unavailable",
+      not_read: "ledger not read",
+    };
     for (const reason of reasons) {
       const state = notRecordingState();
       state.kpi = {
@@ -450,8 +471,8 @@ describe("mission control board fallback states", () => {
 
       expect(text(host, "mc-board-tokens-amount")).toBe("—");
       expect(text(host, "mc-board-turns-amount")).toBe("—");
-      expect(text(host, "mc-board-tokens")).toContain("not recording");
-      expect(text(host, "mc-board-turns").toLowerCase()).toContain("no figure");
+      expect(text(host, "mc-board-tokens")).toContain(emptyCopy[reason]);
+      expect(text(host, "mc-board-turns").toLowerCase()).not.toContain("no figure");
       await unmount();
     }
   });
@@ -489,9 +510,10 @@ describe("mission control board fallback states", () => {
     expect(rows[0]?.share).toBe("67%");
     expect(rows[1]?.label).toContain("No role recorded");
     expect(rows[1]?.share).toBe("33%");
-    expect(text(host, "mc-board-area-no-facet")).toBe(
-      "No area facet declared; stored executor roles are the fallback grouping.",
-    );
+    expect(text(host, "mc-board-areas")).toContain("Tasks by role");
+    expect(text(host, "mc-board-areas")).toContain("executor role fallback");
+    expect(text(host, "mc-board-area-no-facet")).toBe("Area facet not declared · using executor roles");
+    expect(text(host, "mc-board-area-tokens-relation")).toContain("Tokens plan total");
     await unmount();
   });
 

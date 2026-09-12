@@ -204,20 +204,6 @@
   flex: 0 0 auto;
 }
 
-.mc-board-source {
-  margin: 6px 0 0;
-  padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--ct-muted);
-  overflow-wrap: anywhere;
-}
-
-.mc-board-card > .mc-board-source {
-  margin-top: auto;
-}
-
 .mc-board-note {
   margin: 0;
   font-size: 0.8125rem;
@@ -232,6 +218,15 @@
 
 .mc-board[data-board-layout="narrow"] .mc-board-status-list {
   column-gap: 6px;
+}
+
+.mc-board-runway-gauge {
+  min-width: 0;
+}
+
+.mc-board-runway-gauge .ct-usage-gauge .label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .mc-board-kv-list {

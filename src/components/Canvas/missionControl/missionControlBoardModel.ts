@@ -27,7 +27,7 @@ export const BOARD_CARD_COLUMNS: Record<BoardLayout, string> = {
 };
 
 export const BOARD_RUNWAY_COLUMNS: Record<BoardLayout, string> = {
-  wide: "repeat(3, minmax(0, 1fr))",
+  wide: "repeat(4, minmax(0, 1fr))",
   narrow: "minmax(0, 1fr)",
 };
 
@@ -169,8 +169,7 @@ export function eventLogRows(
 }
 
 export function eventLogCaption(log: EventLog): string {
-  const truncated = log.truncated ? ", newest kept" : "";
-  return `${formatCount(log.recorded_events)} events · ${formatCount(log.entries.length)} lines · report runs collapsed${truncated}`;
+  return `${formatCount(log.recorded_events)} events · ${formatCount(log.entries.length)} lines`;
 }
 
 export interface AreaRow {
@@ -185,14 +184,15 @@ export interface AreaRow {
 export interface AreaReading {
   declared: boolean;
   facetLabel: string | null;
+  title: "Tasks by area" | "Tasks by role";
+  caption: string;
   rows: AreaRow[];
   untagged: number;
-  /** Set only in the no-facet state; the board prints it verbatim. */
   noFacetMessage: string | null;
 }
 
 const NO_FACET_MESSAGE =
-  "No area facet declared; stored executor roles are the fallback grouping.";
+  "Area facet not declared · using executor roles";
 
 function share(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 100) : 0;
@@ -205,6 +205,8 @@ export function areaReading(areas: AreaGrouping): AreaReading {
     return {
       declared: true,
       facetLabel: areas.facet_label ?? areas.facet_key,
+      title: "Tasks by area",
+      caption: `${areas.facet_label ?? "Area"} facet`,
       rows: areas.groups.map((group) => ({
         key: group.value,
         label: group.label,
@@ -220,6 +222,8 @@ export function areaReading(areas: AreaGrouping): AreaReading {
   return {
     declared: false,
     facetLabel: null,
+    title: "Tasks by role",
+    caption: "executor role fallback",
     rows: areas.role_fallback.map((group, index) => ({
       key: group.executor_role ?? `no-role-${index}`,
       label: group.executor_role ?? "No role recorded",
@@ -239,7 +243,6 @@ export interface RunwayGauge {
   pct: number;
   resetsAt: number | null;
   state: UsageState;
-  staleReason: string | null;
 }
 
 function hasAllowanceWindow(pct: number | null, resetsAt: number | null): pct is number {
@@ -248,7 +251,9 @@ function hasAllowanceWindow(pct: number | null, resetsAt: number | null): pct is
 
 export function runwayGauges(providers: readonly ProviderRunway[]): RunwayGauge[] {
   const gauges: RunwayGauge[] = [];
-  for (const provider of providers) {
+  for (const providerId of ["claude", "codex"] as const) {
+    const provider = providers.find((candidate) => candidate.provider.toLowerCase() === providerId);
+    if (!provider) continue;
     const providerLabel = provider.label.trim() || provider.provider;
     const sessionPct = provider.session_pct;
     const sessionResetsAt = provider.session_resets_at;
@@ -260,7 +265,6 @@ export function runwayGauges(providers: readonly ProviderRunway[]): RunwayGauge[
         pct: sessionPct,
         resetsAt: sessionResetsAt,
         state: classify(sessionPct),
-        staleReason: provider.stale_reason,
       });
     }
     const weeklyPct = provider.weekly_pct;
@@ -273,7 +277,6 @@ export function runwayGauges(providers: readonly ProviderRunway[]): RunwayGauge[
         pct: weeklyPct,
         resetsAt: weeklyResetsAt,
         state: classify(weeklyPct),
-        staleReason: provider.stale_reason,
       });
     }
   }
@@ -298,25 +301,16 @@ export function taskStatusBreakdown(counts: PlanTaskCounts) {
 }
 
 const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
-  disabled: "not recording — the KPI ledger is switched off",
-  no_rows_for_plan: "not recording — the ledger holds no row for this plan",
-  unreadable: "not recording — the ledger could not be read",
-  not_read: "not recording — no ledger reader is attached",
+  disabled: "not recording",
+  no_rows_for_plan: "no plan ledger row",
+  unreadable: "ledger unavailable",
+  not_read: "ledger not read",
 };
 
 export function notRecordingCopy(reason: KpiNotRecordingReason | null): string {
   return reason ? NOT_RECORDING_COPY[reason] : NOT_RECORDING_COPY.not_read;
 }
 
-export function kpiEnableCommand(setting: string): string {
-  return `codeterm config set ${setting} true`;
-}
-
-/**
- * What a person must do about this state. The opt-out branch names the exact setting
- * the snapshot carries, so a not-recording card is never a bare label; every other
- * branch says why no figure exists rather than offering a switch that would not help.
- */
 export function notRecordingDetail(
   reason: KpiNotRecordingReason | null,
   enableSetting: string | null,
@@ -324,13 +318,13 @@ export function notRecordingDetail(
   switch (reason ?? "not_read") {
     case "disabled":
       return enableSetting
-        ? `Recording off; no figure. Set ${enableSetting}=true, run ${kpiEnableCommand(enableSetting)}, then restart CodeTerm.`
-        : "Recording off; no figure. Re-enable [kpi] in config.toml, then restart CodeTerm.";
+        ? `Recording off · enable ${enableSetting}`
+        : "Recording off";
     case "no_rows_for_plan":
-      return "No ledger row for this plan yet; no figure.";
+      return "No plan ledger row";
     case "unreadable":
-      return "Ledger unreadable; no figure. See the daemon log for the error.";
+      return "Ledger unavailable";
     default:
-      return "No ledger reader attached; no figure.";
+      return "Ledger not read";
   }
 }
