@@ -2,8 +2,9 @@
 //! sqlite and provider-file parsing happen on a dedicated std thread, never on the
 //! Tauri async runtime and never inside a delivery's critical section.
 
+use std::collections::BTreeSet;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use super::attribution::KpiAttribution;
 use super::usage::{UsageIngestor, UsageSource};
@@ -18,8 +19,12 @@ enum KpiCommand {
     Drain(SyncSender<()>),
 }
 
+/// Receives the distinct plan ids of one committed batch; unattributed rows add none.
+pub type CommitListener = Box<dyn Fn(Vec<String>) + Send + Sync>;
+
 struct RecorderInner {
     tx: Sender<KpiCommand>,
+    on_commit: Arc<OnceLock<CommitListener>>,
     /// Read side for callers that project ledger aggregates; writes stay on the thread.
     ledger: Arc<KpiLedger>,
 }
@@ -66,6 +71,8 @@ impl KpiRecorder {
 
     pub fn with_ledger(ledger: Arc<KpiLedger>) -> Self {
         let reader = Arc::clone(&ledger);
+        let on_commit: Arc<OnceLock<CommitListener>> = Arc::default();
+        let listener = Arc::clone(&on_commit);
         let (tx, rx) = channel::<KpiCommand>();
         std::thread::Builder::new()
             .name("kpi-ledger".into())
@@ -73,6 +80,7 @@ impl KpiRecorder {
                 let mut ingestor = UsageIngestor::default();
                 let mut pending: Vec<KpiEventInput> = Vec::new();
                 while let Ok(first) = rx.recv() {
+                    let mut committed = Committed::default();
                     // Whatever else is already queued joins this commit; the loop never
                     // waits for a batch to fill.
                     for cmd in std::iter::once(first).chain(rx.try_iter()) {
@@ -82,22 +90,41 @@ impl KpiRecorder {
                                 source,
                                 attribution,
                             } => {
-                                flush(&ledger, &mut pending);
-                                ingest_into_ledger(&ledger, &mut ingestor, &source, &attribution);
+                                flush(&ledger, &mut pending, &mut committed);
+                                ingest_into_ledger(
+                                    &ledger,
+                                    &mut ingestor,
+                                    &source,
+                                    &attribution,
+                                    &mut committed,
+                                );
                             }
                             KpiCommand::Drain(ack) => {
-                                flush(&ledger, &mut pending);
+                                flush(&ledger, &mut pending, &mut committed);
+                                committed.notify(&listener);
                                 let _ = ack.send(());
                             }
                         }
                     }
-                    flush(&ledger, &mut pending);
+                    flush(&ledger, &mut pending, &mut committed);
+                    committed.notify(&listener);
                 }
             })
             .expect("spawn kpi-ledger thread");
         Self {
-            inner: Some(Arc::new(RecorderInner { tx, ledger: reader })),
+            inner: Some(Arc::new(RecorderInner {
+                tx,
+                on_commit,
+                ledger: reader,
+            })),
             open_failed: false,
+        }
+    }
+
+    /// Installs the one commit listener; a later call is ignored.
+    pub fn on_commit(&self, listener: impl Fn(Vec<String>) + Send + Sync + 'static) {
+        if let Some(inner) = &self.inner {
+            let _ = inner.on_commit.set(Box::new(listener));
         }
     }
 
@@ -138,7 +165,31 @@ impl KpiRecorder {
     }
 }
 
-fn flush(ledger: &KpiLedger, pending: &mut Vec<KpiEventInput>) {
+#[derive(Default)]
+struct Committed {
+    wrote: bool,
+    plans: BTreeSet<String>,
+}
+
+impl Committed {
+    fn record(&mut self, events: &[KpiEventInput]) {
+        self.wrote |= !events.is_empty();
+        self.plans
+            .extend(events.iter().filter_map(|event| event.plan_id.clone()));
+    }
+
+    fn notify(&mut self, listener: &OnceLock<CommitListener>) {
+        let committed = std::mem::take(self);
+        if !committed.wrote {
+            return;
+        }
+        if let Some(listener) = listener.get() {
+            listener(committed.plans.into_iter().collect());
+        }
+    }
+}
+
+fn flush(ledger: &KpiLedger, pending: &mut Vec<KpiEventInput>, committed: &mut Committed) {
     if pending.is_empty() {
         return;
     }
@@ -148,6 +199,8 @@ fn flush(ledger: &KpiLedger, pending: &mut Vec<KpiEventInput>) {
             pending.len(),
             e
         );
+    } else {
+        committed.record(pending);
     }
     pending.clear();
 }
@@ -172,6 +225,7 @@ fn ingest_into_ledger(
     ingestor: &mut UsageIngestor,
     source: &UsageSource,
     attribution: &KpiAttribution,
+    committed: &mut Committed,
 ) {
     seed_cursor_from_ledger(ledger, ingestor, source);
     let offset_before = ingestor.cursor_offset(source);
@@ -215,7 +269,8 @@ fn ingest_into_ledger(
             ),
         })
         .collect();
-    if let Err(e) = ledger.insert_usage_batch(&events, &source.path.to_string_lossy(), new_offset) {
-        log::warn!("[kpi] usage insert failed: {}", e);
+    match ledger.insert_usage_batch(&events, &source.path.to_string_lossy(), new_offset) {
+        Ok(()) => committed.record(&events),
+        Err(e) => log::warn!("[kpi] usage insert failed: {}", e),
     }
 }
