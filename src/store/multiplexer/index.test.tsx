@@ -240,12 +240,12 @@ test("authoritative snapshot refusal waits for mux-state-changed", async () => {
   });
   await waitUntil(() => harness.muxGetStateCalls === 2, harness.act);
   await harness.settleMuxGetState();
-  assert(harness.muxGetStateCalls === 2, "one mux event must drive exactly one recovery read");
+  assert((harness.muxGetStateCalls as number) === 2, "one mux event must drive exactly one recovery read");
 
   await harness.act(async () => {
     await Promise.resolve();
   });
-  assert(harness.muxGetStateCalls === 2, "a refusal must not start a timer or caller-side retry");
+  assert((harness.muxGetStateCalls as number) === 2, "a refusal must not start a timer or caller-side retry");
   await harness.unmount();
 });
 
@@ -257,12 +257,12 @@ test("ordinary tab refusal waits for mesh-state-changed", async () => {
     harness.emit("mesh-state-changed");
   });
   await waitUntil(() => harness.ordinaryTabsCalls === 2, harness.act);
-  assert(harness.ordinaryTabsCalls === 2, "one mesh event must drive exactly one recovery read");
+  assert((harness.ordinaryTabsCalls as number) === 2, "one mesh event must drive exactly one recovery read");
 
   await harness.act(async () => {
     await Promise.resolve();
   });
-  assert(harness.ordinaryTabsCalls === 2, "ordinary tabs must not poll after a refusal");
+  assert((harness.ordinaryTabsCalls as number) === 2, "ordinary tabs must not poll after a refusal");
   await harness.unmount();
 });
 
