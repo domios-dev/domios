@@ -283,10 +283,10 @@ describe("mission control narrow shell", () => {
     expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
-    expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).toBe(
+    expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).not.toBe(
       narrow.host.querySelector('[data-testid="mc-board-card-grid"]'),
     );
-    expect(narrow.host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(6);
+    expect(narrow.host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(5);
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions"]')).not.toBeNull();
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).not.toBeNull();
     expect(narrow.host.querySelector('[data-testid="plan-board-status"]')).toBeNull();

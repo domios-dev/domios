@@ -323,15 +323,15 @@ describe("mission control board cards", () => {
     await unmount();
   });
 
-  it("places Spend by area beside Held in the wide card grid", async () => {
+  it("keeps Spend by area full width below the card grid", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     const grid = host.querySelector('[data-testid="mc-board-card-grid"]');
     const held = host.querySelector('[data-testid="mc-board-held"]');
     const spend = host.querySelector('[data-testid="mc-board-areas"]');
     expect(held?.parentElement).toBe(grid);
-    expect(spend?.parentElement).toBe(grid);
-    expect(spend?.previousElementSibling).toBe(held);
+    expect(spend?.parentElement).not.toBe(grid);
+    expect(grid?.nextElementSibling).toBe(spend);
     await unmount();
   });
 
