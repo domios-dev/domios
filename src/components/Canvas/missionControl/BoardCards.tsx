@@ -7,6 +7,7 @@ import {
   formatCompact,
   formatCount,
   notRecordingCopy,
+  notRecordingDetail,
   runwayGauges,
   type BoardLayout,
 } from "./missionControlBoardModel";
@@ -62,7 +63,7 @@ export function TokensCard({ kpi }: { kpi: MissionControlKpi }) {
             of it uncached · <b>{formatCompact(spend.tokens.total)}</b> in total
           </>
         ) : (
-          "No token figure is shown while the ledger is not recording."
+          notRecordingDetail(kpi.not_recording_reason, kpi.enable_setting)
         )
       }
       source="KPI ledger, the rows attributed to this plan"
@@ -84,7 +85,7 @@ export function TurnsCard({ kpi }: { kpi: MissionControlKpi }) {
             <b>{formatCount(spend.events)}</b> ledger events · <b>{formatCompact(spend.bytes)}</b> bytes
           </>
         ) : (
-          "No turn figure is shown while the ledger is not recording."
+          notRecordingDetail(kpi.not_recording_reason, kpi.enable_setting)
         )
       }
       source="KPI ledger, the rows attributed to this plan"

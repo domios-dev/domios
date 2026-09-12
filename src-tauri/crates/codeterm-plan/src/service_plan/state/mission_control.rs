@@ -139,7 +139,7 @@ pub enum KpiLedgerState {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum KpiNotRecordingReason {
-    /// `kpi.enabled` is false, so no ledger exists to read.
+    /// Someone opted out: `kpi.enabled` is false, so no ledger exists to read.
     Disabled,
     /// The ledger is on but holds no row attributed to this plan.
     NoRowsForPlan,
@@ -149,12 +149,19 @@ pub enum KpiNotRecordingReason {
     NotRead,
 }
 
+/// Carried in the snapshot so a not-recording surface names the real config key
+/// rather than a string hand-copied into the UI.
+pub use codeterm_types::config::schema::KPI_ENABLED_KEY as KPI_ENABLED_SETTING;
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct MissionControlKpi {
     pub state: KpiLedgerState,
     pub not_recording_reason: Option<KpiNotRecordingReason>,
     /// `None` whenever `state` is `not_recording` — a missing ledger shows no number.
     pub spend: Option<PlanKpiSpend>,
+    /// `Some` exactly when recording is off because of the opt-out, and never for a
+    /// state the setting would not fix.
+    pub enable_setting: Option<&'static str>,
 }
 
 impl Default for MissionControlKpi {
@@ -165,10 +172,13 @@ impl Default for MissionControlKpi {
 
 impl MissionControlKpi {
     pub fn not_recording(reason: KpiNotRecordingReason) -> Self {
+        let enable_setting =
+            matches!(reason, KpiNotRecordingReason::Disabled).then_some(KPI_ENABLED_SETTING);
         Self {
             state: KpiLedgerState::NotRecording,
             not_recording_reason: Some(reason),
             spend: None,
+            enable_setting,
         }
     }
 
@@ -177,6 +187,7 @@ impl MissionControlKpi {
             state: KpiLedgerState::Recording,
             not_recording_reason: None,
             spend: Some(spend),
+            enable_setting: None,
         }
     }
 }

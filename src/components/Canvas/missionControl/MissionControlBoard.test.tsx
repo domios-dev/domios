@@ -11,8 +11,13 @@ import {
   BOARD_RUNWAY_COLUMNS,
   boardLayout,
   formatClock,
+  kpiEnableCommand,
 } from "./missionControlBoardModel";
-import type { MissionControlState, PlanBoardState } from "./missionControlState";
+import type {
+  KpiNotRecordingReason,
+  MissionControlState,
+  PlanBoardState,
+} from "./missionControlState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -154,6 +159,7 @@ function recordingState(): MissionControlState {
     kpi: {
       state: "recording",
       not_recording_reason: null,
+      enable_setting: null,
       spend: {
         events: 4023,
         bytes: 65_000_000,
@@ -193,7 +199,12 @@ function notRecordingState(): MissionControlState {
   const base = recordingState();
   return {
     ...base,
-    kpi: { state: "not_recording", not_recording_reason: "disabled", spend: null },
+    kpi: {
+      state: "not_recording",
+      not_recording_reason: "disabled",
+      enable_setting: "kpi.enabled",
+      spend: null,
+    },
     areas: {
       state: "no_facet",
       facet_key: null,
@@ -343,6 +354,75 @@ describe("mission control board fallback states", () => {
     expect(text(host, "mc-board-tokens-amount")).toBe("—");
     expect(text(host, "mc-board-turns-amount")).toBe("—");
     expect(text(host, "mc-board-tokens")).toContain("not recording");
+    await unmount();
+  });
+
+  it("names the exact setting that turns recording on when it is switched off", async () => {
+    const setting = "kpi.enabled";
+    const state = notRecordingState();
+    state.kpi = {
+      state: "not_recording",
+      not_recording_reason: "disabled",
+      enable_setting: setting,
+      spend: null,
+    };
+    const { host, unmount } = await render(board(state));
+
+    for (const card of ["mc-board-tokens", "mc-board-turns"]) {
+      const reading = text(host, card);
+      expect(reading).toContain(setting);
+      expect(reading).toContain(kpiEnableCommand(setting));
+      expect(reading).toContain("restart CodeTerm");
+    }
+    expect(text(host, "mc-board-tokens-amount")).toBe("—");
+    expect(text(host, "mc-board-turns-amount")).toBe("—");
+    await unmount();
+  });
+
+  it("never substitutes a zero for a missing figure in any not-recording reason", async () => {
+    const reasons: KpiNotRecordingReason[] = [
+      "disabled",
+      "no_rows_for_plan",
+      "unreadable",
+      "not_read",
+    ];
+    for (const reason of reasons) {
+      const state = notRecordingState();
+      state.kpi = {
+        state: "not_recording",
+        not_recording_reason: reason,
+        enable_setting: reason === "disabled" ? "kpi.enabled" : null,
+        spend: null,
+      };
+      const { host, unmount } = await render(board(state));
+
+      expect(text(host, "mc-board-tokens-amount")).toBe("—");
+      expect(text(host, "mc-board-turns-amount")).toBe("—");
+      expect(text(host, "mc-board-tokens")).toContain("not recording");
+      expect(text(host, "mc-board-turns").toLowerCase()).toContain("no figure is shown");
+      await unmount();
+    }
+  });
+
+  it("reads real ledger figures once recording is active", async () => {
+    const state = recordingState();
+    state.kpi = {
+      state: "recording",
+      not_recording_reason: null,
+      enable_setting: null,
+      spend: {
+        events: 7,
+        bytes: 4096,
+        turns: 3,
+        tokens: { input: 514_028, uncached_input: 25_600, output: 1800, total: 515_828 },
+      },
+    };
+    const { host, unmount } = await render(board(state));
+
+    expect(text(host, "mc-board-tokens-amount")).toBe("1.8K");
+    expect(text(host, "mc-board-turns-amount")).toBe("3");
+    expect(text(host, "mc-board-tokens")).not.toContain("not recording");
+    expect(text(host, "mc-board-turns")).not.toContain("not recording");
     await unmount();
   });
 

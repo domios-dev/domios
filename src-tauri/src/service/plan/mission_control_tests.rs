@@ -418,3 +418,225 @@ fn mission_control_state_endpoint_uses_ledger_without_jsonl_scan() {
     assert_eq!(payload["mission_control"]["kpi"]["spend"]["turns"], 1);
     assert!(payload["mission_control"]["runway"]["state"].is_string());
 }
+
+/// The plan the live Board proof runs against; the aggregate here is written by the
+/// same hooks that plan's team drives, not by a hand-built ledger row.
+const LIVE_PLAN_ID: &str = "pl_ad3tcu";
+
+fn live_plan(fixture: &crate::service::test_fixture::ServiceFixture) -> Plan {
+    let mut plan = Plan::new(
+        "CodeTerm 1.10.17 verification".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef {
+            tab_id: Some("tab-orch".into()),
+            session_id: None,
+            title: Some("Planck".into()),
+        },
+    );
+    plan.id = LIVE_PLAN_ID.into();
+    plan.status = PlanStatus::Active;
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    plan
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn enabled_kpi_hooks_produce_plan_token_and_turn_aggregate() {
+    use crate::agent::test_provider::MockProvider;
+    use crate::multiplexer::types::AgentRole;
+    use crate::service::messenger::MessageKind;
+
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let mut fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    // The provider owns its session log; the host reaches it only through the capability.
+    let session = fixture.temp.path().join("session.jsonl");
+    std::fs::write(
+        &session,
+        include_str!("../../agent/kpi/usage/fixtures/claude-session.jsonl"),
+    )
+    .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(MockProvider::with_session_file(
+            "kpi-mock",
+            session.clone(),
+        )));
+
+    let workspace = fixture
+        .service
+        .mux
+        .write()
+        .create_workspace("kpi".into(), None)
+        .id;
+    let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("kpi-mock".into());
+        tab.cwd = Some(fixture.temp.path().display().to_string());
+        tab.agent_session_id = Some("sess-kpi".into());
+        tab.role = Some(AgentRole::Worker);
+    }
+
+    let plan = live_plan(&fixture);
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Make KPI recording available to Mission Control".into(),
+                kind: "implement".into(),
+                assigned_tab_id: Some(tab_id.clone()),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    {
+        let mut active = fixture.service.plan_store.get(&plan.id).unwrap();
+        active.status = PlanStatus::Active;
+        fixture.service.plan_store.save(&mut active, 3).unwrap();
+    }
+    assert_eq!(
+        fixture.service.plan_store.task_binding_for_tab(&tab_id),
+        Some((plan.id.clone(), task_id.clone())),
+        "the hooks resolve attribution through this binding; without it the test proves nothing"
+    );
+
+    let ledger = std::sync::Arc::new(
+        KpiLedger::open_at(&fixture.temp.path().join("kpi_ledger.db")).unwrap(),
+    );
+    fixture.service.kpi = KpiRecorder::with_ledger(ledger.clone());
+
+    // The shipped choke points, called exactly as spawn, deliver, report and output do.
+    fixture
+        .service
+        .record_kpi_spawn(&tab_id, Some("claude-opus-5"), 120);
+    fixture
+        .service
+        .record_kpi_delivery(&tab_id, MessageKind::Message, 64);
+    fixture.service.record_kpi_report(
+        &tab_id,
+        Some(plan.id.as_str()),
+        Some(task_id.as_str()),
+        Some("claude-opus-5"),
+        48,
+        "rep_kpi_1",
+    );
+    fixture.service.request_kpi_usage_ingest(&tab_id);
+    fixture.service.kpi.drain();
+
+    let row = ledger
+        .aggregate_by_plan()
+        .unwrap()
+        .into_iter()
+        .find(|row| row.plan_id.as_deref() == Some(LIVE_PLAN_ID))
+        .expect("the hooks must attribute their rows to the plan bound to the tab");
+    assert_eq!(row.turns, 3, "one turn per usage record the provider wrote");
+    assert_eq!(row.output_tokens, 1800);
+    assert_eq!(row.input_tokens, 514_028);
+    assert_eq!(row.uncached_input_tokens, 25_600);
+    assert_eq!(
+        row.count, 7,
+        "three choke-point events, three usage turns and one compaction"
+    );
+
+    let snapshot = fixture.service.build_plan_state(&plan.id, NOW).unwrap();
+    let kpi = snapshot.mission_control.kpi;
+    assert_eq!(kpi.state, KpiLedgerState::Recording);
+    assert_eq!(kpi.not_recording_reason, None);
+    assert_eq!(
+        kpi.enable_setting, None,
+        "nothing to enable while recording"
+    );
+    let spend = kpi.spend.expect("a recording board carries a figure");
+    assert_eq!(spend.turns, row.turns);
+    assert_eq!(spend.tokens.output, row.output_tokens);
+    assert_eq!(spend.tokens.input, row.input_tokens);
+    assert_eq!(spend.tokens.uncached_input, row.uncached_input_tokens);
+    assert_eq!(spend.tokens.total, row.input_tokens + row.output_tokens);
+    assert_eq!(spend.events, row.count);
+    assert!(
+        spend.tokens.output > 0 && spend.turns > 0,
+        "the Board reads real figures, not placeholders"
+    );
+
+    let payload = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(payload["mission_control"]["kpi"]["state"], "recording");
+    assert_eq!(payload["mission_control"]["kpi"]["spend"]["turns"], 3);
+    assert_eq!(
+        payload["mission_control"]["kpi"]["spend"]["tokens"]["output"],
+        1800
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn mission_control_not_recording_state_explains_enable_path() {
+    use codeterm_plan::service_plan::state::mission_control::KPI_ENABLED_SETTING;
+
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let mut fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let plan = live_plan(&fixture);
+
+    let read_kpi = |fixture: &crate::service::test_fixture::ServiceFixture| {
+        fixture
+            .service
+            .build_plan_state(&plan.id, NOW)
+            .unwrap()
+            .mission_control
+            .kpi
+    };
+
+    // Opt-out: the only state a setting fixes, so it is the only state that names one.
+    fixture.service.kpi = KpiRecorder::disabled();
+    let kpi = read_kpi(&fixture);
+    assert_eq!(kpi.state, KpiLedgerState::NotRecording);
+    assert_eq!(
+        kpi.not_recording_reason,
+        Some(KpiNotRecordingReason::Disabled)
+    );
+    assert_eq!(kpi.enable_setting, Some(KPI_ENABLED_SETTING));
+    assert!(kpi.spend.is_none());
+    let json = serde_json::to_value(&kpi).unwrap();
+    assert_eq!(json["enable_setting"], KPI_ENABLED_SETTING);
+    assert!(
+        json["spend"].is_null(),
+        "a missing figure stays missing; it never becomes a zero"
+    );
+
+    // Configured on but the ledger would not open: telling the owner to switch it on
+    // would be wrong, so the state reports the failure and names no setting.
+    let blocked = fixture.temp.path().join("blocked-ledger-dir");
+    std::fs::write(&blocked, b"not a directory").unwrap();
+    let failed = KpiRecorder::from_config(&crate::config::schema::AppConfig::default(), &blocked);
+    assert!(!failed.is_enabled());
+    assert!(failed.open_failed());
+    fixture.service.kpi = failed;
+    let kpi = read_kpi(&fixture);
+    assert_eq!(
+        kpi.not_recording_reason,
+        Some(KpiNotRecordingReason::Unreadable)
+    );
+    assert_eq!(kpi.enable_setting, None);
+    assert!(kpi.spend.is_none());
+
+    // Recording, but nothing attributed to this plan yet: still no invented figure.
+    let ledger = std::sync::Arc::new(
+        KpiLedger::open_at(&fixture.temp.path().join("kpi_ledger.db")).unwrap(),
+    );
+    ledger
+        .insert(&ledger_event("pl_other", KpiEventKind::Send, None))
+        .unwrap();
+    fixture.service.kpi = KpiRecorder::with_ledger(ledger);
+    let kpi = read_kpi(&fixture);
+    assert_eq!(
+        kpi.not_recording_reason,
+        Some(KpiNotRecordingReason::NoRowsForPlan)
+    );
+    assert_eq!(kpi.enable_setting, None);
+    assert!(kpi.spend.is_none());
+}
