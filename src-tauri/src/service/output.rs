@@ -168,11 +168,6 @@ impl ServiceContext {
                 prev_status,
                 current_status
             );
-            // A settled turn is the event that means the provider log grew; the pass
-            // itself runs on the ledger thread, never here.
-            if let Some(ref pid) = tab_id {
-                self.request_kpi_usage_ingest(pid);
-            }
         }
         let previous_reconciled_status = tab_id
             .as_deref()
@@ -464,6 +459,9 @@ impl ServiceContext {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
             if became_idle {
+                // The turn boundary, not a status value: the pass itself runs on the
+                // ledger thread, never here.
+                self.on_agent_turn_settled(&tab_id);
                 self.complete_worker_turn_without_report(
                     &tab_id,
                     crate::service::hierarchy::WorkerTurnSignal::IdleTransition,
