@@ -315,7 +315,12 @@
   font-weight: 600;
 }
 
+/* The reveal and the run count are their own flex items, so the ellipsis eats
+   only the preview and never the control that recovers the full text. */
 .mc-board-log-message {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
   min-width: 0;
   color: var(--ct-fg);
   white-space: nowrap;
@@ -327,14 +332,60 @@
   color: var(--ct-muted-fg);
 }
 
+.mc-board-log-body {
+  min-width: 0;
+  white-space: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-board-log-message-open {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* The locator yields space before the separator or the reveal ever does, so a
+   squeezed row still shows where the name ends and the reason begins. */
 .mc-board-log-task {
-  margin-right: 0.35rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   color: var(--ct-muted);
 }
 
+.mc-board-log-sep,
 .mc-board-log-run {
-  margin-left: 0.35rem;
+  flex: 0 0 auto;
   color: var(--ct-muted);
+}
+
+.mc-board-log-more {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted color-mix(in srgb, var(--ct-border) 85%, transparent);
+  background: none;
+  color: var(--ct-muted);
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.mc-board-log-more:hover {
+  color: var(--ct-fg);
+}
+
+.mc-board-log-more:focus-visible {
+  border-bottom-color: var(--ct-accent);
+  color: var(--ct-fg);
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
 }
 
 /* The board draws no projection markers, so the gauge keeps no room for their labels. */
@@ -363,11 +414,13 @@
 
 .mc-board[data-board-layout="narrow"] .mc-board-log-message {
   grid-column: 1 / -1;
+  flex-wrap: wrap;
 }
 
 .mc-board[data-board-layout="narrow"] .mc-board-log-kind,
 .mc-board[data-board-layout="narrow"] .mc-board-log-author,
-.mc-board[data-board-layout="narrow"] .mc-board-log-message {
+.mc-board[data-board-layout="narrow"] .mc-board-log-message,
+.mc-board[data-board-layout="narrow"] .mc-board-log-body {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
@@ -376,4 +429,13 @@
 
 .mc-board[data-board-layout="narrow"] .mc-board-log-hour {
   margin-top: 0;
+}
+
+/* Last word on the revealed body at either width: the stored note verbatim,
+   line breaks kept, long tokens broken rather than pushing the board wider. */
+.mc-board .mc-board-log-message-open .mc-board-log-body {
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
 }
