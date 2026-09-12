@@ -302,7 +302,7 @@ fn commit_reported_session(
             tab.archive_context_epoch(provider_id, previous_session_id);
         }
         tab.agent_session_id = Some(session_id.to_string());
-        crate::service::tab::clear_runtime_model_evidence(tab);
+        crate::service::session_model::clear_runtime_model_evidence(tab);
     }
     tab.reported_session_binding_nonce = if nonce_verified {
         Some(report_nonce.unwrap_or_default().to_string())
