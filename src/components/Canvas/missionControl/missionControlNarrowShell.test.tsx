@@ -270,11 +270,11 @@ describe("mission control narrow shell", () => {
     await narrow.setBoardWidth(PHONE_WIDTH);
 
     expect(attr(narrow.host, "mission-control-board", "data-board-layout")).toBe("narrow");
-    expect(text(narrow.host, "plan-board-plan-title")).toBe(FIXTURE_PLAN.title);
-    expect(text(narrow.host, "mc-board-progress")).toContain("10 of 13 done");
     expect(text(narrow.host, "mc-board-tokens-amount")).toBe("5.3M");
     expect(text(narrow.host, "mc-board-turns-amount")).toBe("4,023");
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions"]')).not.toBeNull();
+    expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).not.toBeNull();
+    expect(narrow.host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
 
     const row = find(narrow.host, '[data-testid="mc-board-event-row"]');
     expect(row.querySelector(".mc-board-log-time")?.textContent).toMatch(/\d/);
@@ -288,11 +288,6 @@ describe("mission control narrow shell", () => {
       textOverflow: "clip",
     });
     expect(styleOf(narrow.host, ".mc-board-log-author").whiteSpace).toBe("normal");
-    expect(styleOf(narrow.host, ".plan-board-done-count")).toMatchObject({
-      whiteSpace: "normal",
-      flex: "1 1 100%",
-    });
-    expect(styleOf(narrow.host, ".plan-board-status-topline").flexWrap).toBe("wrap");
     expect(styleOf(narrow.host, ".mc-board-log-row").display).toBe("grid");
     await narrow.unmount();
 
@@ -306,7 +301,6 @@ describe("mission control narrow shell", () => {
       overflow: "hidden",
       textOverflow: "ellipsis",
     });
-    expect(styleOf(wide.host, ".plan-board-done-count").whiteSpace).toBe("nowrap");
     expect(styleOf(wide.host, ".mc-board-log-row").display).toBe("contents");
     await wide.unmount();
   });

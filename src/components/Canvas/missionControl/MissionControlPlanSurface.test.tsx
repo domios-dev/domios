@@ -93,13 +93,23 @@ function mkPlan(): Plan {
   };
 }
 
-test("renders the stored board for the selected plan", async () => {
+test("renders the selected plan board without the removed status band", async () => {
   const { host, unmount } = await render(
     <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
   );
   assert(host.querySelector('[data-testid="mission-control-board"]'), "board rendered");
-  assert(host.querySelector('[data-testid="plan-board-status"]'), "status header rendered");
-  assert(host.textContent?.includes("Plan views UX redesign"), "plan title from the record");
+  assert(!host.querySelector('[data-testid="plan-board-status"]'), "status header removed");
+  const trigger = host.querySelector('[data-testid="mission-control-board-menu-trigger"]');
+  assert(trigger?.tagName === "BUTTON", "board actions remain reachable");
+  assert(!trigger?.closest('[data-testid="plan-board-status"]'), "board actions are outside status band");
+  await act(async () => (trigger as HTMLButtonElement).click());
+  const labels = Array.from(host.querySelectorAll('[data-testid="mission-control-board-menu"] [role="menuitem"]'))
+    .map((item) => item.textContent?.trim());
+  assert(labels.join("|") === "Approve plan|Pause plan|Clear everything", "board actions remain available");
+  assert(
+    host.querySelector('[data-testid="mission-control-board-actions"]')?.getAttribute("data-plan-id") === "pl_flow",
+    "board actions bind to the selected plan",
+  );
   await unmount();
 });
 

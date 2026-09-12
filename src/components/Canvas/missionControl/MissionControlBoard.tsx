@@ -1,18 +1,8 @@
-import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { Tab } from "../../../lib/types";
-import { deriveBoardPlanSummary } from "../planView/boardModel";
-import { PlanBoardStatusHeader } from "../planView/PlanBoardStatusHeader";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
 import { AreasCard, BouncesCard, HeldCard, RunwayCard, TokensCard, TurnsCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
-import {
-  BOARD_CARD_COLUMNS,
-  boardLayout,
-  formatCompact,
-  formatCount,
-  progressReading,
-  type BoardLayout,
-} from "./missionControlBoardModel";
+import { BOARD_CARD_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
 import { MissionControlControls, type MissionControlPlanAction } from "./MissionControlControls";
 import type { PlanBoardState } from "./missionControlState";
 
@@ -22,10 +12,7 @@ export interface MissionControlBoardProps {
   /** Set while the first snapshot for this plan is still in flight. */
   loading?: boolean;
   error?: string | null;
-  tabs?: Record<string, Tab>;
   now?: number;
-  onOpenPlan?: (planId: string) => void;
-  onOpenTab?: (tabId: string) => void;
   onApprovePlan?: MissionControlPlanAction;
   onPausePlan?: MissionControlPlanAction;
   onClearEverything?: MissionControlPlanAction;
@@ -47,45 +34,18 @@ function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
   return layout;
 }
 
-/** Null until the snapshot lands, so the header keeps its own done/total label. */
-function progressLine(state: PlanBoardState | null) {
-  if (!state) return null;
-  const progress = progressReading(state.task_counts);
-  const spend = state.mission_control.kpi.spend;
-  return (
-    <>
-      <span data-testid="mc-board-progress">
-        {`${formatCount(progress.done)} of ${formatCount(progress.active)} done`}
-        {progress.inReview > 0 && ` · ${formatCount(progress.inReview)} in review`}
-        {progress.cancelled > 0 && ` · ${formatCount(progress.cancelled)} cancelled`}
-      </span>
-      {spend && (
-        <span data-testid="mc-board-total-spend">
-          {" · "}
-          <b>{formatCompact(spend.tokens.output)}</b> output tokens ·{" "}
-          <b>{formatCompact(spend.tokens.input)}</b> read
-        </span>
-      )}
-    </>
-  );
-}
-
 export function MissionControlBoard({
   plan,
   state,
   loading = false,
   error = null,
-  tabs = {},
   now = Date.now(),
-  onOpenPlan,
-  onOpenTab,
   onApprovePlan,
   onPausePlan,
   onClearEverything,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
-  const summary = useMemo(() => deriveBoardPlanSummary(plan, tabs), [plan, tabs]);
   const mc = state?.mission_control ?? null;
 
   return (
@@ -95,13 +55,7 @@ export function MissionControlBoard({
       data-board-layout={layout}
       className="mc-board"
     >
-      <div className="mc-board-header">
-        <PlanBoardStatusHeader
-          summary={summary}
-          onOpenPlan={() => onOpenPlan?.(plan.id)}
-          onOpenTab={onOpenTab}
-          progress={progressLine(state)}
-        />
+      <div className="mc-board-actions-row" data-testid="mission-control-board-actions-row">
         <MissionControlControls
           scope="board"
           planId={plan.id}

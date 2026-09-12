@@ -8,7 +8,6 @@ import type {
   EventLog,
   KpiNotRecordingReason,
   PlanEvent,
-  PlanTaskCounts,
   ProviderRunway,
 } from "./missionControlState";
 
@@ -280,20 +279,4 @@ const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
 
 export function notRecordingCopy(reason: KpiNotRecordingReason | null): string {
   return reason ? NOT_RECORDING_COPY[reason] : NOT_RECORDING_COPY.not_read;
-}
-
-export interface ProgressReading {
-  done: number;
-  active: number;
-  inReview: number;
-  cancelled: number;
-}
-
-export function progressReading(counts: PlanTaskCounts): ProgressReading {
-  return {
-    done: counts.done,
-    active: Math.max(0, counts.total - counts.cancelled),
-    inReview: counts.in_review,
-    cancelled: counts.cancelled,
-  };
 }

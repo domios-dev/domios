@@ -11,17 +11,13 @@
   background: var(--ct-surface);
 }
 
-.mc-board-header {
+.mc-board-actions-row {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  justify-content: flex-end;
   min-width: 0;
-}
-
-.mc-board-header > .plan-board-status {
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
 }
 
 .mission-control-actions {
@@ -329,21 +325,6 @@
 
 .mc-board .ct-usage-gauge .bar-wrap {
   margin-top: 6px;
-}
-
-/* Phone artboard. The wide row keeps the reading on one unshrinkable line and
-   clips it against .mc-board's overflow; narrow lets it wrap instead. */
-.mc-board[data-board-layout="narrow"] .plan-board-status-topline {
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.35rem;
-}
-
-.mc-board[data-board-layout="narrow"] .plan-board-done-count {
-  flex: 1 1 100%;
-  min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 /* The four fixed log columns leave no room for a title on a phone, so the

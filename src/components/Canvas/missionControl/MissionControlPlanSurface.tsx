@@ -202,9 +202,6 @@ export function MissionControlPlanSurface({
             state={boardState.state}
             loading={boardState.loading}
             error={boardState.error}
-            tabs={tabs}
-            onOpenPlan={openPlanDetail}
-            onOpenTab={onOpenTab}
             onApprovePlan={approvePlan}
             onPausePlan={pausePlan}
             onClearEverything={clearEverything}
