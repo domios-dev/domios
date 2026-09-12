@@ -13,10 +13,13 @@ import {
 } from "@codeterm/chat-ui";
 import { invoke } from "./lib/bridge";
 import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
+// Stylesheets load here, never from a component: the plain-Node unit runner
+// has no bundler, so a CSS import anywhere in a tested graph is a syntax error.
 import "./styles/globals.css";
 import "./components/FrontendCrashBoundary.css";
 import "./components/Canvas/missionControl/missionControl.css";
 import "./components/Canvas/missionControl/missionControlBoard.css";
+import "./components/Usage/styles.css";
 
 const root = document.getElementById("root")!;
 const missionControlPrototype = isMissionControlPrototypeRoute();

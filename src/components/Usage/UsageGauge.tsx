@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clampPortalCenter } from "./portalPosition";
 import { formatResetsAt } from "./format";
-import "./styles.css";
 
 function shortDesc(title: string): string {
   switch (title) {
