@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import "./styles.css";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { classify } from "../../types/usage";
 import { formatSpend } from "./format";
