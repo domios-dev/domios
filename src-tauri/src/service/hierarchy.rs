@@ -33,6 +33,7 @@ use super::{
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::plan::AgentRef;
+use codeterm_types::agent::ReportOutcomeClass;
 use tauri::Manager;
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
@@ -413,6 +414,30 @@ impl ServiceContext {
         task_id: Option<&str>,
         milestone_kind: Option<&str>,
     ) -> Result<ReportResult, ReportSubmissionError> {
+        self.submit_report_with_source_outcome(
+            tab_id,
+            message,
+            details,
+            plan_id,
+            task_id,
+            milestone_kind,
+            None,
+        )
+    }
+
+    pub fn submit_report_with_source_outcome(
+        &self,
+        tab_id: &str,
+        message: &str,
+        details: ReportDetails,
+        plan_id: Option<&str>,
+        task_id: Option<&str>,
+        milestone_kind: Option<&str>,
+        source_outcome: Option<ReportOutcomeClass>,
+    ) -> Result<ReportResult, ReportSubmissionError> {
+        let mut report_outcome =
+            (source_outcome == Some(ReportOutcomeClass::DeliveredUnattached))
+                .then_some(ReportOutcomeClass::DeliveredUnattached);
         let (task_status, mut task_transition_refusal) =
             match report_task_status_transition(details.status) {
                 Ok(status) => (status, None),
@@ -443,6 +468,9 @@ impl ServiceContext {
         } else {
             None
         };
+        if matches!(plan_only_authority, Some(PlanOnlyReportAuthority::Planner)) {
+            report_outcome = Some(ReportOutcomeClass::StructurallyNotAttachable);
+        }
 
         let mut notices: Vec<String> = Vec::new();
         let mut binding_refused = false;
@@ -451,6 +479,7 @@ impl ServiceContext {
                 Ok(context) => context,
                 Err(cause) => {
                     binding_refused = true;
+                    report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
                     task_transition_refusal = Some(match task_transition_refusal {
                         Some(existing) => format!("{existing}\n{cause}"),
                         None => cause,
@@ -472,6 +501,9 @@ impl ServiceContext {
                 plan_id: eff_plan_id.clone(),
                 task_id: eff_task_id.clone(),
                 cause,
+                report_outcome: report_outcome.filter(|outcome| {
+                    *outcome == ReportOutcomeClass::StaleBindingConflict
+                }),
             });
 
         let (from_title, default_target_opt, model_identity, from_ref) = {
@@ -603,6 +635,8 @@ impl ServiceContext {
                 && !foreign
                 && rejected_task_transition.is_none()
                 && persisted_plan_evidence.is_none()
+                && eff_task_id.is_some()
+                && report_outcome != Some(ReportOutcomeClass::DeliveredUnattached)
             {
                 let persistence = eff_task_id
                     .as_deref()
@@ -640,14 +674,24 @@ impl ServiceContext {
                         );
                     }
                     Err(cause) => {
+                        report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
                         rejected_task_transition = Some(RejectedTaskTransition {
                             plan_id: Some(plan_id.clone()),
                             task_id: eff_task_id.clone(),
                             cause,
+                            report_outcome: Some(ReportOutcomeClass::StaleBindingConflict),
                         });
                     }
                 }
             }
+        }
+
+        if report_outcome.is_none()
+            && rejected_task_transition.is_none()
+            && persisted_task.is_none()
+            && eff_task_id.is_none()
+        {
+            report_outcome = Some(ReportOutcomeClass::StructurallyNotAttachable);
         }
 
         let storage_key = target.storage_key();
@@ -660,20 +704,25 @@ impl ServiceContext {
                 "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded and delivered to '{storage_key}', resolved live from this tab's own hierarchy - so do not resend it"
             ));
         }
-        let report = self.report_store.lock().add_detailed_with_model_identity(
-            &storage_key,
-            tab_id,
-            &from_title,
-            &delivered_message,
-            details,
-            model_identity,
-        );
+        let report = self
+            .report_store
+            .lock()
+            .add_detailed_with_model_identity_and_outcome(
+                &storage_key,
+                tab_id,
+                &from_title,
+                &delivered_message,
+                details,
+                model_identity,
+                report_outcome,
+            );
         self.report_store.lock().claim(&report.id);
         report_requirement.accept();
 
         let task_report = report_event::task_report_outcome(
             persisted_task.as_ref(),
             rejected_task_transition.as_ref(),
+            report_outcome,
         );
         self.events.broadcast(
             "agent.report",
@@ -681,6 +730,7 @@ impl ServiceContext {
                 "target_tab_id": storage_key,
                 "report": report.clone(),
                 "task_report": task_report.clone(),
+                "report_outcome": report_outcome,
             }),
         );
         crate::api::events::emit_everywhere(
@@ -747,6 +797,7 @@ impl ServiceContext {
             persisted_task,
             persisted_plan_evidence,
             rejected_task_transition,
+            report_outcome,
         })
     }
 

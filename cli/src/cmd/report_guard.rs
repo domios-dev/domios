@@ -4,6 +4,7 @@ use std::process::Command;
 
 use crate::args::agent::ReportStatusArg;
 use crate::client::RpcClient;
+use codeterm_types::agent::ReportOutcomeClass;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportGitMetadata {
@@ -67,6 +68,11 @@ pub struct ReportRefusal {
     pub dirty_files: Vec<String>,
 }
 
+const UNRESOLVED_LANE_REFUSAL_PREFIX: &str =
+    "readiness report refused: cannot locate your lane worktree";
+const MISSING_LANE_WORKTREE_REFUSAL_PREFIX: &str =
+    "readiness report refused: lane worktree";
+
 /// Copied verbatim by an agent that has just lost a report, so every line must be
 /// runnable: an inline body is mangled by the shell before the report is sent.
 pub const REPORT_NEXT_COMMANDS: &[&str] = &[
@@ -93,6 +99,12 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
 ];
 
 impl ReportRefusal {
+    pub fn report_outcome(&self) -> Option<ReportOutcomeClass> {
+        (self.reason.starts_with(UNRESOLVED_LANE_REFUSAL_PREFIX)
+            || self.reason.starts_with(MISSING_LANE_WORKTREE_REFUSAL_PREFIX))
+            .then_some(ReportOutcomeClass::DeliveredUnattached)
+    }
+
     pub fn message(&self) -> String {
         let mut lines = vec![self.reason.clone(), "Next commands:".to_string()];
         lines.extend(REPORT_NEXT_COMMANDS.iter().copied().map(str::to_string));
@@ -432,12 +444,12 @@ fn git_refusal(reason: String) -> ReportRefusal {
 
 fn unresolved_lane_refusal() -> ReportRefusal {
     ReportRefusal {
-        reason: "readiness report refused: cannot locate your lane worktree. This task requires a \
+        reason: format!("{UNRESOLVED_LANE_REFUSAL_PREFIX}. This task requires a \
                  repository but no lane worktree is bound to your report, so the provided --sha \
                  cannot be validated against your own lane HEAD (never against the canonical \
                  checkout). Re-dispatch this task with `codeterm plan task dispatch`, or report \
                  with explicit `--plan <plan> --task <task>` so your lane is resolved."
-            .to_string(),
+        ),
         dirty_files: Vec::new(),
     }
 }

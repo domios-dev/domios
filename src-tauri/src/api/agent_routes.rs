@@ -669,6 +669,7 @@ pub(crate) struct ReportBody {
     plan_id: Option<String>,
     task_id: Option<String>,
     kind: Option<String>,
+    report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
     #[serde(flatten)]
     details: crate::agent::reports::ReportDetails,
 }
@@ -682,13 +683,14 @@ pub async fn submit_report(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let result = state
         .svc
-        .submit_report(
+        .submit_report_with_source_outcome(
             &id,
             &body.message,
             body.details,
             body.plan_id.as_deref(),
             body.task_id.as_deref(),
             body.kind.as_deref(),
+            body.report_outcome,
         )
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     let mut response = serde_json::json!({
@@ -697,7 +699,26 @@ pub async fn submit_report(
         "state": "recorded",
         "report_id": result.report_id,
         "target_tab_id": result.orchestrator_tab_id,
+        "report_outcome": result.report_outcome,
     });
+    if let Some((plan_id, task_id)) = result.persisted_task {
+        response["task_report"] = serde_json::json!({
+            "persisted": true,
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "report_outcome": result.report_outcome,
+        });
+    }
+    if let Some(rejection) = result.rejected_task_transition {
+        response["task_report"] = serde_json::json!({
+            "persisted": false,
+            "plan_id": rejection.plan_id,
+            "task_id": rejection.task_id,
+            "transition_rejected": true,
+            "cause": rejection.cause,
+            "report_outcome": rejection.report_outcome,
+        });
+    }
     if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
         response["plan_report"] = serde_json::json!({
             "persisted": true,
