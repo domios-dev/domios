@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-
-// The single breakpoint for the sidebar's two shapes; `.ct-sidebar-drawer` in globals.css matches it.
-export const PHONE_VIEWPORT_QUERY = "(max-width: 640px)";
+import { SHELL_NARROW_QUERY } from "../lib/shellBreakpoint";
 
 const SLIDE_OUT_MS = 300;
 
 export function isPhoneViewport(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia(PHONE_VIEWPORT_QUERY).matches;
+  return window.matchMedia(SHELL_NARROW_QUERY).matches;
 }
 
 export function usePhoneViewport(): boolean {
   const [phone, setPhone] = useState(isPhoneViewport);
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia(PHONE_VIEWPORT_QUERY);
+    const query = window.matchMedia(SHELL_NARROW_QUERY);
     const update = () => setPhone(query.matches);
     update();
     query.addEventListener("change", update);
