@@ -75,7 +75,7 @@ pub fn mux_rename_workspace(
 }
 
 #[cfg(test)]
-mod tests {
+mod snapshot_refusal_tests {
     use super::mux_get_state_from_service;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
