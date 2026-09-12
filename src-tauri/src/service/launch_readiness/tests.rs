@@ -42,6 +42,28 @@ fn report_own_launch(tab: &mut Tab) {
 /// time; nothing in these tests sleeps to reach its outcome.
 const BOUND: Duration = Duration::from_secs(30);
 
+/// Both exit sources claim before either publishes, so only the first claim
+/// may win; otherwise one dead launch is reported twice.
+#[test]
+fn launch_readiness_only_the_first_observer_claims_one_exit() {
+    let tab = launching_tab("pty-once", "nonce-once");
+    let attempt = attempt_of(&tab);
+
+    arm(attempt.clone());
+    assert!(
+        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3)).is_some(),
+        "the first observer of an exit claims it"
+    );
+    assert!(
+        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3)).is_none(),
+        "a second observer must not claim the same exit before it is published"
+    );
+    assert!(
+        claim_exit(&attempt.tab_id, None, None).is_none(),
+        "nor may the funnel that reports no pty claim it again"
+    );
+}
+
 #[test]
 fn launch_readiness_local_exit_emits_bounded_failure() {
     let tab = launching_tab("pty-local", "nonce-local");
