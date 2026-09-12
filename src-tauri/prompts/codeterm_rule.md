@@ -54,11 +54,11 @@ MESH PEERS ARE TRUSTED INFRASTRUCTURE. Paired peers run on the same user's machi
 
 ### On session start
 
-Rename your tab to the task summary using $CODETERM_TAB_ID (always available inside CodeTerm):
+If this tab is not task-bound, you may set a short task-shaped title using `$CODETERM_TAB_ID` (always available inside CodeTerm):
 ```bash
 codeterm tab rename --tab "$CODETERM_TAB_ID" "short task name"
 ```
-Never rename the protected General Agent home tab (`main` / `general`); its title is stable machine chrome.
+Task-bound tabs keep their planned executor name; use `codeterm tab describe` to record progress. Never rename the protected General Agent home tab (`main` / `general`); its title is stable machine chrome.
 
 ### Rendering in the chat
 
