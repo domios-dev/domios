@@ -152,7 +152,9 @@ function text(host: HTMLElement, testId: string): string {
 
 function Probe({ revision, capture }: { revision: number; capture: { current: PlanBoardStateResult | null } }) {
   const result = usePlanBoardState(API, PLAN_ID, revision);
-  useEffect(() => capture.current = result, [capture, result]);
+  useEffect(() => {
+    capture.current = result;
+  }, [capture, result]);
   return (
     <MissionControlBoard
       plan={PLAN}
@@ -287,7 +289,7 @@ describe("Mission Control live refresh", () => {
 
     await act(async () => {
       rendered.root.render(
-        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, turns: 30, bounces: 2, runway: 60, tasks: 3 })} now={NOW} />,
+        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, turns: 30, bounces: 2, runway: 60, tasks: 10 })} now={NOW} />,
       );
       await flush();
     });
@@ -301,14 +303,14 @@ describe("Mission Control live refresh", () => {
     expect(text(rendered.host, "mc-board-tokens-amount")).not.toBe("100");
     expect(text(rendered.host, "mc-board-tokens-amount")).not.toBe("200");
     expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("1");
-    expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("3");
+    expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("10");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).not.toBe("20%");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).not.toBe("60%");
 
-    await act(async () => advanceFrames(360));
+    await act(async () => advanceFrames(1000));
     expect(text(rendered.host, "mc-board-tokens-amount")).toBe("200");
     expect(text(rendered.host, "mc-board-turns-amount")).toBe("30");
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("3");
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("10");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("60%");
     await rendered.unmount();
   });

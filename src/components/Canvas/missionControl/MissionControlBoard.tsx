@@ -46,7 +46,8 @@ export function MissionControlBoard({
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
-  const mc = state?.mission_control ?? null;
+  const boardState = state?.mission_control ? state : null;
+  const mc = boardState?.mission_control ?? null;
 
   return (
     <div
@@ -74,14 +75,14 @@ export function MissionControlBoard({
           {loading ? "Reading the plan record…" : "No stored Mission Control reading for this plan."}
         </p>
       )}
-      {mc && (
+      {boardState && mc && (
         <>
           <div
             data-testid="mc-board-card-grid"
             className="mc-board-card-grid"
             style={{ gridTemplateColumns: BOARD_CARD_COLUMNS[layout] }}
           >
-            <TaskCountsCard counts={state.task_counts} />
+            <TaskCountsCard counts={boardState.task_counts} />
             <TokensCard kpi={mc.kpi} />
             <TurnsCard kpi={mc.kpi} />
             <BouncesCard bounces={mc.bounces} />

@@ -44,12 +44,6 @@ export function useAnimatedNumber(value: number | null): number | null {
     };
   }, [reducedMotion, value]);
 
-  useEffect(
-    () => () => {
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    },
-  );
-
   return displayValue;
 }
 
