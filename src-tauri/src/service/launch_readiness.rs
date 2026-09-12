@@ -147,6 +147,9 @@ pub(crate) fn settle_evidence(
 struct Armed {
     attempt: LaunchAttempt,
     evidence: Option<LaunchEvidence>,
+    /// One observer already took this exit. Both exit sources claim before
+    /// either publishes, so the published verdict cannot be the dedup key.
+    exit_claimed: bool,
     /// A verdict already published for this attempt. Kept so the launch thread
     /// can see it and never claims ready over a launch known to be gone.
     failure: Option<String>,
@@ -170,6 +173,7 @@ pub(crate) fn arm(attempt: LaunchAttempt) {
         Armed {
             attempt,
             evidence: None,
+            exit_claimed: false,
             failure: None,
         },
     );
@@ -223,11 +227,13 @@ fn claim_exit(
     let mut armed = OBSERVATIONS.armed.lock();
     let observed = armed.get_mut(tab_id)?;
     if pty_id.is_some_and(|pty_id| pty_id != observed.attempt.pty_id)
+        || observed.exit_claimed
         || observed.failure.is_some()
         || matches!(observed.evidence, Some(LaunchEvidence::Acknowledged))
     {
         return None;
     }
+    observed.exit_claimed = true;
     let exit_code = match observed.evidence.take() {
         Some(LaunchEvidence::ProcessExited { exit_code }) => exit_code,
         _ => exit_code,
