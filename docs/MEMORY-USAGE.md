@@ -50,7 +50,7 @@ codeterm mem graph related --id <id>
 
 # Workers
 codeterm mem worker progress "<status>"
-codeterm mem worker report "<summary>"
+codeterm mem worker report "<summary>" [--diary <id>] [--finalization succeeded|partial|failed] [--reason "<why>"]
 codeterm mem worker spawn --intent "<name>" --task "<prompt>"    # ad-hoc graph worker for custom enrichment
 codeterm mem extract-pending [--limit N]                         # re-queue extraction for items that missed processing (API quota, interrupts)
 
@@ -111,4 +111,4 @@ Memory Tabl UI reads this directly.
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryTabl/` — UI
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

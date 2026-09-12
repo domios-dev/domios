@@ -499,8 +499,19 @@ pub enum MemWorkerAction {
         #[arg(long)]
         status: Option<String>,
     },
-    /// Submit final report and mark done (uses $CODETERM_WORKER_ID)
-    Report { summary: String },
+    /// Submit final report: execution ended (uses $CODETERM_WORKER_ID)
+    Report {
+        summary: String,
+        /// Mem id of the artifact this run produced, e.g. its dream diary id
+        #[arg(long)]
+        diary: Option<String>,
+        /// Diary finalization outcome: succeeded | partial | failed
+        #[arg(long)]
+        finalization: Option<String>,
+        /// Concrete reason for a partial or failed finalization
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// Kill a worker by id
     Kill { id: String },
 }

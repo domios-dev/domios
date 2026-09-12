@@ -115,6 +115,14 @@ pub async fn workers_progress(
 #[derive(Deserialize)]
 pub struct WorkerReportBody {
     pub summary: String,
+    /// Mem id of the artifact this run produced, by identity.
+    #[serde(default)]
+    pub diary: Option<String>,
+    /// succeeded | partial | failed — reconciled against the stored record.
+    #[serde(default)]
+    pub finalization: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 pub async fn workers_report(
@@ -163,6 +171,15 @@ pub async fn workers_report(
         state.svc.run_watcher.mark_completed_externally(pty_id);
     }
 
+    crate::mem::dream_runs::record_reported_finalization(
+        &state.svc,
+        &id,
+        &crate::mem::dream_runs::ReportedFinalization {
+            diary_id: b.diary,
+            claim: b.finalization,
+            reason: b.reason,
+        },
+    );
     let info = state
         .svc
         .workers
