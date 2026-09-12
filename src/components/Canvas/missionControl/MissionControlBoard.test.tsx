@@ -447,11 +447,14 @@ describe("mission control board cards", () => {
     const first = gauges[0] as HTMLElement;
     expect(first.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("58%");
     expect(first.querySelector(".ct-usage-gauge .reset")?.textContent).toContain("resets");
-    expect(first.querySelector(".ct-usage-gauge .label")?.textContent).toBe("Claude · session");
-    expect((gauges[1] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("Claude · weekly");
-    expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("Codex · session");
+    expect(first.querySelector(".ct-usage-gauge .label")?.textContent).toBe("session");
+    expect(first.getAttribute("aria-label")).toBe("Claude session allowance");
+    expect((gauges[1] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("weekly");
+    expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("session");
+    expect((gauges[2] as HTMLElement).getAttribute("aria-label")).toBe("Codex session allowance");
     expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .pct")?.textContent).toBe("—");
-    expect((gauges[3] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("Codex · weekly");
+    expect((gauges[2] as HTMLElement).getAttribute("data-reading")).toBe("none");
+    expect((gauges[3] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("weekly");
     expect((gauges[1] as HTMLElement).textContent).toContain("resets");
     expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .reset")?.textContent).toBe("—");
     expect((gauges[3] as HTMLElement).textContent).toContain("resets");

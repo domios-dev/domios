@@ -347,14 +347,16 @@ describe("mission control narrow shell", () => {
     expect(text(narrow.host, "mc-board-areas")).toContain("Tasks by area");
     expect(text(narrow.host, "mc-board-areas")).not.toContain("Tokens plan total");
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(4);
-    for (const label of [
-      "Claude · session",
-      "Claude · weekly",
-      "Codex · session",
-      "Codex · weekly",
-    ]) {
-      expect(text(narrow.host, "mc-board-spend")).toContain(label);
-    }
+    expect(
+      Array.from(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) =>
+        gauge.getAttribute("aria-label"),
+      ),
+    ).toEqual([
+      "Claude session allowance",
+      "Claude weekly allowance",
+      "Codex session allowance",
+      "Codex weekly allowance",
+    ]);
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
     expect(text(narrow.host, "mc-board-spend")).toContain("Unassigned model");
     expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).not.toBe(
