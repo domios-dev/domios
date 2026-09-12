@@ -363,8 +363,7 @@ describe("mission control narrow shell", () => {
       narrow.host.querySelector('[data-testid="mc-board-card-grid"]'),
     );
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(8);
-    expect(narrow.host.querySelector('[data-testid="mission-control-board-actions"]')).not.toBeNull();
-    expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).not.toBeNull();
+    expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).toBeNull();
     expect(narrow.host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
 
     const row = find(narrow.host, '[data-testid="mc-board-event-row"]');
