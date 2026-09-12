@@ -9,6 +9,7 @@ import {
   notRecordingCopy,
   notRecordingDetail,
   runwayGauges,
+  taskStatusBreakdown,
   type BoardLayout,
 } from "./missionControlBoardModel";
 import { AnimatedNumber, useAnimatedNumber } from "./AnimatedNumber";
@@ -44,7 +45,7 @@ function FigureCard({ testId, title, amount, amountTone = "plain", caption, deta
         </div>
         <div className="mc-board-caption">{caption}</div>
       </div>
-      <p className="mc-board-detail">{detail}</p>
+      <div className="mc-board-detail">{detail}</div>
       <p className="mc-board-source">{source}</p>
     </section>
   );
@@ -68,7 +69,7 @@ export function TokensCard({ kpi }: { kpi: MissionControlKpi }) {
           notRecordingDetail(kpi.not_recording_reason, kpi.enable_setting)
         )
       }
-      source="KPI ledger, the rows attributed to this plan"
+      source="KPI ledger · plan rows"
     />
   );
 }
@@ -90,7 +91,7 @@ export function TurnsCard({ kpi }: { kpi: MissionControlKpi }) {
           notRecordingDetail(kpi.not_recording_reason, kpi.enable_setting)
         )
       }
-      source="KPI ledger, the rows attributed to this plan"
+      source="KPI ledger · plan rows"
     />
   );
 }
@@ -109,7 +110,7 @@ export function BouncesCard({ bounces }: { bounces: BounceSummary }) {
             finished on the first · <b><AnimatedNumber value={bounces.labelled_bounced} format={formatCount} /></b> labelled bounced
         </>
       }
-      source="stored execution attempts and status labels"
+      source="Stored attempts and status labels"
     />
   );
 }
@@ -134,7 +135,7 @@ export function HeldCard({ held }: { held: HeldForDecision }) {
             <b><AnimatedNumber value={held.verdicts_on_held} format={formatCount} /></b> verdicts on the held tasks
         </>
       }
-      source="the stored review-held label and the plan's open gates"
+      source="Stored review-held labels and open gates"
     />
   );
 }
@@ -146,13 +147,11 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
       <div className="mc-board-card-head">
         <h2>Spend by area</h2>
         <span className="mc-board-caption">
-          {reading.declared
-            ? `one ${reading.facetLabel ?? "area"} per task, from the list the plan declares`
-            : "no area facet declared"}
+          {reading.declared ? `${reading.facetLabel ?? "Area"} facet declared` : "No area facet declared"}
         </span>
       </div>
       {reading.rows.length === 0 ? (
-        <p className="mc-board-note">This plan has no tasks to group.</p>
+        <p className="mc-board-note">No tasks to group.</p>
       ) : (
         <div className="mc-board-kv-list">
           {reading.rows.map((row) => (
@@ -173,7 +172,7 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
       )}
       {reading.declared && reading.untagged > 0 && (
         <p data-testid="mc-board-area-untagged" className="mc-board-detail">
-          <b><AnimatedNumber value={reading.untagged} format={formatCount} /></b> tasks carry no area tag and are not placed under one.
+          <b><AnimatedNumber value={reading.untagged} format={formatCount} /></b> untagged tasks
         </p>
       )}
       {reading.noFacetMessage && (
@@ -182,7 +181,7 @@ export function AreasCard({ areas }: { areas: AreaGrouping }) {
         </p>
       )}
       <p className="mc-board-source">
-        tasks per group; the ledger does not attribute tokens to an area, so none is shown
+        Task groups only; tokens are not area-attributed.
       </p>
     </section>
   );
@@ -202,11 +201,13 @@ export function RunwayCard({
     <section data-testid="mc-board-runway" className="ct-panel-card mc-board-card">
       <div className="mc-board-card-head">
         <h2>Runway</h2>
-        <span className="mc-board-caption">one snapshot per provider, each with its own reset</span>
+        <span className="mc-board-caption">Provider allowance snapshots · reset per gauge</span>
       </div>
       {gauges.length === 0 ? (
         <p data-testid="mc-board-runway-empty" className="mc-board-note">
-          No provider reports usage on this machine.
+          {runway.providers.length > 0
+            ? "No complete allowance window available."
+            : "No provider usage reported."}
         </p>
       ) : (
         <div
@@ -220,13 +221,14 @@ export function RunwayCard({
         </div>
       )}
       <p className="mc-board-source">
-        usage snapshots, the latest parsed row per provider; 60% and 85% are marked on every bar
+        Latest parsed provider rows · 60% and 85% marks retained
       </p>
     </section>
   );
 }
 
 export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
+  const statuses = taskStatusBreakdown(counts);
   return (
     <FigureCard
       testId="mc-board-tasks"
@@ -234,12 +236,18 @@ export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
       amount={<AnimatedNumber value={counts.total} format={formatCount} />}
       caption={<><AnimatedNumber value={counts.in_progress + counts.in_review} format={formatCount} /> active or in review</>}
       detail={
-        <>
-          <b><AnimatedNumber value={counts.pending} format={formatCount} /></b> pending · <b><AnimatedNumber value={counts.in_progress} format={formatCount} /></b> in progress ·{" "}
-            <b><AnimatedNumber value={counts.in_review} format={formatCount} /></b> in review · <b><AnimatedNumber value={counts.done} format={formatCount} /></b> done
-        </>
+        <div data-testid="mc-board-task-statuses" className="mc-board-status-list" role="list">
+          {statuses.map((status) => (
+            <div key={status.key} data-testid={`mc-board-task-status-${status.key}`} className="mc-board-status" role="listitem">
+              <span className="mc-board-status-label">{status.label}</span>
+              <b data-testid={`mc-board-task-status-${status.key}-count`}>
+                <AnimatedNumber value={status.count} format={formatCount} />
+              </b>
+            </div>
+          ))}
+        </div>
       }
-      source="stored task status counts for this plan"
+      source="PlanTaskCounts snapshot"
     />
   );
 }

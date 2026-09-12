@@ -71,7 +71,7 @@ function SectionIndex({ kind, entries }: { kind: DocumentKind; entries: SectionE
 
 function SectionBody({ body }: { body: string }) {
   if (!body.trim()) {
-    return <p className="plan-document-section-empty">No prose has been written for this section yet.</p>;
+    return <p className="plan-document-section-empty">No section text yet.</p>;
   }
   return (
     <div className="plan-document-section-body">
@@ -122,7 +122,7 @@ function PlanGoal({ plan }: { plan: Plan }) {
   return (
     <section data-testid="plan-document-goal" className="plan-document-goal" aria-labelledby="plan-document-goal-heading">
       <h2 id="plan-document-goal-heading">Goal</h2>
-      {values.length === 0 && <p className="plan-document-section-empty">No goal has been drafted yet.</p>}
+      {values.length === 0 && <p className="plan-document-section-empty">No goal yet.</p>}
       {values.map(({ label, value, list }) => (
         <div key={label} className="plan-document-goal-field">
           <h3>{label}</h3>
@@ -192,7 +192,7 @@ function PlanDocument({
     <DocumentLayout kind="plan" title={pageTitle("plan", plan)} entries={entries}>
       <PlanGoal plan={plan} />
       {entries.length === 0 ? (
-        <DocumentEmpty kind="plan" message="This plan has no sections yet. Add sections to describe how the goal will be delivered." />
+        <DocumentEmpty kind="plan" message="No plan sections yet." />
       ) : (
         entries.map((entry) => (
           <SpecSection key={entry.section.id} kind="plan" entry={entry}>
@@ -273,10 +273,10 @@ export function PlanDocumentView({ kind, onOpenSpec, ...surfaceProps }: PlanDocu
             <p data-testid="plan-spec-loading" className="plan-document-state">Loading the Spec…</p>
           )}
           {kind === "spec" && !data.specLoading && !selectedPlan.primary_spec_id && (
-            <DocumentEmpty kind="spec" message="This plan has no Spec yet. Its sections will appear here once the Spec is drafted." />
+            <DocumentEmpty kind="spec" message="No Spec yet." />
           )}
           {kind === "spec" && !data.specLoading && selectedPlan.primary_spec_id && data.selectedSpecSections.length === 0 && (
-            <DocumentEmpty kind="spec" message="This Spec has no sections yet. Add sections to explain what the team is building." />
+            <DocumentEmpty kind="spec" message="No Spec sections yet." />
           )}
           {kind === "spec" && !data.specLoading && data.selectedSpecSections.length > 0 && (
             <SpecDocument plan={selectedPlan} sections={data.selectedSpecSections} />
