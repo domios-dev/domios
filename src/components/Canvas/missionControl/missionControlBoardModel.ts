@@ -1,6 +1,7 @@
 // Pure reading of the stored Mission Control projection. Nothing here opens a
 // session log, parses note prose, or invents a figure the contract does not carry.
 
+import { shortModelName } from "../../../lib/agentModelName";
 import { classify, type UsageState } from "../../../types/usage";
 import type { MilestoneKind } from "../types";
 import type {
@@ -383,7 +384,7 @@ function providerWindows(provider: ProviderSpend): SpendWindow[] {
 function modelRows(provider: ProviderSpend): SpendModelRow[] {
   return provider.models.map((model, index) => ({
     key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
-    label: model.model ?? UNASSIGNED_MODEL_LABEL,
+    label: model.model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model.model) ?? model.model,
     unassigned: model.model == null,
     sharePct: model.token_share_pct,
     figures: [
