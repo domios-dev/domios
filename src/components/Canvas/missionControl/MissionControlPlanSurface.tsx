@@ -12,6 +12,7 @@ import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/Pl
 import { planFetchShowsData } from "../planView/planViewFetchGate";
 import type { Plan, Section, Task } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
+import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
@@ -164,23 +165,36 @@ export function MissionControlPlanSurface({
   return (
     <div data-testid="mission-control-plan-surface" className="flex h-full w-full flex-col overflow-hidden">
       <header
-        className="flex shrink-0 items-center gap-3 border-b px-3 py-1.5"
+        data-testid="mission-control-surface-header"
+        className="mission-control-surface-header flex shrink-0 items-center gap-3 border-b px-3 py-1.5"
         style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
       >
-        {selectedPlan && !teamId && (
-          <PlanSwitcher
-            plans={switcherWithInflight}
-            selectedId={selectedPlan.id}
-            onSelect={selectPlan}
-            onAction={handleAction}
+        <div className="min-w-0 flex-1">
+          {selectedPlan && !teamId && (
+            <PlanSwitcher
+              plans={switcherWithInflight}
+              selectedId={selectedPlan.id}
+              onSelect={selectPlan}
+              onAction={handleAction}
+            />
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <PlanFetchReconnectingBanner
+            reconnecting={reconnecting}
+            itemCount={plans.length}
+            testId="mission-control-reconnecting"
           />
-        )}
-        <PlanFetchReconnectingBanner
-          reconnecting={reconnecting}
-          itemCount={plans.length}
-          testId="mission-control-reconnecting"
-          className="ml-auto"
-        />
+          {showsData && selectedPlan && (
+            <MissionControlControls
+              scope="board"
+              planId={selectedPlan.id}
+              onApprovePlan={approvePlan}
+              onPausePlan={pausePlan}
+              onClearEverything={clearEverything}
+            />
+          )}
+        </div>
       </header>
       <div className="relative min-h-0 flex-1">
         <PlanFetchErrorState
@@ -202,9 +216,6 @@ export function MissionControlPlanSurface({
             state={boardState.state}
             loading={boardState.loading}
             error={boardState.error}
-            onApprovePlan={approvePlan}
-            onPausePlan={pausePlan}
-            onClearEverything={clearEverything}
           />
         )}
       </div>
