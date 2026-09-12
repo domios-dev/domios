@@ -31,10 +31,21 @@ pub(crate) fn handle_mem_worker(
             ),
             Err(_) => Err("not in a worker tab: $CODETERM_WORKER_ID is not set".into()),
         },
-        MemWorkerAction::Report { summary } => match std::env::var("CODETERM_WORKER_ID") {
+        MemWorkerAction::Report {
+            summary,
+            diary,
+            finalization,
+            reason,
+        } => match std::env::var("CODETERM_WORKER_ID") {
             Ok(id) => client.call(
                 "mem.worker.report",
-                Some(serde_json::json!({ "id": id, "summary": summary })),
+                Some(serde_json::json!({
+                    "id": id,
+                    "summary": summary,
+                    "diary": diary,
+                    "finalization": finalization,
+                    "reason": reason,
+                })),
             ),
             Err(_) => Err("not in a worker tab: $CODETERM_WORKER_ID is not set".into()),
         },

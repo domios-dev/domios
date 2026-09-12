@@ -4929,9 +4929,39 @@
             },
             {
               "name": "report",
-              "about": "Submit final report and mark done (uses $CODETERM_WORKER_ID)",
+              "about": "Submit final report: execution ended (uses $CODETERM_WORKER_ID)",
               "aliases": [],
               "args": [
+                {
+                  "name": "diary",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "DIARY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Mem id of the artifact this run produced, e.g. its dream diary id",
+                  "aliases": []
+                },
+                {
+                  "name": "finalization",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "FINALIZATION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Diary finalization outcome: succeeded | partial | failed",
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "REASON",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Concrete reason for a partial or failed finalization",
+                  "aliases": []
+                },
                 {
                   "name": "summary",
                   "positional": true,

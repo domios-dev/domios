@@ -16,6 +16,7 @@ import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 import { hasRenderableDreamInsight } from "./dreamVisuals";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
+import { diaryRecordState, dreamRunLabel } from "./dreamRunStatus";
 
 interface Props {
   api: ApiConfig;
@@ -46,22 +47,6 @@ function formatDuration(startMs: number, endMs: number): string {
   const mins = Math.floor(secs / 60);
   const rem = secs % 60;
   return `${mins}m ${rem}s`;
-}
-
-function statusColor(status: string): string {
-  switch (status) {
-    case "done":
-    case "Success":
-      return "#34d399";
-    case "error":
-    case "Failed":
-      return "#f87171";
-    case "Cancelled":
-    case "orphaned":
-      return "#9ca3af";
-    default:
-      return "#fbbf24";
-  }
 }
 
 function MemoryDreamsTabImpl({ api }: Props) {
@@ -224,6 +209,13 @@ function MemoryDreamsTabImpl({ api }: Props) {
     (w) => !isTerminalWorkerStatus(w.status),
   );
 
+  // A placeholder diary is history awaiting recovery, not a recorded dream.
+  const diaryStates = diaryEntries.map((entry) =>
+    diaryRecordState(entry.id, entry.body, dreamWorkers),
+  );
+  const completeDreams = diaryStates.filter((s) => s.state === "complete").length;
+  const incompleteDreams = diaryStates.length - completeDreams;
+
   const scrollCarousel = useCallback((dir: 1 | -1) => {
     const el = carouselRef.current;
     if (!el) return;
@@ -265,7 +257,10 @@ function MemoryDreamsTabImpl({ api }: Props) {
                       <span className="opacity-30">·</span>
                     </>
                   )}
-                  <span>{diaryEntries.length} dream{diaryEntries.length === 1 ? "" : "s"} recorded</span>
+                  <span>
+                    {completeDreams} dream{completeDreams === 1 ? "" : "s"} recorded
+                    {incompleteDreams > 0 ? ` · ${incompleteDreams} incomplete` : ""}
+                  </span>
                 </>
               );
             })()}
@@ -363,10 +358,11 @@ function MemoryDreamsTabImpl({ api }: Props) {
             style={{ scrollbarWidth: "thin" }}
             data-testid="memory-dream-carousel"
           >
-            {diaryEntries.map((entry) => (
+            {diaryEntries.map((entry, index) => (
               <DreamCard
                 key={entry.id}
                 entry={entry}
+                recordState={diaryStates[index]}
                 onOpen={() => setOpenDream(entry)}
               />
             ))}
@@ -480,7 +476,7 @@ function RecentSessionsList({
   const rest = capped.slice(5);
   const renderRow = (w: GraphWorkerInfo) => {
     const isDone = isTerminalWorkerStatus(w.status);
-    const color = statusColor(w.status);
+    const run = dreamRunLabel(w);
     const elapsed =
       isDone && w.done_at
         ? formatDuration(w.spawned_at, w.done_at)
@@ -492,10 +488,15 @@ function RecentSessionsList({
         data-testid="memory-dream-session"
         data-worker-id={w.worker_id}
         data-worker-status={w.status}
+        data-run-label={run.label}
+        title={run.reason ?? undefined}
         className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-bg-hover)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       >
-        <span className="text-[10px] uppercase tracking-wider w-[60px] shrink-0" style={{ color }}>
-          {isDone ? w.status : "running"}
+        <span
+          className="text-[10px] uppercase tracking-wider w-[74px] shrink-0"
+          style={{ color: run.color }}
+        >
+          {run.label}
         </span>
         <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
           {new Date(w.spawned_at).toLocaleString("en-US", {
@@ -508,6 +509,15 @@ function RecentSessionsList({
         {w.model && (
           <span className="text-[9px] text-[var(--ct-muted-fg)] truncate max-w-[120px]">
             {w.model}
+          </span>
+        )}
+        {run.reason && (
+          <span
+            data-testid="memory-dream-session-reason"
+            className="text-[9px] truncate max-w-[240px]"
+            style={{ color: run.color }}
+          >
+            {run.reason}
           </span>
         )}
         <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">

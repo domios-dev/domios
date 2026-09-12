@@ -90,11 +90,11 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 | GET | `/api/mem/workers/{id}` | — | Get worker status. |
 | DELETE | `/api/mem/workers/{id}` | — | Kill a worker. |
 | POST | `/api/mem/workers/{id}/progress` | `{...}` | Submit worker progress. |
-| POST | `/api/mem/workers/{id}/report` | `{...}` | Submit a worker report. |
+| POST | `/api/mem/workers/{id}/report` | `{summary, diary?, finalization?, reason?}` | Submit a worker report. `summary` records that execution ended; `diary` + `finalization` (`succeeded`/`partial`/`failed`) + `reason` record artifact finalization, reconciled against the stored record. |
 | GET | `/api/mem/workers/{id}/log` | — | Read the worker log. |
 
 ## Related documents
 
 Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Service and activity endpoints: `codeterm docs API-SERVICES`.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

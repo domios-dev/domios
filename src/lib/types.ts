@@ -390,6 +390,19 @@ export type GraphWorkerStatus =
   | "timed_out"
   | "orphaned";
 
+export type ExecutionEnd =
+  | { kind: "reported" }
+  | { kind: "process_ended"; detail: string }
+  | { kind: "timed_out"; detail: string }
+  | { kind: "cancelled" }
+  | { kind: "orphaned" };
+
+export type DiaryFinalization =
+  | { state: "pending" }
+  | { state: "succeeded"; diary_id: string }
+  | { state: "partial"; diary_id?: string | null; reason: string }
+  | { state: "failed"; diary_id?: string | null; reason: string };
+
 export interface GraphWorkerInfo {
   worker_id: string;
   tab_id: string | null;
@@ -407,6 +420,9 @@ export interface GraphWorkerInfo {
   model?: string | null;
   session_id?: string | null;
   cwd?: string | null;
+  execution_end?: ExecutionEnd | null;
+  diary_id?: string | null;
+  finalization?: DiaryFinalization | null;
 }
 
 export interface PluginActivity {

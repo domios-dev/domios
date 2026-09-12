@@ -2,6 +2,12 @@
 
 #[cfg(feature = "embeddings")]
 pub use codeterm_mem::compose_embed_text;
+pub mod dream_runs;
+
+#[cfg(test)]
+mod dream_status_tests;
+
+pub use codeterm_mem::dream_status;
 pub use codeterm_mem::{
     activity, body_is_embeddable, embed_queue, embeddings, file_sync, graph, graph_layout,
     graph_repair, ids, layers, learnings, ports, prompt_text, rerank, search, seed, store,
