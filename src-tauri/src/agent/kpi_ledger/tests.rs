@@ -363,11 +363,11 @@ fn aggregate_by_plan_rolls_up_unattributed_to_none() {
 }
 
 #[test]
-fn kpi_ledger_disabled_by_default_in_config() {
+fn kpi_ledger_enabled_by_default_in_config() {
     let config = crate::config::schema::AppConfig::default();
     assert!(
-        !kpi_ledger_enabled(&config),
-        "KPI ledger must be off by default until phase 3 wires writers"
+        kpi_ledger_enabled(&config),
+        "the shipped default records; the opt-out is the explicit false in config"
     );
 }
 
