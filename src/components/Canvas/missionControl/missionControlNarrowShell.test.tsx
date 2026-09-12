@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { useSidebarViewport } from "../../../hooks/useSidebarViewport";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { MissionControlBoard } from "./MissionControlBoard";
@@ -82,6 +84,21 @@ function installViewport(initialWidth: number) {
   };
 }
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+
+/** The shipped stylesheets, so the board's narrow state is read back through the real cascade. */
+function installStylesheets() {
+  const style = document.createElement("style");
+  style.textContent = [
+    readFileSync(path.join(REPO_ROOT, "src/styles/globals.css"), "utf8"),
+    readFileSync(
+      path.join(REPO_ROOT, "src/components/Canvas/missionControl/missionControlBoard.css"),
+      "utf8",
+    ),
+  ].join("\n");
+  document.head.append(style);
+}
+
 async function render(ui: ReactElement) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -125,23 +142,23 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
-const BOARD_CSS = readFileSync(new URL("./missionControlBoard.css", import.meta.url), "utf8");
+function find(host: HTMLElement, selector: string): HTMLElement {
+  const el = host.querySelector(selector);
+  if (!el) throw new Error(`the board rendered no ${selector}`);
+  return el as HTMLElement;
+}
 
-/** Declarations the board stylesheet applies to one selector, so a clipping rule cannot return unnoticed. */
-function declarations(selector: string): Record<string, string> {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const blocks = BOARD_CSS.matchAll(
-    new RegExp(`(?:^|,)\\s*${escaped}\\s*(?:,[^{]*)?\\{([^}]*)\\}`, "gm"),
-  );
-  const out: Record<string, string> = {};
-  for (const block of blocks) {
-    for (const line of block[1].split(";")) {
-      const [property, ...rest] = line.split(":");
-      if (!property.trim() || rest.length === 0) continue;
-      out[property.trim()] = rest.join(":").trim();
-    }
-  }
-  return out;
+/** Read once per element: the cascade is resolved on first read and not re-resolved afterwards. */
+function styleOf(host: HTMLElement, selector: string) {
+  const computed = getComputedStyle(find(host, selector));
+  return {
+    display: computed.display,
+    whiteSpace: computed.whiteSpace,
+    overflow: computed.overflow,
+    textOverflow: computed.textOverflow,
+    flexWrap: computed.flexWrap,
+    flex: computed.flex,
+  };
 }
 
 function missionControlState(): MissionControlState {
@@ -211,6 +228,12 @@ function boardState(): PlanBoardState {
   };
 }
 
+function board() {
+  return <MissionControlBoard plan={FIXTURE_PLAN} state={boardState()} now={NOW} />;
+}
+
+beforeAll(installStylesheets);
+
 afterEach(() => {
   observers.length = 0;
   window.matchMedia = originalMatchMedia;
@@ -243,30 +266,48 @@ describe("mission control narrow shell", () => {
     expect(phone.host.querySelector('[data-testid="sidebar-drawer"]')).toBeNull();
     await phone.unmount();
 
-    const board = await render(
-      <MissionControlBoard plan={FIXTURE_PLAN} state={boardState()} now={NOW} />,
-    );
-    await board.setBoardWidth(PHONE_WIDTH);
+    const narrow = await render(board());
+    await narrow.setBoardWidth(PHONE_WIDTH);
 
-    expect(attr(board.host, "mission-control-board", "data-board-layout")).toBe("narrow");
-    expect(text(board.host, "plan-board-plan-title")).toBe(FIXTURE_PLAN.title);
-    expect(text(board.host, "mc-board-progress")).toContain("10 of 13 done");
-    expect(text(board.host, "mc-board-tokens-amount")).toBe("5.3M");
-    expect(text(board.host, "mc-board-turns-amount")).toBe("4,023");
-    expect(board.host.querySelector('[data-testid="mission-control-board-actions"]')).not.toBeNull();
+    expect(attr(narrow.host, "mission-control-board", "data-board-layout")).toBe("narrow");
+    expect(text(narrow.host, "plan-board-plan-title")).toBe(FIXTURE_PLAN.title);
+    expect(text(narrow.host, "mc-board-progress")).toContain("10 of 13 done");
+    expect(text(narrow.host, "mc-board-tokens-amount")).toBe("5.3M");
+    expect(text(narrow.host, "mc-board-turns-amount")).toBe("4,023");
+    expect(narrow.host.querySelector('[data-testid="mission-control-board-actions"]')).not.toBeNull();
 
-    const row = board.host.querySelector('[data-testid="mc-board-event-row"]') as HTMLElement;
+    const row = find(narrow.host, '[data-testid="mc-board-event-row"]');
     expect(row.querySelector(".mc-board-log-time")?.textContent).toMatch(/\d/);
     expect(row.textContent).toContain("Readable at 390px");
     expect(row.textContent).toContain("responsive-shell-architect");
-    await board.unmount();
 
-    // happy-dom computes no layout, so the narrow stylesheet is asserted where it is declared.
-    expect(declarations('.mc-board[data-board-layout="narrow"] .plan-board-done-count')["white-space"]).toBe("normal");
-    expect(declarations('.mc-board[data-board-layout="narrow"] .plan-board-status-topline')["flex-wrap"]).toBe("wrap");
-    const logMessage = declarations('.mc-board[data-board-layout="narrow"] .mc-board-log-message');
-    expect(logMessage["white-space"]).toBe("normal");
-    expect(logMessage["overflow"]).toBe("visible");
-    expect(logMessage["text-overflow"]).toBe("clip");
+    // Nothing the reader needs is truncated away at phone width.
+    expect(styleOf(narrow.host, ".mc-board-log-message")).toMatchObject({
+      whiteSpace: "normal",
+      overflow: "visible",
+      textOverflow: "clip",
+    });
+    expect(styleOf(narrow.host, ".mc-board-log-author").whiteSpace).toBe("normal");
+    expect(styleOf(narrow.host, ".plan-board-done-count")).toMatchObject({
+      whiteSpace: "normal",
+      flex: "1 1 100%",
+    });
+    expect(styleOf(narrow.host, ".plan-board-status-topline").flexWrap).toBe("wrap");
+    expect(styleOf(narrow.host, ".mc-board-log-row").display).toBe("grid");
+    await narrow.unmount();
+
+    // Desktop keeps the dense single-line log it was designed with.
+    const wide = await render(board());
+    await wide.setBoardWidth(DESKTOP_WIDTH);
+
+    expect(attr(wide.host, "mission-control-board", "data-board-layout")).toBe("wide");
+    expect(styleOf(wide.host, ".mc-board-log-message")).toMatchObject({
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    });
+    expect(styleOf(wide.host, ".plan-board-done-count").whiteSpace).toBe("nowrap");
+    expect(styleOf(wide.host, ".mc-board-log-row").display).toBe("contents");
+    await wide.unmount();
   });
 });
