@@ -993,7 +993,6 @@ function scoreAuthPrompt(screen) {
 var sessionStoreOverrides = {
   root: "CODETERM_CODEX_SESSIONS_ROOT",
   index: "CODETERM_CODEX_SESSION_INDEX_PATH",
-  threadHistory: "CODETERM_CODEX_THREAD_HISTORY_PATH",
   state: "CODETERM_CODEX_STATE_DB_PATH"
 };
 var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
@@ -1032,11 +1031,11 @@ function sessionExists(_cwd, sessionId) {
   return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
 }
 function detectSessionId(cwd, exclude, maxAgeMs) {
-  if (!cwd) return null;
+  if (!cwd || !host.fs.fileExists(cwd)) return null;
   const store = codexSessionStore();
   if (!store) return null;
   const entries = readSessionIndex(store.indexPath);
-  if (entries.length === 0 || !host.fs.fileExists(store.threadHistoryPath)) return null;
+  if (entries.length === 0) return null;
   const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
   const now = host.unixNowMs ? host.unixNowMs() : Date.now();
   const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
@@ -1046,7 +1045,7 @@ function detectSessionId(cwd, exclude, maxAgeMs) {
     if (excluded.has(entry.id)) continue;
     const updatedMs = sessionTimestamp(entry.updated_at);
     if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readTrustedThreadCwd(store.threadHistoryPath, entry.id);
+    const project = readThreadCwd(entry.id);
     if (project && host.path.equal(project, cwd)) matching.push(entry.id);
   }
   return matching.length === 1 ? matching[0] : null;
@@ -1058,7 +1057,7 @@ function enumerateSessions() {
   return entries.map((entry) => ({
     sessionId: entry.id,
     provider: "codex",
-    projectPath: readTrustedThreadCwd(store.threadHistoryPath, entry.id),
+    projectPath: readThreadCwd(entry.id),
     title: entry.thread_name || null,
     summary: null,
     filePath: store.indexPath,
@@ -1076,7 +1075,7 @@ function threadRow(sessionId) {
   try {
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT model, rollout_path FROM threads WHERE id = ? LIMIT 1",
+      "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1",
       [sessionId]
     );
     return rows.length > 0 ? rows[0] : null;
@@ -1121,16 +1120,12 @@ function extractSessionUuid(stem) {
 }
 function codexSessionStore() {
   const indexOverride = host.envGet(sessionStoreOverrides.index);
-  const historyOverride = host.envGet(sessionStoreOverrides.threadHistory);
-  if (indexOverride && historyOverride) {
-    return { indexPath: indexOverride, threadHistoryPath: historyOverride };
-  }
+  if (indexOverride) return { indexPath: indexOverride };
   const sep = host.platform() === "windows" ? "\\" : "/";
   const root = codexSessionsRoot(sep);
   if (!root) return null;
   return {
-    indexPath: indexOverride || root + sep + "session_index.jsonl",
-    threadHistoryPath: historyOverride || root + sep + "thread_history_1.sqlite"
+    indexPath: indexOverride || root + sep + "session_index.jsonl"
   };
 }
 function trimTrailingSeparators(path) {
@@ -1156,33 +1151,34 @@ function sessionIndexEntry(path, sessionId) {
   }
   return null;
 }
-function readTrustedThreadCwd(db, sessionId) {
-  let rows;
-  try {
-    rows = host.fs.sqliteQuery(
-      db,
-      "SELECT item_type, item_json FROM thread_items WHERE thread_id = ? ORDER BY rollout_ordinal ASC, created_at_ms ASC",
-      [sessionId]
-    );
-  } catch (_) {
+var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
+function readThreadCwd(sessionId) {
+  const row = threadRow(sessionId);
+  if (!row) {
+    logUnresolvedCwd(sessionId, "no_row");
     return null;
   }
-  for (let i = 0; i < rows.length; i++) {
-    const item = parseItem(rows[i]);
-    if (!item || item.type !== "session_meta" && item.type !== "thread_meta") continue;
-    const cwd = item.payload && item.payload.cwd;
-    if (typeof cwd === "string" && cwd.trim()) return cwd;
+  const cwd = trimmedField(row, "cwd");
+  if (!cwd) {
+    logUnresolvedCwd(sessionId, "no_cwd");
+    return null;
   }
-  return null;
+  if (!host.fs.fileExists(cwd)) {
+    logUnresolvedCwd(sessionId, "cwd_absent");
+    return null;
+  }
+  return cwd;
 }
-function parseItem(row) {
-  if (typeof row.item_json !== "string") return null;
-  try {
-    const value = JSON.parse(row.item_json);
-    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
-  } catch (_) {
-    return null;
-  }
+function logUnresolvedCwd(sessionId, cause) {
+  const key = sessionId + "\0" + cause;
+  if (unresolvedCwdDiagnostics.has(key)) return;
+  unresolvedCwdDiagnostics.add(key);
+  host.log("warn", JSON.stringify({
+    provider: "codex",
+    event: "session_cwd_unresolved",
+    sessionId,
+    cause
+  }));
 }
 function sessionTimestamp(value) {
   const parsed = Date.parse(value);
