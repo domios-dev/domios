@@ -118,7 +118,11 @@ export interface EventRow {
   strong: boolean;
   author: string;
   taskName: string | null;
-  text: string;
+  /** Bounded single-line reading of `body`; never the only copy of the text. */
+  preview: string;
+  /** The stored note exactly as recorded, reachable through the row's reveal. */
+  body: string;
+  expandable: boolean;
   /** Present only for a collapsed run of same-agent, same-task reports. */
   runLabel: string | null;
 }
@@ -130,12 +134,32 @@ export type EventLogRow =
 /** The log prints a task only as a locator, so a long name is clipped, not wrapped. */
 export const EVENT_TASK_NAME_MAX = 36;
 
+/** Punctuation the row prints between a clipped task name and the note itself. */
+export const EVENT_PART_SEPARATOR = " · ";
+
+/** The log is an index: a decision or question is read here, not consumed here. */
+export const EVENT_PREVIEW_MAX = 100;
+
+export const EVENT_REVEAL_SHOW_LABEL = "Show full event text";
+export const EVENT_REVEAL_HIDE_LABEL = "Hide full event text";
+
 export function clipTaskName(name: string | null): string | null {
   if (!name) return null;
   return name.length > EVENT_TASK_NAME_MAX ? `${name.slice(0, EVENT_TASK_NAME_MAX)}…` : name;
 }
 
+/** A word-boundary cut of one flattened line, so the preview never ends mid-token. */
+export function eventPreview(body: string): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  if (flat.length <= EVENT_PREVIEW_MAX) return flat;
+  const cut = flat.slice(0, EVENT_PREVIEW_MAX);
+  const lastSpace = cut.lastIndexOf(" ");
+  const head = lastSpace > EVENT_PREVIEW_MAX / 2 ? cut.slice(0, lastSpace) : cut;
+  return `${head.replace(/[\s,;:.–—-]+$/, "")}…`;
+}
+
 function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneKind[]): EventRow {
+  const preview = eventPreview(event.text);
   return {
     key: `event-${index}-${event.ts}`,
     time: formatClock(event.ts),
@@ -143,7 +167,9 @@ function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneK
     strong: STRONG_KINDS.has(event.kind),
     author: event.author,
     taskName: event.task_name === event.text ? null : clipTaskName(event.task_name),
-    text: event.text,
+    preview,
+    body: event.text,
+    expandable: preview !== event.text,
     runLabel:
       event.count > 1
         ? `×${event.count}, ${formatClock(event.ts)} to ${formatClock(event.last_ts)}`
