@@ -21,11 +21,6 @@ interface Props {
   api: ApiConfig;
 }
 
-interface SearchHit {
-  item: DreamDiaryEntry;
-  score: number;
-}
-
 function relativeTime(target: number): string {
   const diff = target - Date.now();
   const abs = Math.abs(diff);
@@ -70,6 +65,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
   const [openDream, setOpenDream] = useState<DreamDiaryEntry | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
+  const [diaryTotal, setDiaryTotal] = useState(0);
   const [diaryLoading, setDiaryLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -127,19 +123,16 @@ function MemoryDreamsTabImpl({ api }: Props) {
     async (showLoading = false) => {
       if (showLoading) setDiaryLoading(true);
       try {
-        const params = new URLSearchParams({ q: "dream", kind: "daily", limit: "30" });
-        const res = await fetch(`${baseUrl(api)}/api/mem/search?${params}`, {
+        const params = new URLSearchParams({ limit: "30" });
+        const res = await fetch(`${baseUrl(api)}/api/mem/dream/diary?${params}`, {
           headers: authHeaders(api),
         });
         if (!res.ok || !mountedRef.current) return;
-        const data = (await res.json()) as { hits: SearchHit[] };
-        const entries = (data.hits || [])
-          .map((h) => h.item)
+        const data = (await res.json()) as { items: DreamDiaryEntry[]; total: number };
+        const entries = (data.items || [])
           .filter((entry) => hasRenderableDreamInsight(entry.body));
-        entries.sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        );
         setDiaryEntries(entries);
+        setDiaryTotal(data.total);
       } catch {
         /* network */
       } finally {
@@ -265,7 +258,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
                       <span className="opacity-30">·</span>
                     </>
                   )}
-                  <span>{diaryEntries.length} dream{diaryEntries.length === 1 ? "" : "s"} recorded</span>
+                  <span>{diaryTotal} dream{diaryTotal === 1 ? "" : "s"} recorded</span>
                 </>
               );
             })()}
