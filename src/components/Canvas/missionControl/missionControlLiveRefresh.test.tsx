@@ -45,6 +45,7 @@ function boardState({ output = 100, turns = 10, bounces = 1, runway = 20, eventC
     kpi: {
       state: "recording",
       not_recording_reason: null,
+      enable_setting: null,
       spend: {
         events: turns,
         bytes: 10_000,
