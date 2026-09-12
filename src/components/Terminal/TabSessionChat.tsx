@@ -369,6 +369,7 @@ export function TabSessionChat({
           persisted: report.taskOutcome.persisted,
           transitionRejected: report.taskOutcome.transition_rejected,
           cause: report.taskOutcome.cause ?? null,
+          reportOutcome: report.taskOutcome.report_outcome ?? null,
         },
       },
     })),
