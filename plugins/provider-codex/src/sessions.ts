@@ -7,6 +7,7 @@ declare const host: {
   fs: {
     fileExists(path: string): boolean;
     readFile(path: string): string | null;
+    readDir(path: string): { name: string; isFile: boolean }[];
     sqliteQuery<T>(db: string, sql: string, params: unknown[]): T[];
   };
 };
@@ -32,7 +33,12 @@ const sessionStoreOverrides = {
   root: "CODETERM_CODEX_SESSIONS_ROOT",
   index: "CODETERM_CODEX_SESSION_INDEX_PATH",
   threadHistory: "CODETERM_CODEX_THREAD_HISTORY_PATH",
+  state: "CODETERM_CODEX_STATE_DB_PATH",
 };
+
+// Codex version-suffixes its state database and bumps the number; match the shape
+// so a release that moves to the next one does not silently stop answering.
+const STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
 
 export function foldSessionIndex(contents: string): CodexSessionIndexEntry[] {
   const folded = new Map<string, CodexSessionIndexEntry>();
@@ -57,10 +63,10 @@ export function foldSessionIndex(contents: string): CodexSessionIndexEntry[] {
 }
 
 export function sessionFilePath(_cwd: string, sessionId: string): string | null {
-  const store = codexSessionStore();
-  if (!store || !sessionIndexEntry(store.indexPath, sessionId)) return null;
-  // Codex moved transcripts into SQLite; there is no JSONL file to hand to the parser.
-  return null;
+  // Codex records the rollout it is appending to on the thread row itself. It is a
+  // real JSONL file and the usage parser reads it; the transcript did not move.
+  const path = trimmedField(threadRow(sessionId), "rollout_path");
+  return path && host.fs.fileExists(path) ? path : null;
 }
 
 export function sessionExists(_cwd: string, sessionId: string): boolean {
@@ -109,26 +115,60 @@ export function enumerateSessions(): unknown[] {
   }));
 }
 
+// Codex's own per-thread row. `thread_items` carries no turn_context and no model
+// field on this schema, so the state db is where the running model is written down.
 export function detectSessionModel(_cwd: string, sessionId: string): string | null {
-  const store = codexSessionStore();
-  if (!store || !host.fs.fileExists(store.threadHistoryPath)) return null;
-  let rows: ThreadItemRow[];
+  return trimmedField(threadRow(sessionId), "model");
+}
+
+interface CodexThreadRow {
+  model?: unknown;
+  rollout_path?: unknown;
+}
+
+function threadRow(sessionId: string): CodexThreadRow | null {
+  if (!sessionId) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
   try {
-    rows = host.fs.sqliteQuery<ThreadItemRow>(
-      store.threadHistoryPath,
-      "SELECT item_type, item_json FROM thread_items WHERE thread_id = ? ORDER BY rollout_ordinal ASC, created_at_ms ASC",
+    const rows = host.fs.sqliteQuery<CodexThreadRow>(
+      db,
+      "SELECT model, rollout_path FROM threads WHERE id = ? LIMIT 1",
       [sessionId],
     );
+    return rows.length > 0 ? rows[0] : null;
   } catch (_) {
     return null;
   }
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const item = parseItem(rows[i]);
-    if (!item || item.type !== "turn_context") continue;
-    const model = item.payload && item.payload.model;
-    if (typeof model === "string" && model.trim()) return model.trim();
+}
+
+function trimmedField(row: CodexThreadRow | null, field: "model" | "rollout_path"): string | null {
+  const value = row ? row[field] : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function codexStateDbPath(): string | null {
+  const override = host.envGet(sessionStoreOverrides.state);
+  if (override) return override;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  let entries: { name: string; isFile: boolean }[];
+  try {
+    entries = host.fs.readDir(root);
+  } catch (_) {
+    return null;
   }
-  return null;
+  let best: { name: string; version: number } | null = null;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.isFile) continue;
+    const match = STATE_DB_NAME.exec(entry.name);
+    if (!match) continue;
+    const version = parseInt(match[1], 10);
+    if (!best || version > best.version) best = { name: entry.name, version };
+  }
+  return best ? root + sep + best.name : null;
 }
 
 export function extractSessionUuid(stem: string): string | null {
