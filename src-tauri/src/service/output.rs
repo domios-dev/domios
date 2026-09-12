@@ -492,23 +492,20 @@ impl ServiceContext {
         };
         for event in &events {
             if let crate::agent::command_detection::CommandLifecycle::Finished {
-                command_line,
-                exit_code,
-                ..
+                exit_code, ..
             } = event
             {
                 self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                // The shell finished the command a launch is still waiting on:
-                // that launch's process is gone before it proved readiness.
-                crate::service::launch_readiness::note_launch_command_exit(
-                    tab_id,
-                    pty_id,
-                    command_line.as_deref(),
-                    *exit_code,
-                );
+                // Claimed before the teardown below, which clears the launch a
+                // verdict names, and published after so the teardown still sees
+                // the boot stage it decides on.
+                let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
                 // The shell finished its foreground command: if that command was
                 // a proven-up agent, the agent process is gone.
                 self.note_provider_exit_in_surviving_shell(tab_id);
+                if let Some(exited) = exited {
+                    self.publish_launch_exit(&exited);
+                }
             }
             crate::api::events::emit_everywhere(
                 &self.app_handle,

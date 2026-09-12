@@ -42,30 +42,20 @@ fn report_own_launch(tab: &mut Tab) {
 /// time; nothing in these tests sleeps to reach its outcome.
 const BOUND: Duration = Duration::from_secs(30);
 
-/// What the shell reports as the finished command line for this launch: the
-/// prelude `command_with_binding_nonce_for_shell` stamps carries the nonce.
-fn launch_command_line(attempt: &LaunchAttempt) -> String {
-    format!(
-        "export CODETERM_SESSION_BINDING_NONCE='{}'; claude --dangerously-skip-permissions",
-        attempt.binding_nonce
-    )
-}
-
 #[test]
 fn launch_readiness_local_exit_emits_bounded_failure() {
     let tab = launching_tab("pty-local", "nonce-local");
     let attempt = attempt_of(&tab);
 
     arm(attempt.clone());
-    assert!(note_launch_command_exit(
-        &attempt.tab_id,
-        &attempt.pty_id,
-        Some(launch_command_line(&attempt).as_str()),
-        Some(3),
-    ));
+    let (claimed, exit_code) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3))
+        .expect("an armed launch claims the exit observed against it");
+    assert_eq!(claimed, attempt);
+    assert_eq!(exit_code, Some(3));
+    // A claim leaves no evidence behind it, so the waiting observer finds none.
     assert_eq!(
-        observe(&attempt, Instant::now() + BOUND),
-        LaunchObservation::Evidence(LaunchEvidence::ProcessExited { exit_code: Some(3) }),
+        observe(&attempt, Instant::now()),
+        LaunchObservation::Deadline
     );
 
     let settlement = settle_evidence(
@@ -93,16 +83,7 @@ fn launch_readiness_mesh_exit_emits_bounded_failure() {
     let attempt = attempt_of(&tab);
 
     arm(attempt.clone());
-    assert!(note_launch_command_exit(
-        &attempt.tab_id,
-        &attempt.pty_id,
-        Some(launch_command_line(&attempt).as_str()),
-        Some(1),
-    ));
-    assert_eq!(
-        observe(&attempt, Instant::now() + BOUND),
-        LaunchObservation::Evidence(LaunchEvidence::ProcessExited { exit_code: Some(1) }),
-    );
+    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(1)).is_some());
 
     let mut local = tab.clone();
     local.report_target_mesh_peer = None;
@@ -150,12 +131,7 @@ fn launch_readiness_healthy_ack_is_not_failure() {
         &attempt.pty_id,
         &attempt.binding_nonce
     ));
-    assert!(!note_launch_command_exit(
-        &attempt.tab_id,
-        &attempt.pty_id,
-        Some(launch_command_line(&attempt).as_str()),
-        Some(0),
-    ));
+    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(0)).is_none());
     assert_eq!(
         observe(&attempt, Instant::now() + BOUND),
         LaunchObservation::Evidence(LaunchEvidence::Acknowledged),
@@ -269,18 +245,8 @@ fn launch_readiness_stale_session_does_not_settle_current_attempt() {
     );
 
     arm(attempt.clone());
-    assert!(!note_launch_command_exit(
-        &attempt.tab_id,
-        "pty-foreign",
-        Some(launch_command_line(&attempt).as_str()),
-        Some(3),
-    ));
-    assert!(!note_launch_command_exit(
-        &attempt.tab_id,
-        &attempt.pty_id,
-        Some("git status"),
-        Some(1),
-    ));
+    assert!(claim_exit(&attempt.tab_id, Some("pty-foreign"), Some(3)).is_none());
+    assert!(claim_exit("tab-foreign", None, Some(3)).is_none());
     assert!(!note_acknowledged(
         &attempt.tab_id,
         &attempt.pty_id,
@@ -375,4 +341,230 @@ fn launch_readiness_fixture_exposes_both_deterministic_modes() {
         assert!(!fixture.contains(timed), "fixture must not use {timed}");
     }
     assert!(fixture.contains("watch("));
+}
+
+/// The live failure this round fixes. The shell reports a finished command with
+/// an EMPTY command line (`ESC ] 633 ; E ; ; <shell-nonce> BEL`), so an exit
+/// detector that asks the command line to name the launch rejects the only
+/// evidence there is. Nothing here may depend on that text.
+#[test]
+fn launch_readiness_exit_settles_without_a_shell_reported_command_line() {
+    let tab = launching_tab("pty-marker-less", "nonce-marker-less");
+    let attempt = attempt_of(&tab);
+
+    arm(attempt.clone());
+    let (claimed, exit_code) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None)
+        .expect("an exit with no shell-reported detail still claims the launch");
+    assert_eq!(claimed, attempt);
+    assert_eq!(exit_code, None);
+    assert!(matches!(
+        settle_evidence(
+            &tab,
+            &attempt,
+            LaunchEvidence::ProcessExited { exit_code: None }
+        ),
+        LaunchSettlement::Failed { .. }
+    ));
+
+    let owner = include_str!("../launch_readiness.rs");
+    assert!(!owner.contains("command_line"));
+}
+
+/// The second half of the same live failure: every observer that sees an exit
+/// also tears the tab's agent identity down, and the teardown clears the launch
+/// nonce. A settlement attempted afterwards can only be Superseded, so the
+/// settle must come first at every call site.
+#[test]
+fn launch_readiness_exit_settles_before_identity_teardown() {
+    let tab = launching_tab("pty-teardown", "nonce-teardown");
+    let attempt = attempt_of(&tab);
+    let exited = LaunchEvidence::ProcessExited { exit_code: Some(3) };
+
+    assert!(matches!(
+        settle_evidence(&tab, &attempt, exited.clone()),
+        LaunchSettlement::Failed { .. }
+    ));
+
+    let mut torn_down = tab.clone();
+    assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(&mut torn_down));
+    assert!(torn_down.session_binding_nonce.is_none());
+    assert_eq!(
+        settle_evidence(&torn_down, &attempt, exited),
+        LaunchSettlement::Superseded,
+    );
+
+    let output = include_str!("../output.rs");
+    let settle = output
+        .find("settle_launch_exit_observation")
+        .expect("the shell exit source settles launch readiness");
+    let teardown = output
+        .find("note_provider_exit_in_surviving_shell")
+        .expect("the shell exit source tears identity down");
+    assert!(
+        settle < teardown,
+        "settle must precede the identity teardown"
+    );
+
+    let tab_source = include_str!("../tab.rs");
+    let funnel = tab_source
+        .find("settle_launch_exit_observation")
+        .expect("the lifecycle-exit funnel settles launch readiness");
+    let clear = tab_source
+        .find("is_some_and(clear_agent_identity_for_lifecycle_exit)")
+        .expect("the funnel clears identity");
+    assert!(funnel < clear, "the funnel must settle before it clears");
+}
+
+/// A launch verdict is published after the teardown, so it is the stage that
+/// stands even though the teardown resets the tab to `shell_ready`.
+#[test]
+fn launch_readiness_failed_launch_is_published_after_identity_teardown() {
+    let mut torn_down = launching_tab("pty-verdict", "nonce-verdict");
+    assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(&mut torn_down));
+    assert_eq!(torn_down.boot_stage, Some(BootStage::ShellReady));
+
+    let tab_source = include_str!("../tab.rs");
+    let clear = tab_source
+        .find("is_some_and(clear_agent_identity_for_lifecycle_exit)")
+        .expect("the funnel clears identity");
+    let publish = tab_source
+        .find("publish_launch_exit")
+        .expect("the funnel publishes the claimed verdict");
+    assert!(
+        clear < publish,
+        "the verdict must be published after the clear"
+    );
+
+    let output = include_str!("../output.rs");
+    let teardown = output
+        .find("note_provider_exit_in_surviving_shell")
+        .expect("the shell exit source tears identity down");
+    let published = output
+        .find("publish_launch_exit")
+        .expect("the shell exit source publishes its verdict");
+    assert!(teardown < published, "publish must follow the teardown");
+}
+
+/// The exit is evidence about the launch whether or not the launch already
+/// claimed `AgentReady`, so nothing here reads `agent_booting`.
+#[test]
+fn launch_readiness_exit_is_evidence_whether_or_not_agent_ready_was_claimed() {
+    for (stage, booting) in [
+        (BootStage::LaunchWritten, true),
+        (BootStage::ProviderReady, false),
+        (BootStage::AgentReady, false),
+    ] {
+        let mut tab = launching_tab("pty-window", "nonce-window");
+        tab.boot_stage = Some(stage);
+        tab.agent_booting = booting;
+        let attempt = attempt_of(&tab);
+        assert!(
+            matches!(
+                settle_evidence(
+                    &tab,
+                    &attempt,
+                    LaunchEvidence::ProcessExited { exit_code: Some(3) }
+                ),
+                LaunchSettlement::Failed { .. }
+            ),
+            "stage {stage:?} must still settle as a launch failure"
+        );
+    }
+
+    let owner = include_str!("../launch_readiness.rs");
+    assert!(!owner.contains("agent_booting"));
+}
+
+/// End to end on a real ServiceContext, through the exact byte shape the live
+/// shell emits. This is the case the pure tests could not reach: nothing notes
+/// the exit by hand, the daemon has to observe it.
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&tab_id, "pty-launch-readiness".into());
+    let tab = mux.get_tab_mut(&tab_id).expect("seeded tab");
+    tab.agent_type = Some("claude".into());
+    tab.session_binding_nonce = Some("nonce-live".into());
+    tab.shell_integration_nonce = Some("shell-nonce".into());
+    tab.boot_stage = Some(BootStage::AgentReady);
+
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(
+            Some("pty-launch-readiness".into()),
+            None,
+            None,
+            80,
+            24,
+            Default::default(),
+        )
+        .expect("spawn live backing PTY");
+    arm(LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: "pty-launch-readiness".into(),
+        binding_nonce: "nonce-live".into(),
+    });
+
+    // Empty command line, shell nonce, then command end: what the live shell sends.
+    harness
+        .service
+        .process_pty_output("pty-launch-readiness", b"]633;E;;shell-nonce]633;D;3");
+
+    let mux = harness.service.mux.read();
+    let tab = mux
+        .get_tab(&tab_id)
+        .expect("tab survives its launch failure");
+    assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+    let reason = tab
+        .boot_failure_reason
+        .as_deref()
+        .expect("the failure carries its reason");
+    assert!(reason.starts_with(EXITED_BEFORE_READINESS));
+    assert!(reason.contains(&tab_id));
+    assert!(reason.contains("attempt=pty-launch-readiness"));
+    assert!(reason.contains("launch_nonce=nonce-live"));
+}
+
+/// The launch thread must not claim ready over a verdict already published, so
+/// a published failure stays readable until that thread takes it.
+#[test]
+fn launch_readiness_published_failure_stops_the_launch_thread() {
+    let tab = launching_tab("pty-tombstone", "nonce-tombstone");
+    let attempt = attempt_of(&tab);
+
+    arm(attempt.clone());
+    let (claimed, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3))
+        .expect("the armed launch claims its exit");
+    let reason = exited_before_readiness_reason(&claimed, Some(3));
+    record_published_failure(&claimed, &reason);
+
+    // A second observer of the same exit finds nothing left to claim.
+    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3)).is_none());
+    assert_eq!(
+        observe(&attempt, Instant::now() + BOUND),
+        LaunchObservation::Retired
+    );
+
+    assert_eq!(
+        take_published_failure(&attempt).as_deref(),
+        Some(reason.as_str())
+    );
+    assert_eq!(take_published_failure(&attempt), None);
+
+    let launch = include_str!("../orchestrator/launch.rs");
+    assert!(launch.contains("take_published_failure(&readiness_attempt)"));
+    let taken = launch
+        .find("take_published_failure")
+        .expect("the launch thread reads the published verdict");
+    let ready = launch
+        .find("emit(&svc, BootStage::AgentReady)")
+        .expect("the launch thread claims ready");
+    assert!(taken < ready, "the verdict is read before ready is claimed");
 }

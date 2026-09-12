@@ -500,6 +500,8 @@ impl ServiceContext {
     /// the shell survived it. That is a process exit, not a heuristic and not an
     /// elapsed-time guess, so it takes the same teardown a PTY death takes —
     /// which is also what arms the existing guarded-input refusal.
+    /// Identity teardown only, and deliberately blind to a booting tab. Launch
+    /// readiness is settled by the caller before this, never behind this gate.
     pub(crate) fn note_provider_exit_in_surviving_shell(&self, tab_id: &str) -> bool {
         let observed = {
             let mut mux = self.mux.write();
