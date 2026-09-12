@@ -846,25 +846,12 @@ pub(crate) async fn finish_session_binding(
     state.svc.chat_registry.shutdown_tab(&tab_id);
     state.svc.bind_planner_session(&tab_id);
     state.svc.schedule_planner_replay(&tab_id);
-    let effort_cwd = state
-        .svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.cwd.clone());
     let persist_svc = state.svc.clone();
-    let effort_tab_id = tab_id.to_string();
-    let effort_provider_id = provider_id.to_string();
-    let effort_session_id = sid.to_string();
+    let bound_tab_id = tab_id.to_string();
     if let Ok(Err(error)) = tokio::task::spawn_blocking(move || {
-        if let Some(cwd) = effort_cwd {
-            persist_svc.refresh_session_reasoning_effort_once(
-                &effort_tab_id,
-                &effort_provider_id,
-                &cwd,
-                &effort_session_id,
-            );
-        }
+        // The commit cleared this tab's runtime model and effort evidence for
+        // the retired session; the binding is the event that re-reads it.
+        persist_svc.refresh_session_model_after_binding(&bound_tab_id);
         crate::service::session_persist::persist_session_after_mutation(
             &persist_svc,
             crate::service::session_persist::SessionPersistUrgency::Prompt,

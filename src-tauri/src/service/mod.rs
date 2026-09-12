@@ -70,6 +70,7 @@ mod role_profile;
 mod session_backup;
 pub(crate) mod session_binding_deferral;
 mod session_binding_state;
+pub(crate) mod session_model;
 pub mod session_persist;
 mod shell_restart;
 pub mod smart_add;
