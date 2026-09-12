@@ -31,12 +31,16 @@ function labels(host: HTMLElement) {
   );
 }
 
-function clickMode(host: HTMLElement, label: string) {
+async function clickMode(host: HTMLElement, label: string) {
   const tab = Array.from(host.querySelectorAll<HTMLButtonElement>('[data-testid="plan-view-mode-switch"] [role="tab"]')).find(
     (candidate) => candidate.textContent?.trim() === label,
   );
   expect(tab).toBeDefined();
-  tab?.click();
+  await act(async () => tab?.click());
+}
+
+function isSurfaceHidden(host: HTMLElement, testId: string) {
+  return host.querySelector(`[data-testid="${testId}"]`)?.parentElement?.hasAttribute("hidden");
 }
 
 describe("team plan view shell", () => {
@@ -46,8 +50,8 @@ describe("team plan view shell", () => {
 
     expect(labels(host)).toEqual(["Board", "Spec", "Plan", "Tasks"]);
     expect(host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode")).toBe("board");
-    expect(host.querySelector('[data-testid="mission-control-plan-surface"]')?.hasAttribute("hidden")).toBe(false);
-    expect(host.querySelector('[data-testid="plan-board-view"]')?.hasAttribute("hidden")).toBe(true);
+    expect(isSurfaceHidden(host, "mission-control-plan-surface")).toBe(false);
+    expect(isSurfaceHidden(host, "plan-board-view")).toBe(true);
     expect(host.querySelector('[data-testid="plan-companion-bubble"]')).toBeNull();
     expect(host.querySelector('[data-testid="tab-session-chat"]')).toBeNull();
     await unmount();
@@ -64,19 +68,19 @@ describe("team plan view shell", () => {
     localStorage.removeItem("codeterm.planViewMode");
     const { host, unmount } = await render(<PlanViewShell {...props} />);
 
-    clickMode(host, "Spec");
+    await clickMode(host, "Spec");
     expect(host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode")).toBe("spec");
-    expect(host.querySelector('[data-testid="plan-spec-surface"]')?.hasAttribute("hidden")).toBe(false);
-    clickMode(host, "Plan");
-    expect(host.querySelector('[data-testid="plan-plan-surface"]')?.hasAttribute("hidden")).toBe(false);
-    clickMode(host, "Tasks");
-    expect(host.querySelector('[data-testid="plan-board-view"]')?.hasAttribute("hidden")).toBe(false);
-    clickMode(host, "Board");
+    expect(isSurfaceHidden(host, "plan-spec-surface")).toBe(false);
+    await clickMode(host, "Plan");
+    expect(isSurfaceHidden(host, "plan-plan-surface")).toBe(false);
+    await clickMode(host, "Tasks");
+    expect(isSurfaceHidden(host, "plan-board-view")).toBe(false);
+    await clickMode(host, "Board");
 
     const options = host.querySelectorAll<HTMLButtonElement>('[data-testid="plan-switcher-option"]');
     expect(options).toHaveLength(2);
     expect(options[0]?.getAttribute("data-active")).toBe("true");
-    options[1].click();
+    await act(async () => options[1]?.click());
     expect(options[0]?.getAttribute("data-active")).toBe("false");
     expect(options[1]?.getAttribute("data-active")).toBe("true");
     await unmount();
