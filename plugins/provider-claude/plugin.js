@@ -1607,9 +1607,19 @@ var plugin = {
     const s = present("Stop");
     const pc = present("PreCompact");
     const ss = sessionStartCurrent();
+    const installed = n && pr && s && ss;
+    let marked = true;
+    for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
+      const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
+      if (Array.isArray(arr) && !entriesCarryMarker(arr)) {
+        marked = false;
+        break;
+      }
+    }
     return {
       settings_exists: true,
-      hooks_installed: n && pr && s && ss,
+      hooks_installed: installed,
+      hook_contract_current: installed && marked,
       notification_hook: n,
       permission_request_hook: pr,
       stop_hook: s,
@@ -1650,7 +1660,7 @@ var plugin = {
     }
     if (!json.hooks) json.hooks = {};
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
+    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN" ' + CODETERM_HOOK_MARKER_ARG;
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const finish = " || true; fi";
     const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
@@ -1829,7 +1839,31 @@ function randomShortHex(len) {
   return out;
 }
 var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+var CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush"
+];
+function commandCarriesMarker(cmd) {
+  return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+function commandIsCurrentUnmarked(cmd) {
+  if (cmd.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (cmd.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (cmd.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  for (let i = 0; i < CODETERM_CURRENT_ROUTES.length; i++) {
+    if (cmd.indexOf(CODETERM_CURRENT_ROUTES[i]) !== -1) return true;
+  }
+  return false;
+}
+function commandIsLegacyV2(cmd) {
+  if (cmd.indexOf("$CODETERM_PANE_ID") === -1) return false;
+  return cmd.indexOf("/api/panes/$CODETERM_PANE_ID/hook/") !== -1 || cmd.indexOf("/api/mem/flush") !== -1;
+}
 function isCodetermHook(entry) {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
@@ -1840,12 +1874,27 @@ function isCodetermHook(entry) {
       return true;
     }
     const cmd = h.command;
-    if (typeof cmd === "string") {
-      const codetermOrigin = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
-      const hookRoute = cmd.indexOf("/api/notifications") !== -1 || cmd.indexOf("/api/tabs/") !== -1 || cmd.indexOf("/hook/permission") !== -1 || cmd.indexOf("/hook/stop") !== -1 || cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/api/mem/flush") !== -1;
-      if (codetermOrigin && hookRoute) return true;
+    if (typeof cmd === "string" && (commandCarriesMarker(cmd) || commandIsCurrentUnmarked(cmd) || commandIsLegacyV2(cmd))) {
+      return true;
     }
   }
   return false;
+}
+function entriesCarryMarker(entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!isCodetermHook(entry)) continue;
+    const hooks = entry && entry.hooks || [];
+    let marked = false;
+    for (let j = 0; j < hooks.length; j++) {
+      const cmd = hooks[j] && hooks[j].command;
+      if (typeof cmd === "string" && commandCarriesMarker(cmd)) {
+        marked = true;
+        break;
+      }
+    }
+    if (!marked) return false;
+  }
+  return true;
 }
 var plugin_default = plugin;
