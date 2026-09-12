@@ -9,14 +9,14 @@ export function formatRelative(now: number, then: number): string {
 export function formatResetsAt(ms: number, now: number): string {
   const d = new Date(ms);
   const sameDay = new Date(now).toDateString() === d.toDateString();
-  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   if (sameDay) {
     const remain = Math.max(0, ms - now);
     const h = Math.floor(remain / 3_600_000);
     const m = Math.floor((remain % 3_600_000) / 60_000);
     return h > 0 ? `resets ${time} · in ${h}h ${m}m` : `resets ${time} · in ${m}m`;
   }
-  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   return `resets ${date} · ${time}`;
 }
 

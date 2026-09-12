@@ -231,8 +231,8 @@ function missionControlState(): MissionControlState {
           provider: "codex",
           label: "Codex",
           captured_at: NOW,
-          session_pct: 42,
-          session_resets_at: NOW + 3 * H,
+          session_pct: null,
+          session_resets_at: null,
           weekly_pct: 81,
           weekly_resets_at: NOW + 72 * H,
           stale_reason: null,
@@ -308,20 +308,20 @@ describe("mission control narrow shell", () => {
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
     expect(text(narrow.host, "mc-board-areas")).toContain("Tasks by area");
-    expect(text(narrow.host, "mc-board-area-tokens-relation")).toContain("Tokens plan total");
+    expect(text(narrow.host, "mc-board-areas")).not.toContain("Tokens plan total");
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-runway-gauge"]')).toHaveLength(4);
     for (const label of [
-      "Claude · session allowance used",
-      "Claude · weekly allowance used",
-      "Codex · session allowance used",
-      "Codex · weekly allowance used",
+      "Claude · session",
+      "Claude · weekly",
+      "Codex · session",
+      "Codex · weekly",
     ]) {
       expect(text(narrow.host, "mc-board-runway")).toContain(label);
     }
     expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).not.toBe(
       narrow.host.querySelector('[data-testid="mc-board-card-grid"]'),
     );
-    expect(narrow.host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(5);
+    expect(narrow.host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(8);
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions"]')).not.toBeNull();
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).not.toBeNull();
     expect(narrow.host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
