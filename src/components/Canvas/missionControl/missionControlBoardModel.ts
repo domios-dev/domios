@@ -141,7 +141,7 @@ function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneK
     kindLabel: eventKindLabel(event.kind, declared),
     strong: STRONG_KINDS.has(event.kind),
     author: event.author,
-    taskName: clipTaskName(event.task_name),
+    taskName: event.task_name === event.text ? null : clipTaskName(event.task_name),
     text: event.text,
     runLabel:
       event.count > 1
