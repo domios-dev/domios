@@ -556,13 +556,7 @@ pub fn start_general_agent(
         return;
     }
     if !launched {
-        defer_general_agent_start_to_late_readiness(
-            svc,
-            mux,
-            &tab_id,
-            &pty_id,
-            "agent output deadline elapsed",
-        );
+        defer_general_agent_start_to_late_readiness(svc, mux, &tab_id, &pty_id);
         return;
     }
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
@@ -890,11 +884,7 @@ fn defer_general_agent_start_to_late_binding(
         .get_tab(tab_id)
         .and_then(|tab| tab.pending_delivery.as_ref().map(|record| record.state()));
     let (stage, reason) = missing_binding_provisional(delivery);
-    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
-        tab.agent_booting = false;
-    }
-    svc.record_provisional_launch(tab_id, pty_id, stage, &reason);
-    svc.emit_state_changed();
+    defer_general_agent_start(svc, mux, tab_id, pty_id, stage, reason);
 }
 
 /// An output deadline is this observer giving up, not the launch failing: the
@@ -905,12 +895,42 @@ fn defer_general_agent_start_to_late_readiness(
     mux: &crate::MuxState,
     tab_id: &str,
     pty_id: &str,
-    reason: &str,
+) {
+    defer_general_agent_start(
+        svc,
+        mux,
+        tab_id,
+        pty_id,
+        BootStage::LaunchDeadlineElapsed,
+        crate::service::launch_readiness::GENERAL_AGENT_OUTPUT_DEADLINE.to_string(),
+    );
+}
+
+/// Hand this observer's provisional evidence to the shared launch-readiness
+/// owner, which is what binds it to the tab's own PTY and launch attempt.
+fn defer_general_agent_start(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    tab_id: &str,
+    pty_id: &str,
+    stage: BootStage,
+    reason: String,
 ) {
     if let Some(tab) = mux.write().get_tab_mut(tab_id) {
         tab.agent_booting = false;
     }
-    svc.record_launch_output_deadline(tab_id, pty_id, reason);
+    match crate::service::launch_readiness::LaunchAttempt::current(mux, tab_id, pty_id) {
+        Some(attempt) => {
+            svc.settle_launch_readiness(
+                &attempt,
+                crate::service::launch_readiness::LaunchEvidence::Unobserved { stage, reason },
+            );
+        }
+        None => log::info!(
+            "[general-agent] {} on PTY {pty_id} ignored; Tab {tab_id} moved on",
+            stage.as_str()
+        ),
+    }
     svc.emit_state_changed();
 }
 
