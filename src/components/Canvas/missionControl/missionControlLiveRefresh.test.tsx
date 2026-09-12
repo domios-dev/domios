@@ -29,7 +29,7 @@ let mediaMatches = false;
 let frames = new Map<number, FrameRequestCallback>();
 let nextFrameId = 0;
 
-function boardState({ output = 100, turns = 10, bounces = 1, runway = 20, eventCount = 1, tasks = 1 } = {}): PlanBoardState {
+function boardState({ output = 100, turns = 10, bounces = 1, allowance = 20, eventCount = 1, tasks = 1 } = {}): PlanBoardState {
   const mission: MissionControlState = {
     held: { held_reviews: [], open_gates: [], oldest_hold_age_ms: null, verdicts_on_held: 0 },
     bounces: { total_attempts: 3, tasks_on_second_attempt: bounces, first_try_done: 2, labelled_bounced: bounces },
@@ -53,17 +53,36 @@ function boardState({ output = 100, turns = 10, bounces = 1, runway = 20, eventC
         tokens: { input: 200, uncached_input: 20, output, total: output + 200 },
       },
     },
-    runway: {
-      state: "reporting",
+    spend: {
+      scope: "machine",
+      state: "recording",
+      not_recording_reason: null,
+      enable_setting: null,
+      measured_tokens: 200 + output,
+      turns,
       providers: [{
         provider: "codex",
         label: "Codex",
-        captured_at: NOW,
-        session_pct: runway,
-        session_resets_at: NOW + 60_000,
-        weekly_pct: null,
-        weekly_resets_at: null,
-        stale_reason: null,
+        allowance: {
+          captured_at: NOW,
+          session_used_pct: allowance,
+          session_resets_at: NOW + 60_000,
+          weekly_used_pct: null,
+          weekly_resets_at: null,
+          stale_reason: null,
+        },
+        turns,
+        input_tokens: 200,
+        uncached_input_tokens: 20,
+        output_tokens: output,
+        models: [{
+          model: "gpt-5.5-codex",
+          turns,
+          input_tokens: 200,
+          uncached_input_tokens: 20,
+          output_tokens: output,
+          token_share_pct: 100,
+        }],
       }],
     },
   };
@@ -281,7 +300,7 @@ describe("Mission Control live refresh", () => {
 
   it("mission_control_animates_changed_figures", async () => {
     const rendered = await render(
-        <MissionControlBoard plan={PLAN} state={boardState({ output: 100, turns: 10, runway: 20, tasks: 1 })} now={NOW} />,
+        <MissionControlBoard plan={PLAN} state={boardState({ output: 100, turns: 10, allowance: 20, tasks: 1 })} now={NOW} />,
     );
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
     expect(text(rendered.host, "mc-board-tokens-amount")).toBe("100");
@@ -290,7 +309,7 @@ describe("Mission Control live refresh", () => {
 
     await act(async () => {
       rendered.root.render(
-        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, turns: 30, bounces: 2, runway: 60, tasks: 10 })} now={NOW} />,
+        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, turns: 30, bounces: 2, allowance: 60, tasks: 10 })} now={NOW} />,
       );
       await flush();
     });
@@ -318,7 +337,7 @@ describe("Mission Control live refresh", () => {
 
   it("mission_control_reduced_motion_updates_immediately", async () => {
     const rendered = await render(
-      <MissionControlBoard plan={PLAN} state={boardState({ output: 100, runway: 20, tasks: 1 })} now={NOW} />,
+      <MissionControlBoard plan={PLAN} state={boardState({ output: 100, allowance: 20, tasks: 1 })} now={NOW} />,
     );
     mediaMatches = true;
     await act(async () => {
@@ -328,7 +347,7 @@ describe("Mission Control live refresh", () => {
 
     await act(async () => {
       rendered.root.render(
-        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, runway: 60, tasks: 3 })} now={NOW} />,
+        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, allowance: 60, tasks: 3 })} now={NOW} />,
       );
       await flush();
     });

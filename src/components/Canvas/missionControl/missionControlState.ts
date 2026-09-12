@@ -117,22 +117,48 @@ export interface MissionControlKpi {
   enable_setting: string | null;
 }
 
-export type RunwayState = "reporting" | "not_reporting";
+export type SpendScope = "machine";
 
-export interface ProviderRunway {
-  provider: string;
-  label: string;
+/** Provider/window allowance already consumed. Never a per-model figure. */
+export interface ProviderAllowance {
   captured_at: number;
-  session_pct: number | null;
+  session_used_pct: number | null;
   session_resets_at: number | null;
-  weekly_pct: number | null;
+  weekly_used_pct: number | null;
   weekly_resets_at: number | null;
   stale_reason: string | null;
 }
 
-export interface RunwaySection {
-  state: RunwayState;
-  providers: ProviderRunway[];
+export interface ModelSpend {
+  /** `null` is the ledger's unresolved model identity, shown as its own row. */
+  model: string | null;
+  turns: number;
+  input_tokens: number;
+  uncached_input_tokens: number;
+  output_tokens: number;
+  /** Share of the machine's measured token total; never a share of allowance. */
+  token_share_pct: number;
+}
+
+export interface ProviderSpend {
+  provider: string;
+  label: string;
+  allowance: ProviderAllowance | null;
+  turns: number;
+  input_tokens: number;
+  uncached_input_tokens: number;
+  output_tokens: number;
+  models: ModelSpend[];
+}
+
+export interface MissionControlSpend {
+  scope: SpendScope;
+  state: KpiLedgerState;
+  not_recording_reason: KpiNotRecordingReason | null;
+  enable_setting: string | null;
+  measured_tokens: number;
+  turns: number;
+  providers: ProviderSpend[];
 }
 
 export interface MissionControlState {
@@ -141,7 +167,7 @@ export interface MissionControlState {
   event_log: EventLog;
   areas: AreaGrouping;
   kpi: MissionControlKpi;
-  runway: RunwaySection;
+  spend: MissionControlSpend;
 }
 
 export interface PlanBoardState {

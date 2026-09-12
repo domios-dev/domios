@@ -233,8 +233,8 @@ pub struct PlanStateSnapshot {
     pub blocking_regression_gates: Vec<super::milestone_gates::RegressionGate>,
     pub regression_overrides: Vec<RegressionGateOverride>,
     pub review_gate: super::review_gate::ReviewGateStatus,
-    // Stored-field Mission Control projection. The KPI and runway blocks arrive in
-    // their not-recording states; the service layer overlays ledger and usage rows.
+    // Stored-field Mission Control projection. The KPI and machine-spend blocks
+    // arrive not-recording; the service layer overlays ledger and usage rows.
     pub mission_control: mission_control::MissionControl,
     pub next_actions: Vec<NextAction>,
 }
