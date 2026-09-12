@@ -93,10 +93,10 @@ pub struct ClassifyInput<'a> {
     /// stuck-Working timeout. Computed by both adapters via [`composer_cursor_ready`].
     pub composer_ready: bool,
     /// The status widget's own elapsed counter, current versus the previous
-    /// observation of the same widget. An advancing counter is structural proof
-    /// that the turn moved, which neither idle clock — both measured from now —
-    /// can express once a repaint gap goes quiet. Both adapters derive it from a
-    /// shared [`StatusElapsedTracker`].
+    /// observation of the same widget, plus whether this widget has ever been
+    /// seen advancing. Progress spans a quiet repaint gap that neither idle clock
+    /// can express, and expires at `STUCK_WORKING_IDLE_MS`. Both adapters derive
+    /// it from a shared [`StatusElapsedTracker`].
     pub status_elapsed: StatusElapsedProgress,
 }
 
@@ -130,10 +130,14 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         completion_summary_immediately_precedes_status_repaint(input.screen_lines);
     // A still-animating turn (fresh bytes, no completed-turn summary) is genuinely live:
     // a long think repaints only the excluded status band, so semantic-idle keeps growing.
-    // Fresh bytes and an advancing elapsed counter are alternative evidence of the
-    // same thing: this turn moved since the last observation.
+    // Progress observed for THIS widget spans the quiet gap between repaints, and
+    // decays at the same deadline that already caps an evidence-free Working.
+    let elapsed_progress_live = input.status_elapsed.advancing()
+        || (input.status_elapsed.progressed
+            && (input.byte_idle_ms < STUCK_WORKING_IDLE_MS
+                || input.semantic_idle_ms < STUCK_WORKING_IDLE_MS));
     let live_turn = (live_status_widget || active_footer)
-        && (input.byte_idle_ms < WORKING_GRACE_MS || input.status_elapsed.advancing())
+        && (input.byte_idle_ms < WORKING_GRACE_MS || elapsed_progress_live)
         && extract_completion_summary(input.screen_lines).is_none()
         && !completed_status_repaint;
     let stale_working_status_at_prompt =
