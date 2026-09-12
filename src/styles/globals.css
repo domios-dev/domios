@@ -1939,7 +1939,7 @@ button,
 
 .sidebar-disclosure[aria-expanded="true"] .sidebar-disclosure-glyph { transform: rotate(90deg); }
 
-.sidebar-team-card-activation,
+.sidebar-team-card-visual,
 .sidebar-team-card-static {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1949,12 +1949,52 @@ button,
 }
 
 .sidebar-team-card-activation {
+  position: absolute;
+  inset: 3px 0 14px;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  min-height: 0;
   border: 0;
   padding: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-header,
+.sidebar-team-unit-activatable .sidebar-team-readout,
+.sidebar-team-unit-activatable .sidebar-team-body {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-progress-slot {
+  pointer-events: none;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-body .sidebar-team-member,
+.sidebar-team-unit-activatable .sidebar-team-body button,
+.sidebar-team-unit-activatable .sidebar-team-body a,
+.sidebar-team-unit-activatable .sidebar-team-body input,
+.sidebar-team-unit-activatable .sidebar-team-body select,
+.sidebar-team-unit-activatable .sidebar-team-body textarea,
+.sidebar-team-unit-activatable .sidebar-team-body [role="button"],
+.sidebar-team-unit-activatable .sidebar-team-body [tabindex]:not([tabindex="-1"]) {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-disclosure-bar {
+  z-index: 2;
+}
+
+.sidebar-team-unit-activatable .sidebar-team-card-activation:hover,
+.sidebar-team-unit-activatable .sidebar-team-card-activation:focus-visible {
+  background: var(--ct-hover);
 }
 
 .sidebar-disclosure:focus-visible {
@@ -2431,8 +2471,19 @@ button,
   transition: opacity 160ms ease;
 }
 
+.sidebar-team-unit-activatable .sidebar-team-progress-slot,
+.sidebar-team-unit-activatable .sidebar-team-menu-root .sidebar-team-kebab {
+  z-index: 2;
+}
+
 .sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,
 .sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-menu-root .sidebar-team-kebab {
   opacity: 1;
   pointer-events: auto;
 }
@@ -3408,56 +3459,6 @@ button,
 .plan-document-empty p {
   max-width: 48ch;
   margin: 0;
-}
-.plan-board-status {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.7rem 0.8rem;
-  border: 1px solid var(--ct-border);
-  border-radius: var(--ct-radius-lg);
-  background: color-mix(in srgb, var(--ct-bg) 94%, var(--ct-surface));
-}
-.plan-board-status-topline,
-.plan-board-status-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-width: 0;
-}
-.plan-board-status-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  min-width: 0;
-}
-.plan-board-done-count {
-  flex-shrink: 0;
-  color: var(--ct-muted-fg);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.plan-board-status-title {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ct-fg);
-  font: inherit;
-  font-size: 0.98rem;
-  font-weight: 700;
-  line-height: 1.35;
-  text-align: left;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.plan-board-status-title:hover,
-.plan-board-status-title:focus-visible {
-  color: var(--ct-accent);
-  outline: none;
 }
 .plan-board-state {
   margin: auto;
@@ -5201,9 +5202,6 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
   }
   .plan-document-section-body {
     font-size: 0.96rem;
-  }
-  .plan-board-status-topline {
-    align-items: flex-start;
   }
   .plan-board-columns {
     display: flex;
