@@ -22,11 +22,11 @@ fn extracts_complete_authoritative_auth_message() {
 
 use super::{
     classify_state, composer_cursor_ready, offline_picker_is_coherent, ClassifyInput, Motion,
-    TabVerdict, TimelineState,
+    StatusElapsedProgress, StatusElapsedTracker, TabVerdict, TimelineState,
 };
 use crate::agent::attributed_screen::PickerDetection;
 use crate::agent::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
-use crate::agent::signal_extractor::StreamSignals;
+use crate::agent::signal_extractor::{SignalExtractor, StreamSignals};
 
 fn working() -> TabVerdict {
     TabVerdict {
@@ -45,6 +45,7 @@ fn quiescent_input(screen: &[String]) -> ClassifyInput<'_> {
         motion: Motion::Still,
         cursor_hidden: false,
         composer_ready: false,
+        status_elapsed: StatusElapsedProgress::NONE,
     })
 }
 
@@ -669,4 +670,236 @@ fn coordination_envelope_picker_question_subtype_is_not_reliably_unknown() {
     let without_model = classify_state(&input, working());
     assert_eq!(without_model.state, TimelineState::Question);
     assert_eq!(without_model.subtype, Some(QuestionSubtype::Unknown));
+}
+
+
+// ── status-widget elapsed as structural turn progress ────────────────
+
+const COMPOSER_DIVIDER: &str = "────────────────────────────────────────";
+const COMBINED_FOOTER: &str = "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt";
+
+/// The reported flicker screen: a live Claude status widget with a visible ready
+/// composer and the COMBINED mode-cycle/interrupt footer, which is deliberately
+/// not active-turn evidence. Everything except the widget's own counter reads as
+/// settled, so that counter is the only structural progress signal left.
+fn claude_quiet_working_screen(elapsed: &str) -> Vec<String> {
+    let mut screen = lines(&["⏺ Read(src/main.rs)", ""]);
+    screen.push(format!(
+        "✽ Inferring… ({elapsed} · ↓ 797 tokens · thinking)"
+    ));
+    screen.extend(lines(&[
+        "",
+        COMPOSER_DIVIDER,
+        "❯",
+        COMPOSER_DIVIDER,
+        COMBINED_FOOTER,
+    ]));
+    screen
+}
+
+/// Same screen, widget still spinning but carrying no counter at all.
+fn claude_quiet_working_screen_without_elapsed() -> Vec<String> {
+    lines(&[
+        "⏺ Read(src/main.rs)",
+        "",
+        "✽ Inferring…",
+        "",
+        COMPOSER_DIVIDER,
+        "❯",
+        COMPOSER_DIVIDER,
+        COMBINED_FOOTER,
+    ])
+}
+
+/// Turn over: the widget is gone and only the completion summary remains.
+fn claude_settled_screen() -> Vec<String> {
+    lines(&[
+        "  Final answer text.",
+        "",
+        "✻ Crunched for 20s",
+        "",
+        COMPOSER_DIVIDER,
+        "❯",
+        COMPOSER_DIVIDER,
+        COMBINED_FOOTER,
+    ])
+}
+
+fn paint(screen: &[String]) -> Vec<u8> {
+    let mut out = String::from("\x1b[2J\x1b[H");
+    for line in screen {
+        out.push_str(line);
+        out.push_str("\r\n");
+    }
+    out.into_bytes()
+}
+
+#[test]
+fn claude_status_elapsed_advance_keeps_working_after_bytes_go_quiet() {
+    let first = claude_quiet_working_screen("14s");
+    let second = claude_quiet_working_screen("20s");
+
+    // The combined footer stays exactly what it was: NOT active-turn evidence.
+    assert!(!super::active_turn_footer(&second));
+
+    // Pre-fix arm: the identical screen with no progress evidence resolves Idle,
+    // which is the flicker an advancing counter has to answer.
+    let mut without_progress = quiescent_input(&second);
+    without_progress.status_elapsed = StatusElapsedProgress::NONE;
+    assert_eq!(
+        classify_state(&without_progress, working()).state,
+        TimelineState::Idle,
+        "no progress evidence keeps the pre-existing idle verdict"
+    );
+
+    let mut tracker = StatusElapsedTracker::new();
+    tracker.observe(super::observed_status_elapsed_ms(&first));
+
+    let mut input = quiescent_input(&second);
+    input.status_elapsed = tracker.observe(super::observed_status_elapsed_ms(&second));
+
+    assert_eq!(input.byte_idle_ms, 6000);
+    assert_eq!(input.semantic_idle_ms, 6000);
+    assert_eq!(input.status_elapsed.previous_ms, Some(14_000));
+    assert_eq!(input.status_elapsed.current_ms, Some(20_000));
+    assert_eq!(
+        classify_state(&input, working()).state,
+        TimelineState::Working,
+        "an advancing status counter is live work even after the repaint went quiet"
+    );
+}
+
+#[test]
+fn claude_status_elapsed_freeze_does_not_latch_working() {
+    let screen = claude_quiet_working_screen("14s");
+    let mut tracker = StatusElapsedTracker::new();
+    tracker.observe(super::observed_status_elapsed_ms(&screen));
+
+    let mut frozen = quiescent_input(&screen);
+    frozen.status_elapsed = tracker.observe(super::observed_status_elapsed_ms(&screen));
+    assert_eq!(frozen.status_elapsed.previous_ms, Some(14_000));
+    assert!(!frozen.status_elapsed.advancing());
+    assert_eq!(
+        classify_state(&frozen, working()).state,
+        TimelineState::Idle,
+        "a frozen counter must not latch Working"
+    );
+
+    let absent_screen = claude_quiet_working_screen_without_elapsed();
+    assert!(super::extract_status_line(&absent_screen).is_some());
+    let mut absent = quiescent_input(&absent_screen);
+    absent.status_elapsed = tracker.observe(super::observed_status_elapsed_ms(&absent_screen));
+    assert_eq!(absent.status_elapsed, StatusElapsedProgress::NONE);
+    assert_eq!(
+        classify_state(&absent, working()).state,
+        TimelineState::Idle,
+        "a widget with no counter keeps the pre-existing idle verdict"
+    );
+
+    // A counter that restarts lower is a new turn, never inherited progress.
+    tracker.observe(Some(30_000));
+    let restarted_screen = claude_quiet_working_screen("2s");
+    let mut restarted = quiescent_input(&restarted_screen);
+    restarted.status_elapsed = tracker.observe(super::observed_status_elapsed_ms(&restarted_screen));
+    assert_eq!(restarted.status_elapsed.previous_ms, None);
+    assert_eq!(
+        classify_state(&restarted, working()).state,
+        TimelineState::Idle
+    );
+}
+
+/// The live path derives progress from `TabStatusTracker::observe_status_elapsed`
+/// over `extract_status_line(...).elapsed_ms`; the offline replay adapter derives
+/// it from `StatusElapsedTracker::observe` over `observed_status_elapsed_ms`. Both
+/// run here against one observation sequence covering advance, freeze, reset and
+/// disappearance, and must agree on every pair and every verdict.
+#[test]
+fn live_and_offline_status_elapsed_sequences_match() {
+    use crate::agent::status::TabStatusTracker;
+
+    let screens = vec![
+        claude_quiet_working_screen("14s"),
+        claude_quiet_working_screen("20s"),
+        claude_quiet_working_screen("20s"),
+        claude_quiet_working_screen("2s"),
+        claude_settled_screen(),
+        claude_quiet_working_screen("3s"),
+    ];
+
+    let mut live_tracker = TabStatusTracker::new();
+    live_tracker.update_output("pty-status-elapsed", [7u8; 32]);
+    let mut offline_tracker = StatusElapsedTracker::new();
+
+    let mut live_verdicts = Vec::new();
+    let mut offline_verdicts = Vec::new();
+
+    for screen in &screens {
+        let live_progress = live_tracker.observe_status_elapsed(
+            "pty-status-elapsed",
+            super::extract_status_line(screen).and_then(|status| status.elapsed_ms),
+        );
+        let offline_progress = offline_tracker.observe(super::observed_status_elapsed_ms(screen));
+        assert_eq!(
+            live_progress, offline_progress,
+            "live and offline must read the same elapsed pair"
+        );
+
+        let mut live_input = quiescent_input(screen);
+        live_input.status_elapsed = live_progress;
+        live_verdicts.push(classify_state(&live_input, working()));
+
+        let mut offline_input = quiescent_input(screen);
+        offline_input.status_elapsed = offline_progress;
+        offline_verdicts.push(classify_state(&offline_input, working()));
+    }
+
+    assert_eq!(live_verdicts, offline_verdicts);
+    assert_eq!(
+        live_verdicts
+            .iter()
+            .map(|verdict| verdict.state)
+            .collect::<Vec<_>>(),
+        vec![
+            TimelineState::Idle,
+            TimelineState::Working,
+            TimelineState::Idle,
+            TimelineState::Idle,
+            TimelineState::Idle,
+            TimelineState::Idle,
+        ],
+        "only the advancing observation is Working"
+    );
+}
+
+/// The same sequence through the REAL replay adapter: a painted grid, the
+/// extractor's own quiescence clocks, and `classify_signals` threading the
+/// shared tracker.
+#[test]
+fn cast_replay_status_elapsed_advance_keeps_working_after_bytes_go_quiet() {
+    let builder = ClassifyInputBuilder::for_rows(StatusBarRows::fixture(0));
+    let mut extractor = SignalExtractor::new(24, 80, builder.volatile_hint());
+    let mut status_elapsed = StatusElapsedTracker::new();
+    let mut previous = working();
+    let mut states = Vec::new();
+
+    for (index, elapsed) in ["14s", "20s", "20s"].iter().enumerate() {
+        let painted_ms = index as u64 * 10_000;
+        extractor.step(&paint(&claude_quiet_working_screen(elapsed)), painted_ms);
+        let signals = extractor.step(b"", painted_ms + 6_000);
+        assert_eq!(signals.quiescence.byte_idle_ms, 6_000);
+        assert!(signals.quiescence.semantic_idle_ms >= 6_000);
+        previous =
+            super::classify_signals(&extractor, &signals, previous, &builder, &mut status_elapsed);
+        states.push(previous.state);
+    }
+
+    assert_eq!(
+        states,
+        vec![
+            TimelineState::Idle,
+            TimelineState::Working,
+            TimelineState::Idle,
+        ],
+        "replay agrees with the live oracle: only the advancing frame is Working"
+    );
 }

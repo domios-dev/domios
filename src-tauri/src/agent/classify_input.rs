@@ -6,7 +6,7 @@
 //! from the registry (and an unresolvable provider is a typed error, never a
 //! zero) or supplied as explicit fixture data by a harness that has no registry.
 
-use super::offline_state_classifier::ClassifyInput;
+use super::offline_state_classifier::{ClassifyInput, StatusElapsedProgress};
 use super::signal_extractor::{Motion, VolatileHint};
 
 /// Capability lookup, never identity: the only question asked is how many
@@ -87,6 +87,7 @@ pub struct ClassifyParts<'a> {
     pub motion: Motion,
     pub cursor_hidden: bool,
     pub composer_ready: bool,
+    pub status_elapsed: StatusElapsedProgress,
 }
 
 /// Holds the one thing that must never default. A builder cannot exist until
@@ -132,6 +133,7 @@ impl ClassifyInputBuilder {
     ///     motion: Motion::Still,
     ///     cursor_hidden: false,
     ///     composer_ready: false,
+    ///     status_elapsed: Default::default(),
     /// };
     /// ```
     pub fn build<'a>(&self, parts: ClassifyParts<'a>) -> ClassifyInput<'a> {
@@ -145,6 +147,7 @@ impl ClassifyInputBuilder {
             motion: parts.motion,
             cursor_hidden: parts.cursor_hidden,
             composer_ready: parts.composer_ready,
+            status_elapsed: parts.status_elapsed,
         }
     }
 }

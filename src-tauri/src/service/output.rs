@@ -376,10 +376,23 @@ impl ServiceContext {
             crate::api::events::emit_everywhere(&self.app_handle, "chat-stream-preview", &event);
         }
 
-        // agent_tracker (4): two-clock quiescence.
-        let Some((byte_idle_ms, semantic_idle_ms)) =
-            self.agent_tracker.lock().quiescence(pty_id, Instant::now())
-        else {
+        let status = extract_status_line(&lines);
+
+        // agent_tracker (4): two-clock quiescence + the status widget's elapsed
+        // baseline, so an advancing counter survives a quiet repaint gap.
+        let Some((byte_idle_ms, semantic_idle_ms, status_elapsed)) = ({
+            let mut tracker = self.agent_tracker.lock();
+            match tracker.quiescence(pty_id, Instant::now()) {
+                Some((byte_idle_ms, semantic_idle_ms)) => {
+                    let progress = tracker.observe_status_elapsed(
+                        pty_id,
+                        status.as_ref().and_then(|status| status.elapsed_ms),
+                    );
+                    Some((byte_idle_ms, semantic_idle_ms, progress))
+                }
+                None => None,
+            }
+        }) else {
             return;
         };
 
@@ -399,6 +412,7 @@ impl ServiceContext {
                         motion: Motion::Still,
                         cursor_hidden,
                         composer_ready,
+                        status_elapsed,
                     }),
                     previous,
                 )
@@ -417,7 +431,7 @@ impl ServiceContext {
         // when idle, surface the completed-turn summary as a muted secondary line.
         match new_state.state {
             TimelineState::Working => {
-                if let Some(status) = extract_status_line(&lines) {
+                if let Some(status) = status {
                     new_state.status_line = Some(status.line);
                     new_state.phase = status.phase;
                     new_state.elapsed_ms = status.elapsed_ms;
