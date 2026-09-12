@@ -370,9 +370,12 @@
   font-weight: 600;
 }
 
+/* The shared gauge sets resets in mono; beside the window name it read as a second typeface. */
 .mc-board-spend .ct-usage-gauge .reset {
+  font-family: inherit;
   font-size: var(--mc-text-meta);
   font-weight: 400;
+  letter-spacing: normal;
 }
 
 /* Phone: each model reads as two lines of one four-track grid, name and share
