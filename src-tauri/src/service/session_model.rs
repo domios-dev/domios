@@ -94,10 +94,18 @@ impl ServiceContext {
             return recorded;
         }
         let (agent_id, cwd, session_id) = (agent_id?, cwd?, session_id?);
-        self.agent_registry
+        let detected = self
+            .agent_registry
             .with_provider(&agent_id, |p| p.detect_session_model(&cwd, &session_id))
             .flatten()
-            .map(|model| crate::service::spawn::normalize_session_model(&model))
+            .map(|model| crate::service::spawn::normalize_session_model(&model));
+        if detected.is_none() {
+            // A tab that records no model must not read like a tab that ran none.
+            log::debug!(
+                "[session-model] tab={tab_id} provider={agent_id} session={session_id}: no model reported"
+            );
+        }
+        detected
     }
 
     pub(crate) fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
