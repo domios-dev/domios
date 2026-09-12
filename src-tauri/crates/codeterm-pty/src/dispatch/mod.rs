@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 pub trait CommandPort: Send + Sync {
     fn mark_user_activity(&self);
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
+    /// Try to build the status-bearing snapshot without waiting on lifecycle
+    /// locks. `None` is an observable busy result, not a readiness guess.
+    fn try_mux_snapshot(&self) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
+        None
+    }
     fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String>;
     fn read_tab_output(
         &self,
@@ -196,6 +201,41 @@ pub async fn dispatch_blocking(
     tokio::task::spawn_blocking(move || dispatch(&cmd, ctx.as_ref()))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Compact tab summaries are safe to project only after one consistent
+/// snapshot has been acquired. The API route uses this entry point so a GUI
+/// startup/lifecycle transition never occupies an async worker waiting for
+/// `mux` or `agent_tracker`.
+pub const TAB_SUMMARY_BUSY_ERROR: &str =
+    "tab summary unavailable while tab state is initializing or changing";
+
+pub fn dispatch_tab_summary_if_ready(
+    cmd: &Command,
+    ctx: &dyn CommandPort,
+) -> Result<CommandResult, String> {
+    let Command::TabSummary {
+        workspace_id,
+        caller_tab_id,
+        focused_workspace,
+        agents_only,
+    } = cmd
+    else {
+        return dispatch(cmd, ctx);
+    };
+
+    let snapshot = ctx
+        .try_mux_snapshot()
+        .ok_or_else(|| TAB_SUMMARY_BUSY_ERROR.to_string())?;
+    Ok(CommandResult::Json(serde_json::json!(
+        build_tab_summary_json(
+            &snapshot,
+            workspace_id.as_deref(),
+            caller_tab_id.as_deref(),
+            *focused_workspace,
+            *agents_only,
+        )
+    )))
 }
 
 pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, String> {
