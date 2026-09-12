@@ -272,8 +272,11 @@ was written is visible rather than silently reclassified.
 An owner that is wedged rather than dead is a different failure and is not
 reapable: see the `release-preflight` FIFO teardown row below.
 
-Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|mesh|plugin|cli> <filter>`
-hides manifest/package details for focused tests; `verify` runs the standard
+Use `./build.sh help` as the command index. `test-one <app|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
+hides manifest/package details for focused tests. The `types` and `cli`
+selectors include all Cargo targets so integration and binary tests are
+reachable; the other selectors retain their existing ownership scopes.
+`verify` runs the standard
 check, full Rust workspace library suite, and source-size integration gate.
 Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait
 for Cargo and libtest to finish by default. For a targeted diagnostic only, set
@@ -398,4 +401,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 135 -->
+<!-- revision: 136 -->
