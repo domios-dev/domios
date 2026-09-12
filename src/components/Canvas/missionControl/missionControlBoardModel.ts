@@ -6,6 +6,7 @@ import type { MilestoneKind } from "../types";
 import type {
   AreaGrouping,
   EventLog,
+  HeldForDecision,
   KpiNotRecordingReason,
   PlanEvent,
   PlanTaskCounts,
@@ -175,8 +176,6 @@ export function eventLogCaption(log: EventLog): string {
 export interface AreaRow {
   key: string;
   label: string;
-  /** Printed after the label; the fallback names its own source. */
-  qualifier: string | null;
   taskCount: number;
   sharePct: number;
 }
@@ -210,7 +209,6 @@ export function areaReading(areas: AreaGrouping): AreaReading {
       rows: areas.groups.map((group) => ({
         key: group.value,
         label: group.label,
-        qualifier: null,
         taskCount: group.task_count,
         sharePct: share(group.task_count, total),
       })),
@@ -227,7 +225,6 @@ export function areaReading(areas: AreaGrouping): AreaReading {
     rows: areas.role_fallback.map((group, index) => ({
       key: group.executor_role ?? `no-role-${index}`,
       label: group.executor_role ?? "No role recorded",
-      qualifier: "executor role, not a tag",
       taskCount: group.task_count,
       sharePct: share(group.task_count, total),
     })),
@@ -236,11 +233,50 @@ export function areaReading(areas: AreaGrouping): AreaReading {
   };
 }
 
+export interface DecisionsWaitingReading {
+  gateCount: number;
+  oldestAgeMs: number | null;
+  blockedTaskCount: number;
+}
+
+export function decisionsWaitingReading(held: HeldForDecision): DecisionsWaitingReading {
+  const oldestAgeMs = held.open_gates.reduce<number | null>(
+    (oldest, gate) => (oldest == null || gate.age_ms > oldest ? gate.age_ms : oldest),
+    null,
+  );
+  return {
+    gateCount: held.open_gates.length,
+    oldestAgeMs,
+    blockedTaskCount: held.open_gates.reduce((sum, gate) => sum + gate.blocking_task_count, 0),
+  };
+}
+
+export interface LongestWaitReading {
+  ageMs: number | null;
+  taskName: string | null;
+}
+
+export function longestWaitReading(held: HeldForDecision): LongestWaitReading {
+  const oldest = held.held_reviews.reduce<{ ageMs: number; taskName: string } | null>(
+    (candidate, review) => {
+      if (review.age_ms == null) return candidate;
+      return candidate == null || review.age_ms > candidate.ageMs
+        ? { ageMs: review.age_ms, taskName: review.name }
+        : candidate;
+    },
+    null,
+  );
+  return {
+    ageMs: held.oldest_hold_age_ms,
+    taskName: oldest && oldest.ageMs === held.oldest_hold_age_ms ? oldest.taskName : null,
+  };
+}
+
 export interface RunwayGauge {
   key: string;
   label: string;
   variant: "session" | "weekly";
-  pct: number;
+  pct: number | null;
   resetsAt: number | null;
   state: UsageState;
 }
@@ -249,38 +285,28 @@ function hasAllowanceWindow(pct: number | null, resetsAt: number | null): pct is
   return pct != null && Number.isFinite(pct) && resetsAt != null && Number.isFinite(resetsAt);
 }
 
+const RUNWAY_READINGS = [
+  { provider: "claude", label: "Claude", variant: "session", pct: "session_pct", reset: "session_resets_at" },
+  { provider: "claude", label: "Claude", variant: "weekly", pct: "weekly_pct", reset: "weekly_resets_at" },
+  { provider: "codex", label: "Codex", variant: "session", pct: "session_pct", reset: "session_resets_at" },
+  { provider: "codex", label: "Codex", variant: "weekly", pct: "weekly_pct", reset: "weekly_resets_at" },
+] as const;
+
 export function runwayGauges(providers: readonly ProviderRunway[]): RunwayGauge[] {
-  const gauges: RunwayGauge[] = [];
-  for (const providerId of ["claude", "codex"] as const) {
-    const provider = providers.find((candidate) => candidate.provider.toLowerCase() === providerId);
-    if (!provider) continue;
-    const providerLabel = provider.label.trim() || provider.provider;
-    const sessionPct = provider.session_pct;
-    const sessionResetsAt = provider.session_resets_at;
-    if (hasAllowanceWindow(sessionPct, sessionResetsAt)) {
-      gauges.push({
-        key: `${provider.provider}-session`,
-        label: `${providerLabel} · session allowance used`,
-        variant: "session",
-        pct: sessionPct,
-        resetsAt: sessionResetsAt,
-        state: classify(sessionPct),
-      });
-    }
-    const weeklyPct = provider.weekly_pct;
-    const weeklyResetsAt = provider.weekly_resets_at;
-    if (hasAllowanceWindow(weeklyPct, weeklyResetsAt)) {
-      gauges.push({
-        key: `${provider.provider}-weekly`,
-        label: `${providerLabel} · weekly allowance used`,
-        variant: "weekly",
-        pct: weeklyPct,
-        resetsAt: weeklyResetsAt,
-        state: classify(weeklyPct),
-      });
-    }
-  }
-  return gauges;
+  return RUNWAY_READINGS.map((reading) => {
+    const provider = providers.find((candidate) => candidate.provider.toLowerCase() === reading.provider);
+    const pct = provider?.[reading.pct] ?? null;
+    const resetsAt = provider?.[reading.reset] ?? null;
+    const complete = hasAllowanceWindow(pct, resetsAt);
+    return {
+      key: `${reading.provider}-${reading.variant}`,
+      label: `${provider?.label.trim() || reading.label} · ${reading.variant}`,
+      variant: reading.variant,
+      pct: complete ? pct : null,
+      resetsAt: complete ? resetsAt : null,
+      state: classify(complete ? pct : null),
+    };
+  });
 }
 
 export const TASK_STATUS_FIELDS = [
@@ -307,24 +333,10 @@ const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
   not_read: "ledger not read",
 };
 
-export function notRecordingCopy(reason: KpiNotRecordingReason | null): string {
-  return reason ? NOT_RECORDING_COPY[reason] : NOT_RECORDING_COPY.not_read;
-}
-
-export function notRecordingDetail(
+export function notRecordingCopy(
   reason: KpiNotRecordingReason | null,
-  enableSetting: string | null,
+  enableSetting: string | null = null,
 ): string {
-  switch (reason ?? "not_read") {
-    case "disabled":
-      return enableSetting
-        ? `Recording off · enable ${enableSetting}`
-        : "Recording off";
-    case "no_rows_for_plan":
-      return "No plan ledger row";
-    case "unreadable":
-      return "Ledger unavailable";
-    default:
-      return "Ledger not read";
-  }
+  if (reason === "disabled" && enableSetting) return `recording off · enable ${enableSetting}`;
+  return reason ? NOT_RECORDING_COPY[reason] : NOT_RECORDING_COPY.not_read;
 }

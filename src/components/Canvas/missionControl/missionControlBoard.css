@@ -226,7 +226,9 @@
 
 .mc-board-runway-gauge .ct-usage-gauge .label {
   min-width: 0;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mc-board-kv-list {
@@ -248,13 +250,6 @@
   font-size: 0.8125rem;
   color: var(--ct-fg);
   overflow-wrap: anywhere;
-}
-
-.mc-board-kv-qualifier {
-  margin-left: 0.35rem;
-  font-style: normal;
-  font-size: 0.6875rem;
-  color: var(--ct-muted);
 }
 
 .mc-board-kv-value,
