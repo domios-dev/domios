@@ -14,7 +14,6 @@ import {
 } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
 import { BOARD_CARD_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
-import { MissionControlControls, type MissionControlPlanAction } from "./MissionControlControls";
 import type { PlanBoardState } from "./missionControlState";
 
 export interface MissionControlBoardProps {
@@ -24,9 +23,6 @@ export interface MissionControlBoardProps {
   loading?: boolean;
   error?: string | null;
   now?: number;
-  onApprovePlan?: MissionControlPlanAction;
-  onPausePlan?: MissionControlPlanAction;
-  onClearEverything?: MissionControlPlanAction;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -51,9 +47,6 @@ export function MissionControlBoard({
   loading = false,
   error = null,
   now = Date.now(),
-  onApprovePlan,
-  onPausePlan,
-  onClearEverything,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -67,15 +60,6 @@ export function MissionControlBoard({
       data-board-layout={layout}
       className="mc-board"
     >
-      <div className="mc-board-actions-row" data-testid="mission-control-board-actions-row">
-        <MissionControlControls
-          scope="board"
-          planId={plan.id}
-          onApprovePlan={onApprovePlan}
-          onPausePlan={onPausePlan}
-          onClearEverything={onClearEverything}
-        />
-      </div>
       {error && (
         <p data-testid="mc-board-error" className="mc-board-note mc-board-note-error">
           {error}

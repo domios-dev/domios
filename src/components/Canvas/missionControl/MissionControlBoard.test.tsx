@@ -1,7 +1,7 @@
 import { act, type ReactElement } from "react";
 import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
@@ -333,38 +333,15 @@ describe("mission control board cards", () => {
     await unmount();
   });
 
-  it("keeps board actions reachable outside the removed status band", async () => {
-    const previousConfirm = window.confirm;
-    const confirm = vi.fn(() => false);
+  it("opens straight onto the cards with no band above them", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    window.confirm = confirm;
-    try {
-      expect(host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
-      const actionsRow = host.querySelector('[data-testid="mission-control-board-actions-row"]');
-      expect(actionsRow).not.toBeNull();
-      const trigger = actionsRow?.querySelector<HTMLButtonElement>(
-        '[data-testid="mission-control-board-menu-trigger"]',
-      );
-      expect(trigger).not.toBeNull();
-      expect(trigger?.closest('[data-testid="plan-board-status"]')).toBeNull();
-
-      const labels = ["Approve plan", "Pause plan", "Clear everything"];
-      for (const [index, label] of labels.entries()) {
-        await act(async () => trigger?.click());
-        const menuItems = Array.from(
-          host.querySelectorAll<HTMLButtonElement>('[data-testid="mission-control-board-menu"] [role="menuitem"]'),
-        );
-        expect(menuItems.map((item) => item.textContent)).toEqual(labels);
-        const item = menuItems.find((candidate) => candidate.textContent === label);
-        expect(item).not.toBeUndefined();
-        await act(async () => item?.click());
-        if (index === labels.length - 1) expect(confirm).toHaveBeenCalledTimes(labels.length);
-      }
-    } finally {
-      window.confirm = previousConfirm;
-      await unmount();
-    }
+    expect(host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
+    expect(host.querySelector('[data-testid="mission-control-board-actions-row"]')).toBeNull();
+    expect(host.querySelector('[data-testid="mission-control-board-actions"]')).toBeNull();
+    const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
+    expect(root.firstElementChild?.getAttribute("data-testid")).toBe("mc-board-card-grid");
+    await unmount();
   });
 
   it("reads tokens, turns, bounces and held decisions from the stored figures", async () => {
@@ -964,14 +941,11 @@ describe("mission control board layout", () => {
     await unmount();
   });
 
-  it("offers keyboard-reachable mutation controls without drag affordances", async () => {
+  it("offers no drag affordances or form inputs on the board", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     const boardRoot = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(boardRoot.querySelector("[draggable]")).toBeNull();
-    const trigger = boardRoot.querySelector('[data-testid="mission-control-board-menu-trigger"]') as HTMLButtonElement;
-    expect(trigger).not.toBeNull();
-    expect(trigger.tabIndex).toBe(0);
     expect(boardRoot.querySelector("input, select, textarea")).toBeNull();
     await unmount();
   });
