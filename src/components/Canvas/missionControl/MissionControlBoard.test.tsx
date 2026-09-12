@@ -9,6 +9,11 @@ import {
   BOARD_CARD_COLUMNS,
   BOARD_NARROW_MAX_PX,
   BOARD_RUNWAY_COLUMNS,
+  EVENT_PART_SEPARATOR,
+  EVENT_PREVIEW_MAX,
+  EVENT_REVEAL_HIDE_LABEL,
+  EVENT_REVEAL_SHOW_LABEL,
+  EVENT_TASK_NAME_MAX,
   boardLayout,
   formatClock,
 } from "./missionControlBoardModel";
@@ -17,6 +22,7 @@ import type {
   KpiNotRecordingReason,
   MissionControlState,
   PlanBoardState,
+  PlanEvent,
 } from "./missionControlState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -649,6 +655,212 @@ describe("mission control board event log", () => {
 
     expect(host.querySelector('[data-testid="mc-board-event-row"]')?.textContent).toContain("Skill pinned");
     await unmount();
+  });
+});
+
+const DECISION_TASK = "Deterministic Snake simulation";
+const DECISION_REASON =
+  "paused: Paused because deterministic simulation task_ulu1wz is blocked by repeated startup/dispatch coordination incidents";
+const LONG_TASK = "CodeTerm route integration and final verification sweep";
+const LONG_QUESTION = [
+  "Should the orchestrator hold the release while the deterministic simulation lane is blocked",
+  "on repeated startup and dispatch coordination incidents, or cut that lane out of the milestone",
+  "and ship the remaining seven cards with a recorded follow-up task that names the missing",
+  "verification, the exact focused gate command, and the two widths the board was observed at,",
+  "so the next attempt starts from evidence instead of another discovery pass?",
+].join(" ");
+
+function logEvent(over: Partial<PlanEvent> & Pick<PlanEvent, "ts" | "kind" | "text">): PlanEvent {
+  return {
+    last_ts: over.ts,
+    count: 1,
+    author: "Pasteur",
+    author_tab_id: "tab-planner",
+    task_id: "t1",
+    task_name: null,
+    ...over,
+  };
+}
+
+/** The three shapes the live board fused or ran on: decision, clipped name, long gate. */
+function readableLogState(): MissionControlState {
+  const state = recordingState();
+  state.event_log.entries = [
+    logEvent({
+      ts: DAY + H,
+      kind: "decision",
+      task_id: "task_ulu1wz",
+      task_name: DECISION_TASK,
+      text: DECISION_REASON,
+    }),
+    logEvent({
+      ts: DAY + H + 60_000,
+      kind: "decision",
+      task_id: "task_route",
+      task_name: LONG_TASK,
+      text: DECISION_REASON,
+    }),
+    logEvent({
+      ts: DAY + H + 120_000,
+      kind: "gate",
+      author: "Planck",
+      task_id: "task_gate",
+      task_name: DECISION_TASK,
+      text: LONG_QUESTION,
+    }),
+    logEvent({
+      ts: DAY + H + 180_000,
+      kind: "task_created",
+      author: "Planner",
+      task_id: "verify-clean-first-run",
+      task_name: "Verify clean first run",
+      text: "Verify clean first run",
+    }),
+  ];
+  return state;
+}
+
+function eventRows(host: HTMLElement): HTMLElement[] {
+  return Array.from(host.querySelectorAll('[data-testid="mc-board-event-row"]'));
+}
+
+function part(row: HTMLElement, testId: string): HTMLElement | null {
+  return row.querySelector(`[data-testid="${testId}"]`);
+}
+
+function revealByLabel(host: HTMLElement, label: string): HTMLButtonElement {
+  const button = Array.from(host.querySelectorAll("button")).find(
+    (candidate) => candidate.getAttribute("aria-label") === label,
+  );
+  if (!button) throw new Error(`no control labelled ${label}`);
+  return button as HTMLButtonElement;
+}
+
+/** Reads one rule body out of the stylesheet without depending on its position. */
+function cssRule(css: string, selector: string): string {
+  const at = css.indexOf(`\n${selector} {`);
+  return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
+}
+
+describe("mission control board event log readability", () => {
+  it("prints a decision task and its reason as separate parts, never one fused string", async () => {
+    const { host, unmount } = await render(board(readableLogState()));
+    const row = eventRows(host)[0] as HTMLElement;
+
+    const task = part(row, "mc-board-event-task") as HTMLElement;
+    const body = part(row, "mc-board-event-body") as HTMLElement;
+    expect(task.textContent).toBe(DECISION_TASK);
+    expect(body.textContent?.startsWith("paused:")).toBe(true);
+    expect(task.nextElementSibling?.textContent).toBe(EVENT_PART_SEPARATOR);
+    expect(EVENT_PART_SEPARATOR).toMatch(/^\s.*\s$/);
+
+    const rowText = row.textContent ?? "";
+    expect(rowText).not.toContain(`${DECISION_TASK}paused:`);
+    expect(rowText).toContain(`${DECISION_TASK}${EVENT_PART_SEPARATOR}paused:`);
+    await unmount();
+  });
+
+  it("keeps the boundary visible when the task name is already ellipsised", async () => {
+    const { host, unmount } = await render(board(readableLogState()));
+    const row = eventRows(host)[1] as HTMLElement;
+
+    expect(LONG_TASK.length).toBeGreaterThan(EVENT_TASK_NAME_MAX);
+    const task = part(row, "mc-board-event-task") as HTMLElement;
+    expect(task.textContent).toBe(`${LONG_TASK.slice(0, EVENT_TASK_NAME_MAX)}…`);
+
+    const rowText = row.textContent ?? "";
+    expect(rowText).not.toContain("…paused:");
+    expect(rowText).toContain(`…${EVENT_PART_SEPARATOR}paused:`);
+    await unmount();
+  });
+
+  it("bounds a long question to a preview and reveals the exact body on request", async () => {
+    expect(LONG_QUESTION.length).toBeGreaterThan(400);
+    const { host, unmount } = await render(board(readableLogState()));
+
+    const row = eventRows(host)[2] as HTMLElement;
+    const body = part(row, "mc-board-event-body") as HTMLElement;
+    const preview = body.textContent ?? "";
+    expect(preview.length).toBeLessThanOrEqual(EVENT_PREVIEW_MAX + 1);
+    expect(preview.endsWith("…")).toBe(true);
+    expect(LONG_QUESTION.startsWith(preview.slice(0, -1))).toBe(true);
+    expect(row.textContent).not.toContain(LONG_QUESTION);
+
+    const reveal = revealByLabel(row, EVENT_REVEAL_SHOW_LABEL);
+    expect(reveal.tagName).toBe("BUTTON");
+    expect(reveal.tabIndex).toBe(0);
+    expect(reveal.getAttribute("aria-expanded")).toBe("false");
+    expect(reveal.getAttribute("aria-controls")).toBe(body.id);
+
+    await act(async () => reveal.click());
+
+    const opened = eventRows(host)[2] as HTMLElement;
+    const openedBody = part(opened, "mc-board-event-body") as HTMLElement;
+    expect(openedBody.textContent).toBe(LONG_QUESTION);
+    expect(openedBody.getAttribute("data-expanded")).toBe("true");
+    expect(revealByLabel(opened, EVENT_REVEAL_HIDE_LABEL).getAttribute("aria-expanded")).toBe("true");
+
+    expect(opened.querySelector(".mc-board-log-time")?.textContent).toBe(
+      formatClock(DAY + H + 120_000),
+    );
+    expect(opened.querySelector(".mc-board-log-kind")?.textContent).toBe("Question");
+    expect(part(opened, "mc-board-event-author")?.textContent).toBe("Planck");
+    expect(part(opened, "mc-board-event-task")?.textContent).toBe(DECISION_TASK);
+    await unmount();
+  });
+
+  it("keeps one visible title when the task name is the whole note", async () => {
+    const { host, unmount } = await render(board(readableLogState()));
+    const row = eventRows(host)[3] as HTMLElement;
+    const title = "Verify clean first run";
+
+    expect((row.textContent ?? "").split(title).length - 1).toBe(1);
+    expect(part(row, "mc-board-event-task")).toBeNull();
+    expect(part(row, "mc-board-event-body")?.textContent).toBe(title);
+    expect(part(row, "mc-board-event-reveal")).toBeNull();
+    await unmount();
+  });
+
+  it("keeps the preview bounded and the full body reachable at 390px", async () => {
+    const { host, setWidth, unmount } = await render(board(readableLogState()));
+    await setWidth(390);
+
+    expect(
+      host.querySelector('[data-testid="mission-control-board"]')?.getAttribute("data-board-layout"),
+    ).toBe("narrow");
+
+    const row = eventRows(host)[2] as HTMLElement;
+    const body = part(row, "mc-board-event-body") as HTMLElement;
+    expect((body.textContent ?? "").length).toBeLessThanOrEqual(EVENT_PREVIEW_MAX + 1);
+
+    const reveal = revealByLabel(row, EVENT_REVEAL_SHOW_LABEL);
+    await act(async () => reveal.click());
+
+    const opened = eventRows(host)[2] as HTMLElement;
+    expect(part(opened, "mc-board-event-body")?.textContent).toBe(LONG_QUESTION);
+    expect(part(opened, "mc-board-event-task")?.textContent).toBe(DECISION_TASK);
+    expect(opened.querySelector(".mc-board-log-time")?.textContent).toBe(
+      formatClock(DAY + H + 120_000),
+    );
+    await unmount();
+  });
+
+  it("keeps every log row inside the card at both widths", () => {
+    const css = readFileSync("src/components/Canvas/missionControl/missionControlBoard.css", "utf8");
+
+    expect(cssRule(css, ".mc-board")).toContain("overflow-x: hidden;");
+    expect(cssRule(css, ".mc-board-log-body")).toContain("text-overflow: ellipsis;");
+    expect(cssRule(css, ".mc-board-log-more")).toContain("flex: 0 0 auto;");
+    const openBody = cssRule(css, ".mc-board .mc-board-log-message-open .mc-board-log-body");
+    expect(openBody).toContain("overflow-wrap: anywhere;");
+    expect(openBody).toContain("white-space: pre-wrap;");
+    expect(cssRule(css, ".mc-board-log-message-open")).toContain("flex-wrap: wrap;");
+    expect(cssRule(css, '.mc-board[data-board-layout="narrow"] .mc-board-log-body')).toContain(
+      "overflow-wrap: anywhere;",
+    );
+    expect(cssRule(css, '.mc-board[data-board-layout="narrow"] .mc-board-log-message')).toContain(
+      "flex-wrap: wrap;",
+    );
   });
 });
 
