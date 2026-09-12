@@ -16,7 +16,6 @@ import {
 import { BoardTaskCard } from "./BoardTaskCard";
 import { CancelledTasksPanel } from "./CancelledTasksPanel";
 import { listCancelledTasks } from "./cancelledTasks";
-import { PlanBoardStatusHeader } from "./PlanBoardStatusHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { enrichSwitcherOptions, selectActiveWork } from "./activeWork";
@@ -141,17 +140,13 @@ function BoardColumn({
 function BoardPlanBoard({
   model,
   plan,
-  specSections,
   onDeleteTask,
   onOpenDetail,
-  onOpenTab,
 }: {
   model: BoardPlanModel;
   plan: Plan;
-  specSections: Section[];
   onDeleteTask?: (planId: string, taskId: string) => void | Promise<void>;
   onOpenDetail: (detail: BoardDetail) => void;
-  onOpenTab?: (tabId: string) => void;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [cancelledOpen, setCancelledOpen] = useState(false);
@@ -159,11 +154,6 @@ function BoardPlanBoard({
 
   return (
     <section data-testid="plan-board-plan" data-plan-id={model.planId} className="plan-board-plan">
-      <PlanBoardStatusHeader
-        summary={model.planSummary}
-        onOpenPlan={() => onOpenDetail({ kind: "plan", plan, specSections })}
-        onOpenTab={onOpenTab}
-      />
       <div data-testid="plan-board-columns" className="plan-board-columns" role="list">
         {model.columns.map((column) => (
           <BoardColumn
@@ -391,10 +381,8 @@ export function PlanBoardView({
           <BoardPlanBoard
             model={boardModel}
             plan={selectedPlan}
-            specSections={selectedSpecSections}
             onDeleteTask={deleteSelectedTask}
             onOpenDetail={setDetail}
-            onOpenTab={onOpenTab}
           />
         </div>
       )}

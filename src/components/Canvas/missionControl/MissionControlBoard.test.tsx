@@ -1,7 +1,7 @@
 import { act, type ReactElement } from "react";
 import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
@@ -259,14 +259,38 @@ describe("mission control board cards", () => {
     await unmount();
   });
 
-  it("reads progress and ledger-backed spend into the status header", async () => {
+  it("keeps board actions reachable outside the removed status band", async () => {
+    const previousConfirm = window.confirm;
+    const confirm = vi.fn(() => false);
     const { host, unmount } = await render(board(recordingState()));
 
-    expect(host.querySelector('[data-testid="plan-board-status"]')).not.toBeNull();
-    expect(text(host, "mc-board-progress")).toBe("10 of 13 done · 2 in review · 1 cancelled");
-    expect(text(host, "mc-board-total-spend")).toContain("5.3M");
-    expect(text(host, "mc-board-total-spend")).toContain("1.4B");
-    await unmount();
+    window.confirm = confirm;
+    try {
+      expect(host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
+      const actionsRow = host.querySelector('[data-testid="mission-control-board-actions-row"]');
+      expect(actionsRow).not.toBeNull();
+      const trigger = actionsRow?.querySelector<HTMLButtonElement>(
+        '[data-testid="mission-control-board-menu-trigger"]',
+      );
+      expect(trigger).not.toBeNull();
+      expect(trigger?.closest('[data-testid="plan-board-status"]')).toBeNull();
+
+      const labels = ["Approve plan", "Pause plan", "Clear everything"];
+      for (const [index, label] of labels.entries()) {
+        await act(async () => trigger?.click());
+        const menuItems = Array.from(
+          host.querySelectorAll<HTMLButtonElement>('[data-testid="mission-control-board-menu"] [role="menuitem"]'),
+        );
+        expect(menuItems.map((item) => item.textContent)).toEqual(labels);
+        const item = menuItems.find((candidate) => candidate.textContent === label);
+        expect(item).not.toBeUndefined();
+        await act(async () => item?.click());
+        if (index === labels.length - 1) expect(confirm).toHaveBeenCalledTimes(labels.length);
+      }
+    } finally {
+      window.confirm = previousConfirm;
+      await unmount();
+    }
   });
 
   it("reads tokens, turns, bounces and held decisions from the stored figures", async () => {
@@ -319,7 +343,6 @@ describe("mission control board fallback states", () => {
     expect(text(host, "mc-board-tokens-amount")).toBe("—");
     expect(text(host, "mc-board-turns-amount")).toBe("—");
     expect(text(host, "mc-board-tokens")).toContain("not recording");
-    expect(host.querySelector('[data-testid="mc-board-total-spend"]')).toBeNull();
     await unmount();
   });
 
