@@ -97,8 +97,8 @@ export function MissionControlBoard({
             <TokensCard kpi={mc.kpi} />
             <TurnsCard kpi={mc.kpi} />
             <BouncesCard bounces={mc.bounces} />
-            <HeldCard held={mc.held} />
             <DecisionsWaitingCard held={mc.held} />
+            <HeldCard held={mc.held} />
             <LongestWaitCard held={mc.held} />
             <DoneFirstTryCard bounces={mc.bounces} />
           </div>
