@@ -28,6 +28,9 @@ struct RecorderInner {
 #[derive(Clone, Default)]
 pub struct KpiRecorder {
     inner: Option<Arc<RecorderInner>>,
+    /// Set when the flag was on but the ledger would not open, so a not-recording
+    /// surface reports a failure instead of telling the owner to turn on a live setting.
+    open_failed: bool,
 }
 
 impl KpiRecorder {
@@ -48,9 +51,17 @@ impl KpiRecorder {
             Ok(ledger) => Self::with_ledger(Arc::new(ledger)),
             Err(e) => {
                 log::warn!("[kpi] ledger open failed: {} — KPI collection disabled", e);
-                Self::disabled()
+                Self {
+                    inner: None,
+                    open_failed: true,
+                }
             }
         }
+    }
+
+    /// True only for the configured-on-but-unopenable case; an opt-out reads false.
+    pub fn open_failed(&self) -> bool {
+        self.open_failed
     }
 
     pub fn with_ledger(ledger: Arc<KpiLedger>) -> Self {
@@ -86,6 +97,7 @@ impl KpiRecorder {
             .expect("spawn kpi-ledger thread");
         Self {
             inner: Some(Arc::new(RecorderInner { tx, ledger: reader })),
+            open_failed: false,
         }
     }
 

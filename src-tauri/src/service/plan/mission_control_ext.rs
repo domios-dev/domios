@@ -4,6 +4,7 @@
 //! The KPI block reads exactly one source, `KpiLedger::aggregate_by_plan`, and
 //! renders an explicit not-recording state whenever the flag is off, the ledger
 //! is unreadable, or the plan has no row. No provider session jsonl is opened.
+//! The opt-out state carries the config key that turns recording back on.
 
 use codeterm_plan::service_plan::state::mission_control::{
     KpiNotRecordingReason, MissionControlKpi, PlanKpiSpend, PlanKpiTokens, ProviderRunway,
@@ -14,7 +15,13 @@ use crate::service::ServiceContext;
 
 pub(crate) fn plan_kpi(svc: &ServiceContext, plan_id: &str) -> MissionControlKpi {
     let Some(ledger) = svc.kpi.ledger() else {
-        return MissionControlKpi::not_recording(KpiNotRecordingReason::Disabled);
+        // A ledger that refused to open is a failure, not an opt-out: naming the
+        // setting there would tell the owner to switch on what is already on.
+        return MissionControlKpi::not_recording(if svc.kpi.open_failed() {
+            KpiNotRecordingReason::Unreadable
+        } else {
+            KpiNotRecordingReason::Disabled
+        });
     };
     let aggregates = match ledger.aggregate_by_plan() {
         Ok(aggregates) => aggregates,

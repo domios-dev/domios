@@ -87,6 +87,14 @@ port = 7685
 # token = "your-secret-token"
 cors = false
 # cors_allow_origins = ["https://trusted.example"]
+
+[kpi]
+# Local orchestration-economics ledger behind Mission Control's token and turn
+# figures. It stores plan/task/tab ids, counts and timestamps in
+# ~/.codeterm/kpi_ledger.db - never message text, and nothing leaves the machine.
+# Set false to opt out; the Board then shows an explicit not-recording state
+# instead of a figure. Takes effect on the next CodeTerm start.
+enabled = true
 "##
     .to_string()
 }
