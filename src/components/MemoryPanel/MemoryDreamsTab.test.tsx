@@ -20,28 +20,41 @@ function setupDom() {
   (window as never as Record<string, unknown>).getComputedStyle = gcs;
 }
 
-const SEARCH_RESPONSE = {
+const DIARY_RESPONSE = {
+  items: [
+    {
+      id: "daily_dream_2026_08_05_06_00",
+      uid: "u1",
+      kind: "daily",
+      scope: "global",
+      title: "dream: 2026-08-05 06:00",
+      summary: null,
+      area: "_dreams",
+      tags: ["dream-diary"],
+      body: "<insight>\nTest dream insight for UI repro.\n</insight>",
+      source: "mem",
+      importance: 0.5,
+      created_at: "2026-08-05T06:00:00.000000+00:00",
+      updated_at: "2026-08-05T06:00:00.000000+00:00",
+      accessed_at: null,
+      access_count: 0,
+      recurrence_count: 0,
+    },
+  ],
+  total: 31,
+  next_offset: 30,
+};
+
+const UNRELATED_SEARCH_RESPONSE = {
   hits: [
     {
       item: {
-        id: "daily_dream_2026_08_05_06_00",
-        uid: "u1",
-        kind: "daily",
-        scope: "global",
-        title: "dream: 2026-08-05 06:00",
-        summary: null,
-        area: null,
-        tags: ["dream-diary"],
-        body: "<insight>\nTest dream insight for UI repro.\n</insight>",
-        source: "mem",
-        importance: 0.5,
-        created_at: "2026-08-05T06:00:00.000000+00:00",
-        updated_at: "2026-08-05T06:00:00.000000+00:00",
-        accessed_at: null,
-        access_count: 0,
-        recurrence_count: 0,
+        id: "unrelated",
+        kind: "fact",
+        title: "unrelated",
+        body: "unrelated",
       },
-      score: 0.9,
+      score: 1,
     },
   ],
 };
@@ -76,8 +89,11 @@ async function main() {
   globalThis.fetch = (async (url: string | URL) => {
     const u = String(url);
     seen.push(u);
+    if (u.includes("/api/mem/dream/diary")) {
+      return { ok: true, json: async () => DIARY_RESPONSE } as Response;
+    }
     if (u.includes("/api/mem/search")) {
-      return { ok: true, json: async () => SEARCH_RESPONSE } as Response;
+      return { ok: true, json: async () => UNRELATED_SEARCH_RESPONSE } as Response;
     }
     if (u.includes("/api/crons")) {
       return { ok: true, json: async () => CRONS_RESPONSE } as Response;
@@ -98,8 +114,8 @@ async function main() {
   });
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-  const searchUrl = seen.find((u) => u.includes("/api/mem/search")) ?? "";
-  console.log("search url:", searchUrl);
+  const diaryUrl = seen.find((u) => u.includes("/api/mem/dream/diary")) ?? "";
+  console.log("diary url:", diaryUrl);
   const cards = host.querySelectorAll('[data-testid="memory-dream-card"]');
   const empty = host.querySelector('[data-testid="memory-dream-empty"]');
   console.log("cards:", cards.length, "empty shown:", !!empty);
@@ -107,10 +123,17 @@ async function main() {
 
   assert(cards.length === 1, `expected 1 dream card, got ${cards.length}`);
   assert(!empty, "empty state should not render when a dream exists");
+  assert(diaryUrl.includes("limit=30"), `expected bounded diary page, got ${diaryUrl}`);
+  assert(!diaryUrl.includes("q=dream"), "diary route must not use relevance search");
+  assert(!seen.some((u) => u.includes("/api/mem/search")), "must not request relevance search");
+  assert(
+    host.querySelector('[data-testid="memory-dreams-tab"]')?.textContent?.includes("31 dreams recorded"),
+    "header must display the full diary total",
+  );
 
   await act(async () => root.unmount());
   __setListenForTest(null);
-  console.log("✓ DreamsTab renders a seeded dream as a card");
+  console.log("✓ memory_dreams_tab_uses_diary_route_and_renders_newest_first");
 }
 
 void main();
