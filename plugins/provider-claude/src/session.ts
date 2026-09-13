@@ -25,6 +25,7 @@ export interface ClaudeEntry {
   aiTitle?: unknown;
   filename?: unknown;
   path?: unknown;
+  toolUseResult?: unknown;
 }
 
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = {
