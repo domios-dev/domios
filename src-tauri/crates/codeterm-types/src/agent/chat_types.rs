@@ -188,6 +188,9 @@ pub struct ChatMsg {
     /// Set when the action re-reports a command another call in its flow represents.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_echo: Option<bool>,
+    /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_rich_result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).
