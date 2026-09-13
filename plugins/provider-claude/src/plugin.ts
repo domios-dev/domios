@@ -552,6 +552,9 @@ const plugin: PluginModule = {
               if (description) data.tool_description = description;
               // Parallel calls from one API response share this id; it is the only proven link.
               if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+            } else if (b.type === "thinking") {
+              // The signature is opaque verification material, never display text.
+              delete data.signature;
             }
             blocks.push({ kind: b.type, data: data });
           }

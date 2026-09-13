@@ -296,6 +296,7 @@ export type ToolEventKind =
   | "task"
   | "fetch"
   | "codeterm"
+  | "agent"
   | "generic";
 
 export interface ToolEdit {

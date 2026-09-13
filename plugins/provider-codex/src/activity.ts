@@ -1,4 +1,5 @@
 import { actionTitle, baseName } from "./actionTitle";
+import { collabCallRow, reasoningItemRow, subAgentRow } from "./agentActivity";
 
 interface ActivityItem {
   type?: unknown;
@@ -73,17 +74,9 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
     ];
     return message;
   }
-  if (item.type === "SubAgentActivity") {
-    const kind = text(item.kind);
-    const path = text(item.agent_path);
-    if (!kind || !path) return null;
-    message.blocks = [{ kind: "tool_use", data: {
-      id, name: "agent_activity", input: { kind, agent_path: path, agent_thread_id: text(item.agent_thread_id) },
-      tool_kind: "task", tool_summary: `${kind} ${path}`, tool_detail: `${kind} ${path}`,
-      tool_title: actionTitle({ tool_summary: `${kind} ${baseName(path)}` }), ...flow,
-      tool_status: "success",
-    } }];
-    return message;
-  }
+  const fields = value as Record<string, unknown>;
+  if (item.type === "SubAgentActivity") return subAgentRow(fields, id, turnId, ts, timestamp) as ActivityMessage | null;
+  if (item.type === "CollabAgentToolCall") return collabCallRow(fields, turnId, ts, timestamp) as ActivityMessage | null;
+  if (item.type === "Reasoning") return reasoningItemRow(fields, ts, timestamp) as ActivityMessage | null;
   return null;
 }

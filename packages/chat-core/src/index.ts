@@ -1,4 +1,6 @@
 export type {
+  AgentActivity,
+  AgentActivityState,
   ChatAttachment,
   ChatMessageKind,
   NormalizedChatMessage,
@@ -55,9 +57,11 @@ export {
   materializeToolEvent,
   reduceToolEvents,
   toolStreamLabel,
+  type StreamEntry,
   type TimelineItem,
   type ToolEvent,
 } from "./toolEvents";
+export { type AgentActivityTree, type AgentMessageEdge, type AgentNode } from "./agentActivity";
 export { stabilizeTimelineItems } from "./timelineStability";
 export { buildToolPreview, type ToolPreview } from "./toolPreview";
 export {
