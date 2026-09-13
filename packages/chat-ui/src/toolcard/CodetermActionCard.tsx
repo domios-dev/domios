@@ -1,6 +1,7 @@
+import type { ReactNode } from "react";
 import { toolCommand, type ToolEvent } from "@codeterm/chat-core";
 import { recognize, type CodetermInvocation } from "../codeterm/recognize";
-import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
+import { describeAction, isHelp, isSend, navigationTarget, parseSend, type ActionDescriptor, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
@@ -16,12 +17,7 @@ import type { ToolKindVisual } from "./toolKindVisual";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
-interface Props {
-  event: ToolEvent;
-  /** The already-recognized invocation; recognized from the event's command when absent. */
-  invocation?: CodetermInvocation;
-  expanded: boolean;
-  onToggle: () => void;
+export interface CodetermNavigationProps {
   resolveTabName?: TabNameResolver;
   resolvePeerName?: PeerNameResolver;
   onFocusTab?: (tabRef: string) => void;
@@ -33,12 +29,20 @@ interface Props {
   fontScale?: number;
 }
 
+interface Props extends CodetermNavigationProps {
+  event: ToolEvent;
+  /** The already-recognized invocation; recognized from the event's command when absent. */
+  invocation?: CodetermInvocation;
+  expanded: boolean;
+  onToggle: () => void;
+}
+
 function targetLabel(target: NavigationTarget): string {
   if (target.kind === "tab") return "Tab";
   return target.kind[0].toUpperCase() + target.kind.slice(1);
 }
 
-function actionVisual(invocation: NonNullable<ReturnType<typeof recognize>>): ToolKindVisual {
+export function actionVisual(invocation: CodetermInvocation): ToolKindVisual {
   const { path } = invocation;
   const command = path.join(" ");
   if (isHelp(invocation)) {
@@ -103,57 +107,34 @@ function actionVisual(invocation: NonNullable<ReturnType<typeof recognize>>): To
   return { glyph: Terminal, color: "var(--ct-accent)", label: "codeterm" };
 }
 
-export function CodetermActionCard({
-  event,
-  invocation,
-  expanded,
-  onToggle,
-  resolveTabName,
-  resolvePeerName,
-  onFocusTab,
-  onOpenPlan,
-  resolvePlanRef,
-  fontScale,
-  onOpenSpec,
-  onOpenMemory,
-  onOpenSource,
-}: Props) {
+function codetermAction(event: ToolEvent, invocation: CodetermInvocation | undefined, navigation: CodetermNavigationProps) {
+  const { resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, onOpenSpec, onOpenMemory, onOpenSource } = navigation;
   const command = toolCommand(event);
   const inv = invocation ?? recognize(command.command, command.argv);
   const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName, resolvePeerName) : undefined;
-  const sendSucceeded = sent?.status?.ok === true;
   const target = inv ? navigationTarget(inv, event.result) : null;
-  const descriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName) : { lead: "codeterm", chips: [] };
-  const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
+  const descriptor: ActionDescriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName) : { lead: "codeterm", chips: [] };
   const canNavigate = target != null && (
     target.kind === "tab" ? Boolean(onFocusTab) :
     target.kind === "plan" || target.kind === "task" || target.kind === "section" || target.kind === "goal"
       ? Boolean(onOpenPlan && target.planId)
       : target.kind === "spec" ? Boolean(onOpenSpec) : target.kind === "memory" ? Boolean(onOpenMemory) : Boolean(onOpenSource)
   );
-  const displayEvent: ToolEvent = {
-    ...event,
-    status: sendSucceeded ? "success" : event.status,
-    summary: descriptor.object ?? descriptor.lead,
-    detail: undefined,
-  };
   const isTabList = inv?.path.join(" ") === "tab list";
   const tabListJson = isTabList && inv?.flags.json === true;
+  const sendSucceeded = sent?.status?.ok === true;
   const showResult = Boolean(event.result && (!isTabList || tabListJson) && (!inv || !isSend(inv) || (event.status === "error" && !sendSucceeded)));
+  const hasBody = Boolean(sent || (isTabList && !tabListJson) || descriptor.fields?.length || descriptor.detail || descriptor.bullets?.length || showResult || canNavigate);
+  return { inv, sent, sendSucceeded, target, descriptor, canNavigate, isTabList, tabListJson, showResult, hasBody };
+}
 
+type CodetermAction = ReturnType<typeof codetermAction>;
+
+function ActionBody({ event, action, navigation, inlineTabAction }: { event: ToolEvent; action: CodetermAction; navigation: CodetermNavigationProps; inlineTabAction: boolean }) {
+  const { sent, descriptor, target, canNavigate, isTabList, tabListJson, showResult } = action;
+  const { onFocusTab, onOpenPlan, onOpenSpec, onOpenMemory, onOpenSource, resolvePlanRef, fontScale } = navigation;
   return (
-    <ToolCardFrame
-      event={displayEvent}
-      expanded={expanded}
-      onToggle={onToggle}
-      title={descriptor.lead}
-      summary={descriptor.object}
-      variant="codeterm"
-      disclosureLabel="full command"
-      visualOverride={inv ? actionVisual(inv) : undefined}
-      metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
-      action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
-    >
+    <>
       {sent ? (
         <CompactMessageContent
           text={sent.formattedAvailable ? sent.body : event.detail || event.summary}
@@ -177,6 +158,7 @@ export function CodetermActionCard({
       ) : null}
       {descriptor.bullets && <ul className="list-disc pl-4 text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
       {showResult && <div data-testid={tabListJson ? "tab-list-json" : "toolcard-result"}><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
+      {inlineTabAction && canNavigate && target?.kind === "tab" && <ToolCardActionButton label="Show Tab" onClick={() => onFocusTab!(target.id)} testId="codeterm-focus-tab" />}
       {canNavigate && target && target.kind !== "tab" && (
         <button
           type="button"
@@ -194,6 +176,46 @@ export function CodetermActionCard({
           {`Show ${targetLabel(target)}`}
         </button>
       )}
+    </>
+  );
+}
+
+/** The card template's body alone, for a segment shown inline under its tree line; `fallback` when the template has nothing. */
+export function CodetermActionDetail({ event, invocation, fallback, ...navigation }: CodetermNavigationProps & { event: ToolEvent; invocation?: CodetermInvocation; fallback: ReactNode }) {
+  const action = codetermAction(event, invocation, navigation);
+  if (!action.hasBody) return <>{fallback}</>;
+  return (
+    <div data-testid="codeterm-action-detail" className="grid min-w-0 gap-1">
+      <ActionBody event={event} action={action} navigation={navigation} inlineTabAction />
+    </div>
+  );
+}
+
+export function CodetermActionCard({ event, invocation, expanded, onToggle, ...navigation }: Props) {
+  const action = codetermAction(event, invocation, navigation);
+  const { inv, descriptor, target, canNavigate, sendSucceeded } = action;
+  const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
+  const displayEvent: ToolEvent = {
+    ...event,
+    status: sendSucceeded ? "success" : event.status,
+    summary: descriptor.object ?? descriptor.lead,
+    detail: undefined,
+  };
+
+  return (
+    <ToolCardFrame
+      event={displayEvent}
+      expanded={expanded}
+      onToggle={onToggle}
+      title={descriptor.object ? descriptor.lead : ""}
+      summary={descriptor.object ?? descriptor.lead}
+      variant="codeterm"
+      disclosureLabel="full command"
+      visualOverride={inv ? actionVisual(inv) : undefined}
+      metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
+      action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
+    >
+      <ActionBody event={event} action={action} navigation={navigation} inlineTabAction={false} />
     </ToolCardFrame>
   );
 }

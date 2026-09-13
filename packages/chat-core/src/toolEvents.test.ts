@@ -183,14 +183,49 @@ console.log("ok - tool event lifecycle");
     titled("t4", "git status"),
     titled("t5", "Read a.ts"),
   ]);
-  assert(turns.length === 3, "each turn yields one stream while text keeps its order");
-  assert(turns[0].kind === "tool" && turns[0].event.stream?.members.map((member) => member.id).join() === "t1,t2,t3", "wait follow-ups are ordinary actions of their turn");
-  assert(turns[0].kind === "tool" && turns[0].event.stream?.active === false, "a closed settled turn is inactive");
+  assert(turns.length === 4, "text between calls splits the turn while keeping source order");
+  assert(turns[0].kind === "tool" && !turns[0].event.stream && turns[0].event.id === "t1", "a call before text stays its own row");
   assert(turns[1].kind === "message", "assistant text is not absorbed into a stream");
-  assert(turns[2].kind === "tool" && turns[2].event.stream?.members.map((member) => member.id).join() === "t4,t5", "a later turn never merges with an earlier one");
-  assert(turns[2].kind === "tool" && turns[2].event.stream?.active === true, "an open turn keeps its stream active");
-  assert(turns[2].kind === "tool" && turns[2].event.status === "pending", "an open turn heads as running even when its recorded calls settled");
-  assert(turns[0].kind === "tool" && turns[0].event.status === "success", "a closed settled turn heads as done");
+  assert(turns[2].kind === "tool" && turns[2].event.stream?.members.map((member) => member.id).join() === "t2,t3", "wait follow-ups are ordinary actions of their run");
+  assert(turns[2].kind === "tool" && turns[2].event.stream?.active === false, "a closed settled turn is inactive");
+  assert(turns[3].kind === "tool" && turns[3].event.stream?.members.map((member) => member.id).join() === "t4,t5", "a later turn never merges with an earlier one");
+  assert(turns[3].kind === "tool" && turns[3].event.stream?.active === true, "an open turn keeps its stream active");
+  assert(turns[3].kind === "tool" && turns[3].event.status === "pending", "an open turn heads as running even when its recorded calls settled");
+  assert(turns[2].kind === "tool" && turns[2].event.status === "success", "a closed settled turn heads as done");
+
+  const split = reduceToolEvents([
+    boundary("start", "turn-s"),
+    titled("s1", "npm test"),
+    titled("s2", "git status"),
+    { id: "inbound", type: "user", content: "STATUS: in_review", inboundKind: "report", fromLabel: "Hopper", ...session },
+    titled("s3", "npm run lint"),
+    titled("s4", "git diff"),
+  ]);
+  assert(split.length === 3 && split[1].kind === "message", "an inbound row closes the stream above it");
+  assert(split[0].kind === "tool" && split[0].event.stream?.members.map((member) => member.id).join() === "s1,s2", "the earlier run keeps its own calls");
+  assert(split[0].kind === "tool" && split[0].event.status === "success" && split[0].event.stream?.active === false, "a closed run of settled calls never inherits its open turn's spinner");
+  assert(split[2].kind === "tool" && split[2].event.stream?.members.map((member) => member.id).join() === "s3,s4", "later calls of the same turn start a new stream below");
+  assert(split[2].kind === "tool" && split[2].event.status === "pending", "the latest run of an open turn stays running");
+
+  const running = reduceToolEvents([
+    boundary("start", "turn-r"),
+    call("r1", "r1", { toolTitle: "npm test", ...session }),
+    call("r2", "r2", { toolTitle: "git status", ...session }),
+    { id: "text-r", type: "assistant", content: "waiting", ...session },
+    result("r1-out", "r1", "12 passed", session),
+  ]);
+  assert(running[0].kind === "tool" && running[0].event.status === "pending" && running[0].event.stream?.members[1].status === "pending", "a closed run heads as running only while its own calls run");
+  assert(running[0].kind === "tool" && running[0].event.stream?.members[0].status === "success", "a late result settles its call in place");
+
+  const duplicated = reduceToolEvents([
+    boundary("start", "turn-d"),
+    call("d1", "dup", { toolTitle: "npm test", ...session }),
+    call("d2", "other", { toolTitle: "git status", ...session }),
+    call("d1-snapshot", "dup", { toolTitle: "npm test", ...session }),
+    result("dup-out", "dup", "12 passed", session),
+  ]);
+  assert(duplicated.length === 1 && duplicated[0].kind === "tool" && duplicated[0].event.stream?.members.map((member) => member.toolId).join() === "dup,other", "a stream shows one member per call id");
+  assert(duplicated[0].kind === "tool" && duplicated[0].event.stream?.members[0].result === "12 passed", "the kept member carries the call's latest state");
   const foreign = reduceToolEvents([boundary("start", "turn-x"), titled("s1", "a", { sourceSessionId: "other" }), titled("s2", "b", { sourceSessionId: "other" })]);
   assert(foreign.length === 2, "a boundary never assigns calls from another session");
   assert(reduceToolEvents([call("wait-agent", "wait-agent", { toolName: "wait_agent" })]).length === 1, "wait_agent is an ordinary visible action");
