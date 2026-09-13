@@ -421,7 +421,7 @@ fn rich_flatten_parity_classifies_dante_system_user_rows() {
     assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_summary"));
     assert_eq!(
         msgs[0].timeline_marker,
-        Some(crate::agent::chat_types::ChatTimelineMarker::ContextCompaction)
+        Some(codeterm_types::agent::chat_types::ChatTimelineMarker::ContextCompaction)
     );
     assert!(msgs[0].collapsed);
     assert_eq!(msgs[0].content, "context compacted");
