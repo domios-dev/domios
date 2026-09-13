@@ -2513,6 +2513,29 @@ var plugin = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
+      const normalizedEventType = v.payload?.type;
+      if (normalizedEventType === "context_compacted") {
+        out.push({
+          role: "system",
+          blocks: [{ kind: "text", data: { text: "context compacted" } }],
+          ts,
+          timestamp: tsIso,
+          timelineMarker: { kind: "context_compaction" }
+        });
+        continue;
+      }
+      if (normalizedEventType === "thread_goal_updated") {
+        const sessionIntent = sessionIntentFromPayload(v.payload);
+        if (!sessionIntent) continue;
+        out.push({
+          role: "custom",
+          blocks: [],
+          ts,
+          timestamp: tsIso,
+          sessionIntent
+        });
+        continue;
+      }
       if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
@@ -2789,15 +2812,29 @@ function isValidCodexSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
-    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed" || v.payload.type === "web_search_end" || v.payload.type === "image_generation_end" || v.payload.type === "task_started" || v.payload.type === "task_complete" || v.payload.type === "turn_aborted" || v.payload.type === "sub_agent_activity";
+    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed" || v.payload.type === "web_search_end" || v.payload.type === "image_generation_end" || v.payload.type === "task_started" || v.payload.type === "task_complete" || v.payload.type === "turn_aborted" || v.payload.type === "context_compacted" || v.payload.type === "thread_goal_updated" && sessionIntentFromPayload(v.payload) !== null || v.payload.type === "sub_agent_activity";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "reasoning" && kind !== "agent_message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call" && kind !== "custom_tool_call_output") {
+  if (kind !== "message" && kind !== "reasoning" && kind !== "agent_message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call" && kind !== "custom_tool_call_output" && kind !== "context_compacted" && kind !== "thread_goal_updated") {
     return false;
   }
   return true;
+}
+function cleanIntentValue(value) {
+  if (typeof value !== "string") return void 0;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : void 0;
+}
+function sessionIntentFromPayload(payload) {
+  const title = cleanIntentValue(payload.title) || cleanIntentValue(payload.thread_name);
+  const goal = cleanIntentValue(payload.goal) || cleanIntentValue(payload.thread_goal);
+  if (!title && !goal) return null;
+  return {
+    ...title ? { title } : {},
+    ...goal ? { goal } : {}
+  };
 }
 function codexToolOutputText(output) {
   if (typeof output === "string") return output;

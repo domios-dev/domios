@@ -270,7 +270,26 @@ function usageIsWeekday(s) {
 }
 
 // plugins/provider-claude/src/session.ts
-var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true, attachment: true };
+var CLAUDE_SESSION_DELTA_TYPES = {
+  system: true,
+  user: true,
+  assistant: true,
+  attachment: true,
+  "ai-title": true,
+  edited_text_file: true
+};
+function cleanMetadataValue(value) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : null;
+}
+function aiTitleFromEntry(entry) {
+  return cleanMetadataValue(entry.aiTitle);
+}
+function editedTextFilePath(entry) {
+  const attachment = entry.attachment;
+  return cleanMetadataValue(entry.filename) || cleanMetadataValue(entry.path) || cleanMetadataValue(attachment?.filename) || cleanMetadataValue(attachment?.path);
+}
 function claudeSessionFilePath(cwd, sessionId) {
   const m = manifest();
   const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
@@ -307,6 +326,8 @@ function validateEntry(v) {
 }
 function isValidClaudeSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "ai-title") return aiTitleFromEntry(v) !== null;
+  if (v.type === "edited_text_file") return editedTextFilePath(v) !== null;
   if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
   if (v.type === "system") {
     const sc = v.content;
@@ -315,7 +336,7 @@ function isValidClaudeSessionDelta(v) {
   }
   if (v.type === "attachment") {
     const a = v.attachment;
-    return !!a && typeof a === "object" && a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0;
+    return !!a && typeof a === "object" && (a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0 || a.type === "edited_text_file" && editedTextFilePath(v) !== null);
   }
   const msg = v.message;
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
@@ -1481,9 +1502,42 @@ var plugin = {
         continue;
       }
       const t = v && v.type;
+      let ts = null;
+      if (typeof v.timestamp === "string") {
+        const d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1e3);
+      }
+      const timestamp = typeof v.timestamp === "string" ? v.timestamp : null;
+      if (t === "ai-title") {
+        const title = aiTitleFromEntry(v);
+        if (!title) continue;
+        out.push({
+          role: "custom",
+          blocks: [],
+          ts,
+          uuid: typeof v.uuid === "string" ? v.uuid : null,
+          sessionIntent: { title },
+          timestamp
+        });
+        continue;
+      }
+      if (t === "edited_text_file" || t === "attachment" && v.attachment?.type === "edited_text_file") {
+        const path = editedTextFilePath(v);
+        if (!path) continue;
+        out.push({
+          role: "system",
+          blocks: [],
+          ts,
+          uuid: typeof v.uuid === "string" ? v.uuid : null,
+          timelineMarker: { kind: "external_edit", path },
+          timestamp
+        });
+        continue;
+      }
       const blocks = [];
       let role;
       let sourceSubtype = typeof v.subtype === "string" ? v.subtype : null;
+      let timelineMarker;
       if (t === "system") {
         role = "system";
         const sysText = typeof v.content === "string" ? v.content : Array.isArray(v.content) ? v.content.filter((c) => c && c.type === "text").map((c) => c.text || "").join("\n") : "";
@@ -1505,6 +1559,7 @@ var plugin = {
           } else if (t === "user" && isCompactSummaryRow(v, content)) {
             role = "system";
             sourceSubtype = "compact_summary";
+            timelineMarker = { kind: "context_compaction" };
             blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
           } else if (content) {
             blocks.push({ kind: "text", data: { text: content } });
@@ -1565,16 +1620,15 @@ var plugin = {
           blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
         } else {
           role = "user";
+          timelineMarker = { kind: "queued" };
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
         continue;
       }
       if (!blocks.length) continue;
-      let ts = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
+      if (t === "system" && sourceSubtype === "compact_boundary") {
+        timelineMarker = { kind: "context_compaction" };
       }
       out.push({
         role,
@@ -1587,7 +1641,8 @@ var plugin = {
         level: typeof v.level === "string" ? v.level : null,
         isCompactSummary: v.isCompactSummary === true ? true : null,
         isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
-        timestamp: typeof v.timestamp === "string" ? v.timestamp : null
+        timelineMarker,
+        timestamp
       });
     }
     return { messages: out };
