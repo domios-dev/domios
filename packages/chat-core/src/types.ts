@@ -57,6 +57,16 @@ export interface InteractiveQuestion {
   multiSelect: boolean;
 }
 
+export type ChatTimelineMarker =
+  | { kind: "queued" }
+  | { kind: "external_edit"; path: string }
+  | { kind: "context_compaction" };
+
+export interface ChatSessionIntent {
+  title?: string;
+  goal?: string;
+}
+
 /** Discriminated union, open for future interactive session-event kinds. */
 export type InteractiveElement = InteractiveQuestion;
 
@@ -87,6 +97,8 @@ export interface NormalizedChatMessage {
   subtype?: string;
   tagName?: string;
   systemSubtype?: string;
+  timelineMarker?: ChatTimelineMarker;
+  sessionIntent?: ChatSessionIntent;
   sourceType?: string;
   sourceSubtype?: string;
   level?: string;

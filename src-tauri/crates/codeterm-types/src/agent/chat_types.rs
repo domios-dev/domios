@@ -58,6 +58,23 @@ pub struct MessageBlock {
     pub data: serde_json::Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ChatTimelineMarker {
+    Queued,
+    ExternalEdit { path: String },
+    ContextCompaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSessionIntent {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub goal: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RichMessage {
     /// Free-form role string. Common values: "user", "assistant",
@@ -96,6 +113,20 @@ pub struct RichMessage {
         default
     )]
     pub source_subtype: Option<String>,
+    #[serde(
+        rename = "timelineMarker",
+        alias = "timeline_marker",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub timeline_marker: Option<ChatTimelineMarker>,
+    #[serde(
+        rename = "sessionIntent",
+        alias = "session_intent",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub session_intent: Option<ChatSessionIntent>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<String>,
     #[serde(
@@ -213,6 +244,20 @@ pub struct ChatMsg {
     /// System-message provenance (skill_context, <cmd>_meta, meta, …).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub system_subtype: Option<String>,
+    #[serde(
+        rename = "timelineMarker",
+        alias = "timeline_marker",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub timeline_marker: Option<ChatTimelineMarker>,
+    #[serde(
+        rename = "sessionIntent",
+        alias = "session_intent",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub session_intent: Option<ChatSessionIntent>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

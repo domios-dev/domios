@@ -304,6 +304,16 @@ export interface ToolEdit {
   new: string;
 }
 
+export type ChatTimelineMarker =
+  | { kind: "queued" }
+  | { kind: "external_edit"; path: string }
+  | { kind: "context_compacted" };
+
+export interface ChatSessionIntent {
+  title?: string;
+  goal?: string;
+}
+
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
 export interface NormalizedChatMessage {
   id: string;
@@ -316,6 +326,8 @@ export interface NormalizedChatMessage {
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
+  timelineMarker?: ChatTimelineMarker;
+  sessionIntent?: ChatSessionIntent;
   /** Provider-neutral canonical tool metadata, available on any chat transport. */
   toolKind?: ToolEventKind;
   toolSummary?: string;
