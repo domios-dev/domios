@@ -206,7 +206,21 @@ export function eventLogRows(
 }
 
 /** Events per page of the log. */
-export const EVENT_LOG_PAGE = 8;
+export const EVENT_LOG_PAGE = 50;
+
+/** Page numbers for the pager: all of them when few, otherwise the ends and the neighbours of the current page. */
+export function pagerPages(current: number, count: number): Array<number | "gap"> {
+  if (count <= 7) return Array.from({ length: count }, (_, index) => index + 1);
+  const shown = new Set([1, count, current - 1, current, current + 1].filter((page) => page >= 1 && page <= count));
+  const pages: Array<number | "gap"> = [];
+  let previous = 0;
+  for (const page of [...shown].sort((a, b) => a - b)) {
+    if (page - previous > 1) pages.push("gap");
+    pages.push(page);
+    previous = page;
+  }
+  return pages;
+}
 
 /** Where the log reads its pages from: today the plan's stored log, later a team event stream. */
 export interface EventPager {

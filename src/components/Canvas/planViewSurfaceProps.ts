@@ -28,4 +28,6 @@ export interface PlanViewSurfaceProps {
   api?: ApiConfig;
   /** Host header element where a surface without its own switcher places its actions. */
   headerActionsSlot?: HTMLElement | null;
+  /** Switches the host to one of the plan views. */
+  onOpenView?: (mode: "spec" | "plan" | "tasks") => void;
 }

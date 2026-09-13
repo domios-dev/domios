@@ -52,6 +52,7 @@ export function MissionControlPlanSurface({
   onSelectTab,
   api,
   headerActionsSlot = null,
+  onOpenView,
 }: PlanViewSurfaceProps) {
   const deepLinks = useMemo<NeedsYouDeepLinks | undefined>(
     () => (notifications && onSelectTab
@@ -259,6 +260,7 @@ export function MissionControlPlanSurface({
             allowanceWeeks={allowanceWeeks}
             plans={orderedPlans}
             previousPlans={previousPlans}
+            onOpenView={onOpenView}
             onOpenTask={openTask}
             onOpenPlan={openPlanDetail}
             deepLinks={deepLinks}

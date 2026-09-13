@@ -15,6 +15,7 @@ import {
   EVENT_TASK_NAME_MAX,
   boardLayout,
   formatClock,
+  pagerPages,
 } from "./missionControlBoardModel";
 import type {
   MissionControlState,
@@ -420,6 +421,31 @@ describe("mission control board panels", () => {
     await untitled.unmount();
   });
 
+  it("opens the Plan view from the plan's goal and the Tasks view from its task count", async () => {
+    const onOpenView = vi.fn();
+    const goal = "A fresh user can open the game, control the snake and restart at every supported size";
+    const { host, unmount } = await render(
+      <MissionControlBoard
+        plan={{ ...PLAN, goal: { vector: goal } }}
+        state={boardState(recordingState())}
+        now={NOW}
+        onOpenView={onOpenView}
+      />,
+    );
+
+    const heading = host.querySelector('[data-testid="mc-board-plan-heading"]') as HTMLButtonElement;
+    expect(heading.tagName).toBe("BUTTON");
+    expect(heading.getAttribute("title")).toBe(goal);
+    await act(async () => heading.click());
+    expect(onOpenView).toHaveBeenLastCalledWith("plan");
+
+    const tasks = host.querySelector('[data-testid="mc-board-plan-tasks-link"]') as HTMLButtonElement;
+    expect(tasks.textContent).toBe("16 tasks");
+    await act(async () => tasks.click());
+    expect(onOpenView).toHaveBeenLastCalledWith("tasks");
+    await unmount();
+  });
+
   it("lists the team's previous plans on request and opens one", async () => {
     const onOpenPlan = vi.fn();
     const previous: Plan = { ...PLAN, id: "pl_old1", title: "First Snake", goal: null, status: "archived" };
@@ -537,26 +563,50 @@ describe("mission control board panels", () => {
     await unmount();
   });
 
-  it("shows the newest events first and pages to older ones", async () => {
+  it("shows the latest 50 events first with numbered pages to older ones", async () => {
     const state = recordingState();
-    state.event_log.entries = Array.from({ length: 12 }, (_, index) =>
-      logEvent({ ts: DAY + H + index * 60_000, kind: "note", text: `note ${index}` }),
+    state.event_log.entries = Array.from({ length: 120 }, (_, index) =>
+      logEvent({ ts: DAY + H + index * 1_000, kind: "note", text: `note ${index}` }),
     );
-    state.event_log.recorded_events = 12;
+    state.event_log.recorded_events = 120;
     const { host, unmount } = await render(board(state));
 
     const bodies = () => eventRows(host).map((row) => part(row, "mc-board-event-body")?.textContent);
     const button = (testId: string) => host.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement;
-    expect(bodies()).toEqual([11, 10, 9, 8, 7, 6, 5, 4].map((n) => `note ${n}`));
-    expect(host.querySelector('[data-testid="mc-board-event-hour"]')).not.toBeNull();
+    const pages = () =>
+      Array.from(host.querySelectorAll('[data-testid="mc-board-event-log-page"]')).map((page) => [
+        page.textContent,
+        page.getAttribute("aria-current"),
+      ]);
+    expect(bodies()).toHaveLength(50);
+    expect(bodies()[0]).toBe("note 119");
+    expect(bodies()[49]).toBe("note 70");
+    expect(host.querySelector('[data-testid="mc-board-event-log-pager"]')?.tagName).toBe("NAV");
+    expect(pages()).toEqual([
+      ["1", "page"],
+      ["2", null],
+      ["3", null],
+    ]);
     expect(button("mc-board-event-log-newer").disabled).toBe(true);
-    await act(async () => button("mc-board-event-log-older").click());
-    expect(bodies()).toEqual([3, 2, 1, 0].map((n) => `note ${n}`));
+
+    const third = Array.from(host.querySelectorAll<HTMLButtonElement>('[data-testid="mc-board-event-log-page"]'))[2]!;
+    await act(async () => third.click());
+    expect(bodies()).toHaveLength(20);
+    expect(bodies()[0]).toBe("note 19");
+    expect(pages()[2]).toEqual(["3", "page"]);
     expect(button("mc-board-event-log-older").disabled).toBe(true);
+
     await act(async () => button("mc-board-event-log-newer").click());
-    expect(bodies()[0]).toBe("note 11");
-    expect(text(host, "mc-board-event-log-meta")).toBe("12 events");
+    expect(bodies()[0]).toBe("note 69");
+    expect(text(host, "mc-board-event-log-meta")).toBe("120 events");
     await unmount();
+  });
+
+  it("keeps the pager short with gaps when there are many pages", () => {
+    expect(pagerPages(1, 3)).toEqual([1, 2, 3]);
+    expect(pagerPages(1, 12)).toEqual([1, 2, "gap", 12]);
+    expect(pagerPages(6, 12)).toEqual([1, "gap", 5, 6, 7, "gap", 12]);
+    expect(pagerPages(12, 12)).toEqual([1, "gap", 11, 12]);
   });
 
   it("names plan and task ids by their titles and opens the task on click", async () => {
@@ -913,15 +963,20 @@ describe("mission control board layout", () => {
     await unmount();
   });
 
-  it("returns to Progress beside Spend above the narrow bound", async () => {
+  it("stacks the three cards at or below the narrow bound and sets them side by side above it", async () => {
     const { host, setWidth, unmount } = await render(board(recordingState()));
-    await setWidth(390);
-    await setWidth(1200);
-
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
+    const row = () => host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
+
+    await setWidth(BOARD_NARROW_MAX_PX);
+    expect(root.getAttribute("data-board-layout")).toBe("narrow");
+    expect(gridTemplate(row())).toContain("minmax(0, 1fr)");
+    expect(gridTemplate(row())).not.toContain("repeat(3");
+
+    await setWidth(1200);
     expect(root.getAttribute("data-board-layout")).toBe("wide");
-    const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
-    expect(gridTemplate(row)).toContain("2fr");
+    expect(gridTemplate(row())).toContain("repeat(3, minmax(0, 1fr))");
+    expect(row().children).toHaveLength(3);
     await unmount();
   });
 

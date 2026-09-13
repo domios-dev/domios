@@ -12,6 +12,7 @@ import {
   spendReading,
 } from "./missionControlBoardModel";
 import type { MissionControlSpend } from "./missionControlState";
+import { allowanceChartSource } from "./spendChart";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -202,28 +203,59 @@ describe("mission control spend card", () => {
     expect(modelSpendRows(recordingSpend()).reduce((sum, row) => sum + row.sharePct, 0)).toBe(100);
   });
 
-  it("mission_control_spend_draws_a_provider_week_by_day_from_allowance_history", async () => {
-    const pcts = [10, 20, 4, null, null, null, null];
-    const days: AllowanceDay[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label, index) => ({
-      start: NOW + index * 24 * H,
-      label,
-      pct: pcts[index] ?? null,
-      today: index === 2,
-    }));
-    const weeks: AllowanceWeeks = { claude: days };
+  it("mission_control_spend_charts_limit_points_by_day_and_filters_to_one_provider", async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = (offset: number) => today.getTime() + offset * 24 * H;
+    const day = (offset: number, pct: number | null): AllowanceDay => ({
+      start: start(offset),
+      label: new Date(start(offset)).toLocaleDateString("en-US", { weekday: "short" }),
+      pct,
+      today: offset === 0,
+    });
+    const weeks: AllowanceWeeks = {
+      claude: [day(-2, 10), day(-1, 20), day(0, 4), day(1, null)],
+      codex: [day(-1, 6), day(0, 2), day(1, null)],
+    };
     const { host, unmount } = await mount(<SpendCard spend={recordingSpend()} weeks={weeks} />);
 
-    const found = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-week"]')) as HTMLElement[];
-    expect(found).toHaveLength(1);
-    const week = found[0]!;
-    expect(week.closest('[data-testid="mc-board-spend-provider"]')?.getAttribute("data-provider")).toBe("claude");
-    expect(week.getAttribute("role")).toBe("img");
-    expect(week.getAttribute("aria-label")).toBe("Claude weekly allowance by day: Mon 10%, Tue 20%, Wed 4%");
-    expect(week.textContent).toBe("");
-    const bars = Array.from(week.querySelectorAll('[data-testid="mc-board-spend-day"]')) as HTMLElement[];
-    expect(bars.map((bar) => bar.style.height)).toEqual(["50%", "100%", "20%", "0%", "0%", "0%", "0%"]);
-    expect(bars.map((bar) => bar.getAttribute("data-today"))).toEqual([null, null, "true", null, null, null, null]);
-    expect(bars.map((bar) => bar.getAttribute("data-future"))).toEqual([null, null, null, "true", "true", "true", "true"]);
+    const chart = host.querySelector('[data-testid="mc-board-spend-chart"]') as HTMLElement;
+    const days = () => Array.from(chart.querySelectorAll('[data-testid="mc-board-spend-chart-day"]')) as HTMLElement[];
+    const tones = () =>
+      days().map((entry) =>
+        Array.from(entry.querySelectorAll('[data-testid="mc-board-spend-chart-segment"]')).map((segment) =>
+          segment.getAttribute("data-tone"),
+        ),
+      );
+    expect(days()).toHaveLength(3);
+    expect(days()[2]!.getAttribute("data-today")).toBe("true");
+    expect(tones()).toEqual([["0"], ["0", "1"], ["0", "1"]]);
+    expect((days()[1]!.querySelector(".mc-board-chart-stack") as HTMLElement).style.height).toBe("100%");
+    expect(chart.querySelector('[role="img"]')?.getAttribute("aria-label")).toMatch(/^limit % by day: \w{3} 10%, \w{3} 26%, \w{3} 6%$/);
+
+    const metric = (key: string) => host.querySelector(`[data-testid="mc-board-spend-metric-${key}"]`) as HTMLButtonElement;
+    expect(metric("points").getAttribute("aria-pressed")).toBe("true");
+    expect(metric("tokens").disabled).toBe(true);
+    const filters = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-filter"]')) as HTMLButtonElement[];
+    expect(filters.map((filter) => [filter.textContent, filter.getAttribute("aria-pressed")])).toEqual([
+      ["All", "true"],
+      ["Claude", "false"],
+      ["Codex", "false"],
+    ]);
+    await act(async () => filters[2]!.click());
+    expect(tones()).toEqual([[], ["1"], ["1"]]);
+    expect(host.querySelector("input, select, textarea")).toBeNull();
+    await unmount();
+  });
+
+  it("mission_control_spend_draws_no_chart_without_allowance_history", async () => {
+    const { host, unmount } = await mount(<SpendCard spend={recordingSpend()} />);
+
+    expect(host.querySelector('[data-testid="mc-board-spend-chart"]')).toBeNull();
+    const source = allowanceChartSource({}, spendReading(recordingSpend()).groups);
+    expect(source.hasData).toBe(false);
+    expect(source.metrics).toEqual({ points: false, tokens: false });
+    expect(source.days("tokens", "all")).toEqual([]);
     await unmount();
   });
 
