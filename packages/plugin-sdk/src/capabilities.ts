@@ -175,6 +175,7 @@ export interface AgentProvider {
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
+  /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
   parseSessionDelta?(chunk: string): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
