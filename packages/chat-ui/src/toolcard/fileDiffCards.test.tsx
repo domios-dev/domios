@@ -174,10 +174,16 @@ describe("file diff cards", () => {
     const claudeHost = await mount(<Timeline items={timeline("claude")} />);
     expect(all(claudeHost, "file-diff-header").map((node) => node.textContent)).toEqual(["src/shared.ts +1 −1", "src/created.ts +2 −0"]);
     expect(all(claudeHost, "file-diff-cards")).toHaveLength(2);
-    for (const host of [codexHost, claudeHost]) {
+    const legacyEdits = (provider: Provider) => toolEvents(timeline(provider)).filter((event) => event.kind === "edit" && !event.fileDiffs?.length).length;
+    for (const [provider, host] of [["codex", codexHost], ["claude", claudeHost]] as const) {
       expect(all(host, "file-diff-label").every((node) => node.textContent === "edit")).toBe(true);
-      expect(all(host, "toolcard-edit-file")).toHaveLength(0);
-      expect(all(host, "toolcard-edit-summary")).toHaveLength(0);
+      for (const cards of all(host, "file-diff-cards")) {
+        expect(all(cards, "toolcard-edit-file")).toHaveLength(0);
+        expect(all(cards, "toolcard-edit-summary")).toHaveLength(0);
+        expect(all(cards, "file-diff-line")).toHaveLength(0);
+      }
+      // Only edits without a structured diff keep the old/new-string card.
+      expect(all(host, "toolcard-edit-summary")).toHaveLength(legacyEdits(provider));
     }
   });
 
