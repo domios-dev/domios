@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { MissionControlBoard } from "./MissionControlBoard";
-import { BOARD_ROW_COLUMNS, SPEND_SCOPE_CAPTION, UNASSIGNED_MODEL_LABEL } from "./missionControlBoardModel";
+import { BOARD_ROW_COLUMNS, UNASSIGNED_MODEL_LABEL } from "./missionControlBoardModel";
 import type { MissionControlState, PlanBoardState } from "./missionControlState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -255,22 +255,15 @@ describe("mission control board visual system", () => {
       await unmount();
     });
 
-    it(`mission_control_spend_keeps_machine_scope_and_provider_allowance_at_${width}px`, async () => {
+    it(`mission_control_spend_is_a_team_card_with_no_machine_limits_at_${width}px`, async () => {
       const { spend, unmount } = await renderAt(width);
 
-      expect(spend.querySelector('[data-testid="mc-board-spend-scope"]')?.textContent).toBe(SPEND_SCOPE_CAPTION);
-      const providers = Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-provider"]'));
-      expect(
-        providers.map((provider) => [provider.querySelector(".mc-board-spend-limit-name")?.textContent, provider.getAttribute("title")]),
-      ).toEqual([
-        ["Claude", "Claude Code"],
-        ["Codex", "Codex"],
-      ]);
-      expect(
-        Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) => gauge.textContent),
-      ).toEqual(["64%", "session 17%", "6%"]);
-      expect(spend.querySelectorAll('[data-testid="mc-board-spend-limits"]')).toHaveLength(1);
-      expect(getComputedStyle(spend.querySelector('[data-testid="mc-board-spend-limits"]') as HTMLElement).flexWrap).toBe("wrap");
+      expect(spend.querySelector('[data-testid="mc-board-spend-empty"]')?.textContent).toBe("no data");
+      const words = (spend.textContent ?? "").toLowerCase();
+      for (const banned of ["machine", "limit", "week", "session"]) {
+        expect(words).not.toContain(banned);
+      }
+      expect(spend.querySelector('[data-testid="mc-board-spend-gauge"]')).toBeNull();
       expect(spend.querySelector("table")).toBeNull();
       await unmount();
     });

@@ -564,49 +564,47 @@
   color: var(--ct-red);
 }
 
-/* Spend limits: one quiet row under the team chart, wrapping only when the card is narrow. */
-.mc-board-spend-limits {
+/* Spend fills its card: team totals, a chart that takes the remaining height, then the plan split. */
+.mc-board-spend-panel > .mc-board-sub {
+  flex: 1 1 auto;
+}
+
+.mc-board-spend-totals {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.mc-board-plan-split {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--mc-space-1) var(--mc-space-3);
+  flex-direction: column;
+  gap: var(--mc-space-1);
   min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
   font-size: var(--mc-text-meta);
   line-height: 1.4;
-  color: var(--ct-muted-fg);
-}
-
-.mc-board-spend-limits-scope {
-  white-space: nowrap;
-}
-
-.mc-board-spend-limit {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--mc-space-1);
-  white-space: nowrap;
-}
-
-.mc-board-spend-limit-name {
   color: var(--ct-fg);
 }
 
-.mc-board-spend-window {
+.mc-board-plan-split-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mc-space-2);
+  min-width: 0;
+}
+
+.mc-board-plan-split-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mc-board-spend-window[data-variant="session"] {
-  opacity: 0.7;
-}
-
-.mc-board-spend-window b {
+.mc-board-plan-split-share {
   font-family: var(--ct-font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: var(--ct-fg);
 }
 
 .mc-board-swatch {
@@ -641,24 +639,10 @@
 /* Spend chart: one stacked bar per day, a segment per source in its tone; today at full strength. */
 .mc-board-chart {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--mc-space-2);
   min-width: 0;
-}
-
-.mc-board-chart-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--mc-space-2) var(--mc-space-3);
-  min-width: 0;
-}
-
-.mc-board-chart-scope {
-  margin-left: auto;
-  font-size: var(--mc-text-meta);
-  line-height: 1.6;
-  color: var(--ct-muted-fg);
-  white-space: nowrap;
 }
 
 .mc-board-chips {
@@ -698,13 +682,16 @@
   outline-offset: 2px;
 }
 
+/* The bars take whatever height the stretched card leaves, never less than a readable chart. */
 .mc-board-chart-bars {
   display: grid;
+  flex: 1 1 auto;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: var(--mc-space-2);
-  height: 96px;
   min-width: 0;
+  min-height: 96px;
 }
 
 .mc-board-chart-day {

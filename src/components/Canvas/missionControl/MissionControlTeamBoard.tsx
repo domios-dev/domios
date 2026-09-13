@@ -1,6 +1,5 @@
 import { useMemo, useRef } from "react";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
-import type { AllowanceWeeks } from "./allowanceWeek";
 import { ModelsCard, NeedsYouPanel, NoActivePlanCard, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
 import { boardRefs } from "./BoardRefText";
@@ -32,7 +31,6 @@ const NO_PLAN_LOG: EventLog = { recorded_events: 0, truncated: false, entries: [
 export interface MissionControlTeamBoardProps {
   team: TeamMissionControlView;
   teamSpend?: TeamSpend | null;
-  allowanceWeeks?: AllowanceWeeks;
   deepLinks?: NeedsYouDeepLinks;
   onOpenPlan?: (planId: string) => void;
 }
@@ -41,7 +39,6 @@ export interface MissionControlTeamBoardProps {
 export function MissionControlTeamBoard({
   team,
   teamSpend = null,
-  allowanceWeeks,
   deepLinks,
   onOpenPlan,
 }: MissionControlTeamBoardProps) {
@@ -62,7 +59,7 @@ export function MissionControlTeamBoard({
         className="mc-board-row"
         style={{ gridTemplateColumns: BOARD_ROW_COLUMNS[layout] }}
       >
-        <SpendCard spend={NO_MACHINE_SPEND} weeks={allowanceWeeks} teamSpend={teamSpend} />
+        <SpendCard teamSpend={teamSpend} />
         <ModelsCard spend={NO_MACHINE_SPEND} teamSpend={teamSpend} />
         <NoActivePlanCard previousPlans={team.archivedPlans} onOpenPlan={onOpenPlan} />
       </div>
