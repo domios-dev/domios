@@ -234,4 +234,37 @@ console.log("ok - tool event lifecycle");
   assert(loose.length === 2, "without a formed stream an echo stays a visible record");
 }
 
+{
+  const session = { sourceSessionId: "codex-compound" };
+  const pipeline = "codeterm mem secret get --name admin-key | python -c \"import sys\nprint(len(sys.stdin.read()))\"";
+  const launcherArgv = ["C:\\Program Files\\PowerShell\\7\\pwsh.exe", "-Command", pipeline];
+  const exec = call("exec", "exec-call", { toolKind: "command", toolSummary: pipeline, toolDetail: pipeline, toolInput: { raw: "tools.exec_command(...)" }, ...session });
+  const echo = (id: string, patch: Partial<NormalizedChatMessage> = {}) => call(id, id, {
+    toolName: "command_execution",
+    toolKind: "command",
+    toolSummary: launcherArgv.join(" "),
+    toolDetail: launcherArgv.join(" "),
+    toolInput: { command: launcherArgv.join(" "), argv: launcherArgv },
+    toolEcho: true,
+    toolError: false,
+    ...session,
+    ...patch,
+  });
+  const folded = reduceToolEvents([exec, result("exec-out", "exec-call", "Script completed", session), echo("echo-1", { toolExitCode: 3, toolDurationMs: 900 })]);
+  assert(folded.length === 1, "an echo re-reporting its call's launcher-wrapped command renders once");
+  assert(folded[0].kind === "tool" && folded[0].event.id === "exec", "the call keeps its own identity");
+  assert(folded[0].kind === "tool" && folded[0].event.exitCode === 3 && folded[0].event.durationMs === 900, "the echo's outcome belongs to its call");
+  assert(folded[0].kind === "tool" && folded[0].event.status === "error", "a nonzero echoed exit marks the call failed");
+
+  const lateResult = reduceToolEvents([exec, echo("echo-2"), result("echo-2-out", "echo-2", "42", { ...session, toolExitCode: 0 })]);
+  assert(lateResult.length === 1, "an echo's separate result row does not resurrect the echo");
+  assert(lateResult[0].kind === "tool" && lateResult[0].event.result === "42" && lateResult[0].event.exitCode === 0, "an echo's later result lands on its call");
+
+  const unrelated = reduceToolEvents([exec, echo("echo-3", { toolSummary: "git status", toolDetail: "git status", toolInput: { argv: ["git", "status"] } })]);
+  assert(unrelated.length === 2, "an echo of a different command stays a visible record");
+
+  const nextTurn = reduceToolEvents([exec, { id: "u-next", type: "user", content: "next", seq: 9, ...session }, echo("echo-4")]);
+  assert(nextTurn.length === 3, "an echo never folds into a call from an earlier turn");
+}
+
 console.log("ok - tool activity streams");

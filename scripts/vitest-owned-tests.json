@@ -1,6 +1,8 @@
 [
   "packages/chat-ui/src/timelineMarkers.test.tsx",
   "packages/chat-ui/src/toolcard/commandFacts.test.tsx",
+  "packages/chat-ui/src/toolcard/commandGroup.test.tsx",
+  "packages/chat-core/src/shellComposition.test.ts",
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
   "src/components/Canvas/missionControl/MissionControlBoard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlSpendCard.test.tsx",
