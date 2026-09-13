@@ -44,6 +44,7 @@ import { useAgentReportProjection } from "./agentReportProjection";
 import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
+import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 
@@ -208,6 +209,7 @@ export function TabSessionChat({
     followSend: rawFollowSentMessage,
     prepareForHistoryPrepend,
     handleScroll,
+    revealMessage,
   } = useChatScroll({
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
@@ -217,6 +219,12 @@ export function TabSessionChat({
     prependVersion: enrichedMessages[0]?.msg.id ?? null,
     followTailRef: chatFollowTailRef,
     onModeChange: (mode) => setHistoryReading(mode === "detached"),
+  });
+  useChatMessageReveal({
+    tabId,
+    ready: isActive && !chatChannelLoading,
+    contentVersion: enrichedMessages,
+    revealMessage,
   });
 
   // Sending or jumping to latest must leave history-browsing mode first, or the

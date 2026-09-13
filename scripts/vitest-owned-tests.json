@@ -5,5 +5,6 @@
   "src/components/Canvas/missionControl/MissionControlControls.test.tsx",
   "src/components/Canvas/missionControl/missionControlNarrowShell.test.tsx",
   "src/components/Canvas/missionControl/missionControlBoardVisualSystem.test.tsx",
-  "src/components/Canvas/missionControl/missionControlLiveRefresh.test.tsx"
+  "src/components/Canvas/missionControl/missionControlLiveRefresh.test.tsx",
+  "src/components/Notifications/notificationDeepLink.test.tsx"
 ]

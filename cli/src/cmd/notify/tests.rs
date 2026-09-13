@@ -317,3 +317,26 @@ mod notify_unseen {
         }
     }
 }
+
+mod notification_deep_link {
+    use super::super::with_target;
+
+    #[test]
+    fn notification_deep_link_params_carry_the_named_ids() {
+        let params = with_target(
+            serde_json::json!({ "title": "Approve?" }),
+            Some("tab-target"),
+            Some("needs-you-message-1"),
+        );
+        assert_eq!(params["target_tab_id"], "tab-target");
+        assert_eq!(params["chat_message_id"], "needs-you-message-1");
+        assert_eq!(params["title"], "Approve?", "the rest of the request is untouched");
+    }
+
+    #[test]
+    fn notification_deep_link_params_stay_legacy_shaped_without_a_target() {
+        let params = with_target(serde_json::json!({ "title": "Approve?" }), None, None);
+        assert!(params.get("target_tab_id").is_none());
+        assert!(params.get("chat_message_id").is_none());
+    }
+}
