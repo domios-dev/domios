@@ -20,6 +20,8 @@ export interface MissionControlBoardProps {
   plans?: readonly Plan[];
   /** Archived plans the same team ran before the active one, newest first. */
   previousPlans?: readonly Plan[];
+  /** Switches the host to the Spec, Plan or Tasks view. */
+  onOpenView?: (mode: "spec" | "plan" | "tasks") => void;
   onOpenTask?: (taskId: string) => void;
   onOpenPlan?: (planId: string) => void;
 }
@@ -48,6 +50,7 @@ export function MissionControlBoard({
   allowanceWeeks,
   plans,
   previousPlans,
+  onOpenView,
   onOpenTask,
   onOpenPlan,
 }: MissionControlBoardProps) {
@@ -89,6 +92,8 @@ export function MissionControlBoard({
               bounces={mc.bounces}
               previousPlans={previousPlans}
               onOpenPlan={onOpenPlan}
+              onOpenPlanView={onOpenView && (() => onOpenView("plan"))}
+              onOpenTasksView={onOpenView && (() => onOpenView("tasks"))}
             />
           </div>
           <NeedsYouPanel held={mc.held} refs={refs} />

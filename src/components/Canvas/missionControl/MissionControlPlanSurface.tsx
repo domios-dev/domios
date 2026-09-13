@@ -49,6 +49,7 @@ export function MissionControlPlanSurface({
   onOpenTab,
   api,
   headerActionsSlot = null,
+  onOpenView,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
@@ -244,6 +245,7 @@ export function MissionControlPlanSurface({
             allowanceWeeks={allowanceWeeks}
             plans={orderedPlans}
             previousPlans={previousPlans}
+            onOpenView={onOpenView}
             onOpenTask={openTask}
             onOpenPlan={openPlanDetail}
           />

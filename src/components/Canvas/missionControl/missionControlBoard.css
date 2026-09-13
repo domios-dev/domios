@@ -119,11 +119,11 @@
   overflow: visible;
 }
 
-/* Each card is as tall as its own readings; a taller neighbour never stretches it. */
+/* Cards in the row share one height and edge; each card's readings stay at its top. */
 .mc-board-row {
   display: grid;
   gap: var(--mc-gap);
-  align-items: start;
+  align-items: stretch;
   min-width: 0;
 }
 
@@ -286,14 +286,51 @@
   overflow-wrap: break-word;
 }
 
-/* The active plan reads by its goal, then where its tasks stand. */
+/* The active plan reads by its goal, cut to three lines, then where its tasks stand. */
 .mc-board-plan-heading {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
   font-size: var(--mc-text-body);
   font-weight: 600;
   line-height: 1.45;
   color: var(--ct-fg);
   overflow-wrap: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.mc-board-plan-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mc-board-plan-link:hover {
+  color: var(--ct-accent);
+}
+
+.mc-board-meta-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.mc-board-meta-link:hover {
+  color: var(--ct-accent);
+  text-decoration: underline;
+}
+
+.mc-board-plan-link:focus-visible,
+.mc-board-meta-link:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
 }
 
 .mc-board-plan-list {

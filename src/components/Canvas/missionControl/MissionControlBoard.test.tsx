@@ -420,6 +420,31 @@ describe("mission control board panels", () => {
     await untitled.unmount();
   });
 
+  it("opens the Plan view from the plan's goal and the Tasks view from its task count", async () => {
+    const onOpenView = vi.fn();
+    const goal = "A fresh user can open the game, control the snake and restart at every supported size";
+    const { host, unmount } = await render(
+      <MissionControlBoard
+        plan={{ ...PLAN, goal: { vector: goal } }}
+        state={boardState(recordingState())}
+        now={NOW}
+        onOpenView={onOpenView}
+      />,
+    );
+
+    const heading = host.querySelector('[data-testid="mc-board-plan-heading"]') as HTMLButtonElement;
+    expect(heading.tagName).toBe("BUTTON");
+    expect(heading.getAttribute("title")).toBe(goal);
+    await act(async () => heading.click());
+    expect(onOpenView).toHaveBeenLastCalledWith("plan");
+
+    const tasks = host.querySelector('[data-testid="mc-board-plan-tasks-link"]') as HTMLButtonElement;
+    expect(tasks.textContent).toBe("16 tasks");
+    await act(async () => tasks.click());
+    expect(onOpenView).toHaveBeenLastCalledWith("tasks");
+    await unmount();
+  });
+
   it("lists the team's previous plans on request and opens one", async () => {
     const onOpenPlan = vi.fn();
     const previous: Plan = { ...PLAN, id: "pl_old1", title: "First Snake", goal: null, status: "archived" };
