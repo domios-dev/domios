@@ -271,7 +271,7 @@ describe("Mission Control live refresh", () => {
   it("mission_control_keeps_last_snapshot_during_refresh", async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     const nextRead = deferred<Response>();
-    fetchMock.mockResolvedValueOnce(response(boardState({ output: 100, eventCount: 1 })));
+    fetchMock.mockResolvedValueOnce(response(boardState({ turns: 100, eventCount: 1 })));
     fetchMock.mockImplementationOnce(() => nextRead.promise);
     const capture: { current: PlanBoardStateResult | null } = { current: null };
     const rendered = await render(<Probe revision={7} capture={capture} />);
@@ -282,18 +282,18 @@ describe("Mission Control live refresh", () => {
       await flush();
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(rendered.host.querySelector('[data-testid="mc-board-card-grid"]')).not.toBeNull();
+    expect(rendered.host.querySelector('[data-testid="mc-board-row"]')).not.toBeNull();
     expect(rendered.host.querySelector('[data-testid="mc-board-pending"]')).toBeNull();
-    expect(text(rendered.host, "mc-board-tokens-amount")).toBe("100");
+    expect(text(rendered.host, "mc-board-plan-turns")).toBe("100");
     expect(capture.current?.loading).toBe(true);
 
-    nextRead.resolve(response(boardState({ output: 200, eventCount: 2 })));
+    nextRead.resolve(response(boardState({ turns: 200, eventCount: 2 })));
     await act(async () => flush());
     await act(async () => {
       advanceFrames(0);
       advanceFrames(360);
     });
-    expect(text(rendered.host, "mc-board-tokens-amount")).toBe("200");
+    expect(text(rendered.host, "mc-board-plan-turns")).toBe("200");
     expect(capture.current?.state?.mission_control.event_log.recorded_events).toBe(2);
     await rendered.unmount();
   });
@@ -303,33 +303,30 @@ describe("Mission Control live refresh", () => {
         <MissionControlBoard plan={PLAN} state={boardState({ output: 100, turns: 10, allowance: 20, tasks: 1 })} now={NOW} />,
     );
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
-    expect(text(rendered.host, "mc-board-tokens-amount")).toBe("100");
-    expect(text(rendered.host, "mc-board-turns-amount")).toBe("10");
+    expect(text(rendered.host, "mc-board-plan-turns")).toBe("10");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("20%");
 
     await act(async () => {
       rendered.root.render(
-        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, turns: 30, bounces: 2, allowance: 60, tasks: 10 })} now={NOW} />,
+        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, turns: 300, bounces: 2, allowance: 60, tasks: 10 })} now={NOW} />,
       );
       await flush();
     });
-    expect(text(rendered.host, "mc-board-tokens-amount")).toBe("100");
-    expect(text(rendered.host, "mc-board-turns-amount")).toBe("10");
+    expect(text(rendered.host, "mc-board-plan-turns")).toBe("10");
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("20%");
 
     await act(async () => advanceFrames(0));
     await act(async () => advanceFrames(180));
-    expect(text(rendered.host, "mc-board-tokens-amount")).not.toBe("100");
-    expect(text(rendered.host, "mc-board-tokens-amount")).not.toBe("200");
+    expect(text(rendered.host, "mc-board-plan-turns")).not.toBe("10");
+    expect(text(rendered.host, "mc-board-plan-turns")).not.toBe("300");
     expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("1");
     expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("10");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).not.toBe("20%");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).not.toBe("60%");
 
     await act(async () => advanceFrames(1000));
-    expect(text(rendered.host, "mc-board-tokens-amount")).toBe("200");
-    expect(text(rendered.host, "mc-board-turns-amount")).toBe("30");
+    expect(text(rendered.host, "mc-board-plan-turns")).toBe("300");
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("10");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("60%");
     await rendered.unmount();
@@ -347,11 +344,11 @@ describe("Mission Control live refresh", () => {
 
     await act(async () => {
       rendered.root.render(
-        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, allowance: 60, tasks: 3 })} now={NOW} />,
+        <MissionControlBoard plan={PLAN} state={boardState({ turns: 30, allowance: 60, tasks: 3 })} now={NOW} />,
       );
       await flush();
     });
-    expect(text(rendered.host, "mc-board-tokens-amount")).toBe("200");
+    expect(text(rendered.host, "mc-board-plan-turns")).toBe("30");
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("3");
     expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("60%");
     expect(frames.size).toBe(0);

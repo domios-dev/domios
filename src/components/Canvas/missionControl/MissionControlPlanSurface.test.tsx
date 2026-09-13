@@ -125,7 +125,7 @@ test("waits for the stored reading instead of inventing card figures", async () 
     <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
   );
   assert(host.querySelector('[data-testid="mc-board-pending"]'), "pending state without an api config");
-  assert(!host.querySelector('[data-testid="mc-board-card-grid"]'), "no cards without a snapshot");
+  assert(!host.querySelector('[data-testid="mc-board-row"]'), "no cards without a snapshot");
   await unmount();
 });
 

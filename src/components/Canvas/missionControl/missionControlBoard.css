@@ -1,9 +1,8 @@
-/* Board system: three text sizes, a 4px spacing step, and one lead column that
-   the card grid, Spend and every later grid-aligned row share. */
+/* Board system: three text sizes, a 4px spacing step, and raised panels on the Board ground. */
 .mc-board {
   --mc-text-meta: 11px;
   --mc-text-body: 13px;
-  --mc-text-figure: 22px;
+  --mc-text-figure: 20px;
   --mc-space-1: 4px;
   --mc-space-2: 8px;
   --mc-space-3: 12px;
@@ -21,7 +20,7 @@
   padding: var(--mc-space-3) var(--mc-space-3) var(--mc-space-4);
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--ct-surface);
+  background: var(--ct-bg);
 }
 
 .mission-control-actions {
@@ -121,16 +120,173 @@
   overflow: visible;
 }
 
-.mc-board-card-grid,
+.mc-board-row,
 .mc-board-spend-window-grid {
   display: grid;
   gap: var(--mc-gap);
-  align-items: stretch;
   min-width: 0;
 }
 
-.mc-board[data-board-layout="narrow"] .mc-board-card-grid {
+/* Each panel is as tall as its own readings; a taller neighbour never stretches it. */
+.mc-board-row {
+  align-items: start;
+}
+
+.mc-board-spend-window-grid {
+  align-items: stretch;
+}
+
+.mc-board .mc-board-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--ct-surface);
+}
+
+.mc-board-panel-head {
+  display: flex;
+  align-items: baseline;
   gap: var(--mc-space-2);
+  min-width: 0;
+  padding: var(--mc-space-2) var(--mc-space-3);
+  border-bottom: 1px solid var(--ct-border);
+}
+
+.mc-board-panel-head h2 {
+  margin: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+}
+
+.mc-board-panel-meta {
+  margin-left: auto;
+  min-width: 0;
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  text-align: right;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-sub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+  padding: var(--mc-space-3);
+}
+
+.mc-board-sub + .mc-board-sub {
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+.mc-board-sub-label {
+  margin: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-figure {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--mc-text-figure);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ct-fg);
+}
+
+.mc-board-num {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-board .mc-board-warn {
+  color: var(--ct-yellow);
+}
+
+.mc-board-needs {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--mc-space-3);
+  align-items: start;
+  padding: var(--mc-space-3);
+}
+
+.mc-board-needs-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-board-needs-title {
+  margin: 0;
+  font-size: var(--mc-text-body);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+}
+
+/* Only statuses holding tasks get a figure; the empty ones share one quiet line below. */
+.mc-board-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--mc-space-1) var(--mc-space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-board-status {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mc-space-2);
+  font-size: var(--mc-text-body);
+  color: var(--ct-fg);
+  white-space: nowrap;
+}
+
+.mc-board-pairs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mc-space-3);
+  margin: 0;
+}
+
+.mc-board-pair {
+  min-width: 0;
+}
+
+.mc-board-pair dt {
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-pair dd {
+  margin: var(--mc-space-1) 0 0;
+  font-size: var(--mc-text-body);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-pair b {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ct-fg);
 }
 
 .mc-board-card {
@@ -163,58 +319,12 @@
   overflow-wrap: break-word;
 }
 
-.mc-board-reading {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mc-space-1);
-  min-width: 0;
-}
-
-.mc-board-figure {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.mc-board-card-tasks .mc-board-reading {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  column-gap: var(--mc-space-4);
-  align-items: start;
-}
-
-.mc-board[data-board-layout="narrow"] .mc-board-card-grid > .mc-board-card-tasks,
-.mc-board[data-board-layout="narrow"] .mc-board-card-grid > .mc-board-card:nth-child(even):last-child {
-  grid-column: 1 / -1;
-}
-
-.mc-board-amount {
-  font-family: var(--ct-font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--mc-text-figure);
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--ct-fg);
-  overflow-wrap: break-word;
-}
-
-.mc-board-amount-warn {
-  color: var(--ct-yellow);
-}
-
 .mc-board-caption {
+  margin: 0;
   font-size: var(--mc-text-meta);
   font-weight: 400;
   line-height: 1.35;
   color: var(--ct-muted-fg);
-}
-
-.mc-board-detail {
-  margin: 0;
-  font-size: var(--mc-text-meta);
-  line-height: 1.5;
-  color: var(--ct-muted-fg);
-  overflow-wrap: break-word;
 }
 
 .mc-board-facts {
@@ -224,36 +334,13 @@
   margin: 0;
   padding: 0;
   list-style: none;
+  font-size: var(--mc-text-meta);
+  line-height: 1.5;
+  color: var(--ct-muted-fg);
 }
 
 .mc-board-fact {
   white-space: nowrap;
-}
-
-.mc-board-detail b {
-  font-family: var(--ct-font-mono);
-  font-weight: 500;
-  color: var(--ct-fg);
-}
-
-/* Each status is one unbreakable label and count; the list wraps between statuses, never inside a word. */
-.mc-board-status-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--mc-space-1) var(--mc-space-3);
-  min-width: 0;
-}
-
-.mc-board-status {
-  display: flex;
-  align-items: baseline;
-  gap: var(--mc-space-1);
-  font-size: var(--mc-text-meta);
-  white-space: nowrap;
-}
-
-.mc-board-status[data-zero="true"] b {
-  color: var(--ct-muted-fg);
 }
 
 .mc-board-note {
@@ -422,23 +509,14 @@
   border-top: 1px solid color-mix(in srgb, var(--ct-border) 40%, transparent);
 }
 
-/* Role counts sit in a column sized by the longest role name, beside the names they count. */
+/* Each count sits on its name's own row, at the panel's right edge. */
 .mc-board-kv-list {
   display: grid;
-  grid-template-columns: minmax(0, max-content) max-content max-content;
-  justify-content: start;
-  gap: var(--mc-space-1) var(--mc-space-4);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--mc-space-1) var(--mc-space-3);
   align-items: baseline;
   min-width: 0;
-}
-
-/* Wide boards read roles in pairs across two aligned sets of the same three columns. */
-.mc-board[data-board-layout="wide"] .mc-board-kv-list {
-  grid-template-columns: repeat(2, minmax(0, max-content) max-content max-content);
-}
-
-.mc-board[data-board-layout="wide"] .mc-board-kv:nth-child(even) > .mc-board-kv-key {
-  padding-left: var(--mc-space-4);
+  margin: 0;
 }
 
 .mc-board-kv {
@@ -447,26 +525,25 @@
 
 .mc-board-kv-key {
   min-width: 0;
+  margin: 0;
   font-size: var(--mc-text-body);
+  line-height: 1.4;
   color: var(--ct-fg);
   overflow-wrap: break-word;
 }
 
-.mc-board-kv-value,
-.mc-board-kv-share {
+.mc-board-kv-value {
+  margin: 0;
   font-family: var(--ct-font-mono);
   font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.mc-board-kv-value {
   font-size: var(--mc-text-body);
   font-weight: 600;
+  text-align: right;
   color: var(--ct-fg);
 }
 
-.mc-board-kv-share {
-  font-size: var(--mc-text-meta);
+.mc-board-kv[data-untagged="true"] > .mc-board-kv-key,
+.mc-board-kv[data-untagged="true"] > .mc-board-kv-value {
   color: var(--ct-muted-fg);
 }
 

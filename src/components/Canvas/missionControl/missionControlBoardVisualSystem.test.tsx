@@ -7,9 +7,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { MissionControlBoard } from "./MissionControlBoard";
 import {
-  BOARD_CARD_COLUMNS,
-  BOARD_LEAD_FRACTION,
-  BOARD_TRAILING_TRACKS,
+  ROLE_FALLBACK_TITLE,
   SPEND_FIGURE_COLUMNS,
   SPEND_MODEL_COLUMN_LABEL,
   SPEND_SCOPE_CAPTION,
@@ -329,26 +327,26 @@ describe("mission control board visual system", () => {
     });
   }
 
-  it("mission_control_board_derives_the_spend_lead_column_from_the_card_grid", () => {
+  it("mission_control_board_contains_every_section_in_a_ruled_panel", async () => {
     const css = readRepo(BOARD_CSS_PATH);
-    const tracks = BOARD_LEAD_FRACTION + BOARD_TRAILING_TRACKS;
+    const { host, unmount } = await renderAt(OWNER_WIDTH);
 
-    expect(BOARD_CARD_COLUMNS.wide).toBe(
-      `minmax(0, ${BOARD_LEAD_FRACTION}fr) repeat(${BOARD_TRAILING_TRACKS}, minmax(0, 1fr))`,
-    );
-    const board = rule(css, ".mc-board");
-    expect(board).toContain(
-      `--mc-lead: calc((100% + 2 * var(--mc-card-inset) - ${BOARD_TRAILING_TRACKS} * var(--mc-gap)) * ${BOARD_LEAD_FRACTION} / ${tracks} - var(--mc-card-inset));`,
-    );
-    expect(board).toContain("--mc-card-inset: calc(var(--mc-card-pad) + 1px);");
+    for (const testId of ["mc-board-progress", "mc-board-event-log"]) {
+      const panel = host.querySelector(`[data-testid="${testId}"]`) as HTMLElement;
+      expect(panel.tagName).toBe("SECTION");
+      expect(panel.classList.contains("ct-panel-card")).toBe(true);
+      const head = panel.firstElementChild as HTMLElement;
+      expect(head.tagName).toBe("HEADER");
+      expect(panel.getAttribute("aria-labelledby")).toBe(head.querySelector("h2")?.id);
+    }
     expect(rule(readRepo("src/styles/globals.css"), ".ct-panel-card")).toContain("border: 1px solid");
-    expect(rule(css, ".mc-board-card")).toContain("padding: var(--mc-card-pad);");
-    expect(rule(css, ".mc-board-card-grid, .mc-board-spend-window-grid")).toContain("gap: var(--mc-gap);");
-    expect(rule(css, ".mc-board-spend-row")).toContain(
-      `grid-template-columns: var(--mc-lead) repeat(${1 + SPEND_FIGURE_COLUMNS.length}, minmax(0, 1fr));`,
-    );
+    expect(rule(css, ".mc-board .mc-board-panel")).toContain("background: var(--ct-surface);");
+    expect(rule(css, ".mc-board-panel-head")).toContain("border-bottom: 1px solid var(--ct-border);");
+    expect(rule(css, ".mc-board-sub + .mc-board-sub")).toContain("border-top: 1px solid var(--ct-border-subtle);");
+    expect(rule(css, ".mc-board-row")).toContain("align-items: start;");
     expect(rule(css, ".mc-board-spend-row > .mc-board-spend-num")).toContain("font-variant-numeric: tabular-nums;");
     expect(rule(css, ".mc-board-spend-row > .mc-board-spend-num")).toContain("text-align: right;");
+    await unmount();
   });
 
   it("mission_control_board_uses_one_type_and_spacing_scale", () => {
@@ -359,11 +357,11 @@ describe("mission control board visual system", () => {
     );
     expect([...sizes].sort()).toEqual(["var(--mc-text-body)", "var(--mc-text-figure)", "var(--mc-text-meta)"]);
     const spendGaps = cssRules(css)
-      .filter((entry) => /mc-board-(spend|card|reading|status|kv)/.test(entry.selector))
+      .filter((entry) => /mc-board-(spend|card|panel|sub|needs|status|pair|kv)/.test(entry.selector))
       .flatMap((entry) => Array.from(entry.body.matchAll(/(?:^|\s)(?:gap|row-gap|column-gap|padding[\w-]*|margin[\w-]*):\s*([^;]+);/g)))
       .map((m) => m[1]!.trim());
     for (const value of spendGaps) {
-      expect(value).toMatch(/^(0|(var\(--mc-(space-[1-4]|gap|card-pad)\)\s*)+|0 var\(--mc-space-[1-4]\))$/);
+      expect(value).toMatch(/^((0|auto|var\(--mc-(space-[1-4]|gap|card-pad)\))\s*)+$/);
     }
     for (const entry of cssRules(css).filter((e) => e.selector.includes("mc-board-spend"))) {
       expect(entry.body).not.toContain("overflow-wrap: anywhere");
@@ -371,45 +369,22 @@ describe("mission control board visual system", () => {
     }
   });
 
-  it("mission_control_board_top_cards_anchor_their_reading_instead_of_inheriting_dead_space", async () => {
+  it("mission_control_board_progress_names_only_statuses_that_hold_tasks", async () => {
     const css = readRepo(BOARD_CSS_PATH);
     const { host, unmount } = await renderAt(OWNER_WIDTH);
 
-    const cards = Array.from(host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')) as HTMLElement[];
-    expect(cards).toHaveLength(8);
-    for (const card of cards) {
-      expect(card.classList.contains("mc-board-figure-card")).toBe(true);
-      expect(Array.from(card.children).map((child) => child.tagName === "H2" || child.classList.contains("mc-board-reading"))).toEqual([true, true]);
-    }
-    const tasksReading = host.querySelector('[data-testid="mc-board-tasks-reading"]') as HTMLElement;
-    expect(tasksReading.querySelector('[data-testid="mc-board-task-statuses"]')).not.toBeNull();
-    expect(getComputedStyle(tasksReading).display).toBe("grid");
-    for (const card of cards) {
-      expect(getComputedStyle(card).justifyContent).not.toBe("space-between");
-    }
-    expect(rule(css, ".mc-board-card-tasks .mc-board-reading")).toContain(
-      "grid-template-columns: max-content minmax(0, 1fr);",
+    const statuses = Array.from(host.querySelectorAll('[data-testid="mc-board-task-statuses"] li')) as HTMLElement[];
+    expect(statuses.map((status) => status.getAttribute("data-testid"))).toEqual(["mc-board-task-status-paused"]);
+    expect(getComputedStyle(statuses[0]!).whiteSpace).toBe("nowrap");
+    expect(host.querySelector('[data-testid="mc-board-task-status-rest"]')?.textContent).toBe(
+      "nothing pending, in progress, in review, blocked, done or cancelled",
     );
-    expect(rule(css, ".mc-board-card-tasks .mc-board-reading")).toContain("align-items: start;");
-    const statusList = rule(css, ".mc-board-status-list");
-    expect(statusList).toContain("flex-wrap: wrap;");
-    expect(rule(css, ".mc-board-status")).toContain("white-space: nowrap;");
-    const statuses = Array.from(host.querySelectorAll('[data-testid^="mc-board-task-status-"][role="listitem"]'));
-    expect(statuses.map((status) => status.getAttribute("data-zero"))).toEqual([
-      "true",
-      "true",
-      "true",
-      "true",
-      "false",
-      "true",
-      "true",
-    ]);
-    expect(
-      rule(
-        css,
-        '.mc-board[data-board-layout="narrow"] .mc-board-card-grid > .mc-board-card-tasks, .mc-board[data-board-layout="narrow"] .mc-board-card-grid > .mc-board-card:nth-child(even):last-child',
-      ),
-    ).toContain("grid-column: 1 / -1;");
+    expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
+    expect(rule(css, ".mc-board-statuses")).toContain("flex-wrap: wrap;");
+    expect(rule(css, ".mc-board-fact")).toContain("white-space: nowrap;");
+    for (const panel of Array.from(host.querySelectorAll(".mc-board-panel")) as HTMLElement[]) {
+      expect(getComputedStyle(panel).justifyContent).not.toBe("space-between");
+    }
     await unmount();
   });
 
@@ -418,25 +393,17 @@ describe("mission control board visual system", () => {
     const { host, unmount } = await renderAt(OWNER_WIDTH);
 
     const list = host.querySelector(".mc-board-kv-list") as HTMLElement;
+    expect(list.tagName).toBe("DL");
     expect(getComputedStyle(list).display).toBe("grid");
+    expect(host.querySelector('[data-testid="mc-board-areas"] h3')?.textContent).toBe(ROLE_FALLBACK_TITLE);
     const rows = Array.from(host.querySelectorAll('[data-testid="mc-board-area-row"]')) as HTMLElement[];
     expect(rows).toHaveLength(4);
     expect(rows.every((row) => getComputedStyle(row).display === "contents")).toBe(true);
-    const template = rule(css, ".mc-board-kv-list");
-    expect(template).toContain("grid-template-columns: minmax(0, max-content) max-content max-content;");
-    expect(template).toContain("justify-content: start;");
-    expect(template).not.toContain("1fr");
-    const wide = rule(css, '.mc-board[data-board-layout="wide"] .mc-board-kv-list');
-    expect(wide).toContain("grid-template-columns: repeat(2, minmax(0, max-content) max-content max-content);");
-    expect(wide).not.toContain("1fr");
-    expect(rule(css, '.mc-board[data-board-layout="wide"] .mc-board-kv:nth-child(even) > .mc-board-kv-key')).toContain(
-      "padding-left: var(--mc-space-4);",
-    );
+    expect(rule(css, ".mc-board-kv-list")).toContain("grid-template-columns: minmax(0, 1fr) auto;");
     for (const row of rows) {
-      expect(Array.from(row.children).map((cell) => cell.className)).toEqual([
-        "mc-board-kv-key",
-        "mc-board-kv-value",
-        "mc-board-kv-share",
+      expect(Array.from(row.children).map((cell) => [cell.tagName, cell.className])).toEqual([
+        ["DT", "mc-board-kv-key"],
+        ["DD", "mc-board-kv-value"],
       ]);
     }
     await unmount();
