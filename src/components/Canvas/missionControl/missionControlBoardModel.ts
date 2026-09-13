@@ -204,6 +204,20 @@ export function eventLogRows(
   return rows;
 }
 
+/** Events the log shows before its Show all control. */
+export const EVENT_LOG_PREVIEW = 8;
+
+/** The newest `limit` events, led by the hour band that owns the first of them. */
+export function latestEventRows(rows: EventLogRow[], limit: number): EventLogRow[] {
+  const eventIndexes = rows.flatMap((row, index) => (row.event ? [index] : []));
+  if (eventIndexes.length <= limit) return rows;
+  const start = eventIndexes[eventIndexes.length - limit]!;
+  for (let index = start - 1; index >= 0; index--) {
+    if (rows[index]!.event === null) return [rows[index]!, ...rows.slice(start)];
+  }
+  return rows.slice(start);
+}
+
 export function eventLogCaption(log: EventLog): string {
   const events = formatCountOf(log.recorded_events, "event", "events");
   return log.truncated ? `latest of ${events}` : events;
@@ -218,6 +232,8 @@ export interface AreaRow {
 
 export interface AreaReading {
   title: string;
+  /** The control that reveals the breakdown on request. */
+  toggleLabel: string;
   rows: AreaRow[];
 }
 
@@ -234,10 +250,12 @@ export function areaReading(areas: AreaGrouping): AreaReading {
     if (areas.untagged_task_count > 0) {
       rows.push({ key: "untagged", label: "untagged", taskCount: areas.untagged_task_count, untagged: true });
     }
-    return { title: areas.facet_label ?? areas.facet_key ?? "Areas", rows };
+    const title = areas.facet_label ?? areas.facet_key ?? "Areas";
+    return { title, toggleLabel: `By ${title.toLowerCase()}`, rows };
   }
   return {
     title: ROLE_FALLBACK_TITLE,
+    toggleLabel: "By role",
     rows: areas.role_fallback.map((group, index) => ({
       key: group.executor_role ?? `no-role-${index}`,
       label: group.executor_role ?? "No role recorded",
