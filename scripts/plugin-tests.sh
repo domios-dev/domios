@@ -17,6 +17,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-claude/tests/hook-ownership.test.ts
+      plugins/provider-claude/tests/file-diffs.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/activity.test.ts
       plugins/provider-codex/tests/rich-results.test.ts
@@ -30,6 +31,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-codex/tests/windows-launch.test.ts
+      plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
       plugins/chat-preprocessor/tests/plugin.test.ts
@@ -54,6 +56,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-claude/tests/hook-ownership.test.ts
+      plugins/provider-claude/tests/file-diffs.test.ts
     )
     ;;
   provider-codex)
@@ -71,6 +74,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-codex/tests/windows-launch.test.ts
+      plugins/provider-codex/tests/file-diffs.test.ts
     )
     ;;
   chat-preprocessor)

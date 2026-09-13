@@ -188,6 +188,9 @@ pub struct ChatMsg {
     /// Set when the action re-reports a command another call in its flow represents.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_echo: Option<bool>,
+    /// Per-file diffs with the exact hunks the provider's own edit record supplied.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub file_diffs: Option<serde_json::Value>,
     /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_rich_result: Option<serde_json::Value>,
