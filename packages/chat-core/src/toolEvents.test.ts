@@ -189,6 +189,8 @@ console.log("ok - tool event lifecycle");
   assert(turns[1].kind === "message", "assistant text is not absorbed into a stream");
   assert(turns[2].kind === "tool" && turns[2].event.stream?.members.map((member) => member.id).join() === "t4,t5", "a later turn never merges with an earlier one");
   assert(turns[2].kind === "tool" && turns[2].event.stream?.active === true, "an open turn keeps its stream active");
+  assert(turns[2].kind === "tool" && turns[2].event.status === "pending", "an open turn heads as running even when its recorded calls settled");
+  assert(turns[0].kind === "tool" && turns[0].event.status === "success", "a closed settled turn heads as done");
   const foreign = reduceToolEvents([boundary("start", "turn-x"), titled("s1", "a", { sourceSessionId: "other" }), titled("s2", "b", { sourceSessionId: "other" })]);
   assert(foreign.length === 2, "a boundary never assigns calls from another session");
   assert(reduceToolEvents([call("wait-agent", "wait-agent", { toolName: "wait_agent" })]).length === 1, "wait_agent is an ordinary visible action");

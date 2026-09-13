@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../../../packages/chat-ui/src/ToolCallBubble";
+import { MessageBubble } from "../../../packages/chat-ui/src/MessageBubble";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -254,7 +255,7 @@ describe("Codex tool activity", () => {
     expect(open.querySelector('[data-testid="chat-tool-stream-spinner"]')).not.toBeNull();
   });
 
-  it("shows finished real-shape calls as done and folds command activity echoes into their call", async () => {
+  it("keeps an open turn of finished real-shape calls running and folds command activity echoes into their call", async () => {
     const view = await render([
       boundary("start", "turn-live"),
       codexCall("call-list", "npm test", { toolKind: "command", toolDetail: "npm test" }),
@@ -266,9 +267,10 @@ describe("Codex tool activity", () => {
     ]);
     const [stream] = streams(view);
     expect(streams(view)).toHaveLength(1);
-    expect(stream.dataset.toolStatus).toBe("success");
-    expect(stream.querySelector('[data-testid="chat-tool-stream-spinner"]')).toBeNull();
+    expect(stream.dataset.toolStatus).toBe("pending");
+    expect(stream.querySelector('[data-testid="chat-tool-stream-status"] [data-testid="chat-tool-stream-spinner"]')).not.toBeNull();
     await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    expect(stream.querySelectorAll('[data-testid="chat-tool-stream-member"] [data-testid="chat-tool-stream-spinner"]')).toHaveLength(0);
     expect(actionLabels(stream)).toEqual(["npm test", "git status"]);
     expect(view.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(0);
   });
@@ -277,6 +279,81 @@ describe("Codex tool activity", () => {
     const view = await render([codexCall("loose-1", "npm test"), codexCall("loose-2", "git status")]);
     expect(streams(view)).toHaveLength(0);
     expect(view.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(2);
+  });
+});
+
+const LIVE_TITLES = [
+  "Get-Content scripts/run-ts-unit-tests.mjs", "rg --files src", "git status", "Read package.json", "npm run lint",
+  "rg -n tool_flow", "Get-Content vitest.config.ts", "git diff --stat", "npm test",
+];
+
+function liveTurn(prefix: string, flowId: string): NormalizedChatMessage[] {
+  const rows: NormalizedChatMessage[] = [
+    { id: `${prefix}flow-start`, type: "tool_flow", content: "start", toolFlowId: flowId, sourceSessionId: CODEX_SESSION, seq: 0 },
+  ];
+  LIVE_TITLES.forEach((title, index) => {
+    const toolId = `${flowId}-call-${index}`;
+    rows.push({ ...codexCall(toolId, title, { toolKind: "command", toolDetail: title, seq: index * 2 + 1 }), id: `${prefix}call-${index}` });
+    rows.push({ ...result(toolId, `output ${index}`, CODEX_SESSION), id: `${prefix}result-${index}`, seq: index * 2 + 2 });
+    if (index === 3) rows.push({ id: `${prefix}thought`, type: "thinking", content: "**Run the unit tests**", sourceSessionId: CODEX_SESSION, seq: 50 });
+  });
+  return rows;
+}
+
+function BubbleTimeline({ messages }: { messages: NormalizedChatMessage[] }) {
+  return <>{reduceToolEvents(messages).map((item) => {
+    const message = item.kind === "message" ? item.message : item.event.message;
+    return <MessageBubble key={message.id} message={message} item={item.kind === "tool" ? item : undefined} />;
+  })}</>;
+}
+
+async function renderBubbles(messages: NormalizedChatMessage[]): Promise<HTMLElement> {
+  if (!host) {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  }
+  const mounted = root as Root;
+  await act(async () => mounted.render(<BubbleTimeline messages={messages} />));
+  return host;
+}
+
+describe("live Codex turn through MessageBubble", () => {
+  it("heads an open turn of finished calls as running and expands to every action, surviving a row re-key", async () => {
+    const view = await renderBubbles(liveTurn("delta:", "turn-live-open"));
+    const [stream] = streams(view);
+    expect(streams(view)).toHaveLength(1);
+    expect(stream.dataset.flowActive).toBe("true");
+    expect(stream.dataset.toolStatus).toBe("pending");
+    expect(stream.querySelector('[data-testid="chat-tool-stream-status"]')?.getAttribute("aria-label")).toBe("pending");
+    expect(stream.querySelector('[data-testid="chat-tool-stream-status"] [data-testid="chat-tool-stream-spinner"]')).not.toBeNull();
+
+    const toggle = stream.querySelector<HTMLButtonElement>('button[aria-label="Expand 9 actions"]');
+    await click(toggle);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(stream.querySelectorAll('[data-testid="chat-tool-stream-member"]')).toHaveLength(9);
+    expect(stream.querySelectorAll('[data-testid="chat-tool-stream-thought"]')).toHaveLength(1);
+    expect(stream.querySelectorAll('[data-testid="chat-tool-stream-member"] [data-testid="chat-tool-stream-spinner"]')).toHaveLength(0);
+
+    await click(stream.querySelector('button[aria-label="Show npm run lint"]'));
+    expect(stream.querySelector('[data-testid="chat-tool-call"]')?.textContent).toContain("output 4");
+
+    await renderBubbles(liveTurn("snapshot:", "turn-live-open"));
+    const [rekeyed] = streams(view);
+    expect(rekeyed.querySelector('button[aria-label="Collapse 9 actions"]')?.getAttribute("aria-expanded")).toBe("true");
+    expect(rekeyed.querySelectorAll('[data-testid="chat-tool-stream-member"]')).toHaveLength(9);
+    expect(rekeyed.querySelector('[data-testid="chat-tool-call"]')?.textContent).toContain("output 4");
+  });
+
+  it("heads the turn as done once the source closes it", async () => {
+    const view = await renderBubbles([
+      ...liveTurn("closed:", "turn-live-closed"),
+      { id: "closed:flow-end", type: "tool_flow", content: "end", toolFlowId: "turn-live-closed", sourceSessionId: CODEX_SESSION, seq: 99 },
+    ]);
+    const [stream] = streams(view);
+    expect(stream.dataset.flowActive).toBe("false");
+    expect(stream.dataset.toolStatus).toBe("success");
+    expect(stream.querySelector('[data-testid="chat-tool-stream-spinner"]')).toBeNull();
   });
 });
 
