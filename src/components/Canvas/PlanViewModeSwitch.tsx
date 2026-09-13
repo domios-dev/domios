@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { planViewModeLabel, type ActivePlanViewMode, type PlanViewMode } from "./planViewMode";
 
 /** Board stands alone; the plan views share a group that needs an active plan. */
@@ -7,20 +8,32 @@ const MODE_GROUPS: ReadonlyArray<{ key: "board" | "plan"; modes: readonly Active
   { key: "plan", modes: ["spec", "plan", "tasks"] },
 ];
 
+/** A closable tab that exists only while it is selected; choosing any mode removes it. */
+export interface TemporaryModeTab {
+  value: string;
+  label: string;
+  closeLabel: string;
+  tabId: string;
+  panelId: string;
+  onClose: () => void;
+}
+
 interface ThumbBox {
   left: number;
   width: number;
 }
 
-/** One tablist drawn as two capsules with a single thumb that glides between them. */
+/** One tablist drawn as capsules with a single thumb that glides between them. */
 export function PlanViewModeSwitch({
   value,
   onChange,
   planModesEnabled = true,
+  temporaryTab,
 }: {
-  value: PlanViewMode;
+  value: PlanViewMode | string;
   onChange: (mode: PlanViewMode) => void;
   planModesEnabled?: boolean;
+  temporaryTab?: TemporaryModeTab | null;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [thumb, setThumb] = useState<ThumbBox | null>(null);
@@ -30,7 +43,7 @@ export function PlanViewModeSwitch({
     const root = rootRef.current;
     if (!root) return;
     const measure = () => {
-      const active = root.querySelector<HTMLElement>(`[data-value="${value}"]`);
+      const active = root.querySelector<HTMLElement>(`[role="tab"][data-value="${value}"]`);
       if (active) setThumb({ left: active.offsetLeft, width: active.offsetWidth });
     };
     measure();
@@ -38,7 +51,7 @@ export function PlanViewModeSwitch({
     const observer = new ResizeObserver(measure);
     observer.observe(root);
     return () => observer.disconnect();
-  }, [value, planModesEnabled]);
+  }, [value, planModesEnabled, temporaryTab?.label]);
 
   return (
     <div
@@ -84,6 +97,36 @@ export function PlanViewModeSwitch({
           </div>
         );
       })}
+      {temporaryTab && (
+        <div data-group="temporary" className="plan-view-modes__group plan-view-modes__group--temporary">
+          <button
+            type="button"
+            role="tab"
+            id={temporaryTab.tabId}
+            aria-controls={temporaryTab.panelId}
+            data-value={temporaryTab.value}
+            data-testid="plan-view-temporary-tab"
+            aria-selected={temporaryTab.value === value}
+            className="plan-view-modes__option plan-view-modes__option--temporary"
+            title={temporaryTab.label}
+          >
+            {temporaryTab.label}
+          </button>
+          <button
+            type="button"
+            data-testid="plan-view-temporary-tab-close"
+            aria-label={temporaryTab.closeLabel}
+            title={`${temporaryTab.closeLabel} (Esc)`}
+            className="plan-view-modes__close"
+            onClick={() => {
+              setGlide(true);
+              temporaryTab.onClose();
+            }}
+          >
+            <X size={11} aria-hidden />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -58,6 +58,8 @@ export interface ResolvedPlanRef {
   title: string;
   plan_title: string;
   task_title?: string;
+  /** The task's display key (`PREFIX-N`, or the legacy id fallback) when the task resolved. */
+  task_key?: string;
   section_title?: string;
   file_path?: string;
   canonical_project_path?: string;

@@ -26,7 +26,7 @@ import {
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
-import { openPlanDeepLink } from "../Canvas/workspacePlanEntry";
+import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
@@ -127,7 +127,8 @@ export function TabSessionChat({
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
 
-  const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace, answerNotification } = useMultiplexer();
+  const { setFocusedTab, selectTabByTab, addNotification, answerNotification } = useMultiplexer();
+  const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
@@ -518,16 +519,13 @@ export function TabSessionChat({
     (planId: string, taskId?: string, targetKind?: "plan" | "task" | "section") => {
       const kind = targetKind ?? (taskId ? "task" : "plan");
       const resolved = resolvedPlanRefs.refs.get(`${kind}:${planId}:${taskId ?? ""}`);
-      openPlanDeepLink(planId, taskId, {
-        index: planIndex,
-        workspaces: planNav.workspaces,
-        activeWorkspaceId: planNav.activeWorkspaceId,
+      openPlanTarget({
+        planId,
+        taskId: kind === "task" ? taskId : undefined,
         canonicalProjectPath: resolved?.canonical_project_path,
-        setActiveWorkspace,
-        onMissing: undefined,
       });
     },
-    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, resolvedPlanRefs.refs, setActiveWorkspace],
+    [openPlanTarget, resolvedPlanRefs.refs],
   );
 
   const resolveFocusTab = useCallback((ref: string) => {

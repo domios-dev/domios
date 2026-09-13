@@ -1,5 +1,6 @@
 import type { ApiConfig, Notification, Tab, Team, Workspace } from "../../lib/types";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
+import type { PlanTarget } from "./teamViewNavigation";
 import type { Plan } from "./types";
 
 /** Shared read-only context for Spec | Plan | Board and parked plan surfaces. */
@@ -30,4 +31,6 @@ export interface PlanViewSurfaceProps {
   headerActionsSlot?: HTMLElement | null;
   /** Switches the host to one of the plan views. */
   onOpenView?: (mode: "spec" | "plan" | "tasks") => void;
+  /** The single plan and task jump; it lands in the owning team view. */
+  onOpenPlanTarget?: (target: PlanTarget) => void;
 }
