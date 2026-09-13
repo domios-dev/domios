@@ -2,6 +2,8 @@ import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
+import { PlanSidePanelLayer } from "../PlanSidePanelHost";
+import { planSidePanelStore } from "../planSidePanelStore";
 import { TaskStatus, type Plan } from "../types";
 import { PlanBoardView } from "./PlanBoardView";
 
@@ -38,8 +40,12 @@ async function main() {
       assigned_tab_id: "closed-worker-tab",
     }],
   };
+  const open = (target: { planId: string; taskId?: string }) => planSidePanelStore.open(target);
   const { host, root } = await render(
-    <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} />,
+    <>
+      <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} onOpenPlanTarget={open} />
+      <PlanSidePanelLayer plans={[plan]} onOpenPlanTarget={open} />
+    </>,
   );
   const done = host.querySelector('[data-testid="plan-board-column"][data-column="done"]');
   assert(done, "a completed task remains available in the persistent Done view after its tab is absent");
@@ -47,7 +53,7 @@ async function main() {
   assert(card, "the Done view keeps the completed task record readable");
   await act(async () => card.click());
   assert(
-    host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "Completed after tab closure",
+    host.querySelector('[data-testid="plan-side-panel-title"]')?.textContent === "Completed after tab closure",
     "the retained Done task opens its durable detail",
   );
   await act(async () => root.unmount());

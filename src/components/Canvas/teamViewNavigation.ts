@@ -7,9 +7,13 @@ import {
   selectTeams,
   teamsEqual,
 } from "../../store/multiplexer/selectors";
+import { planSidePanelStore } from "./planSidePanelStore";
 import type { PlanIndexEntry } from "./plansApi";
 import { usePlanIndexOptional } from "./PlansProvider";
 import { findPlanOwnerWorkspace, openWorkspacePlanCanvas } from "./workspacePlanEntry";
+
+/** "side" previews over the current surface without navigating; "full" lands in the team view. */
+export type PlanTargetPresentation = "side" | "full";
 
 export interface PlanTarget {
   planId: string;
@@ -18,6 +22,8 @@ export interface PlanTarget {
   teamId?: string | null;
   /** Daemon-resolved ownership for a plan the index has not loaded yet. */
   canonicalProjectPath?: string;
+  /** Defaults to "side". */
+  presentation?: PlanTargetPresentation;
 }
 
 export interface PlanTargetContext {
@@ -43,10 +49,20 @@ export function resolvePlanTargetOwner(target: PlanTarget, ctx: PlanTargetContex
   return owner ? { workspaceId: owner.workspace.id, teamId } : null;
 }
 
-/** The one opening path for plan and task jumps: select the owner, then land in its team view on Plan or the task. */
+/** The one opening path for plans and tasks: the side panel by default, the owner's team view on "full". */
 export function openPlanTarget(target: PlanTarget, ctx: PlanTargetContext): boolean {
   const owner = resolvePlanTargetOwner(target, ctx);
   if (!owner) return false;
+  if ((target.presentation ?? "side") === "side") {
+    planSidePanelStore.open({
+      planId: target.planId,
+      taskId: target.taskId,
+      teamId: owner.teamId ?? null,
+      canonicalProjectPath: target.canonicalProjectPath,
+    });
+    return true;
+  }
+  planSidePanelStore.close();
   if (owner.workspaceId !== ctx.activeWorkspaceId) ctx.setActiveWorkspace(owner.workspaceId);
   openWorkspacePlanCanvas({
     teamId: owner.teamId,
