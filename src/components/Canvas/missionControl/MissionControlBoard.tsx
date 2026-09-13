@@ -1,19 +1,8 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
-import {
-  AreasCard,
-  BouncesCard,
-  DecisionsWaitingCard,
-  DoneFirstTryCard,
-  HeldCard,
-  LongestWaitCard,
-  SpendCard,
-  TaskCountsCard,
-  TokensCard,
-  TurnsCard,
-} from "./BoardCards";
+import { NeedsYouPanel, ProgressPanel, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
-import { BOARD_CARD_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
+import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
 import type { PlanBoardState } from "./missionControlState";
 
 export interface MissionControlBoardProps {
@@ -72,22 +61,20 @@ export function MissionControlBoard({
       )}
       {boardState && mc && (
         <>
+          <NeedsYouPanel held={mc.held} />
           <div
-            data-testid="mc-board-card-grid"
-            className="mc-board-card-grid"
-            style={{ gridTemplateColumns: BOARD_CARD_COLUMNS[layout] }}
+            data-testid="mc-board-row"
+            className="mc-board-row"
+            style={{ gridTemplateColumns: BOARD_ROW_COLUMNS[layout] }}
           >
-            <TaskCountsCard counts={boardState.task_counts} />
-            <TokensCard kpi={mc.kpi} />
-            <TurnsCard kpi={mc.kpi} />
-            <BouncesCard bounces={mc.bounces} />
-            <DecisionsWaitingCard held={mc.held} />
-            <HeldCard held={mc.held} />
-            <LongestWaitCard held={mc.held} />
-            <DoneFirstTryCard bounces={mc.bounces} />
+            <ProgressPanel
+              counts={boardState.task_counts}
+              kpi={mc.kpi}
+              bounces={mc.bounces}
+              areas={mc.areas}
+            />
+            <SpendCard spend={mc.spend} layout={layout} now={now} />
           </div>
-          <AreasCard areas={mc.areas} />
-          <SpendCard spend={mc.spend} layout={layout} now={now} />
           <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} />
         </>
       )}
