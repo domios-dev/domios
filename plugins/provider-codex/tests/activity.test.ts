@@ -133,6 +133,51 @@ for (const parser of parsers) {
   assert.equal(flow[4].blocks[1].data.content, output);
   assert.equal(flow[7].blocks[0].data.tool_title, "Read shot.png");
   assert.equal(flow[1].blocks[0].data.tool_flow_id, undefined, "calls rely on the boundary row instead of a guessed turn");
+  assert.equal(flow[4].blocks[0].data.tool_echo, true, "command activity is marked as an echo of its exec call");
+  assert.equal(flow[1].blocks[0].data.tool_echo, undefined, "a real call is never an echo");
+  assert.equal(flow[3].blocks[0].data.tool_echo, undefined, "wait_agent is a real call");
+
+  const listOutput = [
+    { type: "input_text", text: "Script completed\nWall time 1.2 seconds\nOutput:\n" },
+    { type: "input_text", text: "  accepted    true\n" },
+  ];
+  const paired = parse([
+    custom("call-list", commandScript),
+    JSON.stringify({ type: "response_item", timestamp, payload: { type: "custom_tool_call_output", call_id: "call-list", output: listOutput } }),
+    JSON.stringify({ type: "response_item", timestamp, payload: {
+      type: "function_call", name: "exec_command", call_id: "call-string", arguments: JSON.stringify({ cmd: "git status" }),
+    } }),
+    JSON.stringify({ type: "response_item", timestamp, payload: { type: "function_call_output", call_id: "call-string", output: "clean" } }),
+  ]);
+  assert.equal(paired[1].blocks[0].data.tool_use_id, paired[0].blocks[0].data.id, "a list-shaped exec output pairs with its call id");
+  assert.equal(paired[1].blocks[0].data.content, "Script completed\nWall time 1.2 seconds\nOutput:\n  accepted    true\n");
+  assert.equal(paired[3].blocks[0].data.tool_use_id, paired[2].blocks[0].data.id, "a string exec_command output pairs with its call id");
+  assert.equal(paired[3].blocks[0].data.content, "clean");
+  const aborted = parse([JSON.stringify({ type: "event_msg", timestamp, payload: {
+    type: "turn_aborted", turn_id: "turn-z", reason: "interrupted", completed_at: 1784206857, duration_ms: 22649,
+  } })]);
+  assert.deepEqual(aborted[0].blocks[0].data, { state: "end", flow_id: "turn-z" }, "an aborted turn closes its flow");
+
+  const readCommand = "Get-Content -Raw 'C:\\repo\\SKILL.md'";
+  const readExecution = { ...execution, id: "exec-read", command: readCommand,
+    parsed_cmd: [{ type: "read", cmd: readCommand, name: "SKILL.md", path: "C:/repo/SKILL.md" }] };
+  assert.equal(parse([completed(readExecution)])[0].blocks[0].data.tool_title, "Read SKILL.md", "a parsed read names its file");
+  assert.equal(parse([completed(readExecution)])[0].blocks[0].data.tool_detail, readCommand, "the exact command stays in the detail");
+  const unknownParsed = { ...execution, id: "exec-unknown", parsed_cmd: [{ type: "unknown", cmd: command }] };
+  assert.equal(parse([completed(unknownParsed)])[0].blocks[0].data.tool_title, command, "an unknown parse keeps the command head");
+  const malformedParsed = { ...execution, id: "exec-malformed", parsed_cmd: [null, 7] };
+  assert.equal(parse([completed(malformedParsed)])[0].blocks[0].data.tool_title, command, "malformed parsed_cmd falls back to the command head");
+  const originalWarn = console.warn;
+  try {
+    console.warn = () => {};
+    assert.deepEqual(
+      parse(["{not json", JSON.stringify({ type: "event_msg", timestamp, payload: { type: "turn_aborted" } })]),
+      [],
+      "malformed lines and id-less aborts are skipped without breaking the parse",
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
   assert.deepEqual(parse([turn("task_started"), turn("task_complete")]), [], "a boundary without a source turn id is dropped");
 }
 

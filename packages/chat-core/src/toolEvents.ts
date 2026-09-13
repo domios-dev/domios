@@ -10,7 +10,8 @@ export interface ToolEvent {
   id: string;
   toolId?: string;
   phase: "call" | "result";
-  status: "pending" | "success" | "error";
+  /** `unresolved`: the source moved past this call (turn ended, new turn, or user turn) without a result. */
+  status: "pending" | "success" | "error" | "unresolved";
   kind: ToolEventKind;
   summary: string;
   description?: string;
@@ -111,7 +112,9 @@ function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
   return {
     ...first,
     id: `${first.id}:stream`,
-    status: members.some((member) => member.status === "pending") ? "pending" : failed ? "error" : "success",
+    status: members.some((member) => member.status === "pending")
+      ? "pending"
+      : failed ? "error" : members.some((member) => member.status === "unresolved") ? "unresolved" : "success",
     summary: toolStreamLabel(latest) ?? latest.summary,
     detail: undefined,
     edits: undefined,
@@ -134,14 +137,17 @@ function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>,
   const heads = new Map<number, ToolEvent>();
   const absorbed = new Set<number>();
   for (const [key, indexes] of groups) {
-    if (indexes.length < 2) continue;
-    const members = indexes.map((index) => (items[index] as { kind: "tool"; event: ToolEvent }).event);
+    const eventAt = (index: number) => (items[index] as { kind: "tool"; event: ToolEvent }).event;
+    const actionIndexes = indexes.filter((index) => !eventAt(index).message.toolEcho);
+    if (actionIndexes.length < 2) continue;
+    const members = actionIndexes.map(eventAt);
     // Only a boundary-opened flow proves its source emits no descriptions; call-stamped flows need them.
     const labeled = boundaryFlows.has(key) ? toolStreamLabel : (member: ToolEvent) => member.description;
     if (!members.every((member) => labeled(member))) continue;
     const active = openFlows.has(key) || members.some((member) => member.status === "pending");
-    heads.set(indexes[0], streamEvent(members, active));
-    for (const index of indexes.slice(1)) absorbed.add(index);
+    heads.set(actionIndexes[0], streamEvent(members, active));
+    // An echo re-reports a command a member already shows, so a formed stream drops it.
+    for (const index of indexes) if (index !== actionIndexes[0]) absorbed.add(index);
   }
   if (heads.size === 0) return items;
   return items.flatMap((item, index): TimelineItem[] => {
@@ -159,10 +165,16 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
   const seenResults = new Set<string>();
   const openFlowBySession = new Map<string, string>();
   const boundaryFlows = new Set<string>();
+  const supersessions = new Map<string, number>();
+  const callEpochs = new Map<number, { session: string; epoch: number }>();
+  const supersede = (session: string) => supersessions.set(session, (supersessions.get(session) ?? 0) + 1);
 
   for (const message of messages) {
+    // Only source rows carry seq; an optimistic composer row is no evidence a call was abandoned.
+    if (message.type === "user" && message.seq !== undefined) supersede(message.sourceSessionId ?? "");
     if (message.type === "tool_flow") {
       const session = message.sourceSessionId ?? "";
+      supersede(session);
       const flowId = text(message.toolFlowId);
       if (message.content === "start" && flowId) {
         openFlowBySession.set(session, flowId);
@@ -198,6 +210,8 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       if (event.toolId) waiting.delete(event.toolId);
       const item = items.length;
       items.push({ kind: "tool", event: resolved });
+      const session = message.sourceSessionId ?? "";
+      callEpochs.set(item, { session, epoch: supersessions.get(session) ?? 0 });
       if (event.toolId) calls.set(event.toolId, { item, event: resolved });
       else positionalCalls.push(item);
       continue;
@@ -227,5 +241,11 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     }
   }
   const openFlows = new Set([...openFlowBySession].map(([session, flowId]) => flowKey(session || undefined, flowId)));
+  for (const [index, { session, epoch }] of callEpochs) {
+    const item = items[index];
+    if (item.kind === "tool" && item.event.status === "pending" && (supersessions.get(session) ?? 0) > epoch) {
+      items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
+    }
+  }
   return groupToolStreams(items, openFlows, boundaryFlows);
 }

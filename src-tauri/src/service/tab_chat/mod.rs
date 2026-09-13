@@ -458,6 +458,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 let tool_description = get_optional_string(&b.data, "tool_description");
                 let tool_title = get_optional_string(&b.data, "tool_title");
                 let tool_flow_id = get_optional_string(&b.data, "tool_flow_id");
+                let tool_echo = b.data.get("tool_echo").and_then(|v| v.as_bool());
                 let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
                     Some("success") => Some(false),
                     Some("error") => Some(true),
@@ -484,6 +485,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_description,
                     tool_title,
                     tool_flow_id,
+                    tool_echo,
                     tool_name: Some(name),
                     tool_args: tool_detail,
                     tool_input: b.data.get("input").cloned(),
@@ -939,7 +941,8 @@ mod chat_snapshot_tests {
                         "tool_summary": "npm test",
                         "tool_description": "Run tests",
                         "tool_title": "npm test",
-                        "tool_flow_id": "msg-1"
+                        "tool_flow_id": "msg-1",
+                        "tool_echo": true
                     }),
                 },
                 MessageBlock {
@@ -969,6 +972,8 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[2].tool_description, None);
         assert_eq!(msgs[2].tool_title, None);
         assert_eq!(msgs[2].tool_flow_id, None);
+        assert_eq!(msgs[1].tool_echo, Some(true));
+        assert_eq!(msgs[2].tool_echo, None);
         assert_eq!(msgs[3].kind, "tool_flow");
         assert_eq!(msgs[3].content, "end");
         assert_eq!(msgs[3].tool_flow_id, None);
