@@ -157,14 +157,20 @@ describe("Claude tool activity", () => {
   });
 
   it("keeps undescribed calls on today's row title and expansion even when they share a flow", async () => {
-    const view = await render([
-      claudeCall("read-1", "src/a.ts", { toolName: "Read", toolKind: "read", toolFlowId: "msg_x", toolInput: { file_path: "src/a.ts" } }),
-      claudeCall("grep-1", "TODO", { toolName: "Grep", toolKind: "search", toolFlowId: "msg_x", toolInput: { pattern: "TODO" } }),
-    ]);
+    const plain = [
+      claudeCall("read-1", "src/a.ts", { toolName: "Read", toolKind: "read", toolInput: { file_path: "src/a.ts" } }),
+      claudeCall("grep-1", "TODO", { toolName: "Grep", toolKind: "search", toolInput: { pattern: "TODO" } }),
+    ];
+    const rowHeaders = (scope: HTMLElement) => [...scope.querySelectorAll('[data-testid="chat-tool-call"]')]
+      .map((card) => card.querySelector("button[aria-controls]")?.textContent);
+    const baseline = rowHeaders(await render(plain));
+    const view = await render(plain.map((message) => ({ ...message, toolFlowId: "msg_x", toolTitle: "Derived title" })));
     expect(streams(view)).toHaveLength(0);
     const cards = [...view.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]')];
     expect(cards).toHaveLength(2);
-    expect(cards[0].querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("src/a.ts");
+    expect(rowHeaders(view)).toEqual(baseline);
+    expect(view.textContent).not.toContain("Derived title");
+    expect(cards[0].querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("a.ts");
     const toggle = cards[0].querySelector<HTMLButtonElement>("button[aria-controls]");
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     await click(toggle);
