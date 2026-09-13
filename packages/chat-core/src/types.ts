@@ -111,6 +111,8 @@ export interface NormalizedChatMessage {
   /** Flow identity the source proves. A `tool_flow` row (content `start`/`end`) opens or closes a flow whose
    *  source emits no descriptions, so its calls stream by title; call-stamped flows stream only when described. */
   toolFlowId?: string;
+  /** True when this action re-reports a command that another call in its flow already represents. */
+  toolEcho?: boolean;
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

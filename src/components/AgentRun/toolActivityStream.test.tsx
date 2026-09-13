@@ -224,6 +224,55 @@ describe("Codex tool activity", () => {
     expect(first.stream?.members[2].message.toolInput).toEqual({ ids: ["agent-1"], timeout_ms: 30000 });
   });
 
+  it("shows a static no-result state for a turn the source moved past and keeps the spinner for the latest open turn", async () => {
+    const view = await render([
+      boundary("start", "turn-old"),
+      codexCall("old-1", "npm test", { toolKind: "command", toolDetail: "npm test" }),
+      result("old-1", "12 passed", CODEX_SESSION),
+      codexCall("old-2", "npm run deploy", { toolKind: "command", toolDetail: "npm run deploy" }),
+      boundary("start", "turn-new"),
+      codexCall("new-1", "git status", { toolKind: "command", toolDetail: "git status" }),
+      codexCall("new-2", "Wait for command output"),
+    ]);
+    const [stale, open] = streams(view);
+    expect(streams(view)).toHaveLength(2);
+    expect(stale.dataset.toolStatus).toBe("unresolved");
+    expect(stale.dataset.flowActive).toBe("false");
+    expect(stale.querySelector('[data-testid="chat-tool-stream-spinner"]')).toBeNull();
+    expect(stale.querySelector('[data-testid="chat-tool-stream-status"]')?.getAttribute("aria-label")).toBe("no result");
+
+    await click(stale.querySelector('button[aria-label="Expand 2 actions"]'));
+    await click(stale.querySelector('button[aria-label="Show npm run deploy"]'));
+    const card = stale.querySelector<HTMLElement>('[data-testid="chat-tool-call"]');
+    expect(card?.dataset.toolStatus).toBe("unresolved");
+    expect(card?.querySelector('[data-testid="toolcard-no-result"]')?.textContent).toBe("no result");
+    expect(card?.querySelector('[data-testid="toolcard-status"]')?.getAttribute("aria-label")).toBe("no result");
+    expect(card?.querySelector('.animate-spin, [data-testid="toolcard-spinner"]')).toBeNull();
+
+    expect(open.dataset.toolStatus).toBe("pending");
+    expect(open.dataset.flowActive).toBe("true");
+    expect(open.querySelector('[data-testid="chat-tool-stream-spinner"]')).not.toBeNull();
+  });
+
+  it("shows finished real-shape calls as done and folds command activity echoes into their call", async () => {
+    const view = await render([
+      boundary("start", "turn-live"),
+      codexCall("call-list", "npm test", { toolKind: "command", toolDetail: "npm test" }),
+      result("call-list", "Script completed\nWall time 1.2 seconds\nOutput:\n  12 passed\n", CODEX_SESSION),
+      codexCall("exec-echo", "npm test", { toolName: "command_execution", toolKind: "command", toolFlowId: "turn-live", toolEcho: true, toolError: false }),
+      result("exec-echo", "12 passed", CODEX_SESSION),
+      codexCall("call-string", "git status", { toolName: "exec_command", toolKind: "command", toolDetail: "git status" }),
+      result("call-string", "clean", CODEX_SESSION),
+    ]);
+    const [stream] = streams(view);
+    expect(streams(view)).toHaveLength(1);
+    expect(stream.dataset.toolStatus).toBe("success");
+    expect(stream.querySelector('[data-testid="chat-tool-stream-spinner"]')).toBeNull();
+    await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    expect(actionLabels(stream)).toEqual(["npm test", "git status"]);
+    expect(view.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(0);
+  });
+
   it("leaves calls without a proven turn as individual rows", async () => {
     const view = await render([codexCall("loose-1", "npm test"), codexCall("loose-2", "git status")]);
     expect(streams(view)).toHaveLength(0);

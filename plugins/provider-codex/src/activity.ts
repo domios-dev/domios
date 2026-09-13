@@ -12,6 +12,20 @@ interface ActivityItem {
   kind?: unknown;
   agent_path?: unknown;
   agent_thread_id?: unknown;
+  parsed_cmd?: unknown;
+}
+
+function parsedReadTitle(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "";
+  const names: string[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") return "";
+    const parsed = entry as { type?: unknown; name?: unknown; path?: unknown };
+    const name = text(parsed.name) || baseName(text(parsed.path));
+    if (parsed.type !== "read" || !name) return "";
+    if (names.indexOf(name) === -1) names.push(name);
+  }
+  return actionTitle({ tool_summary: `Read ${names[0]}` + (names.length > 1 ? ` +${names.length - 1}` : "") });
 }
 
 export interface ActivityMessage {
@@ -50,7 +64,9 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
     message.blocks = [
       { kind: "tool_use", data: {
         id, name: "command_execution", input: { command, ...(Array.isArray(item.command) ? { argv: item.command } : {}) },
-        ...fields, tool_title: actionTitle(fields), ...flow,
+        ...fields, tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields), ...flow,
+        // The exec call that ran this command is already in the transcript; no source id links the two.
+        tool_echo: true,
         tool_status: failed ? "error" : "success",
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed } },

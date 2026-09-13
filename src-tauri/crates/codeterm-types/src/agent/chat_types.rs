@@ -185,6 +185,9 @@ pub struct ChatMsg {
     /// Flow identity the source proves; `tool_flow` rows open or close it.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_flow_id: Option<String>,
+    /// Set when the action re-reports a command another call in its flow represents.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_echo: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).

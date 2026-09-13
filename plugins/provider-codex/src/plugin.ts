@@ -258,7 +258,7 @@ const plugin: PluginModule = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
-      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete")) {
+      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
         out.push({
@@ -572,7 +572,8 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
     return v.payload.type === "patch_apply_end"
       || v.payload.type === "item_completed"
       || v.payload.type === "task_started"
-      || v.payload.type === "task_complete";
+      || v.payload.type === "task_complete"
+      || v.payload.type === "turn_aborted";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
