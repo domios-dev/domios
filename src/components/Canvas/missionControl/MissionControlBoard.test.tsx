@@ -17,7 +17,6 @@ import {
   formatClock,
 } from "./missionControlBoardModel";
 import type {
-  KpiNotRecordingReason,
   MissionControlState,
   PlanBoardState,
   PlanEvent,
@@ -72,22 +71,9 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
-function areaRows(host: HTMLElement): Array<{ label: string; count: string }> {
-  return Array.from(host.querySelectorAll('[data-testid="mc-board-area-row"]')).map((row) => ({
-    label: row.querySelector(".mc-board-kv-key")?.textContent?.trim() ?? "",
-    count: row.querySelector(".mc-board-kv-value")?.textContent?.trim() ?? "",
-  }));
-}
-
 /** Reads the applied template back however the DOM chose to keep it. */
 function gridTemplate(el: HTMLElement): string {
   return el.style.gridTemplateColumns || el.getAttribute("style") || "";
-}
-
-async function openAreas(host: HTMLElement): Promise<HTMLButtonElement> {
-  const toggle = host.querySelector('[data-testid="mc-board-areas-toggle"]') as HTMLButtonElement;
-  await act(async () => toggle.click());
-  return toggle;
 }
 
 function statusItems(host: HTMLElement): string[] {
@@ -351,7 +337,7 @@ describe("mission control board panels", () => {
     await unmount();
   });
 
-  it("opens straight onto the Needs you panel with no band above it", async () => {
+  it("opens on the spend, models and plan row with Needs you under it and the log last", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     expect(host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
@@ -359,10 +345,19 @@ describe("mission control board panels", () => {
     expect(host.querySelector('[data-testid="mission-control-board-actions"]')).toBeNull();
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
-      "mc-board-needs-you",
       "mc-board-row",
+      "mc-board-needs-you",
       "mc-board-event-log",
     ]);
+    const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
+    expect(Array.from(row.children).map((card) => card.getAttribute("data-testid"))).toEqual([
+      "mc-board-spend",
+      "mc-board-models",
+      "mc-board-plan",
+    ]);
+    for (const removed of ["mc-board-progress", "mc-board-areas-toggle", "mc-board-spend-table", "mc-board-plan-turns"]) {
+      expect(host.querySelector(`[data-testid="${removed}"]`)).toBeNull();
+    }
     await unmount();
   });
 
@@ -393,24 +388,73 @@ describe("mission control board panels", () => {
 
     expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
-    expect(root.firstElementChild?.getAttribute("data-testid")).toBe("mc-board-row");
+    expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
+      "mc-board-row",
+      "mc-board-event-log",
+    ]);
     await unmount();
   });
 
-  it("reads this plan's new input, turns and quality without output, total or byte headlines", async () => {
-    const { host, unmount } = await render(board(recordingState()));
+  it("reads the plan by its goal, then task statuses and quality, without token headlines", async () => {
+    const goalPlan: Plan = { ...PLAN, goal: { vector: "Ship a readable Snake game" } };
+    const { host, unmount } = await render(
+      <MissionControlBoard plan={goalPlan} state={boardState(recordingState())} now={NOW} />,
+    );
 
-    expect(text(host, "mc-board-plan-new-input")).toBe("1.5M");
-    expect(text(host, "mc-board-plan-turns")).toBe("4,023");
+    expect(text(host, "mc-board-plan-heading")).toBe("Ship a readable Snake game");
+    expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
     expect(host.querySelector('[data-testid="mc-board-bounces-amount"]')?.classList.contains("mc-board-warn")).toBe(true);
-    expect(text(host, "mc-board-done-first-try-amount")).toBe("10");
-    expect(text(host, "mc-board-quality")).toBe("Qualitybounced1first try10 of 12");
-    const progress = text(host, "mc-board-progress");
-    for (const banned of ["5.3M", "1.4B", "65M", "output", "total", "bytes", "·"]) {
-      expect(progress).not.toContain(banned);
+    expect(text(host, "mc-board-quality")).toBe("bounced1first try10 of 12");
+    const plan = text(host, "mc-board-plan");
+    for (const banned of ["5.3M", "1.4B", "65M", "output", "total", "bytes", "·", "Quality", "new input"]) {
+      expect(plan).not.toContain(banned);
     }
-    expect(host.textContent?.toLowerCase()).not.toContain("provider allowance snapshots");
+    expect(host.querySelector('[data-testid="mc-board-previous-plans-toggle"]')).toBeNull();
+    await unmount();
+
+    const untitled = await render(
+      <MissionControlBoard plan={{ ...PLAN, goal: null, title: "Snake game" }} state={boardState(recordingState())} now={NOW} />,
+    );
+    expect(text(untitled.host, "mc-board-plan-heading")).toBe("Snake game");
+    await untitled.unmount();
+  });
+
+  it("lists the team's previous plans on request and opens one", async () => {
+    const onOpenPlan = vi.fn();
+    const previous: Plan = { ...PLAN, id: "pl_old1", title: "First Snake", goal: null, status: "archived" };
+    const { host, unmount } = await render(
+      <MissionControlBoard
+        plan={PLAN}
+        previousPlans={[previous]}
+        onOpenPlan={onOpenPlan}
+        state={boardState(recordingState())}
+        now={NOW}
+      />,
+    );
+
+    const toggle = host.querySelector('[data-testid="mc-board-previous-plans-toggle"]') as HTMLButtonElement;
+    expect(toggle.textContent).toBe("Show previous plans");
+    expect(host.querySelector('[data-testid="mc-board-previous-plan"]')).toBeNull();
+    await act(async () => toggle.click());
+    expect(toggle.textContent).toBe("Hide previous plans");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const item = host.querySelector('[data-testid="mc-board-previous-plan"]') as HTMLButtonElement;
+    expect(item.textContent).toBe("First Snake");
+    await act(async () => item.click());
+    expect(onOpenPlan).toHaveBeenCalledWith("pl_old1");
+    await unmount();
+  });
+
+  it("ranks models by new input with their share", async () => {
+    const { host, unmount } = await render(board(recordingState()));
+
+    const rows = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-model"]'));
+    expect(rows.map((row) => Array.from(row.children).map((cell) => cell.textContent))).toEqual([
+      ["haiku", "120", "60%"],
+      ["Unassigned model", "90", "40%"],
+    ]);
+    expect(host.querySelector('[data-testid="mc-board-models-more"]')).toBeNull();
     await unmount();
   });
 
@@ -419,7 +463,7 @@ describe("mission control board panels", () => {
 
     expect(statusItems(host)).toEqual(["1pending", "2in review", "1blocked", "1paused", "10done", "1cancelled"]);
     expect(text(host, "mc-board-task-statuses")).not.toContain("nothing");
-    expect(text(host, "mc-board-progress-meta")).toBe("16 tasks");
+    expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
     await unmount();
 
     const paused = await render(board(recordingState(), { ...NO_TASKS, paused: 4, total: 4 }));
@@ -465,27 +509,6 @@ describe("mission control board panels", () => {
     const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]'));
     expect(gauges.map((gauge) => gauge.getAttribute("data-window-key"))).toEqual(["claude-weekly"]);
     expect(text(host, "mc-board-spend")).not.toContain("—");
-    await unmount();
-  });
-
-  it("groups by the declared area facet and names the untagged remainder", async () => {
-    const { host, unmount } = await render(board(recordingState()));
-
-    expect(areaRows(host)).toEqual([]);
-    const toggle = await openAreas(host);
-    expect(toggle.textContent).toBe("By area");
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(areaRows(host)).toEqual([
-      { label: "Design", count: "6" },
-      { label: "Backend", count: "2" },
-      { label: "untagged", count: "2" },
-    ]);
-    const list = host.querySelector('[data-testid="mc-board-areas"] dl') as HTMLElement;
-    expect(list.getAttribute("aria-label")).toBe("Area");
-    expect(toggle.getAttribute("aria-controls")).toBe(list.id);
-    expect(text(host, "mc-board-areas")).not.toContain("%");
-    await act(async () => toggle.click());
-    expect(areaRows(host)).toEqual([]);
     await unmount();
   });
 
@@ -566,102 +589,13 @@ describe("mission control board panels", () => {
 });
 
 describe("mission control board fallback states", () => {
-  it("states the ledger is not recording instead of showing a figure", async () => {
-    const { host, unmount } = await render(board(notRecordingState()));
-
-    expect(host.querySelector('[data-testid="mc-board-plan-new-input"]')).toBeNull();
-    expect(host.querySelector('[data-testid="mc-board-plan-turns"]')).toBeNull();
-    expect(text(host, "mc-board-plan-not-recording")).toContain("recording off");
-    await unmount();
-  });
-
-  it("keeps the disabled KPI state concise and names its setting", async () => {
-    const setting = "kpi.enabled";
-    const state = notRecordingState();
-    state.kpi = {
-      state: "not_recording",
-      not_recording_reason: "disabled",
-      enable_setting: setting,
-      spend: null,
-    };
-    const { host, unmount } = await render(board(state));
-
-    expect(text(host, "mc-board-plan-not-recording")).toBe(`recording off, enable ${setting}`);
-    expect(text(host, "mc-board-plan-spend")).not.toContain("—");
-    await unmount();
-  });
-
-  it("never substitutes a zero for a missing figure in any not-recording reason", async () => {
-    const reasons: KpiNotRecordingReason[] = [
-      "disabled",
-      "no_rows_for_plan",
-      "unreadable",
-      "not_read",
-    ];
-    const emptyCopy: Record<KpiNotRecordingReason, string> = {
-      disabled: "recording off, enable kpi.enabled",
-      no_rows_for_plan: "no plan ledger row",
-      unreadable: "ledger unavailable",
-      not_read: "ledger not read",
-    };
-    for (const reason of reasons) {
-      const state = notRecordingState();
-      state.kpi = {
-        state: "not_recording",
-        not_recording_reason: reason,
-        enable_setting: reason === "disabled" ? "kpi.enabled" : null,
-        spend: null,
-      };
-      const { host, unmount } = await render(board(state));
-
-      expect(text(host, "mc-board-plan-not-recording")).toBe(emptyCopy[reason]);
-      expect(text(host, "mc-board-plan-spend")).not.toMatch(/\b0\b/);
-      expect(host.querySelector('[data-testid="mc-board-plan-turns"]')).toBeNull();
-      await unmount();
-    }
-  });
-
-  it("reads real ledger figures once recording is active", async () => {
-    const state = recordingState();
-    state.kpi = {
-      state: "recording",
-      not_recording_reason: null,
-      enable_setting: null,
-      spend: {
-        events: 7,
-        bytes: 4096,
-        turns: 3,
-        tokens: { input: 514_028, uncached_input: 25_600, output: 1800, total: 515_828 },
-      },
-    };
-    const { host, unmount } = await render(board(state));
-
-    expect(text(host, "mc-board-plan-new-input")).toBe("25.6K");
-    expect(text(host, "mc-board-plan-turns")).toBe("3");
-    expect(host.querySelector('[data-testid="mc-board-plan-not-recording"]')).toBeNull();
-    await unmount();
-  });
-
-  it("falls back to stored executor roles under a Roles label", async () => {
-    const { host, unmount } = await render(board(notRecordingState()));
-
-    expect((await openAreas(host)).textContent).toBe("By role");
-    expect(areaRows(host)).toEqual([
-      { label: "frontend-dev", count: "2" },
-      { label: "No role recorded", count: "1" },
-    ]);
-    expect(host.querySelector('[data-testid="mc-board-areas"] dl')?.getAttribute("aria-label")).toBe("Roles");
-    expect(host.querySelectorAll('[data-testid="mc-board-areas"] p')).toHaveLength(0);
-    expect(text(host, "mc-board-areas")).not.toContain("%");
-    await unmount();
-  });
-
   it("mission_control_spend_says_not_recording_instead_of_drawing_empty_gauges", async () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
     expect(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(0);
     expect(host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(0);
     expect(text(host, "mc-board-spend-empty")).toBe("not recording, enable kpi.enabled");
+    expect(text(host, "mc-board-models-empty")).toBe("not recording, enable kpi.enabled");
     expect(text(host, "mc-board-spend")).not.toContain("—");
     await unmount();
   });
