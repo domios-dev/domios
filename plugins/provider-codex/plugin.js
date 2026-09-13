@@ -1066,6 +1066,19 @@ function commandText(value) {
   if (!argv[0].trim()) return "";
   return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
 }
+function exactOutcomeNumber(value, nonnegative) {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return void 0;
+  if (nonnegative && value < 0) return void 0;
+  return value;
+}
+function commandOutcome(item) {
+  const outcome2 = {};
+  const exitCode = exactOutcomeNumber(item.exit_code, false);
+  const durationMs = exactOutcomeNumber(item.duration_ms, true);
+  if (exitCode !== void 0) outcome2.tool_exit_code = exitCode;
+  if (durationMs !== void 0) outcome2.tool_duration_ms = durationMs;
+  return outcome2;
+}
 function completedActivity(value, ts, timestamp, turnId) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value;
@@ -1076,9 +1089,11 @@ function completedActivity(value, ts, timestamp, turnId) {
   if (item.type === "CommandExecution") {
     const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
-    const failed = item.status === "failed" || typeof item.exit_code === "number" && item.exit_code !== 0;
+    const exitCode = exactOutcomeNumber(item.exit_code, false);
+    const failed = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
     const output = text4(item.aggregated_output) || [text4(item.stdout), text4(item.stderr)].filter(Boolean).join("\n");
     const fields2 = { tool_kind: "command", tool_summary: command, tool_detail: command };
+    const outcome2 = commandOutcome(item);
     message.blocks = [
       { kind: "tool_use", data: {
         id,
@@ -1086,12 +1101,13 @@ function completedActivity(value, ts, timestamp, turnId) {
         input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
         ...fields2,
         tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields2),
+        ...outcome2,
         ...flow,
         // The exec call that ran this command is already in the transcript; no source id links the two.
         tool_echo: true,
         tool_status: failed ? "error" : "success"
       } },
-      { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed } }
+      { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome2 } }
     ];
     return message;
   }
