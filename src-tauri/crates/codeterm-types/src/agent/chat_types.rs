@@ -203,6 +203,12 @@ pub struct ChatMsg {
     pub tool_interrupted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_background_task_id: Option<String>,
+    /// Per-file diffs with the exact hunks the provider's own edit record supplied.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub file_diffs: Option<serde_json::Value>,
+    /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_rich_result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).

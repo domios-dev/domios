@@ -15,6 +15,8 @@ const expectedLabels: Record<ToolEventKind, string> = {
   task: "task",
   fetch: "fetch",
   codeterm: "Sent to",
+  web: "web",
+  image: "image",
   generic: "generic summary",
 };
 
