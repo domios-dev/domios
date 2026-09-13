@@ -304,6 +304,24 @@ export interface ToolEdit {
   new: string;
 }
 
+/** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
+export interface FileDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/** One changed file; counts are the marked lines of its own hunks. Emitted as `file_diffs` block data. */
+export interface FileDiff {
+  path: string;
+  movePath?: string;
+  additions: number;
+  deletions: number;
+  hunks: FileDiffHunk[];
+}
+
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
 export interface NormalizedChatMessage {
   id: string;
@@ -321,6 +339,7 @@ export interface NormalizedChatMessage {
   toolSummary?: string;
   toolDetail?: string;
   toolEdits?: ToolEdit[];
+  fileDiffs?: FileDiff[];
   toolError?: boolean;
 }
 

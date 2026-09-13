@@ -11,6 +11,8 @@ export type {
   InteractiveOption,
   ToolEventKind,
   ToolEdit,
+  FileDiff,
+  FileDiffHunk,
 } from "./types";
 export {
   shellCommandMessage,

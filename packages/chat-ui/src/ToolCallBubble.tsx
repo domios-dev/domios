@@ -7,6 +7,7 @@ import { CodetermActionCard } from "./toolcard/CodetermActionCard";
 import { CommandCard } from "./toolcard/CommandCard";
 import { EditCard } from "./toolcard/EditCard";
 import { FetchCard } from "./toolcard/FetchCard";
+import { FileDiffCards } from "./toolcard/FileDiffCards";
 import { GenericCard } from "./toolcard/GenericCard";
 import { ReadCard } from "./toolcard/ReadCard";
 import { SearchCard } from "./toolcard/SearchCard";
@@ -129,5 +130,11 @@ export function ToolCallBubble({
     }
   })();
 
-  return formatted;
+  if (!event.fileDiffs?.length) return formatted;
+  return (
+    <>
+      {formatted}
+      <FileDiffCards diffs={event.fileDiffs} />
+    </>
+  );
 }

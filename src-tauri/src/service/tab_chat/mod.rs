@@ -323,6 +323,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                             .map(String::from),
                         tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                         tool_error: is_error,
+                        file_diffs: b.data.get("file_diffs").cloned(),
                         collapsed: true,
                         timestamp: ts.clone(),
                         ..Default::default()
@@ -459,6 +460,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 let tool_title = get_optional_string(&b.data, "tool_title");
                 let tool_flow_id = get_optional_string(&b.data, "tool_flow_id");
                 let tool_echo = b.data.get("tool_echo").and_then(|v| v.as_bool());
+                let file_diffs = b.data.get("file_diffs").cloned();
                 let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
                     Some("success") => Some(false),
                     Some("error") => Some(true),
@@ -486,6 +488,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_title,
                     tool_flow_id,
                     tool_echo,
+                    file_diffs,
                     tool_name: Some(name),
                     tool_args: tool_detail,
                     tool_input: b.data.get("input").cloned(),
@@ -508,6 +511,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                         .map(String::from),
                     tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                     tool_error: is_error,
+                    file_diffs: b.data.get("file_diffs").cloned(),
                     collapsed: true,
                     ..Default::default()
                 }
@@ -977,6 +981,52 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[3].kind, "tool_flow");
         assert_eq!(msgs[3].content, "end");
         assert_eq!(msgs[3].tool_flow_id, None);
+    }
+
+    #[test]
+    fn file_diff_capability_passes_through_calls_and_results() {
+        let diffs = json!([{
+            "path": "src/a.rs",
+            "additions": 1,
+            "deletions": 1,
+            "hunks": [{"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 1, "lines": ["-a", "+b"]}]
+        }]);
+        let assistant = RichMessage {
+            role: "assistant".into(),
+            blocks: vec![
+                MessageBlock {
+                    kind: "tool_use".into(),
+                    data: json!({"name": "file_change", "id": "fc-1", "tool_kind": "edit", "file_diffs": diffs.clone()}),
+                },
+                MessageBlock {
+                    kind: "tool_result".into(),
+                    data: json!({"tool_use_id": "fc-1", "content": "ok", "file_diffs": diffs.clone()}),
+                },
+                MessageBlock {
+                    kind: "tool_use".into(),
+                    data: json!({"name": "Read", "id": "r-1"}),
+                },
+            ],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&assistant, 0);
+        assert_eq!(msgs[0].file_diffs.as_ref(), Some(&diffs));
+        assert_eq!(msgs[1].file_diffs.as_ref(), Some(&diffs));
+        assert_eq!(msgs[2].file_diffs, None);
+
+        let user = RichMessage {
+            role: "user".into(),
+            blocks: vec![MessageBlock {
+                kind: "tool_result".into(),
+                data: json!({"tool_use_id": "tu-1", "content": "ok", "file_diffs": diffs.clone()}),
+            }],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&user, 0);
+        assert_eq!(msgs[0].kind, "tool_result");
+        assert_eq!(msgs[0].file_diffs.as_ref(), Some(&diffs));
+        let wire = serde_json::to_value(&msgs[0]).unwrap();
+        assert_eq!(wire["fileDiffs"], diffs);
     }
 
     #[test]

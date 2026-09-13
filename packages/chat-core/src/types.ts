@@ -33,6 +33,24 @@ export interface ToolEdit {
   new: string;
 }
 
+/** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
+export interface FileDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/** One changed file; counts are the marked lines of its own hunks. */
+export interface FileDiff {
+  path: string;
+  movePath?: string;
+  additions: number;
+  deletions: number;
+  hunks: FileDiffHunk[];
+}
+
 export interface ChatAttachment {
   id: string;
   mimeType: string;
@@ -113,6 +131,8 @@ export interface NormalizedChatMessage {
   toolFlowId?: string;
   /** True when this action re-reports a command that another call in its flow already represents. */
   toolEcho?: boolean;
+  /** Per-file diffs from the provider's own edit record; absent when none was supplied or it was malformed. */
+  fileDiffs?: FileDiff[];
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;
