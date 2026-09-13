@@ -230,8 +230,15 @@ var plugin = {
   parseSessionDelta(chunk) {
     const out = [];
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex) => {
+      for (; stamped < out.length; stamped++) {
+        out[stamped].recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       if (!lines[i]) continue;
       let v;
       try {
@@ -251,6 +258,7 @@ var plugin = {
       if (!blocks.length) continue;
       out.push({ role, blocks, ts: null });
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
   // Mirror parseSessionDelta for the content-search pipeline (text only).

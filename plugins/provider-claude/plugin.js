@@ -1480,8 +1480,15 @@ var plugin = {
   parseSessionDelta(chunk) {
     const out = [];
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex) => {
+      for (; stamped < out.length; stamped++) {
+        out[stamped].recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       const line = lines[i];
       if (!line) continue;
       let v;
@@ -1645,6 +1652,7 @@ var plugin = {
         timestamp
       });
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
   // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
