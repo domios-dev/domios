@@ -37,10 +37,11 @@ for (const parser of parsers) {
   assert.equal(messages[0].blocks[1].data.tool_use_id, execution.id);
   assert.equal(messages[0].blocks[1].data.content, output);
   assert.equal(messages[0].blocks[1].data.is_error, false);
-  assert.equal(messages[1].blocks[0].data.tool_kind, "task");
-  assert.deepEqual(messages[1].blocks[0].data.input, {
-    kind: activity.kind, agent_path: activity.agent_path, agent_thread_id: activity.agent_thread_id,
-  });
+  assert.equal(messages[1].uuid, `agent-${activity.id}`);
+  assert.deepEqual(messages[1].blocks, [{ kind: "tool_use", data: {
+    name: "agent_activity", input: { agent_id: activity.agent_thread_id, agent_path: activity.agent_path, agent_state: "completed" },
+    tool_kind: "agent", tool_summary: activity.agent_path, tool_status: "success",
+  } }], "a sub-agent crosses the boundary as the neutral agent capability");
   assert.deepEqual(parse([completed(execution)]), [messages[0]]);
   assert.equal(parse([completed(execution), completed({ ...execution, id: "exec-opaque-c" })]).length, 2);
 
@@ -74,10 +75,76 @@ for (const parser of parsers) {
     { ...execution, id: "" }, { ...execution, command: "" }, { ...execution, status: "in_progress" },
     { ...execution, command: [] }, { ...execution, command: ["", "opaque"] },
     { ...execution, command: ["runner", 7] },
-    { ...activity, agent_path: "" }, { type: "AgentMessage", id: "opaque", text: "opaque-text" },
+    { ...activity, agent_path: "", agent_thread_id: "" }, { type: "AgentMessage", id: "opaque", text: "opaque-text" },
     { type: "Reasoning", id: "opaque" },
+    { type: "Reasoning", id: "rs-empty", summary_text: [], raw_content: ["opaque-raw"] },
+    { type: "Reasoning", id: "rs-malformed", summary_text: [7, null, "  "] },
+    { type: "Reasoning", id: "", summary_text: ["opaque-idless"] },
+    { type: "CollabAgentToolCall", id: "call-wait", tool: "wait", status: "completed", sender_thread_id: "thread-root",
+      receiver_thread_ids: [], receiver_agents: [], agents_states: {} },
   ];
   assert.deepEqual(parse(ignored.map(completed)), []);
+
+  const withTurn = (line: string, turnId: string) => line.replace('"item_completed",', `"item_completed","turn_id":"${turnId}",`);
+  const responseReasoning = (id: string, summary: unknown[]) => JSON.stringify({ type: "response_item", timestamp, payload: {
+    type: "reasoning", id, summary, encrypted_content: "opaque-encrypted", internal_chat_message_metadata_passthrough: { turn_id: "turn-r" },
+  } });
+  const reasoning = parse([
+    withTurn(completed({ type: "Reasoning", id: "rs-a", summary_text: ["**Inspect sources**\n\nReading files", "", "Run tests"], raw_content: ["opaque-raw"] }), "turn-r"),
+    responseReasoning("rs-a", [{ type: "summary_text", text: "**Inspect sources**\n\nReading files" }]),
+    responseReasoning("rs-b", [{ type: "summary_text", text: "Response summary" }, { type: "reasoning_text", text: "opaque-other" }]),
+    responseReasoning("rs-c", []),
+  ]);
+  assert.deepEqual(reasoning.map((message) => message.uuid), ["reasoning-rs-a", "reasoning-rs-b"], "one reasoning id renders once and empty summaries are dropped");
+  assert.deepEqual(reasoning[0].blocks, [
+    { kind: "thinking", data: { text: "**Inspect sources**\n\nReading files" } },
+    { kind: "thinking", data: { text: "Run tests" } },
+  ]);
+  assert.deepEqual(reasoning[1].blocks, [{ kind: "thinking", data: { text: "Response summary" } }]);
+  assert.ok(!JSON.stringify(reasoning).includes("opaque"), "encrypted, raw, and non-summary reasoning never crosses the boundary");
+
+  const collab = parse([withTurn(completed({
+    type: "CollabAgentToolCall", id: "call-spawn", tool: "spawn_agent", status: "completed", sender_thread_id: "thread-root",
+    receiver_thread_ids: ["thread-w", "thread-w", 7, "thread-x"], receiver_agents: [{ thread_id: "thread-w", agent_path: "/root/worker" }],
+    agents_states: { "thread-w": { status: "running" }, "thread-x": { status: "mystery" } },
+  }), "turn-c")]);
+  assert.deepEqual(collab[0].blocks.map((block) => block.data.input), [
+    { agent_id: "thread-w", agent_path: "/root/worker", agent_state: "running" },
+    { agent_id: "thread-x", agent_state: "unknown" },
+  ], "collaboration receivers keep proven paths and unknown states, never a guessed sender edge");
+  assert.deepEqual(collab[0].blocks.map((block) => [block.kind, block.data.tool_kind, block.data.tool_flow_id]), [
+    ["tool_use", "agent", "turn-c"], ["tool_use", "agent", "turn-c"],
+  ]);
+
+  const subAgentEvent = JSON.stringify({ type: "event_msg", timestamp, payload: {
+    type: "sub_agent_activity", event_id: "call-evt", occurred_at_ms: 1, agent_thread_id: "thread-w", agent_path: "/root/worker", kind: "interacted",
+  } });
+  const subAgent = parse([subAgentEvent, completed({ type: "SubAgentActivity", id: "call-evt", kind: "interacted", agent_thread_id: "thread-w", agent_path: "/root/worker" })]);
+  assert.equal(subAgent.length, 1, "the event and its completion item are one record");
+  assert.deepEqual(subAgent[0].blocks[0].data.input, { agent_id: "thread-w", agent_path: "/root/worker", agent_state: "unknown" });
+
+  const agentMessage = (id: string, author: unknown, recipient: unknown) => JSON.stringify({ type: "response_item", timestamp, payload: {
+    type: "agent_message", id, author, recipient,
+    content: [{ type: "input_text", text: "opaque-task" }, { type: "encrypted_content", encrypted_content: "opaque-encrypted" }],
+    internal_chat_message_metadata_passthrough: { turn_id: "turn-m" },
+  } });
+  const edges = parse([
+    agentMessage("amsg-1", "/root", "/root/worker"), agentMessage("amsg-2", "/root", "/root"),
+    agentMessage("amsg-3", "", "/root/worker"), agentMessage("amsg-4", "/root", 7),
+  ]);
+  assert.deepEqual(edges.map((message) => message.blocks), [[{ kind: "tool_use", data: {
+    name: "agent_activity", input: { message_from: "/root", message_to: "/root/worker" },
+    tool_kind: "agent", tool_summary: "/root → /root/worker", tool_status: "success", tool_flow_id: "turn-m",
+  } }]], "only a distinct author and recipient form a message edge");
+  assert.ok(!JSON.stringify(edges).includes("opaque"), "inter-agent message bodies never cross the boundary");
+  const quietWarn = console.warn;
+  try {
+    console.warn = () => {};
+    assert.deepEqual(parse([JSON.stringify({ type: "inter_agent_communication_metadata", timestamp, payload: { trigger_turn: true } })]), [],
+      "communication metadata without identities invents no edge");
+  } finally {
+    console.warn = quietWarn;
+  }
 
   const wrapper = JSON.stringify({ type: "response_item", payload: {
     type: "custom_tool_call", name: "exec", call_id: "outer-opaque",
