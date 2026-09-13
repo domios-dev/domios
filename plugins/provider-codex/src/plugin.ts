@@ -8,6 +8,7 @@ import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
+import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
 import {
   classifyCodexTabState,
@@ -274,6 +275,16 @@ const plugin: PluginModule = {
         if (activity && !activityIds.has(activity.uuid)) {
           activityIds.add(activity.uuid);
           out.push(activity);
+        }
+        continue;
+      }
+      if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
+        const result = v.payload.type === "web_search_end"
+          ? webSearchEndResult(v.payload, ts, tsIso)
+          : imageGenerationEndResult(v.payload, ts, tsIso);
+        if (result && !activityIds.has(result.uuid)) {
+          activityIds.add(result.uuid);
+          out.push(result);
         }
         continue;
       }
@@ -571,6 +582,8 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
     return v.payload.type === "patch_apply_end"
       || v.payload.type === "item_completed"
+      || v.payload.type === "web_search_end"
+      || v.payload.type === "image_generation_end"
       || v.payload.type === "task_started"
       || v.payload.type === "task_complete"
       || v.payload.type === "turn_aborted";

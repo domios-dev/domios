@@ -19,6 +19,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/activity.test.ts
+      plugins/provider-codex/tests/rich-results.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
       plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
@@ -59,6 +60,7 @@ case "${1:-all}" in
     tests=(
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/activity.test.ts
+      plugins/provider-codex/tests/rich-results.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
       plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
