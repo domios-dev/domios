@@ -8,6 +8,7 @@ import {
   EVENT_REVEAL_SHOW_LABEL,
   eventLogCaption,
   eventLogRows,
+  pagerPages,
   planEventPager,
   type EventPager,
   type EventRow,
@@ -131,28 +132,49 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
           </div>
         )}
         {source.total > EVENT_LOG_PAGE && (
-          <div className="mc-board-log-pager">
+          <nav aria-label="Event pages" data-testid="mc-board-event-log-pager" className="mc-board-log-pager">
             <button
               type="button"
               data-testid="mc-board-event-log-newer"
-              className="mc-board-more"
+              className="mc-board-chip"
+              aria-label="Newer events"
               aria-controls={logId}
               disabled={pageOffset === 0}
               onClick={() => setOffset(Math.max(0, pageOffset - EVENT_LOG_PAGE))}
             >
-              Newer
+              ‹
             </button>
+            {pagerPages(pageOffset / EVENT_LOG_PAGE + 1, lastOffset / EVENT_LOG_PAGE + 1).map((page, index) =>
+              page === "gap" ? (
+                <span key={`gap-${index}`} aria-hidden="true" className="mc-board-log-pager-gap">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={page}
+                  type="button"
+                  data-testid="mc-board-event-log-page"
+                  className="mc-board-chip"
+                  aria-controls={logId}
+                  aria-current={page === pageOffset / EVENT_LOG_PAGE + 1 ? "page" : undefined}
+                  onClick={() => setOffset((page - 1) * EVENT_LOG_PAGE)}
+                >
+                  {page}
+                </button>
+              ),
+            )}
             <button
               type="button"
               data-testid="mc-board-event-log-older"
-              className="mc-board-more"
+              className="mc-board-chip"
+              aria-label="Older events"
               aria-controls={logId}
               disabled={pageOffset >= lastOffset}
               onClick={() => setOffset(Math.min(lastOffset, pageOffset + EVENT_LOG_PAGE))}
             >
-              Older
+              ›
             </button>
-          </div>
+          </nav>
         )}
       </BoardPanelSection>
     </BoardPanel>

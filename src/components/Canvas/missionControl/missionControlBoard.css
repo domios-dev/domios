@@ -206,7 +206,15 @@
 
 .mc-board-log-pager {
   display: flex;
-  gap: var(--mc-space-3);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mc-space-1);
+}
+
+.mc-board-log-pager-gap {
+  padding: 0 var(--mc-space-1);
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
 }
 
 /* A plan or task named by its title; opens it without leaving the Board. */
@@ -547,7 +555,8 @@
   cursor: pointer;
 }
 
-.mc-board-chip[aria-pressed="true"] {
+.mc-board-chip[aria-pressed="true"],
+.mc-board-chip[aria-current="page"] {
   border-color: color-mix(in srgb, var(--ct-accent) 45%, transparent);
   background: color-mix(in srgb, var(--ct-accent) 16%, transparent);
   color: var(--ct-fg);
