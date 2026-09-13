@@ -1,6 +1,6 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Plan } from "../types";
-import { formatCount, needsYouItems, planHeading, progressReading } from "./missionControlBoardModel";
+import { formatCount, formatPlanDate, needsYouItems, planGoal, progressReading } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
 import { RefText, type BoardRefs } from "./BoardRefText";
@@ -116,14 +116,110 @@ function PreviousPlanList({
               className="mc-board-ref"
               onClick={() => onOpenPlan(previous.id)}
             >
-              {planHeading(previous)}
+              {previous.title}
             </button>
           ) : (
-            <span data-testid="mc-board-previous-plan">{planHeading(previous)}</span>
+            <span data-testid="mc-board-previous-plan">{previous.title}</span>
           )}
+          <span data-testid="mc-board-previous-plan-date" className="mc-board-plan-list-date">
+            {formatPlanDate(previous.updated_at)}
+          </span>
         </li>
       ))}
     </ul>
+  );
+}
+
+/** A quiet footer trigger that lists the team's previous plans in a menu; choosing one opens its detail. */
+function PreviousPlansMenu({
+  plans,
+  onOpenPlan,
+}: {
+  plans: readonly Plan[];
+  onOpenPlan?: (planId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const itemsRef = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    itemsRef.current[0]?.focus();
+    const closeOutside = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOutside);
+    return () => document.removeEventListener("mousedown", closeOutside);
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item != null);
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    items[(current + step + items.length) % items.length]?.focus();
+  };
+
+  return (
+    <div ref={rootRef} data-testid="mc-board-previous-plans" className="mc-board-plan-footer">
+      <button
+        ref={triggerRef}
+        type="button"
+        data-testid="mc-board-previous-plans-toggle"
+        className="mc-board-more"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        Previous plans <span className="mc-board-plan-count">{formatCount(plans.length)}</span>
+      </button>
+      {open && (
+        <div
+          id={menuId}
+          role="menu"
+          aria-label="Previous plans"
+          data-testid="mc-board-previous-plans-menu"
+          className="mc-board-plan-menu"
+          onKeyDown={moveFocus}
+        >
+          {plans.map((previous, index) => (
+            <button
+              key={previous.id}
+              ref={(item) => {
+                itemsRef.current[index] = item;
+              }}
+              type="button"
+              role="menuitem"
+              data-testid="mc-board-previous-plan"
+              className="mc-board-plan-menuitem"
+              onClick={() => {
+                setOpen(false);
+                onOpenPlan?.(previous.id);
+              }}
+            >
+              <span className="mc-board-plan-menuitem-title">{previous.title}</span>
+              <span data-testid="mc-board-previous-plan-date" className="mc-board-plan-list-date">
+                {formatPlanDate(previous.updated_at)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -183,10 +279,9 @@ export function PlanCard({
   onOpenTasksView?: () => void;
 }) {
   const progress = progressReading(counts);
-  const [showPrevious, setShowPrevious] = useState(false);
-  const previousId = useId();
   const bounced = bounces.tasks_on_second_attempt;
-  const heading = planHeading(plan);
+  const heading = plan.title;
+  const goal = planGoal(plan);
   const taskCount = (
     <>
       <span data-testid="mc-board-tasks-amount" className="mc-board-num">
@@ -230,6 +325,11 @@ export function PlanCard({
             {heading}
           </p>
         )}
+        {goal && (
+          <p data-testid="mc-board-plan-goal" className="mc-board-plan-goal" title={goal}>
+            {goal}
+          </p>
+        )}
         <div data-testid="mc-board-task-statuses">
           {progress.active.length === 0 ? (
             <p className="mc-board-note">No tasks yet.</p>
@@ -262,21 +362,7 @@ export function PlanCard({
           </Pair>
         </dl>
       </BoardPanelSection>
-      {previousPlans.length > 0 && (
-        <BoardPanelSection testId="mc-board-previous-plans">
-          <button
-            type="button"
-            data-testid="mc-board-previous-plans-toggle"
-            className="mc-board-more"
-            aria-expanded={showPrevious}
-            aria-controls={showPrevious ? previousId : undefined}
-            onClick={() => setShowPrevious((value) => !value)}
-          >
-            {showPrevious ? "Hide previous plans" : "Show previous plans"}
-          </button>
-          {showPrevious && <PreviousPlanList id={previousId} plans={previousPlans} onOpenPlan={onOpenPlan} />}
-        </BoardPanelSection>
-      )}
+      {previousPlans.length > 0 && <PreviousPlansMenu plans={previousPlans} onOpenPlan={onOpenPlan} />}
     </BoardPanel>
   );
 }
