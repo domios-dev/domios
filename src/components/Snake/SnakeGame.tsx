@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSnake,
-  pointKey,
   restartSnake,
   SNAKE_SIZE,
   stepSnake,
@@ -27,44 +26,136 @@ export function isSnakeRoute(search = typeof window === "undefined" ? "" : windo
   return new URLSearchParams(search).get("prototype") === "snake";
 }
 
+type Projection = (x: number, y: number, z: number) => { x: number; y: number };
+
+function polygon(context: CanvasRenderingContext2D, points: Array<{ x: number; y: number }>, fill: string, stroke?: string) {
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+  context.closePath();
+  context.fillStyle = fill;
+  context.fill();
+  if (stroke) {
+    context.strokeStyle = stroke;
+    context.stroke();
+  }
+}
+
+function drawCube(context: CanvasRenderingContext2D, project: Projection, x: number, y: number, height: number, head: boolean) {
+  const half = head ? 0.44 : 0.4;
+  const top = [
+    project(x - half, y - half, height),
+    project(x + half, y - half, height),
+    project(x + half, y + half, height),
+    project(x - half, y + half, height),
+  ];
+  const base = [
+    project(x - half, y - half, 0),
+    project(x + half, y - half, 0),
+    project(x + half, y + half, 0),
+    project(x - half, y + half, 0),
+  ];
+  const topColor = head ? "#d7fff4" : "#72f4d2";
+  const sideColor = head ? "#35b9c9" : "#1e98b2";
+  const frontColor = head ? "#2789b9" : "#147697";
+  polygon(context, [top[0], top[1], top[2], top[3]], topColor, "#b3ffeb66");
+  polygon(context, [top[1], top[2], base[2], base[1]], sideColor);
+  polygon(context, [top[2], top[3], base[3], base[2]], frontColor);
+  if (head) {
+    context.fillStyle = "#071225";
+    context.beginPath();
+    context.arc(top[1].x - 2, top[1].y + 3, 2.5, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function drawScene(context: CanvasRenderingContext2D, width: number, height: number, game: SnakeState, time: number) {
+  context.clearRect(0, 0, width, height);
+  const scale = Math.min(width, height) / 24;
+  const project: Projection = (x, y, z) => ({
+    x: width / 2 + (x - y) * scale * 0.72,
+    y: height * 0.57 + (x + y - SNAKE_SIZE) * scale * 0.36 - z * scale * 0.58,
+  });
+  const corners = [project(0, 0, 0), project(SNAKE_SIZE, 0, 0), project(SNAKE_SIZE, SNAKE_SIZE, 0), project(0, SNAKE_SIZE, 0)];
+  polygon(context, corners, "#0a1426", "#7893ff66");
+
+  context.lineWidth = 1;
+  for (let index = 0; index <= SNAKE_SIZE; index += 1) {
+    polygon(context, [project(index, 0, 0), project(index, SNAKE_SIZE, 0)], "transparent", "#6f90ff18");
+    polygon(context, [project(0, index, 0), project(SNAKE_SIZE, index, 0)], "transparent", "#6f90ff18");
+  }
+
+  [...game.snake]
+    .reverse()
+    .forEach((segment, index) => drawCube(context, project, segment.x + 0.5, segment.y + 0.5, index === game.snake.length - 1 ? 0.72 : 0.58, index === game.snake.length - 1));
+
+  const pulse = 0.8 + (Math.sin(time / 240) + 1) * 0.08;
+  const food = project(game.food.x + 0.5, game.food.y + 0.5, 0.75 * pulse);
+  context.shadowColor = "#ff9f74";
+  context.shadowBlur = 18;
+  context.fillStyle = "#ff9f74";
+  context.beginPath();
+  context.arc(food.x, food.y, scale * 0.25 * pulse, 0, Math.PI * 2);
+  context.fill();
+  context.shadowBlur = 0;
+
+  const head = game.snake[0];
+  const direction = { up: { x: 0, y: -1 }, right: { x: 1, y: 0 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 } }[game.direction];
+  const whiskerOrigin = project(head.x + 0.5 + direction.x * 0.42, head.y + 0.5 + direction.y * 0.42, 0.83);
+  const side = { x: -direction.y, y: direction.x };
+  context.strokeStyle = "#b8fff0";
+  context.lineWidth = 1.5;
+  [-1, 1].forEach((sign) => {
+    const tip = project(head.x + 0.5 + direction.x * 1.2 + side.x * sign * 0.42, head.y + 0.5 + direction.y * 1.2 + side.y * sign * 0.42, 0.84);
+    context.beginPath();
+    context.moveTo(whiskerOrigin.x, whiskerOrigin.y);
+    context.lineTo(tip.x, tip.y);
+    context.stroke();
+  });
+}
+
 function SnakeBoard({ game }: { game: SnakeState }) {
-  const segments = new Map(game.snake.map((segment, index) => [pointKey(segment), index === 0 ? "head" : "body"]));
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const latestGame = useRef(game);
+  latestGame.current = game;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    let frame = 0;
+    let width = 0;
+    let height = 0;
+    const resize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      width = bounds.width;
+      height = bounds.height;
+      canvas.width = Math.max(1, Math.floor(width * ratio));
+      canvas.height = Math.max(1, Math.floor(height * ratio));
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+    resize();
+    const render = (time: number) => {
+      drawScene(context, width, height, latestGame.current, time);
+      frame = requestAnimationFrame(render);
+    };
+    frame = requestAnimationFrame(render);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
   return (
-    <div
+    <canvas
       aria-label={`Snake board. Score ${game.score}.`}
-      className="snake-board"
+      className="snake-scene-3d"
       role="img"
-      style={{ gridTemplateColumns: `repeat(${SNAKE_SIZE}, minmax(0, 1fr))` }}
-    >
-      {Array.from({ length: SNAKE_SIZE * SNAKE_SIZE }, (_, index) => {
-        const point = { x: index % SNAKE_SIZE, y: Math.floor(index / SNAKE_SIZE) };
-        const key = pointKey(point);
-        const segment = segments.get(key);
-        const food = pointKey(game.food) === key;
-        return (
-          <div aria-hidden="true" className={`snake-cell${segment ? ` snake-${segment}` : ""}${food ? " snake-food" : ""}`} key={key}>
-            {segment === "head" ? (
-              <span className={`snake-head-face snake-head-${game.direction}`}>
-                <i className="snake-eye snake-eye-a" />
-                <i className="snake-eye snake-eye-b" />
-                <i className="snake-tongue" />
-                <i
-                  aria-hidden="true"
-                  className="snake-whisker snake-whisker-a"
-                  style={{ "--whisker-growth": Math.min(1 + game.snake.length * 0.04, 1.6) } as CSSProperties}
-                />
-                <i
-                  aria-hidden="true"
-                  className="snake-whisker snake-whisker-b"
-                  style={{ "--whisker-growth": Math.min(1 + game.snake.length * 0.04, 1.6) } as CSSProperties}
-                />
-              </span>
-            ) : null}
-            {food ? <span className="snake-food-dot" /> : null}
-          </div>
-        );
-      })}
-    </div>
+    ref={canvasRef}
+  />
   );
 }
 
