@@ -1,8 +1,8 @@
 import { act, type ReactElement } from "react";
 import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it } from "vitest";
-import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
 import {
@@ -514,7 +514,7 @@ describe("mission control board panels", () => {
     await unmount();
   });
 
-  it("shows the latest eight events and reveals the rest on request", async () => {
+  it("shows the newest events first and pages to older ones", async () => {
     const state = recordingState();
     state.event_log.entries = Array.from({ length: 12 }, (_, index) =>
       logEvent({ ts: DAY + H + index * 60_000, kind: "note", text: `note ${index}` }),
@@ -523,13 +523,44 @@ describe("mission control board panels", () => {
     const { host, unmount } = await render(board(state));
 
     const bodies = () => eventRows(host).map((row) => part(row, "mc-board-event-body")?.textContent);
-    expect(bodies()).toEqual(Array.from({ length: 8 }, (_, index) => `note ${index + 4}`));
+    const button = (testId: string) => host.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement;
+    expect(bodies()).toEqual([11, 10, 9, 8, 7, 6, 5, 4].map((n) => `note ${n}`));
     expect(host.querySelector('[data-testid="mc-board-event-hour"]')).not.toBeNull();
-    const more = host.querySelector('[data-testid="mc-board-event-log-more"]') as HTMLButtonElement;
-    expect(more.textContent).toBe("Show all 12");
-    await act(async () => more.click());
-    expect(bodies()).toHaveLength(12);
+    expect(button("mc-board-event-log-newer").disabled).toBe(true);
+    await act(async () => button("mc-board-event-log-older").click());
+    expect(bodies()).toEqual([3, 2, 1, 0].map((n) => `note ${n}`));
+    expect(button("mc-board-event-log-older").disabled).toBe(true);
+    await act(async () => button("mc-board-event-log-newer").click());
+    expect(bodies()[0]).toBe("note 11");
     expect(text(host, "mc-board-event-log-meta")).toBe("12 events");
+    await unmount();
+  });
+
+  it("names plan and task ids by their titles and opens the task on click", async () => {
+    const onOpenTask = vi.fn();
+    const target: Plan = {
+      ...PLAN,
+      id: "pl_snake1",
+      title: "Snake game",
+      tasks: [{ ...FIXTURE_TASK, id: "task_render1", name: "Readable board" }],
+    };
+    const state = recordingState();
+    state.event_log.entries = [
+      logEvent({ ts: DAY + H, kind: "decision", text: "paused: task_render1 in pl_snake1 waits on task_unknown9" }),
+    ];
+    const { host, unmount } = await render(
+      <MissionControlBoard plan={target} plans={[target]} state={boardState(state)} now={NOW} onOpenTask={onOpenTask} />,
+    );
+
+    const body = part(eventRows(host)[0]!, "mc-board-event-body") as HTMLElement;
+    expect(body.textContent).toBe("paused: Readable board in Snake game waits on task_unknown9");
+    const refs = Array.from(body.querySelectorAll('[data-testid="mc-board-ref"]'));
+    expect(refs.map((ref) => [ref.tagName, ref.textContent, ref.getAttribute("title")])).toEqual([
+      ["BUTTON", "Readable board", "task_render1"],
+      ["SPAN", "Snake game", "pl_snake1"],
+    ]);
+    await act(async () => (refs[0] as HTMLButtonElement).click());
+    expect(onOpenTask).toHaveBeenCalledWith("task_render1");
     await unmount();
   });
 });
@@ -664,20 +695,20 @@ describe("mission control board event log", () => {
     await unmount();
   });
 
-  it("keeps events in time order under hour bands and collapses one agent's report run", async () => {
+  it("keeps the newest events first under hour bands and collapses one agent's report run", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     const bands = Array.from(host.querySelectorAll('[data-testid="mc-board-event-hour"]')).map(
       (b) => b.textContent,
     );
     expect(bands).toEqual([
-      new Date(DAY + H).getHours().toString().padStart(2, "0") + ":00",
       new Date(DAY + 2 * H).getHours().toString().padStart(2, "0") + ":00",
+      new Date(DAY + H).getHours().toString().padStart(2, "0") + ":00",
     ]);
 
     const rows = Array.from(host.querySelectorAll('[data-testid="mc-board-event-row"]'));
     expect(rows).toHaveLength(3);
-    expect(rows[0]?.textContent).toContain("drafting to approved");
+    expect(rows[2]?.textContent).toContain("drafting to approved");
     expect(rows[1]?.textContent).toContain("Task added");
 
     const runs = host.querySelectorAll('[data-testid="mc-board-event-run"]');
@@ -692,7 +723,7 @@ describe("mission control board event log", () => {
     const authors = Array.from(host.querySelectorAll('[data-testid="mc-board-event-author"]')).map(
       (a) => a.textContent,
     );
-    expect(authors).toEqual(["Pasteur", "", "Vera"]);
+    expect(authors).toEqual(["Vera", "", "Pasteur"]);
     await unmount();
   });
 
@@ -805,7 +836,7 @@ function cssRule(css: string, selector: string): string {
 describe("mission control board event log readability", () => {
   it("prints a decision task and its reason as separate parts, never one fused string", async () => {
     const { host, unmount } = await render(board(readableLogState()));
-    const row = eventRows(host)[0] as HTMLElement;
+    const row = eventRows(host)[3] as HTMLElement;
 
     const task = part(row, "mc-board-event-task") as HTMLElement;
     const body = part(row, "mc-board-event-body") as HTMLElement;
@@ -822,7 +853,7 @@ describe("mission control board event log readability", () => {
 
   it("keeps the boundary visible when the task name is already ellipsised", async () => {
     const { host, unmount } = await render(board(readableLogState()));
-    const row = eventRows(host)[1] as HTMLElement;
+    const row = eventRows(host)[2] as HTMLElement;
 
     expect(LONG_TASK.length).toBeGreaterThan(EVENT_TASK_NAME_MAX);
     const task = part(row, "mc-board-event-task") as HTMLElement;
@@ -838,7 +869,7 @@ describe("mission control board event log readability", () => {
     expect(LONG_QUESTION.length).toBeGreaterThan(400);
     const { host, unmount } = await render(board(readableLogState()));
 
-    const row = eventRows(host)[2] as HTMLElement;
+    const row = eventRows(host)[1] as HTMLElement;
     const body = part(row, "mc-board-event-body") as HTMLElement;
     const preview = body.textContent ?? "";
     expect(preview.length).toBeLessThanOrEqual(EVENT_PREVIEW_MAX + 1);
@@ -854,7 +885,7 @@ describe("mission control board event log readability", () => {
 
     await act(async () => reveal.click());
 
-    const opened = eventRows(host)[2] as HTMLElement;
+    const opened = eventRows(host)[1] as HTMLElement;
     const openedBody = part(opened, "mc-board-event-body") as HTMLElement;
     expect(openedBody.textContent).toBe(LONG_QUESTION);
     expect(openedBody.getAttribute("data-expanded")).toBe("true");
@@ -871,7 +902,7 @@ describe("mission control board event log readability", () => {
 
   it("keeps one visible title when the task name is the whole note", async () => {
     const { host, unmount } = await render(board(readableLogState()));
-    const row = eventRows(host)[3] as HTMLElement;
+    const row = eventRows(host)[0] as HTMLElement;
     const title = "Verify clean first run";
 
     expect((row.textContent ?? "").split(title).length - 1).toBe(1);
@@ -889,14 +920,14 @@ describe("mission control board event log readability", () => {
       host.querySelector('[data-testid="mission-control-board"]')?.getAttribute("data-board-layout"),
     ).toBe("narrow");
 
-    const row = eventRows(host)[2] as HTMLElement;
+    const row = eventRows(host)[1] as HTMLElement;
     const body = part(row, "mc-board-event-body") as HTMLElement;
     expect((body.textContent ?? "").length).toBeLessThanOrEqual(EVENT_PREVIEW_MAX + 1);
 
     const reveal = revealByLabel(row, EVENT_REVEAL_SHOW_LABEL);
     await act(async () => reveal.click());
 
-    const opened = eventRows(host)[2] as HTMLElement;
+    const opened = eventRows(host)[1] as HTMLElement;
     expect(part(opened, "mc-board-event-body")?.textContent).toBe(LONG_QUESTION);
     expect(part(opened, "mc-board-event-task")?.textContent).toBe(DECISION_TASK);
     expect(opened.querySelector(".mc-board-log-time")?.textContent).toBe(

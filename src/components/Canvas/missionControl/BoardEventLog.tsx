@@ -1,13 +1,15 @@
-import { useCallback, useId, useState } from "react";
-import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
+import { useCallback, useId, useMemo, useState } from "react";
+import { BoardPanel, BoardPanelSection } from "./BoardPanel";
+import { RefText, type BoardRefs } from "./BoardRefText";
 import {
-  EVENT_LOG_PREVIEW,
+  EVENT_LOG_PAGE,
   EVENT_PART_SEPARATOR,
   EVENT_REVEAL_HIDE_LABEL,
   EVENT_REVEAL_SHOW_LABEL,
   eventLogCaption,
   eventLogRows,
-  latestEventRows,
+  planEventPager,
+  type EventPager,
   type EventRow,
 } from "./missionControlBoardModel";
 import type { EventLog } from "./missionControlState";
@@ -16,15 +18,21 @@ import type { MilestoneKind } from "../types";
 export interface BoardEventLogProps {
   log: EventLog;
   milestoneKinds: readonly MilestoneKind[];
+  refs?: BoardRefs;
+  /** Page source; defaults to the plan's stored log, newest first. */
+  pager?: EventPager;
 }
 
 interface LogRowProps {
   event: EventRow;
   expanded: boolean;
+  refs: BoardRefs;
   onToggle: (key: string) => void;
 }
 
-function LogRow({ event, expanded, onToggle }: LogRowProps) {
+const NO_REFS: BoardRefs = new Map();
+
+function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
   const bodyId = `mc-board-event-body-${event.key}`;
   const open = expanded && event.expandable;
   return (
@@ -55,7 +63,7 @@ function LogRow({ event, expanded, onToggle }: LogRowProps) {
           data-expanded={open ? "true" : "false"}
           className="mc-board-log-body"
         >
-          {open ? event.body : event.preview}
+          <RefText text={open ? event.body : event.preview} refs={refs} />
         </span>
         {event.runLabel && (
           <span data-testid="mc-board-event-run" className="mc-board-log-run">
@@ -80,11 +88,17 @@ function LogRow({ event, expanded, onToggle }: LogRowProps) {
   );
 }
 
-export function BoardEventLog({ log, milestoneKinds }: BoardEventLogProps) {
-  const allRows = eventLogRows(log, milestoneKinds);
-  const [showAll, setShowAll] = useState(false);
+export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: BoardEventLogProps) {
+  const source = useMemo(() => pager ?? planEventPager(log), [pager, log]);
+  const [offset, setOffset] = useState(0);
+  const lastOffset = Math.max(0, Math.ceil(source.total / EVENT_LOG_PAGE) * EVENT_LOG_PAGE - EVENT_LOG_PAGE);
+  const pageOffset = Math.min(offset, lastOffset);
+  const rows = eventLogRows(
+    { ...log, entries: source.page(pageOffset, EVENT_LOG_PAGE) },
+    milestoneKinds,
+    pageOffset,
+  );
   const logId = useId();
-  const rows = showAll ? allRows : latestEventRows(allRows, EVENT_LOG_PREVIEW);
   const [openKeys, setOpenKeys] = useState<readonly string[]>([]);
   const toggle = useCallback((key: string) => {
     setOpenKeys((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
@@ -109,20 +123,37 @@ export function BoardEventLog({ log, milestoneKinds }: BoardEventLogProps) {
                   key={row.key}
                   event={row.event}
                   expanded={openKeys.includes(row.event.key)}
+                  refs={refs}
                   onToggle={toggle}
                 />
               ),
             )}
           </div>
         )}
-        <ShowAll
-          total={log.entries.length}
-          limit={EVENT_LOG_PREVIEW}
-          open={showAll}
-          controls={logId}
-          testId="mc-board-event-log-more"
-          onToggle={() => setShowAll((value) => !value)}
-        />
+        {source.total > EVENT_LOG_PAGE && (
+          <div className="mc-board-log-pager">
+            <button
+              type="button"
+              data-testid="mc-board-event-log-newer"
+              className="mc-board-more"
+              aria-controls={logId}
+              disabled={pageOffset === 0}
+              onClick={() => setOffset(Math.max(0, pageOffset - EVENT_LOG_PAGE))}
+            >
+              Newer
+            </button>
+            <button
+              type="button"
+              data-testid="mc-board-event-log-older"
+              className="mc-board-more"
+              aria-controls={logId}
+              disabled={pageOffset >= lastOffset}
+              onClick={() => setOffset(Math.min(lastOffset, pageOffset + EVENT_LOG_PAGE))}
+            >
+              Older
+            </button>
+          </div>
+        )}
       </BoardPanelSection>
     </BoardPanel>
   );
