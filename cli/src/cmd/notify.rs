@@ -73,13 +73,13 @@ fn params_from_body(
     if let Some(event_key) = event_key {
         params["event_key"] = serde_json::Value::String(event_key.to_string());
     }
+    // Every record needs its asking tab: it answers questions and places the record in its team.
+    if let Some(tab_id) = caller_tab_id {
+        params["caller_tab_id"] = serde_json::Value::String(tab_id.to_string());
+    }
     if let Some(actions) = choice_actions(choices)? {
         params["actions"] = serde_json::to_value(actions)
             .map_err(|e| format!("choices are not serializable: {e}"))?;
-        // Questions need the originating tab so the tap can be delivered to the right recipient.
-        if let Some(tab_id) = caller_tab_id {
-            params["caller_tab_id"] = serde_json::Value::String(tab_id.to_string());
-        }
     }
     if let Some(surface) = offer.surface {
         params["offer"] = serde_json::Value::String(surface.to_string());
