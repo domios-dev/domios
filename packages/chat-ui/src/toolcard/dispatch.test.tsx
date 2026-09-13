@@ -57,4 +57,24 @@ const readHost = await render(
 );
 if (!readHost.textContent?.includes("Read") || !readHost.textContent.includes("main.ts, lib.ts")) throw new Error("read-only shell pipeline did not use a named ReadCard");
 
-console.log("tool card dispatch tests: 11 assertions passed");
+const fileDiff = (path: string, additions: number, deletions: number) => ({
+  path, additions, deletions,
+  hunks: [{ oldStart: 1, oldLines: deletions, newStart: 1, newLines: additions, lines: [...Array<string>(deletions).fill("-old"), ...Array<string>(additions).fill("+new")] }],
+});
+const diffHost = await render(
+  <ToolCallBubble
+    event={event({ kind: "edit", status: "success", summary: "src/a.ts", edits: [{ path: "src/a.ts", old: "x\ny\nz", new: "q" }], fileDiffs: [fileDiff("src/a.ts", 6, 5), fileDiff("src/b.js", 1, 0)] })}
+    expanded
+    onToggle={() => {}}
+  />,
+);
+const diffHeaders = [...diffHost.querySelectorAll('[data-testid="file-diff-header"]')].map((node) => node.textContent);
+if (diffHeaders.join("|") !== "src/a.ts +6 −5|src/b.js +1 −0") throw new Error("diff card counts must come from fileDiffs");
+if (diffHost.querySelectorAll('[data-testid="file-diff-card"]').length !== 2) throw new Error("an edit with fileDiffs must render one card per file");
+if (diffHost.querySelector('[data-testid="toolcard-edit-file"], [data-testid="toolcard-edit-summary"], [data-testid="chat-tool-call"]')) throw new Error("an edit with fileDiffs must not render the old block diff card");
+const legacyEditHost = await render(
+  <ToolCallBubble event={event({ kind: "edit", status: "success", edits: [{ path: "src/a.ts", old: "old", new: "new" }] })} expanded onToggle={() => {}} />,
+);
+if (!legacyEditHost.querySelector('[data-testid="toolcard-edit-summary"]') || legacyEditHost.querySelector('[data-testid="file-diff-card"]')) throw new Error("an edit without fileDiffs must keep the edit card");
+
+console.log("tool card dispatch tests: passed");
