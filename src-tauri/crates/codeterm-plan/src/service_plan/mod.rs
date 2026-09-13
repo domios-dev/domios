@@ -104,7 +104,7 @@ mod timestamp_tests;
 #[cfg(test)]
 mod watch_reconcile_tests;
 
-use crate::plan::{Plan, PlanMode, PlanStatus, Spec, TaskStatus};
+use crate::plan::{Plan, PlanLifecycleEvent, PlanMode, PlanStatus, Spec, TaskStatus};
 use parking_lot::{Condvar, Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
