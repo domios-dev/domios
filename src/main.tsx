@@ -3,6 +3,7 @@ import { App } from "./App";
 import { FrontendCrashBoundary } from "./components/FrontendCrashBoundary";
 import { WebGate } from "./components/WebGate/WebGate";
 import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
+import { isSnakeRoute, SnakeGame } from "./components/Snake/SnakeGame";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
 import { installAgentStateIndicatorHarness } from "./components/Terminal/AgentStateIndicator.browserHarness";
@@ -20,11 +21,13 @@ import "./components/FrontendCrashBoundary.css";
 import "./components/Canvas/missionControl/missionControl.css";
 import "./components/Canvas/missionControl/missionControlBoard.css";
 import "./components/Usage/styles.css";
+import "./components/Snake/SnakeGame.css";
 
 const root = document.getElementById("root")!;
 const missionControlPrototype = isMissionControlPrototypeRoute();
 
 const isGalleryRoute = new URLSearchParams(window.location.search).get("prototype") === "gallery";
+const snakePrototype = isSnakeRoute();
 
 installToolOutputCardHarness();
 installAgentStateIndicatorHarness();
@@ -33,7 +36,7 @@ installCodeTermTestChatHandle();
 configureHtmlFileLoader((path) => invoke<string>("read_html_preview_file", { path }));
 configureLocalArtifactLoader((path, kind) => invoke("read_local_preview_file", { path, kind }));
 
-if (!missionControlPrototype && !isGalleryRoute) {
+if (!missionControlPrototype && !isGalleryRoute && !snakePrototype) {
   loadBundledPlugins();
 }
 
@@ -42,6 +45,9 @@ if (isGalleryRoute) {
     ReactDOM.createRoot(root).render(<ComponentGallery />);
     document.documentElement.dataset.codetermMounted = "true";
   });
+} else if (snakePrototype) {
+  ReactDOM.createRoot(root).render(<SnakeGame />);
+  document.documentElement.dataset.codetermMounted = "true";
 } else {
   ReactDOM.createRoot(root).render(
     <FrontendCrashBoundary>
