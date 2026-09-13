@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { filterPlansForCanvas } from "../planTabMatch";
-import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import {
   deletePlan,
   fetchPlanLifecyclePreview,
-  fetchSpecSections,
   parkPlan,
   resumePlan,
   setPlanMode,
@@ -16,10 +14,9 @@ import { PlanSwitcher } from "../planView/PlanSwitcher";
 import { usePlanSwitcherActions } from "../planView/usePlanSwitcherActions";
 import { enrichSwitcherOptions, selectActiveWork } from "../planView/activeWork";
 import { orderPlansByActivity, selectDefaultPlanId } from "../planView/boardModel";
-import { PlanDetailOverlay, type PlanDetailKind } from "../planView/PlanDetailOverlay";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
-import type { Plan, Section } from "../types";
+import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import { MissionControlControls } from "./MissionControlControls";
@@ -30,10 +27,6 @@ import { planForDetail } from "./planDetailTarget";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
-
-type DetailState =
-  | { kind: "plan"; plan: Plan; specSections: Section[] }
-  | { kind: "spec"; plan: Plan; specSections: Section[] };
 
 function readStoredPlanId(): string | null {
   try {
@@ -57,7 +50,6 @@ export function MissionControlPlanSurface({
   workspaceId,
   workspaces,
   teams,
-  onOpenTab,
   notifications,
   onSelectTab,
   api,
@@ -114,36 +106,6 @@ export function MissionControlPlanSurface({
     }
   }, []);
 
-  const fixtureSpecSections = useMemo(
-    () => (selectedPlan ? fixtureSpecSectionsByPlan([selectedPlan]) : new Map<string, Section[]>()),
-    [selectedPlan],
-  );
-  const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
-  const [detail, setDetail] = useState<DetailState | null>(null);
-
-  useEffect(() => {
-    if (!api || !selectedPlan?.primary_spec_id) return;
-    if (fixtureSpecSections.has(selectedPlan.id)) return;
-    let active = true;
-    const pid = selectedPlan.id;
-    const specId = selectedPlan.primary_spec_id;
-    void fetchSpecSections(api, specId)
-      .then((sections) => (active ? [pid, sections] as const : null))
-      .catch(() => (active ? [pid, [] as Section[]] as const : null))
-      .then((pair) => {
-        if (!active || !pair) return;
-        setFetchedSpecSections((prev) => new Map(prev).set(pair[0], pair[1]));
-      });
-    return () => {
-      active = false;
-    };
-  }, [api, selectedPlan, fixtureSpecSections]);
-
-  const selectedSpecSections = useMemo(() => {
-    if (!selectedPlan) return [] as Section[];
-    return fixtureSpecSections.get(selectedPlan.id) ?? fetchedSpecSections.get(selectedPlan.id) ?? [];
-  }, [selectedPlan, fixtureSpecSections, fetchedSpecSections]);
-
   const previousPlans = useMemo(() => {
     const teamOfPlan = selectedPlan?.team_id;
     if (!teamOfPlan) return [] as Plan[];
@@ -151,11 +113,6 @@ export function MissionControlPlanSurface({
       .filter((plan) => plan.status === "archived" && plan.team_id === teamOfPlan)
       .sort((a, b) => b.updated_at - a.updated_at);
   }, [effectivePlans, selectedPlan]);
-
-  const openSpecDetail = useCallback(() => {
-    if (!selectedPlan) return;
-    setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections });
-  }, [selectedPlan, selectedSpecSections]);
 
   const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
   const boardTeamId = teamId ?? selectedPlan?.team_id ?? null;
@@ -177,7 +134,6 @@ export function MissionControlPlanSurface({
     (taskId: string) => {
       const plan = refPlans.find((candidate) => candidate.tasks.some((task) => task.id === taskId));
       if (!plan) return;
-      setDetail(null);
       onOpenPlanTarget?.({ planId: plan.id, taskId, teamId: plan.team_id });
     },
     [refPlans, onOpenPlanTarget],
@@ -187,10 +143,9 @@ export function MissionControlPlanSurface({
     (id?: string) => {
       const plan = planForDetail(id, selectedPlan, effectivePlans, team?.archivedPlans ?? []);
       if (!plan) return;
-      const sections = plan.id === selectedPlan?.id ? selectedSpecSections : [];
-      setDetail({ kind: "plan", plan, specSections: sections });
+      onOpenPlanTarget?.({ planId: plan.id, teamId: plan.team_id });
     },
-    [effectivePlans, selectedPlan, selectedSpecSections, team],
+    [effectivePlans, selectedPlan, team, onOpenPlanTarget],
   );
 
   const approvePlan = useCallback((id: string) => {
@@ -214,7 +169,6 @@ export function MissionControlPlanSurface({
     void deletePlan(api, id).catch(() => undefined);
   }, [api]);
 
-  const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
   const showSwitcher = Boolean(selectedPlan && !teamId);
@@ -303,24 +257,6 @@ export function MissionControlPlanSurface({
           />
         )}
       </div>
-      {detail && overlayKind && (
-        <PlanDetailOverlay
-          kind={overlayKind}
-          plan={detail.kind === "plan" ? detail.plan : undefined}
-          spec={detail.kind === "spec" ? detail.plan : undefined}
-          specSections={detail.specSections}
-          planId={detail.plan.id}
-          api={api}
-          tabs={tabs}
-          onOpenTab={onOpenTab}
-          onOpenTask={openTask}
-          onClose={() => setDetail(null)}
-          onSectionClick={(args) => {
-            if (args.variant === "spec") openSpecDetail();
-            else openPlanDetail();
-          }}
-        />
-      )}
     </div>
   );
 }

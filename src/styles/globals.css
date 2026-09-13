@@ -1322,6 +1322,94 @@ button,
   }
 }
 
+/* The task slide-over look: a right-docked sheet that leaves the surface behind it interactive. */
+.plan-side-panel-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  padding-left: 12px;
+  pointer-events: none;
+}
+.plan-side-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: clamp(360px, 43vw, 720px);
+  max-width: calc(100% - 12px);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--ct-border-default);
+  border-right: none;
+  border-radius: var(--ct-radius-lg) 0 0 var(--ct-radius-lg);
+  background: var(--ct-bg);
+  box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.65);
+  outline: none;
+  pointer-events: auto;
+}
+.plan-side-panel__header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--ct-border-subtle);
+}
+.plan-side-panel__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--ct-font-ui);
+  font-size: var(--ct-font-size-md, 15px);
+  font-weight: 700;
+  color: var(--ct-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-side-panel__action {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  cursor: pointer;
+}
+.plan-side-panel__action:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+.plan-side-panel__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+@media (max-width: 480px) {
+  .plan-side-panel-layer {
+    padding-left: 0;
+  }
+  .plan-side-panel {
+    width: 100%;
+    max-width: 100%;
+    border-left: none;
+    border-radius: 0;
+  }
+  .plan-side-panel__header {
+    padding-inline: 16px 12px;
+  }
+}
+
 .ct-liquid-tab-rail {
   --rail-count: 1;
   --rail-index: 0;
