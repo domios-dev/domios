@@ -1,5 +1,7 @@
-/* Board system: three text sizes, a 4px spacing step, and raised panels on the Board ground. */
-.mc-board {
+/* Board system: three text sizes, a 4px spacing step, and raised panels on the Board ground.
+   Layers portaled out of the Board carry the same scale. */
+.mc-board,
+.mc-board-layer {
   --mc-text-meta: 11px;
   --mc-text-body: 13px;
   --mc-text-figure: 20px;
@@ -8,6 +10,9 @@
   --mc-space-3: 12px;
   --mc-space-4: 16px;
   --mc-gap: var(--mc-space-3);
+}
+
+.mc-board {
   display: flex;
   flex-direction: column;
   gap: var(--mc-gap);
@@ -481,10 +486,8 @@
 }
 
 .mc-board-plan-menu {
-  position: absolute;
-  bottom: calc(100% - 8px);
-  left: var(--mc-space-3);
-  z-index: 20;
+  position: fixed;
+  z-index: 60;
   display: flex;
   flex-direction: column;
   width: max-content;
@@ -692,6 +695,77 @@
 
 .mc-board-spend-totals {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.mc-board-spend-head {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--mc-space-1) var(--mc-space-2);
+}
+
+/* Compact segmented toggles: one hairline frame, the pressed side tinted with the accent. */
+.mc-board-segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+}
+
+.mc-board-segment {
+  padding: 0 var(--mc-space-2);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--mc-text-meta);
+  line-height: 1.6;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mc-board-segment + .mc-board-segment {
+  border-left: 1px solid var(--ct-border);
+}
+
+.mc-board-segment-solo {
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+}
+
+.mc-board-segment[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 16%, transparent);
+  color: var(--ct-fg);
+}
+
+.mc-board-segment[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mc-board-segment:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: -1px;
+}
+
+.mc-board-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mc-space-1) var(--mc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mc-space-1);
+  white-space: nowrap;
 }
 
 .mc-board-plan-split {

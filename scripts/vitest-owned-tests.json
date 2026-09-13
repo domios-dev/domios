@@ -9,6 +9,7 @@
   "src/components/Canvas/missionControl/missionControlNarrowShell.test.tsx",
   "src/components/Canvas/missionControl/missionControlBoardVisualSystem.test.tsx",
   "src/components/Canvas/missionControl/missionControlLiveRefresh.test.tsx",
+  "src/components/Canvas/missionControl/missionControlBoardLinks.test.tsx",
   "src/components/Notifications/notificationDeepLink.test.tsx",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
