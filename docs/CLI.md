@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1216,6 +1216,7 @@ List notifications
 Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it
 
 - `<body>` — REFUSED: an inline body is mangled by the shell — stage it in the pad
+- `--chat-message` — The exact chat message id inside --target-tab this notification jumps to
 - `--choice` — Offer one tappable choice; repeat for each. Labels only — a notification takes a chosen label back, never typed text
 - `--event-key` — Stable identity for coalescing. Derived from the title when omitted
 - `--from-file` — REFUSED: a file outside the pad has no provenance — stage it in the pad
@@ -1225,6 +1226,7 @@ Send a notification. The body is read only from the calling tab's AgentPad. Repo
 - `--offer` — Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder
 - `--offer-accept` — Which of this notification's own choices accepts the offer
 - `--severity` — Record identity axis: info, warning, error. Tone comes from --level
+- `--target-tab` — The tab whose chat holds the message this notification is about
 - `<title>` — Notification title
 
 #### `codeterm orchestrator`

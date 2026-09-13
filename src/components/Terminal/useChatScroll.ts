@@ -62,6 +62,8 @@ export interface UseChatScrollResult {
   followSend: () => void;
   prepareForHistoryPrepend: () => void;
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
+  /** Scrolls to the row whose `data-message-id` equals this id exactly; false when no such row is rendered. */
+  revealMessage: (messageId: string) => boolean;
 }
 
 export function useChatScroll({
@@ -146,6 +148,21 @@ export function useChatScroll({
     setShowScrollDown(mode === "detached" && distance > SHOW_SCROLL_DOWN_THRESHOLD_PX);
   }, [setMode]);
 
+  const revealMessage = useCallback((messageId: string) => {
+    const el = scrollRef.current;
+    if (!el) return false;
+    const row = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"))
+      .find((candidate) => candidate.dataset.messageId === messageId);
+    if (!row) return false;
+    el.scrollTop = row.offsetTop;
+    lastScrollTopRef.current = el.scrollTop;
+    // Detached, so a pinned tail cannot pull the revealed row back out of view.
+    setMode("detached", el);
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollDown(distance > SHOW_SCROLL_DOWN_THRESHOLD_PX);
+    return true;
+  }, [setMode]);
+
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -206,5 +223,6 @@ export function useChatScroll({
     followSend,
     prepareForHistoryPrepend,
     handleScroll,
+    revealMessage,
   };
 }

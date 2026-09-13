@@ -7,6 +7,7 @@ pub mod channel_ask;
 pub mod channel_placement;
 pub mod channels;
 pub mod dedupe;
+pub mod deep_link;
 #[cfg(test)]
 mod defaults_tests;
 pub mod desktop;

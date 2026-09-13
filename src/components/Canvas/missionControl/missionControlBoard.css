@@ -310,6 +310,29 @@
   overflow-wrap: break-word;
 }
 
+.mc-board-needs-link {
+  display: block;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.mc-board-needs-link:hover .mc-board-needs-title {
+  text-decoration: underline;
+}
+
+.mc-board-needs-link:focus-visible {
+  box-shadow: 0 0 0 1px var(--ct-accent);
+}
+
+.mc-board-needs-link[aria-disabled="true"] {
+  cursor: default;
+}
+
+.mc-board-needs-link[aria-disabled="true"]:hover .mc-board-needs-title {
+  text-decoration: none;
+}
+
 .mc-board-statuses {
   display: flex;
   flex-wrap: wrap;

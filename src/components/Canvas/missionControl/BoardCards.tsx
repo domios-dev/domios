@@ -4,6 +4,11 @@ import { formatCount, needsYouItems, planHeading, progressReading } from "./miss
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
 import { RefText, type BoardRefs } from "./BoardRefText";
+import {
+  NeedsYouNotificationRow,
+  useNeedsYouNotificationItems,
+  type NeedsYouDeepLinks,
+} from "../../Notifications/NeedsYouNotificationRow";
 import type { BounceSummary, HeldForDecision, PlanTaskCounts } from "./missionControlState";
 
 export { ModelsCard } from "./BoardModelsCard";
@@ -13,20 +18,35 @@ const WARN_STATUSES = new Set(["blocked", "paused"]);
 
 const NEEDS_YOU_PREVIEW = 3;
 
-export function NeedsYouPanel({ held, refs = new Map() }: { held: HeldForDecision; refs?: BoardRefs }) {
+export function NeedsYouPanel({
+  held,
+  refs = new Map(),
+  deepLinks,
+}: {
+  held: HeldForDecision;
+  refs?: BoardRefs;
+  deepLinks?: NeedsYouDeepLinks;
+}) {
   const items = needsYouItems(held);
+  const notificationItems = useNeedsYouNotificationItems(deepLinks);
   const [showAll, setShowAll] = useState(false);
   const listId = useId();
-  if (items.length === 0) return null;
-  const visible = showAll ? items : items.slice(0, NEEDS_YOU_PREVIEW);
+  const total = notificationItems.length + items.length;
+  if (total === 0) return null;
+  const limit = showAll ? total : NEEDS_YOU_PREVIEW;
+  const visibleNotifications = notificationItems.slice(0, limit);
+  const visible = items.slice(0, Math.max(0, limit - visibleNotifications.length));
   return (
     <BoardPanel testId="mc-board-needs-you" title="Needs you">
       <div className="mc-board-needs">
         <span data-testid="mc-board-needs-you-count" className="mc-board-figure mc-board-warn">
-          <AnimatedNumber value={items.length} format={formatCount} />
+          <AnimatedNumber value={total} format={formatCount} />
         </span>
         <div className="mc-board-needs-body">
           <ul id={listId} className="mc-board-needs-list">
+            {deepLinks && visibleNotifications.map((item) => (
+              <NeedsYouNotificationRow key={item.key} item={item} onSelectTab={deepLinks.onSelectTab} />
+            ))}
             {visible.map((item) => (
               <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
                 <p className="mc-board-needs-title">
@@ -37,7 +57,7 @@ export function NeedsYouPanel({ held, refs = new Map() }: { held: HeldForDecisio
             ))}
           </ul>
           <ShowAll
-            total={items.length}
+            total={total}
             limit={NEEDS_YOU_PREVIEW}
             open={showAll}
             controls={listId}

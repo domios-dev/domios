@@ -332,6 +332,10 @@ export interface Notification {
   key?: string;
   tab_id: string | null;
   workspace_id: string | null;
+  /** Navigation hint: the tab whose chat holds the message this is about. */
+  target_tab_id?: string | null;
+  /** The exact `data-message-id` inside `target_tab_id`; never matched by text. */
+  chat_message_id?: string | null;
   title: string;
   body: string | null;
   icon_svg?: string | null;
