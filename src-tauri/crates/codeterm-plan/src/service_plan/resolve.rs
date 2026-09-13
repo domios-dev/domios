@@ -150,11 +150,9 @@ fn pick(items: Vec<MatchItem>, reference: &str, kind: RefKind) -> Result<MatchIt
     }
     let handle_hits: Vec<&MatchItem> = items
         .iter()
-        .filter(|i| {
-            i.handle.as_deref() == Some(reference)
-                || i.key
-                    .as_deref()
-                    .is_some_and(|key| task_key::key_matches(key, reference))
+        .filter(|i| match i.key.as_deref() {
+            Some(key) => task_key::name_matches(i.handle.as_deref(), key, reference),
+            None => i.handle.as_deref() == Some(reference),
         })
         .collect();
     match handle_hits.len() {
