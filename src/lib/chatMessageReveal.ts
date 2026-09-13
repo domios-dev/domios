@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-export type ChatRevealOutcome = "pending" | "revealed" | "missing";
+export type ChatRevealOutcome = "pending" | "revealed" | "missing" | "no_chat";
 
 export interface ChatRevealRequest {
   id: number;
