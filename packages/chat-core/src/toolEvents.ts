@@ -60,6 +60,22 @@ function text(value: string | undefined): string {
   return value?.trim() ?? "";
 }
 
+function isContextCompaction(message: NormalizedChatMessage): boolean {
+  return message.timelineMarker?.kind === "context_compaction";
+}
+
+function appendMessage(items: TimelineItem[], message: NormalizedChatMessage): void {
+  const previous = items[items.length - 1];
+  if (
+    isContextCompaction(message) &&
+    previous?.kind === "message" &&
+    isContextCompaction(previous.message)
+  ) {
+    return;
+  }
+  items.push({ kind: "message", message });
+}
+
 function firstNonEmpty(...values: (string | undefined)[]): string | undefined {
   return values.find((value) => Boolean(value?.trim()));
 }
@@ -326,7 +342,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     }
     const materialized = materializeToolEvent(message);
     if (!materialized) {
-      items.push({ kind: "message", message });
+      appendMessage(items, message);
       continue;
     }
     if (materialized.phase === "call") {

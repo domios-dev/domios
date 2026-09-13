@@ -44,6 +44,7 @@ import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
+import { normalizedTimelineMarker, TimelineMarkerRow } from "./timelineMarkers";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
@@ -159,6 +160,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
     TOOL_EXPANDED_BY_ID.set(message.id, next);
     setExpanded(next);
   }, [message.id]);
+
+  const timelineMarker = normalizedTimelineMarker(message);
+  if (timelineMarker?.kind === "context_compaction" || timelineMarker?.kind === "external_edit") {
+    return <TimelineMarkerRow message={message} />;
+  }
 
   if (!isRenderableMessage(message)) {
     return null;
@@ -357,6 +363,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
 
     const userBubbleInner = (
       <>
+        {timelineMarker?.kind === "queued" && (
+          <span
+            data-testid="chat-queued-marker"
+            aria-label="Queued"
+            className="mb-1 inline-flex w-fit rounded px-1.5 py-0.5 text-[10px] font-mono motion-reduce:transition-none"
+            style={{
+              background: "color-mix(in srgb, var(--ct-yellow, #d29922) 14%, transparent)",
+              color: "var(--ct-yellow, #d29922)",
+            }}
+          >
+            queued
+          </span>
+        )}
         {formattedUserContent}
         {attachments && attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
