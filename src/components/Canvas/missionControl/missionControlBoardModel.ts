@@ -155,7 +155,7 @@ export function formatDayLabel(ts: number, now: number): string {
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   const sameYear = new Date(ts).getFullYear() === new Date(now).getFullYear();
-  return new Date(ts).toLocaleDateString(undefined, {
+  return new Date(ts).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
