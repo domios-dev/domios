@@ -229,7 +229,8 @@ pub struct MissionControlSpend {
     pub not_recording_reason: Option<KpiNotRecordingReason>,
     /// `Some` exactly when recording is off because of the opt-out.
     pub enable_setting: Option<&'static str>,
-    /// Denominator behind every `token_share_pct`: input + output over all rows.
+    /// Denominator behind every `token_share_pct`: uncached input over all rows, the
+    /// part that costs; cache reads would otherwise swamp every share.
     pub measured_tokens: u64,
     pub turns: u64,
     pub providers: Vec<ProviderSpend>,
