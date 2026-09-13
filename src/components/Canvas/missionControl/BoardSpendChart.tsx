@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatCompact } from "./missionControlBoardModel";
 import {
   ALL_FILTER,
   SPEND_METRIC_LABELS,
@@ -6,17 +7,19 @@ import {
   type SpendMetric,
 } from "./spendChart";
 
-const METRICS: readonly SpendMetric[] = ["points", "tokens"];
+const METRICS: readonly SpendMetric[] = ["tokens", "points"];
 
 function formatValue(metric: SpendMetric, value: number): string {
-  return metric === "points" ? `${Math.round(value)}%` : String(Math.round(value));
+  return metric === "points" ? `${Math.round(value)}%` : formatCompact(value);
 }
 
-/** A light day-by-day spend chart: pick what to measure, then everyone or one source. */
+/** A light day-by-day spend chart: pick what to measure, then everything or one part of it. */
 export function SpendChart({ source }: { source: SpendChartSource }) {
-  const [metric, setMetric] = useState<SpendMetric>("points");
+  const [chosen, setChosen] = useState<SpendMetric | null>(null);
   const [filter, setFilter] = useState(ALL_FILTER);
-  const activeFilter = source.filters.some((entry) => entry.key === filter) ? filter : ALL_FILTER;
+  const metric: SpendMetric = chosen && source.metrics[chosen] ? chosen : source.metrics.tokens ? "tokens" : "points";
+  const filters = source.filters(metric);
+  const activeFilter = filters.some((entry) => entry.key === filter) ? filter : ALL_FILTER;
   const days = source.days(metric, activeFilter);
   const peak = Math.max(1, ...days.map((day) => day.total));
   const summary = days.map((day) => `${day.label} ${formatValue(metric, day.total)}`).join(", ");
@@ -33,15 +36,18 @@ export function SpendChart({ source }: { source: SpendChartSource }) {
               className="mc-board-chip"
               aria-pressed={metric === entry}
               disabled={!source.metrics[entry]}
-              onClick={() => setMetric(entry)}
+              onClick={() => {
+                setChosen(entry);
+                setFilter(ALL_FILTER);
+              }}
             >
               {SPEND_METRIC_LABELS[entry]}
             </button>
           ))}
         </div>
-        {source.filters.length > 0 && (
+        {filters.length > 0 && (
           <div role="group" aria-label="Show" className="mc-board-chips">
-            {source.filters.map((entry) => (
+            {filters.map((entry) => (
               <button
                 key={entry.key}
                 type="button"
@@ -56,6 +62,9 @@ export function SpendChart({ source }: { source: SpendChartSource }) {
             ))}
           </div>
         )}
+        <span data-testid="mc-board-spend-chart-scope" className="mc-board-chart-scope">
+          {source.scope[metric]}
+        </span>
       </div>
       <div
         role="img"
@@ -79,8 +88,9 @@ export function SpendChart({ source }: { source: SpendChartSource }) {
                   <span
                     key={segment.key}
                     data-testid="mc-board-spend-chart-segment"
-                    data-tone={segment.tone}
+                    data-tone={segment.tone % 4}
                     className="mc-board-chart-segment"
+                    title={`${segment.label} ${formatValue(metric, segment.value)}`}
                     style={{ flexGrow: segment.value }}
                   />
                 ))}

@@ -7,6 +7,7 @@ import { BoardEventLog } from "./BoardEventLog";
 import { boardRefs } from "./BoardRefText";
 import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout, type EventPager } from "./missionControlBoardModel";
 import type { PlanBoardState } from "./missionControlState";
+import type { TeamSpend } from "./teamSpend";
 
 export interface MissionControlBoardProps {
   plan: Plan;
@@ -29,6 +30,8 @@ export interface MissionControlBoardProps {
   deepLinks?: NeedsYouDeepLinks;
   /** The team's event stream; the plan's stored log is used without it. */
   eventPager?: EventPager;
+  /** The team's token spend by plan, model and day; machine spend is shown without it. */
+  teamSpend?: TeamSpend | null;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -60,6 +63,7 @@ export function MissionControlBoard({
   onOpenPlan,
   deepLinks,
   eventPager,
+  teamSpend = null,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -91,8 +95,8 @@ export function MissionControlBoard({
             className="mc-board-row"
             style={{ gridTemplateColumns: BOARD_ROW_COLUMNS[layout] }}
           >
-            <SpendCard spend={mc.spend} weeks={allowanceWeeks} />
-            <ModelsCard spend={mc.spend} />
+            <SpendCard spend={mc.spend} weeks={allowanceWeeks} teamSpend={teamSpend} />
+            <ModelsCard spend={mc.spend} teamSpend={teamSpend} />
             <PlanCard
               plan={plan}
               counts={boardState.task_counts}

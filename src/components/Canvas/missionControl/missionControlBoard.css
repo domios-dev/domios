@@ -558,6 +558,14 @@
   min-width: 0;
 }
 
+.mc-board-chart-scope {
+  margin-left: auto;
+  font-size: var(--mc-text-meta);
+  line-height: 1.6;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+}
+
 .mc-board-chips {
   display: flex;
   flex-wrap: wrap;
