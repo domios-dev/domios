@@ -78,7 +78,8 @@ function streams(scope: ParentNode): HTMLElement[] {
 }
 
 function actionLabels(stream: HTMLElement): string[] {
-  return [...stream.querySelectorAll('[data-testid="chat-tool-stream-member"]')].map((member) => member.textContent?.trim() ?? "");
+  return [...stream.querySelectorAll('[data-testid="chat-tool-stream-member"]')]
+    .map((member) => (member.querySelector('[data-testid="chat-tool-stream-action"]') ?? member).textContent?.trim() ?? "");
 }
 
 function streamEvent(messages: NormalizedChatMessage[], index = 0): ToolEvent {
@@ -533,7 +534,7 @@ describe("changed lines inside a stream", () => {
     }],
   };
 
-  it("expands a Patched member to the hunk lines of its source edit, and stays one line while collapsed", async () => {
+  it("expands a Patched member to the hunk lines of its source edit, and shows only its hunk branch while collapsed", async () => {
     const view = await render([
       boundary("start", "turn-patch"),
       codexCall("p-1", "Patched snakeModel.ts +3", { toolKind: "edit", toolSummary: diff.path, fileDiffs: [diff], toolError: false }),
@@ -543,12 +544,123 @@ describe("changed lines inside a stream", () => {
     const [stream] = streams(view);
     await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
     const member = stream.querySelector<HTMLElement>('[data-testid="chat-tool-stream-member"]');
-    expect(member?.querySelectorAll("button")).toHaveLength(1);
+    expect(member?.querySelectorAll('[data-testid="chat-tool-stream-action"]')).toHaveLength(1);
+    expect([...(member?.querySelectorAll<HTMLElement>('[data-testid="chat-command-tree-line"]') ?? [])].map((line) => line.dataset.branchKind)).toEqual(["hunk"]);
     expect(member?.querySelector('[data-testid="file-diff-line"]')).toBeNull();
 
     await click(stream.querySelector('button[aria-label="Show Patched snakeModel.ts +3"]'));
     const lines = [...(member?.querySelectorAll<HTMLElement>('[data-testid="file-diff-line"]') ?? [])];
     expect(lines.map((line) => line.textContent)).toEqual(diff.hunks[0].lines);
     expect(lines.map((line) => line.dataset.tone)).toEqual(["context", "del", "add", "add", "add"]);
+  });
+});
+
+function hunkOf(oldStart: number, newStart: number, lines: string[]): FileDiff["hunks"][number] {
+  return {
+    oldStart, newStart, lines,
+    oldLines: lines.filter((line) => !line.startsWith("+")).length,
+    newLines: lines.filter((line) => !line.startsWith("-")).length,
+  };
+}
+
+function diffOf(path: string, hunks: FileDiff["hunks"]): FileDiff {
+  const lines = hunks.flatMap((hunk) => hunk.lines);
+  return { path, hunks, additions: lines.filter((line) => line.startsWith("+")).length, deletions: lines.filter((line) => line.startsWith("-")).length };
+}
+
+function branchLines(scope: Element): HTMLElement[] {
+  return [...scope.querySelectorAll<HTMLElement>('[data-testid="chat-command-tree-line"]')];
+}
+
+function branchText(line: HTMLElement, part: "lead" | "object" | "marker"): string | undefined {
+  return line.querySelector(`[data-testid="chat-command-tree-${part}"]`)?.textContent ?? undefined;
+}
+
+function streamMembers(stream: HTMLElement): HTMLElement[] {
+  return [...stream.querySelectorAll<HTMLElement>('[data-testid="chat-tool-stream-member"]')];
+}
+
+describe("inline member branches", () => {
+  const POWERSHELL = "$response = Invoke-WebRequest -Uri https://example.test/api -UseBasicParsing";
+  const POSIX = "head=$(git rev-parse HEAD)";
+
+  it("labels PowerShell and posix assignments by the command they run in members and the stream header, with a quiet → variable branch", async () => {
+    const view = await render([
+      boundary("start", "turn-assign"),
+      codexCall("as-git", "git status", { toolKind: "command", toolDetail: "git status", toolError: false }),
+      codexCall("as-ps", "$response =", { toolName: "exec_command", toolKind: "command", toolDetail: POWERSHELL, toolSummary: POWERSHELL, toolInput: { cmd: POWERSHELL }, toolError: false }),
+      codexCall("as-sh", "head=$(git", { toolName: "exec_command", toolKind: "command", toolDetail: POSIX, toolSummary: POSIX, toolInput: { cmd: POSIX }, toolError: false }),
+    ]);
+    const [stream] = streams(view);
+    expect(stream.querySelector('[data-testid="chat-tool-stream-title"]')?.textContent).toBe("git rev-parse");
+    await click(stream.querySelector('button[aria-label="Expand 3 actions"]'));
+    expect(actionLabels(stream)).toEqual(["git status", "Invoke-WebRequest", "git rev-parse"]);
+    const [plain, powershell, posix] = streamMembers(stream);
+    expect(branchLines(plain)).toHaveLength(0);
+    expect(branchLines(powershell).map((line) => [line.dataset.branchKind, branchText(line, "lead")])).toEqual([["assignment", "→ $response"]]);
+    expect(branchLines(posix).map((line) => [line.dataset.branchKind, branchText(line, "lead")])).toEqual([["assignment", "→ head"]]);
+  });
+
+  it("shows one dim branch per hunk and opens only the clicked hunk's exact lines", async () => {
+    const first = hunkOf(10, 10, [" const speed = 1;", "-const size = 10;", "+const size = 12;"]);
+    const second = hunkOf(40, 40, [" export function tick() {", "+  wrap();", " }"]);
+    const diff = diffOf("src/snakeModel.ts", [first, second]);
+    const view = await render([
+      boundary("start", "turn-hunks"),
+      codexCall("h-1", "Patched snakeModel.ts +2", { toolKind: "edit", toolSummary: diff.path, fileDiffs: [diff], toolError: false }),
+      codexCall("h-2", "npm test", { toolKind: "command", toolDetail: "npm test", toolError: false }),
+    ]);
+    const [stream] = streams(view);
+    await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    const [member] = streamMembers(stream);
+    expect(branchLines(member).map((line) => line.dataset.branchKind)).toEqual(["hunk", "hunk"]);
+    expect(branchLines(member).map((line) => branchText(line, "lead"))).toEqual(["@@ -10 +10", "@@ -40 +40"]);
+    expect(branchLines(member).map((line) => branchText(line, "object"))).toEqual(["-const size = 10;", "+  wrap();"]);
+    expect(member.querySelector('[data-testid="file-diff-line"]')).toBeNull();
+
+    await click(branchLines(member)[1].querySelector("button"));
+    expect(member.querySelectorAll('[data-testid="chat-command-tree-detail"]')).toHaveLength(1);
+    expect(branchLines(member)[0].querySelector('[data-testid="chat-command-tree-detail"]')).toBeNull();
+    expect([...branchLines(member)[1].querySelectorAll('[data-testid="file-diff-line"]')].map((line) => line.textContent)).toEqual(second.lines);
+    expect(member.querySelector('[data-testid="file-diff-card"]')).toBeNull();
+  });
+
+  it("shows the first meaningful output line, a quiet exit marker only for a non-zero exit, and nothing for an empty member", async () => {
+    const view = await render([
+      boundary("start", "turn-output"),
+      codexCall("o-fail", "npm run lint", { toolKind: "command", toolDetail: "npm run lint" }),
+      codexCall("o-ok", "git status", { toolKind: "command", toolDetail: "git status" }),
+      codexCall("o-empty", "git fetch", { toolKind: "command", toolDetail: "git fetch", toolError: false }),
+      { id: "o-fail-result", type: "tool_result", content: "", sourceSessionId: CODEX_SESSION, toolId: "o-fail", toolResult: "Exit code: 2\nWall time: 0.4 seconds\nOutput:\n\nsrc/a.ts:3 lint failed\nsecond line", toolExitCode: 2 },
+      { id: "o-ok-result", type: "tool_result", content: "", sourceSessionId: CODEX_SESSION, toolId: "o-ok", toolResult: "Exit code: 0\nOutput:\nnothing to commit", toolExitCode: 0 },
+    ]);
+    const [stream] = streams(view);
+    await click(stream.querySelector('button[aria-label="Expand 3 actions"]'));
+    const [failed, ok, empty] = streamMembers(stream);
+    expect(branchLines(failed).map((line) => [line.dataset.branchKind, branchText(line, "lead"), branchText(line, "marker")])).toEqual([["output", "src/a.ts:3 lint failed", "exit 2"]]);
+    expect(branchLines(ok).map((line) => [line.dataset.branchKind, branchText(line, "lead"), branchText(line, "marker")])).toEqual([["output", "nothing to commit", undefined]]);
+    expect(empty.querySelector('[data-testid="chat-command-tree"]')).toBeNull();
+
+    await click(branchLines(failed)[0].querySelector("button"));
+    expect(stream.querySelectorAll('[data-testid="chat-command-tree-detail"]')).toHaveLength(1);
+    expect(failed.querySelector('[data-testid="chat-branch-output"]')?.textContent).toContain("second line");
+  });
+
+  it("caps a member's branches at three with +N more", async () => {
+    const diff = diffOf("src/many.ts", [1, 20, 40, 60, 80].map((start) => hunkOf(start, start, [`-old ${start}`, `+new ${start}`])));
+    const view = await render([
+      boundary("start", "turn-cap"),
+      codexCall("c-1", "Patched many.ts +5", { toolKind: "edit", toolSummary: diff.path, fileDiffs: [diff], toolError: false }),
+      codexCall("c-2", "npm test", { toolKind: "command", toolDetail: "npm test", toolError: false }),
+    ]);
+    const [stream] = streams(view);
+    await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    const [member] = streamMembers(stream);
+    expect(branchLines(member)).toHaveLength(3);
+    const more = member.querySelector('[data-testid="chat-command-tree-more"]');
+    expect(more?.textContent).toContain("+2 more");
+    await click(more);
+    expect(branchLines(member).map((line) => branchText(line, "lead"))).toEqual(["@@ -1 +1", "@@ -20 +20", "@@ -40 +40", "@@ -60 +60", "@@ -80 +80"]);
+    expect(member.querySelector('[data-testid="chat-command-tree-more"]')).toBeNull();
   });
 });
