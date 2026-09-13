@@ -150,6 +150,13 @@ pub struct RichMessage {
     /// by the enrich pipeline, not by JSONL parsing.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub interactive: Vec<InteractiveElement>,
+    /// Absolute start byte of the session record this row was parsed from.
+    /// Host-assigned from the reader's byte range; never on the wire.
+    #[serde(skip)]
+    pub record_start: Option<u64>,
+    /// Position among the uuid-less rows of the same record.
+    #[serde(skip)]
+    pub record_row: u32,
 }
 
 /// Result of a single delta read on a session JSONL. `new_offset` is the

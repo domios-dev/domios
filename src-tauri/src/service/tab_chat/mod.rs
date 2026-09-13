@@ -30,6 +30,8 @@ pub use tailer::{
 };
 
 #[cfg(test)]
+mod identity_tests;
+#[cfg(test)]
 mod tailer_tests;
 
 use crate::agent::chat_types::{
@@ -155,8 +157,8 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
     }
 }
 
-/// Byte origin of one parsed row: `offset` is the complete-record boundary the
-/// batch started at, `ordinal` the row position inside that batch.
+/// Batch position of one parsed row: `ordinal` is its `seq`; `offset` names the
+/// row only when its provider supplied no record anchor.
 #[derive(Clone, Copy, Debug)]
 pub struct RowOrigin {
     pub offset: u64,
@@ -167,30 +169,50 @@ impl RowOrigin {
     pub fn at(offset: u64, ordinal: usize) -> Self {
         Self { offset, ordinal }
     }
-
-    fn id_base(&self) -> String {
-        format!("{}-{}", self.offset, self.ordinal)
-    }
 }
 
-/// Flatten a row parsed from a session byte range: ids anchor to the batch
-/// record boundary, `seq` stays an ordinal inside the batch.
+/// A uuid-less row is named by its own record start, so every read of the
+/// session (snapshot, window, live, backfill) yields the same id.
+fn record_id_base(rich: &RichMessage) -> Option<String> {
+    rich.record_start
+        .map(|start| format!("rec-{start}-{}", rich.record_row))
+}
+
+/// Flatten a row parsed from a session byte range.
 pub fn rich_to_chat_msgs_at(rich: &RichMessage, origin: RowOrigin) -> Vec<ChatMsg> {
-    let base = origin.id_base();
-    let mut out = apply_capabilities(rich, rich_to_chat_msgs_blocks(rich, &base), &base);
-    for m in &mut out {
-        m.seq = origin.ordinal as i64;
-    }
-    out
+    let base = record_id_base(rich)
+        .unwrap_or_else(|| format!("{}-{}", origin.offset, origin.ordinal));
+    flatten_rich(rich, &base, origin.ordinal as i64)
+}
+
+/// Flatten every row of one parsed range that began at `start_offset`.
+pub fn rich_rows_to_chat_msgs(rows: &[RichMessage], start_offset: u64) -> Vec<ChatMsg> {
+    rows.iter()
+        .enumerate()
+        .flat_map(|(i, r)| rich_to_chat_msgs_at(r, RowOrigin::at(start_offset, i)))
+        .collect()
+}
+
+/// Flatten a live-delta row; `seq` is its position in the stream.
+pub fn rich_to_chat_msgs_live(rich: &RichMessage, seq: usize) -> Vec<ChatMsg> {
+    let base = record_id_base(rich).unwrap_or_else(|| seq.to_string());
+    flatten_rich(rich, &base, seq as i64)
 }
 
 /// Unanchored flatten for callers with no session byte range; ids and `seq`
 /// mean nothing outside that batch (send-evidence content extraction only).
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
-    let base = base_id.to_string();
-    let mut out = apply_capabilities(rich, rich_to_chat_msgs_blocks(rich, &base), &base);
+    flatten_rich(rich, &base_id.to_string(), base_id as i64)
+}
+
+fn flatten_rich(rich: &RichMessage, fallback_base: &str, seq: i64) -> Vec<ChatMsg> {
+    let mut out = apply_capabilities(
+        rich,
+        rich_to_chat_msgs_blocks(rich, fallback_base),
+        fallback_base,
+    );
     for m in &mut out {
-        m.seq = base_id as i64;
+        m.seq = seq;
     }
     out
 }
