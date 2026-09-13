@@ -115,7 +115,7 @@ function rangedRows(
 ): NormalizedChatMessage[] {
   return rows.map((row, ordinal) => {
     const id = `${range.start}:${ordinal}`;
-    return row.id === id ? row : { ...row, id };
+    return row.id === id ? row : { ...row, id, sourceMessageId: row.sourceMessageId ?? row.id };
   });
 }
 
