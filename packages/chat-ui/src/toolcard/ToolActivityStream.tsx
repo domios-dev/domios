@@ -2,6 +2,7 @@ import { toolStreamLabel, type ToolEvent } from "@codeterm/chat-core";
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { ThoughtLine } from "./ThoughtLine";
+import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 
 const MINI_VIEW_MAX_PX = 200;
 const MINI_VIEW_ROWS = 6;
@@ -9,7 +10,7 @@ const MINI_VIEW_ROWS = 6;
 export type RenderStreamAction = (member: ToolEvent, expanded: boolean, onToggle: (next: boolean) => void) => ReactNode;
 
 function statusColor(status: ToolEvent["status"]): string {
-  if (status === "unresolved") return "var(--ct-muted-fg)";
+  if (status === "unresolved" || status === "interrupted") return "var(--ct-muted-fg)";
   return status === "error" ? "var(--ct-red)" : status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
 }
 
@@ -24,6 +25,9 @@ function StatusGlyph({ status }: { status: ToolEvent["status"] }) {
   }
   if (status === "unresolved") {
     return <Minus data-testid="chat-tool-stream-no-result" aria-hidden="true" size={12} className="shrink-0" style={style} />;
+  }
+  if (status === "interrupted") {
+    return <Minus data-testid="chat-tool-stream-interrupted" aria-hidden="true" size={12} className="shrink-0" style={style} />;
   }
   return status === "error"
     ? <CircleX aria-hidden="true" size={12} className="shrink-0" style={style} />
@@ -64,6 +68,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
           >
             <StatusGlyph status={member.status} />
             <span className="min-w-0 truncate">{actionLabel(member)}</span>
+            <ToolOutcomeFacts event={member} />
           </button>
         )}
     </li>
@@ -110,6 +115,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
             <li key={member.id} className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
               <StatusGlyph status={member.status} />
               <span className="min-w-0 truncate">{actionLabel(member)}</span>
+              <ToolOutcomeFacts event={member} />
             </li>
           ))}
         </ol>

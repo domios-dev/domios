@@ -188,6 +188,21 @@ pub struct ChatMsg {
     /// Set when the action re-reports a command another call in its flow represents.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_echo: Option<bool>,
+    /// Exact source row identity for a call/result link, when proven by the source.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_call_source_id: Option<String>,
+    /// Result-link evidence state; unavailable evidence must not use positional pairing.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_pairing: Option<String>,
+    /// Source-provided command outcome facts. Missing facts stay absent.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_exit_code: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_interrupted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_background_task_id: Option<String>,
     /// Per-file diffs with the exact hunks the provider's own edit record supplied.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub file_diffs: Option<serde_json::Value>,
