@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { invoke, listen } from "../../../lib/bridge";
-import type { ProjectionResponse, WeeklyProjection } from "../../../hooks/useUsageSnapshot";
 import type { UsageSnapshot } from "../../../types/usage";
 import { activeWeeklyCycle, buildWeekBuckets } from "../../Usage/cycle";
 
 const DAY = 24 * 60 * 60 * 1000;
 const HISTORY_LIMIT = 500;
 
-/** Share of the weekly allowance spent on one day of the current cycle; null for a day not yet lived. */
+/** Share of the weekly allowance spent on one day of the current cycle; null for a day not yet lived or unobserved. */
 export interface AllowanceDay {
   start: number;
   label: string;
@@ -18,26 +17,13 @@ export interface AllowanceDay {
 /** Provider id to its current weekly cycle, day by day. */
 export type AllowanceWeeks = Record<string, AllowanceDay[]>;
 
-export function allowanceWeekDays(rows: UsageSnapshot[], weekly: WeeklyProjection | null): AllowanceDay[] {
-  if (rows.length === 0 && !weekly) return [];
+// Built from raw snapshots rather than the backend projection's day_actuals, which match the cycle by exact reset time.
+export function allowanceWeekDays(rows: UsageSnapshot[]): AllowanceDay[] {
+  if (rows.length === 0) return [];
   const cycle = activeWeeklyCycle(rows);
-  const buckets = buildWeekBuckets(
-    rows,
-    cycle.start,
-    cycle.end,
-    weekly
-      ? {
-          avgWeekdaySpend: weekly.avg_weekday_spend,
-          avgWeekendSpend: weekly.avg_weekend_spend,
-          dowEstimates: weekly.dow_estimates,
-          restOfTodayEst: weekly.rest_of_today_est,
-          dayActuals: weekly.day_actuals,
-        }
-      : null,
-  );
-  return buckets.map((bucket) => ({
+  return buildWeekBuckets(rows, cycle.start, cycle.end, null).map((bucket) => ({
     start: bucket.start,
-    label: bucket.label,
+    label: new Date(bucket.start).toLocaleDateString("en-US", { weekday: "short" }),
     pct: bucket.isFuture ? null : bucket.pct,
     today: bucket.current,
   }));
@@ -45,11 +31,12 @@ export function allowanceWeekDays(rows: UsageSnapshot[], weekly: WeeklyProjectio
 
 async function readWeek(provider: string): Promise<AllowanceDay[]> {
   try {
-    const [rows, projection] = await Promise.all([
-      invoke<UsageSnapshot[] | null>("usage_history", { provider, since: Date.now() - 8 * DAY, limit: HISTORY_LIMIT }),
-      invoke<ProjectionResponse | null>("usage_projection", { provider }),
-    ]);
-    return allowanceWeekDays(rows ?? [], projection?.weekly ?? null);
+    const rows = await invoke<UsageSnapshot[] | null>("usage_history", {
+      provider,
+      since: Date.now() - 8 * DAY,
+      limit: HISTORY_LIMIT,
+    });
+    return allowanceWeekDays(rows ?? []);
   } catch {
     return [];
   }
