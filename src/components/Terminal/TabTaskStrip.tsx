@@ -5,8 +5,7 @@ import { useFullPlans, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { activeWorkForTab, selectActiveWork } from "../Canvas/planView/activeWork";
 import { resolveTabComposerActivity } from "../Canvas/tabComposerActivity";
 import { findPlanIndexForTab } from "../Canvas/planTabMatch";
-import { openTabPlanFocus } from "../Canvas/workspacePlanEntry";
-import type { PlanIndexEntry } from "../Canvas/plansApi";
+import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import type { Tab } from "../../lib/types";
 import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
 
@@ -19,19 +18,18 @@ export function TabTaskStrip({ tabId }: { tabId: string }) {
     [index, tabId, tabs],
   );
   if (entries.length === 0) return null;
-  return <ResolvedTabTaskStrip tabId={tabId} entries={entries} tabs={tabs} />;
+  return <ResolvedTabTaskStrip tabId={tabId} tabs={tabs} />;
 }
 
 function ResolvedTabTaskStrip({
   tabId,
-  entries,
   tabs,
 }: {
   tabId: string;
-  entries: PlanIndexEntry[];
   tabs: Record<string, Tab>;
 }) {
   const full = useFullPlans();
+  const openPlanTarget = usePlanTargetNavigation();
   const activity = useMemo(
     () => resolveTabComposerActivity(full.plans, tabId, tabs),
     [full.plans, tabId, tabs],
@@ -46,11 +44,9 @@ function ResolvedTabTaskStrip({
     : null;
 
   const onOpen = () => {
-    if (activity.kind === "working") {
-      openTabPlanFocus(entries, tabId, [activity.taskId]);
-      return;
-    }
-    openTabPlanFocus(entries, tabId);
+    openPlanTarget(activity.kind === "working"
+      ? { planId: activity.planId, taskId: activity.taskId }
+      : { planId: activity.planId });
   };
 
   return (

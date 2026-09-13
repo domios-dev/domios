@@ -122,19 +122,10 @@ export function workspacePlanEntryExtraCount(entries: PlanIndexEntry[]): number 
   return Math.max(0, entries.length - 1);
 }
 
-export function resolveTabPlanFocusTarget(
-  entries: PlanIndexEntry[],
-  tabId: string,
-): CanvasWorkspaceTarget | null {
-  if (entries.length === 0) return null;
-  return {
-    focusTabId: tabId,
-    planId: entries.length === 1 ? entries[0].plan_id : undefined,
-  };
-}
-
+/** The team view replaces any focus canvas, which would otherwise cover it. */
 export function openWorkspacePlanCanvas(target?: CanvasWorkspaceTarget): void {
   if (target?.planId) canvasFocusStore.clearPulse(target.planId);
+  canvasFocusStore.close();
   canvasFocusStore.resetWorkspaceDismissed();
   canvasFocusStore.openWorkspace(target ?? undefined);
 }
@@ -151,12 +142,6 @@ export function openTeamPlanCanvas(target: TeamPlanCanvasTarget): void {
     managerTabId: target.managerTabId,
     focusTabId: target.managerTabId ?? undefined,
     planId: target.planId,
-  });
-}
-
-export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]): void {
-  openWorkspacePlanCanvas({
-    planId: entries.length === 1 ? entries[0].plan_id : undefined,
   });
 }
 
@@ -186,39 +171,13 @@ export function findPlanOwnerWorkspace(
   return best;
 }
 
-export interface OpenPlanDeepLinkCtx {
-  index: readonly PlanIndexEntry[];
-  workspaces: readonly Workspace[];
-  activeWorkspaceId: string | null;
-  canonicalProjectPath?: string;
-  setActiveWorkspace: (id: string) => void;
-  onMissing?: (planId: string) => void;
-}
-
-/** Deep-link from chat: switch to the owning workspace and open the plan focused on a task. */
-export function openPlanDeepLink(planId: string, taskId: string | undefined, ctx: OpenPlanDeepLinkCtx): boolean {
-  const owner = findPlanOwnerWorkspace(
-    planId,
-    ctx.index,
-    ctx.workspaces,
-    ctx.canonicalProjectPath,
-  );
-  if (!owner) {
-    ctx.onMissing?.(planId);
-    return false;
-  }
-  if (owner.workspace.id !== ctx.activeWorkspaceId) ctx.setActiveWorkspace(owner.workspace.id);
-  openWorkspacePlanCanvas({ planId, nodeIds: taskId ? [taskId] : undefined });
-  return true;
-}
-
 export function resolveWorkspaceFocusNodeIds(
   mode: "workspace" | "focus",
   target: CanvasWorkspaceTarget | null | undefined,
   plans: readonly Plan[],
 ): string[] {
   if (mode !== "workspace" || !target) return [];
-  if (target.nodeIds?.length) return target.nodeIds;
+  if (target.jump?.view === "task") return [target.jump.taskId];
   if (target.focusTabId) {
     const taskIds = assignedTaskIdsForTab(plans, target.focusTabId);
     if (taskIds.length) return taskIds;
@@ -233,18 +192,6 @@ export function canvasFitContextKey(
   workspaceTarget: CanvasWorkspaceTarget | null | undefined,
 ): string {
   const ws = workspaceTarget;
-  return `${mode}:${focusTabId ?? ""}:${ws?.focusTabId ?? ""}:${ws?.planId ?? ""}:${ws?.nodeIds?.join(",") ?? ""}`;
-}
-
-export function openTabPlanFocus(
-  entries: PlanIndexEntry[],
-  tabId: string,
-  nodeIds?: string[],
-): void {
-  const base = resolveTabPlanFocusTarget(entries, tabId);
-  if (!base) return;
-  openWorkspacePlanCanvas({
-    ...base,
-    nodeIds: nodeIds?.length ? nodeIds : undefined,
-  });
+  const jumpTaskId = ws?.jump?.view === "task" ? ws.jump.taskId : "";
+  return `${mode}:${focusTabId ?? ""}:${ws?.focusTabId ?? ""}:${ws?.planId ?? ""}:${jumpTaskId}`;
 }

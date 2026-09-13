@@ -171,42 +171,34 @@ test("switcher hidden for a single plan", async () => {
   assert(host.querySelectorAll('[data-testid="plan-board-plan"]').length === 1, "single board");
 });
 
-test("clicking a task card opens PlanDetailOverlay", async () => {
+test("clicking a task card opens it through the team-view navigation with exact identity", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
-    tasks: [task({ id: "task-open", status: TaskStatus.Pending, name: "Open me" })],
-  };
-  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} />);
-  const card = host.querySelector('[data-testid="plan-board-task-card"]') as HTMLElement;
-  assert(card, "task card");
-  await act(async () => {
-    card.click();
-  });
-  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
-  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "slide-over", "task uses slide-over");
-  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task kind");
-});
-
-test("clicking another task updates the open slide-over panel", async () => {
-  const plan: Plan = {
-    ...FIXTURE_PLAN,
+    team_id: "team-1",
     tasks: [
       task({ id: "task-first", status: TaskStatus.Pending, name: "First task" }),
       task({ id: "task-second", status: TaskStatus.Pending, name: "Second task" }),
     ],
   };
-  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} />);
+  const opened: unknown[] = [];
+  const { host } = await render(
+    <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} onOpenPlanTarget={(target) => { opened.push(target); }} />,
+  );
   const cards = Array.from(host.querySelectorAll('[data-testid="plan-board-task-card"]')) as HTMLElement[];
   await act(async () => {
     cards[0]?.click();
   });
-  const panel = host.querySelector('[data-testid="plan-detail-panel"]');
-  assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "First task", "first task title");
   await act(async () => {
     cards[1]?.click();
   });
-  assert(host.querySelector('[data-testid="plan-detail-panel"]') === panel, "same panel element reused");
-  assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "Second task", "second task title");
+  assert(
+    JSON.stringify(opened) === JSON.stringify([
+      { planId: plan.id, taskId: "task-first", teamId: "team-1" },
+      { planId: plan.id, taskId: "task-second", teamId: "team-1" },
+    ]),
+    `navigation targets ${JSON.stringify(opened)}`,
+  );
+  assert(!host.querySelector('[data-testid="plan-detail-overlay"]'), "no side panel opens for a task");
 });
 
 test("done column collapses to recent N with show-all toggle", async () => {
@@ -278,7 +270,10 @@ test("task card text is selectable and drag does not open detail", async () => {
     ...FIXTURE_PLAN,
     tasks: [task({ id: "task-select", status: TaskStatus.Pending, name: "Copy me" })],
   };
-  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} />);
+  let opened = 0;
+  const { host } = await render(
+    <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} onOpenPlanTarget={() => { opened += 1; }} />,
+  );
   const card = host.querySelector('[data-testid="plan-board-task-card"]') as HTMLElement;
   assert(card.className.includes("plan-task-selectable"), "selectable class");
 
@@ -287,7 +282,7 @@ test("task card text is selectable and drag does not open detail", async () => {
     card.dispatchEvent(new PointerEvent("pointermove", { clientX: 20, clientY: 0, bubbles: true }));
     card.click();
   });
-  assert(!host.querySelector('[data-testid="plan-detail-overlay"]'), "drag click suppressed");
+  assert(opened === 0, "drag click suppressed");
 });
 
 test("clicking cancelled note reveals cancelled tasks with titles", async () => {
@@ -298,7 +293,10 @@ test("clicking cancelled note reveals cancelled tasks with titles", async () => 
       task({ id: "task-cancelled", status: TaskStatus.Cancelled, name: "Scrapped auth", handle: "scrap-auth" }),
     ],
   };
-  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} />);
+  const opened: string[] = [];
+  const { host } = await render(
+    <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} onOpenPlanTarget={(target) => { opened.push(target.taskId ?? ""); }} />,
+  );
   const note = host.querySelector('[data-testid="plan-board-cancelled-note"]') as HTMLElement;
   assert(note?.tagName === "BUTTON", "cancelled note is clickable");
   await act(async () => {
@@ -312,7 +310,7 @@ test("clicking cancelled note reveals cancelled tasks with titles", async () => 
   await act(async () => {
     row.click();
   });
-  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "cancelled task opens detail");
+  assert(opened.join() === "task-cancelled", "cancelled task opens through the team-view navigation");
 });
 
 test("task card: status row precedes branch row, long branch has truncate class", async () => {

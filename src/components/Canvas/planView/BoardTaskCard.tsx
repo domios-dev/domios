@@ -7,6 +7,7 @@ import { TaskExecutionBadges } from "./TaskExecutionBadges";
 import { WorkingOnRow } from "./WorkingOnRowView";
 import { deriveTaskCardMetadata, type TaskCardMetaRow } from "./taskCardMetadata";
 import { TaskStatus } from "../types";
+import { taskDisplayKey, taskReferenceLabel } from "../taskDisplayKey";
 import {
   MissionControlControls,
   type MissionControlTaskAction,
@@ -68,7 +69,7 @@ export function BoardTaskCard({ card, onOpen, planId, onPauseTask, onResumeTask,
       data-task-status={task.status}
       className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}${isPaused ? " plan-board-task-card-paused" : ""}`}
       role={interactive ? "button" : undefined}
-      aria-label={interactive ? `Open task ${task.name}` : undefined}
+      aria-label={interactive ? `Open task ${taskReferenceLabel(task)}` : undefined}
       tabIndex={interactive ? 0 : undefined}
       title={pausedTitle}
       onPointerDown={interactive ? onPointerDown : undefined}
@@ -95,6 +96,9 @@ export function BoardTaskCard({ card, onOpen, planId, onPauseTask, onResumeTask,
           />
         </div>
       )}
+      <p data-testid="plan-board-task-key" className="plan-board-task-key plan-board-task-mono">
+        {taskDisplayKey(task)}
+      </p>
       <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
         {task.name}
       </h4>
