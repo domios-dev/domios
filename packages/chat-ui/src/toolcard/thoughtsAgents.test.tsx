@@ -239,11 +239,14 @@ describe("sub-agent activity card", () => {
       agent("s-1", { agentId: "thread-a", agentPath: "/root/mine", state: "running" }, { toolFlowId: "turn-x" }),
       agent("s-2", { agentId: "thread-b", agentPath: "/root/theirs", state: "failed" }, { toolFlowId: "turn-x", sourceSessionId: OTHER }),
       agent("s-3", { messageFrom: "/root", messageTo: "/root/mine" }, { toolFlowId: "turn-x" }),
+      agent("s-4", { agentId: "01a05d8b-6c0a-76b1-8921-b8a95660b790" }, { toolFlowId: "turn-x" }),
     ]);
     const cards = all(view, "chat-agent-activity");
     expect(cards).toHaveLength(2);
     for (const card of cards) await click(card.querySelector("button[aria-expanded]"));
-    expect(cards.map((card) => all(card, "chat-agent-name").map((name) => name.textContent))).toEqual([["mine"], ["theirs"]]);
+    expect(cards.map((card) => all(card, "chat-agent-name").map((name) => name.textContent))).toEqual([
+      ["mine", "01a05d8b-6c0a-76b1-8921-b8a95660b790"], ["theirs"],
+    ]);
     expect(cards.map((card) => all(card, "chat-agent-message").length)).toEqual([1, 0]);
   });
 
