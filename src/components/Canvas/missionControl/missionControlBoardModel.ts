@@ -138,8 +138,29 @@ export interface EventRow {
 }
 
 export type EventLogRow =
-  | { key: string; band: string; event: null }
-  | { key: string; band: null; event: EventRow };
+  | { key: string; kind: "day"; label: string }
+  | { key: string; kind: "hour"; label: string }
+  | { key: string; kind: "event"; event: EventRow };
+
+const DAY_MS = 86_400_000;
+
+function startOfLocalDay(ts: number): number {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** "Today", "Yesterday", else a short local date that names the year only when it is not this one. */
+export function formatDayLabel(ts: number, now: number): string {
+  const days = Math.round((startOfLocalDay(now) - startOfLocalDay(ts)) / DAY_MS);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  const sameYear = new Date(ts).getFullYear() === new Date(now).getFullYear();
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
 
 /** The log prints a task only as a locator, so a long name is clipped, not wrapped. */
 export const EVENT_TASK_NAME_MAX = 36;
@@ -188,22 +209,31 @@ function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneK
   };
 }
 
-/** Rows in the order given, with an hour band wherever the clock hour turns over. */
+/** Rows in the order given, with a day label wherever the local day changes and an hour band wherever the hour turns over.
+ *  A page is read alone, so its first row is measured against today. */
 export function eventLogRows(
   log: EventLog,
   declared: readonly MilestoneKind[] = [],
   indexOffset = 0,
+  now = Date.now(),
 ): EventLogRow[] {
   const rows: EventLogRow[] = [];
+  let day = startOfLocalDay(now);
   let band: string | null = null;
   log.entries.forEach((entry, position) => {
     const index = indexOffset + position;
+    const entryDay = startOfLocalDay(entry.ts);
+    if (entryDay !== day) {
+      day = entryDay;
+      band = null;
+      rows.push({ key: `day-${index}-${entryDay}`, kind: "day", label: formatDayLabel(entry.ts, now) });
+    }
     const hour = formatHourBand(entry.ts);
     if (hour !== band) {
       band = hour;
-      rows.push({ key: `band-${index}-${hour}`, band: hour, event: null });
+      rows.push({ key: `band-${index}-${hour}`, kind: "hour", label: hour });
     }
-    rows.push({ key: `row-${index}`, band: null, event: eventRow(entry, index, declared) });
+    rows.push({ key: `row-${index}`, kind: "event", event: eventRow(entry, index, declared) });
   });
   return rows;
 }

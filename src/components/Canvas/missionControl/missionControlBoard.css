@@ -1004,6 +1004,18 @@
   color: var(--ct-muted-fg);
 }
 
+.mc-board-log-day {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  font-size: var(--mc-text-meta);
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.mc-board-log-day:first-child {
+  margin-top: 0;
+}
+
 .mc-board-log-time {
   font-family: var(--ct-font-mono);
   font-size: var(--mc-text-meta);
