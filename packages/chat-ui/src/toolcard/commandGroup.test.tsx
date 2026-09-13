@@ -130,6 +130,21 @@ describe("compound command group", () => {
     expect(host.querySelector(".lucide-terminal")).not.toBeNull();
   });
 
+  it("reads the command from the source input, not multi-line presentation detail", async () => {
+    const event = singleEvent([
+      {
+        id: "cb-call", type: "tool_call", content: "", provider: "lmstudio", toolName: "exec", toolId: "cb-call", toolKind: "command",
+        toolInput: { cmd: "npm test -- --runInBand", cwd: "/repo/app" },
+        toolSummary: "npm test -- --runInBand", toolDetail: "npm test -- --runInBand\ncwd /repo/app",
+      },
+      { id: "cb-result", type: "tool_result", content: "Exit code: 0\nTests passed", toolResult: "Exit code: 0\nTests passed", toolId: "cb-call" },
+    ]);
+    expect(toolCommandShape(event).kind).toBe("single");
+    const host = await render(<ToolCallBubble event={event} expanded={false} onToggle={() => {}} />);
+    expect(host.querySelector('[data-testid="chat-command-group"]')).toBeNull();
+    expect(host.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(1);
+  });
+
   it("memoizes the shape per call instead of re-parsing", () => {
     const event = singleEvent(codexRollout());
     expect(toolCommandShape({ ...event })).toBe(toolCommandShape(event));
