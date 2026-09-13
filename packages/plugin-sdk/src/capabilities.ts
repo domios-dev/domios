@@ -296,12 +296,28 @@ export type ToolEventKind =
   | "task"
   | "fetch"
   | "codeterm"
+  | "web"
+  | "image"
   | "generic";
 
 export interface ToolEdit {
   path: string;
   old: string;
   new: string;
+}
+
+// Mirrors Rust ChatMsg.tool_rich_result; strings are exact source values, absent when unreported.
+export interface ToolRichResult {
+  kind: "web" | "image";
+  origin?: "generated" | "viewed";
+  query?: string;
+  resultCount?: number;
+  action?: string;
+  url?: string;
+  pattern?: string;
+  path?: string;
+  status?: string;
+  prompt?: string;
 }
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
@@ -321,6 +337,7 @@ export interface NormalizedChatMessage {
   toolSummary?: string;
   toolDetail?: string;
   toolEdits?: ToolEdit[];
+  toolRichResult?: ToolRichResult;
   toolError?: boolean;
 }
 

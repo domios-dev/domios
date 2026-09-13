@@ -3,6 +3,7 @@ import {
   FileEdit,
   FileSearch,
   Globe,
+  Image as ImageGlyph,
   ListTodo,
   Search,
   Terminal,
@@ -20,5 +21,7 @@ export const toolGlyphs = {
   task: ListTodo,
   fetch: Globe,
   codeterm: ClipboardList,
+  web: Globe,
+  image: ImageGlyph,
   generic: Wrench,
 } satisfies Record<string, ToolGlyph>;

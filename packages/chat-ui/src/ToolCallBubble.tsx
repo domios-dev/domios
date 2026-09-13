@@ -9,6 +9,7 @@ import { EditCard } from "./toolcard/EditCard";
 import { FetchCard } from "./toolcard/FetchCard";
 import { GenericCard } from "./toolcard/GenericCard";
 import { ReadCard } from "./toolcard/ReadCard";
+import { RichResultCard } from "./toolcard/RichResultCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
 import { ToolActivityStream } from "./toolcard/ToolActivityStream";
@@ -125,6 +126,8 @@ export function ToolCallBubble({
     case "search": return <SearchCard {...props} />;
     case "task": return <TaskCard {...props} />;
     case "fetch": return <FetchCard {...props} />;
+    case "web":
+    case "image": return <RichResultCard {...props} />;
     case "generic": return <GenericCard {...props} />;
     }
   })();
