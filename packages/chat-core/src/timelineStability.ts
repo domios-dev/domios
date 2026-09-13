@@ -23,6 +23,9 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
     a.status !== b.status ||
     a.kind !== b.kind ||
     a.summary !== b.summary ||
+    a.description !== b.description ||
+    a.title !== b.title ||
+    a.flowId !== b.flowId ||
     a.detail !== b.detail ||
     a.result !== b.result ||
     a.error !== b.error ||
@@ -31,11 +34,11 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
     return false;
   }
   if (!messagesEquivalent(a.message, b.message)) return false;
-  const batchA = a.waitBatch;
-  const batchB = b.waitBatch;
-  if (!batchA || !batchB) return batchA === batchB;
-  if (batchA.elapsedMs !== batchB.elapsedMs || batchA.members.length !== batchB.members.length) return false;
-  return batchA.members.every((member, index) => toolEventsEquivalent(member, batchB.members[index]));
+  const streamA = a.stream;
+  const streamB = b.stream;
+  if (!streamA || !streamB) return streamA === streamB;
+  if (streamA.flowId !== streamB.flowId || streamA.active !== streamB.active || streamA.members.length !== streamB.members.length) return false;
+  return streamA.members.every((member, index) => toolEventsEquivalent(member, streamB.members[index]));
 }
 
 /**

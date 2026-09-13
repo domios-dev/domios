@@ -67,11 +67,6 @@ export type ToolInvocationTerminalState =
   | "timeout"
   | "cancelled";
 
-export interface ToolInvocationLink {
-  parentInvocationKey: string;
-  relationship: "wait";
-}
-
 export interface ToolInvocationState {
   key: string;
   toolUseId: string;
@@ -83,15 +78,6 @@ export interface ToolInvocationState {
   terminalTransitionCount: number;
   firstSeenOrder: number;
   terminalSeenOrder?: number;
-  link?: ToolInvocationLink;
-}
-
-export interface EffectiveToolInvocationState extends ToolInvocationState {
-  effectiveState: "running" | ToolInvocationTerminalState;
-  effectiveResult?: string;
-  effectiveIsError: boolean;
-  effectiveTerminalTransitionCount: number;
-  phase: "direct" | "wait";
 }
 
 // Strip CSI/OSC/control bytes from ConPTY output.
@@ -381,31 +367,6 @@ function classifyTerminalState(
   return "failure";
 }
 
-function waitParentToolUseId(input: unknown): string | null {
-  if (!input || typeof input !== "object") return null;
-  const obj = input as Record<string, unknown>;
-  const candidateKeys = [
-    "tool_use_id",
-    "toolUseId",
-    "command_id",
-    "commandId",
-    "parent_tool_use_id",
-    "parentToolUseId",
-    "wait_for",
-    "waitFor",
-  ];
-  for (const key of candidateKeys) {
-    if (typeof obj[key] === "string" && obj[key]) {
-      return obj[key] as string;
-    }
-  }
-  return null;
-}
-
-function isWaitLikeTool(name: string): boolean {
-  return /wait/i.test(name);
-}
-
 export function reconcileToolInvocations(
   events: ClaudeStreamEvent[],
 ): ToolInvocationState[] {
@@ -442,19 +403,10 @@ export function reconcileToolInvocations(
     if (event.type !== "assistant" && event.type !== "user") continue;
     for (const block of event.content) {
       if (block.type === "tool_use") {
-        const invocation = ensureInvocation(block.id, {
+        ensureInvocation(block.id, {
           name: block.name,
           input: block.input,
         });
-        if (isWaitLikeTool(block.name)) {
-          const parentId = waitParentToolUseId(block.input);
-          if (parentId) {
-            invocation.link = {
-              parentInvocationKey: invocationKey(parentId),
-              relationship: "wait",
-            };
-          }
-        }
         continue;
       }
       if (block.type !== "tool_result") continue;
@@ -472,71 +424,5 @@ export function reconcileToolInvocations(
     }
   }
 
-  for (const invocation of invocations.values()) {
-    if (invocation.state === "running" || invocation.link?.relationship !== "wait") {
-      continue;
-    }
-    const parent = invocations.get(invocation.link.parentInvocationKey);
-    if (
-      !parent
-      || (
-        parent.state !== "running"
-        && (parent.terminalSeenOrder ?? Number.POSITIVE_INFINITY)
-          < (invocation.terminalSeenOrder ?? Number.POSITIVE_INFINITY)
-      )
-    ) {
-      continue;
-    }
-    parent.state = invocation.state;
-    parent.result = invocation.result;
-    parent.isError = invocation.isError;
-    parent.terminalTransitionCount = 1;
-    parent.terminalSeenOrder = invocation.terminalSeenOrder;
-  }
-
   return [...invocations.values()].sort((a, b) => a.firstSeenOrder - b.firstSeenOrder);
-}
-
-export function selectEffectiveToolInvocations(
-  invocations: ToolInvocationState[],
-): EffectiveToolInvocationState[] {
-  const byKey = new Map(invocations.map((item) => [item.key, item]));
-
-  return invocations.map((item) => {
-    let effectiveState = item.state;
-    let effectiveResult = item.result;
-    let effectiveIsError = item.isError;
-    let effectiveTerminalTransitionCount = item.terminalTransitionCount;
-    let phase: "direct" | "wait" = item.link?.relationship === "wait" ? "wait" : "direct";
-
-    if (item.state === "running") {
-      const waitChild = invocations.find(
-        (candidate) =>
-          candidate.link?.relationship === "wait"
-          && candidate.link.parentInvocationKey === item.key,
-      );
-      if (waitChild && waitChild.state !== "running") {
-        effectiveState = waitChild.state;
-        effectiveResult = waitChild.result;
-        effectiveIsError = waitChild.isError;
-        effectiveTerminalTransitionCount = waitChild.terminalTransitionCount;
-      }
-    }
-
-    if (phase === "wait" && item.link) {
-      const parent = byKey.get(item.link.parentInvocationKey);
-      if (parent && parent.state === "running" && item.state !== "running") {
-        phase = "wait";
-      }
-    }
-
-    return {
-      ...item,
-      effectiveState,
-      effectiveResult,
-      effectiveIsError,
-      effectiveTerminalTransitionCount,
-      phase,
-    };
-  });
 }

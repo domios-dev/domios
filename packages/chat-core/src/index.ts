@@ -53,8 +53,8 @@ export { countAddedLines, countRemovedLines, countAdded, countRemoved, type Edit
 export { parseCodexPatch, patchTextFromToolInput, type ParsedPatchFile } from "./toolPatches";
 export {
   materializeToolEvent,
-  coalesceWaitEvents,
   reduceToolEvents,
+  toolStreamLabel,
   type TimelineItem,
   type ToolEvent,
 } from "./toolEvents";

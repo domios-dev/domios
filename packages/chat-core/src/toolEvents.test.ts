@@ -1,4 +1,4 @@
-import { coalesceWaitEvents, materializeToolEvent, reduceToolEvents } from "./toolEvents";
+import { materializeToolEvent, reduceToolEvents } from "./toolEvents";
 import type { NormalizedChatMessage } from "./types";
 
 function assert(value: unknown, label: string): asserts value {
@@ -150,52 +150,43 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 console.log("ok - tool event lifecycle");
 
 {
-  const wait = (id: string, name: string, patch: Partial<NormalizedChatMessage> = {}) => call(id, id, {
-    toolName: name,
-    toolSummary: `${name} ${id}`,
-    timestamp: "1000",
-    sourceSessionId: "session",
-    ...patch,
+  const session = { sourceSessionId: "session" };
+  const described = (id: string, flowId: string | undefined, description: string | undefined) => call(id, id, {
+    toolKind: "command", toolSummary: `cmd ${id}`, toolDetail: `cmd ${id}`, toolFlowId: flowId, toolDescription: description, ...session,
   });
-  const items = reduceToolEvents([
-    wait("wait-1", " wait ", { timestamp: "1000", toolResult: "first result" }),
-    wait("wait-2", "WAIT_FOR_RESULT", { timestamp: "2400", toolResult: "second result" }),
-    call("command", "command", { toolName: "wait", toolKind: "command", toolSummary: "wait command" }),
-    wait("wait-3", "tool_wait"),
-    { id: "assistant", type: "assistant", content: "break" },
-    wait("wait-4", "wait_for"),
-    { id: "result-only", type: "tool_result", content: "wait result", toolName: "wait", toolKind: "generic" },
-    wait("wait-5", "wait"),
-  ]);
-  assert(items.length === 7, "only adjacent qualifying wait calls coalesce");
-  assert(items[0].kind === "tool" && items[0].event.waitBatch, "exact aliases create a wait batch");
-  assert(items[0].kind === "tool" && items[0].event.waitBatch?.members.length === 2, "batch retains every member");
-  assert(items[0].kind === "tool" && items[0].event.waitBatch?.elapsedMs === 1400, "numeric timestamps derive elapsed time");
-  assert(items[1].kind === "tool" && items[1].event.kind === "command", "commands never coalesce");
-  assert(items[2].kind === "tool" && items[2].event.waitBatch, "command splits adjacent waits");
-  assert(items[3].kind === "message", "messages preserve order and split batches");
-  assert(items[5].kind === "tool" && items[5].event.phase === "result", "result-only rows never coalesce");
+  const linked = reduceToolEvents([described("a", "msg-1", "First"), described("b", "msg-1", "Second"), result("ra", "a", "out a")]);
+  assert(linked.length === 1 && linked[0].kind === "tool" && linked[0].event.stream?.members.length === 2, "described calls sharing a proven flow form one stream");
+  assert(linked[0].kind === "tool" && linked[0].event.summary === "Second", "stream title rolls to the latest description");
+  assert(linked[0].kind === "tool" && linked[0].event.stream?.members[0].result === "out a", "members keep their exact output");
+  const unlinked = reduceToolEvents([described("c", undefined, "Only"), described("d", "msg-2", "Alone")]);
+  assert(unlinked.length === 2 && unlinked.every((item) => item.kind === "tool" && !item.event.stream), "unlinked or singleton described calls stay rows");
+  const partial = reduceToolEvents([described("e", "msg-3", "Described"), described("f", "msg-3", undefined)]);
+  assert(partial.length === 2, "a flow with an unlabeled member stays individual rows");
 
-  const rejected = ["await", "wait-and-run", "shell_wait"];
-  for (const name of rejected) {
-    const output = reduceToolEvents([wait(name, name)]);
-    assert(output[0].kind === "tool" && output[0].event.kind === "generic", `${name} is not an exact wait alias`);
-  }
-  assert(reduceToolEvents([wait("wait_agent", "wait_agent")]).length === 0, "existing internal orchestration hiding still excludes wait_agent");
-  const invalidTimes = reduceToolEvents([wait("bad-1", "wait", { timestamp: "not-a-number" }), wait("bad-2", "wait", { timestamp: "2000" })]);
-  assert(invalidTimes[0].kind === "tool" && invalidTimes[0].event.waitBatch?.elapsedMs === undefined, "invalid timestamps omit elapsed time");
-  const negativeTimes = reduceToolEvents([wait("late", "wait", { timestamp: "3000" }), wait("early", "wait", { timestamp: "1000" })]);
-  assert(negativeTimes[0].kind === "tool" && negativeTimes[0].event.waitBatch?.elapsedMs === 0, "negative elapsed time clamps to zero");
-  const sessions = reduceToolEvents([wait("session-a", "wait", { sourceSessionId: "a" }), wait("session-b", "wait", { sourceSessionId: "b" })]);
-  assert(sessions.length === 2, "waits from different sessions never merge");
-  const unknownSessions = reduceToolEvents([
-    wait("unknown-a", "wait", { sourceSessionId: undefined }),
-    wait("unknown-b", "wait", { sourceSessionId: undefined }),
+  const boundary = (content: "start" | "end", flowId: string, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage => ({
+    id: `flow-${content}-${flowId}`, type: "tool_flow", content, toolFlowId: flowId, ...session, ...patch,
+  });
+  const titled = (id: string, title: string, patch: Partial<NormalizedChatMessage> = {}) => call(id, id, { toolTitle: title, toolError: false, ...session, ...patch });
+  const turns = reduceToolEvents([
+    boundary("start", "turn-a"),
+    titled("t1", "npm test"),
+    { id: "between", type: "assistant", content: "between", ...session },
+    titled("t2", "Wait for command output"),
+    titled("t3", "wait_agent", { toolName: "wait_agent" }),
+    boundary("end", "turn-a"),
+    boundary("start", "turn-b"),
+    titled("t4", "git status"),
+    titled("t5", "Read a.ts"),
   ]);
-  assert(unknownSessions.length === 2, "waits without session identity never merge");
-  const knownReduced = reduceToolEvents([wait("duplicate", "wait", { sourceSessionId: "same" }), wait("duplicate-next", "wait", { sourceSessionId: "same" })]);
-  const recomputed = coalesceWaitEvents(knownReduced);
-  assert(recomputed.length === 1 && recomputed[0].kind === "tool" && recomputed[0].event.waitBatch?.members.length === 2, "recoalescing settled output does not duplicate members");
+  assert(turns.length === 3, "each turn yields one stream while text keeps its order");
+  assert(turns[0].kind === "tool" && turns[0].event.stream?.members.map((member) => member.id).join() === "t1,t2,t3", "wait follow-ups are ordinary actions of their turn");
+  assert(turns[0].kind === "tool" && turns[0].event.stream?.active === false, "a closed settled turn is inactive");
+  assert(turns[1].kind === "message", "assistant text is not absorbed into a stream");
+  assert(turns[2].kind === "tool" && turns[2].event.stream?.members.map((member) => member.id).join() === "t4,t5", "a later turn never merges with an earlier one");
+  assert(turns[2].kind === "tool" && turns[2].event.stream?.active === true, "an open turn keeps its stream active");
+  const foreign = reduceToolEvents([boundary("start", "turn-x"), titled("s1", "a", { sourceSessionId: "other" }), titled("s2", "b", { sourceSessionId: "other" })]);
+  assert(foreign.length === 2, "a boundary never assigns calls from another session");
+  assert(reduceToolEvents([call("wait-agent", "wait-agent", { toolName: "wait_agent" })]).length === 1, "wait_agent is an ordinary visible action");
 }
 
-console.log("ok - wait batch predicate");
+console.log("ok - tool activity streams");

@@ -62,7 +62,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           </span>
           <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]">
             {label && <span className="shrink-0 font-semibold" style={{ color: visual.color }}>{label}</span>}
-            <span className="min-w-0 truncate" style={{ color: "var(--ct-fg)" }}>{(summary ?? event.summary) || "Tool activity"}</span>
+            <span className="min-w-0 truncate" data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{(summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
             {!expanded && tail}
           </span>
