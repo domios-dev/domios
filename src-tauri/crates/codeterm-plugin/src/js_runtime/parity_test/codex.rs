@@ -454,3 +454,49 @@ fn codex_stays_on_native_prompt_detector() {
     }
     assert!(!codex().supports_structured_prompts());
 }
+
+#[test]
+fn parse_session_delta_normalizes_reasoning_and_agent_activity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let jsonl = concat!(
+        r#"{"type":"event_msg","timestamp":"2026-05-01T10:00:00Z","payload":{"type":"item_completed","turn_id":"turn-r","item":{"type":"Reasoning","id":"rs-a","summary_text":["**Inspect sources**","",7],"raw_content":["opaque-raw"]}}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"reasoning","id":"rs-a","summary":[{"type":"summary_text","text":"**Inspect sources**"}],"encrypted_content":"opaque-encrypted"}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"reasoning","id":"rs-empty","summary":[],"encrypted_content":"opaque-encrypted"}}"#,
+        "\n",
+        r#"{"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-r","item":{"type":"SubAgentActivity","id":"call-a","kind":"started","agent_thread_id":"thread-w","agent_path":"/root/worker"}}}"#,
+        "\n",
+        r#"{"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-r","item":{"type":"CollabAgentToolCall","id":"call-wait","tool":"wait","status":"completed","sender_thread_id":"thread-root","receiver_thread_ids":[],"receiver_agents":[],"agents_states":{}}}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"agent_message","id":"amsg-1","author":"/root","recipient":"/root/worker","content":[{"type":"encrypted_content","encrypted_content":"opaque-message"}],"internal_chat_message_metadata_passthrough":{"turn_id":"turn-r"}}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"agent_message","id":"amsg-2","author":"/root","recipient":"/root"}}"#,
+        "\n",
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), jsonl).unwrap();
+
+    let delta = codex().parse_session_delta(tmp.path(), 0);
+    let blocks: Vec<_> = delta.messages.iter().flat_map(|m| m.blocks.iter()).collect();
+    let kinds: Vec<&str> = blocks.iter().map(|b| b.kind.as_str()).collect();
+    assert_eq!(kinds, vec!["thinking", "tool_use", "tool_use"], "{:#?}", delta.messages);
+    assert_eq!(blocks[0].data, serde_json::json!({ "text": "**Inspect sources**" }));
+    assert_eq!(blocks[1].data["tool_kind"], "agent");
+    assert_eq!(
+        blocks[1].data["input"],
+        serde_json::json!({ "agent_id": "thread-w", "agent_path": "/root/worker", "agent_state": "started" })
+    );
+    assert_eq!(blocks[1].data["tool_flow_id"], "turn-r");
+    assert_eq!(blocks[2].data["tool_kind"], "agent");
+    assert_eq!(
+        blocks[2].data["input"],
+        serde_json::json!({ "message_from": "/root", "message_to": "/root/worker" })
+    );
+    assert!(
+        !format!("{:?}", delta.messages).contains("opaque"),
+        "encrypted, raw, and message content never crosses"
+    );
+}

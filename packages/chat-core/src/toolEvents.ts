@@ -1,10 +1,17 @@
+import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree } from "./agentActivity";
 import { wellFormedFileDiffs } from "./fileDiffs";
 import { normalizeToolRichResult } from "./toolRichResult";
-import type { FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
+import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
+
+export type StreamEntry =
+  | { kind: "action"; event: ToolEvent }
+  | { kind: "thought"; id: string; text: string };
 
 interface ToolStream {
   flowId: string;
   members: ToolEvent[];
+  /** Members plus same-session, same-flow thoughts that sit between them, in source order. */
+  entries: StreamEntry[];
   active: boolean;
 }
 
@@ -27,6 +34,8 @@ export interface ToolEvent {
   error?: boolean;
   message: NormalizedChatMessage;
   stream?: ToolStream;
+  /** Sub-agent activity of one session and flow, folded into one card. */
+  agents?: AgentActivityTree;
 }
 
 export type TimelineItem =
@@ -115,7 +124,7 @@ function flowKey(sessionId: string | undefined, flowId: string): string {
   return `${sessionId ?? ""}:${flowId}`;
 }
 
-function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
+function streamEvent(members: ToolEvent[], entries: StreamEntry[], active: boolean): ToolEvent {
   const first = members[0];
   const latest = members[members.length - 1];
   const failed = members.some((member) => member.status === "error");
@@ -131,15 +140,24 @@ function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
     richResult: undefined,
     result: undefined,
     error: failed || undefined,
-    stream: { flowId: first.flowId as string, members, active },
+    stream: { flowId: first.flowId as string, members, entries, active },
   };
   // Diffs stay with the member that produced them; a stream head shows none of its own.
   delete head.fileDiffs;
   return head;
 }
 
+function agentActivityEvent(message: NormalizedChatMessage, records: AgentActivity[]): ToolEvent {
+  return { id: `${message.id}:agents`, phase: "call", status: "success", kind: "task", summary: "Agents", message, agents: buildAgentTree(records) };
+}
+
 /** Folds calls that share one proven flow into a stream at the first member's position. */
-function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>, boundaryFlows: ReadonlySet<string>): TimelineItem[] {
+function groupToolStreams(
+  items: TimelineItem[],
+  openFlows: ReadonlySet<string>,
+  boundaryFlows: ReadonlySet<string>,
+  thoughtKeys: ReadonlyMap<number, string>,
+): TimelineItem[] {
   const groups = new Map<string, number[]>();
   items.forEach((item, index) => {
     if (item.kind !== "tool" || item.event.phase !== "call" || !item.event.flowId || item.event.stream) return;
@@ -148,6 +166,8 @@ function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>,
     indexes.push(index);
     groups.set(key, indexes);
   });
+  const thoughtsByKey = new Map<string, number[]>();
+  for (const [index, key] of thoughtKeys) thoughtsByKey.set(key, [...(thoughtsByKey.get(key) ?? []), index]);
   const heads = new Map<number, ToolEvent>();
   const absorbed = new Set<number>();
   for (const [key, indexes] of groups) {
@@ -158,10 +178,17 @@ function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>,
     // Only a boundary-opened flow proves its source emits no descriptions; call-stamped flows need them.
     const labeled = boundaryFlows.has(key) ? toolStreamLabel : (member: ToolEvent) => member.description;
     if (!members.every((member) => labeled(member))) continue;
+    const head = actionIndexes[0];
+    const last = actionIndexes[actionIndexes.length - 1];
+    const thoughts = (thoughtsByKey.get(key) ?? []).filter((index) => index > head && index < last);
+    const entries = [...actionIndexes, ...thoughts].sort((a, b) => a - b).map((index): StreamEntry => {
+      const item = items[index];
+      return item.kind === "tool" ? { kind: "action", event: item.event } : { kind: "thought", id: item.message.id, text: item.message.content };
+    });
     const active = openFlows.has(key) || members.some((member) => member.status === "pending");
-    heads.set(actionIndexes[0], streamEvent(members, active));
+    heads.set(head, streamEvent(members, entries, active));
     // An echo re-reports a command a member already shows, so a formed stream drops it.
-    for (const index of indexes) if (index !== actionIndexes[0]) absorbed.add(index);
+    for (const index of [...indexes, ...thoughts]) if (index !== head) absorbed.add(index);
   }
   if (heads.size === 0) return items;
   return items.flatMap((item, index): TimelineItem[] => {
@@ -181,6 +208,8 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
   const boundaryFlows = new Set<string>();
   const supersessions = new Map<string, number>();
   const callEpochs = new Map<number, { session: string; epoch: number }>();
+  const thoughtKeys = new Map<number, string>();
+  const agentGroups = new Map<string, { item: number; message: NormalizedChatMessage; records: AgentActivity[] }>();
   const supersede = (session: string) => supersessions.set(session, (supersessions.get(session) ?? 0) + 1);
 
   for (const message of messages) {
@@ -195,6 +224,25 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
         boundaryFlows.add(flowKey(message.sourceSessionId, flowId));
       }
       else if (message.content === "end" && (!flowId || openFlowBySession.get(session) === flowId)) openFlowBySession.delete(session);
+      continue;
+    }
+    if (isAgentActivityMessage(message)) {
+      const record = agentActivityOf(message);
+      if (!record) continue;
+      const flowId = text(message.toolFlowId) || openFlowBySession.get(message.sourceSessionId ?? "") || "";
+      const key = flowKey(message.sourceSessionId, flowId);
+      const group = agentGroups.get(key);
+      if (group) group.records.push(record);
+      else {
+        agentGroups.set(key, { item: items.length, message, records: [record] });
+        items.push({ kind: "message", message });
+      }
+      continue;
+    }
+    if (message.type === "thinking") {
+      const flowId = text(message.toolFlowId) || openFlowBySession.get(message.sourceSessionId ?? "");
+      if (flowId && message.content?.trim()) thoughtKeys.set(items.length, flowKey(message.sourceSessionId, flowId));
+      items.push({ kind: "message", message });
       continue;
     }
     if (isInternalOrchestrationTool(message.toolName)) continue;
@@ -254,6 +302,9 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items.push({ kind: "tool", event });
     }
   }
+  for (const group of agentGroups.values()) {
+    items[group.item] = { kind: "tool", event: agentActivityEvent(group.message, group.records) };
+  }
   const openFlows = new Set([...openFlowBySession].map(([session, flowId]) => flowKey(session || undefined, flowId)));
   for (const [index, { session, epoch }] of callEpochs) {
     const item = items[index];
@@ -261,5 +312,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }
-  return groupToolStreams(items, openFlows, boundaryFlows);
+  return groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys);
 }

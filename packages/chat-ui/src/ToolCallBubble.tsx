@@ -3,6 +3,7 @@ import { materializeToolEvent } from "@codeterm/chat-core";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import type { OpenPlan, ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { recognize } from "./codeterm/recognize";
+import { AgentActivityCard } from "./toolcard/AgentActivityCard";
 import { CodetermActionCard } from "./toolcard/CodetermActionCard";
 import { CommandCard } from "./toolcard/CommandCard";
 import { EditCard } from "./toolcard/EditCard";
@@ -70,6 +71,7 @@ export function ToolCallBubble({
 }: ToolCallBubbleProps) {
   const event = suppliedEvent ?? (message ? materializeToolEvent(message) : null);
   if (!event) return null;
+  if (event.agents) return <AgentActivityCard event={event} expanded={expanded} onToggle={onToggle} />;
   if (event.stream) {
     return (
       <ToolActivityStream
