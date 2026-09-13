@@ -1,4 +1,5 @@
 use super::*;
+use crate::plan::OrchestratorRef;
 
 fn append_lifecycle_event(plan: &mut Plan, kind: &str, at: u64, author: OrchestratorRef) {
     let id = format!("lifecycle-{kind}-{}", plan.lifecycle_events.len());

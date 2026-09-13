@@ -401,12 +401,13 @@ mod tests {
             vec![],
             Some("foreign"),
         );
+        let foreign_id = foreign.id.clone();
         let state = project_team_state(team("team-a"), vec![local, foreign], 20, None).unwrap();
         assert_eq!(
             state.active_plan.as_ref().map(|plan| plan.id.as_str()),
             Some("local")
         );
-        assert!(state.events.iter().all(|event| event.plan_id != foreign.id));
+        assert!(state.events.iter().all(|event| event.plan_id != foreign_id));
     }
 
     #[test]
@@ -488,7 +489,7 @@ mod tests {
             Some("stored"),
         )];
         let first = project_team_state(team("team-a"), plans.clone(), 1, None).unwrap();
-        let second = project_team_state(team("team-a"), plans, 1, None).unwrap();
+        let second = project_team_state(team("team-a"), plans.clone(), 1, None).unwrap();
         assert_eq!(first, second);
         let cursor = first.next_cursor.as_deref().unwrap();
         let page_a = project_team_state(team("team-a"), plans.clone(), 1, Some(cursor));
