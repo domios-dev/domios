@@ -113,6 +113,15 @@ export interface NormalizedChatMessage {
   toolFlowId?: string;
   /** True when this action re-reports a command that another call in its flow already represents. */
   toolEcho?: boolean;
+  /** Exact source row identity for a call/result link, when the source proves one. */
+  toolCallSourceId?: string;
+  /** Result-link evidence state; unavailable evidence must not use positional pairing. */
+  toolPairing?: "exact" | "unavailable";
+  /** Source-provided command outcome facts. Missing facts stay absent. */
+  toolExitCode?: number;
+  toolDurationMs?: number;
+  toolInterrupted?: boolean;
+  toolBackgroundTaskId?: string;
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

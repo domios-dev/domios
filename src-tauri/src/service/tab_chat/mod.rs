@@ -323,6 +323,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                             .map(String::from),
                         tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                         tool_error: is_error,
+                        tool_call_source_id: get_optional_string(&b.data, "tool_call_source_id"),
+                        tool_pairing: get_optional_string(&b.data, "tool_pairing"),
+                        tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                        tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                        tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                        tool_background_task_id: get_optional_string(&b.data, "tool_background_task_id"),
                         collapsed: true,
                         timestamp: ts.clone(),
                         ..Default::default()
@@ -459,6 +465,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 let tool_title = get_optional_string(&b.data, "tool_title");
                 let tool_flow_id = get_optional_string(&b.data, "tool_flow_id");
                 let tool_echo = b.data.get("tool_echo").and_then(|v| v.as_bool());
+                let tool_call_source_id = get_optional_string(&b.data, "tool_call_source_id");
+                let tool_pairing = get_optional_string(&b.data, "tool_pairing");
+                let tool_exit_code = b.data.get("tool_exit_code").and_then(|v| v.as_i64());
+                let tool_duration_ms = b.data.get("tool_duration_ms").and_then(|v| v.as_u64());
+                let tool_interrupted = b.data.get("tool_interrupted").and_then(|v| v.as_bool());
+                let tool_background_task_id = get_optional_string(&b.data, "tool_background_task_id");
                 let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
                     Some("success") => Some(false),
                     Some("error") => Some(true),
@@ -486,6 +498,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_title,
                     tool_flow_id,
                     tool_echo,
+                    tool_call_source_id,
+                    tool_pairing,
+                    tool_exit_code,
+                    tool_duration_ms,
+                    tool_interrupted,
+                    tool_background_task_id,
                     tool_name: Some(name),
                     tool_args: tool_detail,
                     tool_input: b.data.get("input").cloned(),
@@ -508,6 +526,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                         .map(String::from),
                     tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                     tool_error: is_error,
+                    tool_call_source_id: get_optional_string(&b.data, "tool_call_source_id"),
+                    tool_pairing: get_optional_string(&b.data, "tool_pairing"),
+                    tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                    tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                    tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                    tool_background_task_id: get_optional_string(&b.data, "tool_background_task_id"),
                     collapsed: true,
                     ..Default::default()
                 }
