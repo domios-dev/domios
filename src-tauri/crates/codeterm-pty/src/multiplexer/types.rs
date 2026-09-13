@@ -18,6 +18,11 @@ pub struct Workspace {
     /// matters; the frontend sorts by it. Legacy snapshots default to 0.
     #[serde(default)]
     pub sort_order: i32,
+    #[serde(
+        default,
+        skip_serializing_if = "codeterm_types::plan::task_key::WorkspaceTaskKeys::is_unissued"
+    )]
+    pub task_keys: codeterm_types::plan::task_key::WorkspaceTaskKeys,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

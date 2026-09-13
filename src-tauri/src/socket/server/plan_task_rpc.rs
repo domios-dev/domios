@@ -560,6 +560,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str());
             let mut resp = json!({
                 "task_id": tid.clone(),
+                "key": store.task_display_key(&id, &tid),
                 "section_ids": linked,
                 "_hints": response_hints
             });
@@ -979,5 +980,7 @@ pub(super) fn dispatch(
     }
 }
 
+#[cfg(test)]
+mod task_key_contract_tests;
 #[cfg(test)]
 mod tests;

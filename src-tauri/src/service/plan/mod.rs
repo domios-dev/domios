@@ -6,6 +6,9 @@ pub mod adopt;
 pub mod lane_port_impl;
 pub mod search_port_impl;
 pub mod sink_impl;
+#[cfg(test)]
+mod task_key_contract_tests;
+pub mod task_key_port_impl;
 
 // ServiceContext extensions implemented in the app crate
 mod mission_control_ext;

@@ -90,10 +90,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             authorize_task_mutation(plan, &plan.tasks[index], authority)?;
             let task = &mut plan.tasks[index];
@@ -131,10 +128,7 @@ impl PlanStore {
     ) -> Result<(), PlanError> {
         provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt = task
                 .execution_attempts
@@ -165,10 +159,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if task.interruption.owner_epoch != owner_epoch
                 || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
@@ -220,10 +211,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if task.interruption.owner_epoch != owner_epoch
                 || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
@@ -276,10 +264,7 @@ impl PlanStore {
             ));
         }
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL)
                 || task.interruption.owner_epoch != owner_epoch
@@ -317,10 +302,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL) {
                 return Err(PlanError::Io(
@@ -361,10 +343,7 @@ impl PlanStore {
             ));
         }
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if !task.interruption.handoff_required
                 || task.interruption.owner_epoch != owner_epoch
@@ -401,10 +380,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let exact = task.execution_attempts.iter().any(|attempt| {
                 attempt.id == attempt_id
@@ -468,10 +444,7 @@ impl PlanStore {
     ) -> Result<(u64, String), PlanError> {
         let mut adopted = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let checkpoint = task
                 .interruption

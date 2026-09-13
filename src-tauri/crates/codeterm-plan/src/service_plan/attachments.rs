@@ -183,10 +183,7 @@ impl PlanStore {
         let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
         self.with_plan(plan_id, now_ms, |plan| {
-            let pos = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let pos = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if plan.tasks[pos].attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
                 return Err(PlanError::Io(format!(
@@ -252,10 +249,7 @@ impl PlanStore {
         let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
         self.with_plan(plan_id, now_ms, |plan| {
-            let task_pos = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_pos = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let milestone_pos = plan.tasks[task_pos]
                 .milestones

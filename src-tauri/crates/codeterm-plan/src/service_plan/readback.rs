@@ -190,9 +190,8 @@ impl PlanStore {
         let plan = self
             .committed_plan_for(plan_id)
             .ok_or(PlanError::NotFound)?;
-        plan.tasks
-            .into_iter()
-            .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        crate::plan::task_key::find_task(&plan.tasks, task_id)
+            .cloned()
             .ok_or(PlanError::TaskNotFound)
     }
 
@@ -558,11 +557,7 @@ impl PlanStore {
         let plan = self
             .committed_plan_for(plan_id)
             .ok_or(PlanError::NotFound)?;
-        if plan
-            .tasks
-            .iter()
-            .any(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-        {
+        if crate::plan::task_key::find_task_index(&plan.tasks, task_id).is_some() {
             return Err(Self::task_readback_error(
                 "task_remove",
                 format!("task {task_id} still exists after removal"),
@@ -580,11 +575,7 @@ impl PlanStore {
         let plan = self
             .committed_plan_for(plan_id)
             .ok_or(PlanError::NotFound)?;
-        if !plan
-            .tasks
-            .iter()
-            .any(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-        {
+        if !crate::plan::task_key::find_task_index(&plan.tasks, task_id).is_some() {
             return Err(Self::task_readback_error(
                 "task_remove",
                 format!("task {task_id} was removed despite dependency rejection"),

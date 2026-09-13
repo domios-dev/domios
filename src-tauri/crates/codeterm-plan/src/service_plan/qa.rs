@@ -242,10 +242,7 @@ impl PlanStore {
         let note = require_note(note)?;
         let mut result = None;
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if p.tasks[idx].status != TaskStatus::InReview {
                 return Err(PlanError::TransitionDenied {
@@ -339,10 +336,7 @@ impl PlanStore {
         let note = require_note(note)?;
         let mut result = None;
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             require_running_qa(&p.tasks[idx])?;
             let attempt_index = claimed_attempt_index(&p.tasks[idx])?;
@@ -404,10 +398,7 @@ impl PlanStore {
         let note = require_note(note)?;
         let mut result = None;
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             require_running_qa(&p.tasks[idx])?;
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));

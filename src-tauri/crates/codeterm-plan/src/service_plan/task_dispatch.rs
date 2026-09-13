@@ -93,9 +93,7 @@ impl PlanStore {
         session_id: Option<&str>,
     ) -> bool {
         self.get(plan_id).is_some_and(|plan| {
-            plan.tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            crate::plan::task_key::find_task(&plan.tasks, task_id)
                 .and_then(|task| {
                     startup_attempt(task, tab_id, attempt_id).map(|(attempt, _)| (task, attempt))
                 })
@@ -127,11 +125,7 @@ impl PlanStore {
             return Ok(false);
         }
         self.with_plan(plan_id, now_ms, |plan| {
-            let Some(task) = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-            else {
+            let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id) else {
                 return Ok(false);
             };
             let authority = startup_attempt(task, tab_id, attempt_id);
@@ -350,10 +344,7 @@ impl PlanStore {
         let mut attempt_id = None;
         let mut original_status = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             lane.tab_id = Some(tab_id.to_string());
             let lane_update = super::TaskLaneUpdate {
@@ -462,10 +453,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt_index = plan.tasks[task_index]
                 .execution_attempts
@@ -600,10 +588,7 @@ impl PlanStore {
         }
         let mut acknowledged = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt_index = plan.tasks[task_index]
                 .execution_attempts
@@ -791,10 +776,7 @@ impl PlanStore {
     ) -> Result<super::task_attempts::TaskAttemptCreated, PlanError> {
         let mut ready = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt_index = plan.tasks[task_index]
                 .execution_attempts
@@ -933,10 +915,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             lane.tab_id = Some(tab_id.to_string());
             let lane_update = super::TaskLaneUpdate {
@@ -1015,10 +994,7 @@ impl PlanStore {
         let expected = snapshot.clone();
         let expected_mode = plan_mode.clone();
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(&task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             *task = snapshot;
             plan.mode = plan_mode;
@@ -1029,10 +1005,8 @@ impl PlanStore {
             .ok_or(PlanError::NotFound)
             .and_then(|plan| {
                 let mode_matches = plan.mode == expected_mode;
-                let task = plan
-                    .tasks
-                    .into_iter()
-                    .find(|task| task.id == task_id || task.handle.as_deref() == Some(&task_id))
+                let task = crate::plan::task_key::find_task(&plan.tasks, &task_id)
+                    .cloned()
                     .ok_or(PlanError::TaskNotFound)?;
                 if task == expected && mode_matches {
                     Ok(())

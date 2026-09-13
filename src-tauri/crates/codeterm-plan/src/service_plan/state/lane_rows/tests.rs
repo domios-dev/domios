@@ -27,6 +27,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         review_round: 0,
         review_oracle: None,
         review_evidence: vec![],
+        key: None,
         review_override: None,
         review_audit: vec![],
         status_label: None,

@@ -868,6 +868,12 @@ pub fn run() {
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            service_state.plan_store.bind_task_key_port(Arc::new(
+                crate::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
+                    service_state.mux.clone(),
+                    service_state.app_handle.clone(),
+                ),
+            ));
             service_state
                 .provider_updates
                 .bind_execution_owner(&service_state);

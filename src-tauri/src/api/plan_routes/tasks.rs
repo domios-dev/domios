@@ -330,6 +330,7 @@ pub async fn task_add(
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "task_id": tid.clone(),
+        "key": state.svc.plan_store.task_display_key(&id, &tid),
         "_hints": crate::service::plan::hints::task_create_hints(
             &id,
             &tid,
