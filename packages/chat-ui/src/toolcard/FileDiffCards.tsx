@@ -95,6 +95,15 @@ function HunkLines({ hunk, language }: { hunk: FileDiffHunk; language: string })
   );
 }
 
+/** One hunk's highlighted lines without a card, for a stream branch. */
+export function DiffHunkLines({ hunk, path }: { hunk: FileDiffHunk; path: string }) {
+  return (
+    <div data-testid="chat-branch-hunk" className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-max`}>
+      <HunkLines hunk={hunk} language={knownLanguageFromPath(path)} />
+    </div>
+  );
+}
+
 function FileEditCard({ event, diff, showResult, initiallyExpanded }: { event: ToolEvent; diff: FileDiff; showResult: boolean; initiallyExpanded: boolean }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const regionId = useId();

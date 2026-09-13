@@ -3,6 +3,7 @@ import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react"
 import { useId, useState, type ReactNode } from "react";
 import { toolCommandShape, type CommandRow } from "../codeterm/commandShape";
 import { COMMAND_TREE_CAP, CommandTree, commandCallKey, rememberOpenSegment } from "./CommandTree";
+import { MemberBranches } from "./MemberBranches";
 import { ThoughtLine } from "./ThoughtLine";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 
@@ -94,6 +95,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
                 <span className="min-w-0 truncate">{actionLabel(member)}</span>
                 <ToolOutcomeFacts event={member} />
               </button>
+              {!rows && <MemberBranches member={member} label={`Details of ${actionLabel(member)}`} />}
               {rows && (
                 <CommandTree
                   rows={rows}
