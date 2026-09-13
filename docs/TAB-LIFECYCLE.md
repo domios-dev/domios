@@ -37,6 +37,10 @@ change that decision.
    came back as a bare shell is named with its role and reason
    (`agent_not_live`), and one whose liveness is not yet observable is reported
    as `agent_liveness_unobserved` rather than assumed either way.
+6. A provider exit observed while a graceful shutdown is armed (update, quit,
+   restart, signal) keeps the tab's provider, session and nonces. The shutdown
+   killed that process, so the snapshot written at exit still names the session
+   the next boot resumes. Outside a shutdown the same exit clears the identity.
 
 ## Restore reporting and observed liveness
 
@@ -231,4 +235,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
