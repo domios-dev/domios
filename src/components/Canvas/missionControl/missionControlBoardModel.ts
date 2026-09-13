@@ -444,7 +444,11 @@ export function progressReading(counts: PlanTaskCounts): ProgressReading {
   };
 }
 
-/** A plan reads by its goal; a plan without one reads by its title. */
-export function planHeading(plan: { title: string; goal?: { vector: string } | null }): string {
-  return plan.goal?.vector?.trim() || plan.title;
+/** A plan's goal statement when it has one; the title always names the plan. */
+export function planGoal(plan: { goal?: { vector: string } | null }): string | null {
+  return plan.goal?.vector?.trim() || null;
+}
+
+export function formatPlanDate(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
