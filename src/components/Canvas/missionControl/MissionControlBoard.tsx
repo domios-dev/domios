@@ -5,7 +5,7 @@ import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotification
 import { ModelsCard, NeedsYouPanel, PlanCard, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
 import { boardRefs } from "./BoardRefText";
-import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
+import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout, type EventPager } from "./missionControlBoardModel";
 import type { PlanBoardState } from "./missionControlState";
 
 export interface MissionControlBoardProps {
@@ -27,6 +27,8 @@ export interface MissionControlBoardProps {
   onOpenPlan?: (planId: string) => void;
   /** Needs you notifications in this Board's scope, each one jump to its chat message. */
   deepLinks?: NeedsYouDeepLinks;
+  /** The team's event stream; the plan's stored log is used without it. */
+  eventPager?: EventPager;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -57,6 +59,7 @@ export function MissionControlBoard({
   onOpenTask,
   onOpenPlan,
   deepLinks,
+  eventPager,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -101,7 +104,12 @@ export function MissionControlBoard({
             />
           </div>
           <NeedsYouPanel held={mc.held} refs={refs} deepLinks={deepLinks} />
-          <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} refs={refs} />
+          <BoardEventLog
+            log={mc.event_log}
+            milestoneKinds={plan.milestone_kinds ?? []}
+            refs={refs}
+            pager={eventPager}
+          />
         </>
       )}
     </div>

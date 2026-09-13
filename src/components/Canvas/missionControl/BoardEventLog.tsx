@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { BoardPanel, BoardPanelSection } from "./BoardPanel";
 import { RefText, type BoardRefs } from "./BoardRefText";
 import {
@@ -6,7 +6,6 @@ import {
   EVENT_PART_SEPARATOR,
   EVENT_REVEAL_HIDE_LABEL,
   EVENT_REVEAL_SHOW_LABEL,
-  eventLogCaption,
   eventLogRows,
   pagerPages,
   planEventPager,
@@ -91,14 +90,14 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
 
 export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: BoardEventLogProps) {
   const source = useMemo(() => pager ?? planEventPager(log), [pager, log]);
-  const [offset, setOffset] = useState(0);
-  const lastOffset = Math.max(0, Math.ceil(source.total / EVENT_LOG_PAGE) * EVENT_LOG_PAGE - EVENT_LOG_PAGE);
-  const pageOffset = Math.min(offset, lastOffset);
-  const rows = eventLogRows(
-    { ...log, entries: source.page(pageOffset, EVENT_LOG_PAGE) },
-    milestoneKinds,
-    pageOffset,
-  );
+  const [pageIndex, setPageIndex] = useState(0);
+  const lastIndex = Math.max(0, source.pageCount - 1);
+  const index = Math.min(pageIndex, lastIndex);
+  const entries = source.page(index);
+  useEffect(() => {
+    if (entries === null) source.load?.(index);
+  }, [entries, index, source]);
+  const rows = entries ? eventLogRows({ ...log, entries }, milestoneKinds, index * EVENT_LOG_PAGE) : [];
   const logId = useId();
   const [openKeys, setOpenKeys] = useState<readonly string[]>([]);
   const toggle = useCallback((key: string) => {
@@ -106,9 +105,13 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
   }, []);
 
   return (
-    <BoardPanel testId="mc-board-event-log" title="What happened" meta={eventLogCaption(log)}>
+    <BoardPanel testId="mc-board-event-log" title="What happened" meta={source.caption}>
       <BoardPanelSection>
-        {rows.length === 0 ? (
+        {entries === null ? (
+          <p data-testid="mc-board-event-log-loading" className="mc-board-note">
+            Loading…
+          </p>
+        ) : rows.length === 0 ? (
           <p data-testid="mc-board-event-log-empty" className="mc-board-note">
             No events yet.
           </p>
@@ -131,7 +134,7 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
             )}
           </div>
         )}
-        {source.total > EVENT_LOG_PAGE && (
+        {source.pageCount > 1 && (
           <nav aria-label="Event pages" data-testid="mc-board-event-log-pager" className="mc-board-log-pager">
             <button
               type="button"
@@ -139,14 +142,14 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
               className="mc-board-chip"
               aria-label="Newer events"
               aria-controls={logId}
-              disabled={pageOffset === 0}
-              onClick={() => setOffset(Math.max(0, pageOffset - EVENT_LOG_PAGE))}
+              disabled={index === 0}
+              onClick={() => setPageIndex(Math.max(0, index - 1))}
             >
               ‹
             </button>
-            {pagerPages(pageOffset / EVENT_LOG_PAGE + 1, lastOffset / EVENT_LOG_PAGE + 1).map((page, index) =>
+            {pagerPages(index + 1, lastIndex + 1).map((page, position) =>
               page === "gap" ? (
-                <span key={`gap-${index}`} aria-hidden="true" className="mc-board-log-pager-gap">
+                <span key={`gap-${position}`} aria-hidden="true" className="mc-board-log-pager-gap">
                   …
                 </span>
               ) : (
@@ -156,8 +159,8 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
                   data-testid="mc-board-event-log-page"
                   className="mc-board-chip"
                   aria-controls={logId}
-                  aria-current={page === pageOffset / EVENT_LOG_PAGE + 1 ? "page" : undefined}
-                  onClick={() => setOffset((page - 1) * EVENT_LOG_PAGE)}
+                  aria-current={page === index + 1 ? "page" : undefined}
+                  onClick={() => setPageIndex(page - 1)}
                 >
                   {page}
                 </button>
@@ -169,8 +172,8 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
               className="mc-board-chip"
               aria-label="Older events"
               aria-controls={logId}
-              disabled={pageOffset >= lastOffset}
-              onClick={() => setOffset(Math.min(lastOffset, pageOffset + EVENT_LOG_PAGE))}
+              disabled={index >= lastIndex}
+              onClick={() => setPageIndex(Math.min(lastIndex, index + 1))}
             >
               ›
             </button>

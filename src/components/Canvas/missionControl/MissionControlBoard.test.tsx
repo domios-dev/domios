@@ -16,6 +16,7 @@ import {
   boardLayout,
   formatClock,
   pagerPages,
+  type EventPager,
 } from "./missionControlBoardModel";
 import type {
   MissionControlState,
@@ -599,6 +600,33 @@ describe("mission control board panels", () => {
     await act(async () => button("mc-board-event-log-newer").click());
     expect(bodies()[0]).toBe("note 69");
     expect(text(host, "mc-board-event-log-meta")).toBe("120 events");
+    await unmount();
+  });
+
+  it("reads a cursor-paged team stream, loading an older page only when it is opened", async () => {
+    const newest = Array.from({ length: 50 }, (_, index) =>
+      logEvent({ ts: DAY + 2 * H - index * 1_000, kind: "note", text: `team ${index}` }),
+    );
+    const pages: Array<PlanEvent[] | null> = [newest, null];
+    const load = vi.fn();
+    const pager: EventPager = {
+      pageCount: 2,
+      page: (index) => pages[index] ?? null,
+      load,
+      caption: "50+ events",
+    };
+    const { host, unmount } = await render(
+      <MissionControlBoard plan={PLAN} state={boardState(recordingState())} now={NOW} eventPager={pager} />,
+    );
+
+    expect(text(host, "mc-board-event-log-meta")).toBe("50+ events");
+    expect(eventRows(host)).toHaveLength(50);
+    expect(part(eventRows(host)[0]!, "mc-board-event-body")?.textContent).toBe("team 0");
+    expect(load).not.toHaveBeenCalled();
+    const older = host.querySelector('[data-testid="mc-board-event-log-older"]') as HTMLButtonElement;
+    await act(async () => older.click());
+    expect(text(host, "mc-board-event-log-loading")).toBe("Loading…");
+    expect(load).toHaveBeenCalledWith(1);
     await unmount();
   });
 
