@@ -16,6 +16,7 @@ import {
   EVENT_TASK_NAME_MAX,
   boardLayout,
   formatClock,
+  formatDayLabel,
   pagerPages,
   type EventPager,
 } from "./missionControlBoardModel";
@@ -612,6 +613,41 @@ describe("mission control board panels", () => {
     await act(async () => button("mc-board-event-log-newer").click());
     expect(bodies()[0]).toBe("note 69");
     expect(text(host, "mc-board-event-log-meta")).toBe("120 events");
+    await unmount();
+  });
+
+  it("labels every local day change once, across two days and into an older page", async () => {
+    const now = new Date(NOW);
+    const at = (daysAgo: number, hour: number, minute: number) =>
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, hour, minute).getTime();
+    const state = recordingState();
+    state.event_log.entries = [
+      ...Array.from({ length: 3 }, (_, index) => logEvent({ ts: at(2, 10, index), kind: "note", text: `older ${index}` })),
+      ...Array.from({ length: 50 }, (_, index) => logEvent({ ts: at(1, 18, index), kind: "note", text: `yesterday ${index}` })),
+      logEvent({ ts: at(0, 12, 22), kind: "note", text: "today 1" }),
+      logEvent({ ts: at(0, 12, 58), kind: "note", text: "today 2" }),
+    ];
+    const { host, unmount } = await render(board(state));
+    const daysWithRowsAbove = () => {
+      let rowsAbove = 0;
+      const labels: Array<[string | null, number]> = [];
+      for (const child of Array.from(host.querySelector(".mc-board-log")!.children)) {
+        const testId = child.getAttribute("data-testid");
+        if (testId === "mc-board-event-row") rowsAbove += 1;
+        if (testId === "mc-board-event-day") labels.push([child.textContent, rowsAbove]);
+      }
+      return labels;
+    };
+
+    expect(daysWithRowsAbove()).toEqual([["Yesterday", 2]]);
+
+    await act(async () => (host.querySelector('[data-testid="mc-board-event-log-older"]') as HTMLButtonElement).click());
+    const olderLabel = formatDayLabel(at(2, 10, 0), NOW);
+    expect(olderLabel).not.toMatch(/^(Today|Yesterday)$/);
+    expect(daysWithRowsAbove()).toEqual([
+      ["Yesterday", 0],
+      [olderLabel, 2],
+    ]);
     await unmount();
   });
 

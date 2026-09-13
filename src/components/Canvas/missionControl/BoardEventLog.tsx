@@ -22,6 +22,8 @@ export interface BoardEventLogProps {
   refs?: BoardRefs;
   /** Page source; defaults to the plan's stored log, newest first. */
   pager?: EventPager;
+  /** The moment day labels are read against; defaults to the render time. */
+  now?: number;
 }
 
 interface LogRowProps {
@@ -95,7 +97,7 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
   );
 }
 
-export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: BoardEventLogProps) {
+export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager, now }: BoardEventLogProps) {
   const source = useMemo(() => pager ?? planEventPager(log), [pager, log]);
   const [pageIndex, setPageIndex] = useState(0);
   const lastIndex = Math.max(0, source.pageCount - 1);
@@ -104,7 +106,7 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
   useEffect(() => {
     if (entries === null) source.load?.(index);
   }, [entries, index, source]);
-  const rows = entries ? eventLogRows({ ...log, entries }, milestoneKinds, index * EVENT_LOG_PAGE) : [];
+  const rows = entries ? eventLogRows({ ...log, entries }, milestoneKinds, index * EVENT_LOG_PAGE, now) : [];
   const logId = useId();
   const [openKeys, setOpenKeys] = useState<readonly string[]>([]);
   const toggle = useCallback((key: string) => {
@@ -125,11 +127,7 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
         ) : (
           <div id={logId} className="mc-board-log">
             {rows.map((row) =>
-              row.event === null ? (
-                <span key={row.key} data-testid="mc-board-event-hour" className="mc-board-log-hour">
-                  {row.band}
-                </span>
-              ) : (
+              row.kind === "event" ? (
                 <LogRow
                   key={row.key}
                   event={row.event}
@@ -137,6 +135,14 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager }: Bo
                   refs={refs}
                   onToggle={toggle}
                 />
+              ) : row.kind === "day" ? (
+                <span key={row.key} data-testid="mc-board-event-day" className="mc-board-log-day">
+                  {row.label}
+                </span>
+              ) : (
+                <span key={row.key} data-testid="mc-board-event-hour" className="mc-board-log-hour">
+                  {row.label}
+                </span>
               ),
             )}
           </div>

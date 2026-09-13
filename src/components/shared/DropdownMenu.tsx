@@ -187,7 +187,9 @@ export function DropdownMenu({
         return;
       }
       const active = document.activeElement;
-      closeMenu(Boolean(menuRef.current?.contains(active) || triggerRef.current?.contains(active)));
+      // A pointer open leaves focus where it was; when that is nowhere, Escape lands on the trigger rather than body.
+      const focusLost = !active || active === document.body;
+      closeMenu(focusLost || Boolean(menuRef.current?.contains(active) || triggerRef.current?.contains(active)));
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);

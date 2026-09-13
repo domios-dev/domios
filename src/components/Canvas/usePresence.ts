@@ -21,12 +21,19 @@ interface Shown<T> {
 }
 
 function runsAnimation(element: HTMLElement | null, name: string): boolean {
-  if (!element || prefersReducedMotion() || typeof window.getComputedStyle !== "function") return false;
+  if (!element || prefersReducedMotion()) return false;
+  // A computed animation-name is also reported for an element that is not rendered, where no animation ever ends.
+  if (typeof element.getAnimations === "function") {
+    return element
+      .getAnimations()
+      .some((animation) => (animation as CSSAnimation).animationName === name && animation.playState !== "finished");
+  }
+  if (typeof window.getComputedStyle !== "function") return false;
   const names = String(window.getComputedStyle(element).animationName ?? "");
   return names.split(",").some((candidate) => candidate.trim() === name);
 }
 
-/** Keeps the last item mounted through its exit keyframes; a phase settles on the element's own animation event, or at once when motion is off. */
+/** Keeps the last item mounted through its exit keyframes; a phase settles when its keyframe ends on the element itself, or at once when the element does not run it. */
 export function usePresence<T, E extends HTMLElement = HTMLElement>(
   value: T | null,
   motion: PresenceMotion,
@@ -66,8 +73,9 @@ export function usePresence<T, E extends HTMLElement = HTMLElement>(
     const onAnimationSettled = (event: Event) => {
       if (event.target !== element) return;
       const name = (event as AnimationEvent).animationName;
-      if (name === motion.enter) settle("entering");
-      else if (name === motion.exit) settle("closing");
+      const phase = latest.current?.state;
+      if (phase === "entering" && (name === motion.enter || !runsAnimation(element, motion.enter))) settle("entering");
+      else if (phase === "closing" && (name === motion.exit || !runsAnimation(element, motion.exit))) settle("closing");
     };
     element.addEventListener("animationend", onAnimationSettled);
     element.addEventListener("animationcancel", onAnimationSettled);
