@@ -1,4 +1,5 @@
 import { actionTitle, baseName } from "./actionTitle";
+import { extensionResult, imageViewResult } from "./richResults";
 
 interface ActivityItem {
   type?: unknown;
@@ -73,6 +74,8 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
     ];
     return message;
   }
+  if (item.type === "ImageView") return imageViewResult(value as Record<string, unknown>, ts, timestamp, turnId);
+  if (item.type === "Extension") return extensionResult(value as Record<string, unknown>, ts, timestamp, turnId);
   if (item.type === "SubAgentActivity") {
     const kind = text(item.kind);
     const path = text(item.agent_path);

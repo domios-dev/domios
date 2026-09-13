@@ -11,7 +11,9 @@ export type {
   InteractiveOption,
   ToolEventKind,
   ToolEdit,
+  ToolRichResult,
 } from "./types";
+export { localThumbnailSource, normalizeToolRichResult, type ThumbnailSource } from "./toolRichResult";
 export {
   shellCommandMessage,
   shellSnapshotToMessages,
