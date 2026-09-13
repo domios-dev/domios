@@ -474,45 +474,42 @@
   color: var(--ct-red);
 }
 
-/* Spend: each provider's allowance used, then its week day by day. */
-.mc-board-spend-providers {
+/* Spend limits: one quiet row under the team chart, wrapping only when the card is narrow. */
+.mc-board-spend-limits {
   display: flex;
-  flex-direction: column;
-  gap: var(--mc-space-3);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--mc-space-1) var(--mc-space-3);
   min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.mc-board-spend-provider {
-  min-width: 0;
-}
-
-.mc-board-spend-provider-name {
-  display: flex;
-  align-items: center;
-  gap: var(--mc-space-2);
-  font-size: var(--mc-text-body);
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--ct-fg);
-  white-space: nowrap;
-}
-
-.mc-board-spend-windows {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 var(--mc-space-3);
-  margin-top: var(--mc-space-1);
-  padding-left: var(--mc-space-4);
   font-size: var(--mc-text-meta);
   line-height: 1.4;
   color: var(--ct-muted-fg);
 }
 
+.mc-board-spend-limits-scope {
+  white-space: nowrap;
+}
+
+.mc-board-spend-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mc-space-1);
+  white-space: nowrap;
+}
+
+.mc-board-spend-limit-name {
+  color: var(--ct-fg);
+}
+
 .mc-board-spend-window {
   white-space: nowrap;
+}
+
+.mc-board-spend-window[data-variant="session"] {
+  opacity: 0.7;
 }
 
 .mc-board-spend-window b {

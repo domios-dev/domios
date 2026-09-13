@@ -201,7 +201,20 @@ describe("mission control spend card", () => {
       expect(card.split(label)).toHaveLength(2);
     }
     const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')) as HTMLElement[];
-    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["week 34%", "session 58%", "week 81%"]);
+    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["34%", "session 58%", "81%"]);
+    const limits = host.querySelector('[data-testid="mc-board-spend-limits"]') as HTMLElement;
+    expect(limits.tagName).toBe("UL");
+    expect(limits.querySelectorAll("h3")).toHaveLength(0);
+    expect(text(host, "mc-board-spend-limits-scope")).toBe("machine");
+    expect(
+      Array.from(limits.querySelectorAll('[data-testid="mc-board-spend-provider"]')).map((provider) => [
+        provider.querySelector(".mc-board-spend-limit-name")?.textContent,
+        provider.getAttribute("title"),
+      ]),
+    ).toEqual([
+      ["Claude", "Claude"],
+      ["Codex", "Codex"],
+    ]);
     expect(gauges[2]!.querySelector("b")?.classList.contains("mc-board-warn")).toBe(true);
     expect(host.querySelector("table")).toBeNull();
     await unmount();
@@ -311,7 +324,9 @@ describe("mission control spend card", () => {
 
     expect(text(host, "mc-board-spend-scope")).toBe("team");
     expect(text(host, "mc-board-spend-chart-scope")).toBe("team");
-    expect(text(host, "mc-board-spend-limits-label")).toBe("Limits, this machine");
+    expect(host.querySelector('[data-testid="mc-board-spend-limits-label"]')).toBeNull();
+    expect(text(host, "mc-board-spend-limits-scope")).toBe("machine");
+    expect(text(host, "mc-board-spend-limits")).not.toContain("team");
     const metric = (key: string) => host.querySelector(`[data-testid="mc-board-spend-metric-${key}"]`) as HTMLButtonElement;
     expect(metric("tokens").getAttribute("aria-pressed")).toBe("true");
     expect(metric("points").disabled).toBe(true);
