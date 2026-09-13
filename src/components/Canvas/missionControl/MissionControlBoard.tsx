@@ -1,6 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
-import type { AllowanceWeeks } from "./allowanceWeek";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { ModelsCard, NeedsYouPanel, PlanCard, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
@@ -16,8 +15,6 @@ export interface MissionControlBoardProps {
   loading?: boolean;
   error?: string | null;
   now?: number;
-  /** Day-by-day weekly allowance per provider, read outside the Board. */
-  allowanceWeeks?: AllowanceWeeks;
   /** Plans whose ids and task ids the Board names by title; defaults to this plan. */
   plans?: readonly Plan[];
   /** Archived plans the same team ran before the active one, newest first. */
@@ -55,7 +52,6 @@ export function MissionControlBoard({
   state,
   loading = false,
   error = null,
-  allowanceWeeks,
   plans,
   previousPlans,
   onOpenView,
@@ -95,7 +91,7 @@ export function MissionControlBoard({
             className="mc-board-row"
             style={{ gridTemplateColumns: BOARD_ROW_COLUMNS[layout] }}
           >
-            <SpendCard spend={mc.spend} weeks={allowanceWeeks} teamSpend={teamSpend} />
+            <SpendCard teamSpend={teamSpend} />
             <ModelsCard spend={mc.spend} teamSpend={teamSpend} />
             <PlanCard
               plan={plan}
