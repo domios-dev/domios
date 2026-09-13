@@ -8,10 +8,7 @@ import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { MissionControlBoard } from "./MissionControlBoard";
 import {
   ROLE_FALLBACK_TITLE,
-  SPEND_FIGURE_COLUMNS,
-  SPEND_MODEL_COLUMN_LABEL,
   SPEND_SCOPE_CAPTION,
-  SPEND_SHARE_COLUMN_LABEL,
   UNASSIGNED_MODEL_LABEL,
 } from "./missionControlBoardModel";
 import type { MissionControlState, PlanBoardState } from "./missionControlState";
@@ -221,47 +218,29 @@ describe("mission control board visual system", () => {
   for (const width of [OWNER_WIDTH, PHONE_WIDTH]) {
     const layout = width === PHONE_WIDTH ? "narrow" : "wide";
 
-    it(`mission_control_spend_is_a_semantic_table_at_${width}px`, async () => {
+    it(`mission_control_spend_reads_allowance_then_took_part_then_by_model_at_${width}px`, async () => {
       const { host, spend, unmount } = await renderAt(width);
       expect(host.querySelector('[data-testid="mission-control-board"]')?.getAttribute("data-board-layout")).toBe(layout);
 
-      const table = spend.querySelector("table") as HTMLTableElement;
-      expect(table.getAttribute("role")).toBe("table");
       const heading = spend.querySelector("h2") as HTMLElement;
       expect(heading.textContent).toBe("Spend");
-      expect(table.getAttribute("aria-labelledby")).toBe(heading.id);
-
-      const columns = Array.from(table.querySelectorAll('thead [role="columnheader"]'));
-      expect(columns.map((th) => [th.tagName, th.getAttribute("scope"), th.textContent])).toEqual(
-        [SPEND_MODEL_COLUMN_LABEL, SPEND_SHARE_COLUMN_LABEL, ...SPEND_FIGURE_COLUMNS.map((c) => c.label)].map(
-          (label) => ["TH", "col", label],
-        ),
-      );
-
-      const groups = Array.from(table.children).filter((child) => child.tagName === "TBODY") as HTMLElement[];
-      expect(groups.map((group) => [group.getAttribute("role"), group.getAttribute("data-provider")])).toEqual([
-        ["rowgroup", "claude"],
-        ["rowgroup", "codex"],
+      expect(spend.getAttribute("aria-labelledby")).toBe(heading.id);
+      expect(Array.from(spend.querySelectorAll("h3")).map((label) => label.textContent)).toEqual([
+        "Weekly allowance",
+        "Took part",
+        "By model",
       ]);
-      for (const group of groups) {
-        const [head, ...rows] = Array.from(group.children) as HTMLElement[];
-        const providerHeader = head!.querySelector("th") as HTMLElement;
-        expect(providerHeader.getAttribute("scope")).toBe("rowgroup");
-        expect(providerHeader.children).toHaveLength(0);
-        // Allowance readings belong to the group header row, above every model row.
-        expect(head!.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(2);
-        expect(rows.length).toBeGreaterThan(0);
-        for (const row of rows) {
-          expect(row.getAttribute("role")).toBe("row");
-          expect(row.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(0);
-          const cells = Array.from(row.children);
-          expect(cells).toHaveLength(columns.length);
-          expect([cells[0]!.tagName, cells[0]!.getAttribute("scope")]).toEqual(["TH", "row"]);
-          expect(cells.slice(1).every((cell) => cell.tagName === "TD" && cell.getAttribute("role") === "cell")).toBe(true);
-        }
+      for (const step of ["mc-board-spend-allowance-provider", "mc-board-spend-took-part-provider"]) {
+        const providers = Array.from(spend.querySelectorAll(`[data-testid="${step}"]`));
+        expect(providers.map((line) => [line.getAttribute("data-provider"), line.querySelector("h4")?.textContent])).toEqual([
+          ["claude", "Claude Code"],
+          ["codex", "Codex"],
+        ]);
       }
-      expect(groups[0]!.querySelector("th")?.textContent).toBe("Claude Code");
-      expect(groups[1]!.querySelector("th")?.textContent).toBe("Codex");
+      const list = spend.querySelector(".mc-board-spend-models") as HTMLElement;
+      expect(list.tagName).toBe("UL");
+      expect(modelRows(spend).every((row) => row.getAttribute("role") === "listitem")).toBe(true);
+      expect(spend.querySelector('[data-testid="mc-board-spend-strip"]')?.getAttribute("aria-hidden")).toBe("true");
       await unmount();
     });
 
@@ -271,16 +250,33 @@ describe("mission control board visual system", () => {
       expect(spend.querySelector('[data-testid="mc-board-spend-scope"]')?.textContent).toBe(SPEND_SCOPE_CAPTION);
       expect(spend.querySelectorAll("p")).toHaveLength(0);
       const rows = modelRows(spend);
-      expect(rows.map((row) => row.querySelector("th")?.textContent)).toEqual(["haiku", UNASSIGNED_MODEL_LABEL, "luna"]);
+      const share = (row: HTMLElement) => row.querySelector(".mc-board-spend-model-share") as HTMLElement;
+      expect(rows.map((row) => row.querySelector(".mc-board-spend-model-name")?.textContent)).toEqual([
+        "haiku",
+        UNASSIGNED_MODEL_LABEL,
+        "luna",
+      ]);
       expect(rows.map((row) => row.getAttribute("data-unassigned"))).toEqual(["false", "true", "false"]);
-      expect(rows.map((row) => row.children[1]?.textContent)).toEqual(["61%", "39%", "0%"]);
+      expect(rows.map((row) => share(row).textContent)).toEqual(["61%", "39%", "0%"]);
       for (const row of rows) {
-        const percentCells = Array.from(row.children).filter((cell) => /%$/.test(cell.textContent?.trim() ?? ""));
-        expect(percentCells).toHaveLength(1);
-        expect(percentCells[0]).toBe(row.children[1]);
+        expect(textLeaves(row).filter((leaf) => /%$/.test(leaf.textContent?.trim() ?? ""))).toEqual([share(row)]);
       }
-      expect(rows[1]!.textContent).toContain("1,777");
-      expect(spend.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(4);
+      const figure = (el: Element, key: string) => el.querySelector(`[data-figure="${key}"] b`)?.textContent;
+      expect(figure(rows[1]!, "turns")).toBe("1,777");
+      expect(rows[2]!.querySelector('[data-figure="turns"] .mc-board-spend-word')?.textContent).toBe("turn");
+      const [claude, codex] = Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-took-part-provider"]'));
+      expect(figure(claude!, "fromCache")).toBe("183M");
+      expect(figure(codex!, "newInput")).toBe("2.5M");
+      expect(figure(codex!, "fromCache")).toBe("117M");
+      expect(
+        Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) =>
+          gauge.getAttribute("data-window-key"),
+        ),
+      ).toEqual(["claude-weekly", "claude-session", "codex-weekly"]);
+      const words = (spend.textContent ?? "").toLowerCase();
+      for (const banned of ["output", "total", "bytes", "·"]) {
+        expect(words).not.toContain(banned);
+      }
       await unmount();
     });
 
@@ -296,9 +292,11 @@ describe("mission control board visual system", () => {
       expect(styles.size).toBeGreaterThan(1);
       expect(styles.size).toBeLessThanOrEqual(MAX_SPEND_TEXT_STYLES);
 
-      const names = modelRows(spend).map((row) => getComputedStyle(row.querySelector("th") as HTMLElement));
+      const names = modelRows(spend).map((row) =>
+        getComputedStyle(row.querySelector(".mc-board-spend-model-name") as HTMLElement),
+      );
       const nameSizes = names.map((style) => px(style.fontSize));
-      for (const header of Array.from(spend.querySelectorAll('th[scope="rowgroup"]')) as HTMLElement[]) {
+      for (const header of Array.from(spend.querySelectorAll(".mc-board-spend-provider-name")) as HTMLElement[]) {
         expect(px(getComputedStyle(header).fontSize)).toBeGreaterThanOrEqual(Math.max(...nameSizes));
       }
 
@@ -309,17 +307,13 @@ describe("mission control board visual system", () => {
       await unmount();
     });
 
-    it(`mission_control_spend_rows_share_one_fixed_track_template_at_${width}px`, async () => {
+    it(`mission_control_spend_model_rows_share_one_grid_at_${width}px`, async () => {
       const { spend, unmount } = await renderAt(width);
 
-      const header = spend.querySelector('[data-testid="mc-board-spend-columns"]') as HTMLElement;
-      const rows = [header, ...modelRows(spend)];
-      const computed = rows.map((row) => getComputedStyle(row));
-      expect(computed.every((style) => style.display === "grid")).toBe(true);
-      const templates = new Set(computed.map((style) => style.gridTemplateColumns));
-      expect(templates.size).toBe(1);
-      // The share cell is a bare text cell, so its box (the audit's x) is its grid line.
+      expect(getComputedStyle(spend.querySelector(".mc-board-spend-models") as HTMLElement).display).toBe("grid");
+      // Rows dissolve into the list's grid and the share is a bare text cell, so every share starts on one line.
       for (const row of modelRows(spend)) {
+        expect(getComputedStyle(row).display).toBe("contents");
         expect(row.children[1]!.classList.contains("mc-board-spend-model-share")).toBe(true);
         expect(row.children[1]!.children).toHaveLength(0);
       }
@@ -344,8 +338,8 @@ describe("mission control board visual system", () => {
     expect(rule(css, ".mc-board-panel-head")).toContain("border-bottom: 1px solid var(--ct-border);");
     expect(rule(css, ".mc-board-sub + .mc-board-sub")).toContain("border-top: 1px solid var(--ct-border-subtle);");
     expect(rule(css, ".mc-board-row")).toContain("align-items: start;");
-    expect(rule(css, ".mc-board-spend-row > .mc-board-spend-num")).toContain("font-variant-numeric: tabular-nums;");
-    expect(rule(css, ".mc-board-spend-row > .mc-board-spend-num")).toContain("text-align: right;");
+    expect(rule(css, ".mc-board-spend-model-share")).toContain("font-variant-numeric: tabular-nums;");
+    expect(rule(css, ".mc-board-spend-model-share")).toContain("text-align: right;");
     await unmount();
   });
 
@@ -409,29 +403,26 @@ describe("mission control board visual system", () => {
     await unmount();
   });
 
-  it("mission_control_spend_composes_a_readable_phone_table_without_horizontal_scroll", async () => {
+  it("mission_control_spend_stacks_step_labels_and_model_figures_on_a_phone", async () => {
     const css = readRepo(BOARD_CSS_PATH);
     const { spend, unmount } = await renderAt(PHONE_WIDTH);
 
-    const narrowRow = rule(css, '.mc-board[data-board-layout="narrow"] .mc-board-spend-row');
-    expect(narrowRow).toContain("grid-template-columns: repeat(4, minmax(0, 1fr));");
-    expect(narrowRow).not.toMatch(/\d+px/);
-    expect(rule(css, '.mc-board[data-board-layout="narrow"] .mc-board-spend-row > :first-child')).toContain(
-      "grid-column: 1 / 4;",
+    expect(rule(css, '.mc-board[data-board-layout="narrow"] .mc-board-spend .mc-board-sub')).toContain(
+      "grid-template-columns: minmax(0, 1fr);",
     );
-    expect(rule(css, ".mc-board-spend-row > th, .mc-board-spend-row > td")).toContain("overflow-wrap: break-word;");
-
-    const table = spend.querySelector("table") as HTMLElement;
-    for (const el of [spend, table]) {
-      expect(["auto", "scroll"]).not.toContain(getComputedStyle(el).overflowX);
-    }
-    // Column labels stay in the accessibility tree at phone width, drawn above the figures they name.
-    const header = spend.querySelector('[data-testid="mc-board-spend-columns"]') as HTMLElement;
-    expect(getComputedStyle(header).display).toBe("grid");
-    expect(header.querySelectorAll('[role="columnheader"]')).toHaveLength(2 + SPEND_FIGURE_COLUMNS.length);
+    expect(rule(css, '.mc-board[data-board-layout="narrow"] .mc-board-spend-models')).toContain(
+      "grid-template-columns: minmax(0, 1fr) auto;",
+    );
+    expect(rule(css, '.mc-board[data-board-layout="narrow"] .mc-board-spend-model-figs')).toContain(
+      "grid-column: 1 / -1;",
+    );
+    // Each number stays glued to its word; lines wrap between readings, never inside one.
+    expect(rule(css, ".mc-board-spend-reading, .mc-board-spend-fig")).toContain("white-space: nowrap;");
+    expect(rule(css, ".mc-board-spend-line")).toContain("flex-wrap: wrap;");
+    expect(["auto", "scroll"]).not.toContain(getComputedStyle(spend).overflowX);
     for (const row of modelRows(spend)) {
-      expect(row.querySelector("th")?.textContent?.trim().length).toBeGreaterThan(0);
-      expect(row.querySelectorAll(".mc-board-spend-figure")).toHaveLength(SPEND_FIGURE_COLUMNS.length);
+      expect(row.querySelector(".mc-board-spend-model-name")?.textContent?.trim().length).toBeGreaterThan(0);
+      expect(row.querySelectorAll("[data-figure]")).toHaveLength(4);
     }
     await unmount();
   });

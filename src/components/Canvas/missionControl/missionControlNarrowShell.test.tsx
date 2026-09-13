@@ -348,17 +348,12 @@ describe("mission control narrow shell", () => {
     expect(text(narrow.host, "mc-board-areas")).toContain("Area");
     expect(text(narrow.host, "mc-board-progress")).not.toContain("5.3M");
     expect(text(narrow.host, "mc-board-needs-you")).toContain("Land the wave");
-    expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(4);
     expect(
       Array.from(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) =>
-        gauge.getAttribute("aria-label"),
+        gauge.getAttribute("data-window-key"),
       ),
-    ).toEqual([
-      "Claude session allowance",
-      "Claude weekly allowance",
-      "Codex session allowance",
-      "Codex weekly allowance",
-    ]);
+    ).toEqual(["claude-weekly", "claude-session", "codex-weekly"]);
+    expect(styleOf(narrow.host, '[data-testid="mc-board-spend-allowance"]').display).toBe("grid");
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
     expect(text(narrow.host, "mc-board-spend")).toContain("Unassigned model");
     const panelRow = narrow.host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
