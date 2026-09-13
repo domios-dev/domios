@@ -22,5 +22,6 @@
   "src/components/Canvas/planView/PlanParagraphAsk.test.tsx",
   "src/components/Canvas/planView/BoardTaskCard.actions.test.tsx",
   "src/components/Terminal/useChatScroll.stability.test.tsx",
-  "src/components/Canvas/teamTaskSegment.test.tsx"
+  "src/components/Canvas/teamTaskSegment.test.tsx",
+  "src/components/Snake/simulation.test.ts"
 ]
