@@ -365,6 +365,27 @@ impl ServiceContext {
         tab_id: &str,
         cause: &str,
     ) -> bool {
+        self.clear_tab_agent_identity_for_lifecycle_exit_during(
+            tab_id,
+            cause,
+            crate::crash::shutdown::active_shutdown(),
+        )
+    }
+
+    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_during(
+        &self,
+        tab_id: &str,
+        cause: &str,
+        shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
+    ) -> bool {
+        // An armed shutdown killed the provider itself; the snapshot saved at
+        // exit must still carry the identity the next boot resumes.
+        if let Some(reason) = shutdown {
+            log::info!(
+                "[agent-lifecycle] preserving Tab identity during shutdown ({reason:?}): tab={tab_id} cause={cause}"
+            );
+            return false;
+        }
         // Every observed lifecycle exit funnels through here, whatever saw it,
         // so this is where a launch still under observation learns its process
         // is gone — claimed before the clear below retires the launch it names.
