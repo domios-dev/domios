@@ -108,7 +108,8 @@ export interface NormalizedChatMessage {
   toolDescription?: string;
   /** Short action title derived only from the call's own data. */
   toolTitle?: string;
-  /** Flow identity the source proves. On `tool_flow` rows, content `start`/`end` opens or closes it. */
+  /** Flow identity the source proves. A `tool_flow` row (content `start`/`end`) opens or closes a flow whose
+   *  source emits no descriptions, so its calls stream by title; call-stamped flows stream only when described. */
   toolFlowId?: string;
   collapsed?: boolean;
   duration?: string;
