@@ -398,13 +398,16 @@ describe("mission control board panels", () => {
     await unmount();
   });
 
-  it("reads the plan by its goal, then task statuses and quality, without token headlines", async () => {
-    const goalPlan: Plan = { ...PLAN, goal: { vector: "Ship a readable Snake game" } };
+  it("names the plan by its title with the goal as a quiet line, then task statuses and quality", async () => {
+    const goalPlan: Plan = { ...PLAN, title: "Animated Snake game", goal: { vector: "Ship a readable Snake game" } };
     const { host, unmount } = await render(
       <MissionControlBoard plan={goalPlan} state={boardState(recordingState())} now={NOW} />,
     );
 
-    expect(text(host, "mc-board-plan-heading")).toBe("Ship a readable Snake game");
+    expect(text(host, "mc-board-plan-heading")).toBe("Animated Snake game");
+    const goalLine = host.querySelector('[data-testid="mc-board-plan-goal"]') as HTMLElement;
+    expect(goalLine.textContent).toBe("Ship a readable Snake game");
+    expect(goalLine.getAttribute("title")).toBe("Ship a readable Snake game");
     expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
     expect(host.querySelector('[data-testid="mc-board-bounces-amount"]')?.classList.contains("mc-board-warn")).toBe(true);
@@ -420,6 +423,7 @@ describe("mission control board panels", () => {
       <MissionControlBoard plan={{ ...PLAN, goal: null, title: "Snake game" }} state={boardState(recordingState())} now={NOW} />,
     );
     expect(text(untitled.host, "mc-board-plan-heading")).toBe("Snake game");
+    expect(untitled.host.querySelector('[data-testid="mc-board-plan-goal"]')).toBeNull();
     await untitled.unmount();
   });
 
@@ -437,7 +441,8 @@ describe("mission control board panels", () => {
 
     const heading = host.querySelector('[data-testid="mc-board-plan-heading"]') as HTMLButtonElement;
     expect(heading.tagName).toBe("BUTTON");
-    expect(heading.getAttribute("title")).toBe(goal);
+    expect(heading.textContent).toBe(PLAN.title);
+    expect(host.querySelector('[data-testid="mc-board-plan-goal"]')?.getAttribute("title")).toBe(goal);
     await act(async () => heading.click());
     expect(onOpenView).toHaveBeenLastCalledWith("plan");
 
@@ -450,7 +455,13 @@ describe("mission control board panels", () => {
 
   it("lists the team's previous plans on request and opens one", async () => {
     const onOpenPlan = vi.fn();
-    const previous: Plan = { ...PLAN, id: "pl_old1", title: "First Snake", goal: null, status: "archived" };
+    const previous: Plan = {
+      ...PLAN,
+      id: "pl_old1",
+      title: "First Snake",
+      goal: { vector: "An older goal that must not name the plan" },
+      status: "archived",
+    };
     const { host, unmount } = await render(
       <MissionControlBoard
         plan={PLAN}
@@ -462,15 +473,34 @@ describe("mission control board panels", () => {
     );
 
     const toggle = host.querySelector('[data-testid="mc-board-previous-plans-toggle"]') as HTMLButtonElement;
-    expect(toggle.textContent).toBe("Show previous plans");
-    expect(host.querySelector('[data-testid="mc-board-previous-plan"]')).toBeNull();
+    expect(toggle.closest(".mc-board-plan-footer")).not.toBeNull();
+    expect(toggle.textContent).toBe("Previous plans 1");
+    expect(toggle.getAttribute("aria-haspopup")).toBe("menu");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+
     await act(async () => toggle.click());
-    expect(toggle.textContent).toBe("Hide previous plans");
+    const menu = host.querySelector('[data-testid="mc-board-previous-plans-menu"]') as HTMLElement;
+    expect(menu.getAttribute("role")).toBe("menu");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const item = host.querySelector('[data-testid="mc-board-previous-plan"]') as HTMLButtonElement;
-    expect(item.textContent).toBe("First Snake");
-    await act(async () => item.click());
+    expect(toggle.getAttribute("aria-controls")).toBe(menu.id);
+    const item = menu.querySelector('[role="menuitem"]') as HTMLButtonElement;
+    expect(item.querySelector(".mc-board-plan-menuitem-title")?.textContent).toBe("First Snake");
+    expect(menu.textContent).not.toContain("older goal");
+    expect(text(host, "mc-board-previous-plan-date")).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/);
+    expect(document.activeElement).toBe(item);
+
+    await act(async () => {
+      menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+
+    await act(async () => toggle.click());
+    await act(async () => (host.querySelector('[role="menuitem"]') as HTMLButtonElement).click());
     expect(onOpenPlan).toHaveBeenCalledWith("pl_old1");
+    expect(host.querySelector('[role="menu"]')).toBeNull();
     await unmount();
   });
 
@@ -517,7 +547,8 @@ describe("mission control board panels", () => {
       "claude-session",
       "codex-weekly",
     ]);
-    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["week 34%", "session 58%", "week 81%"]);
+    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["34%", "session 58%", "81%"]);
+    expect(gauges.map((gauge) => gauge.getAttribute("data-variant"))).toEqual(["weekly", "session", "weekly"]);
     const pct = (gauge: HTMLElement) => gauge.querySelector('[data-testid="mc-board-spend-window-pct"]') as HTMLElement;
     expect(pct(gauges[0]!).className).toBe("");
     expect(pct(gauges[2]!).classList.contains("mc-board-warn")).toBe(true);

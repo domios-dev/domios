@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { MissionControlBoard } from "./MissionControlBoard";
-import { BOARD_ROW_COLUMNS, SPEND_SCOPE_CAPTION, UNASSIGNED_MODEL_LABEL, planHeading } from "./missionControlBoardModel";
+import { BOARD_ROW_COLUMNS, SPEND_SCOPE_CAPTION, UNASSIGNED_MODEL_LABEL } from "./missionControlBoardModel";
 import type { MissionControlState, PlanBoardState } from "./missionControlState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -259,13 +259,18 @@ describe("mission control board visual system", () => {
       const { spend, unmount } = await renderAt(width);
 
       expect(spend.querySelector('[data-testid="mc-board-spend-scope"]')?.textContent).toBe(SPEND_SCOPE_CAPTION);
-      expect(Array.from(spend.querySelectorAll(".mc-board-spend-provider-name")).map((name) => name.textContent)).toEqual([
-        "Claude Code",
-        "Codex",
+      const providers = Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-provider"]'));
+      expect(
+        providers.map((provider) => [provider.querySelector(".mc-board-spend-limit-name")?.textContent, provider.getAttribute("title")]),
+      ).toEqual([
+        ["Claude", "Claude Code"],
+        ["Codex", "Codex"],
       ]);
       expect(
         Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) => gauge.textContent),
-      ).toEqual(["week 64%", "session 17%", "week 6%"]);
+      ).toEqual(["64%", "session 17%", "6%"]);
+      expect(spend.querySelectorAll('[data-testid="mc-board-spend-limits"]')).toHaveLength(1);
+      expect(getComputedStyle(spend.querySelector('[data-testid="mc-board-spend-limits"]') as HTMLElement).flexWrap).toBe("wrap");
       expect(spend.querySelector("table")).toBeNull();
       await unmount();
     });
@@ -336,7 +341,7 @@ describe("mission control board visual system", () => {
     const css = readRepo(BOARD_CSS_PATH);
     const { host, plan, unmount } = await renderAt(OWNER_WIDTH);
 
-    expect(plan.querySelector('[data-testid="mc-board-plan-heading"]')?.textContent).toBe(planHeading(FIXTURE_PLAN));
+    expect(plan.querySelector('[data-testid="mc-board-plan-heading"]')?.textContent).toBe(FIXTURE_PLAN.title);
     expect(plan.querySelector('[data-testid="mc-board-tasks-amount"]')?.textContent).toBe("4");
     const statuses = Array.from(plan.querySelectorAll('[data-testid="mc-board-task-statuses"] li')) as HTMLElement[];
     expect(statuses.map((status) => status.getAttribute("data-testid"))).toEqual(["mc-board-task-status-paused"]);
