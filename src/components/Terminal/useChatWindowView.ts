@@ -16,10 +16,13 @@ import {
 } from "@codeterm/chat-core";
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import {
+  chatWindowAnchorIdentity,
   chatWindowProjection,
   chatWindowRange,
+  rekeyedChatWindowAnchor,
   slideChatWindowOlder,
   timelineItemKey,
+  type ChatWindowAnchorIdentity,
 } from "./chatWindow";
 import { setTranscriptAnchor } from "./transcriptStore";
 
@@ -98,17 +101,30 @@ export function useChatWindowView({
     return stabilized;
   }, [allMessages]);
 
+  // A re-keyed or committed anchor row keeps the reading window in the same render,
+  // so the tail is never projected under a detached reader in between.
+  const anchorIdentityRef = useRef<ChatWindowAnchorIdentity | null>(null);
+  const loadedAnchorKey = useMemo(() => {
+    if (anchorKey == null) return null;
+    if (allTimelineItems.some((item) => timelineItemKey(item) === anchorKey)) return anchorKey;
+    const identity = anchorIdentityRef.current;
+    return identity ? rekeyedChatWindowAnchor(allTimelineItems, identity) : null;
+  }, [allTimelineItems, anchorKey]);
+  const anchorIdentity = useMemo(
+    () => chatWindowAnchorIdentity(allTimelineItems, loadedAnchorKey),
+    [allTimelineItems, loadedAnchorKey],
+  );
+  anchorIdentityRef.current = anchorIdentity;
+
   const windowRange = useMemo(
-    () => chatWindowRange(allTimelineItems, anchorKey),
-    [allTimelineItems, anchorKey],
+    () => chatWindowRange(allTimelineItems, loadedAnchorKey),
+    [allTimelineItems, loadedAnchorKey],
   );
-  const windowAnchorIsLoaded = anchorKey == null || allTimelineItems.some(
-    (item) => timelineItemKey(item) === anchorKey,
-  );
+  const windowAnchorIsLoaded = anchorKey == null || loadedAnchorKey != null;
 
   const projectedTimelineItems = useMemo(
-    () => chatWindowProjection(allTimelineItems, anchorKey).items,
-    [allTimelineItems, anchorKey],
+    () => chatWindowProjection(allTimelineItems, loadedAnchorKey).items,
+    [allTimelineItems, loadedAnchorKey],
   );
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(
@@ -123,7 +139,7 @@ export function useChatWindowView({
   const loadOlder = useCallback(async () => {
     followTailRef.current = false;
     if (windowAnchorIsLoaded && windowRange.start > 0) {
-      updateWindowAnchor(slideChatWindowOlder(allTimelineItems, anchorKey));
+      updateWindowAnchor(slideChatWindowOlder(allTimelineItems, loadedAnchorKey));
       return;
     }
     if (backfillCursor == null || backfillCursor <= 0 || backfillInFlightRef.current) return;
@@ -137,9 +153,9 @@ export function useChatWindowView({
     }
   }, [
     allTimelineItems,
-    anchorKey,
     backfillCursor,
     followTailRef,
+    loadedAnchorKey,
     loadOlderPage,
     updateWindowAnchor,
     windowAnchorIsLoaded,
@@ -151,8 +167,8 @@ export function useChatWindowView({
   useLayoutEffect(() => {
     if (!pendingRevealRef.current) return;
     pendingRevealRef.current = false;
-    updateWindowAnchor(slideChatWindowOlder(allTimelineItems, anchorKey));
-  }, [allTimelineItems, anchorKey, updateWindowAnchor]);
+    updateWindowAnchor(slideChatWindowOlder(allTimelineItems, loadedAnchorKey));
+  }, [allTimelineItems, loadedAnchorKey, updateWindowAnchor]);
 
   const showLatest = useCallback(() => {
     followTailRef.current = true;
@@ -160,9 +176,10 @@ export function useChatWindowView({
   }, [followTailRef, updateWindowAnchor]);
 
   useLayoutEffect(() => {
-    if (anchorKey == null || windowAnchorIsLoaded) return;
-    showLatest();
-  }, [anchorKey, showLatest, windowAnchorIsLoaded]);
+    if (anchorKey == null || loadedAnchorKey === anchorKey) return;
+    if (loadedAnchorKey == null) showLatest();
+    else updateWindowAnchor(loadedAnchorKey);
+  }, [anchorKey, loadedAnchorKey, showLatest, updateWindowAnchor]);
 
   const setHistoryReading = useCallback((reading: boolean) => {
     if (!reading) {
