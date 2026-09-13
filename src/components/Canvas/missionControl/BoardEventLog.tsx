@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { BoardPanel, BoardPanelSection } from "./BoardPanel";
 import {
   EVENT_PART_SEPARATOR,
   EVENT_REVEAL_HIDE_LABEL,
@@ -85,33 +86,31 @@ export function BoardEventLog({ log, milestoneKinds }: BoardEventLogProps) {
   }, []);
 
   return (
-    <section data-testid="mc-board-event-log" className="ct-panel-card mc-board-card">
-      <div className="mc-board-card-head">
-        <h2>What happened</h2>
-        <span className="mc-board-caption">{eventLogCaption(log)}</span>
-      </div>
-      {rows.length === 0 ? (
-        <p data-testid="mc-board-event-log-empty" className="mc-board-note">
-          No events yet.
-        </p>
-      ) : (
-        <div className="mc-board-log">
-          {rows.map((row) =>
-            row.event === null ? (
-              <span key={row.key} data-testid="mc-board-event-hour" className="mc-board-log-hour">
-                {row.band}
-              </span>
-            ) : (
-              <LogRow
-                key={row.key}
-                event={row.event}
-                expanded={openKeys.includes(row.event.key)}
-                onToggle={toggle}
-              />
-            ),
-          )}
-        </div>
-      )}
-    </section>
+    <BoardPanel testId="mc-board-event-log" title="What happened" meta={eventLogCaption(log)}>
+      <BoardPanelSection>
+        {rows.length === 0 ? (
+          <p data-testid="mc-board-event-log-empty" className="mc-board-note">
+            No events yet.
+          </p>
+        ) : (
+          <div className="mc-board-log">
+            {rows.map((row) =>
+              row.event === null ? (
+                <span key={row.key} data-testid="mc-board-event-hour" className="mc-board-log-hour">
+                  {row.band}
+                </span>
+              ) : (
+                <LogRow
+                  key={row.key}
+                  event={row.event}
+                  expanded={openKeys.includes(row.event.key)}
+                  onToggle={toggle}
+                />
+              ),
+            )}
+          </div>
+        )}
+      </BoardPanelSection>
+    </BoardPanel>
   );
 }

@@ -1,15 +1,14 @@
 import type { ReactNode } from "react";
 import {
   areaReading,
-  decisionsWaitingReading,
-  formatAgeMs,
   formatCompact,
   formatCount,
-  longestWaitReading,
+  needsYouItems,
   notRecordingCopy,
-  taskStatusBreakdown,
+  progressReading,
 } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
+import { BoardPanel, BoardPanelSection, Facts } from "./BoardPanel";
 import type {
   AreaGrouping,
   BounceSummary,
@@ -20,244 +19,183 @@ import type {
 
 export { SpendCard } from "./BoardSpendCard";
 
-/** Short readings that wrap between each other, never inside one. */
-function Facts({ items }: { items: Array<{ key: string; node: ReactNode }> }) {
-  return (
-    <ul className="mc-board-facts" role="list">
-      {items.map((item) => (
-        <li key={item.key} className="mc-board-fact">
-          {item.node}
-        </li>
-      ))}
-    </ul>
-  );
-}
+const WARN_STATUSES = new Set(["blocked", "paused"]);
 
-interface FigureCardProps {
-  testId: string;
-  className?: string;
-  title: string;
-  amount: ReactNode;
-  amountTone?: "plain" | "warn";
-  caption: ReactNode;
-  detail?: ReactNode;
-}
-
-function FigureCard({ testId, className, title, amount, amountTone = "plain", caption, detail }: FigureCardProps) {
+export function NeedsYouPanel({ held }: { held: HeldForDecision }) {
+  const items = needsYouItems(held);
+  if (items.length === 0) return null;
   return (
-    <section
-      data-testid={testId}
-      className={`ct-panel-card mc-board-card mc-board-figure-card${className ? ` ${className}` : ""}`}
-    >
-      <h2>{title}</h2>
-      <div data-testid={`${testId}-reading`} className="mc-board-reading">
-        <div className="mc-board-figure">
-          <div
-            data-testid={`${testId}-amount`}
-            className={`mc-board-amount${amountTone === "warn" ? " mc-board-amount-warn" : ""}`}
-          >
-            {amount}
-          </div>
-          <div className="mc-board-caption">{caption}</div>
-        </div>
-        {detail != null && <div className="mc-board-detail">{detail}</div>}
+    <BoardPanel testId="mc-board-needs-you" title="Needs you">
+      <div className="mc-board-needs">
+        <span data-testid="mc-board-needs-you-count" className="mc-board-figure mc-board-warn">
+          <AnimatedNumber value={items.length} format={formatCount} />
+        </span>
+        <ul className="mc-board-needs-list">
+          {items.map((item) => (
+            <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
+              <p className="mc-board-needs-title">{item.title}</p>
+              <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
+            </li>
+          ))}
+        </ul>
       </div>
-    </section>
+    </BoardPanel>
   );
 }
 
-export function TokensCard({ kpi }: { kpi: MissionControlKpi }) {
+export function ProgressPanel({
+  counts,
+  kpi,
+  bounces,
+  areas,
+}: {
+  counts: PlanTaskCounts;
+  kpi: MissionControlKpi;
+  bounces: BounceSummary;
+  areas: AreaGrouping;
+}) {
+  const progress = progressReading(counts);
+  return (
+    <BoardPanel
+      testId="mc-board-progress"
+      title="Progress"
+      meta={
+        <>
+          <span data-testid="mc-board-tasks-amount" className="mc-board-num">
+            <AnimatedNumber value={progress.total} format={formatCount} />
+          </span>
+          {progress.total === 1 ? " task" : " tasks"}
+        </>
+      }
+    >
+      <BoardPanelSection testId="mc-board-task-statuses">
+        {progress.active.length === 0 ? (
+          <p className="mc-board-note">No tasks yet.</p>
+        ) : (
+          <ul className="mc-board-statuses" role="list">
+            {progress.active.map((status) => (
+              <li key={status.key} data-testid={`mc-board-task-status-${status.key}`} className="mc-board-status">
+                <b
+                  data-testid={`mc-board-task-status-${status.key}-count`}
+                  className={`mc-board-figure${WARN_STATUSES.has(status.key) ? " mc-board-warn" : ""}`}
+                >
+                  <AnimatedNumber value={status.count} format={formatCount} />
+                </b>
+                <span>{status.label}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {progress.rest && (
+          <p data-testid="mc-board-task-status-rest" className="mc-board-caption">
+            {progress.rest}
+          </p>
+        )}
+      </BoardPanelSection>
+      <PlanSpendSection kpi={kpi} />
+      <QualitySection bounces={bounces} />
+      <AreasSection areas={areas} />
+    </BoardPanel>
+  );
+}
+
+function Pair({
+  label,
+  testId,
+  warn = false,
+  unit,
+  children,
+}: {
+  label: string;
+  testId: string;
+  warn?: boolean;
+  unit?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mc-board-pair">
+      <dt>{label}</dt>
+      <dd>
+        <b data-testid={testId} className={warn ? "mc-board-warn" : undefined}>
+          {children}
+        </b>
+        {unit && ` ${unit}`}
+      </dd>
+    </div>
+  );
+}
+
+function PlanSpendSection({ kpi }: { kpi: MissionControlKpi }) {
   const spend = kpi.spend;
   return (
-    <FigureCard
-      testId="mc-board-tokens"
-      title="Tokens"
-      amount={spend ? <AnimatedNumber value={spend.tokens.output} format={formatCompact} /> : "—"}
-      caption={
-        spend
-          ? "output tokens on this plan"
-          : notRecordingCopy(kpi.not_recording_reason, kpi.enable_setting)
-      }
-      detail={
-        spend ? (
-          <Facts
-            items={[
-              { key: "input", node: <><b><AnimatedNumber value={spend.tokens.input} format={formatCompact} /></b> input</> },
-              { key: "uncached", node: <><b><AnimatedNumber value={spend.tokens.uncached_input} format={formatCompact} /></b> uncached</> },
-              { key: "total", node: <><b><AnimatedNumber value={spend.tokens.total} format={formatCompact} /></b> total</> },
-            ]}
-          />
-        ) : null
-      }
-    />
+    <BoardPanelSection testId="mc-board-plan-spend" label="This plan">
+      {spend ? (
+        <dl className="mc-board-pairs">
+          <Pair label="new input" testId="mc-board-plan-new-input">
+            <AnimatedNumber value={spend.tokens.uncached_input} format={formatCompact} />
+          </Pair>
+          <Pair label="turns" testId="mc-board-plan-turns">
+            <AnimatedNumber value={spend.turns} format={formatCount} />
+          </Pair>
+        </dl>
+      ) : (
+        <p data-testid="mc-board-plan-not-recording" className="mc-board-caption">
+          {notRecordingCopy(kpi.not_recording_reason, kpi.enable_setting)}
+        </p>
+      )}
+    </BoardPanelSection>
   );
 }
 
-export function TurnsCard({ kpi }: { kpi: MissionControlKpi }) {
-  const spend = kpi.spend;
+function QualitySection({ bounces }: { bounces: BounceSummary }) {
+  const bounced = bounces.tasks_on_second_attempt;
+  const attempts = bounces.total_attempts;
   return (
-    <FigureCard
-      testId="mc-board-turns"
-      title="Turns"
-      amount={spend ? <AnimatedNumber value={spend.turns} format={formatCount} /> : "—"}
-      caption={
-        spend
-          ? "model turns on this plan"
-          : notRecordingCopy(kpi.not_recording_reason, kpi.enable_setting)
-      }
-      detail={
-        spend ? (
-          <Facts
-            items={[
-              { key: "events", node: <><b><AnimatedNumber value={spend.events} format={formatCount} /></b> ledger events</> },
-              { key: "bytes", node: <><b><AnimatedNumber value={spend.bytes} format={formatCompact} /></b> bytes</> },
-            ]}
-          />
-        ) : null
-      }
-    />
+    <BoardPanelSection testId="mc-board-quality" label="Quality">
+      <dl className="mc-board-pairs">
+        <Pair
+          label="bounced"
+          testId="mc-board-bounces-amount"
+          warn={bounced > 0}
+          unit={bounced === 1 ? "task" : "tasks"}
+        >
+          <AnimatedNumber value={bounced} format={formatCount} />
+        </Pair>
+        <Pair
+          label="done first try"
+          testId="mc-board-done-first-try-amount"
+          unit={`of ${formatCount(attempts)} ${attempts === 1 ? "attempt" : "attempts"}`}
+        >
+          <AnimatedNumber value={bounces.first_try_done} format={formatCount} />
+        </Pair>
+      </dl>
+    </BoardPanelSection>
   );
 }
 
-export function BouncesCard({ bounces }: { bounces: BounceSummary }) {
-  return (
-    <FigureCard
-      testId="mc-board-bounces"
-      title="Bounces"
-      amount={<AnimatedNumber value={bounces.tasks_on_second_attempt} format={formatCount} />}
-      amountTone={bounces.tasks_on_second_attempt > 0 ? "warn" : "plain"}
-      caption="tasks on a second attempt"
-    />
-  );
-}
-
-export function HeldCard({ held }: { held: HeldForDecision }) {
-  const count = held.held_reviews.length;
-  return (
-    <FigureCard
-      testId="mc-board-held"
-      title="Held for a decision"
-      amount={<AnimatedNumber value={count} format={formatCount} />}
-      amountTone={count > 0 ? "warn" : "plain"}
-      caption="reviews held"
-    />
-  );
-}
-
-export function DecisionsWaitingCard({ held }: { held: HeldForDecision }) {
-  const reading = decisionsWaitingReading(held);
-  const gateLabel = reading.gateCount === 1 ? "gate open" : "gates open";
-  const taskLabel = reading.blockedTaskCount === 1 ? "task blocked" : "tasks blocked";
-  const caption =
-    reading.gateCount === 0 ? (
-      "no open gates"
-    ) : (
-      <Facts
-        items={[
-          { key: "gates", node: gateLabel },
-          {
-            key: "oldest",
-            node: reading.oldestAgeMs == null ? "age unavailable" : `oldest ${formatAgeMs(reading.oldestAgeMs)}`,
-          },
-          { key: "blocked", node: `${formatCount(reading.blockedTaskCount)} ${taskLabel}` },
-        ]}
-      />
-    );
-  return (
-    <FigureCard
-      testId="mc-board-decisions-waiting"
-      title="Decisions waiting"
-      amount={<AnimatedNumber value={reading.gateCount} format={formatCount} />}
-      caption={caption}
-    />
-  );
-}
-
-export function LongestWaitCard({ held }: { held: HeldForDecision }) {
-  const reading = longestWaitReading(held);
-  return (
-    <FigureCard
-      testId="mc-board-longest-wait"
-      title="Longest wait"
-      amount={reading.ageMs == null ? "—" : formatAgeMs(reading.ageMs)}
-      caption={reading.ageMs == null ? "nothing held" : reading.taskName ?? "task name unavailable"}
-    />
-  );
-}
-
-export function DoneFirstTryCard({ bounces }: { bounces: BounceSummary }) {
-  const attemptLabel = bounces.total_attempts === 1 ? "attempt" : "attempts";
-  return (
-    <FigureCard
-      testId="mc-board-done-first-try"
-      title="Done first try"
-      amount={<AnimatedNumber value={bounces.first_try_done} format={formatCount} />}
-      caption={`of ${formatCount(bounces.total_attempts)} ${attemptLabel}`}
-    />
-  );
-}
-
-export function AreasCard({ areas }: { areas: AreaGrouping }) {
+function AreasSection({ areas }: { areas: AreaGrouping }) {
   const reading = areaReading(areas);
   return (
-    <section data-testid="mc-board-areas" className="ct-panel-card mc-board-card">
-      <div className="mc-board-card-head">
-        <h2>{reading.title}</h2>
-        <span className="mc-board-caption">{reading.caption}</span>
-      </div>
+    <BoardPanelSection testId="mc-board-areas" label={reading.title}>
       {reading.rows.length === 0 ? (
         <p className="mc-board-note">No tasks to group.</p>
       ) : (
-        <div className="mc-board-kv-list">
+        <dl className="mc-board-kv-list">
           {reading.rows.map((row) => (
-            <div key={row.key} data-testid="mc-board-area-row" className="mc-board-kv">
-              <span className="mc-board-kv-key">{row.label}</span>
-              <span className="mc-board-kv-value">
-                <AnimatedNumber value={row.taskCount} format={formatCount} />
-              </span>
-              <span className="mc-board-kv-share">
-                <AnimatedNumber value={row.sharePct} />%
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      {reading.declared && reading.untagged > 0 && (
-        <p data-testid="mc-board-area-untagged" className="mc-board-detail">
-          <b><AnimatedNumber value={reading.untagged} format={formatCount} /></b> untagged tasks
-        </p>
-      )}
-    </section>
-  );
-}
-
-export function TaskCountsCard({ counts }: { counts: PlanTaskCounts }) {
-  const statuses = taskStatusBreakdown(counts);
-  return (
-    <FigureCard
-      testId="mc-board-tasks"
-      className="mc-board-card-tasks"
-      title="Tasks"
-      amount={<AnimatedNumber value={counts.total} format={formatCount} />}
-      caption="total tasks"
-      detail={
-        <div data-testid="mc-board-task-statuses" className="mc-board-status-list" role="list">
-          {statuses.map((status) => (
             <div
-              key={status.key}
-              data-testid={`mc-board-task-status-${status.key}`}
-              data-zero={status.count === 0 ? "true" : "false"}
-              className="mc-board-status"
-              role="listitem"
+              key={row.key}
+              data-testid="mc-board-area-row"
+              data-untagged={row.untagged ? "true" : "false"}
+              className="mc-board-kv"
             >
-              <span className="mc-board-status-label">{status.label}</span>
-              <b data-testid={`mc-board-task-status-${status.key}-count`}>
-                <AnimatedNumber value={status.count} format={formatCount} />
-              </b>
+              <dt className="mc-board-kv-key">{row.label}</dt>
+              <dd className="mc-board-kv-value">
+                <AnimatedNumber value={row.taskCount} format={formatCount} />
+              </dd>
             </div>
           ))}
-        </div>
-      }
-    />
+        </dl>
+      )}
+    </BoardPanelSection>
   );
 }

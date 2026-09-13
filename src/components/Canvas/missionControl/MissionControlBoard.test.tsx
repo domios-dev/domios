@@ -6,8 +6,8 @@ import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
 import {
-  BOARD_CARD_COLUMNS,
   BOARD_NARROW_MAX_PX,
+  BOARD_ROW_COLUMNS,
   BOARD_SPEND_WINDOW_COLUMNS,
   EVENT_PART_SEPARATOR,
   EVENT_PREVIEW_MAX,
@@ -23,6 +23,7 @@ import type {
   MissionControlState,
   PlanBoardState,
   PlanEvent,
+  PlanTaskCounts,
 } from "./missionControlState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -73,11 +74,10 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
-function areaRows(host: HTMLElement): Array<{ label: string; count: string; share: string }> {
+function areaRows(host: HTMLElement): Array<{ label: string; count: string }> {
   return Array.from(host.querySelectorAll('[data-testid="mc-board-area-row"]')).map((row) => ({
     label: row.querySelector(".mc-board-kv-key")?.textContent?.trim() ?? "",
     count: row.querySelector(".mc-board-kv-value")?.textContent?.trim() ?? "",
-    share: row.querySelector(".mc-board-kv-share")?.textContent?.trim() ?? "",
   }));
 }
 
@@ -86,10 +86,10 @@ function gridTemplate(el: HTMLElement): string {
   return el.style.gridTemplateColumns || el.getAttribute("style") || "";
 }
 
-const TASK_STATUS_KEYS = ["pending", "in_progress", "in_review", "blocked", "paused", "done", "cancelled"] as const;
-
-function taskStatusValues(host: HTMLElement): number[] {
-  return TASK_STATUS_KEYS.map((key) => Number(text(host, `mc-board-task-status-${key}-count`).replace(/,/g, "")));
+function statusItems(host: HTMLElement): string[] {
+  return Array.from(host.querySelectorAll('[data-testid="mc-board-task-statuses"] li')).map(
+    (item) => item.textContent ?? "",
+  );
 }
 
 function recordingState(): MissionControlState {
@@ -283,34 +283,47 @@ function notRecordingState(): MissionControlState {
   };
 }
 
-function boardState(mission: MissionControlState): PlanBoardState {
+const TASK_COUNTS: PlanTaskCounts = {
+  pending: 1,
+  in_progress: 0,
+  in_review: 2,
+  blocked: 1,
+  paused: 1,
+  done: 10,
+  cancelled: 1,
+  total: 16,
+};
+
+const NO_TASKS: PlanTaskCounts = {
+  pending: 0,
+  in_progress: 0,
+  in_review: 0,
+  blocked: 0,
+  paused: 0,
+  done: 0,
+  cancelled: 0,
+  total: 0,
+};
+
+function boardState(mission: MissionControlState, counts: PlanTaskCounts = TASK_COUNTS): PlanBoardState {
   return {
     plan_id: FIXTURE_PLAN.id,
-    task_counts: {
-      pending: 1,
-      in_progress: 0,
-      in_review: 2,
-      blocked: 1,
-      paused: 1,
-      done: 10,
-      cancelled: 1,
-      total: 16,
-    },
+    task_counts: counts,
     mission_control: mission,
   };
 }
 
 const PLAN: Plan = { ...FIXTURE_PLAN, milestone_kinds: [{ key: "skill", label: "Skill pinned", color: null }] };
 
-function board(mission: MissionControlState) {
-  return <MissionControlBoard plan={PLAN} state={boardState(mission)} now={NOW} />;
+function board(mission: MissionControlState, counts?: PlanTaskCounts) {
+  return <MissionControlBoard plan={PLAN} state={boardState(mission, counts)} now={NOW} />;
 }
 
 beforeEach(() => {
   observers.length = 0;
 });
 
-describe("mission control board cards", () => {
+describe("mission control board panels", () => {
   it("mission_control_board_paints_theme_backed_opaque_surface", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
@@ -319,8 +332,9 @@ describe("mission control board cards", () => {
 
     const boardCss = readFileSync("src/components/Canvas/missionControl/missionControlBoard.css", "utf8");
     const boardRule = boardCss.match(/\.mc-board\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(boardRule).toContain("background: var(--ct-surface);");
+    expect(boardRule).toContain("background: var(--ct-bg);");
     expect(boardRule).not.toMatch(/background(?:-color)?\s*:\s*transparent/);
+    expect(cssRule(boardCss, ".mc-board .mc-board-panel")).toContain("background: var(--ct-surface);");
 
     const appSource = readFileSync("src/App.tsx", "utf8");
     expect(appSource).toContain(
@@ -333,98 +347,91 @@ describe("mission control board cards", () => {
     await unmount();
   });
 
-  it("opens straight onto the cards with no band above them", async () => {
+  it("opens straight onto the Needs you panel with no band above it", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     expect(host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
     expect(host.querySelector('[data-testid="mission-control-board-actions-row"]')).toBeNull();
     expect(host.querySelector('[data-testid="mission-control-board-actions"]')).toBeNull();
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
-    expect(root.firstElementChild?.getAttribute("data-testid")).toBe("mc-board-card-grid");
+    expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
+      "mc-board-needs-you",
+      "mc-board-row",
+      "mc-board-event-log",
+    ]);
     await unmount();
   });
 
-  it("reads tokens, turns, bounces and held decisions from the stored figures", async () => {
+  it("asks for every open gate and held review in one Needs you panel", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    expect(text(host, "mc-board-tokens-amount")).toBe("5.3M");
-    expect(text(host, "mc-board-turns-amount")).toBe("4,023");
+    const items = Array.from(host.querySelectorAll('[data-testid="mc-board-needs-you-item"]')) as HTMLElement[];
+    expect(
+      items.map((item) => [item.getAttribute("data-kind"), item.querySelector(".mc-board-needs-title")?.textContent]),
+    ).toEqual([
+      ["gate", "Ship the migration now?"],
+      ["review", "Land the wave"],
+      ["review", "Triage backlog"],
+    ]);
+    const facts = (item: HTMLElement) =>
+      Array.from(item.querySelectorAll(".mc-board-fact")).map((fact) => fact.textContent);
+    expect(facts(items[0]!)).toEqual(["decision gate", "waiting 2 h", "blocks 2 tasks"]);
+    expect(facts(items[1]!)).toEqual(["review held", "waiting 1 h 07 m", "5 verdicts"]);
+    expect(text(host, "mc-board-needs-you-count")).toBe("3");
+    expect(text(host, "mc-board-needs-you")).not.toContain("·");
+    await unmount();
+  });
+
+  it("leaves Needs you out entirely when nothing waits", async () => {
+    const state = recordingState();
+    state.held = { held_reviews: [], open_gates: [], oldest_hold_age_ms: null, verdicts_on_held: 0 };
+    const { host, unmount } = await render(board(state));
+
+    expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
+    const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
+    expect(root.firstElementChild?.getAttribute("data-testid")).toBe("mc-board-row");
+    await unmount();
+  });
+
+  it("reads this plan's new input, turns and quality without output, total or byte headlines", async () => {
+    const { host, unmount } = await render(board(recordingState()));
+
+    expect(text(host, "mc-board-plan-new-input")).toBe("1.5M");
+    expect(text(host, "mc-board-plan-turns")).toBe("4,023");
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
-    expect(text(host, "mc-board-held-amount")).toBe("2");
-    expect(text(host, "mc-board-tasks")).toContain("total tasks");
-    expect(host.querySelectorAll(".mc-board-source")).toHaveLength(0);
-    expect(host.textContent?.toLowerCase()).not.toContain("report runs collapsed");
-    expect(host.textContent?.toLowerCase()).not.toContain("provider allowance snapshots reset per gauge");
+    expect(host.querySelector('[data-testid="mc-board-bounces-amount"]')?.classList.contains("mc-board-warn")).toBe(true);
+    expect(text(host, "mc-board-done-first-try-amount")).toBe("10");
+    expect(text(host, "mc-board-quality")).toContain("of 12 attempts");
+    const progress = text(host, "mc-board-progress");
+    for (const banned of ["5.3M", "1.4B", "65M", "output", "total", "bytes", "·"]) {
+      expect(progress).not.toContain(banned);
+    }
     expect(host.textContent?.toLowerCase()).not.toContain("provider allowance snapshots");
     await unmount();
   });
 
-  it("moves gate, wait, and first-try readings into dedicated cards", async () => {
+  it("shows only the statuses holding tasks and names the empty ones once", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    expect(text(host, "mc-board-decisions-waiting-amount")).toBe("1");
-    const facts = Array.from(host.querySelectorAll('[data-testid="mc-board-decisions-waiting"] .mc-board-fact')).map(
-      (fact) => fact.textContent,
+    expect(statusItems(host)).toEqual(["1pending", "2in review", "1blocked", "1paused", "10done", "1cancelled"]);
+    expect(text(host, "mc-board-task-status-rest")).toBe("nothing in progress");
+    expect(text(host, "mc-board-progress-meta")).toBe("16 tasks");
+    await unmount();
+
+    const paused = await render(board(recordingState(), { ...NO_TASKS, paused: 4, total: 4 }));
+    expect(statusItems(paused.host)).toEqual(["4paused"]);
+    expect(
+      paused.host.querySelector('[data-testid="mc-board-task-status-paused-count"]')?.classList.contains("mc-board-warn"),
+    ).toBe(true);
+    expect(text(paused.host, "mc-board-task-status-rest")).toBe(
+      "nothing pending, in progress, in review, blocked, done or cancelled",
     );
-    expect(facts).toEqual(["gate open", "oldest 2 h", "2 tasks blocked"]);
-    expect(text(host, "mc-board-decisions-waiting")).not.toContain("·");
-    const grid = host.querySelector('[data-testid="mc-board-card-grid"]') as HTMLElement;
-    expect(Array.from(grid.children).map((card) => card.getAttribute("data-testid"))).toEqual([
-      "mc-board-tasks",
-      "mc-board-tokens",
-      "mc-board-turns",
-      "mc-board-bounces",
-      "mc-board-decisions-waiting",
-      "mc-board-held",
-      "mc-board-longest-wait",
-      "mc-board-done-first-try",
-    ]);
-    expect(text(host, "mc-board-held")).not.toContain("decision gates open");
+    await paused.unmount();
 
-    expect(text(host, "mc-board-longest-wait-amount")).toBe("1 h 07 m");
-    expect(text(host, "mc-board-longest-wait")).toContain("Land the wave");
-
-    expect(text(host, "mc-board-done-first-try-amount")).toBe("10");
-    expect(text(host, "mc-board-done-first-try")).toContain("of 12 attempts");
-    expect(text(host, "mc-board-tokens")).not.toContain("·");
-    expect(text(host, "mc-board-turns")).not.toContain("·");
-    expect(text(host, "mc-board-bounces")).not.toContain("finished on the first");
-    expect(text(host, "mc-board-bounces")).not.toContain("labelled bounced");
-    await unmount();
-  });
-
-  it("keeps task distribution full width below the card grid and separate from Tokens", async () => {
-    const { host, unmount } = await render(board(recordingState()));
-
-    const grid = host.querySelector('[data-testid="mc-board-card-grid"]');
-    const held = host.querySelector('[data-testid="mc-board-held"]');
-    const areas = host.querySelector('[data-testid="mc-board-areas"]');
-    expect(held?.parentElement).toBe(grid);
-    expect(areas?.parentElement).not.toBe(grid);
-    expect(grid?.nextElementSibling).toBe(areas);
-    expect(text(host, "mc-board-areas")).toContain("Tasks by area");
-    expect(text(host, "mc-board-areas")).not.toContain("Spend by area");
-    expect(text(host, "mc-board-areas")).not.toContain("token spend");
-    expect(host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(8);
-    for (const [testId, title] of [
-      ["mc-board-decisions-waiting", "Decisions waiting"],
-      ["mc-board-longest-wait", "Longest wait"],
-      ["mc-board-done-first-try", "Done first try"],
-    ]) {
-      expect(text(host, testId)).toContain(title);
-    }
-    await unmount();
-  });
-
-  it("renders every PlanTaskCounts status and the values sum to total", async () => {
-    const { host, unmount } = await render(board(recordingState()));
-
-    expect(taskStatusValues(host)).toEqual([1, 0, 2, 1, 1, 10, 1]);
-    expect(taskStatusValues(host).reduce((sum, value) => sum + value, 0)).toBe(
-      Number(text(host, "mc-board-tasks-amount").replace(/,/g, "")),
-    );
-    expect(host.querySelectorAll('[data-testid^="mc-board-task-status-"][role="listitem"]')).toHaveLength(7);
-    await unmount();
+    const empty = await render(board(recordingState(), NO_TASKS));
+    expect(statusItems(empty.host)).toEqual([]);
+    expect(text(empty.host, "mc-board-task-statuses")).toBe("No tasks yet.");
+    await empty.unmount();
   });
 
   it("mission_control_spend_renders_one_gauge_per_provider_window_with_its_own_reset", async () => {
@@ -490,11 +497,12 @@ describe("mission control board cards", () => {
     const { host, unmount } = await render(board(recordingState()));
 
     expect(areaRows(host)).toEqual([
-      { label: "Design", count: "6", share: "60%" },
-      { label: "Backend", count: "2", share: "20%" },
+      { label: "Design", count: "6" },
+      { label: "Backend", count: "2" },
+      { label: "untagged", count: "2" },
     ]);
-    expect(text(host, "mc-board-area-untagged")).toContain("2");
-    expect(host.querySelector('[data-testid="mc-board-area-no-facet"]')).toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-areas"] h3')?.textContent).toBe("Area");
+    expect(text(host, "mc-board-areas")).not.toContain("%");
     await unmount();
   });
 });
@@ -503,9 +511,9 @@ describe("mission control board fallback states", () => {
   it("states the ledger is not recording instead of showing a figure", async () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
-    expect(text(host, "mc-board-tokens-amount")).toBe("—");
-    expect(text(host, "mc-board-turns-amount")).toBe("—");
-    expect(text(host, "mc-board-tokens")).toContain("recording off");
+    expect(host.querySelector('[data-testid="mc-board-plan-new-input"]')).toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-plan-turns"]')).toBeNull();
+    expect(text(host, "mc-board-plan-not-recording")).toContain("recording off");
     await unmount();
   });
 
@@ -520,13 +528,8 @@ describe("mission control board fallback states", () => {
     };
     const { host, unmount } = await render(board(state));
 
-    for (const card of ["mc-board-tokens", "mc-board-turns"]) {
-      const reading = text(host, card);
-      expect(reading).toContain(setting);
-      expect(reading.toLowerCase()).toContain("recording off");
-    }
-    expect(text(host, "mc-board-tokens-amount")).toBe("—");
-    expect(text(host, "mc-board-turns-amount")).toBe("—");
+    expect(text(host, "mc-board-plan-not-recording")).toBe(`recording off, enable ${setting}`);
+    expect(text(host, "mc-board-plan-spend")).not.toContain("—");
     await unmount();
   });
 
@@ -538,7 +541,7 @@ describe("mission control board fallback states", () => {
       "not_read",
     ];
     const emptyCopy: Record<KpiNotRecordingReason, string> = {
-      disabled: "recording off",
+      disabled: "recording off, enable kpi.enabled",
       no_rows_for_plan: "no plan ledger row",
       unreadable: "ledger unavailable",
       not_read: "ledger not read",
@@ -553,11 +556,9 @@ describe("mission control board fallback states", () => {
       };
       const { host, unmount } = await render(board(state));
 
-      expect(text(host, "mc-board-tokens-amount")).toBe("—");
-      expect(text(host, "mc-board-turns-amount")).toBe("—");
-      expect(text(host, "mc-board-tokens")).toContain(emptyCopy[reason]);
-      expect(text(host, "mc-board-tokens").split(emptyCopy[reason]).length - 1).toBe(1);
-      expect(text(host, "mc-board-turns").toLowerCase()).not.toContain("no figure");
+      expect(text(host, "mc-board-plan-not-recording")).toBe(emptyCopy[reason]);
+      expect(text(host, "mc-board-plan-spend")).not.toMatch(/\b0\b/);
+      expect(host.querySelector('[data-testid="mc-board-plan-turns"]')).toBeNull();
       await unmount();
     }
   });
@@ -577,29 +578,22 @@ describe("mission control board fallback states", () => {
     };
     const { host, unmount } = await render(board(state));
 
-    expect(text(host, "mc-board-tokens-amount")).toBe("1.8K");
-    expect(text(host, "mc-board-turns-amount")).toBe("3");
-    expect(text(host, "mc-board-tokens")).not.toContain("not recording");
-    expect(text(host, "mc-board-turns")).not.toContain("not recording");
+    expect(text(host, "mc-board-plan-new-input")).toBe("25.6K");
+    expect(text(host, "mc-board-plan-turns")).toBe("3");
+    expect(host.querySelector('[data-testid="mc-board-plan-not-recording"]')).toBeNull();
     await unmount();
   });
 
-  it("falls back to stored executor roles and says once that no area facet is declared", async () => {
+  it("falls back to stored executor roles under a Roles label", async () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
-    const rows = areaRows(host);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.label).toContain("frontend-dev");
-    expect(rows[0]?.label).not.toContain("executor role, not a tag");
-    expect(rows[0]?.count).toBe("2");
-    expect(rows[0]?.share).toBe("67%");
-    expect(rows[1]?.label).toContain("No role recorded");
-    expect(rows[1]?.share).toBe("33%");
-    expect(text(host, "mc-board-areas")).toContain("Tasks by role");
-    expect(text(host, "mc-board-areas")).toContain("no area facet declared");
-    expect(host.querySelector('[data-testid="mc-board-area-no-facet"]')).toBeNull();
+    expect(areaRows(host)).toEqual([
+      { label: "frontend-dev", count: "2" },
+      { label: "No role recorded", count: "1" },
+    ]);
+    expect(host.querySelector('[data-testid="mc-board-areas"] h3')?.textContent).toBe("Roles");
     expect(host.querySelectorAll('[data-testid="mc-board-areas"] p')).toHaveLength(0);
-    expect(text(host, "mc-board-areas")).not.toContain("Tokens plan total");
+    expect(text(host, "mc-board-areas")).not.toContain("%");
     await unmount();
   });
 
@@ -903,11 +897,11 @@ describe("mission control board event log readability", () => {
 });
 
 describe("mission control board layout", () => {
-  it("resolves a 390px viewport to the narrow, zero-minimum grid", () => {
+  it("resolves a 390px viewport to the narrow, zero-minimum layout", () => {
     expect(boardLayout(390)).toBe("narrow");
     expect(boardLayout(BOARD_NARROW_MAX_PX)).toBe("narrow");
     expect(boardLayout(BOARD_NARROW_MAX_PX + 1)).toBe("wide");
-    expect(BOARD_CARD_COLUMNS.narrow).toBe("repeat(2, minmax(0, 1fr))");
+    expect(BOARD_ROW_COLUMNS.narrow).toBe("minmax(0, 1fr)");
     expect(BOARD_SPEND_WINDOW_COLUMNS.narrow).toBe("minmax(0, 1fr)");
   });
 
@@ -918,26 +912,25 @@ describe("mission control board layout", () => {
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(root.getAttribute("data-board-layout")).toBe("narrow");
 
-    const cards = host.querySelector('[data-testid="mc-board-card-grid"]') as HTMLElement;
+    const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
     const windows = host.querySelector('[data-testid="mc-board-spend-window-grid"]') as HTMLElement;
-    const tracks = `${gridTemplate(cards)} ${gridTemplate(windows)}`;
+    const tracks = `${gridTemplate(row)} ${gridTemplate(windows)}`;
 
-    expect(tracks).toContain("repeat(2, minmax(0, 1fr))");
-    expect(tracks).toContain("minmax(0, 1fr)");
+    expect(gridTemplate(row)).toContain("minmax(0, 1fr)");
     expect(tracks).not.toMatch(/minmax\(\s*(?!0)/);
     expect(tracks).not.toMatch(/\d+px/);
     await unmount();
   });
 
-  it("returns to the wide grid above the narrow bound", async () => {
+  it("returns to Progress beside Spend above the narrow bound", async () => {
     const { host, setWidth, unmount } = await render(board(recordingState()));
     await setWidth(390);
     await setWidth(1200);
 
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(root.getAttribute("data-board-layout")).toBe("wide");
-    const cards = host.querySelector('[data-testid="mc-board-card-grid"]') as HTMLElement;
-    expect(gridTemplate(cards)).toContain("1.6fr");
+    const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
+    expect(gridTemplate(row)).toContain("1.55fr");
     await unmount();
   });
 
