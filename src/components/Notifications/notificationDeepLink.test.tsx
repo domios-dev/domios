@@ -272,7 +272,8 @@ describe("transcript source identity", () => {
       range: { start: 200, end: 260 },
       rows: [row("uuid-c-0", "third", 0)],
     });
-    expect(transcriptRows(delta.state).at(-1)).toMatchObject({ id: "200:0", sourceMessageId: "uuid-c-0" });
+    const rows = transcriptRows(delta.state);
+    expect(rows[rows.length - 1]).toMatchObject({ id: "200:0", sourceMessageId: "uuid-c-0" });
   });
 });
 
