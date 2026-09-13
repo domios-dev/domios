@@ -1,9 +1,9 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { boardRefs } from "./BoardRefText";
 import type { Plan } from "../types";
 import type { AllowanceWeeks } from "./allowanceWeek";
-import { NeedsYouPanel, ProgressPanel, SpendCard } from "./BoardCards";
+import { ModelsCard, NeedsYouPanel, PlanCard, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
+import { boardRefs } from "./BoardRefText";
 import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
 import type { PlanBoardState } from "./missionControlState";
 
@@ -18,6 +18,8 @@ export interface MissionControlBoardProps {
   allowanceWeeks?: AllowanceWeeks;
   /** Plans whose ids and task ids the Board names by title; defaults to this plan. */
   plans?: readonly Plan[];
+  /** Archived plans the same team ran before the active one, newest first. */
+  previousPlans?: readonly Plan[];
   onOpenTask?: (taskId: string) => void;
   onOpenPlan?: (planId: string) => void;
 }
@@ -45,12 +47,13 @@ export function MissionControlBoard({
   error = null,
   allowanceWeeks,
   plans,
+  previousPlans,
   onOpenTask,
   onOpenPlan,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const refs = useMemo(() => boardRefs(plans ?? [plan], onOpenTask, onOpenPlan), [plans, plan, onOpenTask, onOpenPlan]);
   const layout = useMeasuredLayout(rootRef);
+  const refs = useMemo(() => boardRefs(plans ?? [plan], onOpenTask, onOpenPlan), [plans, plan, onOpenTask, onOpenPlan]);
   const boardState = state?.mission_control ? state : null;
   const mc = boardState?.mission_control ?? null;
 
@@ -73,20 +76,22 @@ export function MissionControlBoard({
       )}
       {boardState && mc && (
         <>
-          <NeedsYouPanel held={mc.held} refs={refs} />
           <div
             data-testid="mc-board-row"
             className="mc-board-row"
             style={{ gridTemplateColumns: BOARD_ROW_COLUMNS[layout] }}
           >
-            <ProgressPanel
-              counts={boardState.task_counts}
-              kpi={mc.kpi}
-              bounces={mc.bounces}
-              areas={mc.areas}
-            />
             <SpendCard spend={mc.spend} weeks={allowanceWeeks} />
+            <ModelsCard spend={mc.spend} />
+            <PlanCard
+              plan={plan}
+              counts={boardState.task_counts}
+              bounces={mc.bounces}
+              previousPlans={previousPlans}
+              onOpenPlan={onOpenPlan}
+            />
           </div>
+          <NeedsYouPanel held={mc.held} refs={refs} />
           <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} refs={refs} />
         </>
       )}

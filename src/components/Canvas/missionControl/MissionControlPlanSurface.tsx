@@ -132,13 +132,21 @@ export function MissionControlPlanSurface({
 
   const openPlanDetail = useCallback(
     (id?: string) => {
-      const plan = id ? orderedPlans.find((p) => p.id === id) ?? selectedPlan : selectedPlan;
+      const plan = id ? effectivePlans.find((p) => p.id === id) ?? selectedPlan : selectedPlan;
       if (!plan) return;
       const sections = plan.id === selectedPlan?.id ? selectedSpecSections : [];
       setDetail({ kind: "plan", plan, specSections: sections });
     },
-    [orderedPlans, selectedPlan, selectedSpecSections],
+    [effectivePlans, selectedPlan, selectedSpecSections],
   );
+
+  const previousPlans = useMemo(() => {
+    const teamOfPlan = selectedPlan?.team_id;
+    if (!teamOfPlan) return [] as Plan[];
+    return effectivePlans
+      .filter((plan) => plan.status === "archived" && plan.team_id === teamOfPlan)
+      .sort((a, b) => b.updated_at - a.updated_at);
+  }, [effectivePlans, selectedPlan]);
 
   const openSpecDetail = useCallback(() => {
     if (!selectedPlan) return;
@@ -235,6 +243,7 @@ export function MissionControlPlanSurface({
             error={boardState.error}
             allowanceWeeks={allowanceWeeks}
             plans={orderedPlans}
+            previousPlans={previousPlans}
             onOpenTask={openTask}
             onOpenPlan={openPlanDetail}
           />
