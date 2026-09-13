@@ -91,6 +91,15 @@ function hasVisibleEdit(item: TimelineItem | undefined): boolean {
     && Boolean(item.event.edits?.length);
 }
 
+// Transport ids are re-keyed when a snapshot replaces live rows, so tool expansion keys on source identity.
+function expansionKey(message: ChatMessage, item: TimelineItem | undefined): string {
+  if (item?.kind !== "tool") return message.id;
+  const session = message.sourceSessionId ?? "";
+  if (item.event.stream) return `stream:${session}:${item.event.stream.flowId}`;
+  const toolId = item.event.toolId?.trim();
+  return toolId ? `tool:${session}:${toolId}` : message.id;
+}
+
 function isOutboundMessage(item: TimelineItem | undefined): boolean {
   if (item?.kind !== "tool") return false;
   const command = item.event.detail?.trim() || item.event.summary || item.event.result?.trim() || "";
@@ -120,8 +129,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
   const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
+  const persistKey = expansionKey(message, item);
   const [expanded, setExpanded] = useState(() => {
-    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
     return persisted ?? shouldAutoExpand;
   });
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
@@ -143,23 +153,23 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   }, []);
 
   useEffect(() => {
-    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
     if (persisted != null) {
       setExpanded(persisted);
       return;
     }
     if (shouldAutoExpand) {
       setExpanded(true);
-      TOOL_EXPANDED_BY_ID.set(message.id, true);
+      TOOL_EXPANDED_BY_ID.set(persistKey, true);
     } else {
       setExpanded(false);
     }
-  }, [message.id, shouldAutoExpand]);
+  }, [persistKey, shouldAutoExpand]);
 
   const setExpandedPersistent = useCallback((next: boolean) => {
-    TOOL_EXPANDED_BY_ID.set(message.id, next);
+    TOOL_EXPANDED_BY_ID.set(persistKey, next);
     setExpanded(next);
-  }, [message.id]);
+  }, [persistKey]);
 
   const timelineMarker = normalizedTimelineMarker(message);
   if (timelineMarker?.kind === "context_compaction" || timelineMarker?.kind === "external_edit") {
