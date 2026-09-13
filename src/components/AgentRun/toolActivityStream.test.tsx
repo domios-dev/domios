@@ -1,7 +1,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { reduceToolEvents, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
+import { reduceToolEvents, type FileDiff, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../../../packages/chat-ui/src/ToolCallBubble";
 import { MessageBubble } from "../../../packages/chat-ui/src/MessageBubble";
 
@@ -195,18 +195,22 @@ describe("Codex tool activity", () => {
     codexCall("call-b2", "git status", { toolKind: "command", toolDetail: "git status" }),
   ];
 
-  it("groups every call of one turn into a stream with honest titles and wait follow-ups as ordinary actions", async () => {
+  it("groups each contiguous run of a turn into a stream with honest titles and wait follow-ups as ordinary actions", async () => {
     const view = await render(turnMessages);
     const [first, second] = streams(view);
     expect(streams(view)).toHaveLength(2);
     expect(view.querySelector('[data-testid="chat-wait-batch"]')).toBeNull();
-    expect(view.querySelector('[data-testid="timeline-message"]')?.textContent).toBe("checking output");
+    const narration = view.querySelector('[data-testid="timeline-message"]');
+    expect(narration?.textContent).toBe("checking output");
+    const loose = view.querySelector<HTMLElement>('[data-testid="chat-tool-call"]');
+    expect(loose?.compareDocumentPosition(narration as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(narration?.compareDocumentPosition(first)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(first.querySelector('[data-testid="chat-tool-stream-title"]')?.textContent).toBe("wait_agent");
     expect(first.dataset.flowActive).toBe("false");
     expect(second.dataset.flowActive).toBe("true");
 
-    await click(first.querySelector('button[aria-label="Expand 3 actions"]'));
-    expect(actionLabels(first)).toEqual(["npm test", "Wait for command output", "wait_agent"]);
+    await click(first.querySelector('button[aria-label="Expand 2 actions"]'));
+    expect(actionLabels(first)).toEqual(["Wait for command output", "wait_agent"]);
     await click(first.querySelector('button[aria-label="Show Wait for command output"]'));
     expect(first.querySelector('[data-testid="chat-tool-call"]')?.textContent).toContain("poll output");
 
@@ -219,10 +223,11 @@ describe("Codex tool activity", () => {
     const second = streamEvent(turnMessages, 1);
     expect(first.stream?.flowId).toBe("turn-a");
     expect(second.stream?.flowId).toBe("turn-b");
-    expect(first.stream?.members.map((member) => member.id)).toEqual(["call-a1", "call-a2", "call-a3"]);
-    expect(first.stream?.members[0].detail).toBe("npm test -- --run");
-    expect(first.stream?.members[0].result).toBe("12 passed");
-    expect(first.stream?.members[2].message.toolInput).toEqual({ ids: ["agent-1"], timeout_ms: 30000 });
+    expect(first.stream?.members.map((member) => member.id)).toEqual(["call-a2", "call-a3"]);
+    const loose = reduceToolEvents(turnMessages).find((item) => item.kind === "tool" && item.event.id === "call-a1");
+    expect(loose?.kind === "tool" && loose.event.detail).toBe("npm test -- --run");
+    expect(loose?.kind === "tool" && loose.event.result).toBe("12 passed");
+    expect(first.stream?.members[1].message.toolInput).toEqual({ ids: ["agent-1"], timeout_ms: 30000 });
   });
 
   it("shows a static no-result state for a turn the source moved past and keeps the spinner for the latest open turn", async () => {
@@ -370,5 +375,180 @@ describe("stream presentation", () => {
     expect(stream.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-r", "border-x"]));
     expect(stream.style.borderRightWidth).toBe("");
     expect(stream.getAttribute("style")).toContain("var(--ct-");
+  });
+});
+
+const SPEC_CHAIN = "codeterm spec section update --help ; codeterm plan task update --help";
+const PLAN_CHAIN = "codeterm plan doctor ; codeterm plan decision list ; codeterm task show ; codeterm task show";
+
+function chainCall(id: string, title: string, command: string): NormalizedChatMessage {
+  return codexCall(id, title, { toolName: "exec_command", toolKind: "command", toolDetail: command, toolSummary: command, toolInput: { cmd: command } });
+}
+
+function inboundReport(id: string): NormalizedChatMessage {
+  return { id, type: "user", content: "STATUS: in_review", fromLabel: "Hopper", fromTab: "e7f14bec", inboundKind: "report", sourceSessionId: CODEX_SESSION };
+}
+
+function followsInDocument(earlier: Element | null | undefined, later: Element | null | undefined): boolean {
+  return Boolean(earlier && later && earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+describe("chained commands inside a stream", () => {
+  const chainTurn = [
+    boundary("start", "turn-chain"),
+    chainCall("chain-2", "codeterm spec", SPEC_CHAIN),
+    chainCall("chain-4", "codeterm plan", PLAN_CHAIN),
+    result("chain-2", "usage", CODEX_SESSION),
+    result("chain-4", "doctor: ok", CODEX_SESSION),
+  ];
+
+  function treeLeads(scope: ParentNode): string[] {
+    return [...scope.querySelectorAll('[data-testid="chat-command-tree-line"] [data-testid="chat-command-tree-lead"]')].map((node) => node.textContent ?? "");
+  }
+
+  it("shows each chained member's segments as a capped compact tree while the member is collapsed", async () => {
+    const view = await render(chainTurn);
+    const [stream] = streams(view);
+    await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    const members = [...stream.querySelectorAll<HTMLElement>('[data-testid="chat-tool-stream-member"]')];
+    expect(members).toHaveLength(2);
+    expect(stream.querySelector('[data-testid="chat-command-group"]')).toBeNull();
+    expect(members[0].querySelector('[data-testid="chat-tool-stream-action"]')?.textContent).toContain("codeterm spec");
+    expect(treeLeads(members[0])).toEqual(["spec section update", "plan task update"]);
+    expect(treeLeads(members[1])).toEqual(["plan doctor", "plan decision list", "task show"]);
+    expect(members[1].querySelector('[data-testid="chat-command-tree-more"]')?.textContent).toContain("+1 more");
+    expect([...members[1].querySelectorAll<HTMLElement>('[data-testid="chat-command-tree-operator"]')].map((node) => node.dataset.operator)).toEqual(["then", "then"]);
+  });
+
+  it("opens the clicked segment inside the member's group with the raw command still collapsed", async () => {
+    const view = await render(chainTurn);
+    const [stream] = streams(view);
+    await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    const member = stream.querySelectorAll<HTMLElement>('[data-testid="chat-tool-stream-member"]')[1];
+    await click(member.querySelectorAll('[data-testid="chat-command-tree-line"] button')[1]);
+
+    const group = member.querySelector<HTMLElement>('[data-testid="chat-command-group"]');
+    expect(group).not.toBeNull();
+    const lines = [...(group?.querySelectorAll<HTMLElement>('[data-testid="chat-command-tree-line"]') ?? [])];
+    expect(treeLeads(group as HTMLElement)).toEqual(["plan doctor", "plan decision list", "task show", "task show"]);
+    expect(group?.querySelectorAll('[data-testid="chat-command-tree-detail"]')).toHaveLength(1);
+    expect(lines[1].querySelector('[data-testid="chat-command-tree-detail"]')).not.toBeNull();
+    expect(group?.querySelector('[data-testid="chat-command-group-title"]')?.textContent).not.toBe(PLAN_CHAIN);
+    expect(group?.querySelector('[data-testid="message-raw-content"]')).toBeNull();
+    expect(group?.querySelector('[data-testid="toolcard-result"]')).toBeNull();
+  });
+
+  it("renders one member per call id when the source reports a call twice", async () => {
+    const messages = [
+      boundary("start", "turn-dup"),
+      chainCall("dup-call", "codeterm spec", SPEC_CHAIN),
+      codexCall("other-call", "git status", { toolKind: "command", toolDetail: "git status" }),
+      { ...chainCall("dup-call", "codeterm spec", SPEC_CHAIN), id: "dup-call-snapshot" },
+      result("dup-call", "usage", CODEX_SESSION),
+    ];
+    const view = await render(messages);
+    const [stream] = streams(view);
+    expect(streams(view)).toHaveLength(1);
+    await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    expect(actionLabels(stream).filter((label) => label.startsWith("codeterm spec"))).toHaveLength(1);
+    expect(streamEvent(messages).stream?.members.map((member) => member.toolId)).toEqual(["dup-call", "other-call"]);
+  });
+});
+
+describe("contiguous tool streams", () => {
+  const described = (id: string, command: string) => claudeCall(id, command, { toolDescription: `Run ${id}`, toolFlowId: "msg_run" });
+
+  it("splits tool, tool, user message, tool, tool into two streams in source order", async () => {
+    const view = await render([
+      described("u-1", "npm test"),
+      described("u-2", "npm run lint"),
+      { id: "user-next", type: "user", content: "and the docs?", seq: 3, sourceSessionId: CLAUDE_SESSION },
+      described("u-3", "npm run docs"),
+      described("u-4", "git status"),
+    ]);
+    const [first, second] = streams(view);
+    expect(streams(view)).toHaveLength(2);
+    const message = view.querySelector('[data-testid="timeline-message"]');
+    expect(followsInDocument(first, message)).toBe(true);
+    expect(followsInDocument(message, second)).toBe(true);
+    await click(first.querySelector('button[aria-label="Expand 2 actions"]'));
+    await click(second.querySelector('button[aria-label="Expand 2 actions"]'));
+    expect(actionLabels(first)).toEqual(["Run u-1", "Run u-2"]);
+    expect(actionLabels(second)).toEqual(["Run u-3", "Run u-4"]);
+  });
+
+  it("closes a running stream at an inbound report and starts the turn's later actions below it", async () => {
+    const view = await render([
+      boundary("start", "turn-inbound"),
+      codexCall("k-1", "Patched snakeModel.ts +3", { toolKind: "command", toolDetail: "apply patch" }),
+      codexCall("k-2", "npm test", { toolKind: "command", toolDetail: "npm test" }),
+      inboundReport("inbound-hopper"),
+      codexCall("k-3", "git status", { toolKind: "command", toolDetail: "git status" }),
+      codexCall("k-4", "git diff", { toolKind: "command", toolDetail: "git diff" }),
+    ]);
+    const [first, second] = streams(view);
+    expect(streams(view)).toHaveLength(2);
+    const inbound = [...view.querySelectorAll('[data-testid="timeline-message"]')].find((node) => node.textContent === "STATUS: in_review");
+    expect(followsInDocument(first, inbound)).toBe(true);
+    expect(followsInDocument(inbound, second)).toBe(true);
+    expect(first.querySelector('[data-testid="chat-tool-stream-running"]')?.textContent).toBe("2 running");
+    await click(second.querySelector('button[aria-label="Expand 2 actions"]'));
+    expect(actionLabels(second)).toEqual(["git status", "git diff"]);
+  });
+
+  it("settles a call of the earlier stream in place when its result arrives after the stream closed", async () => {
+    const before = [
+      boundary("start", "turn-late"),
+      codexCall("l-1", "npm test", { toolKind: "command", toolDetail: "npm test" }),
+      codexCall("l-2", "npm run lint", { toolKind: "command", toolDetail: "npm run lint" }),
+      inboundReport("inbound-late"),
+      codexCall("l-3", "git status", { toolKind: "command", toolDetail: "git status" }),
+      codexCall("l-4", "git diff", { toolKind: "command", toolDetail: "git diff" }),
+    ];
+    const view = await render(before);
+    expect(streams(view)[0].dataset.toolStatus).toBe("pending");
+
+    await render([...before, result("l-1", "12 passed", CODEX_SESSION), result("l-2", "lint ok", CODEX_SESSION)]);
+    const [first, second] = streams(view);
+    expect(streams(view)).toHaveLength(2);
+    expect(first.dataset.toolStatus).toBe("success");
+    expect(first.dataset.flowActive).toBe("false");
+    expect(first.querySelector('[data-testid="chat-tool-stream-running"]')).toBeNull();
+    expect(first.querySelector('[data-testid="chat-tool-stream-spinner"]')).toBeNull();
+    expect(followsInDocument(first, view.querySelector('[data-testid="timeline-message"]'))).toBe(true);
+    await click(first.querySelector('button[aria-label="Expand 2 actions"]'));
+    expect(actionLabels(first)).toEqual(["npm test", "npm run lint"]);
+    expect(second.dataset.toolStatus).toBe("pending");
+  });
+});
+
+describe("changed lines inside a stream", () => {
+  const diff: FileDiff = {
+    path: "src/snakeModel.ts",
+    additions: 3,
+    deletions: 1,
+    hunks: [{
+      oldStart: 10, oldLines: 2, newStart: 10, newLines: 4,
+      lines: [" const speed = 1;", "-const size = 10;", "+const size = 12;", "+const wrap = true;", "+const lives = 3;"],
+    }],
+  };
+
+  it("expands a Patched member to the hunk lines of its source edit, and stays one line while collapsed", async () => {
+    const view = await render([
+      boundary("start", "turn-patch"),
+      codexCall("p-1", "Patched snakeModel.ts +3", { toolKind: "edit", toolSummary: diff.path, fileDiffs: [diff], toolError: false }),
+      codexCall("p-2", "npm test", { toolKind: "command", toolDetail: "npm test", toolError: false }),
+      { id: "p-end", type: "tool_flow", content: "end", toolFlowId: "turn-patch", sourceSessionId: CODEX_SESSION },
+    ]);
+    const [stream] = streams(view);
+    await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
+    const member = stream.querySelector<HTMLElement>('[data-testid="chat-tool-stream-member"]');
+    expect(member?.querySelectorAll("button")).toHaveLength(1);
+    expect(member?.querySelector('[data-testid="file-diff-line"]')).toBeNull();
+
+    await click(stream.querySelector('button[aria-label="Show Patched snakeModel.ts +3"]'));
+    const lines = [...(member?.querySelectorAll<HTMLElement>('[data-testid="file-diff-line"]') ?? [])];
+    expect(lines.map((line) => line.textContent)).toEqual(diff.hunks[0].lines);
+    expect(lines.map((line) => line.dataset.tone)).toEqual(["context", "del", "add", "add", "add"]);
   });
 });

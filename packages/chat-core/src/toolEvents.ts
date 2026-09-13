@@ -219,41 +219,65 @@ function agentActivityEvent(message: NormalizedChatMessage, records: AgentActivi
   return { id: `${message.id}:agents`, phase: "call", status: "success", kind: "task", summary: "Agents", message, agents: buildAgentTree(records) };
 }
 
-/** Folds calls that share one proven flow into a stream at the first member's position. */
+function callKey(event: ToolEvent): string {
+  return text(event.toolId) || event.id;
+}
+
+/** Folds calls of one proven flow into a stream, one stream per contiguous run of tool activity. */
 function groupToolStreams(
   items: TimelineItem[],
   openFlows: ReadonlySet<string>,
   boundaryFlows: ReadonlySet<string>,
   thoughtKeys: ReadonlyMap<number, string>,
 ): TimelineItem[] {
-  const groups = new Map<string, number[]>();
+  const groups = new Map<string, { flow: string; run: number; indexes: number[] }>();
+  // Any visible non-tool row (text, inbound, marker) closes the run; thoughts sit inside streams.
+  let run = 0;
   items.forEach((item, index) => {
-    if (item.kind !== "tool" || item.event.phase !== "call" || !item.event.flowId || item.event.stream) return;
-    const key = flowKey(item.event.message.sourceSessionId, item.event.flowId);
-    const indexes = groups.get(key) ?? [];
-    indexes.push(index);
-    groups.set(key, indexes);
+    if (item.kind === "message") {
+      if (item.message.type !== "thinking") run++;
+      return;
+    }
+    if (item.event.phase !== "call" || !item.event.flowId || item.event.stream) return;
+    const flow = flowKey(item.event.message.sourceSessionId, item.event.flowId);
+    const key = `${run}#${flow}`;
+    const group = groups.get(key) ?? { flow, run, indexes: [] };
+    group.indexes.push(index);
+    groups.set(key, group);
   });
+  const lastRun = run;
   const thoughtsByKey = new Map<string, number[]>();
   for (const [index, key] of thoughtKeys) thoughtsByKey.set(key, [...(thoughtsByKey.get(key) ?? []), index]);
   const heads = new Map<number, ToolEvent>();
   const absorbed = new Set<number>();
-  for (const [key, indexes] of groups) {
+  for (const { flow: key, run: groupRun, indexes } of groups.values()) {
     const eventAt = (index: number) => (items[index] as { kind: "tool"; event: ToolEvent }).event;
-    const actionIndexes = indexes.filter((index) => !eventAt(index).message.toolEcho);
+    const firstByCall = new Map<string, number>();
+    const latestByCall = new Map<string, ToolEvent>();
+    const actionIndexes = indexes.filter((index) => {
+      const event = eventAt(index);
+      if (event.message.toolEcho) return false;
+      const call = callKey(event);
+      latestByCall.set(call, event);
+      if (firstByCall.has(call)) return false;
+      firstByCall.set(call, index);
+      return true;
+    });
     if (actionIndexes.length < 2) continue;
-    const members = actionIndexes.map(eventAt);
+    const members = actionIndexes.map((index) => latestByCall.get(callKey(eventAt(index))) as ToolEvent);
     // Only a boundary-opened flow proves its source emits no descriptions; call-stamped flows need them.
     const labeled = boundaryFlows.has(key) ? toolStreamLabel : (member: ToolEvent) => member.description;
     if (!members.every((member) => labeled(member))) continue;
     const head = actionIndexes[0];
     const last = actionIndexes[actionIndexes.length - 1];
     const thoughts = (thoughtsByKey.get(key) ?? []).filter((index) => index > head && index < last);
+    const memberAt = new Map(actionIndexes.map((index, position) => [index, members[position]]));
     const entries = [...actionIndexes, ...thoughts].sort((a, b) => a - b).map((index): StreamEntry => {
       const item = items[index];
-      return item.kind === "tool" ? { kind: "action", event: item.event } : { kind: "thought", id: item.message.id, text: item.message.content };
+      return item.kind === "tool" ? { kind: "action", event: memberAt.get(index) ?? item.event } : { kind: "thought", id: item.message.id, text: item.message.content };
     });
-    const open = openFlows.has(key);
+    // A run closed by a later row no longer inherits its turn's open state; only its own calls can still run.
+    const open = groupRun === lastRun && openFlows.has(key);
     const active = open || members.some((member) => member.status === "pending");
     heads.set(head, streamEvent(members, entries, active, open));
     // An echo re-reports a command a member already shows, so a formed stream drops it.

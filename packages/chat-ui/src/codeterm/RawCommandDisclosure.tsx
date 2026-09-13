@@ -4,9 +4,11 @@ import { ChevronDown } from "lucide-react";
 interface Props {
   raw: string;
   children?: React.ReactNode;
+  /** Shown with the raw command, and hidden with it. */
+  details?: React.ReactNode;
 }
 
-export function RawCommandDisclosure({ raw, children }: Props) {
+export function RawCommandDisclosure({ raw, children, details }: Props) {
   const [open, setOpen] = React.useState(false);
   const detailsId = React.useId();
 
@@ -33,6 +35,7 @@ export function RawCommandDisclosure({ raw, children }: Props) {
           {raw}
         </pre>
       )}
+      {open && details}
       {children}
     </div>
   );
