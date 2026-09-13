@@ -1,6 +1,16 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Plan } from "../types";
-import { formatCount, formatPlanDate, needsYouItems, planGoal, progressReading } from "./missionControlBoardModel";
+import { DEEP_LINK_UNAVAILABLE_COPY } from "../../../lib/notificationDeepLink";
+import {
+  GATE_NO_TAB_COPY,
+  formatCount,
+  formatPlanDate,
+  needsYouItems,
+  planGoal,
+  progressReading,
+  type NeedsYouItem,
+} from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
 import { RefText, type BoardRefs } from "./BoardRefText";
@@ -52,14 +62,15 @@ export function NeedsYouPanel({
                 onSelectTab={deepLinks.onSelectTab}
               />
             ))}
-            {visible.map((item) => (
-              <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
-                <p className="mc-board-needs-title">
-                  <RefText text={item.title} refs={refs} />
-                </p>
-                <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
-              </li>
-            ))}
+            {visible.map((item) =>
+              item.kind === "gate" && deepLinks ? (
+                <NeedsYouGateRow key={item.key} item={item} refs={refs} deepLinks={deepLinks} />
+              ) : (
+                <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
+                  <NeedsYouItemBody item={item} refs={refs} />
+                </li>
+              ),
+            )}
           </ul>
           <ShowAll
             total={total}
@@ -72,6 +83,65 @@ export function NeedsYouPanel({
         </div>
       </div>
     </BoardPanel>
+  );
+}
+
+function NeedsYouItemBody({ item, refs }: { item: NeedsYouItem; refs: BoardRefs }) {
+  return (
+    <>
+      <p className="mc-board-needs-title">
+        <RefText text={item.title} refs={refs} />
+      </p>
+      <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
+    </>
+  );
+}
+
+/** The whole gate row jumps to the tab that answers the gate; plan and task names inside keep their own links. */
+function NeedsYouGateRow({
+  item,
+  refs,
+  deepLinks,
+}: {
+  item: NeedsYouItem;
+  refs: BoardRefs;
+  deepLinks: NeedsYouDeepLinks;
+}) {
+  const tab = item.tabId ? deepLinks.tabs[item.tabId] : undefined;
+  const workspaceId = tab?.workspace_id;
+  if (!tab || !workspaceId) {
+    return (
+      <li data-testid="mc-board-needs-you-item" data-kind="gate" data-gate-link="unavailable">
+        <NeedsYouItemBody item={item} refs={refs} />
+        <span data-testid="mc-board-gate-unavailable" className="sr-only">
+          {item.tabId ? DEEP_LINK_UNAVAILABLE_COPY.tab_gone : GATE_NO_TAB_COPY}
+        </span>
+      </li>
+    );
+  }
+  const jump = () => {
+    void deepLinks.onSelectTab(workspaceId, tab.id);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    jump();
+  };
+  return (
+    <li data-testid="mc-board-needs-you-item" data-kind="gate" data-gate-link="available">
+      <div
+        role="link"
+        tabIndex={0}
+        data-testid="mc-board-gate-link"
+        data-tab-id={tab.id}
+        className="mc-board-needs-link"
+        onClick={jump}
+        onKeyDown={onKeyDown}
+      >
+        <NeedsYouItemBody item={item} refs={refs} />
+      </div>
+    </li>
   );
 }
 
@@ -135,7 +205,23 @@ function PreviousPlanList({
   );
 }
 
-/** A quiet footer trigger that lists the team's previous plans in a menu; choosing one opens its detail. */
+const MENU_EDGE_PX = 8;
+const MENU_GAP_PX = 4;
+const MENU_MAX_HEIGHT_PX = 256;
+const MENU_MIN_WIDTH_PX = 224;
+
+/** Anchors the menu to its trigger in the window: above it when there is room, else below, never past an edge. */
+function menuLayerStyle(anchor: DOMRect): CSSProperties {
+  const left = Math.max(MENU_EDGE_PX, Math.min(anchor.left, window.innerWidth - MENU_EDGE_PX - MENU_MIN_WIDTH_PX));
+  const maxWidth = Math.max(0, window.innerWidth - left - MENU_EDGE_PX);
+  const roomAbove = anchor.top - MENU_GAP_PX - MENU_EDGE_PX;
+  const roomBelow = window.innerHeight - anchor.bottom - MENU_GAP_PX - MENU_EDGE_PX;
+  return roomAbove >= MENU_MAX_HEIGHT_PX || roomAbove >= roomBelow
+    ? { left, maxWidth, bottom: window.innerHeight - anchor.top + MENU_GAP_PX, maxHeight: Math.min(MENU_MAX_HEIGHT_PX, roomAbove) }
+    : { left, maxWidth, top: anchor.bottom + MENU_GAP_PX, maxHeight: Math.min(MENU_MAX_HEIGHT_PX, roomBelow) };
+}
+
+/** A quiet footer trigger whose menu of previous plans floats above the Board; choosing one opens its detail. */
 function PreviousPlansMenu({
   plans,
   onOpenPlan,
@@ -143,43 +229,68 @@ function PreviousPlansMenu({
   plans: readonly Plan[];
   onOpenPlan?: (planId: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const open = anchor != null;
   const menuId = useId();
-  const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const itemsRef = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     if (!open) return;
     itemsRef.current[0]?.focus();
-    const closeOutside = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    const owns = (target: EventTarget | null) =>
+      target instanceof Node && Boolean(menuRef.current?.contains(target) || triggerRef.current?.contains(target));
+    const dismiss = (event: Event) => {
+      if (!owns(event.target)) setAnchor(null);
     };
-    document.addEventListener("mousedown", closeOutside);
-    return () => document.removeEventListener("mousedown", closeOutside);
+    document.addEventListener("mousedown", dismiss);
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      document.removeEventListener("mousedown", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+    };
   }, [open]);
 
   const close = () => {
-    setOpen(false);
+    setAnchor(null);
     triggerRef.current?.focus();
   };
 
-  const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+  const choose = (planId: string) => {
+    close();
+    onOpenPlan?.(planId);
+  };
+
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
       close();
       return;
     }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
+    if (event.key === "Tab") {
+      setAnchor(null);
+      return;
+    }
     const items = itemsRef.current.filter((item): item is HTMLButtonElement => item != null);
     const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Enter" || event.key === " ") {
+      const item = items.find((candidate) => candidate === event.target);
+      if (!item) return;
+      event.preventDefault();
+      item.click();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
     const step = event.key === "ArrowDown" ? 1 : -1;
     items[(current + step + items.length) % items.length]?.focus();
   };
 
   return (
-    <div ref={rootRef} data-testid="mc-board-previous-plans" className="mc-board-plan-footer">
+    <div data-testid="mc-board-previous-plans" className="mc-board-plan-footer">
       <button
         ref={triggerRef}
         type="button"
@@ -188,42 +299,44 @@ function PreviousPlansMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setAnchor((current) => (current ? null : triggerRef.current?.getBoundingClientRect() ?? null))}
       >
         Previous plans <span className="mc-board-plan-count">{formatCount(plans.length)}</span>
       </button>
-      {open && (
-        <div
-          id={menuId}
-          role="menu"
-          aria-label="Previous plans"
-          data-testid="mc-board-previous-plans-menu"
-          className="mc-board-plan-menu"
-          onKeyDown={moveFocus}
-        >
-          {plans.map((previous, index) => (
-            <button
-              key={previous.id}
-              ref={(item) => {
-                itemsRef.current[index] = item;
-              }}
-              type="button"
-              role="menuitem"
-              data-testid="mc-board-previous-plan"
-              className="mc-board-plan-menuitem"
-              onClick={() => {
-                setOpen(false);
-                onOpenPlan?.(previous.id);
-              }}
-            >
-              <span className="mc-board-plan-menuitem-title">{previous.title}</span>
-              <span data-testid="mc-board-previous-plan-date" className="mc-board-plan-list-date">
-                {formatPlanDate(previous.updated_at)}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      {anchor &&
+        createPortal(
+          <div
+            ref={menuRef}
+            id={menuId}
+            role="menu"
+            aria-label="Previous plans"
+            data-testid="mc-board-previous-plans-menu"
+            className="mc-board-layer mc-board-plan-menu"
+            style={menuLayerStyle(anchor)}
+            onKeyDown={onMenuKeyDown}
+          >
+            {plans.map((previous, index) => (
+              <button
+                key={previous.id}
+                ref={(item) => {
+                  itemsRef.current[index] = item;
+                }}
+                type="button"
+                role="menuitem"
+                data-testid="mc-board-previous-plan"
+                data-plan-id={previous.id}
+                className="mc-board-plan-menuitem"
+                onClick={() => choose(previous.id)}
+              >
+                <span className="mc-board-plan-menuitem-title">{previous.title}</span>
+                <span data-testid="mc-board-previous-plan-date" className="mc-board-plan-list-date">
+                  {formatPlanDate(previous.updated_at)}
+                </span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

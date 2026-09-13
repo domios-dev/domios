@@ -32,6 +32,8 @@ export interface OpenDecisionGate {
   asked_at: number;
   age_ms: number;
   blocking_task_count: number;
+  /** The tab that answers the gate, else the tab that asked it. */
+  tab_id: string | null;
 }
 
 export interface HeldForDecision {

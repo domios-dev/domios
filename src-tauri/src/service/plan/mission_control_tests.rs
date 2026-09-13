@@ -162,6 +162,20 @@ fn snapshot_of(plan: &Plan) -> PlanStateSnapshot {
 }
 
 #[test]
+fn mission_control_open_gate_names_the_routed_tab_before_the_asking_tab() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut plan = seeded_plan(temp.path());
+    plan.gates[0].routed_to_tab_id = Some("tab-hopper".into());
+    let gates = snapshot_of(&plan).mission_control.held.open_gates;
+    assert_eq!(gates[0].tab_id.as_deref(), Some("tab-hopper"));
+
+    plan.gates[0].routed_to_tab_id = None;
+    plan.gates[0].asked_by_tab_id = None;
+    let gates = snapshot_of(&plan).mission_control.held.open_gates;
+    assert_eq!(gates[0].tab_id, None);
+}
+
+#[test]
 fn mission_control_state_snapshot() {
     let temp = tempfile::tempdir().unwrap();
     let plan = seeded_plan(temp.path());
@@ -178,6 +192,7 @@ fn mission_control_state_snapshot() {
     assert_eq!(held.open_gates.len(), 1);
     assert_eq!(held.open_gates[0].blocking_task_count, 2);
     assert_eq!(held.open_gates[0].age_ms, NOW - 300);
+    assert_eq!(held.open_gates[0].tab_id.as_deref(), Some("tab-orch"));
 
     let bounces = &mission.bounces;
     assert_eq!(bounces.total_attempts, 4);

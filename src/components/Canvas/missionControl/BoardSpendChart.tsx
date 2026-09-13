@@ -1,36 +1,22 @@
-import { useState } from "react";
-import { formatCompact } from "./missionControlBoardModel";
-import { ALL_FILTER, type SpendChartSource } from "./spendChart";
+import type { SpendChartData } from "./spendChart";
 
-/** The team's new input per day as stacked bars, one segment per plan, narrowed to one model on request. */
-export function SpendChart({ source }: { source: SpendChartSource }) {
-  const [filter, setFilter] = useState(ALL_FILTER);
-  const activeFilter = source.filters.some((entry) => entry.key === filter) ? filter : ALL_FILTER;
-  const days = source.days(activeFilter);
-  const peak = Math.max(1, ...days.map((day) => day.total));
-  const summary = days.map((day) => `${day.label} ${formatCompact(day.total)}`).join(", ");
+/** A bar per day, split into tone segments when the data carries a legend, which then sits under the bars. */
+export function SpendChart({
+  data,
+  label,
+  format,
+}: {
+  data: SpendChartData;
+  label: string;
+  format: (value: number) => string;
+}) {
+  const peak = Math.max(1, ...data.days.map((day) => day.total));
+  const summary = data.days.map((day) => `${day.label} ${format(day.total)}`).join(", ");
 
   return (
     <div data-testid="mc-board-spend-chart" className="mc-board-chart">
-      {source.filters.length > 0 && (
-        <div role="group" aria-label="Model" className="mc-board-chips">
-          {source.filters.map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              data-testid="mc-board-spend-filter"
-              data-filter={entry.key}
-              className="mc-board-chip"
-              aria-pressed={activeFilter === entry.key}
-              onClick={() => setFilter(entry.key)}
-            >
-              {entry.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <div role="img" aria-label={`new input by day: ${summary}`} className="mc-board-chart-bars">
-        {days.map((day) => (
+      <div role="img" aria-label={`${label} by day: ${summary}`} className="mc-board-chart-bars">
+        {data.days.map((day) => (
           <div
             key={day.start}
             data-testid="mc-board-spend-chart-day"
@@ -40,7 +26,7 @@ export function SpendChart({ source }: { source: SpendChartSource }) {
             <div className="mc-board-chart-track">
               <div
                 className="mc-board-chart-stack"
-                title={`${day.label} ${formatCompact(day.total)}`}
+                title={`${day.label} ${format(day.total)}`}
                 style={{ height: `${Math.round((day.total / peak) * 100)}%` }}
               >
                 {day.segments.map((segment) => (
@@ -49,7 +35,7 @@ export function SpendChart({ source }: { source: SpendChartSource }) {
                     data-testid="mc-board-spend-chart-segment"
                     data-tone={segment.tone % 4}
                     className="mc-board-chart-segment"
-                    title={`${segment.label} ${formatCompact(segment.value)}`}
+                    title={`${segment.label} ${format(segment.value)}`}
                     style={{ flexGrow: segment.value }}
                   />
                 ))}
@@ -61,6 +47,16 @@ export function SpendChart({ source }: { source: SpendChartSource }) {
           </div>
         ))}
       </div>
+      {data.legend.length > 0 && (
+        <ul data-testid="mc-board-spend-legend" className="mc-board-chart-legend" role="list">
+          {data.legend.map((series) => (
+            <li key={series.key} data-testid="mc-board-spend-legend-item" className="mc-board-chart-legend-item">
+              <span aria-hidden="true" className="mc-board-swatch" data-tone={series.tone % 4} />
+              <span>{series.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
