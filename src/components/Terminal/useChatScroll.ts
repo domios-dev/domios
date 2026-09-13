@@ -10,6 +10,7 @@ import {
   chatViewportModeAfterScroll,
   chatScrollTopAfterPrepend,
   getPersistedChatScrollState,
+  isChatViewportNearBottom,
   setPersistedChatScrollState,
   shouldRestoreChatViewport,
   type ChatPrependSnapshot,
@@ -143,6 +144,13 @@ export function useChatScroll({
     setShowScrollDown(false);
   }, [setMode, writeScrollTop]);
 
+  // A detached viewport on the bottom edge cannot produce a scroll event to reattach, so it offers the jump.
+  const updateScrollDown = useCallback((el: HTMLDivElement) => {
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollDown(modeRef.current === "detached"
+      && (distance > SHOW_SCROLL_DOWN_THRESHOLD_PX || isChatViewportNearBottom(el)));
+  }, []);
+
   const holdContentAnchor = useCallback((el: HTMLDivElement) => {
     const anchor = contentAnchorRef.current;
     const clampedToBottom = el.scrollTop >= el.scrollHeight - el.clientHeight - SCROLL_WRITE_TOLERANCE_PX;
@@ -159,7 +167,8 @@ export function useChatScroll({
     }
     writeScrollTop(el, target);
     persist(el);
-  }, [persist, writeScrollTop]);
+    updateScrollDown(el);
+  }, [persist, updateScrollDown, writeScrollTop]);
 
   const followSend = useCallback(() => {
     if (modeRef.current === "pinned") scrollToBottom();
@@ -188,9 +197,8 @@ export function useChatScroll({
     lastScrollTopRef.current = el.scrollTop;
     if (fromHookWrite) persist(el);
     else setMode(mode, el);
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setShowScrollDown(mode === "detached" && distance > SHOW_SCROLL_DOWN_THRESHOLD_PX);
-  }, [persist, setMode]);
+    updateScrollDown(el);
+  }, [persist, setMode, updateScrollDown]);
 
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
@@ -201,10 +209,9 @@ export function useChatScroll({
     writeScrollTop(el, row.offsetTop);
     // Detached, so a pinned tail cannot pull the revealed row back out of view.
     setMode("detached", el);
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setShowScrollDown(distance > SHOW_SCROLL_DOWN_THRESHOLD_PX);
+    updateScrollDown(el);
     return true;
-  }, [setMode, writeScrollTop]);
+  }, [setMode, updateScrollDown, writeScrollTop]);
 
   const observeContent = useCallback((el: HTMLDivElement) => {
     const observer = observerRef.current;
