@@ -90,6 +90,13 @@ function eventFor(provider: Provider, toolId: string): ToolEvent {
   return event;
 }
 
+function diffEvent(fileDiffs: FileDiff[]): ToolEvent {
+  return {
+    id: "diff-event", phase: "call", status: "success", kind: "edit", summary: fileDiffs[0]?.path ?? "", fileDiffs,
+    message: { id: "diff-event", type: "tool_call", content: "" },
+  };
+}
+
 function Timeline({ items }: { items: TimelineItem[] }) {
   return (
     <>
@@ -167,6 +174,55 @@ describe("file diff cards", () => {
     const claudeHost = await mount(<Timeline items={timeline("claude")} />);
     expect(all(claudeHost, "file-diff-header").map((node) => node.textContent)).toEqual(["src/shared.ts +1 −1", "src/created.ts +2 −0"]);
     expect(all(claudeHost, "file-diff-cards")).toHaveLength(2);
+    for (const host of [codexHost, claudeHost]) {
+      expect(all(host, "file-diff-label").every((node) => node.textContent === "edit")).toBe(true);
+      expect(all(host, "toolcard-edit-file")).toHaveLength(0);
+      expect(all(host, "toolcard-edit-summary")).toHaveLength(0);
+    }
+  });
+
+  it("merges an edit with a structured diff into one card per file with exact counts and reachable raw input", async () => {
+    const editEvent = eventFor("claude", "toolu_edit_a");
+    const diffs = editEvent.fileDiffs ?? [];
+    expect(diffs.length).toBeGreaterThan(0);
+    const host = await mount(<ToolCallBubble event={editEvent} expanded onToggle={() => undefined} />);
+    expect(all(host, "file-diff-card")).toHaveLength(diffs.length);
+    expect(all(host, "file-diff-header").map((node) => node.textContent))
+      .toEqual(diffs.map((diff) => `${diff.path} +${diff.additions} −${diff.deletions}`));
+    expect(all(host, "chat-tool-call")).toHaveLength(0);
+    await expandAll(host);
+    expect(all(host, "toolcard-edit-file")).toHaveLength(0);
+    const card = all(host, "file-diff-card")[0];
+    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent?.includes("Show raw command"));
+    await act(async () => rawToggle?.click());
+    expect(card.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(JSON.stringify(editEvent.message.toolInput, null, 2));
+  });
+
+  it("highlights hunk code by file extension after an untinted marker column", async () => {
+    const jsDiff: FileDiff = {
+      path: "games/snake.js", additions: 1, deletions: 1,
+      hunks: [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [" const speed = 1;", "-let dir = \"left\";", "+let dir = \"right\";"] }],
+    };
+    const host = await mount(<FileDiffCards event={diffEvent([jsDiff])} />);
+    await expandAll(host);
+    const lines = all(host, "file-diff-line");
+    expect(lines.map((node) => node.textContent)).toEqual(jsDiff.hunks[0].lines);
+    const added = lines.find((node) => node.dataset.tone === "add") as HTMLElement;
+    const removed = lines.find((node) => node.dataset.tone === "del") as HTMLElement;
+    expect(added.querySelector(".token")).not.toBeNull();
+    expect(removed.querySelector(".token")).not.toBeNull();
+    expect(added.getAttribute("style")).toContain("--ct-diff-add-bg");
+    expect(removed.getAttribute("style")).toContain("--ct-diff-del-bg");
+    const marker = added.querySelector<HTMLElement>('[data-testid="file-diff-marker"]') as HTMLElement;
+    expect(marker.textContent).toBe("+");
+    expect(marker.querySelector(".token")).toBeNull();
+    expect(marker.closest(".token")).toBeNull();
+    expect(marker.getAttribute("style")).toContain("--ct-green");
+
+    const plainHost = await mount(<FileDiffCards event={diffEvent([{ ...jsDiff, path: "notes/snake.unknownext" }])} />);
+    await expandAll(plainHost);
+    expect(all(plainHost, "file-diff-line").map((node) => node.textContent)).toEqual(jsDiff.hunks[0].lines);
+    expect(plainHost.querySelector('[data-testid="file-diff-line"] .token')).toBeNull();
   });
 
   it("discloses the exact supplied hunk detail from a keyboard-operable toggle", async () => {
@@ -195,8 +251,8 @@ describe("file diff cards", () => {
   });
 
   it("renders equivalent Claude and Codex diffs identically", async () => {
-    const claudeHost = await mount(<FileDiffCards diffs={sharedDiffs("claude")} />);
-    const codexHost = await mount(<FileDiffCards diffs={sharedDiffs("codex")} />);
+    const claudeHost = await mount(<FileDiffCards event={diffEvent(sharedDiffs("claude"))} />);
+    const codexHost = await mount(<FileDiffCards event={diffEvent(sharedDiffs("codex"))} />);
     await expandAll(claudeHost);
     await expandAll(codexHost);
     const markup = (host: HTMLElement) => host.innerHTML.replace(/\s(?:id|aria-controls)="[^"]*"/g, "");
@@ -209,15 +265,16 @@ describe("file diff cards", () => {
     expect(broken.kind).toBe("edit");
     expect(broken.fileDiffs).toBeUndefined();
     expect(eventFor("claude", "toolu_edit_nopath").fileDiffs).toBeUndefined();
+    const withoutDiffs = (provider: Provider) => toolEvents(timeline(provider)).filter((event) => !event.fileDiffs?.length).length;
     const claudeHost = await mount(<Timeline items={timeline("claude")} />);
-    expect(all(claudeHost, "chat-tool-call")).toHaveLength(5);
+    expect(all(claudeHost, "chat-tool-call")).toHaveLength(withoutDiffs("claude"));
     expect(all(claudeHost, "file-diff-card")).toHaveLength(2);
     expect(all(claudeHost, "timeline-message").map((node) => node.textContent)).toContain("Both files are updated.");
 
     const partial = eventFor("codex", "exec-file-change-bad");
     expect(partial.fileDiffs?.map((diff) => diff.path)).toEqual(["src/removed.ts"]);
     const codexHost = await mount(<Timeline items={timeline("codex")} />);
-    expect(all(codexHost, "chat-tool-call")).toHaveLength(3);
+    expect(all(codexHost, "chat-tool-call")).toHaveLength(withoutDiffs("codex"));
     expect(all(codexHost, "file-diff-header").some((node) => node.textContent?.includes("src/broken.ts"))).toBe(false);
     expect(all(codexHost, "timeline-message").map((node) => node.textContent)).toContain("Both files are updated.");
 
@@ -235,9 +292,10 @@ describe("file diff cards", () => {
     expect(all(plainHost, "file-diff-cards")).toHaveLength(0);
     expect(all(plainHost, "chat-tool-call")).toHaveLength(1);
 
-    const editHost = await mount(<ToolCallBubble event={eventFor("claude", "toolu_edit_a")} expanded={false} onToggle={() => undefined} />);
-    expect(editHost.firstElementChild?.getAttribute("data-testid")).toBe("chat-tool-call");
-    expect(editHost.querySelector('[data-testid="toolcard-edit-summary"]')?.textContent).toBe("+1 -1");
+    const legacyHost = await mount(<ToolCallBubble event={eventFor("claude", "toolu_edit_bad")} expanded onToggle={() => undefined} />);
+    expect(legacyHost.firstElementChild?.getAttribute("data-testid")).toBe("chat-tool-call");
+    expect(all(legacyHost, "toolcard-edit-summary")).toHaveLength(1);
+    expect(all(legacyHost, "file-diff-card")).toHaveLength(0);
 
     const diff = sharedDiffs("claude")[0];
     const flowCall = (id: string, patch: Partial<NormalizedChatMessage>): NormalizedChatMessage => ({
@@ -253,12 +311,21 @@ describe("file diff cards", () => {
     const streamHost = await mount(<ToolCallBubble event={head} expanded={false} onToggle={() => undefined} />);
     expect(all(streamHost, "chat-tool-stream")).toHaveLength(1);
     expect(all(streamHost, "file-diff-card")).toHaveLength(0);
+
+    const openStream = await mount(<ToolCallBubble event={head} expanded onToggle={() => undefined} />);
+    await act(async () => openStream.querySelector<HTMLButtonElement>('button[aria-label="Show Describe a"]')?.click());
+    expect(all(openStream, "file-diff-card")).toHaveLength(1);
+    expect(all(openStream, "file-diff-header").map((node) => node.textContent)).toEqual([`${diff.path} +${diff.additions} −${diff.deletions}`]);
+    expect(all(openStream, "toolcard-edit-file")).toHaveLength(0);
   });
 
   it("uses CodeTerm theme tokens with no right borders or motion", async () => {
-    const host = await mount(<FileDiffCards diffs={diffsOf("codex")} />);
+    const host = await mount(<FileDiffCards event={diffEvent(diffsOf("codex"))} />);
     await expandAll(host);
-    const html = host.innerHTML;
+    // The shared raw-input disclosure keeps its existing hover styling; the diff card adds no motion of its own.
+    const clone = host.cloneNode(true) as HTMLElement;
+    for (const node of all(clone, "raw-command-disclosure")) node.remove();
+    const html = clone.innerHTML;
     expect(html).not.toMatch(/border-r\b|border-right|animate-|transition/);
     const theme = themeToCSS(DEFAULT_THEME) as Record<string, unknown>;
     const tokens = [...new Set(html.match(/--ct-[a-z-]+/g) ?? [])];

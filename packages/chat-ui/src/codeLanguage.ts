@@ -35,6 +35,12 @@ export function languageFromPath(path: string | null): string {
   return ext ? (EXT_MAP[ext] ?? ext) : "text";
 }
 
+/** Language for a known file extension, or "text" so an unknown file stays unhighlighted. */
+export function knownLanguageFromPath(path: string | null): string {
+  const ext = path?.split(/[./\\]/).pop()?.toLowerCase();
+  return ext ? EXT_MAP[ext] ?? "text" : "text";
+}
+
 function inferFromSource(sample: string): string | null {
   const s = sample.slice(0, 6000);
   if (
