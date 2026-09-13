@@ -399,7 +399,7 @@ describe("mission control board panels", () => {
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
     expect(host.querySelector('[data-testid="mc-board-bounces-amount"]')?.classList.contains("mc-board-warn")).toBe(true);
     expect(text(host, "mc-board-done-first-try-amount")).toBe("10");
-    expect(text(host, "mc-board-quality")).toContain("of 12 attempts");
+    expect(text(host, "mc-board-quality")).toBe("Qualitybounced1first try10 of 12");
     const progress = text(host, "mc-board-progress");
     for (const banned of ["5.3M", "1.4B", "65M", "output", "total", "bytes", "·"]) {
       expect(progress).not.toContain(banned);
@@ -408,22 +408,20 @@ describe("mission control board panels", () => {
     await unmount();
   });
 
-  it("shows only the statuses holding tasks and names the empty ones once", async () => {
+  it("shows only the statuses holding tasks and says nothing about the empty ones", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     expect(statusItems(host)).toEqual(["1pending", "2in review", "1blocked", "1paused", "10done", "1cancelled"]);
-    expect(text(host, "mc-board-task-status-rest")).toBe("nothing in progress");
+    expect(text(host, "mc-board-task-statuses")).not.toContain("nothing");
     expect(text(host, "mc-board-progress-meta")).toBe("16 tasks");
     await unmount();
 
     const paused = await render(board(recordingState(), { ...NO_TASKS, paused: 4, total: 4 }));
     expect(statusItems(paused.host)).toEqual(["4paused"]);
+    expect(text(paused.host, "mc-board-task-statuses")).toBe("4paused");
     expect(
       paused.host.querySelector('[data-testid="mc-board-task-status-paused-count"]')?.classList.contains("mc-board-warn"),
     ).toBe(true);
-    expect(text(paused.host, "mc-board-task-status-rest")).toBe(
-      "nothing pending, in progress, in review, blocked, done or cancelled",
-    );
     await paused.unmount();
 
     const empty = await render(board(recordingState(), NO_TASKS));
@@ -441,7 +439,7 @@ describe("mission control board panels", () => {
       "claude-session",
       "codex-weekly",
     ]);
-    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["34%of week used", "58%of session used", "81%of week used"]);
+    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["week 34%", "session 58%", "week 81%"]);
     const pct = (gauge: HTMLElement) => gauge.querySelector('[data-testid="mc-board-spend-window-pct"]') as HTMLElement;
     expect(pct(gauges[0]!).className).toBe("");
     expect(pct(gauges[2]!).classList.contains("mc-board-warn")).toBe(true);
@@ -899,7 +897,7 @@ describe("mission control board layout", () => {
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(root.getAttribute("data-board-layout")).toBe("wide");
     const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
-    expect(gridTemplate(row)).toContain("1.55fr");
+    expect(gridTemplate(row)).toContain("2fr");
     await unmount();
   });
 

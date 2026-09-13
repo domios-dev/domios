@@ -344,7 +344,7 @@ describe("mission control narrow shell", () => {
     expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
-    expect(text(narrow.host, "mc-board-task-status-rest")).toBe("nothing in progress");
+    expect(text(narrow.host, "mc-board-task-statuses")).not.toContain("nothing");
     expect(text(narrow.host, "mc-board-areas")).toContain("Area");
     expect(text(narrow.host, "mc-board-progress")).not.toContain("5.3M");
     expect(text(narrow.host, "mc-board-needs-you")).toContain("Land the wave");
@@ -353,7 +353,7 @@ describe("mission control narrow shell", () => {
         gauge.getAttribute("data-window-key"),
       ),
     ).toEqual(["claude-weekly", "claude-session", "codex-weekly"]);
-    expect(styleOf(narrow.host, '[data-testid="mc-board-spend-allowance"]').display).toBe("grid");
+    expect(styleOf(narrow.host, '[data-testid="mc-board-spend-table"]').display).toBe("block");
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
     expect(text(narrow.host, "mc-board-spend")).toContain("Unassigned model");
     const panelRow = narrow.host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;

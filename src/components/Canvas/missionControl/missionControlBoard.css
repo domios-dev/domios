@@ -318,43 +318,81 @@
   color: var(--ct-red);
 }
 
-/* Spend steps read label then content on one rail; on a phone the label sits above. */
-.mc-board-spend .mc-board-sub {
+/* Spend is one table: a provider row carries its allowance and totals, its models sit under it. */
+.mc-board-spend {
+  container: mc-spend / inline-size;
+}
+
+.mc-board-spend-table {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.mc-board-spend-table > thead,
+.mc-board-spend-table > tbody {
+  display: block;
+  min-width: 0;
+}
+
+.mc-board-spend-table > tbody {
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+/* Every row shares one track template, so each column's numbers sit on one right edge. */
+.mc-board-spend-row {
   display: grid;
-  grid-template-columns: 6.5rem minmax(0, 1fr);
-  gap: var(--mc-space-2) var(--mc-space-3);
+  grid-template-columns: minmax(7rem, 1fr) repeat(5, minmax(0, 4.5rem));
+  column-gap: var(--mc-space-3);
   align-items: baseline;
-}
-
-.mc-board[data-board-layout="narrow"] .mc-board-spend .mc-board-sub {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.mc-board-spend .mc-board-sub > .mc-board-note {
-  grid-column: 1 / -1;
-}
-
-.mc-board-spend-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mc-space-2);
   min-width: 0;
+  padding-block: var(--mc-space-1);
 }
 
-.mc-board-spend-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--mc-space-1) var(--mc-space-3);
+.mc-board-spend-row > th,
+.mc-board-spend-row > td {
+  display: block;
   min-width: 0;
+  padding: 0;
+  font-size: var(--mc-text-body);
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+}
+
+.mc-board-spend-row > .mc-board-spend-num {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mc-board-spend-columns > .mc-board-spend-num {
+  font-family: inherit;
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-spend-label-short {
+  display: none;
+}
+
+.mc-board-spend-group {
+  padding-top: var(--mc-space-2);
+}
+
+.mc-board-spend-group > .mc-board-spend-num {
+  font-weight: 600;
 }
 
 .mc-board-spend-provider-name {
   display: flex;
   align-items: center;
   gap: var(--mc-space-2);
-  min-width: 7.5rem;
-  margin: 0;
   font-size: var(--mc-text-body);
   font-weight: 600;
   line-height: 1.4;
@@ -362,63 +400,38 @@
   white-space: nowrap;
 }
 
-.mc-board-spend-reading,
-.mc-board-spend-fig {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--mc-space-1);
+.mc-board-spend-windows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--mc-space-3);
+  margin-top: var(--mc-space-1);
+  padding-left: var(--mc-space-4);
   font-size: var(--mc-text-meta);
   line-height: 1.4;
   color: var(--ct-muted-fg);
+}
+
+.mc-board-spend-window {
   white-space: nowrap;
 }
 
-.mc-board-spend-reading b,
-.mc-board-spend-fig b {
+.mc-board-spend-window b {
   font-family: var(--ct-font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--ct-fg);
 }
 
-.mc-board-spend-reading b {
-  font-size: var(--mc-text-body);
+.mc-board-spend-row > .mc-board-spend-model-name {
+  padding-left: var(--mc-space-4);
 }
 
-/* A reading the data cannot give yet: a dashed slot, never a number. */
-.mc-board-needs-data {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--mc-space-1);
-  border: 1px dashed color-mix(in srgb, var(--ct-muted-fg) 55%, transparent);
-  border-radius: var(--ct-radius-sm);
-  font-size: var(--mc-text-meta);
-  line-height: 1.4;
+.mc-board-spend-model[data-unassigned="true"] > .mc-board-spend-model-name {
   color: var(--ct-muted-fg);
-  white-space: nowrap;
-}
-
-.mc-board-swatch,
-.mc-board-spend-strip-part {
-  --mc-tone: var(--ct-accent);
-}
-
-.mc-board-swatch[data-tone="1"],
-.mc-board-spend-strip-part[data-tone="1"] {
-  --mc-tone: var(--ct-magenta);
-}
-
-.mc-board-swatch[data-tone="2"],
-.mc-board-spend-strip-part[data-tone="2"] {
-  --mc-tone: var(--ct-cyan, var(--ct-accent));
-}
-
-.mc-board-swatch[data-tone="3"],
-.mc-board-spend-strip-part[data-tone="3"] {
-  --mc-tone: var(--ct-green, var(--ct-magenta));
 }
 
 .mc-board-swatch {
+  --mc-tone: var(--ct-accent);
   display: inline-block;
   flex: 0 0 auto;
   width: 8px;
@@ -427,85 +440,41 @@
   background: var(--mc-tone);
 }
 
-.mc-board-swatch[data-unassigned="true"] {
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--mc-tone) 60%, transparent) 0 2px, transparent 2px 4px);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc-tone) 60%, transparent);
+.mc-board-swatch[data-tone="1"] {
+  --mc-tone: var(--ct-magenta);
 }
 
-.mc-board-spend-strip {
-  display: flex;
-  height: 10px;
-  overflow: hidden;
-  border-radius: var(--ct-radius-sm);
-  background: var(--ct-bg);
+.mc-board-swatch[data-tone="2"] {
+  --mc-tone: var(--ct-cyan, var(--ct-accent));
 }
 
-.mc-board-spend-strip-part {
-  flex: 0 1 0;
-  min-width: 2px;
-  background: color-mix(in srgb, var(--mc-tone) 55%, var(--ct-surface));
+.mc-board-swatch[data-tone="3"] {
+  --mc-tone: var(--ct-green, var(--ct-magenta));
 }
 
-.mc-board-spend-strip-part[data-unassigned="true"] {
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--mc-tone) 34%, var(--ct-surface)) 0 4px, color-mix(in srgb, var(--mc-tone) 14%, var(--ct-surface)) 4px 8px);
-}
+/* A narrow Spend panel puts each name on its own line above its five figures, under short column names. */
+@container mc-spend (max-width: 520px) {
+  .mc-board-spend-row {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    column-gap: var(--mc-space-2);
+  }
 
-/* One grid for every model row, so each share sits in the same column. */
-.mc-board-spend-models {
-  display: grid;
-  grid-template-columns: minmax(0, 9rem) 3rem minmax(0, 1fr);
-  gap: var(--mc-space-1) var(--mc-space-3);
-  align-items: baseline;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+  .mc-board-spend-row > .mc-board-spend-name {
+    grid-column: 1 / -1;
+  }
 
-.mc-board[data-board-layout="narrow"] .mc-board-spend-models {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
+  .mc-board-spend-columns > td,
+  .mc-board-spend-label-long {
+    display: none;
+  }
 
-.mc-board-spend-model {
-  display: contents;
-}
+  .mc-board-spend-label-short {
+    display: inline;
+  }
 
-.mc-board-spend-model-name {
-  display: flex;
-  align-items: center;
-  gap: var(--mc-space-2);
-  min-width: 0;
-  font-size: var(--mc-text-body);
-  font-weight: 400;
-  line-height: 1.4;
-  color: var(--ct-fg);
-  overflow-wrap: break-word;
-}
-
-.mc-board-spend-model[data-unassigned="true"] > .mc-board-spend-model-name {
-  color: var(--ct-muted-fg);
-}
-
-.mc-board-spend-model-share {
-  font-family: var(--ct-font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--mc-text-body);
-  font-weight: 600;
-  line-height: 1.4;
-  text-align: right;
-  color: var(--ct-fg);
-}
-
-.mc-board-spend-model-figs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 var(--mc-space-3);
-  min-width: 0;
-}
-
-.mc-board[data-board-layout="narrow"] .mc-board-spend-model-figs {
-  grid-column: 1 / -1;
-  margin-bottom: var(--mc-space-1);
+  .mc-board-spend-model {
+    padding-block: var(--mc-space-1) var(--mc-space-2);
+  }
 }
 
 /* Each count sits on its name's own row, at the panel's right edge. */
