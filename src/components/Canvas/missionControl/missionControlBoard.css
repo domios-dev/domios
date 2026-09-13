@@ -119,7 +119,7 @@
   overflow: visible;
 }
 
-/* Each panel is as tall as its own readings; a taller neighbour never stretches it. */
+/* Each card is as tall as its own readings; a taller neighbour never stretches it. */
 .mc-board-row {
   display: grid;
   gap: var(--mc-gap);
@@ -217,6 +217,7 @@
   background: none;
   font: inherit;
   color: var(--ct-accent);
+  text-align: left;
   cursor: pointer;
 }
 
@@ -227,14 +228,6 @@
 .mc-board-ref:focus-visible {
   outline: 1px solid var(--ct-accent);
   outline-offset: 2px;
-}
-
-.mc-board-sub-label {
-  margin: 0;
-  font-size: var(--mc-text-meta);
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--ct-muted-fg);
 }
 
 .mc-board-figure {
@@ -293,7 +286,30 @@
   overflow-wrap: break-word;
 }
 
-/* Only statuses holding tasks get a figure; the empty ones share one quiet line below. */
+/* The active plan reads by its goal, then where its tasks stand. */
+.mc-board-plan-heading {
+  margin: 0;
+  font-size: var(--mc-text-body);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+}
+
+.mc-board-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--mc-text-body);
+  line-height: 1.4;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+}
+
 .mc-board-statuses {
   display: flex;
   flex-wrap: wrap;
@@ -382,87 +398,19 @@
   color: var(--ct-red);
 }
 
-/* Spend is one table: a provider row carries its allowance and totals, its models sit under it. */
-.mc-board-spend {
-  container: mc-spend / inline-size;
-}
-
-.mc-board-spend-table {
-  display: block;
-  width: 100%;
+/* Spend: each provider's allowance used, then its week day by day. */
+.mc-board-spend-providers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-3);
   min-width: 0;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.mc-board-spend-table > thead,
-.mc-board-spend-table > tbody {
-  display: block;
-  min-width: 0;
-}
-
-/* The only rules in Spend: under the column names and between providers. */
-.mc-board-spend-columns {
-  border-bottom: 1px solid var(--ct-border);
-}
-
-.mc-board-spend-table > tbody + tbody {
-  border-top: 1px solid var(--ct-border);
-}
-
-/* Every row shares one track template, so each column's numbers sit on one right edge. */
-.mc-board-spend-row {
-  display: grid;
-  grid-template-columns: minmax(7rem, 1fr) repeat(5, minmax(0, 4.5rem));
-  column-gap: var(--mc-space-3);
-  align-items: baseline;
-  min-width: 0;
-  padding-block: var(--mc-space-1);
-  padding-inline: var(--mc-space-2);
-}
-
-.mc-board-spend-group:hover,
-.mc-board-spend-model:hover {
-  border-radius: var(--ct-radius-sm);
-  background: var(--ct-hover);
-}
-
-.mc-board-spend-row > th,
-.mc-board-spend-row > td {
-  display: block;
-  min-width: 0;
+  margin: 0;
   padding: 0;
-  font-size: var(--mc-text-body);
-  font-weight: 400;
-  line-height: 1.4;
-  text-align: left;
-  color: var(--ct-fg);
-  overflow-wrap: break-word;
+  list-style: none;
 }
 
-.mc-board-spend-row > .mc-board-spend-num {
-  font-family: var(--ct-font-mono);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.mc-board-spend-columns > .mc-board-spend-num {
-  font-family: inherit;
-  font-size: var(--mc-text-meta);
-  color: var(--ct-muted-fg);
-}
-
-.mc-board-spend-label-short {
-  display: none;
-}
-
-.mc-board-spend-group {
-  padding-top: var(--mc-space-2);
-}
-
-.mc-board-spend-group > .mc-board-spend-num {
-  font-weight: 600;
+.mc-board-spend-provider {
+  min-width: 0;
 }
 
 .mc-board-spend-provider-name {
@@ -496,14 +444,6 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--ct-fg);
-}
-
-.mc-board-spend-row > .mc-board-spend-model-name {
-  padding-left: var(--mc-space-4);
-}
-
-.mc-board-spend-model[data-unassigned="true"] > .mc-board-spend-model-name {
-  color: var(--ct-muted-fg);
 }
 
 .mc-board-swatch {
@@ -560,66 +500,54 @@
   background: var(--ct-border);
 }
 
-/* A narrow Spend panel puts each name on its own line above its five figures, under short column names. */
-@container mc-spend (max-width: 520px) {
-  .mc-board-spend-row {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    column-gap: var(--mc-space-2);
-  }
-
-  .mc-board-spend-row > .mc-board-spend-name {
-    grid-column: 1 / -1;
-  }
-
-  .mc-board-spend-columns > td,
-  .mc-board-spend-label-long {
-    display: none;
-  }
-
-  .mc-board-spend-label-short {
-    display: inline;
-  }
-
-  .mc-board-spend-model {
-    padding-block: var(--mc-space-1) var(--mc-space-2);
-  }
+/* Models: one rule under the column names; numbers share a right edge. */
+.mc-board-models-table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-/* Each count sits on its name's own row, at the panel's right edge. */
-.mc-board-kv-list {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--mc-space-1) var(--mc-space-3);
-  align-items: baseline;
-  min-width: 0;
-  margin: 0;
-}
-
-.mc-board-kv {
-  display: contents;
-}
-
-.mc-board-kv-key {
-  min-width: 0;
-  margin: 0;
+.mc-board-models-table th,
+.mc-board-models-table td {
+  padding: var(--mc-space-1) 0;
   font-size: var(--mc-text-body);
+  font-weight: 400;
   line-height: 1.4;
+  text-align: left;
   color: var(--ct-fg);
+}
+
+.mc-board-models-table thead th {
+  padding-top: 0;
+  border-bottom: 1px solid var(--ct-border);
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-models-table .mc-board-models-name {
   overflow-wrap: break-word;
 }
 
-.mc-board-kv-value {
-  margin: 0;
+.mc-board-models-table .mc-board-models-num {
+  padding-left: var(--mc-space-3);
   font-family: var(--ct-font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: var(--mc-text-body);
-  font-weight: 600;
   text-align: right;
-  color: var(--ct-fg);
+  white-space: nowrap;
 }
 
-.mc-board-kv[data-untagged="true"] > .mc-board-kv-key,
-.mc-board-kv[data-untagged="true"] > .mc-board-kv-value {
+.mc-board-models-table thead .mc-board-models-num {
+  font-family: inherit;
+}
+
+.mc-board-models-name .mc-board-swatch {
+  margin-right: var(--mc-space-2);
+}
+
+.mc-board-models-row:hover > * {
+  background: var(--ct-hover);
+}
+
+.mc-board-models-row[data-unassigned="true"] > th {
   color: var(--ct-muted-fg);
 }
 

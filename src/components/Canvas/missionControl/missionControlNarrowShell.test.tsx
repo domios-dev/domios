@@ -338,29 +338,28 @@ describe("mission control narrow shell", () => {
     await narrow.setBoardWidth(PHONE_WIDTH);
 
     expect(attr(narrow.host, "mission-control-board", "data-board-layout")).toBe("narrow");
-    expect(text(narrow.host, "mc-board-plan-new-input")).toBe("1.5M");
-    expect(text(narrow.host, "mc-board-plan-turns")).toBe("4,023");
+    expect(text(narrow.host, "mc-board-plan-heading").length).toBeGreaterThan(0);
     expect(taskStatusValues(narrow.host)).toEqual([1, 2, 1, 1, 10, 1]);
     expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
-    expect(text(narrow.host, "mc-board-task-statuses")).not.toContain("nothing");
-    expect(text(narrow.host, "mc-board-areas-toggle")).toBe("By area");
-    expect(text(narrow.host, "mc-board-progress")).not.toContain("5.3M");
+    expect(text(narrow.host, "mc-board-quality")).toBe("bounced1first try10 of 12");
+    expect(text(narrow.host, "mc-board-plan")).not.toContain("5.3M");
     expect(text(narrow.host, "mc-board-needs-you")).toContain("Land the wave");
     expect(
       Array.from(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) =>
         gauge.getAttribute("data-window-key"),
       ),
     ).toEqual(["claude-weekly", "claude-session", "codex-weekly"]);
-    expect(styleOf(narrow.host, '[data-testid="mc-board-spend-table"]').display).toBe("block");
+    expect(narrow.host.querySelector('[data-testid="mc-board-spend-table"]')).toBeNull();
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
-    expect(text(narrow.host, "mc-board-spend")).toContain("Unassigned model");
+    expect(text(narrow.host, "mc-board-models")).toContain("Unassigned model");
     const panelRow = narrow.host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
     expect(panelRow.style.gridTemplateColumns).toBe("minmax(0, 1fr)");
     expect(Array.from(panelRow.children).map((panel) => panel.getAttribute("data-testid"))).toEqual([
-      "mc-board-progress",
       "mc-board-spend",
+      "mc-board-models",
+      "mc-board-plan",
     ]);
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).toBeNull();
     expect(narrow.host.querySelector('[data-testid="plan-board-status"]')).toBeNull();

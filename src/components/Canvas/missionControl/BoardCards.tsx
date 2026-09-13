@@ -1,23 +1,12 @@
 import { useId, useState, type ReactNode } from "react";
-import {
-  areaReading,
-  formatCompact,
-  formatCount,
-  needsYouItems,
-  notRecordingCopy,
-  progressReading,
-} from "./missionControlBoardModel";
+import type { Plan } from "../types";
+import { formatCount, needsYouItems, planHeading, progressReading } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
 import { RefText, type BoardRefs } from "./BoardRefText";
-import type {
-  AreaGrouping,
-  BounceSummary,
-  HeldForDecision,
-  MissionControlKpi,
-  PlanTaskCounts,
-} from "./missionControlState";
+import type { BounceSummary, HeldForDecision, PlanTaskCounts } from "./missionControlState";
 
+export { ModelsCard } from "./BoardModelsCard";
 export { SpendCard } from "./BoardSpendCard";
 
 const WARN_STATUSES = new Set(["blocked", "paused"]);
@@ -61,57 +50,6 @@ export function NeedsYouPanel({ held, refs = new Map() }: { held: HeldForDecisio
   );
 }
 
-export function ProgressPanel({
-  counts,
-  kpi,
-  bounces,
-  areas,
-}: {
-  counts: PlanTaskCounts;
-  kpi: MissionControlKpi;
-  bounces: BounceSummary;
-  areas: AreaGrouping;
-}) {
-  const progress = progressReading(counts);
-  return (
-    <BoardPanel
-      testId="mc-board-progress"
-      title="Progress"
-      meta={
-        <>
-          <span data-testid="mc-board-tasks-amount" className="mc-board-num">
-            <AnimatedNumber value={progress.total} format={formatCount} />
-          </span>
-          {progress.total === 1 ? " task" : " tasks"}
-        </>
-      }
-    >
-      <BoardPanelSection testId="mc-board-task-statuses">
-        {progress.active.length === 0 ? (
-          <p className="mc-board-note">No tasks yet.</p>
-        ) : (
-          <ul className="mc-board-statuses" role="list">
-            {progress.active.map((status) => (
-              <li key={status.key} data-testid={`mc-board-task-status-${status.key}`} className="mc-board-status">
-                <b
-                  data-testid={`mc-board-task-status-${status.key}-count`}
-                  className={`mc-board-figure${WARN_STATUSES.has(status.key) ? " mc-board-warn" : ""}`}
-                >
-                  <AnimatedNumber value={status.count} format={formatCount} />
-                </b>
-                <span>{status.label}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </BoardPanelSection>
-      <PlanSpendSection kpi={kpi} />
-      <QualitySection bounces={bounces} />
-      <AreasSection areas={areas} />
-    </BoardPanel>
-  );
-}
-
 function Pair({
   label,
   testId,
@@ -138,80 +76,107 @@ function Pair({
   );
 }
 
-function PlanSpendSection({ kpi }: { kpi: MissionControlKpi }) {
-  const spend = kpi.spend;
-  return (
-    <BoardPanelSection testId="mc-board-plan-spend" label="This plan">
-      {spend ? (
-        <dl className="mc-board-pairs">
-          <Pair label="new input" testId="mc-board-plan-new-input">
-            <AnimatedNumber value={spend.tokens.uncached_input} format={formatCompact} />
-          </Pair>
-          <Pair label="turns" testId="mc-board-plan-turns">
-            <AnimatedNumber value={spend.turns} format={formatCount} />
-          </Pair>
-        </dl>
-      ) : (
-        <p data-testid="mc-board-plan-not-recording" className="mc-board-caption">
-          {notRecordingCopy(kpi.not_recording_reason, kpi.enable_setting)}
-        </p>
-      )}
-    </BoardPanelSection>
-  );
-}
-
-function QualitySection({ bounces }: { bounces: BounceSummary }) {
+/** The active plan: what it is for, where its tasks stand, and the plans the team ran before it. */
+export function PlanCard({
+  plan,
+  counts,
+  bounces,
+  previousPlans = [],
+  onOpenPlan,
+}: {
+  plan: Plan;
+  counts: PlanTaskCounts;
+  bounces: BounceSummary;
+  previousPlans?: readonly Plan[];
+  onOpenPlan?: (planId: string) => void;
+}) {
+  const progress = progressReading(counts);
+  const [showPrevious, setShowPrevious] = useState(false);
+  const previousId = useId();
   const bounced = bounces.tasks_on_second_attempt;
-  const attempts = bounces.total_attempts;
   return (
-    <BoardPanelSection testId="mc-board-quality" label="Quality">
-      <dl className="mc-board-pairs">
-        <Pair label="bounced" testId="mc-board-bounces-amount" warn={bounced > 0}>
-          <AnimatedNumber value={bounced} format={formatCount} />
-        </Pair>
-        <Pair label="first try" testId="mc-board-done-first-try-amount" unit={`of ${formatCount(attempts)}`}>
-          <AnimatedNumber value={bounces.first_try_done} format={formatCount} />
-        </Pair>
-      </dl>
-    </BoardPanelSection>
-  );
-}
-
-/** The breakdown is on request, so Progress stays a short summary beside Spend. */
-function AreasSection({ areas }: { areas: AreaGrouping }) {
-  const reading = areaReading(areas);
-  const [open, setOpen] = useState(false);
-  const listId = useId();
-  if (reading.rows.length === 0) return null;
-  return (
-    <BoardPanelSection testId="mc-board-areas">
-      <button
-        type="button"
-        data-testid="mc-board-areas-toggle"
-        className="mc-board-more"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {reading.toggleLabel}
-      </button>
-      {open && (
-        <dl id={listId} aria-label={reading.title} className="mc-board-kv-list">
-          {reading.rows.map((row) => (
-            <div
-              key={row.key}
-              data-testid="mc-board-area-row"
-              data-untagged={row.untagged ? "true" : "false"}
-              className="mc-board-kv"
-            >
-              <dt className="mc-board-kv-key">{row.label}</dt>
-              <dd className="mc-board-kv-value">
-                <AnimatedNumber value={row.taskCount} format={formatCount} />
-              </dd>
-            </div>
-          ))}
+    <BoardPanel
+      testId="mc-board-plan"
+      title="Plan"
+      meta={
+        <>
+          <span data-testid="mc-board-tasks-amount" className="mc-board-num">
+            <AnimatedNumber value={progress.total} format={formatCount} />
+          </span>
+          {progress.total === 1 ? " task" : " tasks"}
+        </>
+      }
+    >
+      <BoardPanelSection>
+        <p data-testid="mc-board-plan-heading" className="mc-board-plan-heading">
+          {planHeading(plan)}
+        </p>
+        <div data-testid="mc-board-task-statuses">
+          {progress.active.length === 0 ? (
+            <p className="mc-board-note">No tasks yet.</p>
+          ) : (
+            <ul className="mc-board-statuses" role="list">
+              {progress.active.map((status) => (
+                <li key={status.key} data-testid={`mc-board-task-status-${status.key}`} className="mc-board-status">
+                  <b
+                    data-testid={`mc-board-task-status-${status.key}-count`}
+                    className={`mc-board-figure${WARN_STATUSES.has(status.key) ? " mc-board-warn" : ""}`}
+                  >
+                    <AnimatedNumber value={status.count} format={formatCount} />
+                  </b>
+                  <span>{status.label}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <dl data-testid="mc-board-quality" className="mc-board-pairs">
+          <Pair label="bounced" testId="mc-board-bounces-amount" warn={bounced > 0}>
+            <AnimatedNumber value={bounced} format={formatCount} />
+          </Pair>
+          <Pair
+            label="first try"
+            testId="mc-board-done-first-try-amount"
+            unit={`of ${formatCount(bounces.total_attempts)}`}
+          >
+            <AnimatedNumber value={bounces.first_try_done} format={formatCount} />
+          </Pair>
         </dl>
+      </BoardPanelSection>
+      {previousPlans.length > 0 && (
+        <BoardPanelSection testId="mc-board-previous-plans">
+          <button
+            type="button"
+            data-testid="mc-board-previous-plans-toggle"
+            className="mc-board-more"
+            aria-expanded={showPrevious}
+            aria-controls={showPrevious ? previousId : undefined}
+            onClick={() => setShowPrevious((value) => !value)}
+          >
+            {showPrevious ? "Hide previous plans" : "Show previous plans"}
+          </button>
+          {showPrevious && (
+            <ul id={previousId} className="mc-board-plan-list" role="list">
+              {previousPlans.map((previous) => (
+                <li key={previous.id}>
+                  {onOpenPlan ? (
+                    <button
+                      type="button"
+                      data-testid="mc-board-previous-plan"
+                      className="mc-board-ref"
+                      onClick={() => onOpenPlan(previous.id)}
+                    >
+                      {planHeading(previous)}
+                    </button>
+                  ) : (
+                    <span data-testid="mc-board-previous-plan">{planHeading(previous)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </BoardPanelSection>
       )}
-    </BoardPanelSection>
+    </BoardPanel>
   );
 }

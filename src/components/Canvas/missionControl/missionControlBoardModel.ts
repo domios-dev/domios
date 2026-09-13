@@ -5,7 +5,6 @@ import { shortModelName } from "../../../lib/agentModelName";
 import { classify, type UsageState } from "../../../types/usage";
 import type { MilestoneKind } from "../types";
 import type {
-  AreaGrouping,
   EventLog,
   HeldForDecision,
   KpiNotRecordingReason,
@@ -24,9 +23,9 @@ export function boardLayout(width: number): BoardLayout {
   return width > 0 && width <= BOARD_NARROW_MAX_PX ? "narrow" : "wide";
 }
 
-/** Progress beside Spend on a wide board; one column on a phone. */
+/** Spend, models and the active plan side by side on a wide board; one column on a phone. */
 export const BOARD_ROW_COLUMNS: Record<BoardLayout, string> = {
-  wide: "minmax(0, 1fr) minmax(0, 2fr)",
+  wide: "repeat(3, minmax(0, 1fr))",
   narrow: "minmax(0, 1fr)",
 };
 
@@ -244,48 +243,6 @@ export function eventLogCaption(log: EventLog): string {
   return log.truncated ? `latest of ${events}` : events;
 }
 
-export interface AreaRow {
-  key: string;
-  label: string;
-  taskCount: number;
-  untagged: boolean;
-}
-
-export interface AreaReading {
-  title: string;
-  /** The control that reveals the breakdown on request. */
-  toggleLabel: string;
-  rows: AreaRow[];
-}
-
-export const ROLE_FALLBACK_TITLE = "Roles";
-
-export function areaReading(areas: AreaGrouping): AreaReading {
-  if (areas.state === "declared") {
-    const rows: AreaRow[] = areas.groups.map((group) => ({
-      key: group.value,
-      label: group.label,
-      taskCount: group.task_count,
-      untagged: false,
-    }));
-    if (areas.untagged_task_count > 0) {
-      rows.push({ key: "untagged", label: "untagged", taskCount: areas.untagged_task_count, untagged: true });
-    }
-    const title = areas.facet_label ?? areas.facet_key ?? "Areas";
-    return { title, toggleLabel: `By ${title.toLowerCase()}`, rows };
-  }
-  return {
-    title: ROLE_FALLBACK_TITLE,
-    toggleLabel: "By role",
-    rows: areas.role_fallback.map((group, index) => ({
-      key: group.executor_role ?? `no-role-${index}`,
-      label: group.executor_role ?? "No role recorded",
-      taskCount: group.task_count,
-      untagged: false,
-    })),
-  };
-}
-
 /** One thing waiting on the owner: an open decision gate or a review held for a decision. */
 export interface NeedsYouItem {
   key: string;
@@ -328,42 +285,10 @@ export interface SpendWindow {
   state: UsageState;
 }
 
-/** Token figures; cached is the input read from cache rather than billed as new. */
-export interface SpendTokens {
-  newInput: number;
-  fromCache: number;
-  generated: number;
-  turns: number;
-}
-
-export interface SpendColumn<Key extends string> {
-  key: Key;
-  label: string;
-  /** Shortest honest name, drawn when the Spend panel is narrow. */
-  short: string;
-}
-
-export const SPEND_SHARE_COLUMN: SpendColumn<"share"> = { key: "share", label: "share", short: "share" };
-
-export const SPEND_TOKEN_COLUMNS: ReadonlyArray<SpendColumn<keyof SpendTokens>> = [
-  { key: "newInput", label: "new input", short: "new" },
-  { key: "fromCache", label: "cached", short: "cached" },
-  { key: "generated", label: "generated", short: "out" },
-  { key: "turns", label: "turns", short: "turns" },
-];
-
 export const SPEND_WINDOW_LABELS: Record<SpendWindow["variant"], string> = {
   weekly: "week",
   session: "session",
 };
-
-export interface SpendModelRow {
-  key: string;
-  label: string;
-  unassigned: boolean;
-  sharePct: number;
-  tokens: SpendTokens;
-}
 
 export interface SpendProviderGroup {
   key: string;
@@ -371,34 +296,43 @@ export interface SpendProviderGroup {
   /** Position among providers; picks the provider's swatch colour. */
   tone: number;
   windows: SpendWindow[];
-  measured: boolean;
-  /** Sum of the provider's model shares. */
-  sharePct: number;
-  tokens: SpendTokens;
-  models: SpendModelRow[];
 }
 
 export interface SpendReading {
   recording: boolean;
   /** Why the ledger is not measuring; null while it is. */
   note: string | null;
-  /** Replaces the table when there is nothing at all to show; never a dash. */
+  /** Replaces the readings when there is nothing at all to show; never a dash. */
   emptyCopy: string | null;
   groups: SpendProviderGroup[];
 }
 
-export function spendTokens(source: {
-  turns: number;
-  input_tokens: number;
-  uncached_input_tokens: number;
-  output_tokens: number;
-}): SpendTokens {
-  return {
-    newInput: source.uncached_input_tokens,
-    fromCache: Math.max(0, source.input_tokens - source.uncached_input_tokens),
-    generated: source.output_tokens,
-    turns: source.turns,
-  };
+/** One model's new input, the spend that costs, and its share of all new input. */
+export interface ModelSpendRow {
+  key: string;
+  label: string;
+  unassigned: boolean;
+  tone: number;
+  sharePct: number;
+  newInput: number;
+}
+
+/** Models the card shows before its Show all control. */
+export const MODELS_PREVIEW = 5;
+
+export function modelSpendRows(spend: MissionControlSpend): ModelSpendRow[] {
+  return spend.providers
+    .flatMap((provider, tone) =>
+      provider.models.map((model, index) => ({
+        key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
+        label: model.model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model.model) ?? model.model,
+        unassigned: model.model == null,
+        tone,
+        sharePct: model.token_share_pct,
+        newInput: model.uncached_input_tokens,
+      })),
+    )
+    .sort((a, b) => b.newInput - a.newInput);
 }
 
 /** The row label for a ledger model the provider never resolved. */
@@ -423,16 +357,6 @@ function providerWindows(provider: ProviderSpend): SpendWindow[] {
     if (!hasAllowanceWindow(pct, resetsAt)) return [];
     return [{ key: `${provider.provider}-${reading.variant}`, variant: reading.variant, pct, state: classify(pct) }];
   });
-}
-
-function modelRows(provider: ProviderSpend): SpendModelRow[] {
-  return provider.models.map((model, index) => ({
-    key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
-    label: model.model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model.model) ?? model.model,
-    unassigned: model.model == null,
-    sharePct: model.token_share_pct,
-    tokens: spendTokens(model),
-  }));
 }
 
 /** Machine scope has no plan to miss: an empty ledger is simply no data. */
@@ -461,10 +385,6 @@ export function spendReading(spend: MissionControlSpend): SpendReading {
     label: provider.label.trim() || provider.provider,
     tone,
     windows: providerWindows(provider),
-    measured: provider.models.length > 0,
-    sharePct: provider.models.reduce((sum, model) => sum + model.token_share_pct, 0),
-    tokens: spendTokens(provider),
-    models: modelRows(provider),
   }));
   return {
     recording,
@@ -501,17 +421,7 @@ export function progressReading(counts: PlanTaskCounts): ProgressReading {
   };
 }
 
-const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
-  disabled: "not recording",
-  no_rows_for_plan: "no plan ledger row",
-  unreadable: "ledger unavailable",
-  not_read: "ledger not read",
-};
-
-export function notRecordingCopy(
-  reason: KpiNotRecordingReason | null,
-  enableSetting: string | null = null,
-): string {
-  if (reason === "disabled" && enableSetting) return `recording off, enable ${enableSetting}`;
-  return reason ? NOT_RECORDING_COPY[reason] : NOT_RECORDING_COPY.not_read;
+/** A plan reads by its goal; a plan without one reads by its title. */
+export function planHeading(plan: { title: string; goal?: { vector: string } | null }): string {
+  return plan.goal?.vector?.trim() || plan.title;
 }
