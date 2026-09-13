@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { BoardPanel, BoardPanelSection } from "./BoardPanel";
-import { RefText, type BoardRefs } from "./BoardRefText";
+import { RefLabel, RefText, type BoardRefs } from "./BoardRefText";
 import {
+  clipTaskName,
   EVENT_LOG_PAGE,
   EVENT_PART_SEPARATOR,
   EVENT_REVEAL_HIDE_LABEL,
@@ -32,6 +33,8 @@ interface LogRowProps {
 
 const NO_REFS: BoardRefs = new Map();
 
+const clipTaskLabel = (label: string) => clipTaskName(label) ?? label;
+
 function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
   const bodyId = `mc-board-event-body-${event.key}`;
   const open = expanded && event.expandable;
@@ -52,7 +55,11 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
         {event.taskName && (
           <>
             <span data-testid="mc-board-event-task" className="mc-board-log-task">
-              {event.taskName}
+              {event.taskId ? (
+                <RefLabel id={event.taskId} refs={refs} fallback={event.taskName} format={clipTaskLabel} />
+              ) : (
+                event.taskName
+              )}
             </span>
             <span className="mc-board-log-sep">{EVENT_PART_SEPARATOR}</span>
           </>

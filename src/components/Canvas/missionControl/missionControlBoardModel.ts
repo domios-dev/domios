@@ -125,6 +125,8 @@ export interface EventRow {
   kindLabel: string;
   strong: boolean;
   author: string;
+  /** The event's task, so the row can name it by its key and open it. */
+  taskId: string | null;
   taskName: string | null;
   /** Bounded single-line reading of `body`; never the only copy of the text. */
   preview: string;
@@ -174,6 +176,7 @@ function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneK
     kindLabel: eventKindLabel(event.kind, declared),
     strong: STRONG_KINDS.has(event.kind),
     author: event.author,
+    taskId: event.task_id,
     taskName: event.task_name === event.text ? null : clipTaskName(event.task_name),
     preview,
     body: event.text,
@@ -271,6 +274,8 @@ export interface NeedsYouItem {
   key: string;
   kind: "gate" | "review";
   title: string;
+  /** The held review's task; gates name no single task. */
+  taskId: string | null;
   facts: string[];
   /** The tab a gate row jumps to; reviews have none. */
   tabId: string | null;
@@ -282,6 +287,7 @@ export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
   const gates = held.open_gates.map<NeedsYouItem>((gate) => ({
     key: `gate-${gate.id}`,
     kind: "gate",
+    taskId: null,
     tabId: gate.tab_id,
     title: eventPreview(gate.question),
     facts: [
@@ -295,6 +301,7 @@ export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
   const reviews = held.held_reviews.map<NeedsYouItem>((review) => ({
     key: `review-${review.task_id}`,
     kind: "review",
+    taskId: review.task_id,
     tabId: null,
     title: review.name,
     facts: [

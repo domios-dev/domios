@@ -7,13 +7,10 @@ import { canvasFocusStore } from "./canvasFocusStore";
 import {
   deriveWorkspacePlanEntries,
   openTeamPlanCanvas,
-  openTabPlanFocus,
   openWorkspacePlanCanvas,
-  resolveTabPlanFocusTarget,
   resolveWorkspaceFocusNodeIds,
   canvasFitContextKey,
   findPlanOwnerWorkspace,
-  openPlanDeepLink,
   workspacePlanEntryExtraCount,
   workspacePlanEntryHint,
   workspacePlanEntryKind,
@@ -336,18 +333,6 @@ test("workspacePlanEntryExtraCount counts plans beyond the lead", () => {
   );
 });
 
-test("resolveTabPlanFocusTarget carries Tab and optional plan id", () => {
-  const one = resolveTabPlanFocusTarget([indexEntry()], "worker-1");
-  assert(one?.focusTabId === "worker-1", "focus Tab");
-  assert(one?.planId === FIXTURE_PLAN.id, "single plan id");
-  const many = resolveTabPlanFocusTarget(
-    [indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })],
-    "worker-1",
-  );
-  assert(many?.focusTabId === "worker-1", "focus Tab with many plans");
-  assert(many?.planId === undefined, "no single plan id when ambiguous");
-});
-
 test("openWorkspacePlanCanvas opens workspace target on the focus store", () => {
   canvasFocusStore.closeWorkspace();
   openWorkspacePlanCanvas({ focusTabId: "orch-1", planId: FIXTURE_PLAN.id });
@@ -367,77 +352,29 @@ test("openTeamPlanCanvas keeps the team and manager target explicit", () => {
   canvasFocusStore.closeWorkspace();
 });
 
-test("openPlanDeepLink switches to the indexed owner workspace and focuses the task", () => {
+test("resolveWorkspaceFocusNodeIds prefers the jumped-to task", () => {
+  const plans = [{ ...FIXTURE_PLAN, tasks: [{ ...FIXTURE_TASK, assigned_tab_id: "worker-1" }] }] as Plan[];
+  const ids = resolveWorkspaceFocusNodeIds("workspace", { focusTabId: "worker-1", jump: { view: "task", taskId: "t9" } }, plans);
+  assert(ids.join() === "t9", "task jump wins over Tab assignment");
+});
+
+test("findPlanOwnerWorkspace reads canonical ownership over a shared database path", () => {
   const ownerWorkspace = { ...workspace, id: "ws-owner", cwd: "/repo/owner" };
   const foreignWorkspace = { ...workspace, id: "ws-current", cwd: "/repo/current" };
-  const entry = indexEntry({
-    file_path: "/home/user/.codeterm/plans.db",
-    canonical_project_path: "/repo/owner",
-  });
+  const entry = indexEntry({ file_path: "/home/user/.codeterm/plans.db", canonical_project_path: "/repo/owner" });
   const owner = findPlanOwnerWorkspace(FIXTURE_PLAN.id, [entry], [foreignWorkspace, ownerWorkspace]);
   assert(owner?.workspace.id === ownerWorkspace.id, "owner comes from canonical project ownership");
-
-  let switchedTo: string | null = null;
-  canvasFocusStore.closeWorkspace();
-  const opened = openPlanDeepLink(FIXTURE_PLAN.id, FIXTURE_TASK.id, {
-    index: [entry],
-    workspaces: [foreignWorkspace, ownerWorkspace],
-    activeWorkspaceId: foreignWorkspace.id,
-    setActiveWorkspace: (id) => { switchedTo = id; },
-  });
-  assert(opened, "valid indexed plan opens");
-  assert(switchedTo === ownerWorkspace.id, "owner workspace is revealed");
-  const target = canvasFocusStore.getWorkspaceTarget();
-  assert(target?.planId === FIXTURE_PLAN.id, "plan view targets indexed plan");
-  assert(target?.nodeIds?.[0] === FIXTURE_TASK.id, "task focus is retained");
-  canvasFocusStore.closeWorkspace();
+  const resolved = findPlanOwnerWorkspace(FIXTURE_PLAN.id, [], [workspace, ownerWorkspace], "/repo/owner");
+  assert(resolved?.workspace.id === ownerWorkspace.id, "daemon-resolved ownership works before the index refreshes");
+  assert(findPlanOwnerWorkspace("pl_missing", [], [workspace]) === null, "missing plan has no owner");
 });
 
-test("openPlanDeepLink accepts resolved canonical ownership before the index refreshes", () => {
-  const ownerWorkspace = { ...workspace, id: "ws-owner", cwd: "/repo/owner" };
-  let switchedTo: string | null = null;
+test("openWorkspacePlanCanvas replaces an open focus canvas", () => {
+  canvasFocusStore.openFocus({ planId: FIXTURE_PLAN.id });
+  openWorkspacePlanCanvas({ planId: FIXTURE_PLAN.id, jump: { view: "plan" } });
+  assert(!canvasFocusStore.isOpen(), "focus canvas closed");
+  assert(canvasFocusStore.getWorkspaceTarget()?.jump?.view === "plan", "plan jump stored");
   canvasFocusStore.closeWorkspace();
-  const opened = openPlanDeepLink(FIXTURE_PLAN.id, FIXTURE_TASK.id, {
-    index: [],
-    workspaces: [workspace, ownerWorkspace],
-    activeWorkspaceId: workspace.id,
-    canonicalProjectPath: "/repo/owner",
-    setActiveWorkspace: (id) => { switchedTo = id; },
-  });
-  assert(opened, "backend-resolved canonical ownership opens without an index entry");
-  assert(switchedTo === ownerWorkspace.id, "resolved ownership selects the owner workspace");
-  assert(canvasFocusStore.getWorkspaceTarget()?.planId === FIXTURE_PLAN.id, "resolved plan opens");
-  canvasFocusStore.closeWorkspace();
-});
-
-test("openPlanDeepLink leaves a missing reference inert without a missing callback", () => {
-  let switched = false;
-  const opened = openPlanDeepLink("pl_missing", "task_missing", {
-    index: [],
-    workspaces: [workspace],
-    activeWorkspaceId: workspace.id,
-    setActiveWorkspace: () => { switched = true; },
-  });
-  assert(!opened, "missing plan does not open navigation");
-  assert(!switched, "missing plan does not switch workspace");
-});
-
-test("openTabPlanFocus routes Tab focus through workspace canvas", () => {
-  canvasFocusStore.closeWorkspace();
-  openTabPlanFocus([indexEntry({ assigned_tab_ids: ["worker-1"] })], "worker-1", [
-    FIXTURE_TASK.id,
-  ]);
-  assert(canvasFocusStore.isWorkspaceOpen(), "workspace canvas open from Tab chip");
-  const target = canvasFocusStore.getWorkspaceTarget();
-  assert(target?.focusTabId === "worker-1", "Tab focus preserved");
-  assert(target?.nodeIds?.[0] === FIXTURE_TASK.id, "explicit node ids forwarded");
-  canvasFocusStore.closeWorkspace();
-});
-
-test("resolveWorkspaceFocusNodeIds prefers explicit node ids", () => {
-  const plans = [{ ...FIXTURE_PLAN, tasks: [{ ...FIXTURE_TASK, assigned_tab_id: "worker-1" }] }] as Plan[];
-  const ids = resolveWorkspaceFocusNodeIds("workspace", { nodeIds: ["n1", "n2"] }, plans);
-  assert(ids.join() === "n1,n2", "node ids pass through");
 });
 
 test("resolveWorkspaceFocusNodeIds resolves Tab assignments in workspace mode", () => {
@@ -465,7 +402,7 @@ test("canvasFitContextKey encodes workspace target fields", () => {
   const key = canvasFitContextKey("workspace", "tab-a", {
     focusTabId: "tab-b",
     planId: "pl-1",
-    nodeIds: ["t1"],
+    jump: { view: "task", taskId: "t1" },
   });
   assert(key.includes("tab-a") && key.includes("tab-b") && key.includes("pl-1") && key.includes("t1"), key);
 });
