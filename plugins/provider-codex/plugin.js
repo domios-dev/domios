@@ -2497,8 +2497,15 @@ var plugin = {
       out.push(row2);
     };
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex) => {
+      for (; stamped < out.length; stamped++) {
+        out[stamped].recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       if (!lines[i]) continue;
       let v;
       try {
@@ -2675,6 +2682,7 @@ var plugin = {
         });
       }
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
   detectSessionId(cwd, exclude, maxAgeMs) {
