@@ -509,6 +509,8 @@ pub struct Task {
     pub status_changed_at: u64,
     #[serde(default)]
     pub handle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -1097,6 +1099,7 @@ mod tests {
                 changed_executable_surfaces: false,
                 distinct_oracle: false,
             }],
+            key: None,
             review_override: Some(ReviewOverride {
                 owner: "andrey".into(),
                 reason: "P0 hotfix".into(),

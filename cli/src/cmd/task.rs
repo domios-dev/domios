@@ -292,6 +292,7 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
             .and_then(|v| v.as_str())
             .unwrap_or("?");
         println!("{id}\t{status}\t{plan}\t{name}");
+        println!("key: {}", crate::cmd::task_list_render::task_key_label(val));
         println!("plan: {plan_title} ({plan})");
         print_task_presentation(val);
         print_competition(task, plan, id);

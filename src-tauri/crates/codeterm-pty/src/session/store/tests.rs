@@ -15,6 +15,7 @@ fn snap(workspaces: usize) -> SessionSnapshot {
         teams: vec![],
         workspaces: (0..workspaces)
             .map(|i| WorkspaceSnapshot {
+                task_keys: Default::default(),
                 id: format!("ws_{}", i),
                 name: format!("ws{}", i),
                 tabs: vec![],
@@ -252,6 +253,7 @@ fn desk(specs: &[(&str, &[&str])]) -> SessionSnapshot {
         workspaces: specs
             .iter()
             .map(|(ws_id, tab_ids)| WorkspaceSnapshot {
+                task_keys: Default::default(),
                 id: (*ws_id).into(),
                 name: (*ws_id).into(),
                 active_tab_id: None,

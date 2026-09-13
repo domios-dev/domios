@@ -22,10 +22,8 @@ fn create_gate(
     now_ms: u64,
 ) -> Result<DecisionGate, PlanError> {
     if blocking_task_ids.iter().any(|task_id| {
-        plan.tasks.iter().any(|task| {
-            (&task.id == task_id || task.handle.as_deref() == Some(task_id))
-                && task.status == TaskStatus::InReview
-        })
+        crate::plan::task_key::find_task(&plan.tasks, task_id)
+            .is_some_and(|task| task.status == TaskStatus::InReview)
     }) {
         return Err(PlanError::TransitionDenied {
             from: TaskStatus::InReview,
@@ -39,11 +37,7 @@ fn create_gate(
     );
     for task_id in blocking_task_ids {
         let milestone_id = mint_id("ms", |candidate| plan_contains_id(plan, candidate));
-        if let Some(task) = plan
-            .tasks
-            .iter_mut()
-            .find(|task| &task.id == task_id || task.handle.as_deref() == Some(task_id))
-        {
+        if let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id) {
             if !task.status.is_terminal() {
                 task.status = TaskStatus::Paused;
                 task.pause_reason = Some(pause_reason.clone());
@@ -211,11 +205,7 @@ impl PlanStore {
             // Resume blocked tasks.
             for tid in &blocking {
                 let mid = mint_id("ms", |c| plan_contains_id(plan, c));
-                if let Some(task) = plan
-                    .tasks
-                    .iter_mut()
-                    .find(|t| &t.id == tid || t.handle.as_deref() == Some(tid))
-                {
+                if let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, tid) {
                     if task.status == TaskStatus::Paused {
                         task.status = TaskStatus::Pending;
                         task.status_changed_at = now_ms;
@@ -561,6 +551,7 @@ mod tests {
             review_round: 0,
             review_oracle: None,
             review_evidence: vec![],
+            key: None,
             review_override: None,
             review_audit: vec![],
             status_label: None,

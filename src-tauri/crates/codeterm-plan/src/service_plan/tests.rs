@@ -302,6 +302,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         review_round: 0,
         review_oracle: None,
         review_evidence: vec![],
+        key: None,
         review_override: None,
         review_audit: vec![],
         status_label: None,

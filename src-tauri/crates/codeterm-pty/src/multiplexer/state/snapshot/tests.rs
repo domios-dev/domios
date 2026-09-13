@@ -58,6 +58,7 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
         active_workspace_id: Some("ws".into()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            task_keys: Default::default(),
             id: "ws".into(),
             name: "ws".into(),
             active_tab_id: Some("tab".into()),

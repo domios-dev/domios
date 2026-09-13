@@ -89,6 +89,7 @@ fn test_session_snapshot_never_derives_agent_type_from_title() {
             active_workspace_id: Some("ws-1".to_string()),
             teams: vec![],
             workspaces: vec![WorkspaceSnapshot {
+                task_keys: Default::default(),
                 id: "ws-1".to_string(),
                 name: "W".to_string(),
                 active_tab_id: Some("tab-1".to_string()),
@@ -159,6 +160,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
         active_workspace_id: Some("ws-1".to_string()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            task_keys: Default::default(),
             id: "ws-1".to_string(),
             name: "W".to_string(),
             active_tab_id: Some("tab-1".to_string()),
@@ -237,6 +239,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
         active_workspace_id: Some("ws-1".to_string()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            task_keys: Default::default(),
             id: "ws-1".to_string(),
             name: "W".to_string(),
             active_tab_id: Some("tab-1".to_string()),

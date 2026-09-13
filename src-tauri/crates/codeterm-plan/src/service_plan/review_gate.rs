@@ -474,10 +474,7 @@ impl PlanStore {
             return Err(PlanError::ReviewOverrideIncomplete);
         }
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             task.review_override = Some(ReviewOverride {
                 owner: owner.into(),
@@ -643,10 +640,7 @@ impl PlanStore {
     ) -> Result<ReviewCapacityGrantResult, PlanError> {
         let mut result = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let canonical_task_id = plan
-                .tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let canonical_task_id = crate::plan::task_key::find_task(&plan.tasks, task_id)
                 .map(|task| task.id.clone())
                 .ok_or(PlanError::TaskNotFound)?;
             if let Some(existing) = plan
@@ -722,10 +716,7 @@ impl PlanStore {
         }
         let mut result = None;
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if matches!(
                 p.tasks[idx].status,
@@ -859,10 +850,7 @@ impl PlanStore {
         }
         let mut result = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let idx = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             require_in_review(&plan.tasks[idx])?;
             let milestone_id =
@@ -994,11 +982,17 @@ impl PlanStore {
             return Err(PlanError::QaNoteRequired);
         }
         let mut result = None;
+        let needs_follow_up = residual_risk.is_some_and(|risk| !risk.trim().is_empty())
+            && self.get(plan_id).is_some_and(|plan| {
+                crate::plan::task_key::find_task(&plan.tasks, task_id)
+                    .is_some_and(|task| task.review_round >= max_review_rounds())
+            });
+        let mut follow_up_key = self
+            .issue_task_keys(plan_id, usize::from(needs_follow_up))
+            .into_iter()
+            .next();
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             require_in_review(&p.tasks[idx])?;
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
@@ -1049,6 +1043,7 @@ impl PlanStore {
                         review_round: 0,
                         review_oracle: None,
                         review_evidence: vec![],
+                        key: follow_up_key.take(),
                         review_override: None,
                         review_audit: vec![],
                         status_label: Some("residual risk from bounded review".into()),
@@ -1114,10 +1109,7 @@ impl PlanStore {
     ) -> Result<bool, PlanError> {
         let mut escalated = false;
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let task = &p.tasks[idx];
             require_in_review(task)?;

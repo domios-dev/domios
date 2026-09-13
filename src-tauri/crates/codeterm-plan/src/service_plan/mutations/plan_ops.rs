@@ -290,6 +290,7 @@ impl PlanStore {
         if lane.tab_id.is_none() {
             lane.tab_id = assigned_tab_id.clone();
         }
+        let key = self.issue_task_keys(plan_id, 1).into_iter().next();
         let mut task = Task {
             id: tid.clone(),
             name: new.name,
@@ -307,6 +308,7 @@ impl PlanStore {
             review_round: 0,
             review_oracle: None,
             review_evidence: vec![],
+            key,
             review_override: None,
             review_audit: vec![],
             status_label: None,
@@ -376,10 +378,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let write = self.with_plan(plan_id, now_ms, |p| {
-            let task_index = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let was_in_review = p.tasks[task_index].status == TaskStatus::InReview;
             super::finalize_task_done(p, task_index, now_ms)?;
@@ -429,10 +428,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             crate::service_plan::interruption::authorize_task_mutation(
                 plan,
