@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 /// The exact live owner identity the update seam authorizes against:
 /// tab id, bound session and the nonce the tab itself reported back.
-fn owner_headers(tab_id: &str) -> HeaderMap {
+pub(crate) fn owner_headers(tab_id: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("X-CodeTerm-Tab-Id", tab_id.parse().unwrap());
     headers.insert("X-CodeTerm-Session-Id", "owner-session".parse().unwrap());
@@ -18,7 +18,7 @@ fn owner_headers(tab_id: &str) -> HeaderMap {
     headers
 }
 
-fn update_fixture() -> (ServiceFixture, String, String, String, String, String) {
+pub(crate) fn update_fixture() -> (ServiceFixture, String, String, String, String, String) {
     let (mut mux, _) = MultiplexerState::new();
     let workspace = mux.list_workspaces()[0].id.clone();
     let owner = mux.create_tab(&workspace).unwrap();

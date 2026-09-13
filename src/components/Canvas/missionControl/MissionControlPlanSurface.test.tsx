@@ -109,8 +109,11 @@ test("renders the selected plan board without the removed status band", async ()
     "the board itself carries no actions band",
   );
   assert(!trigger.closest('[data-testid="plan-board-status"]'), "board actions are outside status band");
-  await act(async () => (trigger as HTMLButtonElement).click());
-  const labels = Array.from(host.querySelectorAll('[data-testid="mission-control-board-menu"] [role="menuitem"]'))
+  await act(async () => {
+    trigger.focus();
+    trigger.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  const labels = Array.from(document.querySelectorAll('[data-testid="mission-control-board-menu"] [role="menuitem"]'))
     .map((item) => item.textContent?.trim());
   assert(labels.join("|") === "Approve plan|Pause plan|Clear everything", "board actions remain available");
   assert(
