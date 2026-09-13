@@ -305,7 +305,8 @@ describe("mission control board visual system", () => {
     expect(rule(css, ".mc-board-models-table thead th")).toContain("border-bottom: 1px solid var(--ct-border);");
     expect(rule(css, ".mc-board-models-table .mc-board-models-num")).toContain("font-variant-numeric: tabular-nums;");
     expect(rule(css, ".mc-board-models-table .mc-board-models-num")).toContain("text-align: right;");
-    expect(rule(css, ".mc-board-row")).toContain("align-items: start;");
+    expect(rule(css, ".mc-board-row")).toContain("align-items: stretch;");
+    expect(rule(css, ".mc-board-plan-heading")).toContain("-webkit-line-clamp: 3;");
     expect(css).not.toMatch(/border-right|border-inline-end|animation/);
     await unmount();
   });

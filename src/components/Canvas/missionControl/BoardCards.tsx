@@ -83,34 +83,65 @@ export function PlanCard({
   bounces,
   previousPlans = [],
   onOpenPlan,
+  onOpenPlanView,
+  onOpenTasksView,
 }: {
   plan: Plan;
   counts: PlanTaskCounts;
   bounces: BounceSummary;
   previousPlans?: readonly Plan[];
   onOpenPlan?: (planId: string) => void;
+  onOpenPlanView?: () => void;
+  onOpenTasksView?: () => void;
 }) {
   const progress = progressReading(counts);
   const [showPrevious, setShowPrevious] = useState(false);
   const previousId = useId();
   const bounced = bounces.tasks_on_second_attempt;
+  const heading = planHeading(plan);
+  const taskCount = (
+    <>
+      <span data-testid="mc-board-tasks-amount" className="mc-board-num">
+        <AnimatedNumber value={progress.total} format={formatCount} />
+      </span>
+      {progress.total === 1 ? " task" : " tasks"}
+    </>
+  );
   return (
     <BoardPanel
       testId="mc-board-plan"
       title="Plan"
       meta={
-        <>
-          <span data-testid="mc-board-tasks-amount" className="mc-board-num">
-            <AnimatedNumber value={progress.total} format={formatCount} />
-          </span>
-          {progress.total === 1 ? " task" : " tasks"}
-        </>
+        onOpenTasksView ? (
+          <button
+            type="button"
+            data-testid="mc-board-plan-tasks-link"
+            className="mc-board-meta-link"
+            onClick={onOpenTasksView}
+          >
+            {taskCount}
+          </button>
+        ) : (
+          taskCount
+        )
       }
     >
       <BoardPanelSection>
-        <p data-testid="mc-board-plan-heading" className="mc-board-plan-heading">
-          {planHeading(plan)}
-        </p>
+        {onOpenPlanView ? (
+          <button
+            type="button"
+            data-testid="mc-board-plan-heading"
+            className="mc-board-plan-heading mc-board-plan-link"
+            title={heading}
+            onClick={onOpenPlanView}
+          >
+            {heading}
+          </button>
+        ) : (
+          <p data-testid="mc-board-plan-heading" className="mc-board-plan-heading" title={heading}>
+            {heading}
+          </p>
+        )}
         <div data-testid="mc-board-task-statuses">
           {progress.active.length === 0 ? (
             <p className="mc-board-note">No tasks yet.</p>
