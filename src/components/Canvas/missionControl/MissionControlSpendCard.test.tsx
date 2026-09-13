@@ -1,7 +1,17 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { ApiConfig } from "../../../lib/types";
 import type { UsageSnapshot } from "../../../types/usage";
+import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
+import {
+  fetchTeamSpend,
+  localDayKey,
+  teamPlanRows,
+  teamSpendRange,
+  type TeamSpend,
+  type TeamSpendDaily,
+} from "./teamSpend";
 import { allowanceWeekDays, type AllowanceDay, type AllowanceWeeks } from "./allowanceWeek";
 import { ModelsCard, SpendCard } from "./BoardCards";
 import {
@@ -90,6 +100,54 @@ function recordingSpend(): MissionControlSpend {
         ],
       },
     ],
+  };
+}
+
+/** Two team plans on two days, and one plan-less machine row that must never count as team spend. */
+function teamSpendFixture(): TeamSpend {
+  const today = localDayKey(Date.now());
+  const yesterday = localDayKey(Date.now() - 24 * H);
+  const row = (
+    day: string,
+    planId: string | null,
+    planTitle: string | null,
+    provider: string,
+    model: string | null,
+    uncached: number,
+  ): TeamSpendDaily => ({
+    day,
+    team_id: planId ? "team-1" : null,
+    plan_id: planId,
+    plan_title: planTitle,
+    plan_status: planId ? "active" : null,
+    provider,
+    model,
+    input_tokens: uncached * 2,
+    uncached_input_tokens: uncached,
+    output_tokens: 1,
+    turns: 1,
+  });
+  return {
+    team_id: "team-1",
+    metric: "tokens",
+    units: "tokens",
+    scope: "team_plan",
+    model: "all",
+    ...teamSpendRange(),
+    state: "recording",
+    not_recording_reason: null,
+    plans: [
+      { plan_id: "pl_snake", title: "Snake", status: "active" },
+      { plan_id: "pl_old", title: "Old", status: "archived" },
+    ],
+    attribution: { team_plan_count: 2, unknown_plan_rows: 0, unassigned_plan_rows: 1, foreign_plan_rows_excluded: 0 },
+    daily: [
+      row(yesterday, "pl_old", "Old", "codex", null, 50),
+      row(today, "pl_snake", "Snake", "claude", "claude-haiku-4-5", 100),
+      row(today, "pl_old", "Old", "codex", null, 20),
+      row(today, null, null, "claude", "claude-haiku-4-5", 9_999),
+    ],
+    weekly_limit_points: [],
   };
 }
 
@@ -248,6 +306,62 @@ describe("mission control spend card", () => {
     await unmount();
   });
 
+  it("mission_control_spend_charts_team_new_input_by_plan_and_filters_to_one_model", async () => {
+    const { host, unmount } = await mount(<SpendCard spend={recordingSpend()} teamSpend={teamSpendFixture()} />);
+
+    expect(text(host, "mc-board-spend-scope")).toBe("team");
+    expect(text(host, "mc-board-spend-chart-scope")).toBe("team");
+    expect(text(host, "mc-board-spend-limits-label")).toBe("Limits, this machine");
+    const metric = (key: string) => host.querySelector(`[data-testid="mc-board-spend-metric-${key}"]`) as HTMLButtonElement;
+    expect(metric("tokens").getAttribute("aria-pressed")).toBe("true");
+    expect(metric("points").disabled).toBe(true);
+
+    const days = () => Array.from(host.querySelectorAll('[data-testid="mc-board-spend-chart-day"]')) as HTMLElement[];
+    const tones = (day: HTMLElement) =>
+      Array.from(day.querySelectorAll('[data-testid="mc-board-spend-chart-segment"]')).map((segment) =>
+        segment.getAttribute("data-tone"),
+      );
+    expect(days()).toHaveLength(7);
+    const today = days()[6]!;
+    expect(today.getAttribute("data-today")).toBe("true");
+    expect(tones(today)).toEqual(["0", "1"]);
+    expect(tones(days()[5]!)).toEqual(["1"]);
+    const summary = host.querySelector('[data-testid="mc-board-spend-chart"] [role="img"]')?.getAttribute("aria-label") ?? "";
+    expect(summary).toMatch(/120$/);
+    expect(summary).not.toContain("10K");
+
+    const filters = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-filter"]')) as HTMLButtonElement[];
+    expect(filters.map((filter) => filter.textContent)).toEqual(["All", UNASSIGNED_MODEL_LABEL, "haiku"]);
+    await act(async () => filters[2]!.click());
+    expect(tones(days()[6]!)).toEqual(["0"]);
+    expect(tones(days()[5]!)).toEqual([]);
+    await unmount();
+  });
+
+  it("mission_control_spend_counts_only_rows_attributed_to_a_team_plan", () => {
+    const rows = teamPlanRows(teamSpendFixture());
+    expect(rows.map((row) => row.plan_id)).toEqual(["pl_old", "pl_snake", "pl_old"]);
+    expect(rows.some((row) => row.uncached_input_tokens === 9_999)).toBe(false);
+  });
+
+  it("mission_control_spend_reads_the_team_spend_route_for_a_date_range", async () => {
+    const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
+    const fixture = teamSpendFixture();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => fixture });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(
+        fetchTeamSpend(api, "team 1", { metric: "tokens", from: "2026-09-07", to: "2026-09-13" }),
+      ).resolves.toBe(fixture);
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${baseUrl(api)}/api/teams/team%201/mission-control/spend?metric=tokens&from=2026-09-07&to=2026-09-13`,
+        { headers: authHeaders(api), signal: undefined },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("mission_control_spend_draws_no_chart_without_allowance_history", async () => {
     const { host, unmount } = await mount(<SpendCard spend={recordingSpend()} />);
 
@@ -330,6 +444,17 @@ describe("mission control models card", () => {
     expect(more.textContent).toBe("Show all 8");
     await act(async () => more.click());
     expect(rows()).toHaveLength(8);
+    await unmount();
+  });
+
+  it("mission_control_models_ranks_the_team_models_from_team_plan_rows_only", async () => {
+    const { host, unmount } = await mount(<ModelsCard spend={recordingSpend()} teamSpend={teamSpendFixture()} />);
+
+    expect(modelCells(host)).toEqual([
+      ["haiku", "100", "59%"],
+      [UNASSIGNED_MODEL_LABEL, "70", "41%"],
+    ]);
+    expect(text(host, "mc-board-models-meta")).toBe("team");
     await unmount();
   });
 
