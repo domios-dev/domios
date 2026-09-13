@@ -259,13 +259,18 @@ describe("mission control board visual system", () => {
       const { spend, unmount } = await renderAt(width);
 
       expect(spend.querySelector('[data-testid="mc-board-spend-scope"]')?.textContent).toBe(SPEND_SCOPE_CAPTION);
-      expect(Array.from(spend.querySelectorAll(".mc-board-spend-provider-name")).map((name) => name.textContent)).toEqual([
-        "Claude Code",
-        "Codex",
+      const providers = Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-provider"]'));
+      expect(
+        providers.map((provider) => [provider.querySelector(".mc-board-spend-limit-name")?.textContent, provider.getAttribute("title")]),
+      ).toEqual([
+        ["Claude", "Claude Code"],
+        ["Codex", "Codex"],
       ]);
       expect(
         Array.from(spend.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) => gauge.textContent),
-      ).toEqual(["week 64%", "session 17%", "week 6%"]);
+      ).toEqual(["64%", "session 17%", "6%"]);
+      expect(spend.querySelectorAll('[data-testid="mc-board-spend-limits"]')).toHaveLength(1);
+      expect(getComputedStyle(spend.querySelector('[data-testid="mc-board-spend-limits"]') as HTMLElement).flexWrap).toBe("wrap");
       expect(spend.querySelector("table")).toBeNull();
       await unmount();
     });

@@ -22,6 +22,13 @@ function formatWholePct(value: number): string {
   return `${Math.round(value)}%`;
 }
 
+/** Limits are counted per provider account on this machine, never for the team. */
+const LIMITS_SCOPE_LABEL = "machine";
+
+function shortProviderName(label: string): string {
+  return label.split(/\s+/)[0] || label;
+}
+
 /** Spend over the week as a chart, then each provider's weekly and session allowance used so far. */
 export function SpendCard({
   spend,
@@ -56,41 +63,41 @@ export function SpendCard({
             {reading.note}
           </p>
         )}
-        {hasLimits && teamSpend && (
-          <h3 data-testid="mc-board-spend-limits-label" className="mc-board-sub-label">
-            Limits, {SPEND_SCOPE_CAPTION}
-          </h3>
-        )}
         {hasLimits && (
-          <ul className="mc-board-spend-providers" role="list">
+          <ul
+            data-testid="mc-board-spend-limits"
+            className="mc-board-spend-limits"
+            role="list"
+            aria-label={`Weekly limits, ${SPEND_SCOPE_CAPTION}`}
+          >
+            <li data-testid="mc-board-spend-limits-scope" className="mc-board-spend-limits-scope" aria-hidden="true">
+              {LIMITS_SCOPE_LABEL}
+            </li>
             {reading.groups.map((group) => (
               <li
                 key={group.key}
                 data-testid="mc-board-spend-provider"
                 data-provider={group.key}
-                className="mc-board-spend-provider"
+                className="mc-board-spend-limit"
+                title={group.label}
               >
-                <span className="mc-board-spend-provider-name">
-                  <span aria-hidden="true" className="mc-board-swatch" data-tone={group.tone} />
-                  <span>{group.label}</span>
-                </span>
-                {group.windows.length > 0 && (
-                  <span className="mc-board-spend-windows">
-                    {group.windows.map((window) => (
-                      <span
-                        key={window.key}
-                        data-testid="mc-board-spend-gauge"
-                        data-window-key={window.key}
-                        className="mc-board-spend-window"
-                      >
-                        {SPEND_WINDOW_LABELS[window.variant]}{" "}
-                        <b data-testid="mc-board-spend-window-pct" className={WINDOW_TONE[window.state]}>
-                          <AnimatedNumber value={window.pct} format={formatWholePct} />
-                        </b>
-                      </span>
-                    ))}
+                <span aria-hidden="true" className="mc-board-swatch" data-tone={group.tone} />
+                <span className="mc-board-spend-limit-name">{shortProviderName(group.label)}</span>
+                {group.windows.map((window) => (
+                  <span
+                    key={window.key}
+                    data-testid="mc-board-spend-gauge"
+                    data-window-key={window.key}
+                    data-variant={window.variant}
+                    className="mc-board-spend-window"
+                    title={`${SPEND_WINDOW_LABELS[window.variant]} limit used`}
+                  >
+                    {window.variant === "session" && `${SPEND_WINDOW_LABELS.session} `}
+                    <b data-testid="mc-board-spend-window-pct" className={WINDOW_TONE[window.state]}>
+                      <AnimatedNumber value={window.pct} format={formatWholePct} />
+                    </b>
                   </span>
-                )}
+                ))}
               </li>
             ))}
           </ul>
