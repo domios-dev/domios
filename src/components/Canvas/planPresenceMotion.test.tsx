@@ -24,6 +24,7 @@ const TEMPORARY_TAB: TemporaryModeTab = {
 };
 
 const mounted: Array<{ root: Root; host: HTMLElement }> = [];
+const restorers: Array<() => void> = [];
 
 async function mount(ui: ReactElement) {
   const host = document.createElement("div");
@@ -39,6 +40,7 @@ afterEach(async () => {
     await act(async () => root.unmount());
     host.remove();
   }
+  for (const restore of restorers.splice(0)) restore();
   act(() => {
     planSidePanelStore.close();
   });
@@ -65,6 +67,19 @@ function stubStylesheetAnimations() {
   vi.spyOn(window, "getComputedStyle").mockImplementation((element: Element, pseudo?: string | null) => {
     const animationName = styledAnimationName(element);
     return animationName === null ? original(element, pseudo) : ({ animationName } as CSSStyleDeclaration);
+  });
+}
+
+type RunningAnimation = Pick<CSSAnimation, "animationName" | "playState">;
+
+/** Stands in for the browser's own animation list, which the stylesheet name alone cannot tell apart from a hidden element. */
+function stubElementAnimations(read: () => RunningAnimation[]) {
+  const prototype = HTMLElement.prototype as { getAnimations?: unknown };
+  const original = Object.getOwnPropertyDescriptor(prototype, "getAnimations");
+  Object.defineProperty(prototype, "getAnimations", { configurable: true, value: () => read() });
+  restorers.push(() => {
+    if (original) Object.defineProperty(prototype, "getAnimations", original);
+    else delete prototype.getAnimations;
   });
 }
 
@@ -228,6 +243,38 @@ describe("temporary task segment presence", () => {
     await fireAnimation(group, "ct-segmented-donut-grow");
     expect(temporaryGroup(host)?.getAttribute("data-state")).toBe("closing");
     await fireAnimation(group, "ct-plan-view-segment-shrink");
+    expect(temporaryGroup(host)).toBeNull();
+  });
+
+  it("with two animations on the group, opens when the last one ends even if the grow keyframe's own event never arrived", async () => {
+    stubStylesheetAnimations();
+    let animations: RunningAnimation[] = [
+      { animationName: "ct-segmented-donut-grow", playState: "running" },
+      { animationName: "ct-presence-fade-in", playState: "running" },
+    ];
+    stubElementAnimations(() => animations);
+    const { host } = await mount(<PlanViewModeSwitch value="task" onChange={() => {}} temporaryTab={TEMPORARY_TAB} />);
+    const group = temporaryGroup(host) as HTMLElement;
+    expect(group.getAttribute("data-state")).toBe("entering");
+
+    animations = [animations[0]!, { animationName: "ct-presence-fade-in", playState: "finished" }];
+    await fireAnimation(group, "ct-presence-fade-in");
+    expect(group.getAttribute("data-state")).toBe("entering");
+
+    animations = animations.map((animation) => ({ ...animation, playState: "finished" }));
+    await fireAnimation(group.querySelector('[data-testid="plan-view-temporary-tab"]') as HTMLElement, "ct-presence-fade-in");
+    expect(group.getAttribute("data-state")).toBe("entering");
+    await fireAnimation(group, "ct-presence-fade-in");
+    expect(group.getAttribute("data-state")).toBe("open");
+  });
+
+  it("a group the browser runs no animation on (not rendered) opens and leaves without waiting", async () => {
+    stubStylesheetAnimations();
+    stubElementAnimations(() => []);
+    const { host, rerender } = await mount(<PlanViewModeSwitch value="task" onChange={() => {}} temporaryTab={TEMPORARY_TAB} />);
+    expect(temporaryGroup(host)?.getAttribute("data-state")).toBe("open");
+
+    await rerender(<PlanViewModeSwitch value="tasks" onChange={() => {}} temporaryTab={null} />);
     expect(temporaryGroup(host)).toBeNull();
   });
 

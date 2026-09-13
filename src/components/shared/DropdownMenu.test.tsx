@@ -97,6 +97,32 @@ async function main() {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }) as unknown as Event);
   });
   if (document.querySelector('[role="menu"]')) throw new Error("Escape should close the menu");
+  const triggerButton = trigger as unknown as HTMLButtonElement;
+  if (document.activeElement !== triggerButton) throw new Error("Escape from a keyboard-opened menu should focus its trigger");
+
+  const pressEscape = () => act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }) as unknown as Event);
+  });
+  const pointerOpen = () => act(async () => {
+    trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+  });
+
+  triggerButton.blur();
+  await pointerOpen();
+  if (!document.querySelector('[role="menu"]')) throw new Error("pointer should reopen the menu");
+  if (document.activeElement !== document.body) throw new Error("pointer open should not move focus");
+  await pressEscape();
+  if (document.querySelector('[role="menu"]')) throw new Error("Escape should close a pointer-opened menu");
+  if (document.activeElement !== triggerButton) throw new Error("Escape from a pointer-opened menu should focus its trigger");
+
+  const outside = document.createElement("input");
+  document.body.appendChild(outside);
+  outside.focus();
+  await pointerOpen();
+  if (document.activeElement !== outside) throw new Error("pointer open should keep focus where it was");
+  await pressEscape();
+  if (document.activeElement !== outside) throw new Error("Escape should keep focus retained outside the menu");
+  outside.remove();
 
   await act(async () => {
     trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
@@ -113,7 +139,7 @@ async function main() {
   }
 
   await act(async () => root.unmount());
-  console.log("DropdownMenu tests: 5/5 passed");
+  console.log("DropdownMenu tests: 7/7 passed");
 }
 
 void main();

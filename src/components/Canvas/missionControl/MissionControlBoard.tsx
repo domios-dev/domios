@@ -54,6 +54,7 @@ export function MissionControlBoard({
   state,
   loading = false,
   error = null,
+  now,
   plans,
   previousPlans,
   onOpenView,
@@ -112,6 +113,7 @@ export function MissionControlBoard({
             milestoneKinds={plan.milestone_kinds ?? []}
             refs={refs}
             pager={eventPager}
+            now={now}
           />
         </>
       )}
