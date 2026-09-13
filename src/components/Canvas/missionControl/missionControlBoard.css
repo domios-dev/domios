@@ -48,8 +48,9 @@
   outline: none;
 }
 
-/* In the surface header the trigger stays no taller than the plan switcher, so the header keeps its height. */
-.mission-control-surface-header .mission-control-actions-trigger {
+/* In a header the trigger stays no taller than the switcher beside it, so the header keeps its height. */
+.mission-control-surface-header .mission-control-actions-trigger,
+.plan-view-header-actions .mission-control-actions-trigger {
   min-width: 24px;
   min-height: 24px;
   padding: 0 5px;
@@ -57,7 +58,9 @@
 }
 
 .mission-control-surface-header .mission-control-actions-trigger:hover,
-.mission-control-surface-header .mission-control-actions-trigger:focus-visible {
+.mission-control-surface-header .mission-control-actions-trigger:focus-visible,
+.plan-view-header-actions .mission-control-actions-trigger:hover,
+.plan-view-header-actions .mission-control-actions-trigger:focus-visible {
   background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-bg));
 }
 
