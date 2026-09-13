@@ -14,6 +14,18 @@ export type ChatMessageKind =
   | "tool_flow"
   | "custom";
 
+export type AgentActivityState = "started" | "running" | "completed" | "failed" | "interrupted" | "closed" | "unknown";
+
+/** Sub-agent activity proven by the row's own session record; absent fields are unknown, never inferred. */
+export interface AgentActivity {
+  agentId?: string;
+  agentPath?: string;
+  state?: AgentActivityState;
+  /** Message direction between two agent references (thread id or path). */
+  messageFrom?: string;
+  messageTo?: string;
+}
+
 /** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
 export type ShellCommandStatus = "running" | "ok" | "failed";
 
@@ -27,6 +39,8 @@ export type ToolEventKind =
   | "codeterm"
   | "web"
   | "image"
+  /** Sub-agent activity; `toolInput` carries agent_id, agent_path, agent_state, message_from, message_to. */
+  | "agent"
   | "generic";
 
 /** Provider-neutral web or image result; every string is the source's exact value, absent when unreported. */
@@ -159,6 +173,15 @@ export interface NormalizedChatMessage {
   toolFlowId?: string;
   /** True when this action re-reports a command that another call in its flow already represents. */
   toolEcho?: boolean;
+  /** Exact source row identity for a call/result link, when the source proves one. */
+  toolCallSourceId?: string;
+  /** Result-link evidence state; unavailable evidence must not use positional pairing. */
+  toolPairing?: "exact" | "unavailable";
+  /** Source-provided command outcome facts. Missing facts stay absent. */
+  toolExitCode?: number;
+  toolDurationMs?: number;
+  toolInterrupted?: boolean;
+  toolBackgroundTaskId?: string;
   /** Per-file diffs from the provider's own edit record; absent when none was supplied or it was malformed. */
   fileDiffs?: FileDiff[];
   toolRichResult?: ToolRichResult;

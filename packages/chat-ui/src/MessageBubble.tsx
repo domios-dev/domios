@@ -15,6 +15,7 @@ import {
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
+import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
@@ -598,6 +599,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
     );
   }
 
+  if (item?.kind === "tool" && item.event.agents) {
+    return <ToolCallBubble event={item.event} expanded={expanded} onToggle={setExpandedPersistent} />;
+  }
+
   if (message.type === "tool_call") {
     return (
         <ToolCallBubble
@@ -670,30 +675,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   if (message.type === "thinking") {
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-        <button
-          onClick={() => setExpandedPersistent(!expanded)}
-          className="inline-flex items-center gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
-          style={{
-            color: "var(--ct-muted-fg)",
-          }}
-        >
-          <span className="opacity-40 text-[10px]">{"..."}</span>
-          <span className="opacity-50 text-[11px]">Thinking</span>
-          <ChevronIcon expanded={expanded} className="opacity-40" />
-        </button>
-        {expanded && (
-          <div
-            className="mt-1 max-w-full min-w-0 rounded-md px-3 py-2 text-xs overflow-x-auto max-h-48 overflow-y-auto italic border border-[var(--ct-border)]"
-            style={{
-              background: "var(--ct-bg)",
-              color: "var(--ct-muted-fg)",
-            }}
-          >
-            <pre className={`${PRE_WRAP_CLASS} m-0 font-[inherit]`}>
-              {message.content}
-            </pre>
-          </div>
-        )}
+        <ThoughtLine text={message.content} expanded={expanded} onToggle={setExpandedPersistent} />
       </div>
     );
   }
