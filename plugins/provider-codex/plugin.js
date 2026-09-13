@@ -1071,10 +1071,20 @@ function exactOutcomeNumber(value, nonnegative) {
   if (nonnegative && value < 0) return void 0;
   return value;
 }
+function durationMilliseconds(item) {
+  const numericDuration = exactOutcomeNumber(item.duration_ms, true);
+  if (numericDuration !== void 0) return numericDuration;
+  if (!item.duration || typeof item.duration !== "object" || Array.isArray(item.duration)) return void 0;
+  const duration = item.duration;
+  const secs = exactOutcomeNumber(duration.secs, true);
+  const nanos = exactOutcomeNumber(duration.nanos, true);
+  if (secs === void 0 || nanos === void 0) return void 0;
+  return exactOutcomeNumber(secs * 1e3 + Math.round(nanos / 1e6), true);
+}
 function commandOutcome(item) {
   const outcome2 = {};
   const exitCode = exactOutcomeNumber(item.exit_code, false);
-  const durationMs = exactOutcomeNumber(item.duration_ms, true);
+  const durationMs = durationMilliseconds(item);
   if (exitCode !== void 0) outcome2.tool_exit_code = exitCode;
   if (durationMs !== void 0) outcome2.tool_duration_ms = durationMs;
   return outcome2;
