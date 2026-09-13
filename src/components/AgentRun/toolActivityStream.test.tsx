@@ -663,4 +663,26 @@ describe("inline member branches", () => {
     expect(branchLines(member).map((line) => branchText(line, "lead"))).toEqual(["@@ -1 +1", "@@ -20 +20", "@@ -40 +40", "@@ -60 +60", "@@ -80 +80"]);
     expect(member.querySelector('[data-testid="chat-command-tree-more"]')).toBeNull();
   });
+
+  it("reads JSON output as its first scalar entry and renders no branch for bare structure", async () => {
+    const jsonResult = (toolId: string, output: string): NormalizedChatMessage => ({
+      id: `${toolId}-result`, type: "tool_result", content: "", sourceSessionId: CODEX_SESSION, toolId, toolResult: output, toolExitCode: 0,
+    });
+    const view = await render([
+      boundary("start", "turn-json"),
+      codexCall("j-send", "codeterm send", { toolKind: "command", toolDetail: "codeterm send --tab e3fa0754 --from-pad report.md" }),
+      codexCall("j-empty", "git status", { toolKind: "command", toolDetail: "git status" }),
+      codexCall("j-wrapped", "codeterm plan show", { toolKind: "command", toolDetail: "codeterm plan show --json" }),
+      jsonResult("j-send", "{\n  \"ok\": true,\n  \"id\": \"x\"\n}"),
+      jsonResult("j-empty", "{\n}\n[\n]"),
+      jsonResult("j-wrapped", "Exit code: 0\nOutput:\n{\n  \"plan\": {\n    \"title\": \"Night work\"\n  }\n}"),
+    ]);
+    const [stream] = streams(view);
+    await click(stream.querySelector('button[aria-label="Expand 3 actions"]'));
+    const [send, empty, wrapped] = streamMembers(stream);
+    expect(branchLines(send).map((line) => [line.dataset.branchKind, branchText(line, "lead")])).toEqual([["output", "ok true"]]);
+    expect(stream.textContent).not.toContain("└{");
+    expect(empty.querySelector('[data-testid="chat-command-tree"]')).toBeNull();
+    expect(branchLines(wrapped).map((line) => branchText(line, "lead"))).toEqual(["title Night work"]);
+  });
 });
