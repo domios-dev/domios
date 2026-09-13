@@ -234,6 +234,9 @@ export function MissionControlPlanSurface({
             loading={boardState.loading}
             error={boardState.error}
             allowanceWeeks={allowanceWeeks}
+            plans={orderedPlans}
+            onOpenTask={openTask}
+            onOpenPlan={openPlanDetail}
           />
         )}
       </div>
