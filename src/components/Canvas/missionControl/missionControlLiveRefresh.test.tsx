@@ -304,7 +304,7 @@ describe("Mission Control live refresh", () => {
     );
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
     expect(text(rendered.host, "mc-board-plan-turns")).toBe("10");
-    expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("20%");
+    expect(rendered.host.querySelector('[data-testid="mc-board-spend-window-pct"]')?.textContent).toBe("20%");
 
     await act(async () => {
       rendered.root.render(
@@ -314,7 +314,7 @@ describe("Mission Control live refresh", () => {
     });
     expect(text(rendered.host, "mc-board-plan-turns")).toBe("10");
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
-    expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("20%");
+    expect(rendered.host.querySelector('[data-testid="mc-board-spend-window-pct"]')?.textContent).toBe("20%");
 
     await act(async () => advanceFrames(0));
     await act(async () => advanceFrames(180));
@@ -322,13 +322,13 @@ describe("Mission Control live refresh", () => {
     expect(text(rendered.host, "mc-board-plan-turns")).not.toBe("300");
     expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("1");
     expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("10");
-    expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).not.toBe("20%");
-    expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).not.toBe("60%");
+    expect(rendered.host.querySelector('[data-testid="mc-board-spend-window-pct"]')?.textContent).not.toBe("20%");
+    expect(rendered.host.querySelector('[data-testid="mc-board-spend-window-pct"]')?.textContent).not.toBe("60%");
 
     await act(async () => advanceFrames(1000));
     expect(text(rendered.host, "mc-board-plan-turns")).toBe("300");
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("10");
-    expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("60%");
+    expect(rendered.host.querySelector('[data-testid="mc-board-spend-window-pct"]')?.textContent).toBe("60%");
     await rendered.unmount();
   });
 
@@ -350,7 +350,7 @@ describe("Mission Control live refresh", () => {
     });
     expect(text(rendered.host, "mc-board-plan-turns")).toBe("30");
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("3");
-    expect(rendered.host.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("60%");
+    expect(rendered.host.querySelector('[data-testid="mc-board-spend-window-pct"]')?.textContent).toBe("60%");
     expect(frames.size).toBe(0);
     await rendered.unmount();
   });

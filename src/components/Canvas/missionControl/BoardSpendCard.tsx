@@ -1,189 +1,209 @@
-import { useId } from "react";
-import { UsageGauge } from "../../Usage/UsageGauge";
-import { AnimatedNumber, useAnimatedNumber } from "./AnimatedNumber";
+import { AnimatedNumber } from "./AnimatedNumber";
+import { BoardPanel, BoardPanelSection } from "./BoardPanel";
 import {
-  BOARD_SPEND_WINDOW_COLUMNS,
   formatCompact,
   formatCount,
   formatSharePct,
-  SPEND_FIGURE_COLUMNS,
-  SPEND_MODEL_COLUMN_LABEL,
+  SPEND_ALLOWANCE_SPENT_NEEDS,
   SPEND_SCOPE_CAPTION,
-  SPEND_SHARE_COLUMN_LABEL,
+  SPEND_TOKEN_WORDS,
+  SPEND_TOOL_CALLS_NEEDS,
+  SPEND_WINDOW_WORDS,
   spendReading,
-  type BoardLayout,
+  type SpendModelRow,
   type SpendProviderGroup,
+  type SpendTokens,
   type SpendWindow,
 } from "./missionControlBoardModel";
 import type { MissionControlSpend } from "./missionControlState";
 
-const SPEND_COLUMN_COUNT = 2 + SPEND_FIGURE_COLUMNS.length;
+function formatWholePct(value: number): string {
+  return `${Math.round(value)}%`;
+}
 
-// Rows are laid out with CSS grid, which drops native table semantics in some
-// engines, so every table element restates its role explicitly.
-export function SpendCard({
-  spend,
-  layout,
-  now,
-}: {
-  spend: MissionControlSpend;
-  layout: BoardLayout;
-  now: number;
-}) {
+const WINDOW_TONE: Record<SpendWindow["state"], string | undefined> = {
+  neutral: undefined,
+  warn: "mc-board-warn",
+  danger: "mc-board-danger",
+};
+
+/** Spend reads top-down: allowance used per provider, what each provider took part in, then the model split. */
+export function SpendCard({ spend }: { spend: MissionControlSpend }) {
   const reading = spendReading(spend);
-  const headingId = useId();
   return (
-    <section
-      data-testid="mc-board-spend"
-      className="ct-panel-card ct-usage mc-board-card mc-board-spend"
-      aria-labelledby={headingId}
+    <BoardPanel
+      testId="mc-board-spend"
+      title="Spend"
+      className="mc-board-spend"
+      meta={<span data-testid="mc-board-spend-scope">{SPEND_SCOPE_CAPTION}</span>}
     >
-      <div className="mc-board-card-head">
-        <h2 id={headingId}>Spend</h2>
-        <span data-testid="mc-board-spend-scope" className="mc-board-caption">
-          {SPEND_SCOPE_CAPTION}
-        </span>
-      </div>
       {reading.emptyCopy ? (
-        <p data-testid="mc-board-spend-empty" className="mc-board-note">
-          {reading.emptyCopy}
-        </p>
+        <BoardPanelSection>
+          <p data-testid="mc-board-spend-empty" className="mc-board-note">
+            {reading.emptyCopy}
+          </p>
+        </BoardPanelSection>
       ) : (
         <>
-          {reading.note && (
-            <p data-testid="mc-board-spend-units" className="mc-board-caption">
-              {reading.note}
-            </p>
+          <BoardPanelSection testId="mc-board-spend-allowance" label="Weekly allowance">
+            <div className="mc-board-spend-stack">
+              {reading.groups.map((group) => (
+                <AllowanceLine key={group.key} group={group} />
+              ))}
+            </div>
+          </BoardPanelSection>
+          <BoardPanelSection testId="mc-board-spend-took-part" label="Took part">
+            <div className="mc-board-spend-stack">
+              {reading.note && (
+                <p data-testid="mc-board-spend-units" className="mc-board-caption">
+                  {reading.note}
+                </p>
+              )}
+              {reading.groups.map((group) => (
+                <TookPartLine key={group.key} group={group} />
+              ))}
+            </div>
+          </BoardPanelSection>
+          {reading.models.length > 0 && (
+            <BoardPanelSection testId="mc-board-spend-by-model" label="By model">
+              <div className="mc-board-spend-stack">
+                <ModelStrip models={reading.models} />
+                <ModelList models={reading.models} />
+              </div>
+            </BoardPanelSection>
           )}
-          <table
-            data-testid="mc-board-spend-table"
-            className="mc-board-spend-table"
-            role="table"
-            aria-labelledby={headingId}
-          >
-            <thead role="rowgroup">
-              <tr role="row" data-testid="mc-board-spend-columns" className="mc-board-spend-row mc-board-spend-columns">
-                <th scope="col" role="columnheader">
-                  {SPEND_MODEL_COLUMN_LABEL}
-                </th>
-                <th scope="col" role="columnheader" className="mc-board-spend-num">
-                  {SPEND_SHARE_COLUMN_LABEL}
-                </th>
-                {SPEND_FIGURE_COLUMNS.map((column) => (
-                  <th key={column.key} scope="col" role="columnheader" className="mc-board-spend-num">
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            {reading.groups.map((group) => (
-              <SpendProvider key={group.key} group={group} layout={layout} now={now} />
-            ))}
-          </table>
         </>
       )}
-    </section>
+    </BoardPanel>
   );
 }
 
-function SpendProvider({
-  group,
-  layout,
-  now,
-}: {
-  group: SpendProviderGroup;
-  layout: BoardLayout;
-  now: number;
-}) {
+function Swatch({ tone, unassigned = false }: { tone: number; unassigned?: boolean }) {
   return (
-    <tbody
-      role="rowgroup"
-      data-testid="mc-board-spend-provider"
-      data-provider={group.key}
-      className="mc-board-spend-provider"
-    >
-      <tr role="row" data-testid="mc-board-spend-group" className="mc-board-spend-row mc-board-spend-group">
-        <th scope="rowgroup" role="rowheader" className="mc-board-spend-provider-name">
-          {group.label}
-        </th>
-        <td role="cell" colSpan={SPEND_COLUMN_COUNT - 1} className="mc-board-spend-allowance">
-          <div
-            data-testid="mc-board-spend-window-grid"
-            className="mc-board-spend-window-grid"
-            style={{ gridTemplateColumns: BOARD_SPEND_WINDOW_COLUMNS[layout] }}
-          >
-            {group.windows.map((gauge) => (
-              <SpendWindowGauge key={gauge.key} gauge={gauge} provider={group.label} now={now} />
-            ))}
-          </div>
-        </td>
-      </tr>
-      {group.models.length === 0 ? (
-        <tr role="row" className="mc-board-spend-row">
-          <td
-            role="cell"
-            colSpan={SPEND_COLUMN_COUNT}
-            data-testid="mc-board-spend-provider-empty"
-            className="mc-board-spend-empty"
-          >
-            no data
-          </td>
-        </tr>
-      ) : (
-        group.models.map((model) => (
-          <tr
-            key={model.key}
-            role="row"
-            data-testid="mc-board-spend-model"
-            data-model-key={model.key}
-            data-unassigned={model.unassigned ? "true" : "false"}
-            className="mc-board-spend-row mc-board-spend-model"
-          >
-            <th scope="row" role="rowheader" className="mc-board-spend-model-name">
-              {model.label}
-            </th>
-            <td role="cell" className="mc-board-spend-num mc-board-spend-model-share">
-              {formatSharePct(model.sharePct)}
-            </td>
-            {model.figures.map((figure) => (
-              <td
-                key={figure.key}
-                role="cell"
-                data-figure={figure.key}
-                className="mc-board-spend-num mc-board-spend-figure"
-              >
-                <AnimatedNumber
-                  value={figure.value}
-                  format={figure.key === "turns" ? formatCount : formatCompact}
-                />
-              </td>
-            ))}
-          </tr>
-        ))
-      )}
-    </tbody>
+    <span
+      aria-hidden="true"
+      className="mc-board-swatch"
+      data-tone={tone}
+      data-unassigned={unassigned ? "true" : undefined}
+    />
   );
 }
 
-function SpendWindowGauge({ gauge, provider, now }: { gauge: SpendWindow; provider: string; now: number }) {
-  const pct = useAnimatedNumber(gauge.pct);
+function ProviderName({ group }: { group: SpendProviderGroup }) {
   return (
-    <div
-      data-testid="mc-board-spend-gauge"
-      data-window-key={gauge.key}
-      data-reading={gauge.pct == null ? "none" : "present"}
-      className="mc-board-spend-gauge"
-      role="group"
-      aria-label={`${provider} ${gauge.variant} allowance`}
-    >
-      <UsageGauge
-        label={gauge.label}
-        variant={gauge.variant}
-        pct={pct}
-        resetsAt={gauge.resetsAt}
-        state={gauge.state}
-        now={now}
-      />
+    <h4 className="mc-board-spend-provider-name">
+      <Swatch tone={group.tone} />
+      {group.label}
+    </h4>
+  );
+}
+
+function NeedsData({ copy }: { copy: string }) {
+  return (
+    <span data-testid="mc-board-spend-needs-data" className="mc-board-needs-data">
+      {copy}
+    </span>
+  );
+}
+
+function AllowanceLine({ group }: { group: SpendProviderGroup }) {
+  return (
+    <div data-testid="mc-board-spend-allowance-provider" data-provider={group.key} className="mc-board-spend-line">
+      <ProviderName group={group} />
+      <span className="mc-board-spend-reading">
+        <span className="mc-board-spend-word">spent</span>
+        <NeedsData copy={SPEND_ALLOWANCE_SPENT_NEEDS} />
+      </span>
+      {group.windows.map((window) => (
+        <span
+          key={window.key}
+          data-testid="mc-board-spend-gauge"
+          data-window-key={window.key}
+          className="mc-board-spend-reading"
+        >
+          <b data-testid="mc-board-spend-window-pct" className={WINDOW_TONE[window.state]}>
+            <AnimatedNumber value={window.pct} format={formatWholePct} />
+          </b>
+          <span className="mc-board-spend-word">{SPEND_WINDOW_WORDS[window.variant]}</span>
+        </span>
+      ))}
     </div>
+  );
+}
+
+function TokenReadings({ tokens, itemClass }: { tokens: SpendTokens; itemClass: string }) {
+  return (
+    <>
+      {SPEND_TOKEN_WORDS.map((entry) => (
+        <span key={entry.key} data-figure={entry.key} className={itemClass}>
+          <b>
+            <AnimatedNumber value={tokens[entry.key]} format={entry.compact ? formatCompact : formatCount} />
+          </b>
+          <span className="mc-board-spend-word">{tokens[entry.key] === 1 ? entry.one : entry.word}</span>
+        </span>
+      ))}
+    </>
+  );
+}
+
+function TookPartLine({ group }: { group: SpendProviderGroup }) {
+  return (
+    <div data-testid="mc-board-spend-took-part-provider" data-provider={group.key} className="mc-board-spend-line">
+      <ProviderName group={group} />
+      {group.measured ? (
+        <TokenReadings tokens={group.tokens} itemClass="mc-board-spend-reading" />
+      ) : (
+        <span data-testid="mc-board-spend-provider-empty" className="mc-board-spend-reading">
+          no data
+        </span>
+      )}
+      <span className="mc-board-spend-reading">
+        <span className="mc-board-spend-word">tool calls</span>
+        <NeedsData copy={SPEND_TOOL_CALLS_NEEDS} />
+      </span>
+    </div>
+  );
+}
+
+/** Decorative: the list below carries every share in words. */
+function ModelStrip({ models }: { models: SpendModelRow[] }) {
+  return (
+    <div data-testid="mc-board-spend-strip" className="mc-board-spend-strip" aria-hidden="true">
+      {models.map((model) => (
+        <span
+          key={model.key}
+          className="mc-board-spend-strip-part"
+          data-tone={model.tone}
+          data-unassigned={model.unassigned ? "true" : undefined}
+          style={{ flexGrow: model.sharePct }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ModelList({ models }: { models: SpendModelRow[] }) {
+  return (
+    <ul className="mc-board-spend-models" role="list">
+      {models.map((model) => (
+        <li
+          key={model.key}
+          role="listitem"
+          data-testid="mc-board-spend-model"
+          data-model-key={model.key}
+          data-unassigned={model.unassigned ? "true" : "false"}
+          className="mc-board-spend-model"
+        >
+          <span className="mc-board-spend-model-name">
+            <Swatch tone={model.tone} unassigned={model.unassigned} />
+            {model.label}
+          </span>
+          <span className="mc-board-spend-model-share">{formatSharePct(model.sharePct)}</span>
+          <span className="mc-board-spend-model-figs">
+            <TokenReadings tokens={model.tokens} itemClass="mc-board-spend-fig" />
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
