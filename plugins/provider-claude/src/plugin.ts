@@ -19,6 +19,7 @@ import {
   validateEntry,
 } from "./session";
 import { discoverAnthropicModels } from "./models";
+import { claudeFileDiffs } from "./fileDiffs";
 import {
   classifyClaudeTabState,
   TabStateSnapshot,
@@ -564,6 +565,12 @@ const plugin: PluginModule = {
               if (sourceId) data.tool_call_source_id = sourceId;
             }
             blocks.push({ kind: b.type, data: data });
+          }
+          const results = blocks.filter((block) => block.kind === "tool_result");
+          // toolUseResult describes the row's single result; several results leave the link unproven.
+          if (t === "user" && results.length === 1) {
+            const diffs = claudeFileDiffs(v.toolUseResult);
+            if (diffs.length > 0) results[0].data.file_diffs = diffs;
           }
         } else {
           continue;

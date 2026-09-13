@@ -1,8 +1,11 @@
 import { actionTitle, baseName } from "./actionTitle";
+import { changedPaths, codexFileDiffs, diffEdits } from "./fileDiffs";
+import { extensionResult, imageViewResult } from "./richResults";
 
 interface ActivityItem {
   type?: unknown;
   id?: unknown;
+  changes?: unknown;
   command?: unknown;
   status?: unknown;
   exit_code?: unknown;
@@ -91,6 +94,30 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
     ];
     return message;
   }
+  if (item.type === "FileChange") {
+    const paths = changedPaths(item.changes);
+    if (paths.length === 0 || (item.status !== "completed" && item.status !== "failed")) return null;
+    const failed = item.status === "failed";
+    const diffs = codexFileDiffs(item.changes);
+    const fields = {
+      tool_kind: "edit",
+      tool_summary: paths[0] + (paths.length > 1 ? ` +${paths.length - 1}` : ""),
+      tool_detail: paths.join("\n"),
+      tool_edits: diffEdits(diffs),
+    };
+    message.blocks = [
+      { kind: "tool_use", data: {
+        id, name: "file_change", input: { paths },
+        ...fields, tool_title: actionTitle({ ...fields, tool_edits: paths.map((path) => ({ path })) }), ...flow,
+        ...(diffs.length > 0 ? { file_diffs: diffs } : {}),
+        tool_status: failed ? "error" : "success",
+      } },
+      { kind: "tool_result", data: { tool_use_id: id, content: [text(item.stdout), text(item.stderr)].filter(Boolean).join("\n"), is_error: failed } },
+    ];
+    return message;
+  }
+  if (item.type === "ImageView") return imageViewResult(value as Record<string, unknown>, ts, timestamp, turnId);
+  if (item.type === "Extension") return extensionResult(value as Record<string, unknown>, ts, timestamp, turnId);
   if (item.type === "SubAgentActivity") {
     const kind = text(item.kind);
     const path = text(item.agent_path);
