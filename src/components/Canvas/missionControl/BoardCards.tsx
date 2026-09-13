@@ -96,6 +96,74 @@ function Pair({
   );
 }
 
+function PreviousPlanList({
+  id,
+  plans,
+  onOpenPlan,
+}: {
+  id: string;
+  plans: readonly Plan[];
+  onOpenPlan?: (planId: string) => void;
+}) {
+  return (
+    <ul id={id} className="mc-board-plan-list" role="list">
+      {plans.map((previous) => (
+        <li key={previous.id}>
+          {onOpenPlan ? (
+            <button
+              type="button"
+              data-testid="mc-board-previous-plan"
+              className="mc-board-ref"
+              onClick={() => onOpenPlan(previous.id)}
+            >
+              {planHeading(previous)}
+            </button>
+          ) : (
+            <span data-testid="mc-board-previous-plan">{planHeading(previous)}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const PREVIOUS_PLANS_PREVIEW = 5;
+
+/** The plan card while the team has no active plan: the plans it ran before, newest first. */
+export function NoActivePlanCard({
+  previousPlans,
+  onOpenPlan,
+}: {
+  previousPlans: readonly Plan[];
+  onOpenPlan?: (planId: string) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const listId = useId();
+  const visible = showAll ? previousPlans : previousPlans.slice(0, PREVIOUS_PLANS_PREVIEW);
+  return (
+    <BoardPanel testId="mc-board-plan" title="Plan">
+      <BoardPanelSection>
+        <p data-testid="mc-board-plan-empty" className="mc-board-plan-heading">
+          No active plan
+        </p>
+      </BoardPanelSection>
+      {previousPlans.length > 0 && (
+        <BoardPanelSection testId="mc-board-previous-plans" label="Previous plans">
+          <PreviousPlanList id={listId} plans={visible} onOpenPlan={onOpenPlan} />
+          <ShowAll
+            total={previousPlans.length}
+            limit={PREVIOUS_PLANS_PREVIEW}
+            open={showAll}
+            controls={listId}
+            testId="mc-board-previous-plans-more"
+            onToggle={() => setShowAll((value) => !value)}
+          />
+        </BoardPanelSection>
+      )}
+    </BoardPanel>
+  );
+}
+
 /** The active plan: what it is for, where its tasks stand, and the plans the team ran before it. */
 export function PlanCard({
   plan,
@@ -206,26 +274,7 @@ export function PlanCard({
           >
             {showPrevious ? "Hide previous plans" : "Show previous plans"}
           </button>
-          {showPrevious && (
-            <ul id={previousId} className="mc-board-plan-list" role="list">
-              {previousPlans.map((previous) => (
-                <li key={previous.id}>
-                  {onOpenPlan ? (
-                    <button
-                      type="button"
-                      data-testid="mc-board-previous-plan"
-                      className="mc-board-ref"
-                      onClick={() => onOpenPlan(previous.id)}
-                    >
-                      {planHeading(previous)}
-                    </button>
-                  ) : (
-                    <span data-testid="mc-board-previous-plan">{planHeading(previous)}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+          {showPrevious && <PreviousPlanList id={previousId} plans={previousPlans} onOpenPlan={onOpenPlan} />}
         </BoardPanelSection>
       )}
     </BoardPanel>
