@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -20,7 +21,8 @@ const parsers = {} as Record<Provider, SessionParser>;
 const roots: Root[] = [];
 
 function fixture(provider: Provider): string {
-  return readFileSync(new URL(`../../../../plugins/provider-${provider}/tests/fixtures/file-diffs.jsonl`, import.meta.url), "utf8");
+  // Vitest runs from the repo root; import.meta.url does not map to the source path here.
+  return readFileSync(resolve(process.cwd(), `plugins/provider-${provider}/tests/fixtures/file-diffs.jsonl`), "utf8");
 }
 
 function fixtureRecords(provider: Provider): RawRecord[] {
