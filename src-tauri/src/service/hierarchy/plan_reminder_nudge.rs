@@ -432,6 +432,7 @@ fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
     plans
         .iter()
         .filter(|plan| crate::service::plan::complete_wrapup::needs_complete_wrapup(plan))
+        .filter(|plan| !crate::service::plan::pause_operation::plan_notices_suppressed(plan))
         .filter_map(|plan| {
             let tab = non_empty(plan.owner.tab_id.as_deref())?;
             Some((tab.to_string(), plan.id.clone()))
