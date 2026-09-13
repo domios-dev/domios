@@ -3,9 +3,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import { SpendCard } from "./BoardCards";
 import {
-  SPEND_ALLOWANCE_SPENT_NEEDS,
   SPEND_SCOPE_CAPTION,
-  SPEND_TOOL_CALLS_NEEDS,
+  SPEND_SHARE_COLUMN,
+  SPEND_TOKEN_COLUMNS,
   UNASSIGNED_MODEL_LABEL,
   spendReading,
   spendTokens,
@@ -53,7 +53,7 @@ function recordingSpend(): MissionControlSpend {
           },
           {
             model: "opus",
-            turns: 1,
+            turns: 2,
             input_tokens: 50,
             uncached_input_tokens: 20,
             output_tokens: 10,
@@ -124,109 +124,122 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
-/** Figure key to its number, read from the bold value beside each plain word. */
-function figures(el: Element): Record<string, string> {
+/** Each cell paired with the column header at its own index, as a screen reader pairs them. */
+function cellsByColumn(row: Element): Record<string, string> {
+  const table = row.closest("table") as HTMLTableElement;
+  const headers = Array.from(table.querySelector("thead tr")?.children ?? []).map(
+    (cell) => cell.getAttribute("aria-label") ?? "",
+  );
   return Object.fromEntries(
-    Array.from(el.querySelectorAll("[data-figure]")).map((figure) => [
-      figure.getAttribute("data-figure"),
-      figure.querySelector("b")?.textContent ?? "",
-    ]),
+    Array.from(row.children)
+      .map((cell, index) => [headers[index] ?? "", cell.textContent?.trim() ?? ""] as const)
+      .filter(([header]) => header !== ""),
   );
 }
 
-function lines(host: HTMLElement, testId: string): HTMLElement[] {
-  return Array.from(host.querySelectorAll(`[data-testid="${testId}"]`)) as HTMLElement[];
+function groups(host: HTMLElement): HTMLElement[] {
+  return Array.from(host.querySelectorAll('[data-testid="mc-board-spend-provider"]')) as HTMLElement[];
 }
 
-function modelRows(host: HTMLElement) {
-  return lines(host, "mc-board-spend-model").map((row) => ({
-    row,
-    label: row.querySelector(".mc-board-spend-model-name")?.textContent?.trim() ?? "",
-    share: row.querySelector(".mc-board-spend-model-share")?.textContent?.trim() ?? "",
-    unassigned: row.getAttribute("data-unassigned") === "true",
-  }));
+function modelRows(root: Element): HTMLElement[] {
+  return Array.from(root.querySelectorAll('[data-testid="mc-board-spend-model"]')) as HTMLElement[];
 }
 
 describe("mission control spend card", () => {
-  it("mission_control_spend_tells_allowance_then_took_part_then_by_model", async () => {
+  it("mission_control_spend_names_each_provider_once_with_its_models_under_it", async () => {
     const { host, unmount } = await render(recordingSpend());
 
-    expect(Array.from(host.querySelectorAll("h3")).map((label) => label.textContent)).toEqual([
-      "Weekly allowance",
-      "Took part",
-      "By model",
-    ]);
-    for (const step of ["mc-board-spend-allowance-provider", "mc-board-spend-took-part-provider"]) {
-      expect(
-        lines(host, step).map((line) => [line.getAttribute("data-provider"), line.querySelector("h4")?.textContent]),
-      ).toEqual([
-        ["claude", "Claude"],
-        ["codex", "Codex"],
-      ]);
+    expect(groups(host).map((group) => group.getAttribute("data-provider"))).toEqual(["claude", "codex"]);
+    const card = text(host, "mc-board-spend");
+    for (const label of ["Claude", "Codex"]) {
+      expect(card.split(label)).toHaveLength(2);
+    }
+    const names = (group: HTMLElement) => modelRows(group).map((row) => row.querySelector("th")?.textContent);
+    expect(names(groups(host)[0]!)).toEqual(["haiku", "opus"]);
+    expect(names(groups(host)[1]!)).toEqual([UNASSIGNED_MODEL_LABEL]);
+    await unmount();
+  });
+
+  it("mission_control_spend_names_each_column_once_with_short_names_for_a_narrow_panel", async () => {
+    const { host, unmount } = await render(recordingSpend());
+
+    const headers = Array.from(host.querySelectorAll('thead th[scope="col"]'));
+    const columns = [SPEND_SHARE_COLUMN, ...SPEND_TOKEN_COLUMNS];
+    expect(headers.map((th) => th.getAttribute("aria-label"))).toEqual(columns.map((column) => column.label));
+    expect(headers.map((th) => th.querySelector(".mc-board-spend-label-short")?.textContent)).toEqual(
+      columns.map((column) => column.short),
+    );
+    for (const row of Array.from(host.querySelectorAll("tbody tr"))) {
+      const words = (row.textContent ?? "").toLowerCase();
+      for (const column of SPEND_TOKEN_COLUMNS) {
+        expect(words).not.toContain(column.label);
+      }
     }
     await unmount();
   });
 
-  it("mission_control_spend_reads_tokens_in_plain_words_with_cache_as_input_minus_uncached", async () => {
+  it("mission_control_spend_reads_figures_under_their_columns_with_cached_as_input_minus_uncached", async () => {
     const { host, unmount } = await render(recordingSpend());
 
-    const [claude, codex] = lines(host, "mc-board-spend-took-part-provider");
-    expect(figures(claude!)).toEqual({ newInput: "120", fromCache: "430", generated: "50", turns: "20" });
-    expect(figures(codex!)).toEqual({ newInput: "90", fromCache: "210", generated: "100", turns: "10" });
-    expect(
-      Array.from(claude!.querySelectorAll("[data-figure] .mc-board-spend-word")).map((word) => word.textContent),
-    ).toEqual(["new input", "read from cache", "generated", "turns"]);
-    await unmount();
-  });
-
-  it("mission_control_spend_lists_every_model_with_one_share_column", async () => {
-    const { host, unmount } = await render(recordingSpend());
-
-    const rows = modelRows(host);
-    expect(rows.map((row) => [row.label, row.share, row.unassigned])).toEqual([
-      ["haiku", "54%", false],
-      ["opus", "6%", false],
-      [UNASSIGNED_MODEL_LABEL, "40%", true],
-    ]);
-    expect(figures(rows[0]!.row)).toEqual({ newInput: "100", fromCache: "400", generated: "40", turns: "18" });
-    expect(rows[1]!.row.querySelector('[data-figure="turns"] .mc-board-spend-word')?.textContent).toBe("turn");
-    for (const { row } of rows) {
-      const percents = Array.from(row.querySelectorAll("*")).filter(
-        (el) => el.children.length === 0 && /%$/.test(el.textContent?.trim() ?? ""),
-      );
-      expect(percents).toEqual([row.querySelector(".mc-board-spend-model-share")]);
-    }
+    const [claude, codex] = groups(host);
+    expect(cellsByColumn(claude!.querySelector('[data-testid="mc-board-spend-group"]')!)).toEqual({
+      share: "60%",
+      "new input": "120",
+      cached: "430",
+      generated: "50",
+      turns: "20",
+    });
+    expect(cellsByColumn(modelRows(claude!)[0]!)).toEqual({
+      share: "54%",
+      "new input": "100",
+      cached: "400",
+      generated: "40",
+      turns: "18",
+    });
+    expect(cellsByColumn(codex!.querySelector('[data-testid="mc-board-spend-group"]')!)).toEqual({
+      share: "40%",
+      "new input": "90",
+      cached: "210",
+      generated: "100",
+      turns: "10",
+    });
     await unmount();
   });
 
   it("mission_control_spend_shows_the_unassigned_model_as_its_own_row", async () => {
     const { host, unmount } = await render(recordingSpend());
 
-    const unassigned = modelRows(host).filter((row) => row.unassigned);
+    const unassigned = modelRows(host).filter((row) => row.getAttribute("data-unassigned") === "true");
     expect(unassigned).toHaveLength(1);
-    expect(unassigned[0]?.label).toBe(UNASSIGNED_MODEL_LABEL);
-    expect(figures(unassigned[0]!.row)).toEqual({ newInput: "90", fromCache: "210", generated: "100", turns: "10" });
-    expect(unassigned[0]!.row.querySelector(".mc-board-swatch")?.getAttribute("data-unassigned")).toBe("true");
+    expect(unassigned[0]!.querySelector("th")?.textContent).toBe(UNASSIGNED_MODEL_LABEL);
+    expect(cellsByColumn(unassigned[0]!)).toEqual({
+      share: "40%",
+      "new input": "90",
+      cached: "210",
+      generated: "100",
+      turns: "10",
+    });
     await unmount();
   });
 
-  it("mission_control_spend_marks_allowance_spent_and_tool_calls_as_needing_data_without_a_number", async () => {
+  it("mission_control_spend_reads_allowance_as_week_and_session_on_the_provider_row", async () => {
     const { host, unmount } = await render(recordingSpend());
 
-    for (const [step, copy] of [
-      ["mc-board-spend-allowance-provider", SPEND_ALLOWANCE_SPENT_NEEDS],
-      ["mc-board-spend-took-part-provider", SPEND_TOOL_CALLS_NEEDS],
-    ] as const) {
-      for (const line of lines(host, step)) {
-        const slots = Array.from(line.querySelectorAll('[data-testid="mc-board-spend-needs-data"]'));
-        expect(slots.map((slot) => slot.textContent)).toEqual([copy]);
-        expect(slots[0]!.textContent).not.toMatch(/\d/);
-      }
+    const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')) as HTMLElement[];
+    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["week 34%", "session 58%", "week 81%"]);
+    for (const gauge of gauges) {
+      expect(gauge.closest("tr")?.getAttribute("data-testid")).toBe("mc-board-spend-group");
+    }
+    expect(gauges[2]!.querySelector("b")?.classList.contains("mc-board-warn")).toBe(true);
+    for (const row of modelRows(host)) {
+      expect(Array.from(row.querySelectorAll("td")).filter((cell) => /%$/.test(cell.textContent ?? ""))).toEqual([
+        row.children[1],
+      ]);
     }
     await unmount();
   });
 
-  it("mission_control_spend_keeps_the_machine_scope_without_a_plan_total_or_output_headline", async () => {
+  it("mission_control_spend_keeps_the_machine_scope_with_no_prose_or_placeholder", async () => {
     const { host, unmount } = await render(recordingSpend());
 
     const card = host.querySelector('[data-testid="mc-board-spend"]') as HTMLElement;
@@ -234,7 +247,7 @@ describe("mission control spend card", () => {
     expect(text(host, "mc-board-spend-scope")).toBe(SPEND_SCOPE_CAPTION);
     expect(card.querySelectorAll("p")).toHaveLength(0);
     const words = (card.textContent ?? "").toLowerCase();
-    for (const banned of ["this plan", "output", "total", "bytes", "·"]) {
+    for (const banned of ["this plan", "output", "total", "bytes", "·", "needs", "spent", "used", "took part"]) {
       expect(words).not.toContain(banned);
     }
     await unmount();
@@ -243,14 +256,16 @@ describe("mission control spend card", () => {
   it("mission_control_spend_never_presents_a_model_share_as_allowance", () => {
     const reading = spendReading(recordingSpend());
 
-    for (const model of reading.models) {
-      expect(Object.keys(model)).not.toContain("windows");
+    for (const group of reading.groups) {
+      for (const model of group.models) {
+        expect(Object.keys(model)).not.toContain("windows");
+      }
     }
     expect(reading.groups.map((group) => group.windows.map((window) => window.variant))).toEqual([
       ["weekly", "session"],
       ["weekly"],
     ]);
-    expect(reading.models.reduce((sum, model) => sum + model.sharePct, 0)).toBe(100);
+    expect(reading.groups.map((group) => group.sharePct)).toEqual([60, 40]);
     expect(spendTokens({ turns: 1, input_tokens: 5, uncached_input_tokens: 9, output_tokens: 0 }).fromCache).toBe(0);
   });
 
@@ -268,28 +283,7 @@ describe("mission control spend card", () => {
     }
   });
 
-  it("mission_control_spend_says_no_data_for_a_provider_with_no_measured_rows", async () => {
-    const spend = recordingSpend();
-    spend.providers = [
-      {
-        ...spend.providers[0]!,
-        turns: 0,
-        input_tokens: 0,
-        uncached_input_tokens: 0,
-        output_tokens: 0,
-        models: [],
-      },
-    ];
-    const { host, unmount } = await render(spend);
-
-    expect(text(host, "mc-board-spend-provider-empty")).toBe("no data");
-    expect(host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(0);
-    expect(host.querySelector('[data-testid="mc-board-spend-by-model"]')).toBeNull();
-    expect(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(2);
-    await unmount();
-  });
-
-  it("mission_control_spend_keeps_provider_allowance_when_the_ledger_is_unreadable", async () => {
+  it("mission_control_spend_leaves_a_provider_without_measured_rows_blank_but_keeps_its_allowance", async () => {
     const measured = recordingSpend();
     const spend: MissionControlSpend = {
       ...notRecordingSpend("unreadable"),
@@ -308,7 +302,9 @@ describe("mission control spend card", () => {
 
     expect(text(host, "mc-board-spend-units")).toBe("ledger unavailable");
     expect(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(2);
-    expect(text(host, "mc-board-spend-provider-empty")).toBe("no data");
+    expect(modelRows(host)).toHaveLength(0);
+    const cells = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-group"] td'));
+    expect(cells.map((cell) => cell.textContent)).toEqual(["", "", "", "", ""]);
     await unmount();
   });
 });

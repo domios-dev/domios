@@ -353,7 +353,7 @@ describe("mission control narrow shell", () => {
         gauge.getAttribute("data-window-key"),
       ),
     ).toEqual(["claude-weekly", "claude-session", "codex-weekly"]);
-    expect(styleOf(narrow.host, '[data-testid="mc-board-spend-allowance"]').display).toBe("grid");
+    expect(styleOf(narrow.host, '[data-testid="mc-board-spend-table"]').display).toBe("block");
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
     expect(text(narrow.host, "mc-board-spend")).toContain("Unassigned model");
     const panelRow = narrow.host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;

@@ -439,7 +439,7 @@ describe("mission control board panels", () => {
       "claude-session",
       "codex-weekly",
     ]);
-    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["34%of week used", "58%of session used", "81%of week used"]);
+    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["week 34%", "session 58%", "week 81%"]);
     const pct = (gauge: HTMLElement) => gauge.querySelector('[data-testid="mc-board-spend-window-pct"]') as HTMLElement;
     expect(pct(gauges[0]!).className).toBe("");
     expect(pct(gauges[2]!).classList.contains("mc-board-warn")).toBe(true);
