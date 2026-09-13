@@ -1531,6 +1531,8 @@ var plugin = {
               const description = toolDescription(data.input);
               if (description) data.tool_description = description;
               if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+            } else if (b.type === "thinking") {
+              delete data.signature;
             }
             blocks.push({ kind: b.type, data });
           }
