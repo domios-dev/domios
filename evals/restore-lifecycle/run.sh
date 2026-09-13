@@ -129,7 +129,7 @@ restart_dev() {
   local label="$1" saved
   echo "== [$label] save session"
   saved="$(dev_post /api/session/save)" || fail "[$label] session save not acknowledged"
-  [ "$(printf '%s' "$saved" | json_get "$label-save" ok)" = "True" ] || fail "[$label] session save: $saved"
+  case "$(printf '%s' "$saved" | json_get "$label-save" ok)" in True|true) ;; *) fail "[$label] session save: $saved" ;; esac
   echo "== [$label] full dev stop (reboot analogue) and start"
   (
     cd "$REPO_ROOT" || exit 1
