@@ -316,6 +316,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
     Ok(Json(json!({
         "plan_id": plan_id.clone(),
         "task_id": task_id.clone(),
+        "key": state.svc.plan_store.task_display_key(&plan_id, &task_id),
         "_hints": crate::service::plan::hints::task_create_hints(
             &plan_id,
             &task_id,
@@ -361,6 +362,7 @@ mod tests {
             plan_id: "pl_one".into(),
             plan_title: "One".into(),
             plan_owner: OrchestratorRef::default(),
+            display_key: "ONE".into(),
             task: serde_json::from_value(json!({
                 "id": "task_one",
                 "name": "One",

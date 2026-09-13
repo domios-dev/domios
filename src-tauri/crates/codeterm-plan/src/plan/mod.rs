@@ -8,6 +8,7 @@ pub mod loop_engine;
 pub mod peer;
 pub mod planning_state;
 pub mod reconcile;
+pub mod task_key;
 pub mod types;
 pub use execution::TaskExecutionIntent;
 pub use gates::{DecisionGate, GateAnswer, GateStatus, STALE_GATE_MS};

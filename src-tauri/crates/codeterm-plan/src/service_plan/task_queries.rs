@@ -25,6 +25,7 @@ pub struct TaskSummary {
     pub plan_id: String,
     pub plan_title: String,
     pub plan_owner: OrchestratorRef,
+    pub display_key: String,
     pub task: Task,
     pub section_titles: Vec<String>,
 }
@@ -40,6 +41,7 @@ pub struct TaskDetail {
     pub subtasks: Vec<TaskLabel>,
     pub presentation: TaskPresentation,
     pub dependency_waits: Vec<DependencyWait>,
+    pub display_key: String,
     pub task: Task,
 }
 
@@ -52,6 +54,7 @@ pub struct TaskSection {
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskLabel {
     pub id: String,
+    pub display_key: String,
     pub name: String,
     pub status: TaskStatus,
 }
@@ -125,6 +128,7 @@ fn task_sections(plan: &Plan, task: &Task) -> Vec<TaskSection> {
 fn task_label(task: &Task) -> TaskLabel {
     TaskLabel {
         id: task.id.clone(),
+        display_key: task.display_key(),
         name: task.name.clone(),
         status: task.status.clone(),
     }
@@ -277,6 +281,7 @@ impl PlanStore {
                     plan_id: plan.id.clone(),
                     plan_title: plan.title.clone(),
                     plan_owner: plan.owner.clone(),
+                    display_key: task.display_key(),
                     task: task.clone(),
                     section_titles: sections.into_iter().map(|s| s.title).collect(),
                 });
@@ -299,11 +304,7 @@ impl PlanStore {
             if plan.status == PlanStatus::Archived {
                 continue;
             }
-            let Some(task) = plan
-                .tasks
-                .iter()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
-            else {
+            let Some(task) = crate::plan::task_key::find_task(&plan.tasks, task_id) else {
                 continue;
             };
             let parent = task.parent_task_id.as_ref().and_then(|parent_id| {
@@ -317,6 +318,7 @@ impl PlanStore {
                 plan_id: plan.id.clone(),
                 plan_title: plan.title.clone(),
                 plan_owner: plan.owner.clone(),
+                display_key: task.display_key(),
                 sections: task_sections(&plan, task),
                 parent,
                 siblings: plan
@@ -361,9 +363,7 @@ impl PlanStore {
             if plan.status == PlanStatus::Archived {
                 return None;
             }
-            plan.tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            crate::plan::task_key::find_task(&plan.tasks, task_id)
                 .map(|task| (plan.id, task.id.clone()))
         }) else {
             return Err(PlanError::TaskNotFound);

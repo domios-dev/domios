@@ -75,10 +75,7 @@ impl PlanStore {
         }
         let mut mid = String::new();
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if p.tasks[idx].status.is_terminal() {
                 return Err(PlanError::TransitionDenied {
@@ -127,10 +124,7 @@ impl PlanStore {
     ) -> Result<String, PlanError> {
         let mut mid = String::new();
         self.with_plan(plan_id, now_ms, |p| {
-            let idx = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if p.tasks[idx].status != TaskStatus::Paused {
                 return Err(PlanError::TransitionDenied {

@@ -7,6 +7,7 @@ pub mod interruption;
 pub mod pause;
 pub mod planning_state;
 pub mod review;
+pub mod task_key;
 pub mod types;
 
 pub use attempt::*;

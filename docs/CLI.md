@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2168,7 +2168,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--correctness-file`
 - `--criterion`
 - `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
-- `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
+- `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle (see --handle), or a task key (COD-12)
 - `--destination`
 - `--execution-intent` — Classifies whether this task changes the repository; dispatch uses read_only | mutating instead
 - `--executor-role` — REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced
@@ -2359,7 +2359,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--correctness-file`
 - `--criterion` — Add an acceptance criterion; repeatable. Appends to the existing array by default — pass --replace-criteria to replace it wholesale instead
 - `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion, subject to the same --replace-criteria semantics
-- `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement
+- `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle, or a task key (COD-12). Use --replace-dependencies for wholesale replacement
 - `--destination`
 - `--executor-role` — Replace the executor role. Cannot be emptied: an update carrying a blank value is refused
 - `--external-ref` — GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number

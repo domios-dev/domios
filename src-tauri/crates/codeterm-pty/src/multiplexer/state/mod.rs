@@ -16,6 +16,7 @@ mod role;
 mod snapshot;
 mod tab;
 mod tab_runtime;
+mod task_keys;
 mod workspace;
 
 pub use closed::{
@@ -316,6 +317,7 @@ impl MultiplexerState {
         };
 
         let workspace = Workspace {
+            task_keys: Default::default(),
             id: workspace_id.clone(),
             name: "Main".to_string(),
             tabs: vec![tab_id.clone()],

@@ -826,9 +826,7 @@ impl ServiceContext {
         startup_allowance: Duration,
     ) {
         let acknowledged = self.plan_store.get(plan_id).is_some_and(|plan| {
-            plan.tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            crate::plan::task_key::find_task(&plan.tasks, task_id)
                 .into_iter()
                 .flat_map(|task| task.execution_attempts.iter())
                 .any(|attempt| attempt.id == attempt_id && attempt.acknowledged_at.is_some())

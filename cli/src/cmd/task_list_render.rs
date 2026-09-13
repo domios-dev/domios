@@ -9,6 +9,14 @@ pub(crate) fn task_str<'a>(item: &'a Value, field: &str) -> Option<&'a str> {
     task_value(item).get(field).and_then(|v| v.as_str())
 }
 
+/// The daemon owns key formatting and the legacy fallback; the CLI only prints it.
+pub(crate) fn task_key_label(item: &Value) -> &str {
+    item.get("display_key")
+        .and_then(Value::as_str)
+        .or_else(|| task_str(item, "key"))
+        .unwrap_or("-")
+}
+
 fn task_sort_key(item: &Value) -> (&str, &str) {
     (
         task_str(item, "name").unwrap_or(""),
@@ -63,6 +71,7 @@ fn append_simple_task(
     children: &HashMap<&str, Vec<&Value>>,
 ) {
     let id = task_str(item, "id").unwrap_or("?");
+    let key = task_key_label(item);
     let name = task_str(item, "name").unwrap_or("?");
     let status = task_str(item, "status").unwrap_or("?");
     let plan = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -80,7 +89,7 @@ fn append_simple_task(
         format!("\t{external_refs}")
     };
     out.push_str(&format!(
-        "{}{id}\t{status}\t{plan}\t{name}{suffix}\n",
+        "{}{id}\t{key}\t{status}\t{plan}\t{name}{suffix}\n",
         "  ".repeat(depth)
     ));
     if let Some(id) = task_str(item, "id") {
@@ -114,8 +123,45 @@ mod tests {
                 }
             }),
         ]);
-        assert!(rendered.contains("task_parent\tin_progress\tpl_1\tParent\n"));
-        assert!(rendered.contains("  task_child\tpending\tpl_1\tChild\n"));
+        assert!(rendered.contains("task_parent\t-\tin_progress\tpl_1\tParent\n"));
+        assert!(rendered.contains("  task_child\t-\tpending\tpl_1\tChild\n"));
+    }
+
+    #[test]
+    fn task_key_contract_list_row_prints_daemon_display_key() {
+        let rendered = render_simple_task_list(&[
+            json!({
+                "plan_id": "pl_1",
+                "display_key": "COD-7",
+                "task": { "id": "task_new001", "key": "COD-7", "name": "New", "status": "pending" }
+            }),
+            json!({
+                "plan_id": "pl_1",
+                "display_key": "OLD001",
+                "task": { "id": "task_old001", "name": "Old", "status": "pending" }
+            }),
+        ]);
+        assert!(
+            rendered.contains("task_new001\tCOD-7\tpending\tpl_1\tNew\n"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("task_old001\tOLD001\tpending\tpl_1\tOld\n"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn task_key_contract_key_label_reads_summary_detail_and_bare_task_json() {
+        assert_eq!(
+            task_key_label(&json!({ "display_key": "COD-7", "task": { "id": "task_a" } })),
+            "COD-7"
+        );
+        assert_eq!(
+            task_key_label(&json!({ "id": "task_a", "key": "COD-8" })),
+            "COD-8"
+        );
+        assert_eq!(task_key_label(&json!({ "id": "task_a" })), "-");
     }
 
     #[test]

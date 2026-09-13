@@ -67,10 +67,7 @@ impl PlanStore {
     ) -> Result<StaleOwnerRetirement, PlanError> {
         let mut retirement = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if !owner_is_stale(task, &live_tab) {
                 return Err(PlanError::Io(

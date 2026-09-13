@@ -200,6 +200,8 @@ export interface Task {
   updated_at?: number;
   status_changed_at?: number;
   handle?: string | null;
+  /** Immutable human key (`PREFIX-N`); absent on tasks created before keys existed. */
+  key?: string | null;
   tags?: string[];
   group?: string | null;
   section_ids: string[];

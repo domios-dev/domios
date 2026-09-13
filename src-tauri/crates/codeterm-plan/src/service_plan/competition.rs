@@ -109,10 +109,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             apply_competition_update(&mut task.competition, update);
             task.updated_at = now_ms;
