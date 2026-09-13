@@ -9,7 +9,8 @@ import {
   type SpendWindow,
 } from "./missionControlBoardModel";
 import type { MissionControlSpend } from "./missionControlState";
-import { allowanceChartSource } from "./spendChart";
+import { allowanceChartSource, combineChartSources } from "./spendChart";
+import { TEAM_SCOPE_CAPTION, teamTokensChartSource, type TeamSpend } from "./teamSpend";
 
 const WINDOW_TONE: Record<SpendWindow["state"], string | undefined> = {
   neutral: undefined,
@@ -22,14 +23,25 @@ function formatWholePct(value: number): string {
 }
 
 /** Spend over the week as a chart, then each provider's weekly and session allowance used so far. */
-export function SpendCard({ spend, weeks = {} }: { spend: MissionControlSpend; weeks?: AllowanceWeeks }) {
+export function SpendCard({
+  spend,
+  weeks = {},
+  teamSpend = null,
+}: {
+  spend: MissionControlSpend;
+  weeks?: AllowanceWeeks;
+  teamSpend?: TeamSpend | null;
+}) {
   const reading = spendReading(spend);
-  const chart = allowanceChartSource(weeks, reading.groups);
+  const chart = combineChartSources(
+    teamSpend ? teamTokensChartSource(teamSpend) : null,
+    allowanceChartSource(weeks, reading.groups),
+  );
   return (
     <BoardPanel
       testId="mc-board-spend"
       title="Spend"
-      meta={<span data-testid="mc-board-spend-scope">{SPEND_SCOPE_CAPTION}</span>}
+      meta={<span data-testid="mc-board-spend-scope">{teamSpend ? TEAM_SCOPE_CAPTION : SPEND_SCOPE_CAPTION}</span>}
     >
       <BoardPanelSection>
         {reading.emptyCopy ? (
@@ -44,6 +56,11 @@ export function SpendCard({ spend, weeks = {} }: { spend: MissionControlSpend; w
               </p>
             )}
             {chart.hasData && <SpendChart source={chart} />}
+            {teamSpend && (
+              <h3 data-testid="mc-board-spend-limits-label" className="mc-board-sub-label">
+                Limits, {SPEND_SCOPE_CAPTION}
+              </h3>
+            )}
             <ul className="mc-board-spend-providers" role="list">
               {reading.groups.map((group) => (
                 <li

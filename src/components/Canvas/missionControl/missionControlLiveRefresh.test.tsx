@@ -6,8 +6,14 @@ import type { ApiConfig } from "../../../lib/types";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
-import type { MissionControlState, PlanBoardState } from "./missionControlState";
+import type {
+  MissionControlState,
+  PlanBoardState,
+  TeamMissionControlEvent,
+  TeamMissionControlState,
+} from "./missionControlState";
 import { usePlanBoardState, type PlanBoardStateResult } from "./usePlanBoardState";
+import { useTeamMissionControl, type TeamMissionControlView } from "./useTeamMissionControl";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -346,6 +352,81 @@ describe("Mission Control live refresh", () => {
     expect(text(rendered.host, "mc-board-tasks-amount")).toBe("3");
     expect(rendered.host.querySelector('[data-testid="mc-board-spend-window-pct"]')?.textContent).toBe("60%");
     expect(frames.size).toBe(0);
+    await rendered.unmount();
+  });
+});
+
+function teamEvent(index: number, planId = "pl_live"): TeamMissionControlEvent {
+  return {
+    id: `event-${index}`,
+    ts: NOW - index * 1_000,
+    last_ts: NOW - index * 1_000,
+    count: 1,
+    kind: "note",
+    author: "Planck",
+    author_tab_id: null,
+    task_id: null,
+    task_name: null,
+    text: `team event ${index}`,
+    plan_id: planId,
+    plan_title: "Live plan",
+  };
+}
+
+function teamState(events: TeamMissionControlEvent[], nextCursor: string | null): TeamMissionControlState {
+  return {
+    team_id: "team-1",
+    team: { id: "team-1" } as TeamMissionControlState["team"],
+    active_plan: PLAN,
+    archived_plans: [{ ...PLAN, id: "pl_old", status: "archived", updated_at: 3 }],
+    events,
+    next_cursor: nextCursor,
+  };
+}
+
+function TeamProbe({ revision, capture }: { revision: string; capture: { current: TeamMissionControlView | null } }) {
+  const view = useTeamMissionControl(API, "team-1", revision);
+  useEffect(() => {
+    capture.current = view;
+  }, [capture, view]);
+  return null;
+}
+
+describe("Mission Control team stream", () => {
+  it("mission_control_team_pages_events_by_cursor_and_keeps_unchanged_plans", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(response(teamState(Array.from({ length: 50 }, (_, i) => teamEvent(i)), "c2") as never));
+    fetchMock.mockResolvedValueOnce(response(teamState([teamEvent(50), teamEvent(51)], null) as never));
+    fetchMock.mockResolvedValueOnce(response(teamState([teamEvent(0)], null) as never));
+    const capture: { current: TeamMissionControlView | null } = { current: null };
+    const rendered = await render(<TeamProbe revision="r1" capture={capture} />);
+    await act(async () => flush());
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/teams/team-1/mission-control/state?limit=50");
+    const first = capture.current!;
+    expect(first.events.pageCount).toBe(2);
+    expect(first.events.caption).toBe("50+ events");
+    expect(first.events.page(0)).toHaveLength(50);
+    expect(first.events.page(1)).toBeNull();
+    expect(first.archivedPlans.map((plan) => plan.id)).toEqual(["pl_old"]);
+
+    await act(async () => {
+      first.events.load?.(1);
+      await flush();
+    });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cursor=c2");
+    const second = capture.current!;
+    expect(second.events.page(1)?.map((event) => event.text)).toEqual(["team event 50", "team event 51"]);
+    expect(second.events.pageCount).toBe(2);
+    expect(second.events.caption).toBe("52 events");
+    expect(second.archivedPlans).toBe(first.archivedPlans);
+
+    await act(async () => {
+      rendered.root.render(<TeamProbe revision="r2" capture={capture} />);
+      await flush();
+    });
+    expect(capture.current!.events.pageCount).toBe(1);
+    expect(capture.current!.archivedPlans).toBe(first.archivedPlans);
     await rendered.unmount();
   });
 });
