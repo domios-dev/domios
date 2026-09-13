@@ -1,5 +1,6 @@
 import { wellFormedFileDiffs } from "./fileDiffs";
-import type { FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind } from "./types";
+import { normalizeToolRichResult } from "./toolRichResult";
+import type { FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
 
 interface ToolStream {
   flowId: string;
@@ -21,6 +22,7 @@ export interface ToolEvent {
   detail?: string;
   edits?: ToolEdit[];
   fileDiffs?: FileDiff[];
+  richResult?: ToolRichResult;
   result?: string;
   error?: boolean;
   message: NormalizedChatMessage;
@@ -65,6 +67,7 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
     detail: text(message.toolDetail) || undefined,
     edits: message.toolEdits,
     ...(fileDiffs ? { fileDiffs } : {}),
+    richResult: normalizeToolRichResult(message.toolRichResult),
     result: phase === "result"
       ? firstNonEmpty(message.toolDetail, message.toolResult, message.content)
       : embeddedResult,
@@ -125,6 +128,7 @@ function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
     summary: toolStreamLabel(latest) ?? latest.summary,
     detail: undefined,
     edits: undefined,
+    richResult: undefined,
     result: undefined,
     error: failed || undefined,
     stream: { flowId: first.flowId as string, members, active },

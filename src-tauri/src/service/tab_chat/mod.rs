@@ -461,6 +461,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 let tool_flow_id = get_optional_string(&b.data, "tool_flow_id");
                 let tool_echo = b.data.get("tool_echo").and_then(|v| v.as_bool());
                 let file_diffs = b.data.get("file_diffs").cloned();
+                let tool_rich_result = b.data.get("tool_rich_result").filter(|v| v.is_object()).cloned();
                 let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
                     Some("success") => Some(false),
                     Some("error") => Some(true),
@@ -489,6 +490,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_flow_id,
                     tool_echo,
                     file_diffs,
+                    tool_rich_result,
                     tool_name: Some(name),
                     tool_args: tool_detail,
                     tool_input: b.data.get("input").cloned(),
@@ -946,12 +948,13 @@ mod chat_snapshot_tests {
                         "tool_description": "Run tests",
                         "tool_title": "npm test",
                         "tool_flow_id": "msg-1",
-                        "tool_echo": true
+                        "tool_echo": true,
+                        "tool_rich_result": {"kind": "web", "query": "serde rename", "resultCount": 2}
                     }),
                 },
                 MessageBlock {
                     kind: "tool_use".into(),
-                    data: json!({ "name": "Read", "input": {"file_path": "a.rs"} }),
+                    data: json!({ "name": "Read", "input": {"file_path": "a.rs"}, "tool_rich_result": "malformed" }),
                 },
                 MessageBlock {
                     kind: "tool_flow".into(),
@@ -978,6 +981,11 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[2].tool_flow_id, None);
         assert_eq!(msgs[1].tool_echo, Some(true));
         assert_eq!(msgs[2].tool_echo, None);
+        assert_eq!(
+            msgs[1].tool_rich_result,
+            Some(json!({"kind": "web", "query": "serde rename", "resultCount": 2}))
+        );
+        assert_eq!(msgs[2].tool_rich_result, None);
         assert_eq!(msgs[3].kind, "tool_flow");
         assert_eq!(msgs[3].content, "end");
         assert_eq!(msgs[3].tool_flow_id, None);
