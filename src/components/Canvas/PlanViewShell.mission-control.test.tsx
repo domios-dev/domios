@@ -61,6 +61,46 @@ describe("team plan view shell", () => {
     await unmount();
   });
 
+  it("draws Board apart from the plan views inside one tablist with a single thumb", async () => {
+    localStorage.removeItem("codeterm.planViewMode");
+    const { host, unmount } = await render(<PlanViewShell {...props} />);
+
+    const tablist = host.querySelector('[data-testid="plan-view-mode-switch"]') as HTMLElement;
+    expect(tablist.getAttribute("role")).toBe("tablist");
+    const groups = Array.from(tablist.querySelectorAll("[data-group]")).map((group) => [
+      group.getAttribute("data-group"),
+      Array.from(group.querySelectorAll('[role="tab"]')).map((tab) => tab.textContent),
+    ]);
+    expect(groups).toEqual([
+      ["board", ["Board"]],
+      ["plan", ["Spec", "Plan", "Tasks"]],
+    ]);
+    expect(tablist.querySelectorAll('[data-testid="plan-view-mode-thumb"]')).toHaveLength(1);
+    expect(tablist.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Board");
+    await clickMode(host, "Plan");
+    expect(tablist.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Plan");
+    await unmount();
+  });
+
+  it("disables the plan views and stays on Board while the team has no active plan", async () => {
+    localStorage.setItem("codeterm.planViewMode", "spec");
+    const archived = { ...FIXTURE_PLAN, id: "plan-old", team_id: "team-1", status: "archived" as const };
+    const { host, unmount } = await render(<PlanViewShell {...props} plans={[archived]} teamId="team-1" />);
+
+    expect(host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode")).toBe("board");
+    expect(host.querySelector('[data-group="plan"]')?.getAttribute("data-disabled")).toBe("true");
+    const tabs = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    expect(tabs.map((tab) => [tab.textContent, tab.disabled])).toEqual([
+      ["Board", false],
+      ["Spec", true],
+      ["Plan", true],
+      ["Tasks", true],
+    ]);
+    expect(localStorage.getItem("codeterm.planViewMode")).toBe("spec");
+    await unmount();
+    localStorage.removeItem("codeterm.planViewMode");
+  });
+
   it("parks Canvas and List and resolves persisted parked values to Board", () => {
     expect(PARKED_PLAN_VIEW_MODES).toEqual(["list", "canvas"]);
     expect(resolvePlanViewMode("list")).toBe(DEFAULT_PLAN_VIEW_MODE);
