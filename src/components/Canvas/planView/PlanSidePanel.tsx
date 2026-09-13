@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent, type RefObject } from "react";
 import { Maximize2, X } from "lucide-react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { DetailContent } from "../canvasRender/DetailContent";
@@ -6,6 +6,7 @@ import type { PlanSidePanelTarget } from "../planSidePanelStore";
 import { findTaskByReference, taskDisplayKey } from "../taskDisplayKey";
 import type { PlanTarget } from "../teamViewNavigation";
 import type { Plan } from "../types";
+import type { PresenceState } from "../usePresence";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
@@ -19,6 +20,8 @@ export interface PlanSidePanelProps {
   onOpenTab?: (tabId: string) => void;
   onOpenPlanTarget: (target: PlanTarget) => void;
   onClose: () => void;
+  state: PresenceState;
+  panelRef: RefObject<HTMLElement | null>;
 }
 
 /** The task or plan preview that slides over whatever surface is showing. */
@@ -31,8 +34,12 @@ export function PlanSidePanel({
   onOpenTab,
   onOpenPlanTarget,
   onClose,
+  state,
+  panelRef,
 }: PlanSidePanelProps) {
-  const panelRef = useRef<HTMLElement | null>(null);
+  const contentKey = `${target.planId}/${target.taskId ?? ""}`;
+  const [content, setContent] = useState({ key: contentKey, replaced: false });
+  if (content.key !== contentKey) setContent({ key: contentKey, replaced: true });
   const taskRef = target.taskId;
   const task = plan && taskRef ? findTaskByReference(plan.tasks, taskRef) : undefined;
   const key = taskRef ? taskDisplayKey({ id: taskRef, key: task?.key }) : null;
@@ -44,7 +51,7 @@ export function PlanSidePanel({
 
   useEffect(() => {
     panelRef.current?.focus();
-  }, [target]);
+  }, [panelRef, target]);
 
   const showFull = () => onOpenPlanTarget({ ...route, taskId: task?.id ?? taskRef, presentation: "full" });
   const openFullPlan = () => onOpenPlanTarget({ ...route, presentation: "full" });
@@ -76,6 +83,8 @@ export function PlanSidePanel({
       data-kind={key ? "task" : "plan"}
       data-plan-id={target.planId}
       data-task-id={task?.id ?? taskRef}
+      data-state={state}
+      inert={state === "closing" || undefined}
       className="plan-side-panel"
       onKeyDown={onKeyDown}
     >
@@ -116,7 +125,12 @@ export function PlanSidePanel({
           <X size={15} aria-hidden />
         </button>
       </header>
-      <div data-testid="plan-side-panel-body" className="plan-side-panel__body plan-detail-selectable">
+      <div
+        key={contentKey}
+        data-testid="plan-side-panel-body"
+        data-replaced={content.replaced ? "" : undefined}
+        className="plan-side-panel__body plan-detail-selectable"
+      >
         {plan && (!key || task) ? (
           <DetailContent
             kind={task ? "task" : "plan"}
