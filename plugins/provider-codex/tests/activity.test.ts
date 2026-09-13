@@ -19,7 +19,7 @@ const completed = (item: Record<string, unknown>) => JSON.stringify({
 });
 const execution = {
   type: "CommandExecution", id: "exec-opaque-a", command, status: "completed", exit_code: 0,
-  aggregated_output: output,
+  duration_ms: 1250, aggregated_output: output,
 };
 const activity = {
   type: "SubAgentActivity", id: "activity-opaque-b", kind: "completed",
@@ -34,7 +34,11 @@ for (const parser of parsers) {
   assert.equal(messages[0].timestamp, timestamp);
   assert.equal(messages[0].blocks[0].data.id, execution.id);
   assert.equal(messages[0].blocks[0].data.tool_detail, command);
+  assert.equal(messages[0].blocks[0].data.tool_exit_code, 0);
+  assert.equal(messages[0].blocks[0].data.tool_duration_ms, 1250);
   assert.equal(messages[0].blocks[1].data.tool_use_id, execution.id);
+  assert.equal(messages[0].blocks[1].data.tool_exit_code, 0);
+  assert.equal(messages[0].blocks[1].data.tool_duration_ms, 1250);
   assert.equal(messages[0].blocks[1].data.content, output);
   assert.equal(messages[0].blocks[1].data.is_error, false);
   assert.equal(messages[1].blocks[0].data.tool_kind, "task");
@@ -49,6 +53,8 @@ for (const parser of parsers) {
   assert.equal(failed.blocks[1].data.is_error, true);
   assert.equal(failed.blocks[1].data.content, "opaque-out\nopaque-err");
   assert.equal(parse([completed({ ...execution, exit_code: 2 })])[0].blocks[1].data.is_error, true);
+  assert.equal(parse([completed({ ...execution, exit_code: "2" })])[0].blocks[1].data.tool_exit_code, undefined);
+  assert.equal(parse([completed({ ...execution, duration_ms: "slow" })])[0].blocks[1].data.tool_duration_ms, undefined);
   assert.equal(parse([completed({ ...execution, aggregated_output: "" })])[0].blocks[0].data.tool_status, "success");
 
   const argv = ["C:\\Opaque Tools\\pwsh.exe", "-Command", "runner --input 'opaque value'; runner opaque-tail"];

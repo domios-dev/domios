@@ -3,6 +3,12 @@ import { manifest } from "./shared";
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }
 export interface ClaudeMessage { id?: string; content?: string | ClaudeContentBlock[]; model?: string }
 export interface ClaudeAttachment { type?: string; prompt?: string; commandMode?: string }
+export interface ClaudeToolUseResult {
+  returnCode?: unknown;
+  durationMs?: unknown;
+  interrupted?: unknown;
+  backgroundTaskId?: unknown;
+}
 
 export interface ClaudeEntry {
   type?: string;
@@ -16,6 +22,8 @@ export interface ClaudeEntry {
   isMeta?: boolean;
   isCompactSummary?: boolean;
   isVisibleInTranscriptOnly?: boolean;
+  toolUseResult?: unknown;
+  sourceToolAssistantUUID?: unknown;
 }
 
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = { system: true, user: true, assistant: true, attachment: true };
