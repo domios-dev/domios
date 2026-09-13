@@ -17,20 +17,17 @@ import type {
 
 export type BoardLayout = "wide" | "narrow";
 
-/** Below this the board follows the phone artboard: two-up cards, stacked gauges. */
+/** Below this the board stacks its panels in one column. */
 export const BOARD_NARROW_MAX_PX = 720;
 
 export function boardLayout(width: number): BoardLayout {
   return width > 0 && width <= BOARD_NARROW_MAX_PX ? "narrow" : "wide";
 }
 
-/** The wide card grid's lead fraction; Spend's label column is derived from it in CSS. */
-export const BOARD_LEAD_FRACTION = 1.6;
-export const BOARD_TRAILING_TRACKS = 3;
-
-export const BOARD_CARD_COLUMNS: Record<BoardLayout, string> = {
-  wide: `minmax(0, ${BOARD_LEAD_FRACTION}fr) repeat(${BOARD_TRAILING_TRACKS}, minmax(0, 1fr))`,
-  narrow: "repeat(2, minmax(0, 1fr))",
+/** Progress beside Spend on a wide board; one column on a phone. */
+export const BOARD_ROW_COLUMNS: Record<BoardLayout, string> = {
+  wide: "minmax(0, 1fr) minmax(0, 1.55fr)",
+  narrow: "minmax(0, 1fr)",
 };
 
 export const BOARD_SPEND_WINDOW_COLUMNS: Record<BoardLayout, string> = {
@@ -66,6 +63,16 @@ export function formatSharePct(value: number): string {
   if (!Number.isFinite(value)) return "0%";
   const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
   return `${rounded}%`;
+}
+
+export function formatCountOf(count: number, one: string, many: string): string {
+  return `${formatCount(count)} ${count === 1 ? one : many}`;
+}
+
+/** "a, b or c": a readable run of words without middle-dot separators. */
+export function joinWords(words: readonly string[], conjunction: string): string {
+  if (words.length <= 1) return words.join("");
+  return `${words.slice(0, -1).join(", ")} ${conjunction} ${words[words.length - 1]}`;
 }
 
 export function formatAgeMs(ms: number): string {
@@ -209,100 +216,80 @@ export function eventLogRows(
 }
 
 export function eventLogCaption(log: EventLog): string {
-  return `${formatCount(log.recorded_events)} events · ${formatCount(log.entries.length)} lines`;
+  const events = formatCountOf(log.recorded_events, "event", "events");
+  return log.truncated ? `latest of ${events}` : events;
 }
 
 export interface AreaRow {
   key: string;
   label: string;
   taskCount: number;
-  sharePct: number;
+  untagged: boolean;
 }
 
 export interface AreaReading {
-  declared: boolean;
-  facetLabel: string | null;
-  title: "Tasks by area" | "Tasks by role";
-  caption: string;
+  title: string;
   rows: AreaRow[];
-  untagged: number;
 }
 
-function share(count: number, total: number): number {
-  return total > 0 ? Math.round((count / total) * 100) : 0;
-}
+export const ROLE_FALLBACK_TITLE = "Roles";
 
 export function areaReading(areas: AreaGrouping): AreaReading {
   if (areas.state === "declared") {
-    const total =
-      areas.groups.reduce((sum, group) => sum + group.task_count, 0) + areas.untagged_task_count;
-    return {
-      declared: true,
-      facetLabel: areas.facet_label ?? areas.facet_key,
-      title: "Tasks by area",
-      caption: `${areas.facet_label ?? "Area"} facet`,
-      rows: areas.groups.map((group) => ({
-        key: group.value,
-        label: group.label,
-        taskCount: group.task_count,
-        sharePct: share(group.task_count, total),
-      })),
-      untagged: areas.untagged_task_count,
-    };
+    const rows: AreaRow[] = areas.groups.map((group) => ({
+      key: group.value,
+      label: group.label,
+      taskCount: group.task_count,
+      untagged: false,
+    }));
+    if (areas.untagged_task_count > 0) {
+      rows.push({ key: "untagged", label: "untagged", taskCount: areas.untagged_task_count, untagged: true });
+    }
+    return { title: areas.facet_label ?? areas.facet_key ?? "Areas", rows };
   }
-  const total = areas.role_fallback.reduce((sum, group) => sum + group.task_count, 0);
   return {
-    declared: false,
-    facetLabel: null,
-    title: "Tasks by role",
-    caption: "no area facet declared",
+    title: ROLE_FALLBACK_TITLE,
     rows: areas.role_fallback.map((group, index) => ({
       key: group.executor_role ?? `no-role-${index}`,
       label: group.executor_role ?? "No role recorded",
       taskCount: group.task_count,
-      sharePct: share(group.task_count, total),
+      untagged: false,
     })),
-    untagged: 0,
   };
 }
 
-export interface DecisionsWaitingReading {
-  gateCount: number;
-  oldestAgeMs: number | null;
-  blockedTaskCount: number;
+/** One thing waiting on the owner: an open decision gate or a review held for a decision. */
+export interface NeedsYouItem {
+  key: string;
+  kind: "gate" | "review";
+  title: string;
+  facts: string[];
 }
 
-export function decisionsWaitingReading(held: HeldForDecision): DecisionsWaitingReading {
-  const oldestAgeMs = held.open_gates.reduce<number | null>(
-    (oldest, gate) => (oldest == null || gate.age_ms > oldest ? gate.age_ms : oldest),
-    null,
-  );
-  return {
-    gateCount: held.open_gates.length,
-    oldestAgeMs,
-    blockedTaskCount: held.open_gates.reduce((sum, gate) => sum + gate.blocking_task_count, 0),
-  };
-}
-
-export interface LongestWaitReading {
-  ageMs: number | null;
-  taskName: string | null;
-}
-
-export function longestWaitReading(held: HeldForDecision): LongestWaitReading {
-  const oldest = held.held_reviews.reduce<{ ageMs: number; taskName: string } | null>(
-    (candidate, review) => {
-      if (review.age_ms == null) return candidate;
-      return candidate == null || review.age_ms > candidate.ageMs
-        ? { ageMs: review.age_ms, taskName: review.name }
-        : candidate;
-    },
-    null,
-  );
-  return {
-    ageMs: held.oldest_hold_age_ms,
-    taskName: oldest && oldest.ageMs === held.oldest_hold_age_ms ? oldest.taskName : null,
-  };
+export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
+  const gates = held.open_gates.map<NeedsYouItem>((gate) => ({
+    key: `gate-${gate.id}`,
+    kind: "gate",
+    title: eventPreview(gate.question),
+    facts: [
+      "decision gate",
+      `waiting ${formatAgeMs(gate.age_ms)}`,
+      ...(gate.blocking_task_count > 0
+        ? [`blocks ${formatCountOf(gate.blocking_task_count, "task", "tasks")}`]
+        : []),
+    ],
+  }));
+  const reviews = held.held_reviews.map<NeedsYouItem>((review) => ({
+    key: `review-${review.task_id}`,
+    kind: "review",
+    title: review.name,
+    facts: [
+      "review held",
+      ...(review.age_ms == null ? [] : [`waiting ${formatAgeMs(review.age_ms)}`]),
+      formatCountOf(review.verdicts, "verdict", "verdicts"),
+    ],
+  }));
+  return [...gates, ...reviews];
 }
 
 /** One provider/window allowance reading, as consumed. Never a per-model figure. */
@@ -445,11 +432,25 @@ export const TASK_STATUS_FIELDS = [
   { key: "cancelled", label: "cancelled" },
 ] as const;
 
-export function taskStatusBreakdown(counts: PlanTaskCounts) {
-  return TASK_STATUS_FIELDS.map((status) => ({
-    ...status,
-    count: counts[status.key],
-  }));
+export type TaskStatusKey = (typeof TASK_STATUS_FIELDS)[number]["key"];
+
+export interface ProgressReading {
+  total: number;
+  /** Statuses holding at least one task, in lifecycle order. */
+  active: Array<{ key: TaskStatusKey; label: string; count: number }>;
+  /** One quiet line naming the empty statuses; null when nothing is worth saying. */
+  rest: string | null;
+}
+
+export function progressReading(counts: PlanTaskCounts): ProgressReading {
+  const statuses = TASK_STATUS_FIELDS.map((status) => ({ ...status, count: counts[status.key] }));
+  const active = statuses.filter((status) => status.count > 0);
+  const idle = statuses.filter((status) => status.count === 0).map((status) => status.label);
+  return {
+    total: counts.total,
+    active,
+    rest: active.length > 0 && idle.length > 0 ? `nothing ${joinWords(idle, "or")}` : null,
+  };
 }
 
 const NOT_RECORDING_COPY: Record<KpiNotRecordingReason, string> = {
@@ -463,6 +464,6 @@ export function notRecordingCopy(
   reason: KpiNotRecordingReason | null,
   enableSetting: string | null = null,
 ): string {
-  if (reason === "disabled" && enableSetting) return `recording off · enable ${enableSetting}`;
+  if (reason === "disabled" && enableSetting) return `recording off, enable ${enableSetting}`;
   return reason ? NOT_RECORDING_COPY[reason] : NOT_RECORDING_COPY.not_read;
 }

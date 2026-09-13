@@ -142,10 +142,10 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
-const TASK_STATUS_KEYS = ["pending", "in_progress", "in_review", "blocked", "paused", "done", "cancelled"] as const;
-
 function taskStatusValues(host: HTMLElement): number[] {
-  return TASK_STATUS_KEYS.map((key) => Number(text(host, `mc-board-task-status-${key}-count`).replace(/,/g, "")));
+  return Array.from(host.querySelectorAll('[data-testid$="-count"][data-testid^="mc-board-task-status-"]')).map(
+    (count) => Number((count.textContent ?? "").replace(/,/g, "")),
+  );
 }
 
 function find(host: HTMLElement, selector: string): HTMLElement {
@@ -338,14 +338,16 @@ describe("mission control narrow shell", () => {
     await narrow.setBoardWidth(PHONE_WIDTH);
 
     expect(attr(narrow.host, "mission-control-board", "data-board-layout")).toBe("narrow");
-    expect(text(narrow.host, "mc-board-tokens-amount")).toBe("5.3M");
-    expect(text(narrow.host, "mc-board-turns-amount")).toBe("4,023");
-    expect(taskStatusValues(narrow.host)).toEqual([1, 0, 2, 1, 1, 10, 1]);
+    expect(text(narrow.host, "mc-board-plan-new-input")).toBe("1.5M");
+    expect(text(narrow.host, "mc-board-plan-turns")).toBe("4,023");
+    expect(taskStatusValues(narrow.host)).toEqual([1, 2, 1, 1, 10, 1]);
     expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
-    expect(text(narrow.host, "mc-board-areas")).toContain("Tasks by area");
-    expect(text(narrow.host, "mc-board-areas")).not.toContain("Tokens plan total");
+    expect(text(narrow.host, "mc-board-task-status-rest")).toBe("nothing in progress");
+    expect(text(narrow.host, "mc-board-areas")).toContain("Area");
+    expect(text(narrow.host, "mc-board-progress")).not.toContain("5.3M");
+    expect(text(narrow.host, "mc-board-needs-you")).toContain("Land the wave");
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(4);
     expect(
       Array.from(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) =>
@@ -359,10 +361,12 @@ describe("mission control narrow shell", () => {
     ]);
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
     expect(text(narrow.host, "mc-board-spend")).toContain("Unassigned model");
-    expect(narrow.host.querySelector('[data-testid="mc-board-areas"]')?.parentElement).not.toBe(
-      narrow.host.querySelector('[data-testid="mc-board-card-grid"]'),
-    );
-    expect(narrow.host.querySelectorAll('[data-testid="mc-board-card-grid"] > .mc-board-card')).toHaveLength(8);
+    const panelRow = narrow.host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
+    expect(panelRow.style.gridTemplateColumns).toBe("minmax(0, 1fr)");
+    expect(Array.from(panelRow.children).map((panel) => panel.getAttribute("data-testid"))).toEqual([
+      "mc-board-progress",
+      "mc-board-spend",
+    ]);
     expect(narrow.host.querySelector('[data-testid="mission-control-board-actions-row"]')).toBeNull();
     expect(narrow.host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
 
