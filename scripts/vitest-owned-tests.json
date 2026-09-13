@@ -1,5 +1,6 @@
 [
   "packages/chat-ui/src/timelineMarkers.test.tsx",
+  "packages/chat-ui/src/toolcard/commandFacts.test.tsx",
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
   "src/components/Canvas/missionControl/MissionControlBoard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlSpendCard.test.tsx",
@@ -11,5 +12,6 @@
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
   "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx",
-  "packages/chat-ui/src/toolcard/richResults.test.tsx"
+  "packages/chat-ui/src/toolcard/richResults.test.tsx",
+  "packages/chat-ui/src/toolcard/thoughtsAgents.test.tsx"
 ]

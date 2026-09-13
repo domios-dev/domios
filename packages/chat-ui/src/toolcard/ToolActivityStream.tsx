@@ -1,6 +1,8 @@
 import { toolStreamLabel, type ToolEvent } from "@codeterm/chat-core";
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
+import { ThoughtLine } from "./ThoughtLine";
+import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 
 const MINI_VIEW_MAX_PX = 200;
 const MINI_VIEW_ROWS = 6;
@@ -8,7 +10,7 @@ const MINI_VIEW_ROWS = 6;
 export type RenderStreamAction = (member: ToolEvent, expanded: boolean, onToggle: (next: boolean) => void) => ReactNode;
 
 function statusColor(status: ToolEvent["status"]): string {
-  if (status === "unresolved") return "var(--ct-muted-fg)";
+  if (status === "unresolved" || status === "interrupted") return "var(--ct-muted-fg)";
   return status === "error" ? "var(--ct-red)" : status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
 }
 
@@ -23,6 +25,9 @@ function StatusGlyph({ status }: { status: ToolEvent["status"] }) {
   }
   if (status === "unresolved") {
     return <Minus data-testid="chat-tool-stream-no-result" aria-hidden="true" size={12} className="shrink-0" style={style} />;
+  }
+  if (status === "interrupted") {
+    return <Minus data-testid="chat-tool-stream-interrupted" aria-hidden="true" size={12} className="shrink-0" style={style} />;
   }
   return status === "error"
     ? <CircleX aria-hidden="true" size={12} className="shrink-0" style={style} />
@@ -46,6 +51,28 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
   const count = stream.members.length;
   const countLabel = `${count} ${count === 1 ? "action" : "actions"}`;
   const miniView = stream.active && !expanded;
+
+  const renderMember = (member: ToolEvent) => (
+    <li key={member.id} data-testid="chat-tool-stream-member" data-member-id={member.id}>
+      {member.id === selectedId
+        ? renderAction(member, true, (next) => setSelectedId(next ? member.id : null))
+        : (
+          <button
+            type="button"
+            data-testid="chat-tool-stream-action"
+            aria-expanded={false}
+            aria-label={`Show ${actionLabel(member)}`}
+            onClick={() => setSelectedId(member.id)}
+            className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
+            style={{ color: "var(--ct-fg)" }}
+          >
+            <StatusGlyph status={member.status} />
+            <span className="min-w-0 truncate">{actionLabel(member)}</span>
+            <ToolOutcomeFacts event={member} />
+          </button>
+        )}
+    </li>
+  );
 
   return (
     <section
@@ -88,6 +115,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
             <li key={member.id} className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
               <StatusGlyph status={member.status} />
               <span className="min-w-0 truncate">{actionLabel(member)}</span>
+              <ToolOutcomeFacts event={member} />
             </li>
           ))}
         </ol>
@@ -95,24 +123,9 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
       <div id={regionId} role="region" aria-label="Tool actions" hidden={!expanded} className="px-2 pb-1.5">
         {expanded && (
           <ul className="m-0 list-none p-0">
-            {stream.members.map((member) => (
-              <li key={member.id} data-testid="chat-tool-stream-member" data-member-id={member.id}>
-                {member.id === selectedId
-                  ? renderAction(member, true, (next) => setSelectedId(next ? member.id : null))
-                  : (
-                    <button
-                      type="button"
-                      data-testid="chat-tool-stream-action"
-                      aria-expanded={false}
-                      aria-label={`Show ${actionLabel(member)}`}
-                      onClick={() => setSelectedId(member.id)}
-                      className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
-                      style={{ color: "var(--ct-fg)" }}
-                    >
-                      <StatusGlyph status={member.status} />
-                      <span className="min-w-0 truncate">{actionLabel(member)}</span>
-                    </button>
-                  )}
+            {stream.entries.map((entry) => entry.kind === "action" ? renderMember(entry.event) : (
+              <li key={entry.id} data-testid="chat-tool-stream-thought">
+                <ThoughtLine text={entry.text} />
               </li>
             ))}
           </ul>

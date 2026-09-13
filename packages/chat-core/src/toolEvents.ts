@@ -1,10 +1,17 @@
+import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree } from "./agentActivity";
 import { wellFormedFileDiffs } from "./fileDiffs";
 import { normalizeToolRichResult } from "./toolRichResult";
-import type { FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
+import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
+
+export type StreamEntry =
+  | { kind: "action"; event: ToolEvent }
+  | { kind: "thought"; id: string; text: string };
 
 interface ToolStream {
   flowId: string;
   members: ToolEvent[];
+  /** Members plus same-session, same-flow thoughts that sit between them, in source order. */
+  entries: StreamEntry[];
   active: boolean;
 }
 
@@ -13,7 +20,7 @@ export interface ToolEvent {
   toolId?: string;
   phase: "call" | "result";
   /** `unresolved`: the source moved past this call (turn ended, new turn, or user turn) without a result. */
-  status: "pending" | "success" | "error" | "unresolved";
+  status: "pending" | "success" | "error" | "interrupted" | "unresolved";
   kind: ToolEventKind;
   summary: string;
   description?: string;
@@ -25,8 +32,16 @@ export interface ToolEvent {
   richResult?: ToolRichResult;
   result?: string;
   error?: boolean;
+  callSourceId?: string;
+  pairing?: "exact" | "unavailable";
+  exitCode?: number;
+  durationMs?: number;
+  interrupted?: boolean;
+  backgroundTaskId?: string;
   message: NormalizedChatMessage;
   stream?: ToolStream;
+  /** Sub-agent activity of one session and flow, folded into one card. */
+  agents?: AgentActivityTree;
 }
 
 export type TimelineItem =
@@ -65,6 +80,19 @@ function firstNonEmpty(...values: (string | undefined)[]): string | undefined {
   return values.find((value) => Boolean(value?.trim()));
 }
 
+function hasNonzeroExit(message: NormalizedChatMessage): boolean {
+  return message.toolExitCode !== undefined && message.toolExitCode !== 0;
+}
+
+function eventStatus(message: NormalizedChatMessage, phase: ToolEvent["phase"]): ToolEvent["status"] {
+  if (message.toolError === true || hasNonzeroExit(message)) return "error";
+  if (message.toolInterrupted === true) return "interrupted";
+  if (phase === "call") {
+    return message.toolError === false || message.toolResult ? "success" : "pending";
+  }
+  return "success";
+}
+
 export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent | null {
   if (message.type !== "tool_call" && message.type !== "tool_result") return null;
   const phase = message.type === "tool_call" ? "call" : "result";
@@ -87,10 +115,14 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
     result: phase === "result"
       ? firstNonEmpty(message.toolDetail, message.toolResult, message.content)
       : embeddedResult,
-    error: message.toolError,
-    status: phase === "call"
-      ? message.toolError === true ? "error" : message.toolError === false || embeddedResult ? "success" : "pending"
-      : message.toolError === true ? "error" : "success",
+    error: message.toolError === true || hasNonzeroExit(message) ? true : message.toolError,
+    callSourceId: text(message.toolCallSourceId) || undefined,
+    pairing: message.toolPairing,
+    exitCode: message.toolExitCode,
+    durationMs: message.toolDurationMs,
+    interrupted: message.toolInterrupted,
+    backgroundTaskId: text(message.toolBackgroundTaskId) || undefined,
+    status: eventStatus(message, phase),
     message,
   };
 }
@@ -106,18 +138,34 @@ function mergeText(existing: string | undefined, incoming: string | undefined): 
 function mergeResult(call: ToolEvent, result: ToolEvent): ToolEvent {
   const resultText = firstNonEmpty(result.result, result.summary);
   const fileDiffs = result.fileDiffs ?? call.fileDiffs;
+  const richResult = result.richResult ?? call.richResult;
   const message = {
     ...call.message,
     toolResult: mergeText(call.message.toolResult, resultText),
     toolError: result.error === true ? true : call.message.toolError,
+    toolCallSourceId: call.message.toolCallSourceId ?? result.message.toolCallSourceId,
+    toolPairing: result.message.toolPairing ?? call.message.toolPairing,
+    toolExitCode: result.message.toolExitCode ?? call.message.toolExitCode,
+    toolDurationMs: result.message.toolDurationMs ?? call.message.toolDurationMs,
+    toolInterrupted: result.message.toolInterrupted ?? call.message.toolInterrupted,
+    toolBackgroundTaskId: result.message.toolBackgroundTaskId ?? call.message.toolBackgroundTaskId,
     ...(fileDiffs ? { fileDiffs } : {}),
+    ...(richResult ? { toolRichResult: richResult } : {}),
   };
+  const status = eventStatus(message, "call");
   return {
     ...call,
     ...(fileDiffs ? { fileDiffs } : {}),
+    ...(richResult ? { richResult } : {}),
     result: mergeText(call.result, resultText),
-    error: result.error === true ? true : call.error,
-    status: result.error === true || call.status === "error" ? "error" : "success",
+    error: status === "error" ? true : call.error,
+    status,
+    callSourceId: text(message.toolCallSourceId) || undefined,
+    pairing: message.toolPairing,
+    exitCode: message.toolExitCode,
+    durationMs: message.toolDurationMs,
+    interrupted: message.toolInterrupted,
+    backgroundTaskId: text(message.toolBackgroundTaskId) || undefined,
     message,
   };
 }
@@ -131,7 +179,7 @@ function flowKey(sessionId: string | undefined, flowId: string): string {
   return `${sessionId ?? ""}:${flowId}`;
 }
 
-function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
+function streamEvent(members: ToolEvent[], entries: StreamEntry[], active: boolean): ToolEvent {
   const first = members[0];
   const latest = members[members.length - 1];
   const failed = members.some((member) => member.status === "error");
@@ -140,22 +188,32 @@ function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
     id: `${first.id}:stream`,
     status: members.some((member) => member.status === "pending")
       ? "pending"
-      : failed ? "error" : members.some((member) => member.status === "unresolved") ? "unresolved" : "success",
+      : failed ? "error" : members.some((member) => member.status === "unresolved") ? "unresolved"
+        : members.some((member) => member.status === "interrupted") ? "interrupted" : "success",
     summary: toolStreamLabel(latest) ?? latest.summary,
     detail: undefined,
     edits: undefined,
     richResult: undefined,
     result: undefined,
     error: failed || undefined,
-    stream: { flowId: first.flowId as string, members, active },
+    stream: { flowId: first.flowId as string, members, entries, active },
   };
   // Diffs stay with the member that produced them; a stream head shows none of its own.
   delete head.fileDiffs;
   return head;
 }
 
+function agentActivityEvent(message: NormalizedChatMessage, records: AgentActivity[]): ToolEvent {
+  return { id: `${message.id}:agents`, phase: "call", status: "success", kind: "task", summary: "Agents", message, agents: buildAgentTree(records) };
+}
+
 /** Folds calls that share one proven flow into a stream at the first member's position. */
-function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>, boundaryFlows: ReadonlySet<string>): TimelineItem[] {
+function groupToolStreams(
+  items: TimelineItem[],
+  openFlows: ReadonlySet<string>,
+  boundaryFlows: ReadonlySet<string>,
+  thoughtKeys: ReadonlyMap<number, string>,
+): TimelineItem[] {
   const groups = new Map<string, number[]>();
   items.forEach((item, index) => {
     if (item.kind !== "tool" || item.event.phase !== "call" || !item.event.flowId || item.event.stream) return;
@@ -164,6 +222,8 @@ function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>,
     indexes.push(index);
     groups.set(key, indexes);
   });
+  const thoughtsByKey = new Map<string, number[]>();
+  for (const [index, key] of thoughtKeys) thoughtsByKey.set(key, [...(thoughtsByKey.get(key) ?? []), index]);
   const heads = new Map<number, ToolEvent>();
   const absorbed = new Set<number>();
   for (const [key, indexes] of groups) {
@@ -174,10 +234,17 @@ function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>,
     // Only a boundary-opened flow proves its source emits no descriptions; call-stamped flows need them.
     const labeled = boundaryFlows.has(key) ? toolStreamLabel : (member: ToolEvent) => member.description;
     if (!members.every((member) => labeled(member))) continue;
+    const head = actionIndexes[0];
+    const last = actionIndexes[actionIndexes.length - 1];
+    const thoughts = (thoughtsByKey.get(key) ?? []).filter((index) => index > head && index < last);
+    const entries = [...actionIndexes, ...thoughts].sort((a, b) => a - b).map((index): StreamEntry => {
+      const item = items[index];
+      return item.kind === "tool" ? { kind: "action", event: item.event } : { kind: "thought", id: item.message.id, text: item.message.content };
+    });
     const active = openFlows.has(key) || members.some((member) => member.status === "pending");
-    heads.set(actionIndexes[0], streamEvent(members, active));
+    heads.set(head, streamEvent(members, entries, active));
     // An echo re-reports a command a member already shows, so a formed stream drops it.
-    for (const index of indexes) if (index !== actionIndexes[0]) absorbed.add(index);
+    for (const index of [...indexes, ...thoughts]) if (index !== head) absorbed.add(index);
   }
   if (heads.size === 0) return items;
   return items.flatMap((item, index): TimelineItem[] => {
@@ -190,14 +257,41 @@ function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>,
 export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   const calls = new Map<string, { item: number; event: ToolEvent }>();
+  const sourceCalls = new Map<string, Array<{ item: number; event: ToolEvent }>>();
   const positionalCalls: number[] = [];
   const waiting = new Map<string, ToolEvent[]>();
+  const waitingBySource = new Map<string, ToolEvent[]>();
   const seenResults = new Set<string>();
   const openFlowBySession = new Map<string, string>();
   const boundaryFlows = new Set<string>();
   const supersessions = new Map<string, number>();
   const callEpochs = new Map<number, { session: string; epoch: number }>();
+  const thoughtKeys = new Map<number, string>();
+  const agentGroups = new Map<string, { item: number; message: NormalizedChatMessage; records: AgentActivity[] }>();
   const supersede = (session: string) => supersessions.set(session, (supersessions.get(session) ?? 0) + 1);
+  const sourceKey = (session: string | undefined, source: string | undefined): string | undefined => {
+    const value = text(source);
+    return value ? `${session ?? ""}:${value}` : undefined;
+  };
+  const toolKey = (session: string | undefined, toolId: string | undefined): string | undefined => {
+    const value = text(toolId);
+    return value ? `${session ?? ""}:${value}` : undefined;
+  };
+  const resultMatchesCall = (call: ToolEvent, result: ToolEvent): boolean => {
+    if (result.pairing === "exact") {
+      if (!result.callSourceId || result.callSourceId !== call.callSourceId) return false;
+      return !result.toolId || result.toolId === call.toolId;
+    }
+    if (result.pairing === "unavailable") return Boolean(result.toolId && result.toolId === call.toolId);
+    return !result.toolId || result.toolId === call.toolId;
+  };
+  const replaceSourceCall = (source: string | undefined, item: number, event: ToolEvent) => {
+    if (!source) return;
+    const entries = sourceCalls.get(source);
+    if (!entries) return;
+    const index = entries.findIndex((entry) => entry.item === item);
+    if (index >= 0) entries[index] = { item, event };
+  };
 
   for (const message of messages) {
     // Only source rows carry seq; an optimistic composer row is no evidence a call was abandoned.
@@ -213,6 +307,25 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       else if (message.content === "end" && (!flowId || openFlowBySession.get(session) === flowId)) openFlowBySession.delete(session);
       continue;
     }
+    if (isAgentActivityMessage(message)) {
+      const record = agentActivityOf(message);
+      if (!record) continue;
+      const flowId = text(message.toolFlowId) || openFlowBySession.get(message.sourceSessionId ?? "") || "";
+      const key = flowKey(message.sourceSessionId, flowId);
+      const group = agentGroups.get(key);
+      if (group) group.records.push(record);
+      else {
+        agentGroups.set(key, { item: items.length, message, records: [record] });
+        items.push({ kind: "message", message });
+      }
+      continue;
+    }
+    if (message.type === "thinking") {
+      const flowId = text(message.toolFlowId) || openFlowBySession.get(message.sourceSessionId ?? "");
+      if (flowId && message.content?.trim()) thoughtKeys.set(items.length, flowKey(message.sourceSessionId, flowId));
+      items.push({ kind: "message", message });
+      continue;
+    }
     if (isInternalOrchestrationTool(message.toolName)) continue;
     if (message.type === "tool_call" || message.type === "tool_result") {
       const hasContent = Boolean(
@@ -222,6 +335,10 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
           message.toolResult?.trim() ||
           message.toolName?.trim() ||
           message.toolArgs?.trim() ||
+          message.toolExitCode !== undefined ||
+          message.toolDurationMs !== undefined ||
+          message.toolInterrupted !== undefined ||
+          message.toolBackgroundTaskId?.trim() ||
           message.toolEdits?.length ||
           message.toolInput,
       );
@@ -235,23 +352,53 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     if (materialized.phase === "call") {
       const flowId = materialized.flowId ?? openFlowBySession.get(message.sourceSessionId ?? "");
       const event = flowId ? { ...materialized, flowId } : materialized;
-      const pending = event.toolId ? waiting.get(event.toolId) : undefined;
-      const resolved = pending?.reduce(mergeResult, event) ?? event;
-      if (event.toolId) waiting.delete(event.toolId);
+      const source = sourceKey(message.sourceSessionId, event.callSourceId);
+      const id = toolKey(message.sourceSessionId, event.toolId);
+      const pendingById = id ? waiting.get(id) ?? [] : [];
+      const pendingBySource = source ? waitingBySource.get(source) ?? [] : [];
+      const existingSourceCalls = source ? sourceCalls.get(source) ?? [] : [];
+      const pending = [...new Map([...pendingById, ...pendingBySource].map((result) => [result.id, result])).values()]
+        .filter((result) => result.toolId || result.pairing !== "exact" || existingSourceCalls.length === 0)
+        .filter((result) => resultMatchesCall(event, result));
+      const resolved = pending.reduce(mergeResult, event);
+      if (id) {
+        const remaining = pendingById.filter((result) => !pending.includes(result));
+        if (remaining.length > 0) waiting.set(id, remaining);
+        else waiting.delete(id);
+      }
+      if (source) {
+        const remaining = pendingBySource.filter((result) => !pending.includes(result));
+        if (remaining.length > 0) waitingBySource.set(source, remaining);
+        else waitingBySource.delete(source);
+      }
       const item = items.length;
       items.push({ kind: "tool", event: resolved });
       const session = message.sourceSessionId ?? "";
       callEpochs.set(item, { session, epoch: supersessions.get(session) ?? 0 });
-      if (event.toolId) calls.set(event.toolId, { item, event: resolved });
-      else positionalCalls.push(item);
+      if (id) calls.set(id, { item, event: resolved });
+      if (source) {
+        const entries = sourceCalls.get(source) ?? [];
+        entries.push({ item, event: resolved });
+        sourceCalls.set(source, entries);
+      } else if (!event.callSourceId) {
+        positionalCalls.push(item);
+      }
       continue;
     }
     const event = materialized;
     const resultKey = event.toolId ? `${event.toolId}:${event.id}` : event.id;
     if (seenResults.has(resultKey)) continue;
     seenResults.add(resultKey);
-    let call = event.toolId ? calls.get(event.toolId) : undefined;
-    if (!event.toolId) {
+    let call: { item: number; event: ToolEvent } | undefined;
+    const source = sourceKey(message.sourceSessionId, event.callSourceId);
+    if (event.pairing === "exact") {
+      const candidates = source ? sourceCalls.get(source) ?? [] : [];
+      const matching = candidates.filter((candidate) => resultMatchesCall(candidate.event, event));
+      call = matching.length === 1 ? matching[0] : undefined;
+    } else if (event.toolId) {
+      call = calls.get(toolKey(message.sourceSessionId, event.toolId) ?? "");
+    }
+    if (!event.toolId && event.pairing !== "exact" && event.pairing !== "unavailable") {
       const item = positionalCalls.pop();
       call = item === undefined ? undefined : {
         item,
@@ -261,14 +408,24 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     if (call) {
       const merged = mergeResult(call.event, event);
       items[call.item] = { kind: "tool", event: merged };
-      if (event.toolId) calls.set(event.toolId, { item: call.item, event: merged });
-    } else if (event.toolId) {
-      const pending = waiting.get(event.toolId) ?? [];
+      const id = toolKey(message.sourceSessionId, call.event.toolId);
+      if (id) calls.set(id, { item: call.item, event: merged });
+      replaceSourceCall(sourceKey(message.sourceSessionId, merged.callSourceId), call.item, merged);
+    } else if (source && event.pairing === "exact") {
+      const pending = waitingBySource.get(source) ?? [];
       pending.push(event);
-      waiting.set(event.toolId, pending);
+      waitingBySource.set(source, pending);
+    } else if (event.toolId) {
+      const id = toolKey(message.sourceSessionId, event.toolId);
+      const pending = id ? waiting.get(id) ?? [] : [];
+      pending.push(event);
+      if (id) waiting.set(id, pending);
     } else {
       items.push({ kind: "tool", event });
     }
+  }
+  for (const group of agentGroups.values()) {
+    items[group.item] = { kind: "tool", event: agentActivityEvent(group.message, group.records) };
   }
   const openFlows = new Set([...openFlowBySession].map(([session, flowId]) => flowKey(session || undefined, flowId)));
   for (const [index, { session, epoch }] of callEpochs) {
@@ -277,5 +434,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }
-  return groupToolStreams(items, openFlows, boundaryFlows);
+  return groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys);
 }

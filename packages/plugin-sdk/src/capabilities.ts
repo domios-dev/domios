@@ -298,6 +298,7 @@ export type ToolEventKind =
   | "codeterm"
   | "web"
   | "image"
+  | "agent"
   | "generic";
 
 export interface ToolEdit {

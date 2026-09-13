@@ -8,6 +8,7 @@ import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
+import { agentMessageRow, reasoningResponseRow, subAgentRow } from "./agentActivity";
 import { codexFileDiffs } from "./fileDiffs";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
@@ -235,6 +236,12 @@ const plugin: PluginModule = {
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const activityIds = new Set<string>();
+    // One source record can be reported twice (completion event and response item) under one id.
+    const pushOnce = (row: { uuid?: string } | null) => {
+      if (!row || (row.uuid && activityIds.has(row.uuid))) return;
+      if (row.uuid) activityIds.add(row.uuid);
+      out.push(row);
+    };
     const lines = String(chunk || "").split("\n");
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
@@ -295,11 +302,11 @@ const plugin: PluginModule = {
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        const activity = completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id);
-        if (activity && !activityIds.has(activity.uuid)) {
-          activityIds.add(activity.uuid);
-          out.push(activity);
-        }
+        pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
+        continue;
+      }
+      if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
+        pushOnce(subAgentRow(v.payload as Record<string, unknown>, v.payload.event_id, undefined, ts, tsIso));
         continue;
       }
       if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
@@ -375,6 +382,10 @@ const plugin: PluginModule = {
           ts: ts,
           timestamp: tsIso,
         });
+      } else if (p.type === "reasoning") {
+        pushOnce(reasoningResponseRow(p as Record<string, unknown>, ts, tsIso));
+      } else if (p.type === "agent_message") {
+        pushOnce(agentMessageRow(p as Record<string, unknown>, ts, tsIso));
       } else if (p.type === "custom_tool_call") {
         let name = typeof p.name === "string" ? p.name.trim() : "";
         if (!name) continue;
@@ -560,6 +571,12 @@ interface CodexPayload {
   stdout?: string;
   success?: boolean;
   turn_id?: unknown;
+  id?: unknown;
+  event_id?: unknown;
+  summary?: unknown;
+  author?: unknown;
+  recipient?: unknown;
+  internal_chat_message_metadata_passthrough?: unknown;
   changes?: unknown;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
@@ -618,13 +635,16 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
       || v.payload.type === "task_complete"
       || v.payload.type === "turn_aborted"
       || v.payload.type === "context_compacted"
-      || (v.payload.type === "thread_goal_updated" && sessionIntentFromPayload(v.payload) !== null);
+      || (v.payload.type === "thread_goal_updated" && sessionIntentFromPayload(v.payload) !== null)
+      || v.payload.type === "sub_agent_activity";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
   if (
     kind !== "message" &&
+    kind !== "reasoning" &&
+    kind !== "agent_message" &&
     kind !== "function_call" &&
     kind !== "function_call_output" &&
     kind !== "custom_tool_call" &&

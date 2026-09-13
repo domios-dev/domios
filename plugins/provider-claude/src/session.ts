@@ -9,6 +9,12 @@ export interface ClaudeAttachment {
   filename?: unknown;
   path?: unknown;
 }
+export interface ClaudeToolUseResult {
+  returnCode?: unknown;
+  durationMs?: unknown;
+  interrupted?: unknown;
+  backgroundTaskId?: unknown;
+}
 
 export interface ClaudeEntry {
   type?: string;
@@ -26,6 +32,7 @@ export interface ClaudeEntry {
   filename?: unknown;
   path?: unknown;
   toolUseResult?: unknown;
+  sourceToolAssistantUUID?: unknown;
 }
 
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = {
