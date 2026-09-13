@@ -9,6 +9,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
+import { rehypeSourceOffsets } from "./sourceOffsets";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
@@ -154,20 +155,28 @@ const HTML_REHYPE_PLUGINS = [
   rehypeScrubInlineStyles,
 ] as unknown as RehypePlugins;
 
+const SOURCE_OFFSET_REHYPE_PLUGINS = [rehypeSourceOffsets] as unknown as RehypePlugins;
+
 export function RichMarkdown({
   text,
   fontScale,
   localArtifacts = true,
+  sourcePositions = false,
 }: {
   text: string;
   fontScale?: number;
   localArtifacts?: boolean;
+  /** Stamp source offsets on the rendered DOM; skipped when HTML normalization makes offsets inexact. */
+  sourcePositions?: boolean;
 }) {
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const renderedText = useMemo(() => normalizeMultilineHtmlBlocks(text), [text]);
-  const rehypePlugins = useMemo(() => (containsHtmlMarkup(renderedText) ? HTML_REHYPE_PLUGINS : undefined), [renderedText]);
+  const rehypePlugins = useMemo(() => {
+    if (containsHtmlMarkup(renderedText)) return HTML_REHYPE_PLUGINS;
+    return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : undefined;
+  }, [renderedText, sourcePositions, text]);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
