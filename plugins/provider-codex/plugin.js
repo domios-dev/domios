@@ -794,6 +794,18 @@ function actionTitle(fields) {
 }
 
 // plugins/provider-codex/src/activity.ts
+function parsedReadTitle(value) {
+  if (!Array.isArray(value) || value.length === 0) return "";
+  const names = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") return "";
+    const parsed = entry;
+    const name = text2(parsed.name) || baseName(text2(parsed.path));
+    if (parsed.type !== "read" || !name) return "";
+    if (names.indexOf(name) === -1) names.push(name);
+  }
+  return actionTitle({ tool_summary: `Read ${names[0]}` + (names.length > 1 ? ` +${names.length - 1}` : "") });
+}
 function text2(value) {
   return typeof value === "string" ? value : "";
 }
@@ -823,8 +835,10 @@ function completedActivity(value, ts, timestamp, turnId) {
         name: "command_execution",
         input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
         ...fields,
-        tool_title: actionTitle(fields),
+        tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields),
         ...flow,
+        // The exec call that ran this command is already in the transcript; no source id links the two.
+        tool_echo: true,
         tool_status: failed ? "error" : "success"
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed } }
@@ -2213,7 +2227,7 @@ var plugin = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
-      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete")) {
+      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
         out.push({
@@ -2476,7 +2490,7 @@ function isValidCodexSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
-    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed" || v.payload.type === "task_started" || v.payload.type === "task_complete";
+    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed" || v.payload.type === "task_started" || v.payload.type === "task_complete" || v.payload.type === "turn_aborted";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
