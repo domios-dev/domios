@@ -122,7 +122,7 @@ function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
 }
 
 /** Folds calls that share one proven flow into a stream at the first member's position. */
-function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string> = new Set()): TimelineItem[] {
+function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string>, boundaryFlows: ReadonlySet<string>): TimelineItem[] {
   const groups = new Map<string, number[]>();
   items.forEach((item, index) => {
     if (item.kind !== "tool" || item.event.phase !== "call" || !item.event.flowId || item.event.stream) return;
@@ -136,7 +136,9 @@ function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string> 
   for (const [key, indexes] of groups) {
     if (indexes.length < 2) continue;
     const members = indexes.map((index) => (items[index] as { kind: "tool"; event: ToolEvent }).event);
-    if (!members.every((member) => toolStreamLabel(member))) continue;
+    // Only a boundary-opened flow proves its source emits no descriptions; call-stamped flows need them.
+    const labeled = boundaryFlows.has(key) ? toolStreamLabel : (member: ToolEvent) => member.description;
+    if (!members.every((member) => labeled(member))) continue;
     const active = openFlows.has(key) || members.some((member) => member.status === "pending");
     heads.set(indexes[0], streamEvent(members, active));
     for (const index of indexes.slice(1)) absorbed.add(index);
@@ -156,12 +158,16 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
   const waiting = new Map<string, ToolEvent[]>();
   const seenResults = new Set<string>();
   const openFlowBySession = new Map<string, string>();
+  const boundaryFlows = new Set<string>();
 
   for (const message of messages) {
     if (message.type === "tool_flow") {
       const session = message.sourceSessionId ?? "";
       const flowId = text(message.toolFlowId);
-      if (message.content === "start" && flowId) openFlowBySession.set(session, flowId);
+      if (message.content === "start" && flowId) {
+        openFlowBySession.set(session, flowId);
+        boundaryFlows.add(flowKey(message.sourceSessionId, flowId));
+      }
       else if (message.content === "end" && (!flowId || openFlowBySession.get(session) === flowId)) openFlowBySession.delete(session);
       continue;
     }
@@ -221,5 +227,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     }
   }
   const openFlows = new Set([...openFlowBySession].map(([session, flowId]) => flowKey(session || undefined, flowId)));
-  return groupToolStreams(items, openFlows);
+  return groupToolStreams(items, openFlows, boundaryFlows);
 }
