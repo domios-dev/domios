@@ -9,6 +9,14 @@ export function isChatUiSupported(agentType?: string | null, backing?: TabBackin
   return getAgentDescriptor(agentType)?.supports_chat_ui === true;
 }
 
+/** The tab body's own rule: an agent whose descriptor has not loaded yet is treated as chat-capable. */
+export function tabChatCapable(tab: { agent_type?: string | null; backing?: TabBacking | null }): boolean {
+  if (tab.backing?.kind === "chat_backend") return true;
+  if (!tab.agent_type) return false;
+  const descriptor = getAgentDescriptor(tab.agent_type);
+  return descriptor ? descriptor.supports_chat_ui === true : true;
+}
+
 export function shouldDefaultNewAgentTabToChat(
   agentType?: string | null,
   backing?: TabBacking | null,

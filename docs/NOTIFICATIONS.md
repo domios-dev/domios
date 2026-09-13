@@ -97,10 +97,10 @@ the same command typed by hand in a CodeTerm tab is refused too.
 
 A Needs you notification can point at one chat message: `codeterm notify send
 "…" --level action_needed --target-tab <tab id> --chat-message <message id>`. On
-the Mission Control Board its row is a single jump that selects that tab and
-reveals that exact message, never a similar one. When no message was recorded,
-the tab is closed, or the message is not in the loaded chat, the row says it is
-unavailable instead. Both ids are navigation only and never change who asked.
+the Mission Control Board its row is a single jump that leaves the Board, opens
+that tab in Chat and reveals that exact message, never a similar one. When no
+message was recorded, the tab is closed or has no chat view, or the message is
+not in the loaded chat, the row says it is unavailable instead. Both ids are navigation only and never change who asked.
 
 # Per-channel push AUDIENCE, keyed by the channel's bridge service id — the same
 # id `codeterm bridge send --service <id>` takes. Whether a level reaches a
@@ -119,4 +119,4 @@ per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

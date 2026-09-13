@@ -1,5 +1,6 @@
 import { useMemo, type KeyboardEvent } from "react";
-import { requestChatMessageReveal, useChatReveal } from "../../lib/chatMessageReveal";
+import { useChatReveal } from "../../lib/chatMessageReveal";
+import { jumpToChatMessage } from "./jumpToChatMessage";
 import {
   DEEP_LINK_UNAVAILABLE_COPY,
   needsYouNotificationItems,
@@ -31,17 +32,24 @@ export function useNeedsYouNotificationItems(links?: NeedsYouDeepLinks): NeedsYo
 /** The whole row is the one jump; it carries no action controls. */
 export function NeedsYouNotificationRow({
   item,
+  tabs,
   onSelectTab,
 }: {
   item: NeedsYouNotificationItem;
+  tabs: NeedsYouDeepLinks["tabs"];
   onSelectTab: NeedsYouDeepLinks["onSelectTab"];
 }) {
   const { state } = item;
   const unavailable = state.kind === "unavailable" ? DEEP_LINK_UNAVAILABLE_COPY[state.reason] : null;
   const activate = () => {
     if (state.kind !== "available") return;
-    requestChatMessageReveal(state.tabId, state.messageId, item.id);
-    void onSelectTab(state.workspaceId, state.tabId);
+    const tab = tabs[state.tabId];
+    if (!tab) return;
+    jumpToChatMessage(
+      { workspaceId: state.workspaceId, tabId: state.tabId, messageId: state.messageId, notificationId: item.id },
+      tab,
+      onSelectTab,
+    );
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
