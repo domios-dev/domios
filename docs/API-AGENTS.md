@@ -77,6 +77,8 @@ Explicitly closes every Team member through the Team cascade path, removes the T
 |--------|------|--------------|-------------|
 | GET | `/api/plans/{id}/tasks/{tid}/attempts` | — | List execution attempts recorded for one task |
 | GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
+| POST | `/api/plans/{id}/tasks/{tid}/pause` | `{reason, from?}` | Pause a task with a required non-blank reason; the REST twin of `codeterm plan task pause --reason`, behind the same task owner-epoch gate. Blank reason returns `400` `task_pause_requires_reason`; `in_review` returns `409` `review_hold_required` |
+| POST | `/api/plans/{id}/tasks/{tid}/resume` | — | Return a paused task to `pending`; the REST twin of `codeterm plan task resume`, behind the same owner-epoch gate |
 | POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
 Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch requires known provider-allowance telemetry at or above `provider_reserve_pct` (default 5); a stale snapshot emits a warning but uses its last known reserve value instead of deadlocking dispatch. This preflight runs before lane provisioning or task mutation. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
@@ -237,4 +239,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
