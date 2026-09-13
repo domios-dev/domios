@@ -6,6 +6,11 @@ import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 
 const MINI_VIEW_MAX_PX = 200;
 const MINI_VIEW_ROWS = 6;
+const SELECTED_MEMBER_BY_STREAM = new Map<string, string>();
+
+function memberKey(member: ToolEvent): string {
+  return member.toolId?.trim() || member.id;
+}
 
 export type RenderStreamAction = (member: ToolEvent, expanded: boolean, onToggle: (next: boolean) => void) => ReactNode;
 
@@ -44,25 +49,31 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
   onToggle: (next: boolean) => void;
   renderAction: RenderStreamAction;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const streamKey = `${event.message.sourceSessionId ?? ""}:${event.stream?.flowId ?? event.id}`;
+  const [selectedKey, setSelectedKeyState] = useState<string | null>(() => SELECTED_MEMBER_BY_STREAM.get(streamKey) ?? null);
   const regionId = useId();
   const stream = event.stream;
   if (!stream) return null;
+  const selectMember = (key: string | null) => {
+    if (key) SELECTED_MEMBER_BY_STREAM.set(streamKey, key);
+    else SELECTED_MEMBER_BY_STREAM.delete(streamKey);
+    setSelectedKeyState(key);
+  };
   const count = stream.members.length;
   const countLabel = `${count} ${count === 1 ? "action" : "actions"}`;
   const miniView = stream.active && !expanded;
 
   const renderMember = (member: ToolEvent) => (
     <li key={member.id} data-testid="chat-tool-stream-member" data-member-id={member.id}>
-      {member.id === selectedId
-        ? renderAction(member, true, (next) => setSelectedId(next ? member.id : null))
+      {memberKey(member) === selectedKey
+        ? renderAction(member, true, (next) => selectMember(next ? memberKey(member) : null))
         : (
           <button
             type="button"
             data-testid="chat-tool-stream-action"
             aria-expanded={false}
             aria-label={`Show ${actionLabel(member)}`}
-            onClick={() => setSelectedId(member.id)}
+            onClick={() => selectMember(memberKey(member))}
             className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
             style={{ color: "var(--ct-fg)" }}
           >

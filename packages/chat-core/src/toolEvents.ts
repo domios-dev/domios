@@ -179,14 +179,15 @@ function flowKey(sessionId: string | undefined, flowId: string): string {
   return `${sessionId ?? ""}:${flowId}`;
 }
 
-function streamEvent(members: ToolEvent[], entries: StreamEntry[], active: boolean): ToolEvent {
+function streamEvent(members: ToolEvent[], entries: StreamEntry[], active: boolean, open: boolean): ToolEvent {
   const first = members[0];
   const latest = members[members.length - 1];
   const failed = members.some((member) => member.status === "error");
   const head: ToolEvent = {
     ...first,
     id: `${first.id}:stream`,
-    status: members.some((member) => member.status === "pending")
+    // A flow the source has not closed is still running, even when every recorded call settled.
+    status: open || members.some((member) => member.status === "pending")
       ? "pending"
       : failed ? "error" : members.some((member) => member.status === "unresolved") ? "unresolved"
         : members.some((member) => member.status === "interrupted") ? "interrupted" : "success",
@@ -241,8 +242,9 @@ function groupToolStreams(
       const item = items[index];
       return item.kind === "tool" ? { kind: "action", event: item.event } : { kind: "thought", id: item.message.id, text: item.message.content };
     });
-    const active = openFlows.has(key) || members.some((member) => member.status === "pending");
-    heads.set(head, streamEvent(members, entries, active));
+    const open = openFlows.has(key);
+    const active = open || members.some((member) => member.status === "pending");
+    heads.set(head, streamEvent(members, entries, active, open));
     // An echo re-reports a command a member already shows, so a formed stream drops it.
     for (const index of [...indexes, ...thoughts]) if (index !== head) absorbed.add(index);
   }
