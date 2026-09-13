@@ -42,6 +42,19 @@ assert(
   "meaningful upward movement detaches immediately",
 );
 
+assert(
+  chatViewportModeAfterScroll("detached", 7000, { scrollHeight: 8400, scrollTop: 7999, clientHeight: 400 }) === "pinned",
+  "scrolling down to a fractional visual bottom reattaches",
+);
+assert(
+  chatViewportModeAfterScroll("detached", 7999, { scrollHeight: 8400, scrollTop: 7998.5, clientHeight: 400 }) === "detached",
+  "moving up inside the bottom band stays detached",
+);
+assert(
+  chatViewportModeAfterScroll("detached", 7000, { scrollHeight: 8400, scrollTop: 7990, clientHeight: 400 }) === "detached",
+  "a reader short of the bottom stays detached",
+);
+
 const detachedViewport = { scrollHeight: 1000, scrollTop: 250, clientHeight: 400 };
 snapChatViewportToBottom(detachedViewport);
 assert(detachedViewport.scrollTop === 1000, "explicit down snaps to latest");
