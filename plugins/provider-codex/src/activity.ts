@@ -10,6 +10,7 @@ interface ActivityItem {
   command?: unknown;
   status?: unknown;
   exit_code?: unknown;
+  duration?: unknown;
   duration_ms?: unknown;
   aggregated_output?: unknown;
   stdout?: unknown;
@@ -59,10 +60,21 @@ function exactOutcomeNumber(value: unknown, nonnegative: boolean): number | unde
   return value;
 }
 
+function durationMilliseconds(item: ActivityItem): number | undefined {
+  const numericDuration = exactOutcomeNumber(item.duration_ms, true);
+  if (numericDuration !== undefined) return numericDuration;
+  if (!item.duration || typeof item.duration !== "object" || Array.isArray(item.duration)) return undefined;
+  const duration = item.duration as { secs?: unknown; nanos?: unknown };
+  const secs = exactOutcomeNumber(duration.secs, true);
+  const nanos = exactOutcomeNumber(duration.nanos, true);
+  if (secs === undefined || nanos === undefined) return undefined;
+  return exactOutcomeNumber(secs * 1000 + Math.round(nanos / 1_000_000), true);
+}
+
 function commandOutcome(item: ActivityItem): Record<string, unknown> {
   const outcome: Record<string, unknown> = {};
   const exitCode = exactOutcomeNumber(item.exit_code, false);
-  const durationMs = exactOutcomeNumber(item.duration_ms, true);
+  const durationMs = durationMilliseconds(item);
   if (exitCode !== undefined) outcome.tool_exit_code = exitCode;
   if (durationMs !== undefined) outcome.tool_duration_ms = durationMs;
   return outcome;
