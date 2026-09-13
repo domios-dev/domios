@@ -393,7 +393,9 @@ test("empty workspace shows stable empty gate", async () => {
 
 test("mobile board CSS enables horizontal snap columns and 44px touch targets", () => {
   const css = readFileSync("src/styles/globals.css", "utf8");
-  const mobileBlock = css.match(/@media \(max-width: 768px\), \(pointer: coarse\)\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+  const mobileBlock = [...css.matchAll(/@media \(max-width: 768px\), \(pointer: coarse\)\s*\{[\s\S]*?\n\}/g)]
+    .map((match) => match[0])
+    .join("\n");
   assert(mobileBlock.includes("scroll-snap-type: x mandatory"), "column snap scroll");
   assert(mobileBlock.includes(".plan-board-column-head") && mobileBlock.includes("min-height: 44px"), "sticky column heads");
   assert(mobileBlock.includes(".plan-board-task-card-interactive") && mobileBlock.includes("min-height: 44px"), "card touch targets");
