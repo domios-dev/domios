@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { MissionControlBoard } from "./MissionControlBoard";
-import { BOARD_ROW_COLUMNS, SPEND_SCOPE_CAPTION, UNASSIGNED_MODEL_LABEL, planHeading } from "./missionControlBoardModel";
+import { BOARD_ROW_COLUMNS, SPEND_SCOPE_CAPTION, UNASSIGNED_MODEL_LABEL } from "./missionControlBoardModel";
 import type { MissionControlState, PlanBoardState } from "./missionControlState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -341,7 +341,7 @@ describe("mission control board visual system", () => {
     const css = readRepo(BOARD_CSS_PATH);
     const { host, plan, unmount } = await renderAt(OWNER_WIDTH);
 
-    expect(plan.querySelector('[data-testid="mc-board-plan-heading"]')?.textContent).toBe(planHeading(FIXTURE_PLAN));
+    expect(plan.querySelector('[data-testid="mc-board-plan-heading"]')?.textContent).toBe(FIXTURE_PLAN.title);
     expect(plan.querySelector('[data-testid="mc-board-tasks-amount"]')?.textContent).toBe("4");
     const statuses = Array.from(plan.querySelectorAll('[data-testid="mc-board-task-statuses"] li')) as HTMLElement[];
     expect(statuses.map((status) => status.getAttribute("data-testid"))).toEqual(["mc-board-task-status-paused"]);
