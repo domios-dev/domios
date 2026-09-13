@@ -10,6 +10,7 @@ mod commands;
 mod core;
 mod permission_request;
 mod sessions;
+mod usage_sources;
 
 fn pair() -> (ClaudeProvider, JsProvider) {
     (ClaudeProvider::new(), load_js("claude"))

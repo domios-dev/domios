@@ -15,7 +15,7 @@ import { ReadCard } from "./toolcard/ReadCard";
 import { RichResultCard } from "./toolcard/RichResultCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
-import { ToolActivityStream } from "./toolcard/ToolActivityStream";
+import { ToolActivityStream, type RenderStreamAction } from "./toolcard/ToolActivityStream";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
@@ -47,19 +47,11 @@ export function ToolCallBubble({
   const event = suppliedEvent ?? (message ? materializeToolEvent(message) : null);
   if (!event) return null;
   const codetermProps = { resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale };
-  if (event.agents) return <AgentActivityCard event={event} expanded={expanded} onToggle={onToggle} />;
-  if (event.stream) {
-    return (
-      <ToolActivityStream
-        event={event}
-        expanded={expanded}
-        onToggle={onToggle}
-        renderAction={(member, memberExpanded, onMemberToggle) => (
-          <ToolCallBubble event={member} expanded={memberExpanded} onToggle={onMemberToggle} {...codetermProps} />
-        )}
-      />
-    );
-  }
+  const renderAction: RenderStreamAction = (member, memberExpanded, onMemberToggle) => (
+    <ToolCallBubble event={member} expanded={memberExpanded} onToggle={onMemberToggle} {...codetermProps} />
+  );
+  if (event.agents) return <AgentActivityCard event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
+  if (event.stream) return <ToolActivityStream event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
 
   // A structured source diff is the truthful record of the edit, so it replaces the old/new-string card.
   if (event.fileDiffs?.length) return <FileDiffCards event={event} />;

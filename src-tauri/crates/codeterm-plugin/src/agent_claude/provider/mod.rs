@@ -12,6 +12,7 @@ mod interactive;
 mod launch;
 mod schemas;
 mod sessions;
+mod subagents;
 mod usage;
 
 #[cfg(test)]
@@ -150,6 +151,14 @@ impl AgentProvider for ClaudeProvider {
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         sessions::session_file_path(cwd, session_id)
+    }
+
+    fn additional_usage_sources(
+        &self,
+        session_file: &std::path::Path,
+        session_id: &str,
+    ) -> Vec<PathBuf> {
+        subagents::usage_sources(session_file, session_id)
     }
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> bool {

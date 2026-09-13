@@ -149,23 +149,25 @@ impl ServiceContext {
         self.request_kpi_usage_ingest(tab_id);
     }
 
-    /// Queues a forward-only pass over the tab's provider session log. The path comes
-    /// from the provider capability, so core never encodes a per-provider layout.
+    /// Queues a forward-only pass over each of the tab's provider session logs, every one
+    /// on its own cursor. Paths come from provider capabilities, never a per-provider layout.
     pub(crate) fn request_kpi_usage_ingest(&self, tab_id: &str) {
         if !self.kpi.is_enabled() {
             return;
         }
-        let Some(source) = self.tab_usage_source(tab_id) else {
+        let Some(sources) = self.tab_usage_sources(tab_id) else {
             return;
         };
         let attribution = self.kpi_attribution(tab_id);
-        self.kpi.request_ingest(source, attribution);
+        for source in sources {
+            self.kpi.request_ingest(source, attribution.clone());
+        }
     }
 
     /// An unresolvable source used to return `None` without a trace, so a tab whose
     /// session was never bound recorded nothing and said nothing. Name the missing
     /// input instead: silence here reads exactly like a tab that spent nothing.
-    fn tab_usage_source(&self, tab_id: &str) -> Option<UsageSource> {
+    fn tab_usage_sources(&self, tab_id: &str) -> Option<Vec<UsageSource>> {
         let (agent_type, cwd, session_id) = {
             let mux = self.mux.read();
             let resolved = mux.resolve_tab_id(tab_id)?;
@@ -187,17 +189,20 @@ impl ServiceContext {
             return None;
         }
         let (agent_type, cwd, session_id) = (agent_type?, cwd?, session_id?);
-        let path = self
+        // Additional sources are keyed off the tab's own session file and id only.
+        let paths = self
             .agent_registry
             .with_provider(&agent_type, |provider| {
-                provider.session_file_path(&cwd, &session_id)
+                let main = provider.session_file_path(&cwd, &session_id)?;
+                let extra = provider.additional_usage_sources(&main, &session_id);
+                Some(std::iter::once(main).chain(extra).collect::<Vec<_>>())
             })
             .flatten();
-        if path.is_none() {
+        if paths.is_none() {
             log::debug!(
                 "[kpi] tab {tab_id}: provider {agent_type} names no session file for {session_id}"
             );
         }
-        path.map(UsageSource::new)
+        paths.map(|paths| paths.into_iter().map(UsageSource::new).collect())
     }
 }

@@ -1,5 +1,6 @@
 export type {
   AgentActivity,
+  AgentActivityAction,
   AgentActivityState,
   ChatAttachment,
   ChatMessageKind,
@@ -60,6 +61,7 @@ export { attachToolResults, isRenderableChatMessage } from "./toolResults";
 export { countAddedLines, countRemovedLines, countAdded, countRemoved, type EditPair } from "./toolNormalize";
 export { parseCodexPatch, patchTextFromToolInput, type ParsedPatchFile } from "./toolPatches";
 export {
+  agentActionStream,
   materializeToolEvent,
   reduceToolEvents,
   toolStreamLabel,

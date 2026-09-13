@@ -19,6 +19,7 @@
   "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx",
   "packages/chat-ui/src/toolcard/richResults.test.tsx",
   "packages/chat-ui/src/toolcard/thoughtsAgents.test.tsx",
+  "packages/chat-ui/src/toolcard/subAgentCard.test.tsx",
   "src/components/Canvas/planView/PlanParagraphAsk.test.tsx",
   "src/components/Canvas/planView/BoardTaskCard.actions.test.tsx",
   "src/components/Terminal/useChatScroll.stability.test.tsx",

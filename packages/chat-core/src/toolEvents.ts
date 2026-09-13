@@ -1,4 +1,4 @@
-import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree } from "./agentActivity";
+import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree, type AgentNode } from "./agentActivity";
 import { wellFormedFileDiffs } from "./fileDiffs";
 import { toolCommand, unwrapShellLauncher } from "./shellComposition";
 import { normalizeToolRichResult } from "./toolRichResult";
@@ -213,6 +213,35 @@ function streamEvent(members: ToolEvent[], entries: StreamEntry[], active: boole
   // Diffs stay with the member that produced them; a stream head shows none of its own.
   delete head.fileDiffs;
   return head;
+}
+
+/** A sub-agent's own actions as the same stream the main chat renders; null when none were recorded. */
+export function agentActionStream(agent: AgentNode, parent: NormalizedChatMessage): ToolEvent | null {
+  const actions = agent.actions ?? [];
+  if (actions.length === 0) return null;
+  const flowId = `agent:${agent.key}`;
+  const live = agent.state === "started" || agent.state === "running";
+  const members = actions.flatMap((action, index): ToolEvent[] => {
+    const event = materializeToolEvent({
+      id: `${parent.id}:${flowId}:${action.id ?? index}`,
+      type: "tool_call",
+      content: action.summary,
+      provider: parent.provider,
+      sourceSessionId: parent.sourceSessionId,
+      toolId: action.id,
+      toolKind: action.kind,
+      toolSummary: action.summary,
+      toolDetail: action.detail,
+      toolDescription: action.description,
+      toolFlowId: flowId,
+      ...(action.status === "pending" ? {} : { toolError: action.status === "error" }),
+    });
+    if (!event) return [];
+    // A finished agent will never report the missing result.
+    return [!live && event.status === "pending" ? { ...event, status: "unresolved" } : event];
+  });
+  if (members.length === 0) return null;
+  return streamEvent(members, members.map((event): StreamEntry => ({ kind: "action", event })), live, live);
 }
 
 function agentActivityEvent(message: NormalizedChatMessage, records: AgentActivity[]): ToolEvent {

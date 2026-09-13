@@ -16,11 +16,30 @@ export type ChatMessageKind =
 
 export type AgentActivityState = "started" | "running" | "completed" | "failed" | "interrupted" | "closed" | "unknown";
 
+/** One action a sub-agent recorded in its own transcript. */
+export interface AgentActivityAction {
+  id?: string;
+  kind: ToolEventKind;
+  summary: string;
+  detail?: string;
+  description?: string;
+  status: "pending" | "success" | "error";
+}
+
 /** Sub-agent activity proven by the row's own session record; absent fields are unknown, never inferred. */
 export interface AgentActivity {
   agentId?: string;
   agentPath?: string;
   state?: AgentActivityState;
+  /** The call that launched the agent; every record of one launch shares it. */
+  callId?: string;
+  description?: string;
+  model?: string;
+  durationMs?: number;
+  toolUses?: number;
+  tokens?: number;
+  result?: string;
+  actions?: AgentActivityAction[];
   /** Message direction between two agent references (thread id or path). */
   messageFrom?: string;
   messageTo?: string;
@@ -39,7 +58,7 @@ export type ToolEventKind =
   | "codeterm"
   | "web"
   | "image"
-  /** Sub-agent activity; `toolInput` carries agent_id, agent_path, agent_state, message_from, message_to. */
+  /** Sub-agent activity; `toolInput` carries agent_id, agent_path, agent_state, agent_call_id, message_from, message_to and optional agent_* facts. */
   | "agent"
   | "generic";
 
