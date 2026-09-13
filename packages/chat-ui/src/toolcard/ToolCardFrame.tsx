@@ -1,5 +1,5 @@
 import type { ToolEvent } from "@codeterm/chat-core";
-import { Check, CircleX, LoaderCircle, ChevronRight } from "lucide-react";
+import { Check, CircleX, LoaderCircle, ChevronRight, Minus } from "lucide-react";
 import type { ReactNode } from "react";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
@@ -24,7 +24,9 @@ interface ToolCardFrameProps {
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel }: ToolCardFrameProps) {
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
-  const statusColor = event.status === "error" ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
+  const statusColor = event.status === "error"
+    ? "var(--ct-red)"
+    : event.status === "pending" ? "var(--ct-yellow)" : event.status === "unresolved" ? "var(--ct-muted-fg)" : "var(--ct-green)";
   const borderColor = event.status === "error"
     ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
     : expanded || variant === "codeterm" ? "var(--ct-border)" : "transparent";
@@ -67,8 +69,13 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             {!expanded && tail}
           </span>
         </button>
-        <span data-testid="toolcard-status" aria-label={event.status} style={{ color: statusColor }}>
-          {event.status === "pending" ? <LoaderCircle className="animate-spin" size={14} /> : event.status === "error" ? <CircleX size={14} /> : <Check size={14} />}
+        {event.status === "unresolved" && (
+          <span data-testid="toolcard-no-result" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>no result</span>
+        )}
+        <span data-testid="toolcard-status" aria-label={event.status === "unresolved" ? "no result" : event.status} style={{ color: statusColor }}>
+          {event.status === "pending"
+            ? <LoaderCircle className="animate-spin" size={14} />
+            : event.status === "error" ? <CircleX size={14} /> : event.status === "unresolved" ? <Minus size={14} /> : <Check size={14} />}
         </span>
         {action}
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
