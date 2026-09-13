@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import type {
+  PlanLifecycleConfirm,
+  PlanLifecycleKind,
+  PlanLifecyclePreviewLoader,
+} from "../planLifecycle";
+import { MissionControlPlanLifecycleDialog } from "./MissionControlPlanLifecycleDialog";
 
 export type MissionControlPlanAction = (planId: string) => void | Promise<void>;
 export type MissionControlTaskAction = (planId: string, taskId: string) => void | Promise<void>;
@@ -7,18 +13,26 @@ export interface MissionControlControlsProps {
   scope: "board" | "task";
   planId: string;
   taskId?: string;
+  planPaused?: boolean;
   onApprovePlan?: MissionControlPlanAction;
-  onPausePlan?: MissionControlPlanAction;
+  onPreviewPlanLifecycle?: PlanLifecyclePreviewLoader;
+  onConfirmPlanLifecycle?: PlanLifecycleConfirm;
   onClearEverything?: MissionControlPlanAction;
   onDeleteTask?: MissionControlTaskAction;
 }
 
-interface MenuAction {
-  label: string;
-  confirmation: string;
-  destructive?: boolean;
-  run: () => void | Promise<void>;
-}
+type MenuAction =
+  | {
+      label: string;
+      confirmation: string;
+      destructive?: boolean;
+      run: () => void | Promise<void>;
+    }
+  | {
+      label: string;
+      lifecycle: PlanLifecycleKind;
+      destructive?: undefined;
+    };
 
 function stopInteraction(event: { stopPropagation: () => void }) {
   event.stopPropagation();
@@ -28,14 +42,17 @@ export function MissionControlControls({
   scope,
   planId,
   taskId,
+  planPaused = false,
   onApprovePlan,
-  onPausePlan,
+  onPreviewPlanLifecycle,
+  onConfirmPlanLifecycle,
   onClearEverything,
   onDeleteTask,
 }: MissionControlControlsProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [lifecycle, setLifecycle] = useState<PlanLifecycleKind | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -54,11 +71,9 @@ export function MissionControlControls({
           confirmation: `Approve plan "${planId}"?`,
           run: () => onApprovePlan?.(planId),
         },
-        {
-          label: "Pause plan",
-          confirmation: `Pause plan "${planId}"?`,
-          run: () => onPausePlan?.(planId),
-        },
+        planPaused
+          ? { label: "Resume plan", lifecycle: "resume" }
+          : { label: "Pause plan", lifecycle: "pause" },
         {
           label: "Clear everything",
           confirmation: `Clear everything in plan "${planId}"?`,
@@ -103,9 +118,19 @@ export function MissionControlControls({
 
   const onAction = (action: MenuAction, event: MouseEvent<HTMLButtonElement>) => {
     stopInteraction(event);
+    if ("lifecycle" in action) {
+      close(false);
+      setLifecycle(action.lifecycle);
+      return;
+    }
     close(true);
     if (!window.confirm(action.confirmation)) return;
     void action.run();
+  };
+
+  const closeLifecycle = () => {
+    setLifecycle(null);
+    triggerRef.current?.focus();
   };
 
   return (
@@ -144,6 +169,7 @@ export function MissionControlControls({
               key={action.label}
               type="button"
               role="menuitem"
+              aria-haspopup={"lifecycle" in action ? "dialog" : undefined}
               className={`mission-control-actions-menuitem${action.destructive ? " mission-control-actions-menuitem-danger" : ""}`}
               onClick={(event) => onAction(action, event)}
             >
@@ -151,6 +177,15 @@ export function MissionControlControls({
             </button>
           ))}
         </div>
+      )}
+      {lifecycle && (
+        <MissionControlPlanLifecycleDialog
+          kind={lifecycle}
+          planId={planId}
+          loadPreview={onPreviewPlanLifecycle}
+          onConfirm={onConfirmPlanLifecycle}
+          onClose={closeLifecycle}
+        />
       )}
     </div>
   );

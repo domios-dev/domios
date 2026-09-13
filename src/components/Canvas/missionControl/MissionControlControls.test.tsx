@@ -34,7 +34,8 @@ async function openMenu(host: HTMLElement, triggerId: string) {
 describe("Mission Control confirmed controls", () => {
   it("exposes the exact board actions and keeps every cancelled action inert", async () => {
     const approve = vi.fn();
-    const pause = vi.fn();
+    const pause = vi.fn(async () => undefined);
+    const preview = vi.fn(() => new Promise<never>(() => undefined));
     const clear = vi.fn();
     const confirm = vi.fn(() => false);
     const previousConfirm = window.confirm;
@@ -44,7 +45,8 @@ describe("Mission Control confirmed controls", () => {
         scope="board"
         planId="plan-visible"
         onApprovePlan={approve}
-        onPausePlan={pause}
+        onPreviewPlanLifecycle={preview}
+        onConfirmPlanLifecycle={pause}
         onClearEverything={clear}
       />,
     );
@@ -62,9 +64,18 @@ describe("Mission Control confirmed controls", () => {
         );
         expect(item).not.toBeUndefined();
         await act(async () => item?.click());
+        const cancel = document.body.querySelector<HTMLButtonElement>(
+          '[data-testid="mission-control-plan-pause-cancel"]',
+        );
+        if (label === "Pause plan") {
+          expect(cancel).not.toBeNull();
+          await act(async () => cancel?.click());
+        } else {
+          expect(cancel).toBeNull();
+        }
       }
 
-      expect(confirm).toHaveBeenCalledTimes(expected.length);
+      expect(confirm).toHaveBeenCalledTimes(expected.length - 1);
       expect(approve).not.toHaveBeenCalled();
       expect(pause).not.toHaveBeenCalled();
       expect(clear).not.toHaveBeenCalled();

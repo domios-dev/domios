@@ -2,6 +2,7 @@ import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import { invoke, IS_WEB } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import type { DriftItem, OrchestratorRef, Plan, PlanMode, PlanStatus, Section } from "./types";
+import type { PlanLifecycleKind, PlanLifecyclePreview } from "./planLifecycle";
 
 // without fetching full plan bodies.
 export interface PlanIndexEntry {
@@ -253,6 +254,18 @@ export async function parkPlan(api: ApiConfig, planId: string, reason: string): 
     body: JSON.stringify({ reason }),
   });
   if (!res.ok) throw new Error(`plan park failed: ${res.status} ${await res.text()}`);
+}
+
+export async function fetchPlanLifecyclePreview(
+  api: ApiConfig,
+  planId: string,
+  kind: PlanLifecycleKind,
+): Promise<PlanLifecyclePreview> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/${kind}/preview`, {
+    headers: authHeaders(api),
+  });
+  if (!res.ok) throw new Error(`plan ${kind} preview failed: ${res.status} ${await res.text()}`);
+  return (await res.json()) as PlanLifecyclePreview;
 }
 
 export async function resumePlan(api: ApiConfig, planId: string): Promise<void> {
