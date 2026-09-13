@@ -14,6 +14,7 @@ import { planFetchShowsData } from "../planView/planViewFetchGate";
 import type { Plan, Section, Task } from "../types";
 import { useAllowanceWeeks } from "./allowanceWeek";
 import { MissionControlBoard } from "./MissionControlBoard";
+import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
 import { useTeamMissionControl } from "./useTeamMissionControl";
@@ -178,7 +179,11 @@ export function MissionControlPlanSurface({
   );
   const allowanceWeeks = useAllowanceWeeks(spendProviders);
   const boardTeamId = teamId ?? selectedPlan?.team_id ?? null;
-  const teamRevision = `${selectedPlan?.updated_at ?? 0}:${boardState.state?.mission_control?.event_log.recorded_events ?? 0}`;
+  const plansRevision = useMemo(
+    () => effectivePlans.reduce((latest, plan) => Math.max(latest, plan.updated_at), 0),
+    [effectivePlans],
+  );
+  const teamRevision = `${plansRevision}:${boardState.state?.mission_control?.event_log.recorded_events ?? 0}`;
   const team = useTeamMissionControl(api, boardTeamId, teamRevision);
   const teamSpend = useTeamSpend(api, boardTeamId, teamRevision);
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
@@ -257,7 +262,16 @@ export function MissionControlPlanSurface({
           testId="mission-control"
           className="p-4"
         />
-        {showsData && !selectedPlan && (
+        {showsData && !selectedPlan && team && (
+          <MissionControlTeamBoard
+            team={team}
+            teamSpend={teamSpend}
+            allowanceWeeks={allowanceWeeks}
+            deepLinks={deepLinks}
+            onOpenPlan={openPlanDetail}
+          />
+        )}
+        {showsData && !selectedPlan && !team && (
           <p data-testid="mission-control-empty" className="p-4 text-sm" style={{ color: "var(--ct-muted-fg)" }}>
             No active plans in this workspace.
           </p>
