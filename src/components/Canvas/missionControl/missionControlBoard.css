@@ -177,6 +177,14 @@
   padding-top: 0;
 }
 
+.mc-board-sub-label {
+  margin: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
 .mc-board-more {
   align-self: flex-start;
   padding: 0;

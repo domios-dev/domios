@@ -9,5 +9,6 @@
   "src/components/Notifications/notificationDeepLink.test.tsx",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
-  "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx"
+  "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx",
+  "packages/chat-ui/src/toolcard/richResults.test.tsx"
 ]
