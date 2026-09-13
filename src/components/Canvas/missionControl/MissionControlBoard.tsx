@@ -35,7 +35,6 @@ export function MissionControlBoard({
   state,
   loading = false,
   error = null,
-  now = Date.now(),
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -73,7 +72,7 @@ export function MissionControlBoard({
               bounces={mc.bounces}
               areas={mc.areas}
             />
-            <SpendCard spend={mc.spend} layout={layout} now={now} />
+            <SpendCard spend={mc.spend} />
           </div>
           <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} />
         </>

@@ -30,11 +30,6 @@ export const BOARD_ROW_COLUMNS: Record<BoardLayout, string> = {
   narrow: "minmax(0, 1fr)",
 };
 
-export const BOARD_SPEND_WINDOW_COLUMNS: Record<BoardLayout, string> = {
-  wide: "repeat(2, minmax(0, 1fr))",
-  narrow: "minmax(0, 1fr)",
-};
-
 const UNITS = [
   { limit: 1_000_000_000, suffix: "B" },
   { limit: 1_000_000, suffix: "M" },
@@ -292,34 +287,61 @@ export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
   return [...gates, ...reviews];
 }
 
-/** One provider/window allowance reading, as consumed. Never a per-model figure. */
+/** One provider allowance window already consumed. Never a per-model figure. */
 export interface SpendWindow {
   key: string;
-  label: string;
-  variant: "session" | "weekly";
-  pct: number | null;
-  resetsAt: number | null;
+  variant: "weekly" | "session";
+  pct: number;
   state: UsageState;
 }
 
-export interface SpendFigure {
-  key: string;
-  label: string;
-  value: number;
+/** Token figures in plain words; read from cache is the input not billed as new. */
+export interface SpendTokens {
+  newInput: number;
+  fromCache: number;
+  generated: number;
+  turns: number;
 }
+
+export const SPEND_TOKEN_WORDS: ReadonlyArray<{
+  key: keyof SpendTokens;
+  word: string;
+  one: string;
+  compact: boolean;
+}> = [
+  { key: "newInput", word: "new input", one: "new input", compact: true },
+  { key: "fromCache", word: "read from cache", one: "read from cache", compact: true },
+  { key: "generated", word: "generated", one: "generated", compact: true },
+  { key: "turns", word: "turns", one: "turn", compact: false },
+];
+
+export const SPEND_WINDOW_WORDS: Record<SpendWindow["variant"], string> = {
+  weekly: "of week used",
+  session: "of session used",
+};
+
+/** Allowance points spent per provider need a usage-snapshot projection the state does not carry yet. */
+export const SPEND_ALLOWANCE_SPENT_NEEDS = "needs projection change";
+/** The ledger records no tool calls yet. */
+export const SPEND_TOOL_CALLS_NEEDS = "needs new data";
 
 export interface SpendModelRow {
   key: string;
   label: string;
   unassigned: boolean;
+  /** Position of the owning provider, so a model shares its provider's swatch. */
+  tone: number;
   sharePct: number;
-  figures: SpendFigure[];
+  tokens: SpendTokens;
 }
 
 export interface SpendProviderGroup {
   key: string;
   label: string;
+  tone: number;
   windows: SpendWindow[];
+  measured: boolean;
+  tokens: SpendTokens;
   models: SpendModelRow[];
 }
 
@@ -327,9 +349,24 @@ export interface SpendReading {
   recording: boolean;
   /** Why the ledger is not measuring; null while it is. */
   note: string | null;
-  /** Replaces the rows when there is nothing at all to show; never a dash. */
+  /** Replaces the steps when there is nothing at all to show; never a dash. */
   emptyCopy: string | null;
   groups: SpendProviderGroup[];
+  models: SpendModelRow[];
+}
+
+export function spendTokens(source: {
+  turns: number;
+  input_tokens: number;
+  uncached_input_tokens: number;
+  output_tokens: number;
+}): SpendTokens {
+  return {
+    newInput: source.uncached_input_tokens,
+    fromCache: Math.max(0, source.input_tokens - source.uncached_input_tokens),
+    generated: source.output_tokens,
+    turns: source.turns,
+  };
 }
 
 /** The row label for a ledger model the provider never resolved. */
@@ -342,48 +379,28 @@ function hasAllowanceWindow(pct: number | null, resetsAt: number | null): pct is
 }
 
 const SPEND_WINDOWS = [
-  { variant: "session", pct: "session_used_pct", reset: "session_resets_at" },
   { variant: "weekly", pct: "weekly_used_pct", reset: "weekly_resets_at" },
+  { variant: "session", pct: "session_used_pct", reset: "session_resets_at" },
 ] as const;
 
+/** Only complete windows are read; an incomplete one is left out rather than guessed. */
 function providerWindows(provider: ProviderSpend): SpendWindow[] {
-  return SPEND_WINDOWS.map((reading) => {
+  return SPEND_WINDOWS.flatMap((reading) => {
     const pct = provider.allowance?.[reading.pct] ?? null;
     const resetsAt = provider.allowance?.[reading.reset] ?? null;
-    const complete = hasAllowanceWindow(pct, resetsAt);
-    return {
-      key: `${provider.provider}-${reading.variant}`,
-      label: reading.variant,
-      variant: reading.variant,
-      pct: complete ? pct : null,
-      resetsAt: complete ? resetsAt : null,
-      state: classify(complete ? pct : null),
-    };
+    if (!hasAllowanceWindow(pct, resetsAt)) return [];
+    return [{ key: `${provider.provider}-${reading.variant}`, variant: reading.variant, pct, state: classify(pct) }];
   });
 }
 
-export const SPEND_MODEL_COLUMN_LABEL = "model";
-export const SPEND_SHARE_COLUMN_LABEL = "share";
-
-/** Fixed column order shared by the table header and every model row. */
-export const SPEND_FIGURE_COLUMNS = [
-  { key: "turns", label: "turns", field: "turns" },
-  { key: "input", label: "input", field: "input_tokens" },
-  { key: "uncached", label: "uncached", field: "uncached_input_tokens" },
-  { key: "output", label: "output", field: "output_tokens" },
-] as const;
-
-function modelRows(provider: ProviderSpend): SpendModelRow[] {
+function modelRows(provider: ProviderSpend, tone: number): SpendModelRow[] {
   return provider.models.map((model, index) => ({
     key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
     label: model.model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model.model) ?? model.model,
     unassigned: model.model == null,
+    tone,
     sharePct: model.token_share_pct,
-    figures: SPEND_FIGURE_COLUMNS.map((column) => ({
-      key: column.key,
-      label: column.label,
-      value: model[column.field],
-    })),
+    tokens: spendTokens(model),
   }));
 }
 
@@ -399,7 +416,7 @@ export function spendNotRecordingCopy(
   reason: KpiNotRecordingReason | null,
   enableSetting: string | null = null,
 ): string {
-  if (reason === "disabled" && enableSetting) return `not recording · enable ${enableSetting}`;
+  if (reason === "disabled" && enableSetting) return `not recording, enable ${enableSetting}`;
   return reason ? SPEND_NOT_RECORDING_COPY[reason] : SPEND_NOT_RECORDING_COPY.not_read;
 }
 
@@ -408,17 +425,21 @@ export function spendReading(spend: MissionControlSpend): SpendReading {
   const note = recording
     ? null
     : spendNotRecordingCopy(spend.not_recording_reason, spend.enable_setting);
-  const groups = spend.providers.map((provider) => ({
+  const groups = spend.providers.map<SpendProviderGroup>((provider, tone) => ({
     key: provider.provider || "unassigned-provider",
     label: provider.label.trim() || provider.provider,
+    tone,
     windows: providerWindows(provider),
-    models: modelRows(provider),
+    measured: provider.models.length > 0,
+    tokens: spendTokens(provider),
+    models: modelRows(provider, tone),
   }));
   return {
     recording,
     note,
     emptyCopy: groups.length === 0 ? note ?? SPEND_NOT_RECORDING_COPY.no_rows_for_plan : null,
     groups,
+    models: groups.flatMap((group) => group.models),
   };
 }
 

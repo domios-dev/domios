@@ -8,7 +8,6 @@ import { MissionControlBoard } from "./MissionControlBoard";
 import {
   BOARD_NARROW_MAX_PX,
   BOARD_ROW_COLUMNS,
-  BOARD_SPEND_WINDOW_COLUMNS,
   EVENT_PART_SEPARATOR,
   EVENT_PREVIEW_MAX,
   EVENT_REVEAL_HIDE_LABEL,
@@ -17,7 +16,6 @@ import {
   boardLayout,
   formatClock,
 } from "./missionControlBoardModel";
-import { formatResetsAt } from "../../Usage/format";
 import type {
   KpiNotRecordingReason,
   MissionControlState,
@@ -434,42 +432,23 @@ describe("mission control board panels", () => {
     await empty.unmount();
   });
 
-  it("mission_control_spend_renders_one_gauge_per_provider_window_with_its_own_reset", async () => {
+  it("mission_control_spend_reads_each_complete_provider_allowance_window_weekly_first", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    const gauges = host.querySelectorAll('[data-testid="mc-board-spend-gauge"]');
-    expect(Array.from(gauges).map((g) => g.getAttribute("data-window-key"))).toEqual([
-      "claude-session",
+    const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')) as HTMLElement[];
+    expect(gauges.map((gauge) => gauge.getAttribute("data-window-key"))).toEqual([
       "claude-weekly",
-      "codex-session",
+      "claude-session",
       "codex-weekly",
     ]);
-    const first = gauges[0] as HTMLElement;
-    expect(first.querySelector(".ct-usage-gauge .pct")?.textContent).toBe("58%");
-    expect(first.querySelector(".ct-usage-gauge .reset")?.textContent).toContain("resets");
-    expect(first.querySelector(".ct-usage-gauge .label")?.textContent).toBe("session");
-    expect(first.getAttribute("aria-label")).toBe("Claude session allowance");
-    expect((gauges[1] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("weekly");
-    expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("session");
-    expect((gauges[2] as HTMLElement).getAttribute("aria-label")).toBe("Codex session allowance");
-    expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .pct")?.textContent).toBe("—");
-    expect((gauges[2] as HTMLElement).getAttribute("data-reading")).toBe("none");
-    expect((gauges[3] as HTMLElement).querySelector(".ct-usage-gauge .label")?.textContent).toBe("weekly");
-    expect((gauges[1] as HTMLElement).textContent).toContain("resets");
-    expect((gauges[2] as HTMLElement).querySelector(".ct-usage-gauge .reset")?.textContent).toBe("—");
-    expect((gauges[3] as HTMLElement).textContent).toContain("resets");
-    const firstLabel = first.querySelector(".ct-usage-gauge .label");
-    expect(firstLabel?.nextElementSibling).toBe(first.querySelector(".ct-usage-gauge .pct"));
-    const warned = gauges[3] as HTMLElement;
-    expect(warned.querySelector(".ct-usage-gauge")?.className).toContain("warn");
-    expect(BOARD_SPEND_WINDOW_COLUMNS.wide).toBe("repeat(2, minmax(0, 1fr))");
-    const usageCss = readFileSync("src/components/Usage/styles.css", "utf8");
-    expect(usageCss).toContain(".ct-usage-gauge .bar::before { left: 60%; }");
-    expect(usageCss).toContain(".ct-usage-gauge .bar::after { left: 85%; }");
+    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["34%of week used", "58%of session used", "81%of week used"]);
+    const pct = (gauge: HTMLElement) => gauge.querySelector('[data-testid="mc-board-spend-window-pct"]') as HTMLElement;
+    expect(pct(gauges[0]!).className).toBe("");
+    expect(pct(gauges[2]!).classList.contains("mc-board-warn")).toBe(true);
     await unmount();
   });
 
-  it("mission_control_spend_marks_an_incomplete_allowance_window_unknown", async () => {
+  it("mission_control_spend_leaves_out_an_incomplete_allowance_window", async () => {
     const state = recordingState();
     state.spend.providers = [
       {
@@ -479,18 +458,10 @@ describe("mission control board panels", () => {
     ];
     const { host, unmount } = await render(board(state));
 
-    const gauges = host.querySelectorAll('[data-testid="mc-board-spend-gauge"]');
-    expect(Array.from(gauges).map((gauge) => gauge.getAttribute("data-window-key"))).toEqual([
-      "claude-session",
-      "claude-weekly",
-    ]);
-    expect((gauges[0] as HTMLElement).querySelector(".ct-usage-gauge .pct")?.textContent).toBe("—");
-    expect((gauges[1] as HTMLElement).querySelector(".ct-usage-gauge .pct")?.textContent).toBe("34%");
+    const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]'));
+    expect(gauges.map((gauge) => gauge.getAttribute("data-window-key"))).toEqual(["claude-weekly"]);
+    expect(text(host, "mc-board-spend")).not.toContain("—");
     await unmount();
-  });
-
-  it("mission_control_spend_formats_allowance_reset_dates_with_the_board_language", () => {
-    expect(formatResetsAt(NOW + 48 * H, NOW)).toMatch(/resets [A-Z][a-z]{2} \d+ ·/);
   });
 
   it("groups by the declared area facet and names the untagged remainder", async () => {
@@ -602,7 +573,7 @@ describe("mission control board fallback states", () => {
 
     expect(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(0);
     expect(host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(0);
-    expect(text(host, "mc-board-spend-empty")).toBe("not recording · enable kpi.enabled");
+    expect(text(host, "mc-board-spend-empty")).toBe("not recording, enable kpi.enabled");
     expect(text(host, "mc-board-spend")).not.toContain("—");
     await unmount();
   });
@@ -902,7 +873,6 @@ describe("mission control board layout", () => {
     expect(boardLayout(BOARD_NARROW_MAX_PX)).toBe("narrow");
     expect(boardLayout(BOARD_NARROW_MAX_PX + 1)).toBe("wide");
     expect(BOARD_ROW_COLUMNS.narrow).toBe("minmax(0, 1fr)");
-    expect(BOARD_SPEND_WINDOW_COLUMNS.narrow).toBe("minmax(0, 1fr)");
   });
 
   it("binds every grid track to a zero minimum at 390px so nothing can push the board wider", async () => {
@@ -913,10 +883,9 @@ describe("mission control board layout", () => {
     expect(root.getAttribute("data-board-layout")).toBe("narrow");
 
     const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
-    const windows = host.querySelector('[data-testid="mc-board-spend-window-grid"]') as HTMLElement;
-    const tracks = `${gridTemplate(row)} ${gridTemplate(windows)}`;
+    const tracks = gridTemplate(row);
 
-    expect(gridTemplate(row)).toContain("minmax(0, 1fr)");
+    expect(tracks).toContain("minmax(0, 1fr)");
     expect(tracks).not.toMatch(/minmax\(\s*(?!0)/);
     expect(tracks).not.toMatch(/\d+px/);
     await unmount();
