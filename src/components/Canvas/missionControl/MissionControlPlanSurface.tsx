@@ -16,6 +16,7 @@ import { useAllowanceWeeks } from "./allowanceWeek";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
+import { useTeamMissionControl } from "./useTeamMissionControl";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
@@ -175,6 +176,17 @@ export function MissionControlPlanSurface({
     [boardState.state],
   );
   const allowanceWeeks = useAllowanceWeeks(spendProviders);
+  const boardTeamId = teamId ?? selectedPlan?.team_id ?? null;
+  const team = useTeamMissionControl(
+    api,
+    boardTeamId,
+    `${selectedPlan?.updated_at ?? 0}:${boardState.state?.mission_control?.event_log.recorded_events ?? 0}`,
+  );
+  const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
+  const refPlans = useMemo(
+    () => (team ? [...orderedPlans, ...team.archivedPlans] : orderedPlans),
+    [orderedPlans, team],
+  );
 
   const approvePlan = useCallback((id: string) => {
     if (!api) return;
@@ -258,12 +270,13 @@ export function MissionControlPlanSurface({
             loading={boardState.loading}
             error={boardState.error}
             allowanceWeeks={allowanceWeeks}
-            plans={orderedPlans}
-            previousPlans={previousPlans}
+            plans={refPlans}
+            previousPlans={boardPreviousPlans}
             onOpenView={onOpenView}
             onOpenTask={openTask}
             onOpenPlan={openPlanDetail}
             deepLinks={deepLinks}
+            eventPager={team?.events}
           />
         )}
       </div>
