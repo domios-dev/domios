@@ -345,7 +345,7 @@ describe("mission control narrow shell", () => {
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
     expect(text(narrow.host, "mc-board-task-statuses")).not.toContain("nothing");
-    expect(text(narrow.host, "mc-board-areas")).toContain("Area");
+    expect(text(narrow.host, "mc-board-areas-toggle")).toBe("By area");
     expect(text(narrow.host, "mc-board-progress")).not.toContain("5.3M");
     expect(text(narrow.host, "mc-board-needs-you")).toContain("Land the wave");
     expect(
