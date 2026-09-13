@@ -1,9 +1,11 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { ReactNode } from "react";
+import type { Tab } from "../../../lib/types";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import type { Plan, Section, SpecLink } from "../types";
 import { flattenSections } from "../sectionRows";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./PlanFetchErrorState";
+import { PlanParagraphAsk } from "./PlanParagraphAsk";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanDocumentData } from "./usePlanDocumentData";
 
@@ -17,6 +19,11 @@ interface PlanDocumentViewProps extends PlanViewSurfaceProps {
 interface SectionEntry {
   section: Section;
   depth: number;
+}
+
+interface AskSurface {
+  tabs?: Record<string, Tab>;
+  onOpenTab?: (tabId: string) => void;
 }
 
 function sectionEntries(sections: Section[], depth = 0): SectionEntry[] {
@@ -69,13 +76,13 @@ function SectionIndex({ kind, entries }: { kind: DocumentKind; entries: SectionE
   );
 }
 
-function SectionBody({ body }: { body: string }) {
+function SectionBody({ sectionId, body }: { sectionId: string; body: string }) {
   if (!body.trim()) {
     return <p className="plan-document-section-empty">No section text yet.</p>;
   }
   return (
-    <div className="plan-document-section-body">
-      <RichMarkdown text={body} />
+    <div className="plan-document-section-body" data-plan-ask-body="" data-section-id={sectionId}>
+      <RichMarkdown text={body} sourcePositions />
     </div>
   );
 }
@@ -91,17 +98,19 @@ function SpecSection({ kind, entry, children }: { kind: DocumentKind; entry: Sec
       className="plan-document-section"
     >
       <Heading className="plan-document-section-title">{section.title}</Heading>
-      <SectionBody body={section.body ?? ""} />
+      <SectionBody sectionId={section.id} body={section.body ?? ""} />
       {children}
     </section>
   );
 }
 
-function SpecDocument({ plan, sections }: { plan: Plan; sections: Section[] }) {
+function SpecDocument({ plan, sections, ask }: { plan: Plan; sections: Section[]; ask: AskSurface }) {
   const entries = sectionEntries(sections);
   return (
     <DocumentLayout kind="spec" title={pageTitle("spec", plan)} entries={entries}>
-      {entries.map((entry) => <SpecSection key={entry.section.id} kind="spec" entry={entry} />)}
+      <PlanParagraphAsk kind="spec" plan={plan} sections={sections} tabs={ask.tabs} onOpenTab={ask.onOpenTab}>
+        {entries.map((entry) => <SpecSection key={entry.section.id} kind="spec" entry={entry} />)}
+      </PlanParagraphAsk>
     </DocumentLayout>
   );
 }
@@ -182,29 +191,33 @@ function PlanDocument({
   plan,
   specSections,
   onOpenSpec,
+  ask,
 }: {
   plan: Plan;
   specSections: Section[];
   onOpenSpec?: () => void;
+  ask: AskSurface;
 }) {
   const entries = sectionEntries(plan.sections);
   return (
     <DocumentLayout kind="plan" title={pageTitle("plan", plan)} entries={entries}>
-      <PlanGoal plan={plan} />
-      {entries.length === 0 ? (
-        <DocumentEmpty kind="plan" message="No plan sections yet." />
-      ) : (
-        entries.map((entry) => (
-          <SpecSection key={entry.section.id} kind="plan" entry={entry}>
-            <PlanSectionLinks
-              section={entry.section}
-              specSections={specSections}
-              links={plan.spec_links ?? []}
-              onOpenSpec={onOpenSpec}
-            />
-          </SpecSection>
-        ))
-      )}
+      <PlanParagraphAsk kind="plan" plan={plan} sections={plan.sections} tabs={ask.tabs} onOpenTab={ask.onOpenTab}>
+        <PlanGoal plan={plan} />
+        {entries.length === 0 ? (
+          <DocumentEmpty kind="plan" message="No plan sections yet." />
+        ) : (
+          entries.map((entry) => (
+            <SpecSection key={entry.section.id} kind="plan" entry={entry}>
+              <PlanSectionLinks
+                section={entry.section}
+                specSections={specSections}
+                links={plan.spec_links ?? []}
+                onOpenSpec={onOpenSpec}
+              />
+            </SpecSection>
+          ))
+        )}
+      </PlanParagraphAsk>
     </DocumentLayout>
   );
 }
@@ -227,7 +240,7 @@ function DocumentLayout({
         <article className="plan-document-readable">
           <p className="plan-document-eyebrow">{kind === "spec" ? "Specification" : "Plan"}</p>
           <h1 id={`plan-${kind}-title`} data-testid={`plan-${kind}-title`} className="plan-document-title">{title}</h1>
-          <div className="plan-document-sections">{children}</div>
+          {children}
         </article>
       </div>
     </main>
@@ -236,8 +249,9 @@ function DocumentLayout({
 
 export function PlanDocumentView({ kind, onOpenSpec, ...surfaceProps }: PlanDocumentViewProps) {
   const data = usePlanDocumentData(surfaceProps);
-  const { plans, loading = false, reconnecting = false, error = null, onRetry, teamId } = surfaceProps;
+  const { plans, loading = false, reconnecting = false, error = null, onRetry, teamId, tabs, onOpenTab } = surfaceProps;
   const selectedPlan = data.selectedPlan;
+  const ask: AskSurface = { tabs, onOpenTab };
 
   return (
     <div data-testid={`plan-${kind}-surface`} className="plan-document-surface">
@@ -279,9 +293,11 @@ export function PlanDocumentView({ kind, onOpenSpec, ...surfaceProps }: PlanDocu
             <DocumentEmpty kind="spec" message="No Spec sections yet." />
           )}
           {kind === "spec" && !data.specLoading && data.selectedSpecSections.length > 0 && (
-            <SpecDocument plan={selectedPlan} sections={data.selectedSpecSections} />
+            <SpecDocument plan={selectedPlan} sections={data.selectedSpecSections} ask={ask} />
           )}
-          {kind === "plan" && <PlanDocument plan={selectedPlan} specSections={data.selectedSpecSections} onOpenSpec={onOpenSpec} />}
+          {kind === "plan" && (
+            <PlanDocument plan={selectedPlan} specSections={data.selectedSpecSections} onOpenSpec={onOpenSpec} ask={ask} />
+          )}
         </div>
       )}
     </div>
