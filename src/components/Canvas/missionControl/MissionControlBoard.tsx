@@ -34,7 +34,7 @@ export interface MissionControlBoardProps {
   teamSpend?: TeamSpend | null;
 }
 
-function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
+export function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
   const [layout, setLayout] = useState<BoardLayout>("wide");
   useLayoutEffect(() => {
     const el = ref.current;

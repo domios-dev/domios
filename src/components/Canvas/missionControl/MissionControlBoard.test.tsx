@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
+import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import {
   BOARD_NARROW_MAX_PX,
   BOARD_ROW_COLUMNS,
@@ -627,6 +628,49 @@ describe("mission control board panels", () => {
     await act(async () => older.click());
     expect(text(host, "mc-board-event-log-loading")).toBe("Loading…");
     expect(load).toHaveBeenCalledWith(1);
+    await unmount();
+  });
+
+  it("keeps the team Board with no active plan: previous plans, team stream and no plan figures", async () => {
+    const onOpenPlan = vi.fn();
+    const archived: Plan = { ...PLAN, id: "pl_done1", title: "First Snake", goal: null, status: "archived" };
+    const pager: EventPager = {
+      pageCount: 1,
+      page: () => [logEvent({ ts: DAY + H, kind: "decision", text: "archived pl_done1" })],
+      caption: "1 event",
+    };
+    const { host, unmount } = await render(
+      <MissionControlTeamBoard
+        team={{ activePlan: null, archivedPlans: [archived], events: pager }}
+        onOpenPlan={onOpenPlan}
+      />,
+    );
+
+    const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
+    expect(root.getAttribute("data-board-scope")).toBe("team");
+    expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
+      "mc-board-row",
+      "mc-board-event-log",
+    ]);
+    const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
+    expect(Array.from(row.children).map((card) => card.getAttribute("data-testid"))).toEqual([
+      "mc-board-spend",
+      "mc-board-models",
+      "mc-board-plan",
+    ]);
+    expect(text(host, "mc-board-plan-empty")).toBe("No active plan");
+    for (const absent of ["mc-board-task-statuses", "mc-board-quality", "mc-board-tasks-amount", "mc-board-spend-gauge"]) {
+      expect(host.querySelector(`[data-testid="${absent}"]`)).toBeNull();
+    }
+    expect(text(host, "mc-board-spend-empty")).toBe("no data");
+
+    const previous = host.querySelector('[data-testid="mc-board-previous-plan"]') as HTMLButtonElement;
+    expect(previous.textContent).toBe("First Snake");
+    await act(async () => previous.click());
+    expect(onOpenPlan).toHaveBeenCalledWith("pl_done1");
+
+    expect(text(host, "mc-board-event-log-meta")).toBe("1 event");
+    expect(part(eventRows(host)[0]!, "mc-board-event-body")?.textContent).toBe("archived First Snake");
     await unmount();
   });
 
