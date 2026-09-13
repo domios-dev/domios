@@ -24,4 +24,6 @@ export interface PlanViewSurfaceProps {
   onClose?: () => void;
   onOpenTab?: (tabId: string) => void;
   api?: ApiConfig;
+  /** Host header element where a surface without its own switcher places its actions. */
+  headerActionsSlot?: HTMLElement | null;
 }

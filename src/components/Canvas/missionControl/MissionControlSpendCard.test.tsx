@@ -1,6 +1,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
+import type { WeeklyProjection } from "../../../hooks/useUsageSnapshot";
+import type { UsageSnapshot } from "../../../types/usage";
+import { allowanceWeekDays, type AllowanceDay, type AllowanceWeeks } from "./allowanceWeek";
 import { SpendCard } from "./BoardCards";
 import {
   SPEND_SCOPE_CAPTION,
@@ -106,11 +109,11 @@ function notRecordingSpend(
   };
 }
 
-async function render(spend: MissionControlSpend) {
+async function render(spend: MissionControlSpend, weeks?: AllowanceWeeks) {
   const host = document.createElement("div");
   document.body.append(host);
   const root: Root = createRoot(host);
-  await act(async () => root.render(<SpendCard spend={spend} />));
+  await act(async () => root.render(<SpendCard spend={spend} weeks={weeks} />));
   return {
     host,
     unmount: async () => {
@@ -306,5 +309,52 @@ describe("mission control spend card", () => {
     const cells = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-group"] td'));
     expect(cells.map((cell) => cell.textContent)).toEqual(["", "", "", "", ""]);
     await unmount();
+  });
+
+  it("mission_control_spend_draws_a_provider_week_by_day_from_allowance_history", async () => {
+    const pcts = [10, 20, 4, null, null, null, null];
+    const days: AllowanceDay[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label, index) => ({
+      start: NOW + index * 24 * H,
+      label,
+      pct: pcts[index] ?? null,
+      today: index === 2,
+    }));
+    const { host, unmount } = await render(recordingSpend(), { claude: days });
+
+    const weeks = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-week"]')) as HTMLElement[];
+    expect(weeks).toHaveLength(1);
+    const week = weeks[0]!;
+    expect(week.closest("tbody")?.getAttribute("data-provider")).toBe("claude");
+    expect(week.closest("tr")?.getAttribute("data-testid")).toBe("mc-board-spend-group");
+    expect(week.getAttribute("role")).toBe("img");
+    expect(week.getAttribute("aria-label")).toBe("Claude weekly allowance by day: Mon 10%, Tue 20%, Wed 4%");
+    expect(week.textContent).toBe("");
+    const bars = Array.from(week.querySelectorAll('[data-testid="mc-board-spend-day"]')) as HTMLElement[];
+    expect(bars.map((bar) => bar.style.height)).toEqual(["50%", "100%", "20%", "0%", "0%", "0%", "0%"]);
+    expect(bars.map((bar) => bar.getAttribute("data-today"))).toEqual([null, null, "true", null, null, null, null]);
+    expect(bars.map((bar) => bar.getAttribute("data-future"))).toEqual([null, null, null, "true", "true", "true", "true"]);
+    await unmount();
+  });
+
+  it("mission_control_spend_reads_the_week_from_day_actuals_and_leaves_days_ahead_empty", () => {
+    const now = Date.now();
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    const rows = [
+      { captured_at: now, weekly_pct: 30, weekly_resets_at: today.getTime() + 3 * 24 * H } as unknown as UsageSnapshot,
+    ];
+    const weekly = {
+      avg_weekday_spend: 10,
+      avg_weekend_spend: 5,
+      dow_estimates: [],
+      rest_of_today_est: 2,
+      day_actuals: [{ day_start_ms: today.getTime(), pct: 7 }],
+    } as unknown as WeeklyProjection;
+
+    const days = allowanceWeekDays(rows, weekly);
+    expect(days.length).toBeGreaterThanOrEqual(7);
+    expect(days.find((day) => day.today)?.pct).toBe(7);
+    expect(days.filter((day) => day.start > today.getTime()).every((day) => day.pct === null)).toBe(true);
+    expect(allowanceWeekDays([], null)).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
+import type { AllowanceWeeks } from "./allowanceWeek";
 import { NeedsYouPanel, ProgressPanel, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
 import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
@@ -12,6 +13,8 @@ export interface MissionControlBoardProps {
   loading?: boolean;
   error?: string | null;
   now?: number;
+  /** Day-by-day weekly allowance per provider, read outside the Board. */
+  allowanceWeeks?: AllowanceWeeks;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -35,6 +38,7 @@ export function MissionControlBoard({
   state,
   loading = false,
   error = null,
+  allowanceWeeks,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -72,7 +76,7 @@ export function MissionControlBoard({
               bounces={mc.bounces}
               areas={mc.areas}
             />
-            <SpendCard spend={mc.spend} />
+            <SpendCard spend={mc.spend} weeks={allowanceWeeks} />
           </div>
           <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} />
         </>
