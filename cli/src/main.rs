@@ -328,22 +328,28 @@ fn main_impl() {
                 choice,
                 offer,
                 offer_accept,
+                target_tab,
+                chat_message,
                 ..
             } => {
                 cmd::notify::handle_send(
                     &mut client,
                     cli.json,
-                    cmd::notify::send_params(
-                        &title,
-                        &severity,
-                        level,
-                        event_key.as_deref(),
-                        from_pad.as_deref(),
-                        &choice,
-                        cmd::notify::Offer {
-                            surface: offer.as_deref(),
-                            accept: offer_accept.as_deref(),
-                        },
+                    cmd::notify::with_target(
+                        cmd::notify::send_params(
+                            &title,
+                            &severity,
+                            level,
+                            event_key.as_deref(),
+                            from_pad.as_deref(),
+                            &choice,
+                            cmd::notify::Offer {
+                                surface: offer.as_deref(),
+                                accept: offer_accept.as_deref(),
+                            },
+                        ),
+                        target_tab.as_deref(),
+                        chat_message.as_deref(),
                     ),
                 );
                 return;

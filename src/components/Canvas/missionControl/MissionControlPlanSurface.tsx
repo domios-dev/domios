@@ -16,6 +16,7 @@ import { useAllowanceWeeks } from "./allowanceWeek";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
+import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
 
@@ -47,9 +48,23 @@ export function MissionControlPlanSurface({
   workspaces,
   teams,
   onOpenTab,
+  notifications,
+  onSelectTab,
   api,
   headerActionsSlot = null,
 }: PlanViewSurfaceProps) {
+  const deepLinks = useMemo<NeedsYouDeepLinks | undefined>(
+    () => (notifications && onSelectTab
+      ? {
+          notifications,
+          tabs,
+          workspaces: workspaces ?? [],
+          scope: { teamId: teamId ?? null, workspaceId: workspaceId ?? null },
+          onSelectTab,
+        }
+      : undefined),
+    [notifications, onSelectTab, tabs, workspaces, teamId, workspaceId],
+  );
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
   const activeWork = useMemo(() => selectActiveWork(effectivePlans, tabs), [effectivePlans, tabs]);
@@ -237,6 +252,7 @@ export function MissionControlPlanSurface({
             plans={orderedPlans}
             onOpenTask={openTask}
             onOpenPlan={openPlanDetail}
+            deepLinks={deepLinks}
           />
         )}
       </div>

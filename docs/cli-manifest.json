@@ -5302,6 +5302,16 @@
               "aliases": []
             },
             {
+              "name": "chat-message",
+              "positional": false,
+              "required": false,
+              "value_name": "MESSAGE_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "The exact chat message id inside --target-tab this notification jumps to",
+              "aliases": []
+            },
+            {
               "name": "choice",
               "positional": false,
               "required": false,
@@ -5393,6 +5403,16 @@
               "possible_values": [],
               "default": "info",
               "help": "Record identity axis: info, warning, error. Tone comes from --level",
+              "aliases": []
+            },
+            {
+              "name": "target-tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "The tab whose chat holds the message this notification is about",
               "aliases": []
             },
             {

@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "reac
 import { boardRefs } from "./BoardRefText";
 import type { Plan } from "../types";
 import type { AllowanceWeeks } from "./allowanceWeek";
+import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { NeedsYouPanel, ProgressPanel, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
 import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout } from "./missionControlBoardModel";
@@ -20,6 +21,8 @@ export interface MissionControlBoardProps {
   plans?: readonly Plan[];
   onOpenTask?: (taskId: string) => void;
   onOpenPlan?: (planId: string) => void;
+  /** Needs you notifications in this Board's scope, each one jump to its chat message. */
+  deepLinks?: NeedsYouDeepLinks;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -47,6 +50,7 @@ export function MissionControlBoard({
   plans,
   onOpenTask,
   onOpenPlan,
+  deepLinks,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const refs = useMemo(() => boardRefs(plans ?? [plan], onOpenTask, onOpenPlan), [plans, plan, onOpenTask, onOpenPlan]);
@@ -73,7 +77,7 @@ export function MissionControlBoard({
       )}
       {boardState && mc && (
         <>
-          <NeedsYouPanel held={mc.held} refs={refs} />
+          <NeedsYouPanel held={mc.held} refs={refs} deepLinks={deepLinks} />
           <div
             data-testid="mc-board-row"
             className="mc-board-row"

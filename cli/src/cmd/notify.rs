@@ -90,6 +90,22 @@ fn params_from_body(
     Ok(params)
 }
 
+/// The chat message this notification jumps to. Both ids travel as navigation
+/// hints; the daemon never treats them as provenance.
+pub fn with_target(
+    mut params: serde_json::Value,
+    target_tab: Option<&str>,
+    chat_message: Option<&str>,
+) -> serde_json::Value {
+    if let Some(tab) = target_tab {
+        params["target_tab_id"] = serde_json::Value::String(tab.to_string());
+        if let Some(message) = chat_message {
+            params["chat_message_id"] = serde_json::Value::String(message.to_string());
+        }
+    }
+    params
+}
+
 /// One surface that will not show the notification, as it travels on the
 /// `notification.create` result.
 struct ClosedSurface {

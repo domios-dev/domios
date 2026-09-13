@@ -13,6 +13,7 @@ use super::channel_placement::{self, ChannelPlacement, SpentQuestion};
 use super::dedupe::{
     ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
 };
+use super::deep_link::NotificationTarget;
 use super::push::NotifyLevel;
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,6 +25,11 @@ pub struct Notification {
     pub tab_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_name: Option<String>,
+    /// Navigation hint only: the tab whose chat holds the message this is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_message_id: Option<String>,
     pub title: String,
     pub body: Option<String>,
     pub severity: NotificationSeverity,
@@ -232,6 +238,8 @@ impl NotificationStore {
             workspace_id: provenance.workspace_id,
             tab_title: provenance.tab_title,
             peer_name: provenance.peer_name,
+            target_tab_id: None,
+            chat_message_id: None,
             title,
             body,
             severity,
@@ -479,6 +487,17 @@ impl NotificationStore {
             .retain(|_, provider| provider != &provider_id);
         self.clear(Some(&id));
         Some(id)
+    }
+
+    /// Point this record at the message the latest send named. Always a full
+    /// overwrite, so a rewritten record never keeps a stale jump target.
+    pub fn set_target(&mut self, id: &str, target: NotificationTarget) -> bool {
+        let Some(record) = self.notifications.iter_mut().find(|n| n.id == id) else {
+            return false;
+        };
+        record.target_tab_id = target.tab_id;
+        record.chat_message_id = target.chat_message_id;
+        true
     }
 
     pub fn notification(&self, id: &str) -> Option<&Notification> {

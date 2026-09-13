@@ -36,6 +36,10 @@ pub(super) fn dispatch(
                 caller_tab_id: string_param("caller_tab_id"),
                 claimed_tab_id: string_param("tab_id"),
                 peer_name: None,
+                target: crate::notification::deep_link::NotificationTarget::from_hints(
+                    string_param("target_tab_id").as_deref(),
+                    string_param("chat_message_id").as_deref(),
+                ),
             };
             // The CLI reaches the daemon here, so `--choice` is parsed on this
             // path too, into the caller-facing set that has no invoke variant.

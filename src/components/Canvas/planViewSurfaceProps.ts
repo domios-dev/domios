@@ -1,4 +1,4 @@
-import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
+import type { ApiConfig, Notification, Tab, Team, Workspace } from "../../lib/types";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
@@ -23,6 +23,8 @@ export interface PlanViewSurfaceProps {
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
   onOpenTab?: (tabId: string) => void;
+  notifications?: Notification[];
+  onSelectTab?: (workspaceId: string, tabId: string) => void | Promise<void>;
   api?: ApiConfig;
   /** Host header element where a surface without its own switcher places its actions. */
   headerActionsSlot?: HTMLElement | null;
