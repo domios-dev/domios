@@ -74,7 +74,7 @@ export function AgentActivityCard({ event, expanded, onToggle }: {
           <ul aria-label="Messages" className="m-0 mt-1 list-none p-0">
             {tree.messages.map((edge) => (
               <li
-                key={`${edge.from}0000${edge.to}`}
+                key={JSON.stringify([edge.from, edge.to])}
                 data-testid="chat-agent-message"
                 className="flex min-w-0 items-center gap-1.5 py-0.5 font-mono text-[11px]"
                 style={{ color: "var(--ct-muted-fg)" }}

@@ -4,7 +4,7 @@ export interface AgentNode {
   key: string;
   id?: string;
   path?: string;
-  /** Last path segment, else a short id. */
+  /** Last path segment, else the exact id. */
   name: string;
   state: AgentActivityState;
   depth: number;
@@ -83,7 +83,7 @@ export function buildAgentTree(records: readonly AgentActivity[]): AgentActivity
       }
     }
     if (record.messageFrom && record.messageTo) {
-      const key = `${record.messageFrom}0000${record.messageTo}`;
+      const key = JSON.stringify([record.messageFrom, record.messageTo]);
       const edge = edges.get(key);
       if (edge) edge.count += 1;
       else edges.set(key, { from: record.messageFrom, to: record.messageTo, fromLabel: "", toLabel: "", count: 1 });
