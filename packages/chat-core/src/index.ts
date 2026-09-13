@@ -67,6 +67,19 @@ export {
   type TimelineItem,
   type ToolEvent,
 } from "./toolEvents";
+export {
+  commandArgvStart,
+  commandBasename,
+  parseShellComposition,
+  toolCommand,
+  unwrapShellLauncher,
+  type ShellComposition,
+  type ShellDialect,
+  type ShellOperator,
+  type ShellScript,
+  type ShellSegment,
+  type UnwrappedShellCommand,
+} from "./shellComposition";
 export { type AgentActivityTree, type AgentMessageEdge, type AgentNode } from "./agentActivity";
 export { stabilizeTimelineItems } from "./timelineStability";
 export { buildToolPreview, type ToolPreview } from "./toolPreview";

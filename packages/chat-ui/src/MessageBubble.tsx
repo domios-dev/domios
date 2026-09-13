@@ -5,7 +5,7 @@ import type {
   ChatAttachment as ImageAttachment,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, shortTabRef } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, shortTabRef, toolCommand } from "@codeterm/chat-core";
 import {
   Download, Image,
   Send,            // generic chat (telegram / service)
@@ -102,8 +102,8 @@ function expansionKey(message: ChatMessage, item: TimelineItem | undefined): str
 
 function isOutboundMessage(item: TimelineItem | undefined): boolean {
   if (item?.kind !== "tool") return false;
-  const command = item.event.detail?.trim() || item.event.summary || item.event.result?.trim() || "";
-  const invocation = recognize(command);
+  const { command, argv } = toolCommand(item.event);
+  const invocation = recognize(command, argv);
   return invocation != null && isSend(invocation);
 }
 

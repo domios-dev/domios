@@ -1,4 +1,5 @@
 import { COMMAND_PATHS, type CommandPathNode } from "./commandPaths";
+import { commandShape } from "./commandShape";
 import { recognize } from "./recognize";
 
 let passed = 0,
@@ -28,11 +29,13 @@ eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
 eq(recognize("CODETERM_API_PORT=7686 codeterm tab list")?.path, ["tab", "list"], "env-prefix stripped");
 eq(recognize("cd frontend && codeterm agent report")?.path, ["agent", "report"], "cd-prefix chain strips to codeterm segment");
-eq(
-  recognize('cd /d/Developer/codeterm\ncodeterm agent report --status in_review --sha abc123 "done" 2>&1 | tail -3')?.path,
-  ["agent", "report"],
-  "Claude multiline report with output pipe",
-);
+const pipedReport = 'cd /d/Developer/codeterm\ncodeterm agent report --status in_review --sha abc123 "done" 2>&1 | tail -3';
+ok(recognize(pipedReport) === null, "a CodeTerm action piped into another command is not one action");
+const pipedShape = commandShape(pipedReport);
+eq(pipedShape.kind === "group" ? pipedShape.rows.map((row) => row.role) : pipedShape.kind, ["command", "codeterm", "command"], "piped report groups its segments");
+eq(pipedShape.kind === "group" && pipedShape.rows[1].role === "codeterm" ? pipedShape.rows[1].invocation.path : null, ["agent", "report"], "piped report keeps its CodeTerm invocation");
+eq(recognize("ignored", ["pwsh.exe", "-NoProfile", "-Command", "codeterm docs API"])?.path, ["docs"], "launcher argv unwraps to the CodeTerm action");
+ok(recognize('codeterm send --tab x "unterminated') === null, "an unparseable command is never recognized");
 eq(recognize("Set-Location 'D:\\Developer\\codeterm'; codeterm docs ORCHESTRATION")?.path, ["docs"], "PowerShell statement chain");
 eq(
   recognize("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm plan state pl_1")?.path,
