@@ -229,6 +229,7 @@ instead.
 |---|---|---|---|
 | `sessionFilePath(cwd, sessionId)` | cwd, id | path string or `null` | manifest: `sessions.rootDir` + encoded cwd + `<id>.<fileExtension>`. |
 | `sessionExists(cwd, sessionId)` | cwd, id | bool | existence check on `sessionFilePath`. |
+| `sessionUsageSources(sessionFilePath, sessionId)` | the host-resolved session file, id | paths of further usage logs owned by that exact session (e.g. sub-agent transcripts beside it); each is ingested into the KPI ledger with its own cursor | native fallback; else only the session file is ingested. |
 | `detectSessionId(cwd, exclude, maxAgeMs)` | cwd, excluded ids, recency budget (default 300 000) | id or `null` | manifest-driven scan of the sessions dir for a **single** uuid-ish candidate (stem ≥ 32 chars containing `-`) modified within the budget; any ambiguity ⇒ `null` (honest over guessing). |
 | `detectActiveSession(cwd, currentSid)` | cwd, current id | id or `null` | `null`. |
 | `detectSessionModel(cwd, sessionId)` | cwd, id | model id or `null` (resolved through the model catalog) | `null`. |
@@ -345,4 +346,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

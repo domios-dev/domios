@@ -173,6 +173,8 @@ export interface AgentProvider {
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
+  /** Further usage logs owned by this exact session file (e.g. sub-agent transcripts beside it). */
+  sessionUsageSources?(sessionFilePath: string, sessionId: string): string[];
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */

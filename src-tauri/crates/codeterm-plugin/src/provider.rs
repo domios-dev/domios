@@ -482,6 +482,16 @@ pub trait AgentProvider: Send + Sync {
     /// Build the path to the session file for this agent.
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf>;
 
+    /// Further usage logs owned by this exact session, found beside `session_file`
+    /// (e.g. sub-agent transcripts). Never another session's; empty when none.
+    fn additional_usage_sources(
+        &self,
+        _session_file: &std::path::Path,
+        _session_id: &str,
+    ) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
     /// Detect the most recent session ID for the given working directory.
     fn detect_session_id(
         &self,

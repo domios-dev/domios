@@ -397,6 +397,24 @@ impl AgentProvider for JsProvider {
         self.owned_session_file_path(cwd, session_id)
     }
 
+    fn additional_usage_sources(&self, session_file: &Path, session_id: &str) -> Vec<PathBuf> {
+        if !self.has_js("sessionUsageSources") {
+            return self
+                .native()
+                .map(|n| n.additional_usage_sources(session_file, session_id))
+                .unwrap_or_default();
+        }
+        self.try_call::<Vec<String>>(
+            "sessionUsageSources",
+            &[json!(session_file.to_string_lossy()), json!(session_id)],
+        )
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .collect()
+    }
+
     fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
         if let Some(b) = self.try_call::<bool>("sessionExists", &[json!(cwd), json!(session_id)]) {
             return b;

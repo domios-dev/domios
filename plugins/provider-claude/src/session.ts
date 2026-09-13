@@ -33,6 +33,10 @@ export interface ClaudeEntry {
   path?: unknown;
   toolUseResult?: unknown;
   sourceToolAssistantUUID?: unknown;
+  cwd?: unknown;
+  sessionId?: unknown;
+  isSidechain?: unknown;
+  agentId?: unknown;
 }
 
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = {
