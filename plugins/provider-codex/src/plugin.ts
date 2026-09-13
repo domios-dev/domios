@@ -8,6 +8,7 @@ import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
+import { actionTitle } from "./actionTitle";
 import {
   classifyCodexTabState,
   type TabStateClassification,
@@ -257,8 +258,19 @@ const plugin: PluginModule = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
+      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete")) {
+        const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
+        if (!turnId) continue;
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+        continue;
+      }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        const activity = completedActivity(v.payload.item, ts, tsIso);
+        const activity = completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id);
         if (activity && !activityIds.has(activity.uuid)) {
           activityIds.add(activity.uuid);
           out.push(activity);
@@ -507,6 +519,7 @@ interface CodexPayload {
   call_id?: string;
   stdout?: string;
   success?: boolean;
+  turn_id?: unknown;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 export interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
@@ -533,6 +546,11 @@ function nestedApplyPatch(raw: string): string | null {
 export interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 
 function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
+  const fields = baseToolFields(name, input);
+  return { ...fields, tool_title: actionTitle(fields) };
+}
+
+function baseToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
   const raw = typeof input.raw === "string" ? input.raw : "";
   const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
   const script = name === "exec" && raw ? summarizeExecScript(raw) : null;
@@ -551,7 +569,10 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
-    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed";
+    return v.payload.type === "patch_apply_end"
+      || v.payload.type === "item_completed"
+      || v.payload.type === "task_started"
+      || v.payload.type === "task_complete";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
@@ -599,8 +620,7 @@ function isInternalOrchestrationCall(name: string): boolean {
     || name === "spawn_agent"
     || name === "followup_task"
     || name === "interrupt_agent"
-    || name === "list_agents"
-    || name === "wait_agent";
+    || name === "list_agents";
 }
 
 function classifyCodexSystemText(text: string): string | null {

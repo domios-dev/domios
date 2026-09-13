@@ -455,6 +455,9 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 let tool_summary = get_optional_string(&b.data, "tool_summary");
                 let tool_detail = get_optional_string(&b.data, "tool_detail");
                 let tool_edits = b.data.get("tool_edits").cloned();
+                let tool_description = get_optional_string(&b.data, "tool_description");
+                let tool_title = get_optional_string(&b.data, "tool_title");
+                let tool_flow_id = get_optional_string(&b.data, "tool_flow_id");
                 let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
                     Some("success") => Some(false),
                     Some("error") => Some(true),
@@ -478,6 +481,9 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_summary,
                     tool_detail: tool_detail.clone(),
                     tool_edits,
+                    tool_description,
+                    tool_title,
+                    tool_flow_id,
                     tool_name: Some(name),
                     tool_args: tool_detail,
                     tool_input: b.data.get("input").cloned(),
@@ -501,6 +507,19 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                     tool_error: is_error,
                     collapsed: true,
+                    ..Default::default()
+                }
+            }
+            "tool_flow" => {
+                let state = get("state");
+                if state != "start" && state != "end" {
+                    continue;
+                }
+                ChatMsg {
+                    id,
+                    kind: "tool_flow".into(),
+                    content: state,
+                    tool_flow_id: get_optional_string(&b.data, "flow_id"),
                     ..Default::default()
                 }
             }
@@ -900,6 +919,59 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[1].tool_detail, None);
         assert_eq!(msgs[1].tool_args, None);
         assert_eq!(msgs[1].content, "");
+    }
+
+    #[test]
+    fn tool_activity_capabilities_and_flow_boundaries_pass_through() {
+        let rich = RichMessage {
+            role: "assistant".into(),
+            blocks: vec![
+                MessageBlock {
+                    kind: "tool_flow".into(),
+                    data: json!({ "state": "start", "flow_id": "turn-a" }),
+                },
+                MessageBlock {
+                    kind: "tool_use".into(),
+                    data: json!({
+                        "name": "Bash",
+                        "input": {"command": "npm test", "description": "Run tests"},
+                        "tool_kind": "command",
+                        "tool_summary": "npm test",
+                        "tool_description": "Run tests",
+                        "tool_title": "npm test",
+                        "tool_flow_id": "msg-1"
+                    }),
+                },
+                MessageBlock {
+                    kind: "tool_use".into(),
+                    data: json!({ "name": "Read", "input": {"file_path": "a.rs"} }),
+                },
+                MessageBlock {
+                    kind: "tool_flow".into(),
+                    data: json!({ "state": "end" }),
+                },
+                MessageBlock {
+                    kind: "tool_flow".into(),
+                    data: json!({ "state": "guess", "flow_id": "turn-b" }),
+                },
+            ],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&rich, 0);
+        assert_eq!(msgs.len(), 4);
+        assert_eq!(msgs[0].kind, "tool_flow");
+        assert_eq!(msgs[0].content, "start");
+        assert_eq!(msgs[0].tool_flow_id.as_deref(), Some("turn-a"));
+        assert_eq!(msgs[1].tool_description.as_deref(), Some("Run tests"));
+        assert_eq!(msgs[1].tool_title.as_deref(), Some("npm test"));
+        assert_eq!(msgs[1].tool_flow_id.as_deref(), Some("msg-1"));
+        assert_eq!(msgs[1].tool_input.as_ref().unwrap()["command"], "npm test");
+        assert_eq!(msgs[2].tool_description, None);
+        assert_eq!(msgs[2].tool_title, None);
+        assert_eq!(msgs[2].tool_flow_id, None);
+        assert_eq!(msgs[3].kind, "tool_flow");
+        assert_eq!(msgs[3].content, "end");
+        assert_eq!(msgs[3].tool_flow_id, None);
     }
 
     #[test]

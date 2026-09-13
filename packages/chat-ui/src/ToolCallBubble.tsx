@@ -11,7 +11,7 @@ import { GenericCard } from "./toolcard/GenericCard";
 import { ReadCard } from "./toolcard/ReadCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
-import { WaitBatchCard } from "./toolcard/WaitBatchCard";
+import { ToolActivityStream } from "./toolcard/ToolActivityStream";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
@@ -68,8 +68,27 @@ export function ToolCallBubble({
 }: ToolCallBubbleProps) {
   const event = suppliedEvent ?? (message ? materializeToolEvent(message) : null);
   if (!event) return null;
-  if (event.waitBatch) {
-    return <WaitBatchCard event={event} />;
+  if (event.stream) {
+    return (
+      <ToolActivityStream
+        event={event}
+        expanded={expanded}
+        onToggle={onToggle}
+        renderAction={(member, memberExpanded, onMemberToggle) => (
+          <ToolCallBubble
+            event={member}
+            expanded={memberExpanded}
+            onToggle={onMemberToggle}
+            resolveTabName={resolveTabName}
+            resolvePeerName={resolvePeerName}
+            onFocusTab={onFocusTab}
+            onOpenPlan={onOpenPlan}
+            resolvePlanRef={resolvePlanRef}
+            fontScale={fontScale}
+          />
+        )}
+      />
+    );
   }
 
   const presentedKind = event.kind === "command" ? shellCommandKind(commandText(event)) ?? event.kind : event.kind;

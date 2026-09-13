@@ -11,6 +11,7 @@ export type ChatMessageKind =
   | "shell_command"
   | "context_request"
   | "watcher_verdict"
+  | "tool_flow"
   | "custom";
 
 /** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
@@ -103,6 +104,12 @@ export interface NormalizedChatMessage {
   toolSummary?: string;
   toolDetail?: string;
   toolEdits?: ToolEdit[];
+  /** Human description supplied by the call's source; absent means unknown, never inferred. */
+  toolDescription?: string;
+  /** Short action title derived only from the call's own data. */
+  toolTitle?: string;
+  /** Flow identity the source proves. On `tool_flow` rows, content `start`/`end` opens or closes it. */
+  toolFlowId?: string;
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

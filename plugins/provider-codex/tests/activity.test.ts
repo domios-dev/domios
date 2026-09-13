@@ -92,6 +92,48 @@ for (const parser of parsers) {
   assert.equal(batch[1].blocks[0].data.tool_use_id, "outer-opaque");
   assert.equal(batch[2].blocks[0].data.id, execution.id);
   assert.equal(batch[2].blocks[1].data.content, output);
+  assert.equal(messages[0].blocks[0].data.tool_flow_id, undefined, "activity without a source turn keeps its flow unknown");
+
+  const turn = (type: "task_started" | "task_complete", turnId?: string) => JSON.stringify({
+    type: "event_msg", timestamp, payload: { type, ...(turnId ? { turn_id: turnId } : {}) },
+  });
+  const custom = (callId: string, input: string) => JSON.stringify({
+    type: "response_item", timestamp, payload: { type: "custom_tool_call", name: "exec", call_id: callId, input },
+  });
+  const waitAgentArgs = { ids: ["agent-opaque"], timeout_ms: 30000 };
+  const commandScript = `const r = await tools.exec_command({cmd:"npm test -- --run"}); text(r.output);`;
+  const pollScript = `const r = await tools.write_stdin({session_id:7,chars:"",yield_time_ms:1000}); text(r.output);`;
+  const flow = parse([
+    turn("task_started", "turn-a"),
+    custom("call-a1", commandScript),
+    custom("call-a2", pollScript),
+    JSON.stringify({ type: "response_item", timestamp, payload: {
+      type: "function_call", name: "wait_agent", call_id: "call-a3", arguments: JSON.stringify(waitAgentArgs),
+    } }),
+    completed({ ...execution, id: "exec-turn-a" }).replace('"item_completed",', '"item_completed","turn_id":"turn-a",'),
+    turn("task_complete", "turn-a"),
+    turn("task_started", "turn-b"),
+    custom("call-b1", `const r = await tools.view_image({path:"/repo/shot.png"}); image(r.image_url);`),
+  ]);
+  assert.deepEqual(flow.map((message) => message.blocks[0].kind), [
+    "tool_flow", "tool_use", "tool_use", "tool_use", "tool_use", "tool_flow", "tool_flow", "tool_use",
+  ]);
+  assert.deepEqual(flow[0].blocks[0].data, { state: "start", flow_id: "turn-a" });
+  assert.deepEqual(flow[5].blocks[0].data, { state: "end", flow_id: "turn-a" });
+  assert.deepEqual(flow[6].blocks[0].data, { state: "start", flow_id: "turn-b" });
+  assert.equal(flow[1].blocks[0].data.tool_title, "npm test");
+  assert.deepEqual(flow[1].blocks[0].data.input, { raw: commandScript });
+  assert.equal(flow[2].blocks[0].data.tool_title, "Wait for command output");
+  assert.equal(flow[2].blocks[0].data.tool_summary, "Wait for command output");
+  assert.equal(flow[3].blocks[0].data.name, "wait_agent");
+  assert.equal(flow[3].blocks[0].data.tool_title, "wait_agent");
+  assert.deepEqual(flow[3].blocks[0].data.input, waitAgentArgs);
+  assert.equal(flow[4].blocks[0].data.tool_flow_id, "turn-a");
+  assert.equal(flow[4].blocks[0].data.tool_title, command);
+  assert.equal(flow[4].blocks[1].data.content, output);
+  assert.equal(flow[7].blocks[0].data.tool_title, "Read shot.png");
+  assert.equal(flow[1].blocks[0].data.tool_flow_id, undefined, "calls rely on the boundary row instead of a guessed turn");
+  assert.deepEqual(parse([turn("task_started"), turn("task_complete")]), [], "a boundary without a source turn id is dropped");
 }
 
 console.log("Codex structured tool activity source/bundle fixtures passed");
