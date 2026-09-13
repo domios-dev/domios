@@ -5,7 +5,10 @@ import { NeedsYouPanel } from "../Canvas/missionControl/BoardCards";
 import type { HeldForDecision } from "../Canvas/missionControl/missionControlState";
 import { useChatMessageReveal } from "../Terminal/useChatMessageReveal";
 import { useChatScroll } from "../Terminal/useChatScroll";
+import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { clearChatReveal, currentChatReveal, requestChatMessageReveal } from "../../lib/chatMessageReveal";
+import { getClientTabUiMode, resolveInitialTabUiMode, setClientTabUiMode } from "../../lib/clientTabUiMode";
+import { jumpToChatMessage } from "./jumpToChatMessage";
 import {
   DEEP_LINK_UNAVAILABLE_COPY,
   needsYouNotificationItems,
@@ -21,14 +24,26 @@ const TARGET_TAB = "tab-worker";
 const TARGET_MESSAGE = "needs-you-message-1";
 const SHARED_TEXT = "Approve the rollout?";
 
-function tab(id: string, teamId: string | null): Tab {
-  return { id, workspace_id: "ws-1", team_id: teamId, title: id, tab_type: "Terminal", pty_id: null, cwd: null } as Tab;
+function tab(id: string, teamId: string | null, agentType: string | null = "claude"): Tab {
+  return {
+    id,
+    workspace_id: "ws-1",
+    team_id: teamId,
+    agent_type: agentType,
+    title: id,
+    tab_type: "Terminal",
+    pty_id: null,
+    cwd: null,
+  } as Tab;
 }
+
+const SHELL_TAB = "tab-shell";
 
 const TABS: Record<string, Tab> = {
   "tab-orchestrator": tab("tab-orchestrator", TEAM),
   [TARGET_TAB]: tab(TARGET_TAB, TEAM),
   "tab-foreign": tab("tab-foreign", "team-b"),
+  [SHELL_TAB]: tab(SHELL_TAB, TEAM, null),
 };
 
 const WORKSPACES = [
@@ -97,7 +112,13 @@ afterEach(async () => {
     await act(async () => root.unmount());
     host.remove();
   }
-  act(() => clearChatReveal());
+  act(() => {
+    clearChatReveal();
+    canvasFocusStore.close();
+    canvasFocusStore.closeWorkspace();
+  });
+  window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe("notification deep link identity", () => {
@@ -116,6 +137,11 @@ describe("notification deep link identity", () => {
   it("reports a closed target tab as unavailable", () => {
     expect(resolveDeepLink(record({ target_tab_id: "tab-closed" }), TABS, WORKSPACES))
       .toEqual({ kind: "unavailable", reason: "tab_gone" });
+  });
+
+  it("reports a target tab without a chat view as unavailable", () => {
+    expect(resolveDeepLink(record({ target_tab_id: SHELL_TAB }), TABS, WORKSPACES))
+      .toEqual({ kind: "unavailable", reason: "no_chat" });
   });
 
   it("keeps team scope to unread action-needed records asked from inside the team", () => {
@@ -190,6 +216,54 @@ describe("Needs you notification rows", () => {
     await pressEnter(link);
     expect(onSelectTab).not.toHaveBeenCalled();
     expect(currentChatReveal()).toBeNull();
+  });
+});
+
+describe("jump from the Board to the chat", () => {
+  it("leaves the Board, opens the target tab in Chat, selects it, and the reveal settles in that chat", async () => {
+    act(() => {
+      canvasFocusStore.openWorkspace({ teamId: TEAM });
+      canvasFocusStore.openFocus({ planId: "pl_board" });
+    });
+    setClientTabUiMode(TARGET_TAB, "terminal");
+    const onSelectTab = vi.fn();
+    const { host } = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([record()], onSelectTab)} />);
+
+    await pressEnter(links(host)[0]);
+
+    expect(canvasFocusStore.isWorkspaceOpen()).toBe(false);
+    expect(canvasFocusStore.isOpen()).toBe(false);
+    expect(getClientTabUiMode(TARGET_TAB)).toBe("chat");
+    expect(resolveInitialTabUiMode(TARGET_TAB, { chatCapable: true })).toBe("chat");
+    expect(onSelectTab).toHaveBeenCalledWith("ws-1", TARGET_TAB);
+    expect(currentChatReveal()?.outcome).toBe("pending");
+
+    await render(<ChatHarness tabId={TARGET_TAB} ready />);
+    expect(currentChatReveal()).toMatchObject({ tabId: TARGET_TAB, messageId: TARGET_MESSAGE, outcome: "revealed" });
+  });
+
+  it("a tab without a chat view is unavailable on the Board and a direct jump settles instead of waiting", async () => {
+    act(() => canvasFocusStore.openWorkspace({ teamId: TEAM }));
+    const onSelectTab = vi.fn();
+    const shellRecord = record({ id: "n-shell", target_tab_id: SHELL_TAB });
+    const { host } = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([shellRecord], onSelectTab)} />);
+
+    expect(rowFor(host, "n-shell").querySelector('[data-testid="needs-you-notification-unavailable"]')?.textContent)
+      .toBe(DEEP_LINK_UNAVAILABLE_COPY.no_chat);
+    await pressEnter(links(host)[0]);
+    expect(onSelectTab).not.toHaveBeenCalled();
+    expect(canvasFocusStore.isWorkspaceOpen()).toBe(true);
+
+    act(() => {
+      jumpToChatMessage(
+        { workspaceId: "ws-1", tabId: SHELL_TAB, messageId: TARGET_MESSAGE, notificationId: "n-shell" },
+        TABS[SHELL_TAB],
+        onSelectTab,
+      );
+    });
+    expect(currentChatReveal()?.outcome).toBe("no_chat");
+    expect(onSelectTab).not.toHaveBeenCalled();
+    expect(canvasFocusStore.isWorkspaceOpen()).toBe(true);
   });
 });
 
