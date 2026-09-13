@@ -226,7 +226,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
         .route("/api/plans/{id}/pause", post(plan_routes::pause))
+        .route(
+            "/api/plans/{id}/pause/preview",
+            get(plan_routes::pause_preview),
+        )
         .route("/api/plans/{id}/resume", post(plan_routes::resume))
+        .route(
+            "/api/plans/{id}/resume/preview",
+            get(plan_routes::resume_preview),
+        )
         .route("/api/plans/{id}/mode", post(plan_routes::mode_set))
         .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
         .route("/api/plans/{id}/state", get(plan_routes::state))

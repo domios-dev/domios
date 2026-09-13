@@ -855,6 +855,9 @@ impl ServiceContext {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return;
         };
+        if crate::service::plan::pause_operation::plan_notices_suppressed(&plan) {
+            return;
+        }
         let gate = plan.gates.iter().find(|g| g.id == gate_id);
         let asker_tab = gate
             .and_then(|g| g.asked_by_tab_id.as_deref())

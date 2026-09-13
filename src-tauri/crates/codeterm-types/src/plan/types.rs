@@ -647,6 +647,8 @@ pub struct Plan {
     pub mode: PlanMode,
     #[serde(default)]
     pub paused_from_mode: Option<PlanMode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pause_operations: Vec<super::pause::PlanPauseOperation>,
     pub owner: OrchestratorRef,
     /// Optional 1:1 team binding; None keeps legacy plans teamless.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -722,6 +724,7 @@ impl Plan {
             status: PlanStatus::Active,
             mode: PlanMode::Planning,
             paused_from_mode: None,
+            pause_operations: vec![],
             owner,
             team_id: None,
             project_path: project_path.clone(),
