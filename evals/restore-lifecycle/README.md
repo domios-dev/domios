@@ -18,7 +18,11 @@ Tunables (env):
 - `RL_CYCLES` (`2`) — full stop/start cycles.
 - `RL_MIDTURN_CYCLE` (`2`) — the cycle whose restart happens while the Claude
   Worker is mid-turn (`status == Working`). Set it outside `1..RL_CYCLES` to skip.
-- `RL_CLAUDE_MODEL` (`haiku`), `RL_CODEX_MODEL` (`gpt-5.4-mini`).
+- `RL_CLAUDE_MODEL` (`haiku`), `RL_CODEX_MODEL` (empty = the provider's
+  `default_model` from `/api/agents/providers`). A requested model the provider
+  does not advertise refuses the run before anything spawns: the daemon would
+  otherwise fall back to its default and the bench would test a different model.
+  Each spawn's resolved `model` must contain the requested one.
 - `RL_BIND_DEADLINE`, `RL_TURN_DEADLINE`, `RL_REPORT_DEADLINE` — failure
   deadlines in seconds. Waits re-check on daemon events; elapsed time is never
   success.
@@ -41,9 +45,16 @@ Tunables (env):
    - every agent answers a fresh marker turn, and identity is still unchanged
      afterwards (the resumed process is live, not a record).
 
-On success the Team, workspace and new plans are removed. On failure they are
-kept and the run directory (`target-check/evals/restore-lifecycle-<run>`) holds
-the identity captures and markers.
+The Team id is the Orchestrator's own `team_id` from its tab status, cross-checked
+against `team list --json` (`{"teams": [...]}`). Every CLI JSON payload is saved as
+`<label>.json` plus `<label>.stderr` in the run directory; a refusal or non-JSON
+payload fails with both streams printed.
+
+On success the Team, workspace and new plans are removed. Cleanup runs through
+`dc` without `--as-tab`, so the caller is never a member of the Team or
+workspace it closes (a coordinator cannot close the workspace it runs in). On
+failure they are kept and the run directory
+(`target-check/evals/restore-lifecycle-<run>`) holds the captures and markers.
 
 ## Pass condition
 
