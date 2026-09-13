@@ -60,6 +60,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const boardProps = useFrozenWhenHidden(props, viewMode === "board");
   const tasksProps = useFrozenWhenHidden(props, viewMode === "tasks");
   const openSpec = useCallback(() => setViewMode("spec"), [setViewMode]);
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
 
   return (
     <div
@@ -75,18 +76,25 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         }}
       >
         <PlanViewModeSwitch value={viewMode} onChange={setViewMode} />
-        {props.onClose && (
-          <button
-            type="button"
-            data-testid="plan-view-close"
-            onClick={props.onClose}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded border cursor-pointer"
-            style={{ background: "var(--ct-bg)", borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
-            title="Close plan"
-          >
-            <X size={14} />
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          <div
+            ref={setActionsSlot}
+            data-testid="plan-view-header-actions"
+            className="plan-view-header-actions flex items-center gap-2"
+          />
+          {props.onClose && (
+            <button
+              type="button"
+              data-testid="plan-view-close"
+              onClick={props.onClose}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded border cursor-pointer"
+              style={{ background: "var(--ct-bg)", borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
+              title="Close plan"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
       </header>
       <div className="relative min-h-0 flex-1">
         <div
@@ -108,7 +116,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           hidden={viewMode !== "board"}
           aria-hidden={viewMode !== "board"}
         >
-          <BoardSurface {...boardProps} />
+          <BoardSurface {...boardProps} headerActionsSlot={viewMode === "board" ? actionsSlot : null} />
         </div>
         <div
           className="absolute inset-0"
