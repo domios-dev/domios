@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { filterPlansForCanvas } from "../planTabMatch";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import { deletePlan, fetchSpecSections, parkPlan, setPlanMode } from "../plansApi";
@@ -11,6 +12,7 @@ import { PlanDetailOverlay, type PlanDetailKind } from "../planView/PlanDetailOv
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
 import type { Plan, Section, Task } from "../types";
+import { useAllowanceWeeks } from "./allowanceWeek";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
@@ -46,6 +48,7 @@ export function MissionControlPlanSurface({
   teams,
   onOpenTab,
   api,
+  headerActionsSlot = null,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
@@ -143,6 +146,11 @@ export function MissionControlPlanSurface({
   }, [selectedPlan, selectedSpecSections]);
 
   const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
+  const spendProviders = useMemo(
+    () => boardState.state?.mission_control?.spend.providers.map((provider) => provider.provider) ?? [],
+    [boardState.state],
+  );
+  const allowanceWeeks = useAllowanceWeeks(spendProviders);
 
   const approvePlan = useCallback((id: string) => {
     if (!api) return;
@@ -162,40 +170,49 @@ export function MissionControlPlanSurface({
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
+  const showSwitcher = Boolean(selectedPlan && !teamId);
+  const actions = (
+    <>
+      <PlanFetchReconnectingBanner
+        reconnecting={reconnecting}
+        itemCount={plans.length}
+        testId="mission-control-reconnecting"
+      />
+      {showsData && selectedPlan && (
+        <MissionControlControls
+          scope="board"
+          planId={selectedPlan.id}
+          onApprovePlan={approvePlan}
+          onPausePlan={pausePlan}
+          onClearEverything={clearEverything}
+        />
+      )}
+    </>
+  );
+
   return (
     <div data-testid="mission-control-plan-surface" className="flex h-full w-full flex-col overflow-hidden">
-      <header
-        data-testid="mission-control-surface-header"
-        className="mission-control-surface-header flex shrink-0 items-center gap-3 border-b px-3 py-1.5"
-        style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
-      >
-        <div className="min-w-0 flex-1">
-          {selectedPlan && !teamId && (
-            <PlanSwitcher
-              plans={switcherWithInflight}
-              selectedId={selectedPlan.id}
-              onSelect={selectPlan}
-              onAction={handleAction}
-            />
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <PlanFetchReconnectingBanner
-            reconnecting={reconnecting}
-            itemCount={plans.length}
-            testId="mission-control-reconnecting"
-          />
-          {showsData && selectedPlan && (
-            <MissionControlControls
-              scope="board"
-              planId={selectedPlan.id}
-              onApprovePlan={approvePlan}
-              onPausePlan={pausePlan}
-              onClearEverything={clearEverything}
-            />
-          )}
-        </div>
-      </header>
+      {headerActionsSlot && !showSwitcher ? (
+        createPortal(actions, headerActionsSlot)
+      ) : (
+        <header
+          data-testid="mission-control-surface-header"
+          className="mission-control-surface-header flex shrink-0 items-center gap-3 border-b px-3 py-1.5"
+          style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
+        >
+          <div className="min-w-0 flex-1">
+            {showSwitcher && selectedPlan && (
+              <PlanSwitcher
+                plans={switcherWithInflight}
+                selectedId={selectedPlan.id}
+                onSelect={selectPlan}
+                onAction={handleAction}
+              />
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">{actions}</div>
+        </header>
+      )}
       <div className="relative min-h-0 flex-1">
         <PlanFetchErrorState
           loading={loading}
@@ -216,6 +233,7 @@ export function MissionControlPlanSurface({
             state={boardState.state}
             loading={boardState.loading}
             error={boardState.error}
+            allowanceWeeks={allowanceWeeks}
           />
         )}
       </div>

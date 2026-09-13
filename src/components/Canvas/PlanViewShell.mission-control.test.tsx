@@ -91,4 +91,30 @@ describe("team plan view shell", () => {
     expect(options[1]?.getAttribute("data-active")).toBe("true");
     await unmount();
   });
+
+  it("puts a team board's actions in the mode row instead of a band of their own", async () => {
+    localStorage.removeItem("codeterm.planViewMode");
+    const teamPlan = { ...FIXTURE_PLAN, id: "plan-team", team_id: "team-1" };
+    const { host, unmount } = await render(<PlanViewShell {...props} plans={[teamPlan]} teamId="team-1" />);
+
+    const slot = host.querySelector('[data-testid="plan-view-header-actions"]') as HTMLElement;
+    expect(slot.closest("header")).not.toBeNull();
+    expect(host.querySelector('[data-testid="mission-control-surface-header"]')).toBeNull();
+    expect(slot.querySelector('[data-testid="mission-control-board-menu-trigger"]')?.tagName).toBe("BUTTON");
+
+    await clickMode(host, "Spec");
+    expect(slot.querySelector('[data-testid="mission-control-board-menu-trigger"]')).toBeNull();
+    await unmount();
+  });
+
+  it("keeps the plan switcher band, with its actions, when the board chooses among plans", async () => {
+    localStorage.removeItem("codeterm.planViewMode");
+    const { host, unmount } = await render(<PlanViewShell {...props} />);
+
+    const header = host.querySelector('[data-testid="mission-control-surface-header"]') as HTMLElement;
+    expect(header.querySelector('[data-testid="plan-switcher-option"]')).not.toBeNull();
+    expect(header.querySelector('[data-testid="mission-control-board-menu-trigger"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="plan-view-header-actions"]')?.children).toHaveLength(0);
+    await unmount();
+  });
 });
