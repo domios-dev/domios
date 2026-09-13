@@ -122,7 +122,11 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           hidden={viewMode !== "board"}
           aria-hidden={viewMode !== "board"}
         >
-          <BoardSurface {...boardProps} headerActionsSlot={viewMode === "board" ? actionsSlot : null} />
+          <BoardSurface
+            {...boardProps}
+            headerActionsSlot={viewMode === "board" ? actionsSlot : null}
+            onOpenView={setViewMode}
+          />
         </div>
         <div
           className="absolute inset-0"
