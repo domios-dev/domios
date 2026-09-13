@@ -43,6 +43,18 @@ function rawInput(event: ToolEvent): string {
   return event.detail || event.summary || "";
 }
 
+interface HighlightNode { type: string; value?: string | number; children?: HighlightNode[] }
+
+// Prism rows carry their line's trailing "\n"; a row must expose the exact source line.
+function withoutTrailingNewline<T extends HighlightNode>(node: T): T {
+  if (node.type === "text") {
+    return typeof node.value === "string" && node.value.endsWith("\n") ? { ...node, value: node.value.slice(0, -1) } : node;
+  }
+  const children = node.children;
+  if (!children?.length) return node;
+  return { ...node, children: [...children.slice(0, -1), withoutTrailingNewline(children[children.length - 1])] };
+}
+
 function DiffLine({ line, content }: { line: string; content: ReactNode }) {
   const tone = lineTone(line);
   return (
@@ -74,7 +86,7 @@ function HunkLines({ hunk, language }: { hunk: FileDiffHunk; language: string })
         <DiffLine
           key={index}
           line={line}
-          content={rows[index] ? createElement({ node: rows[index], stylesheet, useInlineStyles, key: `c${index}` }) : line.substring(1)}
+          content={rows[index] ? createElement({ node: withoutTrailingNewline(rows[index]), stylesheet, useInlineStyles, key: `c${index}` }) : line.substring(1)}
         />
       ))}
     >
