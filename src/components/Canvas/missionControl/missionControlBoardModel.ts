@@ -222,16 +222,25 @@ export function pagerPages(current: number, count: number): Array<number | "gap"
   return pages;
 }
 
-/** Where the log reads its pages from: today the plan's stored log, later a team event stream. */
+/** Where the log reads its pages from: the plan's stored log, or the team's cursor-paged event stream. */
 export interface EventPager {
-  total: number;
-  /** Events newest first, starting `offset` events from the newest. */
-  page(offset: number, size: number): PlanEvent[];
+  /** Pages known so far, including one more when the source says older events exist. */
+  pageCount: number;
+  /** One page of events, newest first; null while that page is not loaded yet. */
+  page(index: number): PlanEvent[] | null;
+  /** Asks the source to fetch a page it does not hold yet. */
+  load?(index: number): void;
+  /** Short count for the log header. */
+  caption: string;
 }
 
 export function planEventPager(log: EventLog): EventPager {
   const newest = [...log.entries].reverse();
-  return { total: newest.length, page: (offset, size) => newest.slice(offset, offset + size) };
+  return {
+    pageCount: Math.max(1, Math.ceil(newest.length / EVENT_LOG_PAGE)),
+    page: (index) => newest.slice(index * EVENT_LOG_PAGE, (index + 1) * EVENT_LOG_PAGE),
+    caption: eventLogCaption(log),
+  };
 }
 
 const REF_PATTERN = /\b(?:pl|task)_[a-z0-9]+\b/g;

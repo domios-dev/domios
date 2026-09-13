@@ -10,19 +10,20 @@ import {
   spendReading,
 } from "./missionControlBoardModel";
 import type { MissionControlSpend } from "./missionControlState";
+import { TEAM_SCOPE_CAPTION, teamModelRows, type TeamSpend } from "./teamSpend";
 
 /** Models ranked by new input, the spend that costs; the long tail waits behind Show all. */
-export function ModelsCard({ spend }: { spend: MissionControlSpend }) {
-  const rows = modelSpendRows(spend);
+export function ModelsCard({ spend, teamSpend = null }: { spend: MissionControlSpend; teamSpend?: TeamSpend | null }) {
+  const rows = teamSpend ? teamModelRows(teamSpend) : modelSpendRows(spend);
   const [showAll, setShowAll] = useState(false);
   const tableId = useId();
   const visible = showAll ? rows : rows.slice(0, MODELS_PREVIEW);
   return (
-    <BoardPanel testId="mc-board-models" title="Models" meta={SPEND_SCOPE_CAPTION}>
+    <BoardPanel testId="mc-board-models" title="Models" meta={teamSpend ? TEAM_SCOPE_CAPTION : SPEND_SCOPE_CAPTION}>
       <BoardPanelSection>
         {rows.length === 0 ? (
           <p data-testid="mc-board-models-empty" className="mc-board-note">
-            {spendReading(spend).note ?? "no data"}
+            {teamSpend ? "no data" : spendReading(spend).note ?? "no data"}
           </p>
         ) : (
           <>
