@@ -5,6 +5,7 @@
   "src/components/Canvas/missionControl/MissionControlBoard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlSpendCard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlControls.test.tsx",
+  "src/components/Canvas/missionControl/MissionControlControls.pauseResume.test.tsx",
   "src/components/Canvas/missionControl/missionControlNarrowShell.test.tsx",
   "src/components/Canvas/missionControl/missionControlBoardVisualSystem.test.tsx",
   "src/components/Canvas/missionControl/missionControlLiveRefresh.test.tsx",

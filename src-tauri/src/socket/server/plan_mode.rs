@@ -70,13 +70,16 @@ pub(super) fn dispatch(
                 .cloned()
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
-            let stride_id = svc
-                .plan_store
-                .pause_plan(&id, &reason, from, epoch_ms())
-                .map_err(plan_rpc_err)?;
-            svc.reconcile_time_reminder_eligibility();
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true, "stride_id": stride_id }))
+            let outcome = svc
+                .pause_plan_operation(&id, &reason, from, epoch_ms())
+                .map_err(super::team::team_plan_rpc_err)?;
+            let operation_id = outcome.operation.as_ref().map(|op| op.id.clone());
+            Ok(json!({
+                "ok": true,
+                "applied": outcome.applied,
+                "stride_id": outcome.stride_id.unwrap_or_default(),
+                "operation_id": operation_id,
+            }))
         }
         "plan.resume" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
