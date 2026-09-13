@@ -1531,8 +1531,17 @@ var plugin = {
               const description = toolDescription(data.input);
               if (description) data.tool_description = description;
               if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+              const sourceId = exactSourceIdentity(v.uuid);
+              if (sourceId) data.tool_call_source_id = sourceId;
             } else if (b.type === "thinking") {
               delete data.signature;
+            }
+            if (b.type === "tool_result") {
+              const outcome = commandOutcome(v.toolUseResult);
+              if (outcome) Object.assign(data, outcome);
+              const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
+              data.tool_pairing = sourceId ? "exact" : "unavailable";
+              if (sourceId) data.tool_call_source_id = sourceId;
             }
             blocks.push({ kind: b.type, data });
           }
@@ -1892,6 +1901,28 @@ function cleanToolText(value, fallback) {
   const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
   if (!text) return fallback;
   return text.length > 120 ? text.slice(0, 117) + "..." : text;
+}
+function exactSourceIdentity(value) {
+  if (typeof value !== "string" || !value || value.trim() !== value) return void 0;
+  return value;
+}
+function exactOutcomeNumber(value, nonnegative) {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return void 0;
+  if (nonnegative && value < 0) return void 0;
+  return value;
+}
+function commandOutcome(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const result = value;
+  const outcome = {};
+  const exitCode = exactOutcomeNumber(result.returnCode, false);
+  const durationMs = exactOutcomeNumber(result.durationMs, true);
+  if (exitCode !== void 0) outcome.tool_exit_code = exitCode;
+  if (durationMs !== void 0) outcome.tool_duration_ms = durationMs;
+  if (typeof result.interrupted === "boolean") outcome.tool_interrupted = result.interrupted;
+  const backgroundTaskId = exactSourceIdentity(result.backgroundTaskId);
+  if (backgroundTaskId) outcome.tool_background_task_id = backgroundTaskId;
+  return Object.keys(outcome).length > 0 ? outcome : void 0;
 }
 function writeTaskTempFile(task) {
   const suffix = ".ct-task-" + randomShortHex(8);
