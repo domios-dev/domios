@@ -62,7 +62,7 @@ export interface UseChatScrollResult {
   followSend: () => void;
   prepareForHistoryPrepend: () => void;
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
-  /** Scrolls to the row whose `data-message-id` equals this id exactly; false when no such row is rendered. */
+  /** Scrolls to the row whose `data-source-message-id` equals this id exactly; false when no such row is rendered. */
   revealMessage: (messageId: string) => boolean;
 }
 
@@ -151,8 +151,8 @@ export function useChatScroll({
   const revealMessage = useCallback((messageId: string) => {
     const el = scrollRef.current;
     if (!el) return false;
-    const row = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"))
-      .find((candidate) => candidate.dataset.messageId === messageId);
+    const row = Array.from(el.querySelectorAll<HTMLElement>("[data-source-message-id]"))
+      .find((candidate) => candidate.dataset.sourceMessageId === messageId);
     if (!row) return false;
     el.scrollTop = row.offsetTop;
     lastScrollTopRef.current = el.scrollTop;

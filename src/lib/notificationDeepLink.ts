@@ -2,7 +2,15 @@ import type { ChatRevealRequest } from "./chatMessageReveal";
 import { tabChatCapable } from "./chatUiMode";
 import type { Notification, Tab, Workspace } from "./types";
 
-export type DeepLinkUnavailableReason = "no_target" | "tab_gone" | "no_chat" | "message_gone";
+export type DeepLinkUnavailableReason = "no_target" | "no_stable_id" | "tab_gone" | "no_chat" | "message_gone";
+
+// Offset-anchored ids name a batch origin plus a position, so the same message gets another id in another parse window.
+const OFFSET_ANCHORED_ID = /^(?:result-)?\d+-\d+(?:-(?:img-)?\d+)?$/;
+
+/** Only a provider-uuid id (`{uuid}-{block}`) names the same message in every loaded window. */
+export function isStableChatMessageId(id: string): boolean {
+  return id.length > 0 && !OFFSET_ANCHORED_ID.test(id);
+}
 
 export type DeepLinkState =
   | { kind: "available"; tabId: string; workspaceId: string; messageId: string }
@@ -10,6 +18,7 @@ export type DeepLinkState =
 
 export const DEEP_LINK_UNAVAILABLE_COPY: Record<DeepLinkUnavailableReason, string> = {
   no_target: "unavailable: no chat message was recorded",
+  no_stable_id: "unavailable: that message has no stable id",
   tab_gone: "unavailable: the target tab is closed",
   no_chat: "unavailable: the target tab has no chat view",
   message_gone: "unavailable: that message is not in the loaded chat",
@@ -53,6 +62,7 @@ export function resolveDeepLink(
   const tabId = notification.target_tab_id ?? null;
   const messageId = notification.chat_message_id ?? null;
   if (!tabId || !messageId) return { kind: "unavailable", reason: "no_target" };
+  if (!isStableChatMessageId(messageId)) return { kind: "unavailable", reason: "no_stable_id" };
   const workspaceId = workspaces.find((ws) => ws.tabs.includes(tabId))?.id ?? tabs[tabId]?.workspace_id ?? null;
   const tab = tabs[tabId];
   if (!tab || !workspaceId) return { kind: "unavailable", reason: "tab_gone" };

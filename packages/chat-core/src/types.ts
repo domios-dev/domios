@@ -120,6 +120,8 @@ export type InteractiveElement = InteractiveQuestion;
 
 export interface NormalizedChatMessage {
   id: string;
+  /** The id the source emitted before the transcript re-keyed the row; never a render key. */
+  sourceMessageId?: string;
   type: ChatMessageKind;
   content: string;
   attachments?: ChatAttachment[];
