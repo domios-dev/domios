@@ -52,6 +52,7 @@ pub(crate) mod persona;
 pub mod plan;
 mod plan_authority;
 pub(crate) mod plan_batch_authority;
+mod plan_pause;
 mod plan_reconcile;
 pub mod plugin_host;
 pub(crate) mod provider_identity;

@@ -105,6 +105,127 @@
   color: var(--ct-red);
 }
 
+.mc-lifecycle-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--ct-bg) 55%, transparent);
+}
+
+.mc-lifecycle-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(28rem, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg-elev, var(--ct-surface));
+  color: var(--ct-fg);
+  font-size: 13px;
+  box-shadow: 0 16px 48px color-mix(in srgb, var(--ct-bg) 55%, transparent);
+}
+
+.mc-lifecycle-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mc-lifecycle-meta {
+  margin: 0;
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mc-lifecycle-section h3 {
+  margin: 0 0 4px;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mc-lifecycle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-lifecycle-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mc-lifecycle-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mc-lifecycle-tag,
+.mc-lifecycle-unavailable {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.mc-lifecycle-tag {
+  color: var(--ct-muted-fg);
+}
+
+.mc-lifecycle-unavailable {
+  color: var(--ct-yellow, var(--ct-muted-fg));
+}
+
+.mc-lifecycle-error {
+  margin: 0;
+  color: var(--ct-red);
+  overflow-wrap: anywhere;
+}
+
+.mc-lifecycle-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mc-lifecycle-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: var(--ct-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mc-lifecycle-button:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.mc-lifecycle-button-primary {
+  border-color: var(--ct-accent);
+  background: var(--ct-accent);
+  color: var(--ct-accent-fg, var(--ct-bg));
+}
+
+.mc-lifecycle-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .plan-board-task-actions {
   position: absolute;
   top: 0.3rem;

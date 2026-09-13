@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { filterPlansForCanvas } from "../planTabMatch";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
-import { deletePlan, fetchSpecSections, parkPlan, setPlanMode } from "../plansApi";
+import {
+  deletePlan,
+  fetchPlanLifecyclePreview,
+  fetchSpecSections,
+  parkPlan,
+  resumePlan,
+  setPlanMode,
+} from "../plansApi";
+import type { PlanLifecycleKind } from "../planLifecycle";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import { PlanSwitcher } from "../planView/PlanSwitcher";
 import { usePlanSwitcherActions } from "../planView/usePlanSwitcherActions";
@@ -197,9 +205,15 @@ export function MissionControlPlanSurface({
     void setPlanMode(api, id, "approved").catch(() => undefined);
   }, [api]);
 
-  const pausePlan = useCallback((id: string) => {
-    if (!api) return;
-    void parkPlan(api, id, "Paused from Mission Control").catch(() => undefined);
+  const previewPlanLifecycle = useCallback((id: string, kind: PlanLifecycleKind) => {
+    if (!api) return Promise.reject(new Error("Plan API unavailable"));
+    return fetchPlanLifecyclePreview(api, id, kind);
+  }, [api]);
+
+  const confirmPlanLifecycle = useCallback(async (id: string, kind: PlanLifecycleKind) => {
+    if (!api) throw new Error("Plan API unavailable");
+    if (kind === "pause") await parkPlan(api, id, "Paused from Mission Control");
+    else await resumePlan(api, id);
   }, [api]);
 
   const clearEverything = useCallback((id: string) => {
@@ -222,8 +236,10 @@ export function MissionControlPlanSurface({
         <MissionControlControls
           scope="board"
           planId={selectedPlan.id}
+          planPaused={selectedPlan.mode === "paused"}
           onApprovePlan={approvePlan}
-          onPausePlan={pausePlan}
+          onPreviewPlanLifecycle={previewPlanLifecycle}
+          onConfirmPlanLifecycle={confirmPlanLifecycle}
           onClearEverything={clearEverything}
         />
       )}
