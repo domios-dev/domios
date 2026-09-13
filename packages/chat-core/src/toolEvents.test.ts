@@ -194,4 +194,42 @@ console.log("ok - tool event lifecycle");
   assert(reduceToolEvents([call("wait-agent", "wait-agent", { toolName: "wait_agent" })]).length === 1, "wait_agent is an ordinary visible action");
 }
 
+{
+  const stale = { sourceSessionId: "stale" };
+  const start = (flowId: string): NormalizedChatMessage => ({ id: `start-${flowId}`, type: "tool_flow", content: "start", toolFlowId: flowId, ...stale });
+  const titled = (id: string, patch: Partial<NormalizedChatMessage> = {}) => call(id, id, { toolTitle: `title ${id}`, ...stale, ...patch });
+  const [abandoned, open] = reduceToolEvents([
+    start("turn-a"), titled("a1", { toolError: false }), titled("a2"),
+    start("turn-b"), titled("b1"), titled("b2"),
+  ]);
+  assert(abandoned.kind === "tool" && abandoned.event.stream?.members[1].status === "unresolved", "a call without output is unresolved once a later turn starts");
+  assert(abandoned.kind === "tool" && abandoned.event.status === "unresolved" && abandoned.event.stream?.active === false, "the superseded stream header is static");
+  assert(open.kind === "tool" && open.event.status === "pending" && open.event.stream?.active === true, "the latest open turn keeps its running state");
+
+  const claude = { sourceSessionId: "claude" };
+  const superseded = reduceToolEvents([call("c1", "c1", claude), { id: "u1", type: "user", content: "next", seq: 1, ...claude }]);
+  assert(superseded[0].kind === "tool" && superseded[0].event.status === "unresolved", "a pending call superseded by a later user turn is unresolved");
+  const live = reduceToolEvents([call("c5", "c5", claude), { id: "u5", type: "user", content: "live", seq: 5, clientOrder: 9, ...claude }]);
+  assert(live[0].kind === "tool" && live[0].event.status === "unresolved", "a live source user row supersedes even though arrival stamps clientOrder");
+  const optimistic = reduceToolEvents([call("c2", "c2", claude), { id: "u2", type: "user", content: "typed", clientOrder: 1, correlationId: "u2", ...claude }]);
+  assert(optimistic[0].kind === "tool" && optimistic[0].event.status === "pending", "an optimistic user row is not source evidence");
+  const late = reduceToolEvents([call("c3", "c3", claude), { id: "u3", type: "user", content: "next", seq: 3, ...claude }, result("r3", "c3", "done", claude)]);
+  assert(late[0].kind === "tool" && late[0].event.status === "success", "a result that does arrive still resolves the call");
+  const foreign = reduceToolEvents([call("c4", "c4", claude), { id: "u4", type: "user", content: "elsewhere", seq: 4, sourceSessionId: "other" }]);
+  assert(foreign[0].kind === "tool" && foreign[0].event.status === "pending", "another session's user turn never supersedes a call");
+}
+
+{
+  const turn = { sourceSessionId: "echo" };
+  const start: NormalizedChatMessage = { id: "echo-start", type: "tool_flow", content: "start", toolFlowId: "turn-e", ...turn };
+  const titledCall = (id: string, patch: Partial<NormalizedChatMessage> = {}) => call(id, id, { toolTitle: `title ${id}`, toolError: false, ...turn, ...patch });
+  const echoed = reduceToolEvents([start, titledCall("e1"), titledCall("echo-1", { toolEcho: true, toolFlowId: "turn-e" }), titledCall("e2")]);
+  assert(echoed.length === 1 && echoed[0].kind === "tool" && echoed[0].event.stream?.members.map((member) => member.id).join() === "e1,e2", "a stream drops activity echoes of its own commands");
+  const loose = reduceToolEvents([
+    titledCall("e3", { sourceSessionId: "loose", toolFlowId: "turn-x" }),
+    titledCall("echo-2", { sourceSessionId: "loose", toolFlowId: "turn-x", toolEcho: true }),
+  ]);
+  assert(loose.length === 2, "without a formed stream an echo stays a visible record");
+}
+
 console.log("ok - tool activity streams");

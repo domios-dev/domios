@@ -1,5 +1,5 @@
 import { toolStreamLabel, type ToolEvent } from "@codeterm/chat-core";
-import { Check, ChevronRight, CircleX, LoaderCircle } from "lucide-react";
+import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 
 const MINI_VIEW_MAX_PX = 200;
@@ -8,13 +8,21 @@ const MINI_VIEW_ROWS = 6;
 export type RenderStreamAction = (member: ToolEvent, expanded: boolean, onToggle: (next: boolean) => void) => ReactNode;
 
 function statusColor(status: ToolEvent["status"]): string {
+  if (status === "unresolved") return "var(--ct-muted-fg)";
   return status === "error" ? "var(--ct-red)" : status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
+}
+
+function statusName(status: ToolEvent["status"]): string {
+  return status === "unresolved" ? "no result" : status;
 }
 
 function StatusGlyph({ status }: { status: ToolEvent["status"] }) {
   const style = { color: statusColor(status) };
   if (status === "pending") {
     return <LoaderCircle data-testid="chat-tool-stream-spinner" aria-hidden="true" size={12} className="shrink-0 motion-safe:animate-spin" style={style} />;
+  }
+  if (status === "unresolved") {
+    return <Minus data-testid="chat-tool-stream-no-result" aria-hidden="true" size={12} className="shrink-0" style={style} />;
   }
   return status === "error"
     ? <CircleX aria-hidden="true" size={12} className="shrink-0" style={style} />
@@ -60,7 +68,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         onClick={() => onToggle(!expanded)}
         className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs"
       >
-        <span data-testid="chat-tool-stream-status" aria-label={event.status} className="flex shrink-0">
+        <span data-testid="chat-tool-stream-status" aria-label={statusName(event.status)} className="flex shrink-0">
           <StatusGlyph status={event.status} />
         </span>
         <span
