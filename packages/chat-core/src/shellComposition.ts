@@ -17,6 +17,14 @@ export interface ShellSegment {
   /** Operator joining this segment to the next; null on the last segment. */
   operator: ShellOperator | null;
   script?: ShellScript;
+  /** Variable the segment assigns (`$response = cmd`, `out=$(cmd)`); argv is then the command it runs. */
+  assignment?: string;
+}
+
+export interface AssignedCommand {
+  variable: string;
+  /** Short name of the command actually run, never the assignment itself. */
+  label: string;
 }
 
 export interface ShellComposition {
@@ -161,16 +169,59 @@ function heredocLanguage(argv: readonly string[]): string {
   return INTERPRETERS[name]?.language ?? "text";
 }
 
-function segmentOf(lexed: LexedSegment, source: string): ShellSegment {
-  const payload = inlineScript(lexed.argv)
-    ?? (lexed.heredoc !== undefined ? script(heredocLanguage(lexed.argv), lexed.heredoc) : undefined);
+// `$x = cmd` is never valid posix, so it reads as an assignment in either dialect; the lexer drops quotes, so match source.
+const VARIABLE_ASSIGNMENT = /^(\$(?!env:)[A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*([\s\S]+)$/i;
+const SUBSTITUTION_ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=("?)\$\(([\s\S]*)\)\2$/;
+
+function assignedSegment(text: string, dialect: ShellDialect): { variable: string; lexed: LexedSegment } | null {
+  if (dialect === "cmd") return null;
+  const variable = VARIABLE_ASSIGNMENT.exec(text);
+  const substitution = variable ? null : SUBSTITUTION_ASSIGNMENT.exec(text);
+  let command: string;
+  if (variable) {
+    command = variable[2].trim();
+    if (/^\([\s\S]*\)$/.test(command)) command = command.slice(1, -1).trim();
+    if (/^["'@$\d[{-]/.test(command)) return null;
+  } else if (substitution) {
+    command = substitution[3].trim();
+  } else {
+    return null;
+  }
+  const inner = lexShell(command, dialect);
+  if (!inner || inner.length !== 1 || inner[0].argv.length === 0) return null;
+  return { variable: variable ? variable[1] : (substitution as RegExpExecArray)[1], lexed: inner[0] };
+}
+
+function segmentOf(lexed: LexedSegment, source: string, dialect: ShellDialect): ShellSegment {
+  const text = source.slice(lexed.start, lexed.end).trim();
+  const assigned = assignedSegment(text, dialect);
+  const words = assigned ? assigned.lexed : lexed;
+  const payload = inlineScript(words.argv)
+    ?? (words.heredoc !== undefined ? script(heredocLanguage(words.argv), words.heredoc) : undefined);
   return {
-    argv: lexed.argv,
-    redirects: lexed.redirects,
-    text: source.slice(lexed.start, lexed.end).trim(),
+    argv: words.argv,
+    redirects: words.redirects,
+    text,
     operator: lexed.operator,
     ...(payload ? { script: payload } : {}),
+    ...(assigned ? { assignment: assigned.variable } : {}),
   };
+}
+
+function displayName(token: string): string {
+  const slash = Math.max(token.lastIndexOf("/"), token.lastIndexOf("\\"));
+  return (slash >= 0 ? token.slice(slash + 1) : token).replace(/\.(?:exe|cmd|bat)$/i, "");
+}
+
+/** The executable plus its first plain argument: the short name of what a segment runs. */
+export function shellSegmentLabel(segment: Pick<ShellSegment, "argv" | "text">): string {
+  const { argv } = segment;
+  const start = commandArgvStart(argv);
+  if (argv[start] == null) return segment.text;
+  const name = displayName(argv[start]);
+  const argument = argv[start + 1];
+  if (!argument || argument.startsWith("-")) return name;
+  return `${name} ${argument.length > 24 ? `${argument.slice(0, 23)}…` : argument}`;
 }
 
 /** Pure, fail-safe structure of a shell command; null whenever any part is ambiguous. */
@@ -183,11 +234,30 @@ export function parseShellComposition(command: string, argv?: readonly string[])
     return {
       dialect: unwrapped.dialect,
       ...(unwrapped.launcher ? { launcher: unwrapped.launcher } : {}),
-      segments: lexed.map((segment) => segmentOf(segment, unwrapped.command)),
+      segments: lexed.map((segment) => segmentOf(segment, unwrapped.command, unwrapped.dialect)),
     };
   } catch {
     return null;
   }
+}
+
+const ASSIGNED_LIMIT = 500;
+const ASSIGNED = new Map<string, AssignedCommand | null>();
+
+/** Memoized: the variable a command's first segment assigns and the real command's label, or null. */
+export function assignedCommand(command: string, argv?: readonly string[]): AssignedCommand | null {
+  if (!command) return null;
+  const key = argv ? JSON.stringify([argv, command]) : command;
+  const cached = ASSIGNED.get(key);
+  if (cached !== undefined) return cached;
+  const segments = parseShellComposition(command, argv)?.segments ?? [];
+  const first = segments[0];
+  const value = first?.assignment
+    ? { variable: first.assignment, label: shellSegmentLabel(first) + (segments.length > 1 ? ` +${segments.length - 1}` : "") }
+    : null;
+  if (ASSIGNED.size >= ASSIGNED_LIMIT) ASSIGNED.delete(ASSIGNED.keys().next().value as string);
+  ASSIGNED.set(key, value);
+  return value;
 }
 
 function inputCommand(input: Record<string, unknown> | undefined): string {

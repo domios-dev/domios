@@ -121,7 +121,7 @@ describe("concise thoughts", () => {
       "chat-tool-stream-member", "chat-tool-stream-thought", "chat-tool-stream-member", "chat-tool-stream-thought", "chat-tool-stream-member",
     ]);
     expect(all(stream, "chat-thought-line").map((line) => line.textContent)).toEqual(["Inspect sources", "Compare output"]);
-    expect(all(stream, "chat-tool-stream-member").map((row) => row.textContent?.trim())).toEqual(["npm test", "git status", "npm run lint"]);
+    expect(all(stream, "chat-tool-stream-action").map((row) => row.textContent?.trim())).toEqual(["npm test", "git status", "npm run lint"]);
     expect(stream.textContent).not.toContain("Foreign thought");
 
     const outside = all(view, "chat-thought").filter((node) => !stream.contains(node));

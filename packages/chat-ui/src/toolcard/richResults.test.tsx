@@ -285,7 +285,7 @@ describe("isolation and ordering", () => {
     const streams = view.querySelectorAll<HTMLElement>('[data-testid="chat-tool-stream"]');
     expect(streams).toHaveLength(1);
     await click(streams[0].querySelector('button[aria-label="Expand 3 actions"]'));
-    const labels = [...streams[0].querySelectorAll('[data-testid="chat-tool-stream-member"]')].map((node) => node.textContent?.trim());
+    const labels = [...streams[0].querySelectorAll('[data-testid="chat-tool-stream-action"]')].map((node) => node.textContent?.trim());
     expect(labels).toEqual(["npm test", webEnd.query, "before.png"]);
 
     await click(streams[0].querySelector('button[aria-label="Show before.png"]'));

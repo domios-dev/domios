@@ -1,6 +1,6 @@
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree } from "./agentActivity";
 import { wellFormedFileDiffs } from "./fileDiffs";
-import { toolCommand, unwrapShellLauncher } from "./shellComposition";
+import { assignedCommand, toolCommand, unwrapShellLauncher } from "./shellComposition";
 import { normalizeToolRichResult } from "./toolRichResult";
 import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
 
@@ -171,9 +171,15 @@ function mergeResult(call: ToolEvent, result: ToolEvent): ToolEvent {
   };
 }
 
-/** The label a stream may roll to: the source's description, else the call-derived title. */
+/** The label a stream may roll to: the source's description, else the command an assignment runs, else the call-derived title. */
 export function toolStreamLabel(event: ToolEvent): string | undefined {
-  return event.description || event.title;
+  if (event.description) return event.description;
+  if (event.kind === "command") {
+    const { command, argv } = toolCommand(event);
+    const assigned = assignedCommand(command, argv);
+    if (assigned) return assigned.label;
+  }
+  return event.title;
 }
 
 function commandFingerprint(value: string): string {
