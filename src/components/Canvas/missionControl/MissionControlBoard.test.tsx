@@ -106,6 +106,7 @@ function recordingState(): MissionControlState {
           asked_at: NOW - 2 * H,
           age_ms: 2 * H,
           blocking_task_count: 2,
+          tab_id: null,
         },
       ],
       oldest_hold_age_ms: H + 420_000,
@@ -477,30 +478,30 @@ describe("mission control board panels", () => {
     expect(toggle.textContent).toBe("Previous plans 1");
     expect(toggle.getAttribute("aria-haspopup")).toBe("menu");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
 
     await act(async () => toggle.click());
-    const menu = host.querySelector('[data-testid="mc-board-previous-plans-menu"]') as HTMLElement;
+    const menu = document.querySelector('[data-testid="mc-board-previous-plans-menu"]') as HTMLElement;
     expect(menu.getAttribute("role")).toBe("menu");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(toggle.getAttribute("aria-controls")).toBe(menu.id);
     const item = menu.querySelector('[role="menuitem"]') as HTMLButtonElement;
     expect(item.querySelector(".mc-board-plan-menuitem-title")?.textContent).toBe("First Snake");
     expect(menu.textContent).not.toContain("older goal");
-    expect(text(host, "mc-board-previous-plan-date")).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/);
+    expect(text(menu, "mc-board-previous-plan-date")).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/);
     expect(document.activeElement).toBe(item);
 
     await act(async () => {
       menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
-    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(toggle);
 
     await act(async () => toggle.click());
-    await act(async () => (host.querySelector('[role="menuitem"]') as HTMLButtonElement).click());
+    await act(async () => (document.querySelector('[role="menuitem"]') as HTMLButtonElement).click());
     expect(onOpenPlan).toHaveBeenCalledWith("pl_old1");
-    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
     await unmount();
   });
 
@@ -559,6 +560,7 @@ describe("mission control board panels", () => {
       asked_at: NOW - H,
       age_ms: H,
       blocking_task_count: 0,
+      tab_id: null,
     }));
     const { host, unmount } = await render(board(state));
 

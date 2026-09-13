@@ -18,6 +18,9 @@ use crate::usage::UsageSnapshotRow;
 const MAX_RANGE_DAYS: i64 = 31;
 const MAX_ID_CHARS: usize = 256;
 const USAGE_HISTORY_LIMIT: i64 = 5_000;
+/// Snapshots read before the range so its first day has a baseline to count from.
+const WEEKLY_BASELINE_DAYS: i64 = 7;
+const RESET_JITTER_MS: i64 = 60_000;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct TeamSpendQuery {
@@ -152,6 +155,20 @@ pub(crate) struct TeamSpendResponse {
     pub attribution: AttributionSummary,
     pub daily: Vec<TeamSpendDaily>,
     pub weekly_limit_points: Vec<WeeklyLimitPoint>,
+    pub weekly_limit_days: Vec<WeeklyLimitDay>,
+}
+
+/// Weekly allowance points one provider account used on one UTC day.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub(crate) struct WeeklyLimitDay {
+    pub day: String,
+    pub provider: String,
+    pub account_id: Option<String>,
+    pub points_used: f32,
+    pub weekly_limit_points: f32,
+    pub scope: WeeklyLimitScope,
+    pub team_attribution: &'static str,
+    pub model_attribution: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -415,9 +432,83 @@ fn weekly_limit_points_from_rows(
         .collect()
 }
 
+fn scope_of(provider: &str, account_id: Option<&str>) -> WeeklyLimitScope {
+    WeeklyLimitScope {
+        kind: if account_id.is_some() {
+            "provider_account"
+        } else {
+            "machine"
+        },
+        provider: provider.to_string(),
+        account_id: account_id.map(str::to_string),
+    }
+}
+
+fn same_weekly_cycle(a: Option<i64>, b: Option<i64>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => (a - b).abs() <= RESET_JITTER_MS,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+/// Points used per account per day: the day's last reading less the previous day's,
+/// or the whole reading after a reset. A day with no earlier reading is left out.
+fn weekly_limit_days_from_rows(
+    rows: &[UsageSnapshotRow],
+    range: SpendRange,
+) -> Vec<WeeklyLimitDay> {
+    let mut latest = BTreeMap::<(String, Option<String>, NaiveDate), &UsageSnapshotRow>::new();
+    for row in rows
+        .iter()
+        .filter(|row| row.parsed_ok && row.weekly_pct.is_some())
+    {
+        let Some(day) = snapshot_day(row.captured_at) else {
+            continue;
+        };
+        latest
+            .entry((row.provider.clone(), row.account_id.clone(), day))
+            .and_modify(|kept| {
+                if row.captured_at > kept.captured_at {
+                    *kept = row;
+                }
+            })
+            .or_insert(row);
+    }
+
+    let mut days = Vec::new();
+    let mut previous: Option<(String, Option<String>, &UsageSnapshotRow)> = None;
+    for ((provider, account_id, day), row) in latest {
+        let baseline = previous
+            .as_ref()
+            .filter(|(p, a, _)| *p == provider && *a == account_id)
+            .map(|(_, _, row)| *row);
+        if let (true, Some(base), Some(reading), Some(base_reading)) = (
+            range.contains(day),
+            baseline,
+            row.weekly_pct,
+            baseline.and_then(|base| base.weekly_pct),
+        ) {
+            let reset = !same_weekly_cycle(row.weekly_resets_at, base.weekly_resets_at)
+                || reading < base_reading;
+            days.push(WeeklyLimitDay {
+                day: day.format("%Y-%m-%d").to_string(),
+                provider: provider.clone(),
+                account_id: account_id.clone(),
+                points_used: if reset { reading } else { reading - base_reading },
+                weekly_limit_points: reading,
+                scope: scope_of(&provider, account_id.as_deref()),
+                team_attribution: "unavailable",
+                model_attribution: "unavailable",
+            });
+        }
+        previous = Some((provider, account_id, row));
+    }
+    days
+}
+
 fn usage_rows(svc: &ServiceContext, range: SpendRange) -> Result<Vec<UsageSnapshotRow>, String> {
-    let since_ms = range
-        .from
+    let since_ms = (range.from - chrono::Duration::days(WEEKLY_BASELINE_DAYS))
         .and_hms_opt(0, 0, 0)
         .expect("midnight is valid for a date")
         .and_utc()
@@ -474,6 +565,7 @@ pub(crate) fn project_team_spend(
         attribution,
         daily: Vec::new(),
         weekly_limit_points: Vec::new(),
+        weekly_limit_days: Vec::new(),
     };
 
     match metric {
@@ -513,6 +605,7 @@ pub(crate) fn project_team_spend(
         }
         TeamSpendMetric::WeeklyLimitPoints => {
             let rows = usage_rows(svc, range).map_err(ProjectionError::Internal)?;
+            let weekly_limit_days = weekly_limit_days_from_rows(&rows, range);
             let weekly_limit_points = weekly_limit_points_from_rows(rows, range);
             let state = if weekly_limit_points.is_empty() {
                 TeamSpendState::NotRecording
@@ -531,6 +624,7 @@ pub(crate) fn project_team_spend(
                 },
             );
             response.weekly_limit_points = weekly_limit_points;
+            response.weekly_limit_days = weekly_limit_days;
             Ok(response)
         }
     }
@@ -952,6 +1046,39 @@ mod tests {
             .unwrap();
         assert_eq!(machine.scope.kind, "machine");
         assert_eq!(machine.scope.account_id, None);
+    }
+
+    #[test]
+    fn team_spend_weekly_days_count_points_used_per_day_across_a_reset() {
+        let mut later = usage_row("codex", Some("account-a"), "2026-01-03", Some(45.0));
+        later.captured_at += 3_600_000;
+        let mut reset = usage_row("codex", Some("account-a"), "2026-01-04", Some(5.0));
+        reset.weekly_resets_at = Some(2_000 + 7 * 86_400_000);
+        let rows = vec![
+            usage_row("codex", Some("account-a"), "2026-01-01", Some(10.0)),
+            usage_row("codex", Some("account-a"), "2026-01-02", Some(25.0)),
+            usage_row("codex", Some("account-a"), "2026-01-03", Some(40.0)),
+            later,
+            reset,
+            usage_row("claude", None, "2026-01-03", Some(80.0)),
+        ];
+        let days = weekly_limit_days_from_rows(&rows, range("2026-01-02", "2026-01-04"));
+        let codex: Vec<_> = days
+            .iter()
+            .map(|day| (day.day.as_str(), day.points_used, day.weekly_limit_points))
+            .collect();
+        assert_eq!(
+            codex,
+            vec![
+                ("2026-01-02", 15.0, 25.0),
+                ("2026-01-03", 20.0, 45.0),
+                ("2026-01-04", 5.0, 5.0),
+            ],
+            "a first reading has no baseline, so claude has no day"
+        );
+        assert!(days.iter().all(|day| day.scope.kind == "provider_account"
+            && day.team_attribution == "unavailable"
+            && day.model_attribution == "unavailable"));
     }
 
     #[test]

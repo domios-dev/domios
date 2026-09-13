@@ -1,14 +1,10 @@
-export const ALL_FILTER = "all";
-
-export interface SpendChartFilter {
-  key: string;
-  label: string;
-}
-
-export interface SpendChartSegment {
+export interface SpendChartSeries {
   key: string;
   label: string;
   tone: number;
+}
+
+export interface SpendChartSegment extends SpendChartSeries {
   value: number;
 }
 
@@ -20,10 +16,10 @@ export interface SpendChartDay {
   total: number;
 }
 
-/** What the spend chart draws: days of stacked segments, narrowed by one filter. */
-export interface SpendChartSource {
-  filters: SpendChartFilter[];
-  days(filter: string): SpendChartDay[];
+/** What the spend chart draws: a bar per day, and a legend only when the bars are split. */
+export interface SpendChartData {
+  days: SpendChartDay[];
+  legend: SpendChartSeries[];
 }
 
 export function startOfToday(): number {
