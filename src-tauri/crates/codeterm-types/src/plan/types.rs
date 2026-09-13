@@ -248,6 +248,15 @@ pub struct TransferRecord {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanLifecycleEvent {
+    #[serde(default)]
+    pub id: String,
+    pub kind: String,
+    pub at: u64,
+    pub author: OrchestratorRef,
+}
+
 /// Append-only audit record of an authorized Orchestrator waiving one or more
 /// pending regression gates so frontier dispatch may proceed. A waiver only
 /// applies while `ts >= group completion` — reopening/reclosing a group re-arms
@@ -682,6 +691,8 @@ pub struct Plan {
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
     #[serde(default)]
+    pub lifecycle_events: Vec<PlanLifecycleEvent>,
+    #[serde(default)]
     pub planner: Option<PlannerRef>,
     #[serde(default)]
     pub planning_state: super::planning_state::PlanningState,
@@ -734,6 +745,7 @@ impl Plan {
             evidence_reporters: vec![],
             canvas: PlanCanvas::default(),
             owner_history: vec![],
+            lifecycle_events: vec![],
             planner: None,
             planning_state: super::planning_state::PlanningState::default(),
             planning_log: vec![],
