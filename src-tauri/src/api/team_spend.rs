@@ -124,10 +124,10 @@ fn validate_team_id(team_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_request(
+fn parse_request<'a>(
     team_id: &str,
-    query: &TeamSpendQuery,
-) -> Result<(TeamSpendMetric, ModelSelector<'_>, SpendRange), String> {
+    query: &'a TeamSpendQuery,
+) -> Result<(TeamSpendMetric, ModelSelector<'a>, SpendRange), String> {
     validate_team_id(team_id)?;
     let metric = parse_metric(query.metric.as_deref())?;
     let model = parse_model(query.model.as_deref())?;
