@@ -81,7 +81,7 @@ pub(crate) fn machine_spend(svc: &ServiceContext) -> MissionControlSpend {
     };
     let measured_tokens: u64 = usage
         .iter()
-        .fold(0u64, |sum, row| sum.saturating_add(row.measured_tokens()));
+        .fold(0u64, |sum, row| sum.saturating_add(row.uncached_input_tokens));
     let turns: u64 = usage
         .iter()
         .fold(0u64, |sum, row| sum.saturating_add(row.turns));
@@ -156,7 +156,7 @@ fn provider_rows(
             .saturating_add(row.uncached_input_tokens);
         entry.output_tokens = entry.output_tokens.saturating_add(row.output_tokens);
         entry.models.push(ModelSpend {
-            token_share_pct: token_share_pct(row.measured_tokens(), measured_tokens),
+            token_share_pct: token_share_pct(row.uncached_input_tokens, measured_tokens),
             model: row.model,
             turns: row.turns,
             input_tokens: row.input_tokens,
@@ -193,7 +193,7 @@ fn provider_rows(
 }
 
 fn measured(model: &ModelSpend) -> u64 {
-    model.input_tokens.saturating_add(model.output_tokens)
+    model.uncached_input_tokens
 }
 
 /// Unresolved identity sorts last within its provider, so a real model never hides
@@ -206,7 +206,7 @@ fn model_key(model: &ModelSpend) -> (bool, String) {
 }
 
 fn provider_measured(provider: &ProviderSpend) -> u64 {
-    provider.input_tokens.saturating_add(provider.output_tokens)
+    provider.uncached_input_tokens
 }
 
 fn token_share_pct(part: u64, total: u64) -> f32 {

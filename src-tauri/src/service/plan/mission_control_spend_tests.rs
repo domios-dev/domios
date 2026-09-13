@@ -173,8 +173,8 @@ fn mission_control_spend_keeps_unresolved_models_as_their_own_visible_bucket() {
     assert_eq!(unassigned.turns, 1);
     assert_eq!(unassigned.input_tokens, 300);
     assert_eq!(unassigned.output_tokens, 100);
-    assert_eq!(spend.measured_tokens, 500);
-    assert_eq!(unassigned.token_share_pct, 80.0);
+    assert_eq!(spend.measured_tokens, 150);
+    assert!((unassigned.token_share_pct - 66.666_67).abs() < 0.01);
 
     let payload = serde_json::to_value(&spend).unwrap();
     let rows = payload["providers"][0]["models"].as_array().unwrap();
@@ -403,8 +403,8 @@ fn mission_control_spend_groups_machine_token_usage_by_provider_and_model() {
     assert_eq!(spend.scope, SpendScope::Machine);
     assert_eq!(spend.state, KpiLedgerState::Recording);
     assert_eq!(
-        spend.measured_tokens, 1_100,
-        "the send row contributes bytes, never tokens"
+        spend.measured_tokens, 300,
+        "uncached input only; the send row contributes bytes, never tokens"
     );
     assert_eq!(spend.turns, 4, "turns count token_usage rows only");
 
@@ -441,8 +441,8 @@ fn mission_control_spend_groups_machine_token_usage_by_provider_and_model() {
     let codex = model_row(&spend.providers, "codex");
     assert_eq!(codex.len(), 1);
     assert!(
-        (codex[0].token_share_pct - 18.181818).abs() < 0.01,
-        "share is measured tokens over the machine total, not an allowance slice"
+        (codex[0].token_share_pct - 16.666_67).abs() < 0.01,
+        "share is uncached input over the machine total, not an allowance slice"
     );
 }
 
@@ -553,7 +553,7 @@ fn mission_control_spend_reaches_the_plan_state_route_as_a_machine_scope() {
     let payload = serde_json::to_value(&snapshot).unwrap();
     assert_eq!(payload["mission_control"]["spend"]["scope"], "machine");
     assert_eq!(payload["mission_control"]["spend"]["state"], "recording");
-    assert_eq!(payload["mission_control"]["spend"]["measured_tokens"], 110);
+    assert_eq!(payload["mission_control"]["spend"]["measured_tokens"], 10);
     assert_eq!(
         payload["mission_control"]["kpi"]["state"], "not_recording",
         "the machine figure never fills the plan-scoped block"
