@@ -154,6 +154,13 @@ pub fn key_matches(display_key: &str, reference: &str) -> bool {
     !reference.is_empty() && display_key.eq_ignore_ascii_case(reference)
 }
 
+/// The one case-folded name tier: a handle and a key compete on equal terms, so
+/// a collision is refused no matter how the reference is spelled.
+pub fn name_matches(handle: Option<&str>, display_key: &str, reference: &str) -> bool {
+    handle.is_some_and(|handle| key_matches(handle, reference))
+        || key_matches(display_key, reference)
+}
+
 /// Largest stored number per prefix across the given keys.
 pub fn high_water<'a>(keys: impl IntoIterator<Item = &'a str>) -> HashMap<String, u64> {
     let mut out: HashMap<String, u64> = HashMap::new();
@@ -174,9 +181,11 @@ impl Task {
     }
 
     pub fn matches_ref(&self, reference: &str) -> bool {
-        self.id == reference
-            || self.handle.as_deref() == Some(reference)
-            || self.key_matches(reference)
+        self.id == reference || self.name_matches(reference)
+    }
+
+    pub fn name_matches(&self, reference: &str) -> bool {
+        name_matches(self.handle.as_deref(), &self.display_key(), reference)
     }
 }
 
@@ -195,9 +204,7 @@ pub fn match_task_ref(tasks: &[Task], reference: &str) -> TaskRefMatch {
     let hits: Vec<usize> = tasks
         .iter()
         .enumerate()
-        .filter(|(_, task)| {
-            task.handle.as_deref() == Some(reference) || task.key_matches(reference)
-        })
+        .filter(|(_, task)| task.name_matches(reference))
         .map(|(index, _)| index)
         .collect();
     match hits.len() {
