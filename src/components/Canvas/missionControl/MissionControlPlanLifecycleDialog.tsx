@@ -8,6 +8,7 @@ import {
   type PlanLifecyclePreview,
   type PlanLifecyclePreviewLoader,
 } from "../planLifecycle";
+import { trapDialogTab } from "./dialogFocusTrap";
 
 export interface MissionControlPlanLifecycleDialogProps {
   kind: PlanLifecycleKind;
@@ -21,8 +22,6 @@ type PreviewState =
   | { status: "loading" }
   | { status: "ready"; preview: PlanLifecyclePreview }
   | { status: "error"; message: string };
-
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const COPY: Record<PlanLifecycleKind, { title: string; confirm: string; agents: string; schedules: string; effects: string }> = {
   pause: {
@@ -114,22 +113,7 @@ export function MissionControlPlanLifecycleDialog({
       cancel();
       return;
     }
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
-      event.preventDefault();
-      last?.focus();
-    } else if (!event.shiftKey && (active === last || !dialogRef.current?.contains(active))) {
-      event.preventDefault();
-      first?.focus();
-    }
+    trapDialogTab(event, dialogRef.current);
   };
 
   const onBackdropMouseDown = (event: MouseEvent<HTMLDivElement>) => {

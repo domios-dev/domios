@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
-import { deleteTask, fetchSpecSections } from "../plansApi";
+import { deleteTask, fetchSpecSections, pauseTask, resumeTask } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { Plan, Section, Task } from "../types";
 import {
@@ -13,7 +13,7 @@ import {
   type BoardColumnKey,
   type BoardPlanModel,
 } from "./boardModel";
-import { BoardTaskCard } from "./BoardTaskCard";
+import { BoardTaskCard, type BoardTaskActions } from "./BoardTaskCard";
 import { CancelledTasksPanel } from "./CancelledTasksPanel";
 import { listCancelledTasks } from "./cancelledTasks";
 import { PlanSwitcher } from "./PlanSwitcher";
@@ -69,7 +69,7 @@ function BoardColumn({
   onToggleDone,
   onOpenTask,
   planId,
-  onDeleteTask,
+  taskActions,
 }: {
   columnKey: BoardColumnKey;
   label: string;
@@ -78,7 +78,7 @@ function BoardColumn({
   onToggleDone: () => void;
   onOpenTask: (task: Task) => void;
   planId: string;
-  onDeleteTask?: (planId: string, taskId: string) => void | Promise<void>;
+  taskActions: BoardTaskActions;
 }) {
   const isDone = columnKey === "done";
   const bounds = isDone ? boundDoneColumnCards(cards, doneExpanded) : { visible: cards, total: cards.length, hidden: 0 };
@@ -109,7 +109,7 @@ function BoardColumn({
             card={card}
             planId={planId}
             onOpen={() => onOpenTask(card.task)}
-            onDeleteTask={onDeleteTask}
+            {...taskActions}
           />
         ))}
         {isDone && bounds.hidden > 0 && (
@@ -140,12 +140,12 @@ function BoardColumn({
 function BoardPlanBoard({
   model,
   plan,
-  onDeleteTask,
+  taskActions,
   onOpenDetail,
 }: {
   model: BoardPlanModel;
   plan: Plan;
-  onDeleteTask?: (planId: string, taskId: string) => void | Promise<void>;
+  taskActions: BoardTaskActions;
   onOpenDetail: (detail: BoardDetail) => void;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
@@ -165,7 +165,7 @@ function BoardPlanBoard({
             onToggleDone={() => setDoneExpanded((v) => !v)}
             onOpenTask={(task) => onOpenDetail({ kind: "task", task, plan })}
             planId={plan.id}
-            onDeleteTask={onDeleteTask}
+            taskActions={taskActions}
           />
         ))}
       </div>
@@ -211,10 +211,13 @@ export function PlanBoardView({
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
-  const deleteSelectedTask = useCallback((selectedPlanId: string, taskId: string) => {
-    if (!api) return;
-    void deleteTask(api, selectedPlanId, taskId).catch(() => undefined);
-  }, [api]);
+  const taskActions = useMemo<BoardTaskActions>(() => (api
+    ? {
+        onPauseTask: (selectedPlanId, taskId, reason) => pauseTask(api, selectedPlanId, taskId, reason),
+        onResumeTask: (selectedPlanId, taskId) => resumeTask(api, selectedPlanId, taskId),
+        onDeleteTask: (selectedPlanId, taskId) => deleteTask(api, selectedPlanId, taskId),
+      }
+    : {}), [api]);
 
   const activeWork = useMemo(
     () => selectActiveWork(effectivePlans, tabs),
@@ -381,7 +384,7 @@ export function PlanBoardView({
           <BoardPlanBoard
             model={boardModel}
             plan={selectedPlan}
-            onDeleteTask={deleteSelectedTask}
+            taskActions={taskActions}
             onOpenDetail={setDetail}
           />
         </div>

@@ -69,47 +69,6 @@
   background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-bg));
 }
 
-.mission-control-actions-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  width: max-content;
-  min-width: min(12rem, calc(100vw - 24px));
-  max-width: calc(100vw - 24px);
-  padding: 4px;
-  border: 1px solid var(--ct-border);
-  border-radius: var(--ct-radius-sm);
-  background: var(--ct-bg-elev, var(--ct-surface));
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--ct-bg) 45%, transparent);
-}
-
-.mission-control-actions-menuitem {
-  min-width: 0;
-  min-height: 36px;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: var(--ct-radius-sm);
-  background: transparent;
-  color: var(--ct-fg);
-  font: inherit;
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-
-.mission-control-actions-menuitem:hover,
-.mission-control-actions-menuitem:focus-visible {
-  background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
-  outline: none;
-}
-
-.mission-control-actions-menuitem-danger {
-  color: var(--ct-red);
-}
-
 .mc-lifecycle-backdrop {
   position: fixed;
   inset: 0;
@@ -231,18 +190,57 @@
   cursor: default;
 }
 
+.mc-lifecycle-button-danger {
+  border-color: var(--ct-red);
+  background: var(--ct-red);
+  color: var(--ct-bg);
+}
+
+.mc-action-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+}
+
+.mc-action-input {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  font: inherit;
+}
+
+.mc-action-input:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+/* Revealed like the sidebar row kebab; absolute and opacity-only so showing it never reflows the card. */
 .plan-board-task-actions {
   position: absolute;
   top: 0.3rem;
   right: 0.3rem;
   z-index: 3;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
-.plan-board-columns:has(.mission-control-actions-menu),
-.plan-board-column:has(.mission-control-actions-menu),
-.plan-board-column-body:has(.mission-control-actions-menu),
-.plan-board-task-card:has(.mission-control-actions-menu) {
-  overflow: visible;
+.plan-board-task-card:hover .plan-board-task-actions,
+.plan-board-task-card:focus-within .plan-board-task-actions {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (hover: none) {
+  .plan-board-task-actions {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* Cards in the row share one height and edge; each card's readings stay at its top. */

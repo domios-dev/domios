@@ -7,13 +7,22 @@ import { TaskExecutionBadges } from "./TaskExecutionBadges";
 import { WorkingOnRow } from "./WorkingOnRowView";
 import { deriveTaskCardMetadata, type TaskCardMetaRow } from "./taskCardMetadata";
 import { TaskStatus } from "../types";
-import { MissionControlControls, type MissionControlTaskAction } from "../missionControl/MissionControlControls";
+import {
+  MissionControlControls,
+  type MissionControlTaskAction,
+  type MissionControlTaskPauseAction,
+} from "../missionControl/MissionControlControls";
 
-export interface BoardTaskCardProps {
+export interface BoardTaskActions {
+  onPauseTask?: MissionControlTaskPauseAction;
+  onResumeTask?: MissionControlTaskAction;
+  onDeleteTask?: MissionControlTaskAction;
+}
+
+export interface BoardTaskCardProps extends BoardTaskActions {
   card: BoardTaskCardModel;
   onOpen?: () => void;
   planId?: string;
-  onDeleteTask?: MissionControlTaskAction;
 }
 
 function metaIcon(kind: TaskCardMetaRow["kind"]) {
@@ -32,7 +41,7 @@ function metaTestId(kind: TaskCardMetaRow["kind"]): string {
   return "plan-board-task-age";
 }
 
-export function BoardTaskCard({ card, onOpen, planId, onDeleteTask }: BoardTaskCardProps) {
+export function BoardTaskCard({ card, onOpen, planId, onPauseTask, onResumeTask, onDeleteTask }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
   const isPaused = task.status === TaskStatus.Paused;
@@ -78,6 +87,10 @@ export function BoardTaskCard({ card, onOpen, planId, onDeleteTask }: BoardTaskC
             scope="task"
             planId={planId}
             taskId={task.id}
+            taskName={task.name}
+            taskStatus={task.status}
+            onPauseTask={onPauseTask}
+            onResumeTask={onResumeTask}
             onDeleteTask={onDeleteTask}
           />
         </div>
