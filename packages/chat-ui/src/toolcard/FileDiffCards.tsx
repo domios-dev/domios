@@ -12,8 +12,8 @@ import { toolKindVisual } from "./toolKindVisual";
 type LineTone = "add" | "del" | "context";
 
 const TONE_STYLE: Record<LineTone, CSSProperties> = {
-  add: { background: "var(--ct-diff-add-bg, color-mix(in srgb, var(--ct-green) 12%, transparent))" },
-  del: { background: "var(--ct-diff-del-bg, color-mix(in srgb, var(--ct-red) 12%, transparent))" },
+  add: { background: "var(--ct-diff-add-bg)" },
+  del: { background: "var(--ct-diff-del-bg)" },
   context: {},
 };
 
