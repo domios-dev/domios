@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { PlanViewModeSwitch } from "./PlanViewModeSwitch";
 import type { PlanViewSurfaceProps } from "./planViewSurfaceProps";
@@ -53,7 +53,13 @@ export function useFrozenWhenHidden<T>(props: T, visible: boolean): T {
 }
 
 export function PlanViewShell(props: PlanViewSurfaceProps) {
-  const [viewMode, setViewMode] = usePersistedPlanViewMode();
+  const [storedMode, setViewMode] = usePersistedPlanViewMode();
+  const hasActivePlan = useMemo(
+    () => props.plans.some((plan) => plan.status === "active" && (!props.teamId || plan.team_id === props.teamId)),
+    [props.plans, props.teamId],
+  );
+  // The plan views need a plan; the stored choice returns once a plan is active again.
+  const viewMode: PlanViewMode = hasActivePlan ? storedMode : "board";
   const listProps = useFrozenWhenHidden(props, viewMode === "list");
   const specProps = useFrozenWhenHidden(props, viewMode === "spec");
   const planProps = useFrozenWhenHidden(props, viewMode === "plan");
@@ -75,7 +81,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           background: "var(--ct-titlebar-bg)",
         }}
       >
-        <PlanViewModeSwitch value={viewMode} onChange={setViewMode} />
+        <PlanViewModeSwitch value={viewMode} onChange={setViewMode} planModesEnabled={hasActivePlan} />
         <div className="flex shrink-0 items-center gap-2">
           <div
             ref={setActionsSlot}
