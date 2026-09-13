@@ -8,6 +8,7 @@ import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
+import { codexFileDiffs } from "./fileDiffs";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
 import {
@@ -292,9 +293,10 @@ const plugin: PluginModule = {
         const p = v.payload;
         const content = typeof p.stdout === "string" ? p.stdout : "";
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const diffs = codexFileDiffs(p.changes);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId } }],
+          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId, ...(diffs.length > 0 ? { file_diffs: diffs } : {}) } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -531,6 +533,7 @@ interface CodexPayload {
   stdout?: string;
   success?: boolean;
   turn_id?: unknown;
+  changes?: unknown;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 export interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
