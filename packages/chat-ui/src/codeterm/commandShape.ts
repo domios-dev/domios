@@ -2,6 +2,7 @@ import {
   commandArgvStart,
   commandBasename,
   parseShellComposition,
+  shellSegmentLabel,
   toolCommand,
   type ShellOperator,
   type ShellScript,
@@ -128,12 +129,11 @@ export function toolCommandShape(event: ToolEvent): CommandShape {
 
 export function commandRowLabel(row: CommandRow): string {
   if (row.role === "codeterm") return `codeterm ${row.invocation.path.join(" ")}`;
+  if (row.role === "command") return shellSegmentLabel(row.segment);
   const { argv } = row.segment;
   const start = commandArgvStart(argv);
   const name = argv[start] == null ? row.segment.text : commandBasename(argv[start]);
-  if (row.role === "script") return `${name} (${row.script.lineCount} ${row.script.lineCount === 1 ? "line" : "lines"})`;
-  const argument = argv[start + 1];
-  return argument ? `${name} ${argument.length > 24 ? `${argument.slice(0, 23)}…` : argument}` : name;
+  return `${name} (${row.script.lineCount} ${row.script.lineCount === 1 ? "line" : "lines"})`;
 }
 
 /** A short header for a grouped call: its first meaningful segment plus how many more follow, never the raw chain. */

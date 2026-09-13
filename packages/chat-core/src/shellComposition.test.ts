@@ -1,9 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { parseShellComposition, unwrapShellLauncher } from "./shellComposition";
+import { assignedCommand, parseShellComposition, unwrapShellLauncher } from "./shellComposition";
 
 const operators = (command: string, argv?: string[]) => parseShellComposition(command, argv)?.segments.map((segment) => segment.operator);
 
 describe("shell composition", () => {
+  it("reads a PowerShell or posix assignment as the command it runs and keeps the variable", () => {
+    const powershell = "$response = Invoke-WebRequest -Uri https://example.test/api -UseBasicParsing";
+    const launched = parseShellComposition(`pwsh -Command ${powershell}`, ["pwsh", "-Command", powershell]);
+    expect(launched?.dialect).toBe("powershell");
+    expect(launched?.segments[0].argv).toEqual(["Invoke-WebRequest", "-Uri", "https://example.test/api", "-UseBasicParsing"]);
+    expect(launched?.segments[0].assignment).toBe("$response");
+    expect(launched?.segments[0].text).toBe(powershell);
+    expect(parseShellComposition(powershell)?.segments[0].assignment).toBe("$response");
+    expect(assignedCommand(powershell)).toEqual({ variable: "$response", label: "Invoke-WebRequest" });
+
+    const posix = parseShellComposition("head=$(git rev-parse HEAD) && echo $head");
+    expect(posix?.segments[0].argv).toEqual(["git", "rev-parse", "HEAD"]);
+    expect(posix?.segments[0].assignment).toBe("head");
+    expect(posix?.segments[1].assignment).toBeUndefined();
+    expect(assignedCommand("head=$(git rev-parse HEAD) && echo $head")).toEqual({ variable: "head", label: "git rev-parse +1" });
+    expect(parseShellComposition("out=\"$(git status --short)\"")?.segments[0].assignment).toBe("out");
+  });
+
+  it("never reads a literal value or an environment prefix as an assigned command", () => {
+    for (const command of ["$env:FOO = \"bar\"", "$count = 5", "$name = \"literal\"", "$items = @(1, 2)", "FOO=bar npm test", "plain=value"]) {
+      expect(parseShellComposition(command)?.segments[0].assignment).toBeUndefined();
+      expect(assignedCommand(command)).toBeNull();
+    }
+    expect(parseShellComposition("FOO=bar npm test")?.segments[0].argv).toEqual(["FOO=bar", "npm", "test"]);
+  });
+
   it("splits the Codex pwsh pipeline into a CodeTerm segment piped into an inline python script", () => {
     const inner = [
       "codeterm mem secret get --name almaz-admin-clerk-secret-key | python -c \"import sys,json,httpx",
