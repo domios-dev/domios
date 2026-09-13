@@ -548,6 +548,10 @@ const plugin: PluginModule = {
               data.tool_summary = canonical.summary;
               data.tool_detail = canonical.detail;
               data.tool_edits = canonical.edits;
+              const description = toolDescription(data.input);
+              if (description) data.tool_description = description;
+              // Parallel calls from one API response share this id; it is the only proven link.
+              if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
             }
             blocks.push({ kind: b.type, data: data });
           }
@@ -940,6 +944,12 @@ function canonicalToolFields(name: string, input: unknown): CanonicalToolFields 
     detail: tool,
     edits: edits,
   };
+}
+
+function toolDescription(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const value = (input as Record<string, unknown>).description;
+  return typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").trim() : "";
 }
 
 function extractCanonicalEdits(input: Record<string, unknown>): Array<{ path: string; old: string; new: string }> {

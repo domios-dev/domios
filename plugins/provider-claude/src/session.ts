@@ -1,7 +1,7 @@
 import { manifest } from "./shared";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }
-export interface ClaudeMessage { content?: string | ClaudeContentBlock[]; model?: string }
+export interface ClaudeMessage { id?: string; content?: string | ClaudeContentBlock[]; model?: string }
 export interface ClaudeAttachment { type?: string; prompt?: string; commandMode?: string }
 
 export interface ClaudeEntry {

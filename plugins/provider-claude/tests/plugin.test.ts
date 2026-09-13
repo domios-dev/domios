@@ -376,6 +376,29 @@ console.log("\n--- canonical tool fields ---\n");
   assert(typeof data[3].tool_summary === "string" && !(data[3].tool_summary as string).includes("{"), "unknown Claude summary is not JSON");
 }
 
+console.log("\n--- tool descriptions and proven flow ids ---\n");
+{
+  const bashInput = { command: "npm test -- --run", description: "Run unit tests" };
+  const lines = [
+    { type: "assistant", message: { id: "msg_parallel", content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: bashInput }] } },
+    { type: "assistant", message: { id: "msg_parallel", content: [{ type: "tool_use", id: "tu-2", name: "Read", input: { file_path: "src/a.ts" } }] } },
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "tu-3", name: "Bash", input: { command: "ls", description: "  " } }] } },
+    { type: "assistant", message: { id: "msg_other", content: [{ type: "tool_use", id: "tu-4", name: "Grep", input: { pattern: "todo", description: "Find\nTODOs" } }] } },
+  ].map((line) => JSON.stringify(line)).join("\n");
+  const parsed = hostPlugin.parseSessionDelta(lines) as { messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }> };
+  const data = parsed.messages.map((message) => message.blocks[0].data);
+  eq(data[0].tool_description, "Run unit tests", "Claude description becomes the normalized description");
+  eq(data[0].tool_summary, "npm test -- --run", "description never replaces the command summary");
+  eq(data[0].input, bashInput, "exact Claude input is preserved");
+  eq(data[0].tool_flow_id, "msg_parallel", "parallel calls carry their shared message id");
+  eq(data[1].tool_flow_id, "msg_parallel", "a sibling call shares the same flow id");
+  eq(data[1].tool_description, undefined, "a call without a description stays unknown");
+  eq(data[2].tool_description, undefined, "a blank description stays unknown");
+  eq(data[2].tool_flow_id, undefined, "a missing message id leaves the flow unknown");
+  eq(data[3].tool_description, "Find TODOs", "descriptions collapse to one line");
+  eq(data[3].tool_flow_id, "msg_other", "separate responses keep separate flows");
+}
+
 console.log("\n--- integration consent and exact-byte transactions ---\n");
 
 for (const [name, fixture] of [
