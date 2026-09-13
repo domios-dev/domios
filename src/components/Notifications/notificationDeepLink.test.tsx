@@ -156,6 +156,14 @@ describe("notification deep link identity", () => {
       .toEqual({ kind: "unavailable", reason: "no_stable_id" });
   });
 
+  it("tab_chat_identity: record-anchored ids are stable and batch ids stay refused", () => {
+    expect(isStableChatMessageId("rec-8404-0-0")).toBe(true);
+    expect(isStableChatMessageId("rec-8404-0-img-1")).toBe(true);
+    expect(isStableChatMessageId("result-rec-8404-0")).toBe(true);
+    expect(isStableChatMessageId("8404-3-0")).toBe(false);
+    expect(isStableChatMessageId("42-0")).toBe(false);
+  });
+
   it("reports a target tab without a chat view as unavailable", () => {
     expect(resolveDeepLink(record({ target_tab_id: SHELL_TAB }), TABS, WORKSPACES))
       .toEqual({ kind: "unavailable", reason: "no_chat" });

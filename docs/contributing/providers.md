@@ -243,7 +243,7 @@ instead.
 |---|---|---|---|
 | `parseSessionMessages(chunk)` | line-aligned JSONL chunk (≤4 MB per call; the host chunks the file) | `[{role, text, ts?, isMeta?}]` | native fallback; else `[]`. |
 | `sessionJsonlPath(cwd, sessionId)` | cwd (pre-canonicalized when `cwdEncoding` is `dash_encoded`), id | path or `null` | native fallback. Exporting this is one of the signals that flips `supports_chat_ui` on. |
-| `parseSessionDelta(chunk)` | line-aligned chunk read by the host tailer (host owns all offset math) | `{messages: RichMessage[]}` | the window is skipped with a warning and the offset still advances — the tailer never retry-loops. |
+| `parseSessionDelta(chunk)` | line-aligned chunk read by the host tailer (host owns all offset math) | `{messages: RichMessage[]}`; each row sets `recordIndex`, the chunk line it came from, which the host maps to the record start byte that names uuid-less rows (`rec-{start}-{row}`) | the window is skipped with a warning and the offset still advances — the tailer never retry-loops. |
 | `usesStructuredChat()` | — | bool | native fallback; else `false`. |
 | `readStructuredChat(cwd, sessionId, cursor)` | cwd, id, opaque cursor | StructuredChat | native fallback; else empty. |
 | `parseInteractiveEvents(msg)` | RichMessage | InteractiveElement[] | called only when `spawn.interactiveEvents` is true **and** the export exists; otherwise native fallback / `[]`. |
@@ -345,4 +345,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

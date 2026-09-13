@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+use codeterm_types::agent::chat_types::RichMessage;
+
 /// Bytes one delta read pulls before yielding. Hitting the cap leaves the rest
 /// for the next call, which is why [`JsonlChunk::more_available`] exists.
 pub const DELTA_CHUNK_BYTES: u64 = 8 * 1024 * 1024;
@@ -135,6 +137,64 @@ pub fn tail_window_start(path: &Path, total: u64, window: u64) -> u64 {
             return pos + idx as u64 + 1;
         }
         pos += n as u64;
+    }
+}
+
+/// Rows a plugin parsed from one whole-record chunk, split from the
+/// `recordIndex` (chunk line) each carries. One malformed row fails the chunk.
+pub fn rows_from_plugin(
+    values: Vec<serde_json::Value>,
+) -> Option<(Vec<RichMessage>, Vec<Option<usize>>)> {
+    values
+        .into_iter()
+        .map(|mut value| {
+            let index = value
+                .as_object_mut()
+                .and_then(|row| row.remove("recordIndex"))
+                .and_then(|index| index.as_u64())
+                .map(|index| index as usize);
+            serde_json::from_value::<RichMessage>(value)
+                .ok()
+                .map(|row| (row, index))
+        })
+        .collect::<Option<Vec<_>>>()
+        .map(|pairs| pairs.into_iter().unzip())
+}
+
+/// Anchor rows parsed from `bytes` (read at `from_offset`) to the absolute
+/// start of their source record, numbering uuid-less rows within one record.
+pub fn anchor_rows(
+    rows: &mut [RichMessage],
+    record_indexes: &[Option<usize>],
+    bytes: &[u8],
+    from_offset: u64,
+) {
+    let line_starts: Vec<u64> = std::iter::once(0)
+        .chain(
+            bytes
+                .iter()
+                .enumerate()
+                .filter(|(_, byte)| **byte == b'\n')
+                .map(|(i, _)| i as u64 + 1),
+        )
+        .collect();
+    let mut numbered: Option<(u64, u32)> = None;
+    for (row, index) in rows.iter_mut().zip(record_indexes) {
+        row.record_start = index
+            .filter(|index| index + 1 < line_starts.len())
+            .map(|index| from_offset + line_starts[index]);
+        let Some(start) = row.record_start else {
+            continue;
+        };
+        if row.uuid.as_deref().is_some_and(|uuid| !uuid.is_empty()) {
+            continue;
+        }
+        let next = match numbered {
+            Some((numbered_start, next)) if numbered_start == start => next,
+            _ => 0,
+        };
+        row.record_row = next;
+        numbered = Some((start, next + 1));
     }
 }
 

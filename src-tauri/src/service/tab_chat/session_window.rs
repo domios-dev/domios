@@ -130,11 +130,7 @@ pub fn snapshot(registry: &Arc<AgentRegistry>, provider_id: &str, path: &Path) -
     let total = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     let start_offset = snapshot_start_offset(path, total);
     let (rich, end) = parse_window(registry, provider_id, path, start_offset, total);
-    let messages = rich
-        .iter()
-        .enumerate()
-        .flat_map(|(i, r)| super::rich_to_chat_msgs_at(r, super::RowOrigin::at(start_offset, i)))
-        .collect();
+    let messages = super::rich_rows_to_chat_msgs(&rich, start_offset);
     SessionSnapshot {
         messages,
         total,
