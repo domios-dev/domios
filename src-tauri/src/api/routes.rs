@@ -15,7 +15,8 @@ use super::{
     debug_routes, fs_routes, health_routes, logs_routes, mem_routes, mesh_inventory, mesh_routes,
     network_routes, notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
     services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
-    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    team_spend, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
+    workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -126,6 +127,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/teams/{team_id}/members",
             post(team_routes::add_team_member),
+        )
+        .route(
+            "/api/teams/{team_id}/mission-control/spend",
+            get(team_spend::team_spend),
         )
         .route(
             "/api/workspaces",
