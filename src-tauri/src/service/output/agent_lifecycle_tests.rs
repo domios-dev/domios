@@ -1,5 +1,6 @@
 use crate::agent::live_state::observe_tab_liveness;
 use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
+use crate::crash::lifecycle::ShutdownReason;
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::plan::reconcile::TabProbe;
@@ -282,4 +283,44 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
     let tab = mux.get_tab(&tab_id).unwrap();
     assert!(tab.agent_type.is_none());
     assert_eq!(tab.boot_stage, Some(BootStage::ShellReady));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
+    let (mux, tab_id, _, _) = seed_live_planner();
+    let harness = ServiceFixture::new(mux);
+    let cause = "provider process exited to a surviving shell";
+
+    for reason in [
+        ShutdownReason::Update,
+        ShutdownReason::UserExit,
+        ShutdownReason::Restart,
+        ShutdownReason::Signal,
+    ] {
+        assert!(!harness
+            .service
+            .clear_tab_agent_identity_for_lifecycle_exit_during(&tab_id, cause, Some(reason)));
+        assert_live_planner_identity(harness.service.mux.read().get_tab(&tab_id).unwrap());
+    }
+
+    let serialized = serde_json::to_string(&harness.service.mux.read().to_session_snapshot()).unwrap();
+    let restored_snapshot = serde_json::from_str(&serialized).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&restored_snapshot);
+    assert_live_planner_identity(restored.get_tab(&tab_id).unwrap());
+
+    assert!(harness
+        .service
+        .clear_tab_agent_identity_for_lifecycle_exit_during(&tab_id, cause, None));
+    assert!(harness
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .agent_session_id
+        .is_none());
 }

@@ -80,6 +80,27 @@ fn sole_hook_route_declarer(registry: &AgentRegistry, route: HookIngestionRoute)
     declarers.next().is_none().then_some(sole)
 }
 
+/// SessionStart identity ladder: report > tab > the store owning the reported
+/// session > the route's sole declarer. Unknown stays unknown, never a default.
+fn session_start_provider(
+    registry: &AgentRegistry,
+    reported: Option<String>,
+    tab_provider: Option<String>,
+    cwd: Option<&str>,
+    session_id: &str,
+) -> Option<String> {
+    reported
+        .or(tab_provider)
+        .or_else(|| {
+            cwd.and_then(|cwd| {
+                crate::agent::provider_identity::provider_for_claimed_session(
+                    registry, cwd, session_id,
+                )
+            })
+        })
+        .or_else(|| sole_hook_route_declarer(registry, HookIngestionRoute::SessionStart))
+}
+
 /// Attribute an unclaimed shell from the provider-specific permission route.
 /// A claimed session waits for SessionStart to prove its provider.
 fn ensure_agent_state(state: &AppState, tab_id: &str) {
@@ -414,24 +435,36 @@ pub async fn hook_session_start(
         ));
     };
 
-    let provider_id = {
-        let existing = state
-            .svc
-            .mux
-            .write()
-            .get_tab(&tab_id)
-            .and_then(|p| p.agent_type.clone());
-        // Identity ladder: report > tab > the route's sole declaring descriptor
-        // > configured default. Never a provider-id literal.
-        provider_id
-            .or(existing)
-            .or_else(|| {
-                sole_hook_route_declarer(
-                    &state.svc.agent_registry,
-                    HookIngestionRoute::SessionStart,
-                )
-            })
-            .unwrap_or_else(crate::config::default_agent_provider)
+    let (existing, cwd, current_session_id) = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .map(|tab| {
+            (
+                tab.agent_type.clone(),
+                tab.cwd.clone(),
+                tab.agent_session_id.clone(),
+            )
+        })
+        .unwrap_or_default();
+    let Some(provider_id) = session_start_provider(
+        &state.svc.agent_registry,
+        provider_id,
+        existing,
+        cwd.as_deref(),
+        &sid,
+    ) else {
+        let message = format!("session_id '{sid}' has no provider owner for Tab {tab_id}");
+        log::warn!("[hook_session_start] rejecting sid {sid} for Tab {tab_id}: provider unresolved");
+        state.svc.deferred_session_bindings.refuse(
+            &tab_id,
+            &sid,
+            current_session_id.as_deref(),
+            &message,
+        );
+        state.svc.emit_session_binding_state(&tab_id);
+        return Err((StatusCode::CONFLICT, message));
     };
 
     let claim = match bind_reported_session(
