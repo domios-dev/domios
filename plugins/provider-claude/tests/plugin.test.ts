@@ -415,6 +415,57 @@ console.log("\n--- tool descriptions and proven flow ids ---\n");
 
 console.log("\n--- integration consent and exact-byte transactions ---\n");
 
+console.log("\n--- Bash outcome facts and exact source identities ---\n");
+{
+  const parse = (entry: Record<string, unknown>) => hostPlugin.parseSessionDelta(JSON.stringify(entry)) as {
+    messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }>;
+  };
+  const call = parse({
+    type: "assistant",
+    uuid: "assistant-outcome-exact",
+    message: { id: "message-outcome", content: [{ type: "tool_use", id: "tool-outcome", name: "Bash", input: { command: "printf ok" } }] },
+  });
+  const result = parse({
+    type: "user",
+    uuid: "user-outcome",
+    sourceToolAssistantUUID: "assistant-outcome-exact",
+    toolUseResult: { returnCode: 0, durationMs: 1250, interrupted: false, backgroundTaskId: "background-outcome" },
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-outcome", content: "ok", is_error: false }] },
+  });
+  const callData = call.messages[0].blocks[0].data;
+  const resultData = result.messages[0].blocks[0].data;
+  eq(callData.tool_call_source_id, "assistant-outcome-exact", "Claude Bash call preserves its source identity");
+  eq(resultData.tool_call_source_id, "assistant-outcome-exact", "Claude result preserves the exact source identity");
+  eq(resultData.tool_pairing, "exact", "Claude result marks exact source pairing");
+  eq(resultData.tool_exit_code, 0, "Claude Bash preserves an explicit zero exit code");
+  eq(resultData.tool_duration_ms, 1250, "Claude Bash preserves duration milliseconds");
+  eq(resultData.tool_interrupted, false, "Claude Bash preserves explicit non-interruption");
+  eq(resultData.tool_background_task_id, "background-outcome", "Claude Bash preserves a background task id");
+  const interrupted = parse({
+    type: "user",
+    uuid: "user-interrupted-outcome",
+    sourceToolAssistantUUID: "assistant-outcome-exact",
+    toolUseResult: { returnCode: 130, durationMs: 600, interrupted: true },
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-outcome", content: "stopped", is_error: true }] },
+  }).messages[0].blocks[0].data;
+  eq(interrupted.tool_exit_code, 130, "Claude Bash preserves a nonzero exit code");
+  eq(interrupted.tool_interrupted, true, "Claude Bash normalizes interruption");
+
+  const malformed = parse({
+    type: "user",
+    uuid: "user-malformed-outcome",
+    sourceToolAssistantUUID: { stale: true },
+    toolUseResult: { returnCode: "7", durationMs: -1, interrupted: "yes", backgroundTaskId: 17, unknown: "ignored" },
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-outcome", content: "unknown" }] },
+  }).messages[0].blocks[0].data;
+  eq(malformed.tool_call_source_id, undefined, "malformed Claude source identity stays absent");
+  eq(malformed.tool_pairing, "unavailable", "malformed Claude source identity cannot claim an exact pair");
+  eq(malformed.tool_exit_code, undefined, "malformed Claude exit code stays absent");
+  eq(malformed.tool_duration_ms, undefined, "malformed Claude duration stays absent");
+  eq(malformed.tool_interrupted, undefined, "malformed Claude interruption stays absent");
+  eq(malformed.tool_background_task_id, undefined, "malformed Claude background id stays absent");
+}
+
 for (const [name, fixture] of [
   ["malformed", "{not-json"],
   ["non-object", "[]"],

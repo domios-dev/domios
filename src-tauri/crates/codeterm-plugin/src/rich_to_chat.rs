@@ -270,6 +270,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                             .map(String::from),
                         tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                         tool_error: is_error,
+                        tool_call_source_id: b.data.get("tool_call_source_id").and_then(|v| v.as_str()).map(String::from),
+                        tool_pairing: b.data.get("tool_pairing").and_then(|v| v.as_str()).map(String::from),
+                        tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                        tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                        tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                        tool_background_task_id: b.data.get("tool_background_task_id").and_then(|v| v.as_str()).map(String::from),
                         collapsed: true,
                         timestamp: ts.clone(),
                         ..Default::default()
@@ -423,6 +429,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     tool_input: b.data.get("input").cloned(),
                     tool_id: tool_id.map(String::from),
                     tool_error,
+                    tool_call_source_id: b.data.get("tool_call_source_id").and_then(|v| v.as_str()).map(String::from),
+                    tool_pairing: b.data.get("tool_pairing").and_then(|v| v.as_str()).map(String::from),
+                    tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                    tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                    tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                    tool_background_task_id: b.data.get("tool_background_task_id").and_then(|v| v.as_str()).map(String::from),
                     collapsed: true,
                     interactive,
                     ..Default::default()
@@ -440,6 +452,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                         .map(String::from),
                     tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                     tool_error: is_error,
+                    tool_call_source_id: b.data.get("tool_call_source_id").and_then(|v| v.as_str()).map(String::from),
+                    tool_pairing: b.data.get("tool_pairing").and_then(|v| v.as_str()).map(String::from),
+                    tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                    tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                    tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                    tool_background_task_id: b.data.get("tool_background_task_id").and_then(|v| v.as_str()).map(String::from),
                     collapsed: true,
                     ..Default::default()
                 }

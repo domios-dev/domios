@@ -3,6 +3,7 @@ import { Check, CircleX, LoaderCircle, ChevronRight, Minus } from "lucide-react"
 import type { ReactNode } from "react";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
+import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 
 interface ToolCardFrameProps {
   testId?: string;
@@ -26,7 +27,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const Glyph = visual.glyph;
   const statusColor = event.status === "error"
     ? "var(--ct-red)"
-    : event.status === "pending" ? "var(--ct-yellow)" : event.status === "unresolved" ? "var(--ct-muted-fg)" : "var(--ct-green)";
+    : event.status === "pending" ? "var(--ct-yellow)" : event.status === "unresolved" || event.status === "interrupted" ? "var(--ct-muted-fg)" : "var(--ct-green)";
   const borderColor = event.status === "error"
     ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
     : expanded || variant === "codeterm" ? "var(--ct-border)" : "transparent";
@@ -66,6 +67,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             {label && <span className="shrink-0 font-semibold" style={{ color: visual.color }}>{label}</span>}
             <span className="min-w-0 truncate" data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{(summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
+            <ToolOutcomeFacts event={event} />
             {!expanded && tail}
           </span>
         </button>
@@ -75,7 +77,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <span data-testid="toolcard-status" aria-label={event.status === "unresolved" ? "no result" : event.status} style={{ color: statusColor }}>
           {event.status === "pending"
             ? <LoaderCircle className="animate-spin" size={14} />
-            : event.status === "error" ? <CircleX size={14} /> : event.status === "unresolved" ? <Minus size={14} /> : <Check size={14} />}
+            : event.status === "error" ? <CircleX size={14} /> : event.status === "unresolved" || event.status === "interrupted" ? <Minus size={14} /> : <Check size={14} />}
         </span>
         {action}
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />

@@ -33,7 +33,6 @@ pub use tailer::{
 mod tailer_tests;
 
 use crate::agent::chat_types::{ChatAttachment, ChatMsg, InteractiveElement, RichMessage};
-
 const THINKING_PREVIEW: usize = 200;
 pub const LIVE_CHAT_POLL_INTERVAL_MS: u64 = 100;
 
@@ -323,6 +322,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                             .map(String::from),
                         tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                         tool_error: is_error,
+                        tool_call_source_id: get_optional_string(&b.data, "tool_call_source_id"),
+                        tool_pairing: get_optional_string(&b.data, "tool_pairing"),
+                        tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                        tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                        tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                        tool_background_task_id: get_optional_string(&b.data, "tool_background_task_id"),
                         file_diffs: b.data.get("file_diffs").cloned(),
                         collapsed: true,
                         timestamp: ts.clone(),
@@ -460,6 +465,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 let tool_title = get_optional_string(&b.data, "tool_title");
                 let tool_flow_id = get_optional_string(&b.data, "tool_flow_id");
                 let tool_echo = b.data.get("tool_echo").and_then(|v| v.as_bool());
+                let tool_call_source_id = get_optional_string(&b.data, "tool_call_source_id");
+                let tool_pairing = get_optional_string(&b.data, "tool_pairing");
+                let tool_exit_code = b.data.get("tool_exit_code").and_then(|v| v.as_i64());
+                let tool_duration_ms = b.data.get("tool_duration_ms").and_then(|v| v.as_u64());
+                let tool_interrupted = b.data.get("tool_interrupted").and_then(|v| v.as_bool());
+                let tool_background_task_id = get_optional_string(&b.data, "tool_background_task_id");
                 let file_diffs = b.data.get("file_diffs").cloned();
                 let tool_rich_result = b.data.get("tool_rich_result").filter(|v| v.is_object()).cloned();
                 let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
@@ -489,6 +500,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_title,
                     tool_flow_id,
                     tool_echo,
+                    tool_call_source_id,
+                    tool_pairing,
+                    tool_exit_code,
+                    tool_duration_ms,
+                    tool_interrupted,
+                    tool_background_task_id,
                     file_diffs,
                     tool_rich_result,
                     tool_name: Some(name),
@@ -513,6 +530,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                         .map(String::from),
                     tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                     tool_error: is_error,
+                    tool_call_source_id: get_optional_string(&b.data, "tool_call_source_id"),
+                    tool_pairing: get_optional_string(&b.data, "tool_pairing"),
+                    tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                    tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                    tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                    tool_background_task_id: get_optional_string(&b.data, "tool_background_task_id"),
                     file_diffs: b.data.get("file_diffs").cloned(),
                     collapsed: true,
                     ..Default::default()

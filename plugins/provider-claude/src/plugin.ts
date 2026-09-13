@@ -10,6 +10,7 @@ import {
 } from "./usage";
 import {
   ClaudeEntry,
+  ClaudeToolUseResult,
   claudeSessionFilePath,
   contentToText,
   extractSetModelFamily,
@@ -553,9 +554,18 @@ const plugin: PluginModule = {
               if (description) data.tool_description = description;
               // Parallel calls from one API response share this id; it is the only proven link.
               if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+              const sourceId = exactSourceIdentity(v.uuid);
+              if (sourceId) data.tool_call_source_id = sourceId;
             } else if (b.type === "thinking") {
               // The signature is opaque verification material, never display text.
               delete data.signature;
+            }
+            if (b.type === "tool_result") {
+              const outcome = commandOutcome(v.toolUseResult);
+              if (outcome) Object.assign(data, outcome);
+              const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
+              data.tool_pairing = sourceId ? "exact" : "unavailable";
+              if (sourceId) data.tool_call_source_id = sourceId;
             }
             blocks.push({ kind: b.type, data: data });
           }
@@ -982,6 +992,31 @@ function cleanToolText(value: string, fallback: string): string {
   const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
   if (!text) return fallback;
   return text.length > 120 ? text.slice(0, 117) + "..." : text;
+}
+
+function exactSourceIdentity(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value || value.trim() !== value) return undefined;
+  return value;
+}
+
+function exactOutcomeNumber(value: unknown, nonnegative: boolean): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return undefined;
+  if (nonnegative && value < 0) return undefined;
+  return value;
+}
+
+function commandOutcome(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result = value as ClaudeToolUseResult;
+  const outcome: Record<string, unknown> = {};
+  const exitCode = exactOutcomeNumber(result.returnCode, false);
+  const durationMs = exactOutcomeNumber(result.durationMs, true);
+  if (exitCode !== undefined) outcome.tool_exit_code = exitCode;
+  if (durationMs !== undefined) outcome.tool_duration_ms = durationMs;
+  if (typeof result.interrupted === "boolean") outcome.tool_interrupted = result.interrupted;
+  const backgroundTaskId = exactSourceIdentity(result.backgroundTaskId);
+  if (backgroundTaskId) outcome.tool_background_task_id = backgroundTaskId;
+  return Object.keys(outcome).length > 0 ? outcome : undefined;
 }
 
 // Task-file helpers: write to host temp files with provider-specific suffixes.
