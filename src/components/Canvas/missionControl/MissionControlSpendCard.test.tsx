@@ -1,7 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import type { WeeklyProjection } from "../../../hooks/useUsageSnapshot";
 import type { UsageSnapshot } from "../../../types/usage";
 import { allowanceWeekDays, type AllowanceDay, type AllowanceWeeks } from "./allowanceWeek";
 import { SpendCard } from "./BoardCards";
@@ -336,25 +335,31 @@ describe("mission control spend card", () => {
     await unmount();
   });
 
-  it("mission_control_spend_reads_the_week_from_day_actuals_and_leaves_days_ahead_empty", () => {
-    const now = Date.now();
-    const today = new Date(now);
+  it("mission_control_spend_reads_every_observed_day_although_each_snapshot_jitters_its_reset_time", () => {
+    const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const rows = [
-      { captured_at: now, weekly_pct: 30, weekly_resets_at: today.getTime() + 3 * 24 * H } as unknown as UsageSnapshot,
-    ];
-    const weekly = {
-      avg_weekday_spend: 10,
-      avg_weekend_spend: 5,
-      dow_estimates: [],
-      rest_of_today_est: 2,
-      day_actuals: [{ day_start_ms: today.getTime(), pct: 7 }],
-    } as unknown as WeeklyProjection;
+    const todayStart = today.getTime();
+    const resetsAt = todayStart + 2 * 24 * H + 20 * H;
+    const jitter = [-1_420, 15, 1_057, -880, 640, -35, 1_490, -1_200];
+    const rows: UsageSnapshot[] = [3, 2, 1, 0].flatMap((daysAgo, day) =>
+      [0, 1].map(
+        (sample) =>
+          ({
+            parsed_ok: true,
+            captured_at: todayStart - daysAgo * 24 * H + (10 + sample) * H,
+            weekly_pct: 10 * day + 5 * sample,
+            weekly_resets_at: resetsAt + jitter[day * 2 + sample]!,
+          }) as unknown as UsageSnapshot,
+      ),
+    );
 
-    const days = allowanceWeekDays(rows, weekly);
+    const days = allowanceWeekDays(rows);
     expect(days.length).toBeGreaterThanOrEqual(7);
-    expect(days.find((day) => day.today)?.pct).toBe(7);
-    expect(days.filter((day) => day.start > today.getTime()).every((day) => day.pct === null)).toBe(true);
-    expect(allowanceWeekDays([], null)).toEqual([]);
+    const observed = days.filter((day) => day.start >= todayStart - 3 * 24 * H && day.start <= todayStart);
+    expect(observed.map((day) => day.pct)).toEqual([5, 5, 5, 5]);
+    expect(days.find((day) => day.today)?.pct).toBe(5);
+    expect(days.filter((day) => day.start > todayStart).every((day) => day.pct === null)).toBe(true);
+    expect(days.every((day) => /^[A-Z][a-z]{2}$/.test(day.label))).toBe(true);
+    expect(allowanceWeekDays([])).toEqual([]);
   });
 });
