@@ -344,7 +344,11 @@ describe("mission control board visual system", () => {
     expect(rule(readRepo("src/styles/globals.css"), ".ct-panel-card")).toContain("border: 1px solid");
     expect(rule(css, ".mc-board .mc-board-panel")).toContain("background: var(--ct-surface);");
     expect(rule(css, ".mc-board-panel-head")).toContain("border-bottom: 1px solid var(--ct-border);");
-    expect(rule(css, ".mc-board-sub + .mc-board-sub")).toContain("border-top: 1px solid var(--ct-border-subtle);");
+    expect(rule(css, ".mc-board-sub + .mc-board-sub")).toContain("padding-top: 0;");
+    expect(rule(css, ".mc-board-sub + .mc-board-sub")).not.toContain("border");
+    expect(rule(css, ".mc-board-spend-columns")).toContain("border-bottom: 1px solid var(--ct-border);");
+    expect(rule(css, ".mc-board-spend-table > tbody + tbody")).toContain("border-top: 1px solid var(--ct-border);");
+    expect(css).not.toMatch(/border-right|border-inline-end|animation/);
     expect(rule(css, ".mc-board-row")).toContain("align-items: start;");
     expect(rule(css, ".mc-board-spend-row > .mc-board-spend-num")).toContain("font-variant-numeric: tabular-nums;");
     expect(rule(css, ".mc-board-spend-row > .mc-board-spend-num")).toContain("text-align: right;");
@@ -392,10 +396,15 @@ describe("mission control board visual system", () => {
     const css = readRepo(BOARD_CSS_PATH);
     const { host, unmount } = await renderAt(OWNER_WIDTH);
 
+    expect(host.querySelector(".mc-board-kv-list")).toBeNull();
+    const toggle = host.querySelector('[data-testid="mc-board-areas-toggle"]') as HTMLButtonElement;
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle.textContent).toBe("By role");
+    await act(async () => toggle.click());
     const list = host.querySelector(".mc-board-kv-list") as HTMLElement;
     expect(list.tagName).toBe("DL");
     expect(getComputedStyle(list).display).toBe("grid");
-    expect(host.querySelector('[data-testid="mc-board-areas"] h3')?.textContent).toBe(ROLE_FALLBACK_TITLE);
+    expect(list.getAttribute("aria-label")).toBe(ROLE_FALLBACK_TITLE);
     const rows = Array.from(host.querySelectorAll('[data-testid="mc-board-area-row"]')) as HTMLElement[];
     expect(rows).toHaveLength(4);
     expect(rows.every((row) => getComputedStyle(row).display === "contents")).toBe(true);
