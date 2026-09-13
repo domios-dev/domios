@@ -289,7 +289,7 @@ export interface SpendWindow {
   state: UsageState;
 }
 
-/** Token figures in plain words; read from cache is the input not billed as new. */
+/** Token figures; cached is the input read from cache rather than billed as new. */
 export interface SpendTokens {
   newInput: number;
   fromCache: number;
@@ -297,34 +297,31 @@ export interface SpendTokens {
   turns: number;
 }
 
-export const SPEND_TOKEN_WORDS: ReadonlyArray<{
-  key: keyof SpendTokens;
-  word: string;
-  one: string;
-  compact: boolean;
-}> = [
-  { key: "newInput", word: "new input", one: "new input", compact: true },
-  { key: "fromCache", word: "read from cache", one: "read from cache", compact: true },
-  { key: "generated", word: "generated", one: "generated", compact: true },
-  { key: "turns", word: "turns", one: "turn", compact: false },
+export interface SpendColumn<Key extends string> {
+  key: Key;
+  label: string;
+  /** Shortest honest name, drawn when the Spend panel is narrow. */
+  short: string;
+}
+
+export const SPEND_SHARE_COLUMN: SpendColumn<"share"> = { key: "share", label: "share", short: "share" };
+
+export const SPEND_TOKEN_COLUMNS: ReadonlyArray<SpendColumn<keyof SpendTokens>> = [
+  { key: "newInput", label: "new input", short: "new" },
+  { key: "fromCache", label: "cached", short: "cached" },
+  { key: "generated", label: "generated", short: "out" },
+  { key: "turns", label: "turns", short: "turns" },
 ];
 
-export const SPEND_WINDOW_WORDS: Record<SpendWindow["variant"], string> = {
-  weekly: "of week used",
-  session: "of session used",
+export const SPEND_WINDOW_LABELS: Record<SpendWindow["variant"], string> = {
+  weekly: "week",
+  session: "session",
 };
-
-/** Allowance points spent per provider need a usage-snapshot projection the state does not carry yet. */
-export const SPEND_ALLOWANCE_SPENT_NEEDS = "needs projection change";
-/** The ledger records no tool calls yet. */
-export const SPEND_TOOL_CALLS_NEEDS = "needs new data";
 
 export interface SpendModelRow {
   key: string;
   label: string;
   unassigned: boolean;
-  /** Position of the owning provider, so a model shares its provider's swatch. */
-  tone: number;
   sharePct: number;
   tokens: SpendTokens;
 }
@@ -332,9 +329,12 @@ export interface SpendModelRow {
 export interface SpendProviderGroup {
   key: string;
   label: string;
+  /** Position among providers; picks the provider's swatch colour. */
   tone: number;
   windows: SpendWindow[];
   measured: boolean;
+  /** Sum of the provider's model shares. */
+  sharePct: number;
   tokens: SpendTokens;
   models: SpendModelRow[];
 }
@@ -343,10 +343,9 @@ export interface SpendReading {
   recording: boolean;
   /** Why the ledger is not measuring; null while it is. */
   note: string | null;
-  /** Replaces the steps when there is nothing at all to show; never a dash. */
+  /** Replaces the table when there is nothing at all to show; never a dash. */
   emptyCopy: string | null;
   groups: SpendProviderGroup[];
-  models: SpendModelRow[];
 }
 
 export function spendTokens(source: {
@@ -387,12 +386,11 @@ function providerWindows(provider: ProviderSpend): SpendWindow[] {
   });
 }
 
-function modelRows(provider: ProviderSpend, tone: number): SpendModelRow[] {
+function modelRows(provider: ProviderSpend): SpendModelRow[] {
   return provider.models.map((model, index) => ({
     key: `${provider.provider}-${model.model ?? `unassigned-${index}`}`,
     label: model.model == null ? UNASSIGNED_MODEL_LABEL : shortModelName(model.model) ?? model.model,
     unassigned: model.model == null,
-    tone,
     sharePct: model.token_share_pct,
     tokens: spendTokens(model),
   }));
@@ -425,15 +423,15 @@ export function spendReading(spend: MissionControlSpend): SpendReading {
     tone,
     windows: providerWindows(provider),
     measured: provider.models.length > 0,
+    sharePct: provider.models.reduce((sum, model) => sum + model.token_share_pct, 0),
     tokens: spendTokens(provider),
-    models: modelRows(provider, tone),
+    models: modelRows(provider),
   }));
   return {
     recording,
     note,
     emptyCopy: groups.length === 0 ? note ?? SPEND_NOT_RECORDING_COPY.no_rows_for_plan : null,
     groups,
-    models: groups.flatMap((group) => group.models),
   };
 }
 
