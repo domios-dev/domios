@@ -8,8 +8,10 @@ import { CodetermActionCard } from "./toolcard/CodetermActionCard";
 import { CommandCard } from "./toolcard/CommandCard";
 import { EditCard } from "./toolcard/EditCard";
 import { FetchCard } from "./toolcard/FetchCard";
+import { FileDiffCards } from "./toolcard/FileDiffCards";
 import { GenericCard } from "./toolcard/GenericCard";
 import { ReadCard } from "./toolcard/ReadCard";
+import { RichResultCard } from "./toolcard/RichResultCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
 import { ToolActivityStream } from "./toolcard/ToolActivityStream";
@@ -127,9 +129,17 @@ export function ToolCallBubble({
     case "search": return <SearchCard {...props} />;
     case "task": return <TaskCard {...props} />;
     case "fetch": return <FetchCard {...props} />;
+    case "web":
+    case "image": return <RichResultCard {...props} />;
     case "generic": return <GenericCard {...props} />;
     }
   })();
 
-  return formatted;
+  if (!event.fileDiffs?.length) return formatted;
+  return (
+    <>
+      {formatted}
+      <FileDiffCards diffs={event.fileDiffs} />
+    </>
+  );
 }
