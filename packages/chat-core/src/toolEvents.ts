@@ -1,5 +1,6 @@
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree } from "./agentActivity";
 import { wellFormedFileDiffs } from "./fileDiffs";
+import { toolCommand, unwrapShellLauncher } from "./shellComposition";
 import { normalizeToolRichResult } from "./toolRichResult";
 import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
 
@@ -175,6 +176,16 @@ export function toolStreamLabel(event: ToolEvent): string | undefined {
   return event.description || event.title;
 }
 
+function commandFingerprint(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/** The command an event ran with any launcher peeled off, whitespace-normalized for comparison. */
+function executedCommand(event: ToolEvent): string {
+  const { command, argv } = toolCommand(event);
+  return commandFingerprint(unwrapShellLauncher(command, argv).command);
+}
+
 function flowKey(sessionId: string | undefined, flowId: string): string {
   return `${sessionId ?? ""}:${flowId}`;
 }
@@ -290,6 +301,28 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     const index = entries.findIndex((entry) => entry.item === item);
     if (index >= 0) entries[index] = { item, event };
   };
+  const echoHosts = new Set<number>();
+  // The nearest earlier call of the same session and turn whose command the echo re-reports.
+  const echoHost = (echo: ToolEvent): { item: number; event: ToolEvent; exact: boolean } | undefined => {
+    const echoed = executedCommand(echo);
+    if (!echoed) return undefined;
+    const session = echo.message.sourceSessionId ?? "";
+    const epoch = supersessions.get(session) ?? 0;
+    for (let index = items.length - 1; index >= 0; index--) {
+      const at = callEpochs.get(index);
+      if (!at || at.session !== session) continue;
+      if (at.epoch !== epoch) return undefined;
+      const item = items[index];
+      if (item.kind !== "tool" || echoHosts.has(index)) continue;
+      const candidate = item.event;
+      if (candidate.kind !== "command" || candidate.message.toolEcho) continue;
+      if (executedCommand(candidate) === echoed) return { item: index, event: candidate, exact: true };
+      if (toolCommand(candidate).command.split(/\n\s*\n/).some((block) => commandFingerprint(block) === echoed)) {
+        return { item: index, event: candidate, exact: false };
+      }
+    }
+    return undefined;
+  };
 
   for (const message of messages) {
     // Only source rows carry seq; an optimistic composer row is no evidence a call was abandoned.
@@ -369,6 +402,20 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
         if (remaining.length > 0) waitingBySource.set(source, remaining);
         else waitingBySource.delete(source);
       }
+      const host = resolved.message.toolEcho && resolved.kind === "command" ? echoHost(resolved) : undefined;
+      if (host) {
+        // Only an exact re-report carries this call's outcome; an echo of one command in a batch is just dropped.
+        const merged = host.exact ? mergeResult(host.event, { ...resolved, summary: "" }) : host.event;
+        items[host.item] = { kind: "tool", event: merged };
+        const hostId = text(merged.toolId);
+        if (hostId) calls.set(hostId, { item: host.item, event: merged });
+        replaceSourceCall(sourceKey(message.sourceSessionId, merged.callSourceId), host.item, merged);
+        if (host.exact) {
+          echoHosts.add(host.item);
+          if (id) calls.set(id, { item: host.item, event: merged });
+        }
+        continue;
+      }
       const item = items.length;
       items.push({ kind: "tool", event: resolved });
       const session = message.sourceSessionId ?? "";
@@ -404,7 +451,8 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       };
     }
     if (call) {
-      const merged = mergeResult(call.event, event);
+      const current = items[call.item];
+      const merged = mergeResult(current.kind === "tool" ? current.event : call.event, event);
       items[call.item] = { kind: "tool", event: merged };
       const id = text(call.event.toolId);
       if (id) calls.set(id, { item: call.item, event: merged });
