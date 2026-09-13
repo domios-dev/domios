@@ -1476,6 +1476,9 @@ var plugin = {
               data.tool_summary = canonical.summary;
               data.tool_detail = canonical.detail;
               data.tool_edits = canonical.edits;
+              const description = toolDescription(data.input);
+              if (description) data.tool_description = description;
+              if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
             }
             blocks.push({ kind: b.type, data });
           }
@@ -1805,6 +1808,11 @@ function canonicalToolFields(name, input) {
     detail: tool,
     edits
   };
+}
+function toolDescription(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const value = input.description;
+  return typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").trim() : "";
 }
 function extractCanonicalEdits(input) {
   const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";

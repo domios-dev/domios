@@ -208,8 +208,8 @@ function questionForMenu(lines, firstLine) {
   }
   return "Permission required";
 }
-function parseCodexLetteredPrompt(text2) {
-  const lines = prosePromptLines(text2);
+function parseCodexLetteredPrompt(text3) {
+  const lines = prosePromptLines(text3);
   const starts = [];
   const optionRe = /^\s*(?:[-*•]\s*)?([A-Z])[.)]\s+(.+?)\s*$/;
   for (let i = 0; i < lines.length; i++) {
@@ -220,8 +220,8 @@ function parseCodexLetteredPrompt(text2) {
   if (starts.length < 3) return null;
   return promptFromOptionStarts(lines, starts, "letter");
 }
-function parseCodexNumberedQuestion(text2) {
-  const lines = prosePromptLines(text2);
+function parseCodexNumberedQuestion(text3) {
+  const lines = prosePromptLines(text3);
   const starts = [];
   const optionRe = /^\s*(?:[-*•]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
   for (let i = 0; i < lines.length; i++) {
@@ -274,8 +274,8 @@ function groupOptions(lines, starts, kind) {
   }
   return groups;
 }
-function normalizeLines(text2) {
-  return String(text2 || "").replace(/\r\n?/g, "\n").split("\n");
+function normalizeLines(text3) {
+  return String(text3 || "").replace(/\r\n?/g, "\n").split("\n");
 }
 function lastMeaningfulLineIndex(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -285,8 +285,8 @@ function lastMeaningfulLineIndex(lines) {
   }
   return -1;
 }
-function prosePromptLines(text2) {
-  const lines = normalizeLines(text2);
+function prosePromptLines(text3) {
+  const lines = normalizeLines(text3);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (/^\s*•\s+.+\?\s*$/.test(lines[i])) return lines.slice(i);
   }
@@ -319,8 +319,8 @@ function findCompoundTitle(lines, beforeQuestionIndex) {
   }
   return null;
 }
-function findQuestion(text2) {
-  const lines = normalizeLines(text2).map((line) => line.trim()).filter(Boolean);
+function findQuestion(text3) {
+  const lines = normalizeLines(text3).map((line) => line.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (lines[i].endsWith("?")) return cleanPromptText(lines[i]);
   }
@@ -401,8 +401,8 @@ function parseCodexUsage(rawText, nowMs) {
       raw_text: raw
     };
   }
-  const text2 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-  const lines = text2.split("\n");
+  const text3 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
+  const lines = text3.split("\n");
   const limits = parseCodexLimits(lines, nowMs);
   const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
   const weekly = limits.find((line) => line.family === "weekly");
@@ -504,8 +504,8 @@ function codexPctToUsed(value, mode) {
   return Math.min(100, Math.max(0, pct));
 }
 var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
-function codexLimitFamily(text2, sectionHeader) {
-  const lower = String(text2 || "").toLowerCase();
+function codexLimitFamily(text3, sectionHeader) {
+  const lower = String(text3 || "").toLowerCase();
   const hasGeneral = /\bgeneral\b/.test(lower);
   const hasWeekly = /\bweekly\b/.test(lower);
   const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
@@ -758,8 +758,43 @@ function patchEdits(patch) {
   }
 }
 
-// plugins/provider-codex/src/activity.ts
+// plugins/provider-codex/src/actionTitle.ts
+var MAX_TITLE_CHARS = 48;
+function clip(value) {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= MAX_TITLE_CHARS) return compact;
+  return compact.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
+}
 function text(value) {
+  return typeof value === "string" ? value : "";
+}
+function baseName(path) {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || trimmed;
+}
+function commandHead(command) {
+  const tokens = command.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const width = tokens.length > 1 && tokens[1].charAt(0) !== "-" && tokens[1].charAt(0) !== '"' ? 2 : 1;
+  return tokens.slice(0, width).join(" ");
+}
+function actionTitle(fields) {
+  const summary = text(fields.tool_summary);
+  const detail = text(fields.tool_detail);
+  if (fields.tool_kind === "command") {
+    const more = /\(\+(\d+) more\)$/.exec(summary);
+    return clip(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
+  }
+  if (fields.tool_kind === "read" && summary) return clip(`Read ${baseName(summary)}`);
+  if (fields.tool_kind === "edit") {
+    const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
+    const paths = edits.map((edit) => text(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
+    if (paths.length > 0) return clip(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
+  }
+  return clip(summary || "Tool activity");
+}
+
+// plugins/provider-codex/src/activity.ts
+function text2(value) {
   return typeof value === "string" ? value : "";
 }
 function commandText(value) {
@@ -769,25 +804,27 @@ function commandText(value) {
   if (!argv[0].trim()) return "";
   return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
 }
-function completedActivity(value, ts, timestamp) {
+function completedActivity(value, ts, timestamp, turnId) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value;
-  const id = text(item.id);
+  const id = text2(item.id);
   if (!id) return null;
+  const flow = text2(turnId) ? { tool_flow_id: text2(turnId) } : {};
   const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
   if (item.type === "CommandExecution") {
     const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
     const failed = item.status === "failed" || typeof item.exit_code === "number" && item.exit_code !== 0;
-    const output = text(item.aggregated_output) || [text(item.stdout), text(item.stderr)].filter(Boolean).join("\n");
+    const output = text2(item.aggregated_output) || [text2(item.stdout), text2(item.stderr)].filter(Boolean).join("\n");
+    const fields = { tool_kind: "command", tool_summary: command, tool_detail: command };
     message.blocks = [
       { kind: "tool_use", data: {
         id,
         name: "command_execution",
         input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
-        tool_kind: "command",
-        tool_summary: command,
-        tool_detail: command,
+        ...fields,
+        tool_title: actionTitle(fields),
+        ...flow,
         tool_status: failed ? "error" : "success"
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed } }
@@ -795,16 +832,18 @@ function completedActivity(value, ts, timestamp) {
     return message;
   }
   if (item.type === "SubAgentActivity") {
-    const kind = text(item.kind);
-    const path = text(item.agent_path);
+    const kind = text2(item.kind);
+    const path = text2(item.agent_path);
     if (!kind || !path) return null;
     message.blocks = [{ kind: "tool_use", data: {
       id,
       name: "agent_activity",
-      input: { kind, agent_path: path, agent_thread_id: text(item.agent_thread_id) },
+      input: { kind, agent_path: path, agent_thread_id: text2(item.agent_thread_id) },
       tool_kind: "task",
       tool_summary: `${kind} ${path}`,
       tool_detail: `${kind} ${path}`,
+      tool_title: actionTitle({ tool_summary: `${kind} ${baseName(path)}` }),
+      ...flow,
       tool_status: "success"
     } }];
     return message;
@@ -1486,28 +1525,28 @@ var CODEX_HOOK_SCRIPT_CONTRACT = [
   "CODETERM_SESSION_BINDING_NONCE",
   "/api/tabs/"
 ];
-function codexHookContentHash(text2) {
+function codexHookContentHash(text3) {
   let hash = 2166136261;
-  for (let i = 0; i < text2.length; i++) {
-    hash ^= text2.charCodeAt(i);
+  for (let i = 0; i < text3.length; i++) {
+    hash ^= text3.charCodeAt(i);
     hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
   }
   return ("0000000" + hash.toString(16)).slice(-8);
 }
-function isOwnedCodexHookScriptContent(text2) {
-  return text2.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+function isOwnedCodexHookScriptContent(text3) {
+  return text3.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
 }
-function isCurrentCodexHookScriptContent(text2) {
-  if (!isOwnedCodexHookScriptContent(text2)) return false;
-  if (/:\d{2,5}/.test(text2)) return false;
+function isCurrentCodexHookScriptContent(text3) {
+  if (!isOwnedCodexHookScriptContent(text3)) return false;
+  if (/:\d{2,5}/.test(text3)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
-    if (text2.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+    if (text3.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
   }
   return true;
 }
 function isOwnedCodexWindowsHookScript(path) {
-  const text2 = host.fs.readFile(path);
-  return typeof text2 === "string" && isCurrentCodexHookScriptContent(text2);
+  const text3 = host.fs.readFile(path);
+  return typeof text3 === "string" && isCurrentCodexHookScriptContent(text3);
 }
 
 // plugins/provider-codex/src/integration.ts
@@ -1874,9 +1913,9 @@ function restoreIntegrationFiles(snapshots) {
 function codexHookTrustState(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
-  const text2 = String(host.fs.readFile(cfg) || "");
-  if (!text2) return "missing";
-  const block = findCodexHookTrustBlock(text2, hooksPath);
+  const text3 = String(host.fs.readFile(cfg) || "");
+  if (!text3) return "missing";
+  const block = findCodexHookTrustBlock(text3, hooksPath);
   if (block == null) return "missing";
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
   if (m) return m[1] === "true" ? "enabled" : "disabled";
@@ -1886,40 +1925,40 @@ function codexHookTrustState(hooksPath) {
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text2 = String(host.fs.readFile(cfg) || "");
-  if (!text2) return { state: "missing", changed: false, write_failed: false };
-  const span = findCodexHookTrustBlockSpan(text2, hooksPath);
+  const text3 = String(host.fs.readFile(cfg) || "");
+  if (!text3) return { state: "missing", changed: false, write_failed: false };
+  const span = findCodexHookTrustBlockSpan(text3, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
-  const block = text2.substring(span.start, span.end);
+  const block = text3.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
     const current = codexHookTrustState(hooksPath);
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
-  const next = text2.substring(0, span.start) + nextBlock + text2.substring(span.end);
+  const next = text3.substring(0, span.start) + nextBlock + text3.substring(span.end);
   return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
 function disableOwnedCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text2 = host.fs.readFile(cfg);
-  if (typeof text2 !== "string") return false;
-  const span = findCodexHookTrustBlockSpan(text2, hooksPath);
+  const text3 = host.fs.readFile(cfg);
+  if (typeof text3 !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text3, hooksPath);
   if (!span) return true;
-  const block = text2.substring(span.start, span.end);
+  const block = text3.substring(span.start, span.end);
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
-  const next = text2.substring(0, span.start) + nextBlock + text2.substring(span.end);
+  const next = text3.substring(0, span.start) + nextBlock + text3.substring(span.end);
   return host.fs.writeFile(cfg, next);
 }
-function findCodexHookTrustBlock(text2, hooksPath) {
-  const span = findCodexHookTrustBlockSpan(text2, hooksPath);
-  return span ? text2.substring(span.start, span.end) : null;
+function findCodexHookTrustBlock(text3, hooksPath) {
+  const span = findCodexHookTrustBlockSpan(text3, hooksPath);
+  return span ? text3.substring(span.start, span.end) : null;
 }
-function findCodexHookTrustBlockSpan(text2, hooksPath) {
+function findCodexHookTrustBlockSpan(text3, hooksPath) {
   const marker = hooksPath + ":session_start:";
-  const lines = text2.split("\n");
+  const lines = text3.split("\n");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -1927,7 +1966,7 @@ function findCodexHookTrustBlockSpan(text2, hooksPath) {
     const isHeader = trimmed.charAt(0) === "[" && trimmed.charAt(trimmed.length - 1) === "]";
     if (isHeader && trimmed.indexOf("hooks.state.") !== -1 && trimmed.indexOf(marker) !== -1) {
       const start = offset;
-      let end = text2.length;
+      let end = text3.length;
       let scanOffset = offset + line.length + 1;
       for (let j = i + 1; j < lines.length; j++) {
         const t = lines[j].trim();
@@ -2030,23 +2069,23 @@ var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
-  detectFromOutput(text2) {
-    const t = String(text2 || "");
+  detectFromOutput(text3) {
+    const t = String(text3 || "");
     for (let i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
       if (t.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) return true;
     }
     return false;
   },
   screenHasTui(screen) {
-    const text2 = String(screen || "");
-    const lower = text2.toLowerCase();
+    const text3 = String(screen || "");
+    const lower = text3.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return hasPromptAndStatusFooter(text2);
+    return hasPromptAndStatusFooter(text3);
   },
-  isOutputNoise(text2) {
-    const trimmed = String(text2 || "").trim();
+  isOutputNoise(text3) {
+    const trimmed = String(text3 || "").trim();
     if (!trimmed) return true;
     for (let i = 0; i < trimmed.length; i++) {
       const c = trimmed[i];
@@ -2061,16 +2100,16 @@ var plugin = {
     return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // screen off the auto-approve path; the universal numbered parser then extracts.
     c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("Select Model") !== -1 || c.indexOf("Select Reasoning") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
-  detectEvents(text2) {
-    const t = String(text2 || "");
+  detectEvents(text3) {
+    const t = String(text3 || "");
     const events = [];
     if (t.indexOf("Would you like to run the following command") !== -1 || t.indexOf("Would you like to make the following edits") !== -1 || t.indexOf("Do you want to approve network access") !== -1 || t.indexOf("Would you like to grant these permissions") !== -1) {
       events.push("permission_request");
     }
     return events;
   },
-  parsePrompt(text2) {
-    return parseCodexPrompt(String(text2 || ""));
+  parsePrompt(text3) {
+    return parseCodexPrompt(String(text3 || ""));
   },
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
@@ -2174,8 +2213,19 @@ var plugin = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
+      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete")) {
+        const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
+        if (!turnId) continue;
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
+          ts,
+          timestamp: tsIso
+        });
+        continue;
+      }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        const activity = completedActivity(v.payload.item, ts, tsIso);
+        const activity = completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id);
         if (activity && !activityIds.has(activity.uuid)) {
           activityIds.add(activity.uuid);
           out.push(activity);
@@ -2199,21 +2249,21 @@ var plugin = {
       if (p.type === "message") {
         const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
         if (!role) continue;
-        let text2 = "";
+        let text3 = "";
         if (Array.isArray(p.content)) {
           for (let j = 0; j < p.content.length; j++) {
             const c = p.content[j];
-            if (c && typeof c.text === "string") text2 += c.text;
+            if (c && typeof c.text === "string") text3 += c.text;
           }
         } else if (typeof p.content === "string") {
-          text2 = p.content;
+          text3 = p.content;
         }
-        if (!text2) continue;
-        const systemSubtype = classifyCodexSystemText(text2);
+        if (!text3) continue;
+        const systemSubtype = classifyCodexSystemText(text3);
         if (systemSubtype) {
           out.push({
             role: "system",
-            blocks: [{ kind: "text", data: { text: text2, subtype: systemSubtype } }],
+            blocks: [{ kind: "text", data: { text: text3, subtype: systemSubtype } }],
             sourceType: v.type,
             sourceSubtype: systemSubtype,
             ts,
@@ -2221,7 +2271,7 @@ var plugin = {
           });
           continue;
         }
-        out.push({ role, blocks: [{ kind: "text", data: { text: text2 } }], ts, timestamp: tsIso });
+        out.push({ role, blocks: [{ kind: "text", data: { text: text3 } }], ts, timestamp: tsIso });
       } else if (p.type === "function_call") {
         let input = {};
         try {
@@ -2321,9 +2371,9 @@ var plugin = {
     return detectSessionModel(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
-  parseSessionMessages(text2) {
+  parseSessionMessages(text3) {
     const out = [];
-    const lines = String(text2 || "").split("\n");
+    const lines = String(text3 || "").split("\n");
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -2405,6 +2455,10 @@ function nestedApplyPatch(raw) {
   }
 }
 function canonicalToolFields(name, input) {
+  const fields = baseToolFields(name, input);
+  return { ...fields, tool_title: actionTitle(fields) };
+}
+function baseToolFields(name, input) {
   const raw = typeof input.raw === "string" ? input.raw : "";
   const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
   const script = name === "exec" && raw ? summarizeExecScript(raw) : null;
@@ -2422,7 +2476,7 @@ function isValidCodexSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
-    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed";
+    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed" || v.payload.type === "task_started" || v.payload.type === "task_complete";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
@@ -2435,14 +2489,14 @@ function isValidCodexSessionDelta(v) {
 function codexToolOutputText(output) {
   if (typeof output === "string") return output;
   if (Array.isArray(output)) {
-    const text2 = [];
+    const text3 = [];
     for (let i = 0; i < output.length; i++) {
       const item = output[i];
       if (item && typeof item === "object" && typeof item.text === "string") {
-        text2.push(item.text);
+        text3.push(item.text);
       }
     }
-    if (text2.length > 0) return text2.join("");
+    if (text3.length > 0) return text3.join("");
   }
   if (output == null) return "";
   return typeof output === "object" ? JSON.stringify(output) : String(output);
@@ -2456,10 +2510,10 @@ function hasUsefulFunctionCall(name, input, args) {
   return Object.keys(input || {}).length > 0;
 }
 function isInternalOrchestrationCall(name) {
-  return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents" || name === "wait_agent";
+  return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents";
 }
-function classifyCodexSystemText(text2) {
-  const trimmed = String(text2 || "").trim();
+function classifyCodexSystemText(text3) {
+  const trimmed = String(text3 || "").trim();
   if (!trimmed) return null;
   if (trimmed.indexOf("<turn_aborted>") === 0 && trimmed.indexOf("</turn_aborted>") !== -1) {
     return "turn_aborted";
