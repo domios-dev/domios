@@ -58,17 +58,17 @@ function assistant(id: string, content: string): NormalizedChatMessage {
   assert(second[1].kind === "tool" && second[1].event.status === "success", "tool-2 shows its merged result");
 }
 
-// --- wait batches stay stable while their members are unchanged ---
+// --- tool streams stay stable while their members are unchanged ---
 {
-  const waits = [
-    call("w-1", "wait-1", { toolName: "wait", timestamp: "1000", sourceSessionId: "s" }),
-    call("w-2", "wait-2", { toolName: "wait", timestamp: "2000", sourceSessionId: "s" }),
+  const members = [
+    call("s-1", "stream-1", { toolFlowId: "flow", toolDescription: "First", toolError: false }),
+    call("s-2", "stream-2", { toolFlowId: "flow", toolDescription: "Second", toolError: false }),
   ];
-  const first = stabilizeTimelineItems(undefined, reduceToolEvents(waits));
-  const second = stabilizeTimelineItems(first, reduceToolEvents([...waits, assistant("a-1", "after")]));
+  const first = stabilizeTimelineItems(undefined, reduceToolEvents(members));
+  const second = stabilizeTimelineItems(first, reduceToolEvents([...members, assistant("a-1", "after")]));
 
-  assert(first.length === 1 && first[0].kind === "tool" && first[0].event.waitBatch, "waits coalesce into one batch");
-  assert(second[0] === first[0], "unchanged wait batch keeps identity");
+  assert(first.length === 1 && first[0].kind === "tool" && first[0].event.stream, "linked described calls form one stream");
+  assert(second[0] === first[0], "unchanged stream keeps identity");
 }
 
 // --- error results propagate and refresh the item ---

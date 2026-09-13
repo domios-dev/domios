@@ -176,6 +176,15 @@ pub struct ChatMsg {
     pub tool_detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_edits: Option<serde_json::Value>,
+    /// Human description supplied by the tool call source; never inferred.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_description: Option<String>,
+    /// Short action title derived only from the call's own data.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_title: Option<String>,
+    /// Flow identity the source proves; `tool_flow` rows open or close it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_flow_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).

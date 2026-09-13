@@ -1,3 +1,5 @@
+import { actionTitle, baseName } from "./actionTitle";
+
 interface ActivityItem {
   type?: unknown;
   id?: unknown;
@@ -32,21 +34,23 @@ function commandText(value: unknown): string {
   return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
 }
 
-export function completedActivity(value: unknown, ts: number | null, timestamp: string | null): ActivityMessage | null {
+export function completedActivity(value: unknown, ts: number | null, timestamp: string | null, turnId?: unknown): ActivityMessage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as ActivityItem;
   const id = text(item.id);
   if (!id) return null;
+  const flow = text(turnId) ? { tool_flow_id: text(turnId) } : {};
   const message: ActivityMessage = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
   if (item.type === "CommandExecution") {
     const command = commandText(item.command);
     if (!command || (item.status !== "completed" && item.status !== "failed")) return null;
     const failed = item.status === "failed" || (typeof item.exit_code === "number" && item.exit_code !== 0);
     const output = text(item.aggregated_output) || [text(item.stdout), text(item.stderr)].filter(Boolean).join("\n");
+    const fields = { tool_kind: "command", tool_summary: command, tool_detail: command };
     message.blocks = [
       { kind: "tool_use", data: {
         id, name: "command_execution", input: { command, ...(Array.isArray(item.command) ? { argv: item.command } : {}) },
-        tool_kind: "command", tool_summary: command, tool_detail: command,
+        ...fields, tool_title: actionTitle(fields), ...flow,
         tool_status: failed ? "error" : "success",
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed } },
@@ -60,6 +64,7 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
     message.blocks = [{ kind: "tool_use", data: {
       id, name: "agent_activity", input: { kind, agent_path: path, agent_thread_id: text(item.agent_thread_id) },
       tool_kind: "task", tool_summary: `${kind} ${path}`, tool_detail: `${kind} ${path}`,
+      tool_title: actionTitle({ tool_summary: `${kind} ${baseName(path)}` }), ...flow,
       tool_status: "success",
     } }];
     return message;

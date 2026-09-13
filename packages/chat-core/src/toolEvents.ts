@@ -1,5 +1,11 @@
 import type { NormalizedChatMessage, ToolEdit, ToolEventKind } from "./types";
 
+interface ToolStream {
+  flowId: string;
+  members: ToolEvent[];
+  active: boolean;
+}
+
 export interface ToolEvent {
   id: string;
   toolId?: string;
@@ -7,15 +13,15 @@ export interface ToolEvent {
   status: "pending" | "success" | "error";
   kind: ToolEventKind;
   summary: string;
+  description?: string;
+  title?: string;
+  flowId?: string;
   detail?: string;
   edits?: ToolEdit[];
   result?: string;
   error?: boolean;
   message: NormalizedChatMessage;
-  waitBatch?: {
-    members: ToolEvent[];
-    elapsedMs?: number;
-  };
+  stream?: ToolStream;
 }
 
 export type TimelineItem =
@@ -27,74 +33,11 @@ function isInternalOrchestrationTool(name: string | undefined): boolean {
     || name === "spawn_agent"
     || name === "followup_task"
     || name === "interrupt_agent"
-    || name === "list_agents"
-    || name === "wait_agent";
+    || name === "list_agents";
 }
 
 function text(value: string | undefined): string {
   return value?.trim() ?? "";
-}
-
-const WAIT_TOOL_NAMES = new Set(["wait", "tool_wait", "wait_for", "wait_for_result"]);
-
-function isWaitCall(item: TimelineItem): item is { kind: "tool"; event: ToolEvent } {
-  if (item.kind !== "tool") return false;
-  const { event } = item;
-  const name = event.message.toolName?.trim().toLowerCase();
-  return event.phase === "call"
-    && event.message.type === "tool_call"
-    && !event.waitBatch
-    && event.kind === "generic"
-    && Boolean(name && WAIT_TOOL_NAMES.has(name));
-}
-
-function numericTimestamp(message: NormalizedChatMessage): number | undefined {
-  if (typeof message.timestamp !== "string" || !message.timestamp.trim()) return undefined;
-  const value = Number(message.timestamp);
-  return Number.isFinite(value) ? value : undefined;
-}
-
-function waitBatch(members: ToolEvent[]): ToolEvent {
-  const first = members[0];
-  const start = numericTimestamp(first.message);
-  const end = numericTimestamp(members[members.length - 1].message);
-  const elapsedMs = start === undefined || end === undefined ? undefined : Math.max(0, end - start);
-  return {
-    ...first,
-    id: `${first.id}:wait-batch`,
-    kind: "generic",
-    summary: `${members.length} wait ${members.length === 1 ? "event" : "events"}`,
-    waitBatch: { members, elapsedMs },
-  };
-}
-
-/** Groups only adjacent normalized generic wait calls after call/result reconciliation. */
-export function coalesceWaitEvents(items: TimelineItem[]): TimelineItem[] {
-  const output: TimelineItem[] = [];
-  let members: ToolEvent[] = [];
-  let sessionId: string | undefined;
-  const flush = () => {
-    if (members.length) output.push({ kind: "tool", event: waitBatch(members) });
-    members = [];
-    sessionId = undefined;
-  };
-
-  for (const item of items) {
-    if (isWaitCall(item) && members.length === 0) {
-      members.push(item.event);
-      sessionId = item.event.message.sourceSessionId;
-    } else if (isWaitCall(item) && sessionId !== undefined && item.event.message.sourceSessionId === sessionId) {
-      members.push(item.event);
-    } else {
-      flush();
-      if (isWaitCall(item)) {
-        members.push(item.event);
-        sessionId = item.event.message.sourceSessionId;
-      } else output.push(item);
-    }
-  }
-  flush();
-  return output;
 }
 
 function firstNonEmpty(...values: (string | undefined)[]): string | undefined {
@@ -112,6 +55,9 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
     phase,
     kind: message.toolKind ?? "generic",
     summary,
+    description: text(message.toolDescription) || undefined,
+    title: text(message.toolTitle) || undefined,
+    flowId: text(message.toolFlowId) || undefined,
     detail: text(message.toolDetail) || undefined,
     edits: message.toolEdits,
     result: phase === "result"
@@ -149,14 +95,76 @@ function mergeResult(call: ToolEvent, result: ToolEvent): ToolEvent {
   };
 }
 
+/** The label a stream may roll to: the source's description, else the call-derived title. */
+export function toolStreamLabel(event: ToolEvent): string | undefined {
+  return event.description || event.title;
+}
+
+function flowKey(sessionId: string | undefined, flowId: string): string {
+  return `${sessionId ?? ""}:${flowId}`;
+}
+
+function streamEvent(members: ToolEvent[], active: boolean): ToolEvent {
+  const first = members[0];
+  const latest = members[members.length - 1];
+  const failed = members.some((member) => member.status === "error");
+  return {
+    ...first,
+    id: `${first.id}:stream`,
+    status: members.some((member) => member.status === "pending") ? "pending" : failed ? "error" : "success",
+    summary: toolStreamLabel(latest) ?? latest.summary,
+    detail: undefined,
+    edits: undefined,
+    result: undefined,
+    error: failed || undefined,
+    stream: { flowId: first.flowId as string, members, active },
+  };
+}
+
+/** Folds calls that share one proven flow into a stream at the first member's position. */
+function groupToolStreams(items: TimelineItem[], openFlows: ReadonlySet<string> = new Set()): TimelineItem[] {
+  const groups = new Map<string, number[]>();
+  items.forEach((item, index) => {
+    if (item.kind !== "tool" || item.event.phase !== "call" || !item.event.flowId || item.event.stream) return;
+    const key = flowKey(item.event.message.sourceSessionId, item.event.flowId);
+    const indexes = groups.get(key) ?? [];
+    indexes.push(index);
+    groups.set(key, indexes);
+  });
+  const heads = new Map<number, ToolEvent>();
+  const absorbed = new Set<number>();
+  for (const [key, indexes] of groups) {
+    if (indexes.length < 2) continue;
+    const members = indexes.map((index) => (items[index] as { kind: "tool"; event: ToolEvent }).event);
+    if (!members.every((member) => toolStreamLabel(member))) continue;
+    const active = openFlows.has(key) || members.some((member) => member.status === "pending");
+    heads.set(indexes[0], streamEvent(members, active));
+    for (const index of indexes.slice(1)) absorbed.add(index);
+  }
+  if (heads.size === 0) return items;
+  return items.flatMap((item, index): TimelineItem[] => {
+    if (absorbed.has(index)) return [];
+    const head = heads.get(index);
+    return head ? [{ kind: "tool", event: head }] : [item];
+  });
+}
+
 export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   const calls = new Map<string, { item: number; event: ToolEvent }>();
   const positionalCalls: number[] = [];
   const waiting = new Map<string, ToolEvent[]>();
   const seenResults = new Set<string>();
+  const openFlowBySession = new Map<string, string>();
 
   for (const message of messages) {
+    if (message.type === "tool_flow") {
+      const session = message.sourceSessionId ?? "";
+      const flowId = text(message.toolFlowId);
+      if (message.content === "start" && flowId) openFlowBySession.set(session, flowId);
+      else if (message.content === "end" && (!flowId || openFlowBySession.get(session) === flowId)) openFlowBySession.delete(session);
+      continue;
+    }
     if (isInternalOrchestrationTool(message.toolName)) continue;
     if (message.type === "tool_call" || message.type === "tool_result") {
       const hasContent = Boolean(
@@ -171,12 +179,14 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       );
       if (!hasContent) continue;
     }
-    const event = materializeToolEvent(message);
-    if (!event) {
+    const materialized = materializeToolEvent(message);
+    if (!materialized) {
       items.push({ kind: "message", message });
       continue;
     }
-    if (event.phase === "call") {
+    if (materialized.phase === "call") {
+      const flowId = materialized.flowId ?? openFlowBySession.get(message.sourceSessionId ?? "");
+      const event = flowId ? { ...materialized, flowId } : materialized;
       const pending = event.toolId ? waiting.get(event.toolId) : undefined;
       const resolved = pending?.reduce(mergeResult, event) ?? event;
       if (event.toolId) waiting.delete(event.toolId);
@@ -186,6 +196,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       else positionalCalls.push(item);
       continue;
     }
+    const event = materialized;
     const resultKey = event.toolId ? `${event.toolId}:${event.id}` : event.id;
     if (seenResults.has(resultKey)) continue;
     seenResults.add(resultKey);
@@ -209,5 +220,6 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items.push({ kind: "tool", event });
     }
   }
-  return coalesceWaitEvents(items);
+  const openFlows = new Set([...openFlowBySession].map(([session, flowId]) => flowKey(session || undefined, flowId)));
+  return groupToolStreams(items, openFlows);
 }
