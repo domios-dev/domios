@@ -26,11 +26,61 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
 }
 
-/** The first output line a reader cares about, skipping provider wrapper lines. */
+const STRUCTURE_ONLY = /^[\s{}[\]()<>,;:.'"`]*$/;
+const KEY_VALUE = /^"([^"]+)"\s*:\s*(.*?),?$/;
+
+function scalarText(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value);
+  return undefined;
+}
+
+/** The first scalar of a JSON document: `key value` for an object entry, the value itself in an array. */
+function firstJsonScalar(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = scalarText(item) ?? firstJsonScalar(item);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (!value || typeof value !== "object") return undefined;
+  for (const [key, item] of Object.entries(value)) {
+    const scalar = scalarText(item);
+    if (scalar !== undefined) return `${key} ${scalar}`;
+  }
+  for (const item of Object.values(value)) {
+    const found = firstJsonScalar(item);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function meaningfulLine(line: string): string | undefined {
+  if (STRUCTURE_ONLY.test(line)) return undefined;
+  const entry = KEY_VALUE.exec(line);
+  if (!entry) return line;
+  const value = entry[2].trim();
+  if (!value || STRUCTURE_ONLY.test(value)) return undefined;
+  return `${entry[1]} ${value.replace(/^"(.*)"$/, "$1")}`;
+}
+
+/** The first output line a reader cares about: wrapper and bare JSON structure skipped, JSON read as its first scalar. */
 export function firstOutputLine(result: string | undefined): string | undefined {
-  for (const raw of result?.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/) ?? []) {
-    const line = raw.trim();
-    if (line && !OUTPUT_WRAPPER.test(line)) return clip(line);
+  const lines = (result?.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/) ?? []).map((line) => line.trim());
+  const body = lines.filter((line) => line && !OUTPUT_WRAPPER.test(line));
+  const document = body.join("\n");
+  if (/^[{[]/.test(document)) {
+    try {
+      const scalar = firstJsonScalar(JSON.parse(document));
+      return scalar ? clip(scalar.replace(/\s+/g, " ")) : undefined;
+    } catch {
+      // Not one JSON document; read it line by line.
+    }
+  }
+  for (const line of body) {
+    const meaningful = meaningfulLine(line);
+    if (meaningful) return clip(meaningful);
   }
   return undefined;
 }
