@@ -8,6 +8,8 @@ import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
+import { codexFileDiffs } from "./fileDiffs";
+import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
 import {
   classifyCodexTabState,
@@ -300,13 +302,24 @@ const plugin: PluginModule = {
         }
         continue;
       }
+      if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
+        const result = v.payload.type === "web_search_end"
+          ? webSearchEndResult(v.payload, ts, tsIso)
+          : imageGenerationEndResult(v.payload, ts, tsIso);
+        if (result && !activityIds.has(result.uuid)) {
+          activityIds.add(result.uuid);
+          out.push(result);
+        }
+        continue;
+      }
       if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
         const p = v.payload;
         const content = typeof p.stdout === "string" ? p.stdout : "";
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const diffs = codexFileDiffs(p.changes);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId } }],
+          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId, ...(diffs.length > 0 ? { file_diffs: diffs } : {}) } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -547,6 +560,7 @@ interface CodexPayload {
   stdout?: string;
   success?: boolean;
   turn_id?: unknown;
+  changes?: unknown;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 export interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
@@ -598,6 +612,8 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
     return v.payload.type === "patch_apply_end"
       || v.payload.type === "item_completed"
+      || v.payload.type === "web_search_end"
+      || v.payload.type === "image_generation_end"
       || v.payload.type === "task_started"
       || v.payload.type === "task_complete"
       || v.payload.type === "turn_aborted"

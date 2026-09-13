@@ -296,6 +296,8 @@ export type ToolEventKind =
   | "task"
   | "fetch"
   | "codeterm"
+  | "web"
+  | "image"
   | "generic";
 
 export interface ToolEdit {
@@ -307,11 +309,43 @@ export interface ToolEdit {
 export type ChatTimelineMarker =
   | { kind: "queued" }
   | { kind: "external_edit"; path: string }
-  | { kind: "context_compacted" };
+  | { kind: "context_compaction" };
 
 export interface ChatSessionIntent {
   title?: string;
   goal?: string;
+}
+
+/** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
+export interface FileDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/** One changed file; counts are the marked lines of its own hunks. Emitted as `file_diffs` block data. */
+export interface FileDiff {
+  path: string;
+  movePath?: string;
+  additions: number;
+  deletions: number;
+  hunks: FileDiffHunk[];
+}
+
+// Mirrors Rust ChatMsg.tool_rich_result; strings are exact source values, absent when unreported.
+export interface ToolRichResult {
+  kind: "web" | "image";
+  origin?: "generated" | "viewed";
+  query?: string;
+  resultCount?: number;
+  action?: string;
+  url?: string;
+  pattern?: string;
+  path?: string;
+  status?: string;
+  prompt?: string;
 }
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
@@ -333,6 +367,8 @@ export interface NormalizedChatMessage {
   toolSummary?: string;
   toolDetail?: string;
   toolEdits?: ToolEdit[];
+  fileDiffs?: FileDiff[];
+  toolRichResult?: ToolRichResult;
   toolError?: boolean;
 }
 

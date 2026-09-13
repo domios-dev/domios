@@ -25,12 +25,46 @@ export type ToolEventKind =
   | "task"
   | "fetch"
   | "codeterm"
+  | "web"
+  | "image"
   | "generic";
+
+/** Provider-neutral web or image result; every string is the source's exact value, absent when unreported. */
+export interface ToolRichResult {
+  kind: "web" | "image";
+  origin?: "generated" | "viewed";
+  query?: string;
+  resultCount?: number;
+  action?: string;
+  url?: string;
+  pattern?: string;
+  path?: string;
+  status?: string;
+  prompt?: string;
+}
 
 export interface ToolEdit {
   path: string;
   old: string;
   new: string;
+}
+
+/** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
+export interface FileDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/** One changed file; counts are the marked lines of its own hunks. */
+export interface FileDiff {
+  path: string;
+  movePath?: string;
+  additions: number;
+  deletions: number;
+  hunks: FileDiffHunk[];
 }
 
 export interface ChatAttachment {
@@ -125,6 +159,9 @@ export interface NormalizedChatMessage {
   toolFlowId?: string;
   /** True when this action re-reports a command that another call in its flow already represents. */
   toolEcho?: boolean;
+  /** Per-file diffs from the provider's own edit record; absent when none was supplied or it was malformed. */
+  fileDiffs?: FileDiff[];
+  toolRichResult?: ToolRichResult;
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

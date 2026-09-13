@@ -528,6 +528,58 @@ function safeJson2(s) {
   }
 }
 
+// plugins/provider-claude/src/fileDiffs.ts
+var LINE_MARKERS = " +-\\";
+function lineCount(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+function patchHunk(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const hunk = value;
+  const oldStart = lineCount(hunk.oldStart);
+  const oldLines = lineCount(hunk.oldLines);
+  const newStart = lineCount(hunk.newStart);
+  const newLines = lineCount(hunk.newLines);
+  if (oldStart === null || oldLines === null || newStart === null || newLines === null || !Array.isArray(hunk.lines)) return null;
+  const lines = [];
+  for (const line of hunk.lines) {
+    if (typeof line !== "string" || !line || LINE_MARKERS.indexOf(line.charAt(0)) < 0) return null;
+    lines.push(line);
+  }
+  return { oldStart, oldLines, newStart, newLines, lines };
+}
+function createdHunks(content) {
+  if (!content) return [];
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: lines.length, lines: lines.map((line) => "+" + line) }];
+}
+function fileDiff(path, hunks) {
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      if (line.charAt(0) === "+") additions++;
+      else if (line.charAt(0) === "-") deletions++;
+    }
+  }
+  return { path, additions, deletions, hunks };
+}
+function claudeFileDiffs(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return [];
+  const record = result;
+  const path = typeof record.filePath === "string" ? record.filePath : "";
+  if (!path.trim() || !Array.isArray(record.structuredPatch)) return [];
+  const hunks = [];
+  for (const entry of record.structuredPatch) {
+    const hunk = patchHunk(entry);
+    if (!hunk) return [];
+    hunks.push(hunk);
+  }
+  if (hunks.length > 0) return [fileDiff(path, hunks)];
+  return record.type === "create" && typeof record.content === "string" ? [fileDiff(path, createdHunks(record.content))] : [];
+}
+
 // plugins/provider-claude/src/classify.ts
 var CLASSIFY_THRESHOLD = 0.8;
 var RESUME_BUFFER_MS = 60 * 1e3;
@@ -1481,6 +1533,11 @@ var plugin = {
               if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
             }
             blocks.push({ kind: b.type, data });
+          }
+          const results = blocks.filter((block) => block.kind === "tool_result");
+          if (t === "user" && results.length === 1) {
+            const diffs = claudeFileDiffs(v.toolUseResult);
+            if (diffs.length > 0) results[0].data.file_diffs = diffs;
           }
         } else {
           continue;
