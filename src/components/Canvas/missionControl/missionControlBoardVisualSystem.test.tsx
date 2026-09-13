@@ -302,6 +302,7 @@ describe("mission control board visual system", () => {
     expect(rule(css, ".mc-board .mc-board-panel")).toContain("background: var(--ct-surface);");
     expect(rule(css, ".mc-board-panel-head")).toContain("border-bottom: 1px solid var(--ct-border);");
     expect(rule(css, ".mc-board-sub + .mc-board-sub")).toContain("padding-top: 0;");
+    expect(rule(css, ".mc-board-sub-label")).toContain("font-size: var(--mc-text-meta);");
     expect(rule(css, ".mc-board-models-table thead th")).toContain("border-bottom: 1px solid var(--ct-border);");
     expect(rule(css, ".mc-board-models-table .mc-board-models-num")).toContain("font-variant-numeric: tabular-nums;");
     expect(rule(css, ".mc-board-models-table .mc-board-models-num")).toContain("text-align: right;");
