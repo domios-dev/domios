@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::*;
 use crate::api::plan_routes::tasks::tests::{owner_headers, update_fixture};
 use crate::plan::{Task, TaskStatus};
@@ -74,10 +75,11 @@ fn non_owner_callers(stranger_tab_id: &str) -> Vec<HeaderMap> {
 #[test]
 fn rest_task_pause_and_resume_change_the_task_state() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let service = Arc::new(fixture.service.clone());
     let headers = owner_headers(&owner);
 
     let Json(paused) = task_pause_core(
-        &fixture.service,
+        &service,
         &headers,
         &plan_id,
         &task_id,
@@ -90,7 +92,7 @@ fn rest_task_pause_and_resume_change_the_task_state() {
     assert_eq!(task.status, TaskStatus::Paused);
     assert_eq!(task.pause_reason.as_deref(), Some("waiting for quota"));
 
-    let Json(resumed) = task_resume_core(&fixture.service, &headers, &plan_id, &task_id).unwrap();
+    let Json(resumed) = task_resume_core(&service, &headers, &plan_id, &task_id).unwrap();
     assert_eq!(resumed["ok"], true);
     let task = stored_task(&fixture, &plan_id, &task_id);
     assert_eq!(task.status, TaskStatus::Pending);
@@ -101,9 +103,10 @@ fn rest_task_pause_and_resume_change_the_task_state() {
 #[test]
 fn rest_task_pause_requires_a_reason() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let service = Arc::new(fixture.service.clone());
     for reason in ["", "   "] {
         let (status, Json(body)) = task_pause_core(
-            &fixture.service,
+            &service,
             &owner_headers(&owner),
             &plan_id,
             &task_id,
@@ -123,6 +126,7 @@ fn rest_task_pause_requires_a_reason() {
 #[test]
 fn rest_task_pause_and_resume_refuse_a_caller_that_does_not_own_the_task() {
     let (fixture, plan_id, task_id, _, _, _) = update_fixture();
+    let service = Arc::new(fixture.service.clone());
     let worker = live_agent_tab(&fixture, "worker-session", "worker-nonce");
     let stranger = live_agent_tab(&fixture, "stranger-session", "stranger-nonce");
 
@@ -135,7 +139,7 @@ fn rest_task_pause_and_resume_refuse_a_caller_that_does_not_own_the_task() {
     );
     for headers in non_owner_callers(&stranger) {
         let refused = task_pause_core(
-            &fixture.service,
+            &service,
             &headers,
             &plan_id,
             &task_id,
@@ -150,7 +154,7 @@ fn rest_task_pause_and_resume_refuse_a_caller_that_does_not_own_the_task() {
 
     bind_worker_owner(&fixture, &plan_id, &task_id, &worker, TaskStatus::Paused);
     for headers in non_owner_callers(&stranger) {
-        let refused = task_resume_core(&fixture.service, &headers, &plan_id, &task_id);
+        let refused = task_resume_core(&service, &headers, &plan_id, &task_id);
         assert!(refused.is_err(), "a non-owner resume must be refused");
         assert_eq!(
             stored_task(&fixture, &plan_id, &task_id).status,
