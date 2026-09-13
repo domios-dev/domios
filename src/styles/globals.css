@@ -1243,6 +1243,34 @@ button,
   min-width: 0;
   align-items: center;
   gap: 1px;
+  transform-origin: left center;
+}
+.plan-view-modes__group--temporary[data-state="entering"] {
+  animation:
+    ct-segmented-donut-grow var(--ct-duration-liquid-segmented) var(--ct-ease-squash-jump) both,
+    ct-presence-fade-in var(--ct-duration-liquid-segmented) var(--ct-ease-liquid-settle) both;
+}
+.plan-view-modes__group--temporary[data-state="closing"] {
+  pointer-events: none;
+  animation: ct-plan-view-segment-shrink var(--ct-duration-liquid-segmented) var(--ct-ease-liquid-settle) both;
+}
+@keyframes ct-plan-view-segment-shrink {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.955);
+  }
+}
+@keyframes ct-presence-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .plan-view-modes__option--temporary {
   display: block;
@@ -1331,6 +1359,7 @@ button,
   align-items: stretch;
   justify-content: flex-end;
   padding-left: 12px;
+  overflow: hidden;
   pointer-events: none;
 }
 .plan-side-panel {
@@ -1395,6 +1424,43 @@ button,
   overflow-x: hidden;
   overflow-y: auto;
 }
+/* Wide dock and narrow sheet share one motion: in from the right edge, back out the same way. */
+.plan-side-panel[data-state="entering"] {
+  animation: ct-plan-side-panel-in var(--ct-duration-smooth) var(--ct-ease-liquid-settle) both;
+}
+.plan-side-panel[data-state="closing"] {
+  pointer-events: none;
+  animation: ct-plan-side-panel-out var(--ct-duration-normal) var(--ct-ease-in-out-quint) both;
+}
+.plan-side-panel__body[data-replaced] {
+  animation: ct-presence-fade-in var(--ct-duration-normal) var(--ct-ease-liquid-settle) both;
+}
+@keyframes ct-plan-side-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  40% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes ct-plan-side-panel-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
 @media (max-width: 480px) {
   .plan-side-panel-layer {
     padding-left: 0;
@@ -1407,6 +1473,16 @@ button,
   }
   .plan-side-panel__header {
     padding-inline: 16px 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan-side-panel[data-state],
+  .plan-side-panel__body[data-replaced],
+  .plan-view-modes__group--temporary[data-state] {
+    animation: none;
+  }
+  .plan-view-modes__thumb--glide {
+    transition: none;
   }
 }
 
