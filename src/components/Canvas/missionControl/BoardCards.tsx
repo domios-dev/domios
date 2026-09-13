@@ -45,7 +45,12 @@ export function NeedsYouPanel({
         <div className="mc-board-needs-body">
           <ul id={listId} className="mc-board-needs-list">
             {deepLinks && visibleNotifications.map((item) => (
-              <NeedsYouNotificationRow key={item.key} item={item} onSelectTab={deepLinks.onSelectTab} />
+              <NeedsYouNotificationRow
+                key={item.key}
+                item={item}
+                tabs={deepLinks.tabs}
+                onSelectTab={deepLinks.onSelectTab}
+              />
             ))}
             {visible.map((item) => (
               <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>

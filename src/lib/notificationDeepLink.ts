@@ -1,7 +1,8 @@
 import type { ChatRevealRequest } from "./chatMessageReveal";
+import { tabChatCapable } from "./chatUiMode";
 import type { Notification, Tab, Workspace } from "./types";
 
-export type DeepLinkUnavailableReason = "no_target" | "tab_gone" | "message_gone";
+export type DeepLinkUnavailableReason = "no_target" | "tab_gone" | "no_chat" | "message_gone";
 
 export type DeepLinkState =
   | { kind: "available"; tabId: string; workspaceId: string; messageId: string }
@@ -10,6 +11,7 @@ export type DeepLinkState =
 export const DEEP_LINK_UNAVAILABLE_COPY: Record<DeepLinkUnavailableReason, string> = {
   no_target: "unavailable: no chat message was recorded",
   tab_gone: "unavailable: the target tab is closed",
+  no_chat: "unavailable: the target tab has no chat view",
   message_gone: "unavailable: that message is not in the loaded chat",
 };
 
@@ -52,12 +54,14 @@ export function resolveDeepLink(
   const messageId = notification.chat_message_id ?? null;
   if (!tabId || !messageId) return { kind: "unavailable", reason: "no_target" };
   const workspaceId = workspaces.find((ws) => ws.tabs.includes(tabId))?.id ?? tabs[tabId]?.workspace_id ?? null;
-  if (!tabs[tabId] || !workspaceId) return { kind: "unavailable", reason: "tab_gone" };
-  const refused = reveal?.notificationId === notification.id
+  const tab = tabs[tabId];
+  if (!tab || !workspaceId) return { kind: "unavailable", reason: "tab_gone" };
+  if (!tabChatCapable(tab)) return { kind: "unavailable", reason: "no_chat" };
+  const settled = reveal?.notificationId === notification.id
     && reveal.tabId === tabId
-    && reveal.messageId === messageId
-    && reveal.outcome === "missing";
-  if (refused) return { kind: "unavailable", reason: "message_gone" };
+    && reveal.messageId === messageId;
+  if (settled && reveal?.outcome === "missing") return { kind: "unavailable", reason: "message_gone" };
+  if (settled && reveal?.outcome === "no_chat") return { kind: "unavailable", reason: "no_chat" };
   return { kind: "available", tabId, workspaceId, messageId };
 }
 
