@@ -14,6 +14,18 @@ export type ChatMessageKind =
   | "tool_flow"
   | "custom";
 
+export type AgentActivityState = "started" | "running" | "completed" | "failed" | "interrupted" | "closed" | "unknown";
+
+/** Sub-agent activity proven by the row's own session record; absent fields are unknown, never inferred. */
+export interface AgentActivity {
+  agentId?: string;
+  agentPath?: string;
+  state?: AgentActivityState;
+  /** Message direction between two agent references (thread id or path). */
+  messageFrom?: string;
+  messageTo?: string;
+}
+
 /** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
 export type ShellCommandStatus = "running" | "ok" | "failed";
 
@@ -27,6 +39,8 @@ export type ToolEventKind =
   | "codeterm"
   | "web"
   | "image"
+  /** Sub-agent activity; `toolInput` carries agent_id, agent_path, agent_state, message_from, message_to. */
+  | "agent"
   | "generic";
 
 /** Provider-neutral web or image result; every string is the source's exact value, absent when unreported. */

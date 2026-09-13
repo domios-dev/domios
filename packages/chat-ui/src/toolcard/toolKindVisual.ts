@@ -17,5 +17,6 @@ export const toolKindVisual: Record<ToolEventKind, ToolKindVisual> = {
   codeterm: { glyph: toolGlyphs.codeterm, color: "var(--ct-accent)", label: "codeterm" },
   web: { glyph: toolGlyphs.web, color: "var(--ct-cyan)", label: "web" },
   image: { glyph: toolGlyphs.image, color: "var(--ct-magenta)", label: "image" },
+  agent: { glyph: toolGlyphs.task, color: "var(--ct-accent)", label: "agent" },
   generic: { glyph: toolGlyphs.generic, color: "var(--ct-muted-fg)", label: "tool" },
 };

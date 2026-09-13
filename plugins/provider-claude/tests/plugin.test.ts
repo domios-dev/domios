@@ -238,6 +238,20 @@ try {
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
 
+console.log("\n--- parseSessionDelta thinking ---\n");
+{
+  const rows = hostPlugin.parseSessionDelta([
+    JSON.stringify({ type: "assistant", uuid: "think-a", message: { id: "msg_think", content: [{ type: "thinking", thinking: "Plan the edit", signature: "opaque-signature-a" }] } }),
+    JSON.stringify({ type: "assistant", uuid: "think-b", message: { id: "msg_think", content: [{ type: "thinking", thinking: "", signature: "opaque-signature-b" }] } }),
+    JSON.stringify({ type: "assistant", uuid: "think-c", message: { content: [{ type: "thinking", thinking: "Unlinked" }] } }),
+  ].join("\n")).messages as Array<{ blocks: Array<{ kind: string; data: Record<string, unknown> }> }>;
+  const blocks = rows.flatMap((row) => row.blocks);
+  eq(blocks[0], { kind: "thinking", data: { thinking: "Plan the edit" } }, "thinking keeps its text");
+  eq(blocks[1].data, { thinking: "" }, "a signature-only block carries no displayable text");
+  eq(blocks[2].data, { thinking: "Unlinked" }, "unsigned thinking passes through unchanged");
+  assert(!JSON.stringify(rows).includes("opaque-signature"), "no signature material crosses the provider boundary");
+}
+
 console.log("\n--- parseSessionDelta compact metadata ---\n");
 {
   const compactText = "This session is being continued from a previous conversation.";

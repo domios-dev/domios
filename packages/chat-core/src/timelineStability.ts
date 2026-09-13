@@ -1,5 +1,6 @@
 import type { NormalizedChatMessage } from "./types";
-import type { TimelineItem, ToolEvent } from "./toolEvents";
+import type { StreamEntry, TimelineItem, ToolEvent } from "./toolEvents";
+import { agentTreesEquivalent } from "./agentActivity";
 
 function timelineItemId(item: TimelineItem): string {
   return item.kind === "message" ? `m:${item.message.id}` : `t:${item.event.id}`;
@@ -12,6 +13,13 @@ function messagesEquivalent(a: NormalizedChatMessage, b: NormalizedChatMessage):
     if (a[key as keyof NormalizedChatMessage] !== b[key as keyof NormalizedChatMessage]) return false;
   }
   return true;
+}
+
+function entriesEquivalent(a: StreamEntry, b: StreamEntry): boolean {
+  if (a.kind === "thought" || b.kind === "thought") {
+    return a.kind === b.kind && a.kind === "thought" && b.kind === "thought" && a.id === b.id && a.text === b.text;
+  }
+  return a.event.id === b.event.id;
 }
 
 function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
@@ -35,11 +43,20 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
     return false;
   }
   if (!messagesEquivalent(a.message, b.message)) return false;
+  if (!agentTreesEquivalent(a.agents, b.agents)) return false;
   const streamA = a.stream;
   const streamB = b.stream;
   if (!streamA || !streamB) return streamA === streamB;
-  if (streamA.flowId !== streamB.flowId || streamA.active !== streamB.active || streamA.members.length !== streamB.members.length) return false;
-  return streamA.members.every((member, index) => toolEventsEquivalent(member, streamB.members[index]));
+  if (
+    streamA.flowId !== streamB.flowId ||
+    streamA.active !== streamB.active ||
+    streamA.members.length !== streamB.members.length ||
+    streamA.entries.length !== streamB.entries.length
+  ) {
+    return false;
+  }
+  return streamA.members.every((member, index) => toolEventsEquivalent(member, streamB.members[index]))
+    && streamA.entries.every((entry, index) => entriesEquivalent(entry, streamB.entries[index]));
 }
 
 /**
