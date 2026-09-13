@@ -21,6 +21,10 @@ const execution = {
   type: "CommandExecution", id: "exec-opaque-a", command, status: "completed", exit_code: 0,
   duration_ms: 1250, aggregated_output: output,
 };
+const realShapeExecution = {
+  type: "CommandExecution", id: "exec-real-duration", command, status: "completed", exit_code: 0,
+  duration: { secs: 0, nanos: 226414700 }, aggregated_output: output,
+};
 const activity = {
   type: "SubAgentActivity", id: "activity-opaque-b", kind: "completed",
   agent_thread_id: "thread-opaque", agent_path: "/root/opaque-worker",
@@ -41,6 +45,15 @@ for (const parser of parsers) {
   assert.equal(messages[0].blocks[1].data.tool_duration_ms, 1250);
   assert.equal(messages[0].blocks[1].data.content, output);
   assert.equal(messages[0].blocks[1].data.is_error, false);
+  const realShape = parse([completed(realShapeExecution)])[0];
+  assert.equal(realShape.blocks[0].data.tool_duration_ms, 226);
+  assert.equal(realShape.blocks[1].data.tool_duration_ms, 226);
+  const malformedDuration = parse([completed({
+    ...execution, id: "exec-malformed-duration", duration_ms: undefined,
+    duration: { secs: 0, nanos: "226414700" },
+  })])[0];
+  assert.equal(malformedDuration.blocks[0].data.tool_duration_ms, undefined);
+  assert.equal(malformedDuration.blocks[1].data.tool_duration_ms, undefined);
   assert.equal(messages[1].uuid, `agent-${activity.id}`);
   assert.deepEqual(messages[1].blocks, [{ kind: "tool_use", data: {
     name: "agent_activity", input: { agent_id: activity.agent_thread_id, agent_path: activity.agent_path, agent_state: "completed" },
