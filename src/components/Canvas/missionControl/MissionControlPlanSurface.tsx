@@ -26,6 +26,7 @@ import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
 import { useTeamMissionControl } from "./useTeamMissionControl";
 import { useTeamSpend } from "./teamSpend";
+import { planForDetail } from "./planDetailTarget";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
@@ -156,16 +157,6 @@ export function MissionControlPlanSurface({
     [orderedPlans],
   );
 
-  const openPlanDetail = useCallback(
-    (id?: string) => {
-      const plan = id ? effectivePlans.find((p) => p.id === id) ?? selectedPlan : selectedPlan;
-      if (!plan) return;
-      const sections = plan.id === selectedPlan?.id ? selectedSpecSections : [];
-      setDetail({ kind: "plan", plan, specSections: sections });
-    },
-    [effectivePlans, selectedPlan, selectedSpecSections],
-  );
-
   const previousPlans = useMemo(() => {
     const teamOfPlan = selectedPlan?.team_id;
     if (!teamOfPlan) return [] as Plan[];
@@ -188,10 +179,21 @@ export function MissionControlPlanSurface({
   const teamRevision = `${plansRevision}:${boardState.state?.mission_control?.event_log.recorded_events ?? 0}`;
   const team = useTeamMissionControl(api, boardTeamId, teamRevision);
   const teamSpend = useTeamSpend(api, boardTeamId, teamRevision);
+  const teamWeekly = useTeamSpend(api, boardTeamId, teamRevision, "weekly_limit_points");
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
   const refPlans = useMemo(
     () => (team ? [...orderedPlans, ...team.archivedPlans] : orderedPlans),
     [orderedPlans, team],
+  );
+
+  const openPlanDetail = useCallback(
+    (id?: string) => {
+      const plan = planForDetail(id, selectedPlan, effectivePlans, team?.archivedPlans ?? []);
+      if (!plan) return;
+      const sections = plan.id === selectedPlan?.id ? selectedSpecSections : [];
+      setDetail({ kind: "plan", plan, specSections: sections });
+    },
+    [effectivePlans, selectedPlan, selectedSpecSections, team],
   );
 
   const approvePlan = useCallback((id: string) => {
@@ -276,6 +278,7 @@ export function MissionControlPlanSurface({
           <MissionControlTeamBoard
             team={team}
             teamSpend={teamSpend}
+            teamWeekly={teamWeekly}
             deepLinks={deepLinks}
             onOpenPlan={openPlanDetail}
           />
@@ -299,6 +302,7 @@ export function MissionControlPlanSurface({
             deepLinks={deepLinks}
             eventPager={team?.events}
             teamSpend={teamSpend}
+            teamWeekly={teamWeekly}
           />
         )}
       </div>

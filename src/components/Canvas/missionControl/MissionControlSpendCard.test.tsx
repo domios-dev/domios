@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiConfig } from "../../../lib/types";
 import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
 import { ModelsCard, SpendCard } from "./BoardCards";
-import { SPEND_PERIOD_CAPTION } from "./BoardSpendCard";
+import { BREAKDOWN_UNAVAILABLE, SPEND_PERIOD_CAPTION } from "./BoardSpendCard";
 import {
   MODELS_PREVIEW,
   SPEND_SCOPE_CAPTION,
@@ -21,6 +21,7 @@ import {
   teamSpendTotals,
   type TeamSpend,
   type TeamSpendDaily,
+  type TeamWeeklyLimitScope,
 } from "./teamSpend";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -137,6 +138,26 @@ function teamSpendFixture(): TeamSpend {
       teamRow(today, null, null, "claude", "claude-haiku-4-5", 9_999),
     ],
     weekly_limit_points: [],
+    weekly_limit_days: [],
+  };
+}
+
+/** One provider account 34% into its week, six points of that spent today. */
+function weeklyFixture(): TeamSpend {
+  const scope: TeamWeeklyLimitScope = { kind: "provider_account", provider: "claude", account_id: "acct-1" };
+  const attribution = { scope, team_attribution: "unavailable", model_attribution: "unavailable" };
+  return {
+    ...teamSpendFixture(),
+    metric: "weekly_limit_points",
+    units: "percentage_points",
+    scope: "provider_account_or_machine",
+    daily: [],
+    weekly_limit_points: [
+      { provider: "claude", account_id: "acct-1", weekly_limit_points: 34, captured_at: Date.now(), weekly_resets_at: null, ...attribution },
+    ],
+    weekly_limit_days: [
+      { day: localDayKey(Date.now()), provider: "claude", account_id: "acct-1", points_used: 6, weekly_limit_points: 34, ...attribution },
+    ],
   };
 }
 
@@ -156,6 +177,24 @@ async function mount(ui: ReactElement) {
 
 function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
+}
+
+function button(host: HTMLElement, testId: string): HTMLButtonElement {
+  return host.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement;
+}
+
+function chartDays(host: HTMLElement): HTMLElement[] {
+  return Array.from(host.querySelectorAll('[data-testid="mc-board-spend-chart-day"]')) as HTMLElement[];
+}
+
+function tones(day: HTMLElement): Array<string | null> {
+  return Array.from(day.querySelectorAll('[data-testid="mc-board-spend-chart-segment"]')).map((segment) =>
+    segment.getAttribute("data-tone"),
+  );
+}
+
+function chartSummary(host: HTMLElement): string {
+  return host.querySelector('[data-testid="mc-board-spend-chart"] [role="img"]')?.getAttribute("aria-label") ?? "";
 }
 
 function modelCells(host: HTMLElement): string[][] {
@@ -179,53 +218,127 @@ describe("mission control spend card", () => {
     expect(text(host, "mc-board-spend-generated")).toBe("3");
     expect(text(host, "mc-board-spend-turns")).toBe("3");
     expect(teamSpendTotals(teamSpendFixture())).toEqual({ newInput: 170, generated: 3, turns: 3 });
-    const words = (text(host, "mc-board-spend") ?? "").toLowerCase();
-    for (const banned of ["machine", "limit", "week", "session", "·"]) {
+    const words = text(host, "mc-board-spend").toLowerCase();
+    for (const banned of ["machine", "session", "·"]) {
       expect(words).not.toContain(banned);
     }
     await unmount();
   });
 
-  it("mission_control_spend_charts_team_new_input_by_plan_and_filters_to_one_model", async () => {
-    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} />);
+  it("mission_control_spend_switches_units_between_tokens_and_weekly_allowance", async () => {
+    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} teamWeekly={weeklyFixture()} />);
 
-    const days = () => Array.from(host.querySelectorAll('[data-testid="mc-board-spend-chart-day"]')) as HTMLElement[];
-    const tones = (day: HTMLElement) =>
-      Array.from(day.querySelectorAll('[data-testid="mc-board-spend-chart-segment"]')).map((segment) =>
-        segment.getAttribute("data-tone"),
-      );
-    expect(days()).toHaveLength(7);
-    const today = days()[6]!;
-    expect(today.getAttribute("data-today")).toBe("true");
-    expect(tones(today)).toEqual(["0", "1"]);
-    expect(tones(days()[5]!)).toEqual(["1"]);
-    const summary = host.querySelector('[data-testid="mc-board-spend-chart"] [role="img"]')?.getAttribute("aria-label") ?? "";
-    expect(summary).toMatch(/^new input by day: .*120$/);
-    expect(summary).not.toContain("10K");
-    expect(host.querySelector('[data-testid^="mc-board-spend-metric-"]')).toBeNull();
+    const tokens = button(host, "mc-board-spend-units-tokens");
+    const weekly = button(host, "mc-board-spend-units-weekly_points");
+    expect(tokens.closest('[role="group"]')?.getAttribute("aria-label")).toBe("Units");
+    expect(tokens.closest('[data-testid="mc-board-spend-meta"]')).not.toBeNull();
+    expect([tokens.textContent, weekly.textContent]).toEqual(["tokens", "weekly %"]);
+    expect(tokens.getAttribute("aria-pressed")).toBe("true");
+    expect(chartSummary(host)).toMatch(/^new input by day: .*120$/);
 
-    const filters = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-filter"]')) as HTMLButtonElement[];
-    expect(filters.map((filter) => filter.textContent)).toEqual(["All", UNASSIGNED_MODEL_LABEL, "haiku"]);
-    await act(async () => filters[2]!.click());
-    expect(tones(days()[6]!)).toEqual(["0"]);
-    expect(tones(days()[5]!)).toEqual([]);
+    await act(async () => weekly.click());
+    expect(weekly.getAttribute("aria-pressed")).toBe("true");
+    expect(tokens.getAttribute("aria-pressed")).toBe("false");
+    expect(host.querySelector('[data-testid="mc-board-spend-totals"]')).toBeNull();
+    const used = host.querySelector('[data-testid="mc-board-spend-weekly-used"]') as HTMLElement;
+    expect(Array.from(used.querySelectorAll("dt")).map((term) => term.textContent)).toEqual(["claude"]);
+    expect(text(host, "mc-board-spend-weekly-pct")).toBe("34%");
+    const days = chartDays(host);
+    expect(days).toHaveLength(7);
+    expect(tones(days[6]!)).toEqual(["0"]);
+    expect(tones(days[5]!)).toEqual([]);
+    expect(chartSummary(host)).toMatch(/^weekly points by day: .*6%$/);
+
+    await act(async () => tokens.click());
+    expect(text(host, "mc-board-spend-new-input")).toBe("170");
+    expect(host.querySelector('[data-testid="mc-board-spend-weekly-used"]')).toBeNull();
     await unmount();
   });
 
-  it("mission_control_spend_splits_the_period_by_plan_in_the_chart_colours", async () => {
+  it("mission_control_spend_stacks_bars_by_model_with_a_legend_of_the_models_present", async () => {
+    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} />);
+
+    const breakdown = button(host, "mc-board-spend-breakdown");
+    expect(breakdown.textContent).toBe("by model");
+    expect(breakdown.getAttribute("aria-pressed")).toBe("false");
+    expect(tones(chartDays(host)[6]!)).toEqual(["0"]);
+    expect(tones(chartDays(host)[5]!)).toEqual(["0"]);
+    expect(host.querySelector('[data-testid="mc-board-spend-legend"]')).toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-spend-filter"]')).toBeNull();
+
+    await act(async () => breakdown.click());
+    expect(breakdown.getAttribute("aria-pressed")).toBe("true");
+    const today = chartDays(host)[6]!;
+    expect(today.getAttribute("data-today")).toBe("true");
+    expect(tones(today)).toEqual(["0", "1"]);
+    expect(tones(chartDays(host)[5]!)).toEqual(["1"]);
+    const legend = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-legend-item"]'));
+    const modelsPresent = new Set(teamPlanRows(teamSpendFixture()).map((row) => row.model));
+    expect(legend).toHaveLength(modelsPresent.size);
+    expect(
+      legend.map((item) => [item.querySelector(".mc-board-swatch")?.getAttribute("data-tone"), item.textContent]),
+    ).toEqual([
+      ["0", "haiku"],
+      ["1", UNASSIGNED_MODEL_LABEL],
+    ]);
+    expect(chartSummary(host)).toMatch(/^new input by day: .*120$/);
+
+    await act(async () => breakdown.click());
+    expect(host.querySelector('[data-testid="mc-board-spend-legend"]')).toBeNull();
+    expect(tones(chartDays(host)[6]!)).toEqual(["0"]);
+    await unmount();
+  });
+
+  it("mission_control_spend_disables_the_model_breakdown_for_weekly_allowance_with_a_reason", async () => {
+    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} teamWeekly={weeklyFixture()} />);
+
+    const breakdown = button(host, "mc-board-spend-breakdown");
+    await act(async () => breakdown.click());
+    expect(breakdown.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => button(host, "mc-board-spend-units-weekly_points").click());
+
+    expect(breakdown.isConnected).toBe(true);
+    expect(breakdown.textContent).toBe("by model");
+    expect(breakdown.getAttribute("aria-disabled")).toBe("true");
+    expect(breakdown.getAttribute("aria-pressed")).toBe("false");
+    const reason = document.getElementById(breakdown.getAttribute("aria-describedby") ?? "");
+    expect(reason?.textContent).toBe(BREAKDOWN_UNAVAILABLE);
+    expect(reason?.hidden).toBe(true);
+    await act(async () => breakdown.click());
+    expect(breakdown.getAttribute("aria-pressed")).toBe("false");
+    expect(host.querySelector('[data-testid="mc-board-spend-legend"]')).toBeNull();
+    expect(tones(chartDays(host)[6]!)).toEqual(["0"]);
+
+    await act(async () => button(host, "mc-board-spend-units-tokens").click());
+    expect(breakdown.getAttribute("aria-disabled")).toBeNull();
+    expect(breakdown.getAttribute("aria-describedby")).toBeNull();
+    expect(breakdown.getAttribute("aria-pressed")).toBe("true");
+    await unmount();
+  });
+
+  it("mission_control_spend_says_no_data_for_weekly_allowance_without_a_reading", async () => {
+    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} />);
+
+    await act(async () => button(host, "mc-board-spend-units-weekly_points").click());
+    expect(text(host, "mc-board-spend-weekly-empty")).toBe("no data");
+    expect(host.querySelector('[data-testid="mc-board-spend-chart"]')).toBeNull();
+    await unmount();
+  });
+
+  it("mission_control_spend_splits_the_period_by_plan", async () => {
     const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} />);
 
     const rows = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-plan-share"]'));
     expect(
       rows.map((row) => [
-        row.querySelector(".mc-board-swatch")?.getAttribute("data-tone"),
         row.querySelector(".mc-board-plan-split-title")?.textContent,
         row.querySelector(".mc-board-plan-split-share")?.textContent,
       ]),
     ).toEqual([
-      ["0", "Snake", "59%"],
-      ["1", "Old", "41%"],
+      ["Snake", "59%"],
+      ["Old", "41%"],
     ]);
+    expect(host.querySelector('[data-testid="mc-board-spend-plan-shares"] .mc-board-swatch')).toBeNull();
     await unmount();
 
     const single = teamSpendFixture();
@@ -243,6 +356,7 @@ describe("mission control spend card", () => {
     expect(host.querySelector('[data-testid="mc-board-spend-totals"]')).toBeNull();
     expect(host.querySelector('[data-testid="mc-board-spend-chart"]')).toBeNull();
     expect(host.querySelector('[data-testid="mc-board-spend-period"]')).toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-spend-breakdown"]')).toBeNull();
     await unmount();
   });
 
@@ -263,6 +377,11 @@ describe("mission control spend card", () => {
       ).resolves.toBe(fixture);
       expect(fetchMock).toHaveBeenCalledWith(
         `${baseUrl(api)}/api/teams/team%201/mission-control/spend?metric=tokens&from=2026-09-07&to=2026-09-13`,
+        { headers: authHeaders(api), signal: undefined },
+      );
+      await fetchTeamSpend(api, "team 1", { metric: "weekly_limit_points", from: "2026-09-07", to: "2026-09-13" });
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        `${baseUrl(api)}/api/teams/team%201/mission-control/spend?metric=weekly_limit_points&from=2026-09-07&to=2026-09-13`,
         { headers: authHeaders(api), signal: undefined },
       );
     } finally {

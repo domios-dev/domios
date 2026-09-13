@@ -62,6 +62,8 @@ pub struct OpenDecisionGate {
     pub asked_at: u64,
     pub age_ms: u64,
     pub blocking_task_count: usize,
+    /// The tab that answers the gate, else the tab that asked it.
+    pub tab_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
@@ -371,6 +373,10 @@ fn held_for_decision(plan: &Plan, now_ms: u64) -> HeldForDecision {
             asked_at: gate.asked_at,
             age_ms: now_ms.saturating_sub(gate.asked_at),
             blocking_task_count: gate.blocking_task_ids.len(),
+            tab_id: gate
+                .routed_to_tab_id
+                .clone()
+                .or_else(|| gate.asked_by_tab_id.clone()),
         })
         .collect();
     HeldForDecision {

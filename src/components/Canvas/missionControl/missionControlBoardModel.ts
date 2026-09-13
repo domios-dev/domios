@@ -272,12 +272,17 @@ export interface NeedsYouItem {
   kind: "gate" | "review";
   title: string;
   facts: string[];
+  /** The tab a gate row jumps to; reviews have none. */
+  tabId: string | null;
 }
+
+export const GATE_NO_TAB_COPY = "unavailable: no tab asked or answers this gate";
 
 export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
   const gates = held.open_gates.map<NeedsYouItem>((gate) => ({
     key: `gate-${gate.id}`,
     kind: "gate",
+    tabId: gate.tab_id,
     title: eventPreview(gate.question),
     facts: [
       "decision gate",
@@ -290,6 +295,7 @@ export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
   const reviews = held.held_reviews.map<NeedsYouItem>((review) => ({
     key: `review-${review.task_id}`,
     kind: "review",
+    tabId: null,
     title: review.name,
     facts: [
       "review held",
