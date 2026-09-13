@@ -293,7 +293,6 @@ fn project_tokens(
     model: ModelSelector<'_>,
 ) -> TokenProjection {
     let (summaries, team, foreign) = plan_summaries(plans, team_id);
-    let include_unknown = !team.is_empty();
     let mut values = BTreeMap::<DailyKey, DailyValue>::new();
     let mut attribution = AttributionSummary {
         team_plan_count: summaries.len(),
@@ -314,30 +313,19 @@ fn project_tokens(
             continue;
         }
 
-        let plan = event.plan_id.as_ref().and_then(|plan_id| team.get(plan_id));
-        if event
-            .plan_id
-            .as_ref()
-            .is_some_and(|plan_id| foreign.contains(plan_id))
-        {
+        let Some(plan_id) = event.plan_id.as_deref() else {
+            attribution.unassigned_plan_rows += 1;
+            continue;
+        };
+        if foreign.contains(plan_id) {
             attribution.foreign_plan_rows_excluded += 1;
             continue;
         }
-        if plan.is_none() && !include_unknown {
-            continue;
-        }
-
-        if plan.is_none() {
+        let Some(plan) = team.get(plan_id) else {
             attribution.unknown_plan_rows += 1;
-            if event.plan_id.is_none() {
-                attribution.unassigned_plan_rows += 1;
-            }
-        }
-        let plan_id = event
-            .plan_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string);
+            continue;
+        };
+        let plan_id = Some(plan_id.to_string());
         let provider = present_identity(Some(&event.provider));
         let model = present_identity(event.model.as_deref());
         let key = DailyKey {
@@ -347,9 +335,9 @@ fn project_tokens(
             model: model.clone(),
         };
         let value = values.entry(key).or_insert_with(|| DailyValue {
-            team_id: plan.map(|_| team_id.to_string()),
-            plan_title: plan.map(|row| row.summary.title.clone()),
-            plan_status: plan.map(|row| row.summary.status.clone()),
+            team_id: Some(team_id.to_string()),
+            plan_title: Some(plan.summary.title.clone()),
+            plan_status: Some(plan.summary.status.clone()),
             input_tokens: 0,
             uncached_input_tokens: 0,
             output_tokens: 0,
@@ -720,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn team_spend_aggregates_active_archived_and_unknown_rows_without_foreign_data() {
+    fn team_spend_aggregates_active_archived_and_excludes_unknown_rows_without_foreign_data() {
         let plans = vec![
             plan("pl-active", "Active", Some("team-a"), PlanStatus::Active),
             plan(
@@ -789,12 +777,13 @@ mod tests {
         );
         assert_eq!(projection.attribution.team_plan_count, 2);
         assert_eq!(projection.attribution.foreign_plan_rows_excluded, 1);
+        assert_eq!(projection.attribution.unknown_plan_rows, 1);
         assert_eq!(projection.attribution.unassigned_plan_rows, 1);
-        assert_eq!(projection.daily.len(), 5);
-        assert!(projection
-            .daily
-            .iter()
-            .all(|row| row.plan_id.as_deref() != Some("pl-foreign")));
+        assert_eq!(projection.daily.len(), 3);
+        assert!(projection.daily.iter().all(|row| matches!(
+            row.plan_id.as_deref(),
+            Some("pl-active") | Some("pl-archived")
+        )));
         let archived = projection
             .daily
             .iter()
@@ -813,22 +802,32 @@ mod tests {
         assert_eq!(active.uncached_input_tokens, 65);
         assert_eq!(active.output_tokens, 30);
         assert_eq!(active.turns, 2);
-        let unknown = projection
+        assert!(projection
             .daily
             .iter()
-            .find(|row| row.plan_id.is_none())
-            .unwrap();
-        assert_eq!(unknown.team_id, None);
-        assert_eq!(unknown.provider, None);
-        assert_eq!(unknown.model, None);
-        let missing_plan = projection
-            .daily
-            .iter()
-            .find(|row| row.plan_id.as_deref() == Some("pl-missing"))
-            .unwrap();
-        assert_eq!(missing_plan.team_id, None);
-        assert_eq!(missing_plan.plan_title, None);
-        assert_eq!(missing_plan.plan_status, None);
+            .all(|row| row.plan_id.as_deref() != Some("pl-missing")));
+    }
+
+    #[test]
+    fn team_spend_excludes_planless_rows_and_counts_unassigned_attribution() {
+        let plans = vec![plan(
+            "pl-active",
+            "Active",
+            Some("team-a"),
+            PlanStatus::Active,
+        )];
+        let events = vec![event(None, "", None, "2026-01-01", 7, 3, 2)];
+        let projection = project_tokens(
+            &plans,
+            &events,
+            "team-a",
+            range("2026-01-01", "2026-01-01"),
+            ModelSelector::All,
+        );
+        assert!(projection.daily.is_empty());
+        assert_eq!(projection.attribution.unassigned_plan_rows, 1);
+        assert_eq!(projection.attribution.unknown_plan_rows, 0);
+        assert_eq!(projection.attribution.foreign_plan_rows_excluded, 0);
     }
 
     #[test]
