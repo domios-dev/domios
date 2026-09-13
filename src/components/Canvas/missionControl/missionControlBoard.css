@@ -482,16 +482,48 @@
   background: var(--mc-tone);
 }
 
-.mc-board-swatch[data-tone="1"] {
+.mc-board-spend-week {
+  --mc-tone: var(--ct-accent);
+}
+
+.mc-board-swatch[data-tone="1"],
+.mc-board-spend-week[data-tone="1"] {
   --mc-tone: var(--ct-magenta);
 }
 
-.mc-board-swatch[data-tone="2"] {
+.mc-board-swatch[data-tone="2"],
+.mc-board-spend-week[data-tone="2"] {
   --mc-tone: var(--ct-cyan, var(--ct-accent));
 }
 
-.mc-board-swatch[data-tone="3"] {
+.mc-board-swatch[data-tone="3"],
+.mc-board-spend-week[data-tone="3"] {
   --mc-tone: var(--ct-green, var(--ct-magenta));
+}
+
+/* The week's allowance spend, one bar per day in the provider's tone; today at full strength. */
+.mc-board-spend-week {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--mc-space-1);
+  height: 24px;
+  margin-top: var(--mc-space-2);
+  padding-left: var(--mc-space-4);
+}
+
+.mc-board-spend-day {
+  width: 8px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--mc-tone) 50%, transparent);
+}
+
+.mc-board-spend-day[data-today="true"] {
+  background: var(--mc-tone);
+}
+
+.mc-board-spend-day[data-future="true"] {
+  background: var(--ct-border);
 }
 
 /* A narrow Spend panel puts each name on its own line above its five figures, under short column names. */

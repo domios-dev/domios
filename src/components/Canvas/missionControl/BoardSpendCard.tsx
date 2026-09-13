@@ -1,3 +1,4 @@
+import type { AllowanceDay, AllowanceWeeks } from "./allowanceWeek";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection } from "./BoardPanel";
 import {
@@ -29,7 +30,7 @@ function formatWholePct(value: number): string {
 
 // Rows are laid out with CSS grid, which drops native table semantics in some
 // engines, so every table element restates its role explicitly.
-export function SpendCard({ spend }: { spend: MissionControlSpend }) {
+export function SpendCard({ spend, weeks = {} }: { spend: MissionControlSpend; weeks?: AllowanceWeeks }) {
   const reading = spendReading(spend);
   return (
     <BoardPanel
@@ -78,7 +79,7 @@ export function SpendCard({ spend }: { spend: MissionControlSpend }) {
                 </tr>
               </thead>
               {reading.groups.map((group) => (
-                <ProviderGroup key={group.key} group={group} />
+                <ProviderGroup key={group.key} group={group} week={weeks[group.key] ?? []} />
               ))}
             </table>
           </>
@@ -88,7 +89,35 @@ export function SpendCard({ spend }: { spend: MissionControlSpend }) {
   );
 }
 
-function ProviderGroup({ group }: { group: SpendProviderGroup }) {
+/** Seven bars, one per day of the weekly cycle, scaled to the busiest day. */
+function AllowanceWeekBars({ provider, tone, days }: { provider: string; tone: number; days: AllowanceDay[] }) {
+  const busiest = Math.max(5, ...days.map((day) => day.pct ?? 0));
+  const lived = days.filter((day) => day.pct != null);
+  const summary = lived.map((day) => `${day.label} ${Math.round(day.pct ?? 0)}%`).join(", ");
+  return (
+    <span
+      data-testid="mc-board-spend-week"
+      role="img"
+      aria-label={`${provider} weekly allowance by day: ${summary}`}
+      className="mc-board-spend-week"
+      data-tone={tone}
+    >
+      {days.map((day) => (
+        <span
+          key={day.start}
+          data-testid="mc-board-spend-day"
+          className="mc-board-spend-day"
+          data-today={day.today ? "true" : undefined}
+          data-future={day.pct == null ? "true" : undefined}
+          title={day.pct == null ? day.label : `${day.label} ${Math.round(day.pct)}%`}
+          style={{ height: `${Math.round(((day.pct ?? 0) / busiest) * 100)}%` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function ProviderGroup({ group, week }: { group: SpendProviderGroup; week: AllowanceDay[] }) {
   return (
     <tbody role="rowgroup" data-testid="mc-board-spend-provider" data-provider={group.key}>
       <tr role="row" data-testid="mc-board-spend-group" className="mc-board-spend-row mc-board-spend-group">
@@ -114,6 +143,7 @@ function ProviderGroup({ group }: { group: SpendProviderGroup }) {
               ))}
             </span>
           )}
+          {week.length > 0 && <AllowanceWeekBars provider={group.label} tone={group.tone} days={week} />}
         </th>
         <FigureCells sharePct={group.measured ? group.sharePct : null} tokens={group.measured ? group.tokens : null} />
       </tr>

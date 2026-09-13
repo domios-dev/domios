@@ -11,6 +11,7 @@ import { PlanDetailOverlay, type PlanDetailKind } from "../planView/PlanDetailOv
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
 import type { Plan, Section, Task } from "../types";
+import { useAllowanceWeeks } from "./allowanceWeek";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
@@ -143,6 +144,11 @@ export function MissionControlPlanSurface({
   }, [selectedPlan, selectedSpecSections]);
 
   const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
+  const spendProviders = useMemo(
+    () => boardState.state?.mission_control?.spend.providers.map((provider) => provider.provider) ?? [],
+    [boardState.state],
+  );
+  const allowanceWeeks = useAllowanceWeeks(spendProviders);
 
   const approvePlan = useCallback((id: string) => {
     if (!api) return;
@@ -216,6 +222,7 @@ export function MissionControlPlanSurface({
             state={boardState.state}
             loading={boardState.loading}
             error={boardState.error}
+            allowanceWeeks={allowanceWeeks}
           />
         )}
       </div>
