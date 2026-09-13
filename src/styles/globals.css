@@ -4788,7 +4788,7 @@ button.plan-peer-chip:focus-visible {
   border: 1px solid var(--ct-border);
   border-radius: 0.45rem;
   position: relative;
-  padding: 0.42rem 2.45rem 0.42rem 0.48rem;
+  padding: 0.42rem 1.7rem 0.42rem 0.48rem;
   background: var(--ct-bg-elev, var(--ct-surface));
 }
 .plan-board-task-card-paused {

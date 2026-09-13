@@ -1,10 +1,34 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TaskStatus } from "../types";
 import { MissionControlControls } from "./MissionControlControls";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+type Scope = "board" | "task";
+
+const browserConfirm = vi.fn(() => true);
+const browserPrompt = vi.fn(() => "browser reason");
+let restoreBrowserDialogs: () => void = () => undefined;
+
+beforeEach(() => {
+  const previousConfirm = window.confirm;
+  const previousPrompt = window.prompt;
+  window.confirm = browserConfirm;
+  window.prompt = browserPrompt;
+  restoreBrowserDialogs = () => {
+    window.confirm = previousConfirm;
+    window.prompt = previousPrompt;
+  };
+});
+
+afterEach(() => {
+  expect(browserConfirm).not.toHaveBeenCalled();
+  expect(browserPrompt).not.toHaveBeenCalled();
+  restoreBrowserDialogs();
+  vi.clearAllMocks();
+});
 
 async function render(ui: ReactElement) {
   const host = document.createElement("div");
@@ -20,129 +44,230 @@ async function render(ui: ReactElement) {
   };
 }
 
-async function openMenu(host: HTMLElement, triggerId: string) {
-  const trigger = host.querySelector(`[data-testid="${triggerId}"]`) as HTMLButtonElement;
-  expect(trigger).not.toBeNull();
-  expect(trigger.tabIndex).toBe(0);
-  await act(async () => trigger.click());
-  const menu = host.querySelector('[role="menu"]') as HTMLElement;
-  expect(menu).not.toBeNull();
-  expect(document.activeElement).toBe(menu.querySelector('[role="menuitem"]'));
-  return menu;
+function keydown(target: Element | null, key: string) {
+  target?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
 }
 
-describe("Mission Control confirmed controls", () => {
-  it("exposes the exact board actions and keeps every cancelled action inert", async () => {
+function byTestId<T extends HTMLElement = HTMLElement>(testId: string) {
+  return document.body.querySelector<T>(`[data-testid="${testId}"]`);
+}
+
+function trigger(scope: Scope) {
+  return byTestId<HTMLButtonElement>(`mission-control-${scope}-menu-trigger`)!;
+}
+
+async function openMenu(scope: Scope) {
+  const button = trigger(scope);
+  button.focus();
+  await act(async () => keydown(button, "Enter"));
+  const menu = byTestId(`mission-control-${scope}-menu`);
+  expect(menu).not.toBeNull();
+  return menu!;
+}
+
+function menuItems(menu: HTMLElement) {
+  return Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+}
+
+async function choose(scope: Scope, label: string) {
+  const item = menuItems(await openMenu(scope)).find((candidate) => candidate.textContent === label);
+  expect(item).toBeDefined();
+  await act(async () => item!.click());
+}
+
+async function press(testId: string) {
+  await act(async () => {
+    byTestId<HTMLButtonElement>(testId)?.click();
+    await Promise.resolve();
+  });
+}
+
+function typeInto(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function taskControls(status: TaskStatus, actions: Partial<Parameters<typeof MissionControlControls>[0]> = {}) {
+  return (
+    <MissionControlControls
+      scope="task"
+      planId="plan-visible"
+      taskId="task-1"
+      taskName="Ship kebab"
+      taskStatus={status}
+      onPauseTask={vi.fn()}
+      onResumeTask={vi.fn()}
+      onDeleteTask={vi.fn()}
+      {...actions}
+    />
+  );
+}
+
+describe("Mission Control controls", () => {
+  it("opens board actions in a portal and confirms approve and clear in app", async () => {
     const approve = vi.fn();
-    const pause = vi.fn(async () => undefined);
-    const preview = vi.fn(() => new Promise<never>(() => undefined));
     const clear = vi.fn();
-    const confirm = vi.fn(() => false);
-    const previousConfirm = window.confirm;
-    window.confirm = confirm;
     const { host, unmount } = await render(
-      <MissionControlControls
-        scope="board"
-        planId="plan-visible"
-        onApprovePlan={approve}
-        onPreviewPlanLifecycle={preview}
-        onConfirmPlanLifecycle={pause}
-        onClearEverything={clear}
-      />,
+      <MissionControlControls scope="board" planId="plan-visible" onApprovePlan={approve} onClearEverything={clear} />,
     );
 
     try {
-      const expected = ["Approve plan", "Pause plan", "Clear everything"];
-      for (const label of expected) {
-        const menu = await openMenu(host, "mission-control-board-menu-trigger");
-        expect(Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent)).toEqual(expected);
-        expect(menu.querySelector('[role="menuitem"]:last-child')?.className).toContain(
-          "mission-control-actions-menuitem-danger",
-        );
-        const item = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
-          (candidate) => candidate.textContent === label,
-        );
-        expect(item).not.toBeUndefined();
-        await act(async () => item?.click());
-        const cancel = document.body.querySelector<HTMLButtonElement>(
-          '[data-testid="mission-control-plan-pause-cancel"]',
-        );
-        if (label === "Pause plan") {
-          expect(cancel).not.toBeNull();
-          await act(async () => cancel?.click());
-        } else {
-          expect(cancel).toBeNull();
-        }
-      }
+      expect(trigger("board").tabIndex).toBe(0);
+      expect(trigger("board").getAttribute("aria-label")).toBe("Board actions");
+      const menu = await openMenu("board");
+      expect(host.contains(menu)).toBe(false);
+      expect(menu.getAttribute("aria-label")).toBe("Board actions");
+      const items = menuItems(menu);
+      expect(items.map((item) => item.textContent)).toEqual(["Approve plan", "Pause plan", "Clear everything"]);
+      expect(items.map((item) => item.getAttribute("data-danger"))).toEqual([null, null, "true"]);
+      expect(document.activeElement).toBe(items[0]);
+      await act(async () => keydown(document.activeElement, "ArrowDown"));
+      expect(document.activeElement).toBe(items[1]);
+      await act(async () => keydown(document.activeElement, "ArrowUp"));
+      await act(async () => keydown(document.activeElement, "ArrowUp"));
+      expect(document.activeElement).toBe(items[2]);
+      await act(async () => keydown(document.activeElement, "Escape"));
+      expect(byTestId("mission-control-board-menu")).toBeNull();
+      expect(document.activeElement).toBe(trigger("board"));
 
-      expect(confirm).toHaveBeenCalledTimes(expected.length - 1);
+      await choose("board", "Approve plan");
+      expect(byTestId("mission-control-approve-plan-dialog")?.getAttribute("role")).toBe("dialog");
+      await press("mission-control-approve-plan-dialog-cancel");
+      expect(byTestId("mission-control-approve-plan-dialog")).toBeNull();
       expect(approve).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(trigger("board"));
+
+      await choose("board", "Approve plan");
+      await press("mission-control-approve-plan-dialog-confirm");
+      expect(approve).toHaveBeenCalledOnce();
+      expect(approve).toHaveBeenCalledWith("plan-visible");
+
+      await choose("board", "Clear everything");
+      expect(byTestId("mission-control-clear-everything-dialog-confirm")?.className).toContain(
+        "mc-lifecycle-button-danger",
+      );
+      await press("mission-control-clear-everything-dialog-confirm");
+      expect(clear).toHaveBeenCalledOnce();
+      expect(clear).toHaveBeenCalledWith("plan-visible");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it.each([
+    { status: TaskStatus.Pending, expected: ["Pause", "Delete"] },
+    { status: TaskStatus.InProgress, expected: ["Pause", "Delete"] },
+    { status: TaskStatus.Paused, expected: ["Resume", "Delete"] },
+    { status: TaskStatus.InReview, expected: ["Delete"] },
+    { status: TaskStatus.Done, expected: ["Delete"] },
+  ])("offers only the task actions that exist for a $status task", async ({ status, expected }) => {
+    const { host, unmount } = await render(taskControls(status));
+
+    try {
+      expect(trigger("task").getAttribute("aria-label")).toBe("Actions for task Ship kebab");
+      expect(trigger("task").getAttribute("aria-haspopup")).toBe("menu");
+      const menu = await openMenu("task");
+      expect(host.contains(menu)).toBe(false);
+      expect(menu.getAttribute("aria-label")).toBe("Task actions for Ship kebab");
+      const items = menuItems(menu);
+      expect(items.map((item) => item.textContent)).toEqual(expected);
+      expect(items[items.length - 1]?.getAttribute("data-danger")).toBe("true");
+      expect(items.slice(0, -1).every((item) => item.getAttribute("data-danger") === null)).toBe(true);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("renders no trigger when the task has no available action", async () => {
+    const { host, unmount } = await render(
+      <MissionControlControls scope="task" planId="plan-visible" taskId="task-1" taskStatus={TaskStatus.Done} />,
+    );
+    try {
+      expect(host.querySelector('[data-testid="mission-control-task-menu-trigger"]')).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("pauses only with a non-blank reason and submits it through the callback", async () => {
+    const pause = vi.fn(async () => undefined);
+    const { host, unmount } = await render(taskControls(TaskStatus.Pending, { onPauseTask: pause }));
+
+    try {
+      await choose("task", "Pause");
+      const dialog = byTestId("mission-control-pause-task-dialog");
+      expect(dialog?.getAttribute("role")).toBe("dialog");
+      expect(host.contains(dialog)).toBe(false);
+      const reason = byTestId<HTMLInputElement>("mission-control-pause-task-dialog-reason")!;
+      const confirm = byTestId<HTMLButtonElement>("mission-control-pause-task-dialog-confirm")!;
+      expect(document.activeElement).toBe(reason);
+      expect(confirm.disabled).toBe(true);
+      await press("mission-control-pause-task-dialog-confirm");
+      await act(async () => typeInto(reason, "   "));
+      expect(confirm.disabled).toBe(true);
+      await press("mission-control-pause-task-dialog-confirm");
       expect(pause).not.toHaveBeenCalled();
-      expect(clear).not.toHaveBeenCalled();
+      expect(byTestId("mission-control-pause-task-dialog")).not.toBeNull();
+
+      await act(async () => typeInto(reason, "  waiting for quota  "));
+      expect(confirm.disabled).toBe(false);
+      await press("mission-control-pause-task-dialog-confirm");
+      expect(pause).toHaveBeenCalledOnce();
+      expect(pause).toHaveBeenCalledWith("plan-visible", "task-1", "waiting for quota");
+      expect(byTestId("mission-control-pause-task-dialog")).toBeNull();
+      expect(document.activeElement).toBe(trigger("task"));
     } finally {
-      window.confirm = previousConfirm;
       await unmount();
     }
   });
 
-  it("exposes confirmed Delete for a task and confirms one disposable target through the callback seam", async () => {
-    const deleteTask = vi.fn();
-    const confirm = vi.fn(() => false);
-    const previousConfirm = window.confirm;
-    window.confirm = confirm;
-    const { host, unmount } = await render(
-      <MissionControlControls
-        scope="task"
-        planId="plan-visible"
-        taskId="task-disposable"
-        onDeleteTask={deleteTask}
-      />,
-    );
+  it("returns focus to the trigger when Escape closes the menu or a dialog", async () => {
+    const resume = vi.fn();
+    const remove = vi.fn();
+    const { unmount } = await render(taskControls(TaskStatus.Paused, { onResumeTask: resume, onDeleteTask: remove }));
 
     try {
-      const menu = await openMenu(host, "mission-control-task-menu-trigger");
-      expect(host.querySelector('[data-testid="mission-control-task-actions"]')?.getAttribute("data-plan-id")).toBe(
-        "plan-visible",
-      );
-      expect(host.querySelector('[data-testid="mission-control-task-actions"]')?.getAttribute("data-task-id")).toBe(
-        "task-disposable",
-      );
-      expect(Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent)).toEqual(["Delete"]);
-      expect(menu.querySelector('[role="menuitem"]')?.className).toContain(
-        "mission-control-actions-menuitem-danger",
-      );
-      await act(async () => menu.querySelector<HTMLButtonElement>('[role="menuitem"]')?.click());
-      expect(confirm).toHaveBeenCalledTimes(1);
-      expect(deleteTask).not.toHaveBeenCalled();
+      await openMenu("task");
+      await act(async () => keydown(document.activeElement, "Escape"));
+      expect(byTestId("mission-control-task-menu")).toBeNull();
+      expect(document.activeElement).toBe(trigger("task"));
 
-      confirm.mockReturnValue(true);
-      const confirmedMenu = await openMenu(host, "mission-control-task-menu-trigger");
-      await act(async () => confirmedMenu.querySelector<HTMLButtonElement>('[role="menuitem"]')?.click());
-      expect(deleteTask).toHaveBeenCalledOnce();
-      expect(deleteTask).toHaveBeenCalledWith("plan-visible", "task-disposable");
+      await choose("task", "Delete");
+      expect(document.activeElement).toBe(byTestId("mission-control-delete-task-dialog-cancel"));
+      await act(async () => keydown(document.activeElement, "Escape"));
+      expect(byTestId("mission-control-delete-task-dialog")).toBeNull();
+      expect(remove).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(trigger("task"));
+
+      await choose("task", "Resume");
+      await press("mission-control-resume-task-dialog-confirm");
+      expect(resume).toHaveBeenCalledOnce();
+      expect(resume).toHaveBeenCalledWith("plan-visible", "task-1");
+
+      await choose("task", "Delete");
+      await press("mission-control-delete-task-dialog-confirm");
+      expect(remove).toHaveBeenCalledOnce();
+      expect(remove).toHaveBeenCalledWith("plan-visible", "task-1");
     } finally {
-      window.confirm = previousConfirm;
       await unmount();
     }
   });
 
-  it("keeps the menu bounded for keyboard interaction at 390px", async () => {
-    const { host, unmount } = await render(
-      <div style={{ width: "390px", maxWidth: "390px", overflowX: "hidden" }}>
-        <MissionControlControls scope="board" planId="plan-phone" />
-      </div>,
-    );
+  it("keeps the dialog open with the daemon error when an action fails", async () => {
+    const remove = vi.fn(async () => {
+      throw new Error("task delete failed: 409 caller rebound");
+    });
+    const { unmount } = await render(taskControls(TaskStatus.Pending, { onDeleteTask: remove }));
+
     try {
-      const menu = await openMenu(host, "mission-control-board-menu-trigger");
-      expect(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).toHaveLength(3);
-      await act(async () => {
-        menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-      });
-      expect(document.activeElement?.textContent).toBe("Pause plan");
-      const css = readFileSync("src/components/Canvas/missionControl/missionControlBoard.css", "utf8");
-      expect(css).toContain("max-width: calc(100vw - 24px)");
-      expect(css).toContain("min-width: min(12rem, calc(100vw - 24px))");
-      expect(css).not.toContain("border-left");
+      await choose("task", "Delete");
+      await press("mission-control-delete-task-dialog-confirm");
+      expect(remove).toHaveBeenCalledOnce();
+      expect(byTestId("mission-control-delete-task-dialog-error")?.textContent).toBe(
+        "task delete failed: 409 caller rebound",
+      );
+      expect(byTestId("mission-control-delete-task-dialog")).not.toBeNull();
+      await press("mission-control-delete-task-dialog-cancel");
     } finally {
       await unmount();
     }

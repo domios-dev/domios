@@ -64,9 +64,16 @@ function trigger(host: HTMLElement) {
 }
 
 async function openMenu(host: HTMLElement) {
-  await act(async () => trigger(host).click());
-  const items = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-  return items;
+  const menuTrigger = trigger(host);
+  menuTrigger.focus();
+  await act(async () => keydown(menuTrigger, "Enter"));
+  return Array.from(
+    document.body.querySelectorAll<HTMLButtonElement>('[data-testid="mission-control-board-menu"] [role="menuitem"]'),
+  );
+}
+
+async function closeMenu() {
+  await act(async () => keydown(document.activeElement, "Escape"));
 }
 
 async function choose(host: HTMLElement, label: string) {
@@ -206,7 +213,7 @@ describe("Mission Control plan pause and resume dialogs", () => {
     try {
       const labels = (await openMenu(host)).map((item) => item.textContent);
       expect(labels).toEqual(["Approve plan", "Resume plan", "Clear everything"]);
-      await act(async () => trigger(host).click());
+      await closeMenu();
 
       await choose(host, "Resume plan");
       const resume = dialog("resume");
@@ -275,7 +282,7 @@ describe("Mission Control plan pause and resume dialogs", () => {
     const approve = vi.fn();
     const clear = vi.fn();
     const confirmLifecycle = vi.fn(async () => undefined);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const windowConfirm = vi.spyOn(window, "confirm");
     const { host, unmount } = await render(
       <MissionControlControls
         scope="board"
@@ -304,13 +311,16 @@ describe("Mission Control plan pause and resume dialogs", () => {
 
       const labels = (await openMenu(host)).map((item) => item.textContent);
       expect(labels).toEqual(["Approve plan", "Pause plan", "Clear everything"]);
-      await act(async () => trigger(host).click());
+      await closeMenu();
       await choose(host, "Approve plan");
+      await act(async () => button("mission-control-approve-plan-dialog-confirm")?.click());
       await choose(host, "Clear everything");
+      await act(async () => button("mission-control-clear-everything-dialog-confirm")?.click());
       expect(approve).toHaveBeenCalledOnce();
       expect(approve).toHaveBeenCalledWith("plan-live");
       expect(clear).toHaveBeenCalledOnce();
       expect(clear).toHaveBeenCalledWith("plan-live");
+      expect(windowConfirm).not.toHaveBeenCalled();
     } finally {
       await unmount();
     }
