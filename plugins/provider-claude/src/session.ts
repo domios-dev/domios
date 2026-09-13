@@ -16,6 +16,7 @@ export interface ClaudeEntry {
   isMeta?: boolean;
   isCompactSummary?: boolean;
   isVisibleInTranscriptOnly?: boolean;
+  toolUseResult?: unknown;
 }
 
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = { system: true, user: true, assistant: true, attachment: true };

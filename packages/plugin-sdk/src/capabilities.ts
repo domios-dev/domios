@@ -296,6 +296,8 @@ export type ToolEventKind =
   | "task"
   | "fetch"
   | "codeterm"
+  | "web"
+  | "image"
   | "agent"
   | "generic";
 
@@ -303,6 +305,38 @@ export interface ToolEdit {
   path: string;
   old: string;
   new: string;
+}
+
+/** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
+export interface FileDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/** One changed file; counts are the marked lines of its own hunks. Emitted as `file_diffs` block data. */
+export interface FileDiff {
+  path: string;
+  movePath?: string;
+  additions: number;
+  deletions: number;
+  hunks: FileDiffHunk[];
+}
+
+// Mirrors Rust ChatMsg.tool_rich_result; strings are exact source values, absent when unreported.
+export interface ToolRichResult {
+  kind: "web" | "image";
+  origin?: "generated" | "viewed";
+  query?: string;
+  resultCount?: number;
+  action?: string;
+  url?: string;
+  pattern?: string;
+  path?: string;
+  status?: string;
+  prompt?: string;
 }
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
@@ -322,6 +356,8 @@ export interface NormalizedChatMessage {
   toolSummary?: string;
   toolDetail?: string;
   toolEdits?: ToolEdit[];
+  fileDiffs?: FileDiff[];
+  toolRichResult?: ToolRichResult;
   toolError?: boolean;
 }
 

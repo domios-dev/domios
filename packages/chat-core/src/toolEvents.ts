@@ -1,5 +1,7 @@
-import type { AgentActivity, NormalizedChatMessage, ToolEdit, ToolEventKind } from "./types";
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree } from "./agentActivity";
+import { wellFormedFileDiffs } from "./fileDiffs";
+import { normalizeToolRichResult } from "./toolRichResult";
+import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
 
 export type StreamEntry =
   | { kind: "action"; event: ToolEvent }
@@ -26,6 +28,8 @@ export interface ToolEvent {
   flowId?: string;
   detail?: string;
   edits?: ToolEdit[];
+  fileDiffs?: FileDiff[];
+  richResult?: ToolRichResult;
   result?: string;
   error?: boolean;
   message: NormalizedChatMessage;
@@ -59,6 +63,7 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
   const phase = message.type === "tool_call" ? "call" : "result";
   const summary = text(message.toolSummary);
   const embeddedResult = phase === "call" ? firstNonEmpty(message.toolResult) : undefined;
+  const fileDiffs = wellFormedFileDiffs(message.fileDiffs);
   return {
     id: message.id,
     toolId: message.toolId,
@@ -70,6 +75,8 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
     flowId: text(message.toolFlowId) || undefined,
     detail: text(message.toolDetail) || undefined,
     edits: message.toolEdits,
+    ...(fileDiffs ? { fileDiffs } : {}),
+    richResult: normalizeToolRichResult(message.toolRichResult),
     result: phase === "result"
       ? firstNonEmpty(message.toolDetail, message.toolResult, message.content)
       : embeddedResult,
@@ -91,13 +98,16 @@ function mergeText(existing: string | undefined, incoming: string | undefined): 
 
 function mergeResult(call: ToolEvent, result: ToolEvent): ToolEvent {
   const resultText = firstNonEmpty(result.result, result.summary);
+  const fileDiffs = result.fileDiffs ?? call.fileDiffs;
   const message = {
     ...call.message,
     toolResult: mergeText(call.message.toolResult, resultText),
     toolError: result.error === true ? true : call.message.toolError,
+    ...(fileDiffs ? { fileDiffs } : {}),
   };
   return {
     ...call,
+    ...(fileDiffs ? { fileDiffs } : {}),
     result: mergeText(call.result, resultText),
     error: result.error === true ? true : call.error,
     status: result.error === true || call.status === "error" ? "error" : "success",
@@ -118,7 +128,7 @@ function streamEvent(members: ToolEvent[], entries: StreamEntry[], active: boole
   const first = members[0];
   const latest = members[members.length - 1];
   const failed = members.some((member) => member.status === "error");
-  return {
+  const head: ToolEvent = {
     ...first,
     id: `${first.id}:stream`,
     status: members.some((member) => member.status === "pending")
@@ -127,10 +137,14 @@ function streamEvent(members: ToolEvent[], entries: StreamEntry[], active: boole
     summary: toolStreamLabel(latest) ?? latest.summary,
     detail: undefined,
     edits: undefined,
+    richResult: undefined,
     result: undefined,
     error: failed || undefined,
     stream: { flowId: first.flowId as string, members, entries, active },
   };
+  // Diffs stay with the member that produced them; a stream head shows none of its own.
+  delete head.fileDiffs;
+  return head;
 }
 
 function agentActivityEvent(message: NormalizedChatMessage, records: AgentActivity[]): ToolEvent {

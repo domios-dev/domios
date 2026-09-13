@@ -13,7 +13,11 @@ export type {
   InteractiveOption,
   ToolEventKind,
   ToolEdit,
+  FileDiff,
+  FileDiffHunk,
+  ToolRichResult,
 } from "./types";
+export { localThumbnailSource, normalizeToolRichResult, type ThumbnailSource } from "./toolRichResult";
 export {
   shellCommandMessage,
   shellSnapshotToMessages,

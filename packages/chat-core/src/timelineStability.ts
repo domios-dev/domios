@@ -37,7 +37,8 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
     a.detail !== b.detail ||
     a.result !== b.result ||
     a.error !== b.error ||
-    a.edits !== b.edits
+    a.edits !== b.edits ||
+    a.fileDiffs !== b.fileDiffs
   ) {
     return false;
   }
