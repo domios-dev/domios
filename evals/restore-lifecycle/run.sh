@@ -14,7 +14,7 @@ RL_BIND_DEADLINE="${RL_BIND_DEADLINE:-180}"
 RL_TURN_DEADLINE="${RL_TURN_DEADLINE:-180}"
 RL_REPORT_DEADLINE="${RL_REPORT_DEADLINE:-240}"
 RL_CLAUDE_MODEL="${RL_CLAUDE_MODEL:-haiku}"
-RL_CODEX_MODEL="${RL_CODEX_MODEL:-gpt-5.4-mini}"
+RL_CODEX_MODEL="${RL_CODEX_MODEL:-}"
 
 RUN_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex[:10])')"
 WORKSPACE_NAME="RESTORE-LIFECYCLE-$RUN_ID"
@@ -28,13 +28,96 @@ TEAM_ID=""
 PLAN_BASELINE="$RUN_DIR/plans-before.txt"
 
 observe() { PYTHONIOENCODING=utf-8 PYTHONPATH="$SCRIPT_DIR" dev_run python3 "$SCRIPT_DIR/observe.py" "$@"; }
-json_get() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.argv[1]) or "")' "$1"; }
+fail() { echo "FAIL $*"; exit 1; }
+
+# Run a JSON-emitting command; stdout must be one JSON document. stderr is kept
+# beside it so a refusal or a non-JSON payload fails with both streams shown.
+cli_json() {
+  local label="$1"; shift
+  local out err rc
+  err="$RUN_DIR/$label.stderr"
+  out="$("$@" 2> "$err")"
+  rc=$?
+  printf '%s' "$out" > "$RUN_DIR/$label.json"
+  if [ "$rc" -ne 0 ]; then
+    echo "FAIL [$label] exit=$rc: $*" >&2
+    echo "  stdout: $out" >&2
+    echo "  stderr: $(cat "$err")" >&2
+    return 1
+  fi
+  printf '%s' "$out"
+}
+
+# json_get LABEL PATH: PATH is dot-separated keys; a missing or empty value fails
+# with the raw payload instead of a traceback.
+json_get() {
+  local label="$1" path="$2"
+  PYTHONIOENCODING=utf-8 python3 -c '
+import json, sys
+label, path = sys.argv[1], sys.argv[2]
+raw = sys.stdin.read()
+try:
+    value = json.loads(raw)
+except ValueError as error:
+    sys.stderr.write(f"FAIL [{label}] not JSON ({error}); raw={raw[:2000]!r}\n")
+    sys.exit(1)
+for key in path.split("."):
+    value = value.get(key) if isinstance(value, dict) else None
+if value in (None, ""):
+    sys.stderr.write(f"FAIL [{label}] missing {path}; raw={raw[:2000]!r}\n")
+    sys.exit(1)
+print(value if isinstance(value, str) else json.dumps(value))
+' "$label" "$path"
+}
+
+# Pick a model the provider advertises: the requested one when listed, else the
+# provider default. A requested model that is not listed refuses the run, since
+# the daemon would silently fall back and the bench would test another model.
+provider_model() {
+  local provider="$1" requested="$2" providers
+  providers="$(dev_get /api/agents/providers)" || return 1
+  printf '%s' "$providers" > "$RUN_DIR/providers.json"
+  PYTHONIOENCODING=utf-8 python3 -c '
+import json, sys
+provider, requested = sys.argv[1], sys.argv[2]
+raw = sys.stdin.read()
+try:
+    entries = json.loads(raw)
+except ValueError:
+    sys.stderr.write(f"FAIL providers not JSON; raw={raw[:2000]!r}\n"); sys.exit(1)
+if isinstance(entries, dict):
+    entries = entries.get("providers", [])
+entry = next((p for p in entries if isinstance(p, dict) and p.get("id") == provider), None)
+if entry is None:
+    sys.stderr.write(f"FAIL provider {provider} not registered\n"); sys.exit(1)
+ids = [m.get("id") for m in entry.get("available_models", []) if isinstance(m, dict) and m.get("id")]
+if requested:
+    if ids and requested not in ids:
+        sys.stderr.write(f"FAIL {provider} model {requested!r} is not advertised; available={ids}\n"); sys.exit(1)
+    print(requested)
+else:
+    print(entry.get("default_model") or "")
+' "$provider" "$requested"
+}
+
+# A provider may normalize an alias (haiku -> a full id), so the resolved id must contain the request.
+assert_model() {
+  local label="$1" expected="$2" actual="$3"
+  [ -z "$expected" ] && return 0
+  case "$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')" in
+    *"$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"*) return 0 ;;
+  esac
+  fail "[$label] resolved model '$actual', requested '$expected'"
+}
 
 cleanup() {
   if [ "$SUCCESS" = "1" ]; then
     echo "== cleanup $WORKSPACE_NAME"
-    [ -z "$TEAM_ID" ] || dc team close "$TEAM_ID" --json > /dev/null 2>&1 || true
-    [ -z "$WORKSPACE_ID" ] || dc workspace close "$WORKSPACE_ID" > /dev/null 2>&1 || true
+    # dc blanks CODETERM_TAB_ID, so the caller is never a member of the Team or workspace it closes.
+    [ -z "$TEAM_ID" ] || dc team close "$TEAM_ID" --json > "$RUN_DIR/team-close.json" 2>&1 \
+      || echo "WARN team close refused: $(cat "$RUN_DIR/team-close.json")"
+    [ -z "$WORKSPACE_ID" ] || dc workspace close "$WORKSPACE_ID" > "$RUN_DIR/workspace-close.txt" 2>&1 \
+      || echo "WARN workspace close refused: $(cat "$RUN_DIR/workspace-close.txt")"
     plan_sweep_new "$PLAN_BASELINE"
   else
     echo "== keeping $WORKSPACE_NAME id=${WORKSPACE_ID:-unknown} team=${TEAM_ID:-unknown} for forensics: $RUN_DIR"
@@ -43,62 +126,74 @@ cleanup() {
 trap cleanup EXIT
 
 restart_dev() {
-  local label="$1"
+  local label="$1" saved
   echo "== [$label] save session"
-  local saved
-  saved="$(dev_post /api/session/save)" || { echo "FAIL [$label] session save not acknowledged"; exit 1; }
-  [ "$(printf '%s' "$saved" | json_get ok)" = "True" ] || { echo "FAIL [$label] session save: $saved"; exit 1; }
+  saved="$(dev_post /api/session/save)" || fail "[$label] session save not acknowledged"
+  [ "$(printf '%s' "$saved" | json_get "$label-save" ok)" = "True" ] || fail "[$label] session save: $saved"
   echo "== [$label] full dev stop (reboot analogue) and start"
   (
     cd "$REPO_ROOT" || exit 1
     bash build.sh kill
     bash build.sh dev-prebuilt --wait
-  ) || { echo "FAIL [$label] dev restart"; exit 1; }
+  ) || fail "[$label] dev restart"
 }
 
 new_marker() { python3 -c 'import uuid; print("RESTORE-LIFECYCLE-" + uuid.uuid4().hex[:12])'; }
 
-spawn_json() {
-  local out
-  out="$("$@" --json 2>&1)" || { echo "FAIL spawn: $* -> $out" >&2; return 1; }
-  printf '%s' "$out"
-}
-
 dev_get /api/health > /dev/null || { echo "dev 7686 unavailable; start it with ./build.sh dev --wait" >&2; exit 7; }
 plan_snapshot "$PLAN_BASELINE" || exit 1
 
+CLAUDE_MODEL="$(provider_model claude "$RL_CLAUDE_MODEL")" || exit 1
+CODEX_MODEL="$(provider_model codex "$RL_CODEX_MODEL")" || exit 1
+echo "== models claude=${CLAUDE_MODEL:-default} codex=${CODEX_MODEL:-default}"
+claude_spec="claude${CLAUDE_MODEL:+:$CLAUDE_MODEL}"
+codex_spec="codex${CODEX_MODEL:+:$CODEX_MODEL}"
+
 echo "== create workspace $WORKSPACE_NAME"
 WORKSPACE_ID="$(new_workspace "$WORKSPACE_NAME" "$WORKSPACE_CWD")"
-[ -n "$WORKSPACE_ID" ] || { echo "FAIL could not create workspace"; exit 1; }
+[ -n "$WORKSPACE_ID" ] || fail "could not create workspace"
 
 echo "== team pair: claude orchestrator + codex planner"
-TEAMS_BEFORE="$(dc team list --json)"
-PAIR="$(dc team pair --orchestrator "claude:$RL_CLAUDE_MODEL" --planner "codex:$RL_CODEX_MODEL" \
-  --workspace "$WORKSPACE_ID" --title "$WORKSPACE_NAME" --json)" || { echo "FAIL team pair: $PAIR"; exit 1; }
-ORCH="$(printf '%s' "$PAIR" | json_get orchestrator_tab_id)"
-PLANNER="$(printf '%s' "$PAIR" | json_get planner_tab_id)"
-[ -n "$ORCH" ] && [ -n "$PLANNER" ] || { echo "FAIL team pair returned no tabs: $PAIR"; exit 1; }
-TEAM_ID="$(dc team list --json | python3 -c '
+PAIR="$(cli_json team-pair dc team pair --orchestrator "$claude_spec" --planner "$codex_spec" \
+  --workspace "$WORKSPACE_ID" --title "$WORKSPACE_NAME" --json)" || exit 1
+ORCH="$(printf '%s' "$PAIR" | json_get team-pair orchestrator_tab_id)" || exit 1
+PLANNER="$(printf '%s' "$PAIR" | json_get team-pair planner_tab_id)" || exit 1
+assert_model team-pair-orchestrator "$CLAUDE_MODEL" "$(printf '%s' "$PAIR" | json_get team-pair orchestrator_model 2>/dev/null)"
+assert_model team-pair-planner "$CODEX_MODEL" "$(printf '%s' "$PAIR" | json_get team-pair planner_model 2>/dev/null)"
+
+ORCH_STATUS="$(dev_get "/api/tabs/$ORCH/status")" || fail "orchestrator status unavailable"
+TEAM_ID="$(printf '%s' "$ORCH_STATUS" | json_get orchestrator-status team_id)" || exit 1
+TEAMS="$(cli_json team-list dc team list --json)" || exit 1
+printf '%s' "$TEAMS" | PYTHONIOENCODING=utf-8 python3 -c '
 import json, sys
-before = {t.get("team_id") or t.get("id") for t in json.loads(sys.argv[1] or "[]")}
-after = json.load(sys.stdin)
-print(next((t.get("team_id") or t.get("id") for t in after if (t.get("team_id") or t.get("id")) not in before), ""))
-' "$TEAMS_BEFORE")"
+team_id = sys.argv[1]
+raw = sys.stdin.read()
+teams = json.loads(raw).get("teams")
+if not isinstance(teams, list) or not any(isinstance(t, dict) and team_id in (t.get("id"), t.get("team_id")) for t in teams):
+    sys.stderr.write(f"FAIL [team-list] Team {team_id} absent; raw={raw[:2000]!r}\n"); sys.exit(1)
+' "$TEAM_ID" || exit 1
 
 echo "== spawn Team workers and standalone agents"
 mkdir -p "$WORKSPACE_CWD/claude-worker" "$WORKSPACE_CWD/codex-worker" "$WORKSPACE_CWD/standalone" "$WORKSPACE_CWD/shell"
-CLAUDE_WORKER="$(spawn_json dc --as-tab "$ORCH" agent spawn claude --role Worker --parent-tab "$ORCH" \
-  --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/claude-worker" --title rl-claude-worker \
-  --model "$RL_CLAUDE_MODEL" --non-user-facing | json_get tab_id)"
-CODEX_WORKER="$(spawn_json dc --as-tab "$ORCH" agent spawn codex --role Worker --parent-tab "$ORCH" \
-  --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/codex-worker" --title rl-codex-worker \
-  --model "$RL_CODEX_MODEL" --non-user-facing | json_get tab_id)"
-STANDALONE="$(spawn_json dc agent spawn claude --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/standalone" \
-  --title rl-standalone --model "$RL_CLAUDE_MODEL" --non-user-facing | json_get tab_id)"
-SHELL_TAB="$(new_shell_tab "$WORKSPACE_ID" "$WORKSPACE_CWD/shell" rl-shell)"
-for id in "$CLAUDE_WORKER" "$CODEX_WORKER" "$STANDALONE" "$SHELL_TAB"; do
-  [ -n "$id" ] || { echo "FAIL a member did not spawn"; exit 1; }
-done
+spawn_member() {
+  local label="$1" expected_model="$2"; shift 2
+  local out tab
+  out="$(cli_json "$label" "$@" --json)" || return 1
+  tab="$(printf '%s' "$out" | json_get "$label" tab_id)" || return 1
+  assert_model "$label" "$expected_model" "$(printf '%s' "$out" | json_get "$label" model 2>/dev/null)"
+  printf '%s' "$tab"
+}
+CLAUDE_WORKER="$(spawn_member spawn-claude-worker "$CLAUDE_MODEL" dc --as-tab "$ORCH" agent spawn claude \
+  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/claude-worker" \
+  --title rl-claude-worker ${CLAUDE_MODEL:+--model "$CLAUDE_MODEL"} --non-user-facing)" || exit 1
+CODEX_WORKER="$(spawn_member spawn-codex-worker "$CODEX_MODEL" dc --as-tab "$ORCH" agent spawn codex \
+  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/codex-worker" \
+  --title rl-codex-worker ${CODEX_MODEL:+--model "$CODEX_MODEL"} --non-user-facing)" || exit 1
+STANDALONE="$(spawn_member spawn-standalone "$CLAUDE_MODEL" dc agent spawn claude \
+  --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/standalone" --title rl-standalone \
+  ${CLAUDE_MODEL:+--model "$CLAUDE_MODEL"} --non-user-facing)" || exit 1
+SHELL_OUT="$(cli_json spawn-shell dc tab new --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/shell" --title rl-shell --json)" || exit 1
+SHELL_TAB="$(printf '%s' "$SHELL_OUT" | json_get spawn-shell tab_id)" || exit 1
 
 AGENTS=("$ORCH" "$PLANNER" "$CLAUDE_WORKER" "$CODEX_WORKER" "$STANDALONE")
 ALL_TABS=("${AGENTS[@]}" "$SHELL_TAB")
@@ -109,18 +204,17 @@ printf 'orchestrator=%s planner=%s claude_worker=%s codex_worker=%s standalone=%
 echo "== bind every agent session and persist one turn each"
 observe wait-bound "$RL_BIND_DEADLINE" "${AGENTS[@]}" || exit 1
 turn_all() {
-  local label="$1" pids=() tab marker
+  local label="$1" pids=() tab marker rc=0 pid
   for tab in "${AGENTS[@]}"; do
     marker="$(new_marker)"
     echo "$label $tab $marker" >> "$RUN_DIR/markers.txt"
     observe send-marker "$RL_TURN_DEADLINE" "$tab" "$marker" "Reply with exactly $marker and nothing else." &
     pids+=("$!")
   done
-  local rc=0 pid
   for pid in "${pids[@]}"; do wait "$pid" || rc=1; done
   return "$rc"
 }
-turn_all baseline || { echo "FAIL baseline turn did not complete on every agent"; exit 1; }
+turn_all baseline || fail "baseline turn did not complete on every agent"
 
 observe capture "$RUN_DIR/identity-before.json" "${ALL_TABS[@]}" > /dev/null || exit 1
 observe assert-pre "$RUN_DIR/identity-before.json" "$SHELL_TAB" "${PROVIDERS[@]}" || exit 1
@@ -143,7 +237,7 @@ for cycle in $(seq 1 "$RL_CYCLES"); do
   observe assert-identity "$RUN_DIR/identity-before.json" "$RUN_DIR/identity-$label.json" "$SHELL_TAB" || exit 1
 
   echo "== [$label] every restored agent answers a new turn in its resumed session"
-  turn_all "$label" || { echo "FAIL [$label] a restored agent did not answer"; exit 1; }
+  turn_all "$label" || fail "[$label] a restored agent did not answer"
   observe capture "$RUN_DIR/identity-$label-after-turn.json" "${ALL_TABS[@]}" > /dev/null || exit 1
   observe assert-identity "$RUN_DIR/identity-before.json" "$RUN_DIR/identity-$label-after-turn.json" "$SHELL_TAB" || exit 1
 done
