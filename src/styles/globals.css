@@ -308,6 +308,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .ct-liquid-segmented__thumb,
+  .plan-view-modes__thumb,
   .ct-liquid-tab-rail__indicator,
   .ct-liquid-tab-rail__tab,
   .ct-liquid-toggle,
@@ -1173,6 +1174,69 @@ button,
   font-weight: 600;
 }
 .ct-liquid-segmented__icon { display: inline-flex; flex: 0 0 auto; }
+
+/* Plan view modes: Board in its own capsule, the plan views in another, one thumb gliding across both. */
+.plan-view-modes {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 6px;
+  height: 26px;
+}
+.plan-view-modes__group {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.plan-view-modes__group[data-disabled="true"] {
+  opacity: 0.45;
+}
+.plan-view-modes__thumb {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+  pointer-events: none;
+}
+.plan-view-modes__thumb--glide {
+  transition:
+    transform var(--ct-duration-liquid-segmented) var(--ct-ease-liquid-settle),
+    width var(--ct-duration-liquid-segmented) var(--ct-ease-liquid-settle);
+}
+.plan-view-modes__option {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.plan-view-modes__option[aria-selected="true"] {
+  color: var(--ct-fg);
+  font-weight: 600;
+}
+.plan-view-modes__option:disabled {
+  cursor: default;
+}
+.plan-view-modes__option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
 
 .ct-liquid-tab-rail {
   --rail-count: 1;
