@@ -19,7 +19,7 @@ import { orderPlansByActivity, selectDefaultPlanId } from "../planView/boardMode
 import { PlanDetailOverlay, type PlanDetailKind } from "../planView/PlanDetailOverlay";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
-import type { Plan, Section, Task } from "../types";
+import type { Plan, Section } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import { MissionControlControls } from "./MissionControlControls";
@@ -32,7 +32,6 @@ import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotification
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
 
 type DetailState =
-  | { kind: "task"; task: Task; plan: Plan }
   | { kind: "plan"; plan: Plan; specSections: Section[] }
   | { kind: "spec"; plan: Plan; specSections: Section[] };
 
@@ -64,6 +63,7 @@ export function MissionControlPlanSurface({
   api,
   headerActionsSlot = null,
   onOpenView,
+  onOpenPlanTarget,
 }: PlanViewSurfaceProps) {
   const deepLinks = useMemo<NeedsYouDeepLinks | undefined>(
     () => (notifications && onSelectTab
@@ -144,19 +144,6 @@ export function MissionControlPlanSurface({
     return fixtureSpecSections.get(selectedPlan.id) ?? fetchedSpecSections.get(selectedPlan.id) ?? [];
   }, [selectedPlan, fixtureSpecSections, fetchedSpecSections]);
 
-  const openTask = useCallback(
-    (taskId: string) => {
-      for (const plan of orderedPlans) {
-        const task = plan.tasks.find((t) => t.id === taskId);
-        if (task) {
-          setDetail({ kind: "task", task, plan });
-          return;
-        }
-      }
-    },
-    [orderedPlans],
-  );
-
   const previousPlans = useMemo(() => {
     const teamOfPlan = selectedPlan?.team_id;
     if (!teamOfPlan) return [] as Plan[];
@@ -184,6 +171,16 @@ export function MissionControlPlanSurface({
   const refPlans = useMemo(
     () => (team ? [...orderedPlans, ...team.archivedPlans] : orderedPlans),
     [orderedPlans, team],
+  );
+
+  const openTask = useCallback(
+    (taskId: string) => {
+      const plan = refPlans.find((candidate) => candidate.tasks.some((task) => task.id === taskId));
+      if (!plan) return;
+      setDetail(null);
+      onOpenPlanTarget?.({ planId: plan.id, taskId, teamId: plan.team_id });
+    },
+    [refPlans, onOpenPlanTarget],
   );
 
   const openPlanDetail = useCallback(
@@ -309,10 +306,9 @@ export function MissionControlPlanSurface({
       {detail && overlayKind && (
         <PlanDetailOverlay
           kind={overlayKind}
-          task={detail.kind === "task" ? detail.task : undefined}
-          plan={detail.kind === "plan" ? detail.plan : detail.kind === "task" ? detail.plan : undefined}
+          plan={detail.kind === "plan" ? detail.plan : undefined}
           spec={detail.kind === "spec" ? detail.plan : undefined}
-          specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
+          specSections={detail.specSections}
           planId={detail.plan.id}
           api={api}
           tabs={tabs}

@@ -1178,6 +1178,7 @@ button,
 /* Plan view modes: Board in its own capsule, the plan views in another, one thumb gliding across both. */
 .plan-view-modes {
   position: relative;
+  min-width: 0;
   display: inline-flex;
   align-items: stretch;
   gap: 6px;
@@ -1236,6 +1237,89 @@ button,
 .plan-view-modes__option:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+/* A temporary tab shrinks and ellipsises before the header overflows; its close control sits beside the label. */
+.plan-view-modes__group--temporary {
+  min-width: 0;
+  align-items: center;
+  gap: 1px;
+}
+.plan-view-modes__option--temporary {
+  display: block;
+  min-width: 0;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 18px;
+}
+.plan-view-modes__close {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+.plan-view-modes__close:hover {
+  color: var(--ct-fg);
+  background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
+}
+.plan-view-modes__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+.plan-task-segment {
+  height: 100%;
+  overflow-y: auto;
+  outline: none;
+  background: var(--ct-bg);
+}
+.plan-task-segment__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 16px 24px 0;
+}
+.plan-task-segment__key {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: 999px;
+  font-family: var(--ct-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ct-muted-fg);
+}
+.plan-task-segment__title {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ct-font-size-md, 15px);
+  font-weight: 700;
+  color: var(--ct-fg);
+  overflow-wrap: anywhere;
+}
+.plan-task-segment__note {
+  margin: 0;
+  padding: 16px 24px;
+  font-size: 13px;
+  color: var(--ct-muted-fg);
+}
+@media (max-width: 480px) {
+  .plan-task-segment__header,
+  .plan-task-segment__note {
+    padding-inline: 16px;
+  }
 }
 
 .ct-liquid-tab-rail {
@@ -4912,6 +4996,13 @@ button.plan-peer-chip:focus-visible {
 }
 .plan-list-title-cell .task-execution-badges {
   margin-left: 0.25rem;
+}
+.plan-board-task-key {
+  margin: 0;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ct-muted-fg);
 }
 .plan-board-task-title {
   margin: 0;

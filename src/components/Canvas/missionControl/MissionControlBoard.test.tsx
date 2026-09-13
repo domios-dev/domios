@@ -692,7 +692,7 @@ describe("mission control board panels", () => {
     expect(pagerPages(12, 12)).toEqual([1, "gap", 11, 12]);
   });
 
-  it("names plan and task ids by their titles and opens the task on click", async () => {
+  it("names plan ids by title and task ids by key and title, and opens the task on click", async () => {
     const onOpenTask = vi.fn();
     const target: Plan = {
       ...PLAN,
@@ -709,10 +709,10 @@ describe("mission control board panels", () => {
     );
 
     const body = part(eventRows(host)[0]!, "mc-board-event-body") as HTMLElement;
-    expect(body.textContent).toBe("paused: Readable board in Snake game waits on task_unknown9");
+    expect(body.textContent).toBe("paused: RENDER1 Readable board in Snake game waits on task_unknown9");
     const refs = Array.from(body.querySelectorAll('[data-testid="mc-board-ref"]'));
     expect(refs.map((ref) => [ref.tagName, ref.textContent, ref.getAttribute("title")])).toEqual([
-      ["BUTTON", "Readable board", "task_render1"],
+      ["BUTTON", "RENDER1 Readable board", "task_render1"],
       ["SPAN", "Snake game", "pl_snake1"],
     ]);
     await act(async () => (refs[0] as HTMLButtonElement).click());

@@ -13,7 +13,7 @@ import {
 } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
-import { RefText, type BoardRefs } from "./BoardRefText";
+import { RefLabel, RefText, type BoardRefs } from "./BoardRefText";
 import {
   NeedsYouNotificationRow,
   useNeedsYouNotificationItems,
@@ -58,6 +58,7 @@ export function NeedsYouPanel({
               <NeedsYouNotificationRow
                 key={item.key}
                 item={item}
+                refs={refs}
                 tabs={deepLinks.tabs}
                 onSelectTab={deepLinks.onSelectTab}
               />
@@ -90,7 +91,11 @@ function NeedsYouItemBody({ item, refs }: { item: NeedsYouItem; refs: BoardRefs 
   return (
     <>
       <p className="mc-board-needs-title">
-        <RefText text={item.title} refs={refs} />
+        {item.taskId ? (
+          <RefLabel id={item.taskId} refs={refs} fallback={item.title} />
+        ) : (
+          <RefText text={item.title} refs={refs} />
+        )}
       </p>
       <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
     </>
