@@ -220,6 +220,19 @@ optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`,
 `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks
 exist; consumers ignore unknown kinds and never invent a local explanation.
 
+Task references: every socket, REST, and CLI argument that names a task accepts
+its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The
+id stays the primary identity. A new task's key is issued once from its plan's
+owning local workspace: a 2-4 character uppercase prefix derived from the
+workspace name (collisions with other local workspaces take the next
+deterministic candidate), fixed by the first issued key, plus a counter that
+never decreases or reuses a number. A task created before keys existed stores
+no `key`; its key is its id without `task_`, uppercased. An exact id wins; a
+handle and a key naming different tasks are refused as `ref_ambiguous`. Task
+list and detail JSON carry `display_key` beside `task.id` (`task.key` only when
+stored), sibling/parent labels carry `display_key`, and `plan.task.add`,
+`POST /api/plans/{id}/tasks`, and `POST /api/tasks` return `key`.
+
 Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both
 reached by `codeterm plan record`) cross the same boundary from either entrance:
 an op naming a task another tab holds is refused unless the caller is that holder
@@ -237,4 +250,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 143 -->
+<!-- revision: 144 -->

@@ -30,10 +30,7 @@ impl PlanStore {
         }
         let expected = additions.clone();
         let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             crate::service_plan::external_refs::merge_external_refs(
                 &mut task.external_refs,
@@ -126,10 +123,7 @@ impl PlanStore {
         let expected_sections = section_ids.clone();
         let expected_lane = lane.clone();
         let write = self.with_plan(plan_id, now_ms, |p| {
-            let task_index = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let task_id = p.tasks[task_index].id.clone();
             let parsed_status = status.map(parse_task_status).transpose()?;
@@ -264,10 +258,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let write: Result<Vec<String>, PlanError> = self.with_plan(plan_id, now_ms, |p| {
-            let task_index = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let canonical_task_id = p.tasks[task_index].id.clone();
             let normalized = validate_task_dependencies(p, &canonical_task_id, &depends_on)?;
@@ -297,10 +288,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if let Some(guidance) = role_guidance {
                 task.role_guidance = guidance.map(str::to_string);
@@ -319,10 +307,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if let Some(name) = personality {
                 task.personality = name.map(str::to_string);
@@ -351,10 +336,7 @@ impl PlanStore {
             return Ok(());
         }
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if is_terminal_task_status(&task.status) {
                 return Ok(());
@@ -400,10 +382,7 @@ impl PlanStore {
             return Ok(());
         }
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if is_terminal_task_status(&task.status) {
                 return Ok(());
@@ -450,10 +429,7 @@ impl PlanStore {
         // Explicit --tab overwrites the executor binding; fill-if-empty is only for implicit capture.
         let tab_explicit = lane.tab_id.is_some();
         let write = self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             apply_lane_update(&mut task.lane, lane);
             task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
@@ -489,10 +465,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<Option<AcceptanceCriteriaCounts>, PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let criteria_counts = acceptance_criteria.map(|update| {
                 let before = task.acceptance_criteria.len();
@@ -544,10 +517,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let write = self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_tab_id = Some(tab.into());
             task.lane.tab_id = Some(tab.into());
@@ -575,10 +545,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let assigned = task.assigned_tab_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);

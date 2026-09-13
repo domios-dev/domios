@@ -350,6 +350,7 @@ mod tests {
             active_workspace_id: Some("ws".into()),
             teams: vec![],
             workspaces: vec![WorkspaceSnapshot {
+                task_keys: Default::default(),
                 id: "ws".into(),
                 name: "Welcome".into(),
                 active_tab_id: Some("tab-picker".into()),

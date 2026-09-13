@@ -57,9 +57,7 @@ pub fn normalize_sections_for_spec(sections: &mut [Section]) {
 }
 
 pub fn find_task<'a>(plan: &'a Plan, selector: &str) -> Option<&'a Task> {
-    plan.tasks
-        .iter()
-        .find(|task| task.id == selector || task.handle.as_deref() == Some(selector))
+    crate::plan::task_key::find_task(&plan.tasks, selector)
 }
 
 pub fn section_handle(section: &Section) -> &str {
@@ -402,6 +400,7 @@ mod tests {
             review_round: 0,
             review_oracle: None,
             review_evidence: vec![],
+            key: None,
             review_override: None,
             review_audit: vec![],
             status_label: None,

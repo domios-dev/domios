@@ -211,10 +211,7 @@ fn live_task_plan(svc: &ServiceContext, tab: &Tab) -> Option<String> {
     let plan_id = binding.plan_id.as_deref()?;
     let task_id = binding.task_id.as_deref()?;
     let plan = svc.plan_store.get(plan_id)?;
-    let task = plan
-        .tasks
-        .iter()
-        .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))?;
+    let task = crate::plan::task_key::find_task(&plan.tasks, task_id)?;
     tab_holds(task, &tab.id).then(|| plan_id.to_string())
 }
 

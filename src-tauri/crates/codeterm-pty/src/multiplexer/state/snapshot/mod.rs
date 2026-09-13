@@ -194,6 +194,7 @@ impl MultiplexerState {
             .iter()
             .map(|ws| {
                 WorkspaceSnapshot {
+                    task_keys: ws.task_keys.clone(),
                     id: ws.id.clone(),
                     name: ws.name.clone(),
                     active_tab_id: ws.active_tab_id.clone(),
@@ -258,6 +259,7 @@ impl MultiplexerState {
         let mut tabs = HashMap::new();
         let workspaces: Vec<Workspace> = snapshot.workspaces.iter().map(|ws| {
             Workspace {
+                task_keys: ws.task_keys.clone(),
                 id: ws.id.clone(),
                 name: ws.name.clone(),
                 active_tab_id: ws.active_tab_id.clone(),
@@ -366,6 +368,7 @@ impl MultiplexerState {
                         .filter(|active| added_tab_ids.contains(active))
                         .or_else(|| added_tab_ids.first().cloned());
                     self.workspaces.push(Workspace {
+                        task_keys: ws_snap.task_keys.clone(),
                         id: ws_snap.id.clone(),
                         name: ws_snap.name.clone(),
                         tabs: added_tab_ids,

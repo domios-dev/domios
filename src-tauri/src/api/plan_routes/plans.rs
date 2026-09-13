@@ -328,11 +328,10 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             owner_session_id,
         },
         ResolveTargetKind::Task => {
-            let task = item.target_id.as_deref().and_then(|task_id| {
-                plan.tasks
-                    .iter()
-                    .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-            });
+            let task = item
+                .target_id
+                .as_deref()
+                .and_then(|task_id| crate::plan::task_key::find_task(&plan.tasks, task_id));
             let task_title = task
                 .map(|task| task.name.trim())
                 .filter(|title| !title.is_empty())
@@ -626,11 +625,9 @@ mod tests {
     }
 
     fn resolve_task_state(plan: &Plan, target_id: Option<String>) -> &'static str {
-        let task = target_id.as_deref().and_then(|task_id| {
-            plan.tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-        });
+        let task = target_id
+            .as_deref()
+            .and_then(|task_id| crate::plan::task_key::find_task(&plan.tasks, task_id));
         if task.is_some() {
             "resolved"
         } else {

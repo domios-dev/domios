@@ -222,11 +222,7 @@ fn resolve_loop_stride_task_index(
     preferred_task_id: Option<&str>,
 ) -> Option<usize> {
     if let Some(task_id) = preferred_task_id {
-        if let Some(index) = plan
-            .tasks
-            .iter()
-            .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-        {
+        if let Some(index) = crate::plan::task_key::find_task_index(&plan.tasks, task_id) {
             return Some(index);
         }
     }

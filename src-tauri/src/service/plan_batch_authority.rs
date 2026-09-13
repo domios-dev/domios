@@ -176,9 +176,7 @@ fn resolve_task<'a>(tasks: &'a [Task], selector: &str) -> Option<&'a Task> {
             .iter()
             .max_by_key(|task| (task.updated_at, task.created_at));
     }
-    tasks
-        .iter()
-        .find(|task| task.id == selector || task.handle.as_deref() == Some(selector))
+    crate::plan::task_key::find_task(tasks, selector)
 }
 
 /// Someone is executing this task. A task nobody holds has no ownership to

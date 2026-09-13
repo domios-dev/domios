@@ -222,6 +222,7 @@ fn snapshot(leaves: Vec<SplitNodeSnapshot>) -> SessionSnapshot {
         active_workspace_id: Some("ws".into()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            task_keys: Default::default(),
             id: "ws".into(),
             name: "Main".into(),
             active_tab_id: None,

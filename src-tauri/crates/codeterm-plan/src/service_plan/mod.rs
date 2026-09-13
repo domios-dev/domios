@@ -63,6 +63,7 @@ mod task_attempt_gates;
 pub mod task_attempts;
 pub mod task_brief;
 mod task_dispatch;
+mod task_keys;
 pub mod task_queries;
 pub mod task_recovery;
 mod task_remove;
@@ -96,6 +97,8 @@ mod review_gate_selection_tests;
 mod subtask_close_tests;
 #[cfg(test)]
 mod task_attempt_tests;
+#[cfg(test)]
+mod task_key_contract_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 #[cfg(test)]
@@ -136,6 +139,7 @@ pub struct PlanStore {
     spec_index: RwLock<HashMap<String, SpecIndexEntry>>,
     last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
+    task_key_port: RwLock<Option<Arc<dyn ports::TaskKeyPort>>>,
     reseed_prepare_lock: Mutex<()>,
     mutation_writer: MutationWriter,
     database: Arc<store_db::PlanDatabase>,
@@ -202,6 +206,7 @@ impl PlanStore {
             spec_index: RwLock::new(HashMap::new()),
             last_writes: RwLock::new(HashMap::new()),
             turn_counter: RwLock::new(None),
+            task_key_port: RwLock::new(None),
             reseed_prepare_lock: Mutex::new(()),
             mutation_writer: MutationWriter::default(),
             database,
