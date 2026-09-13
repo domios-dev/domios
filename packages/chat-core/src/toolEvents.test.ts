@@ -162,6 +162,11 @@ console.log("ok - tool event lifecycle");
   assert(unlinked.length === 2 && unlinked.every((item) => item.kind === "tool" && !item.event.stream), "unlinked or singleton described calls stay rows");
   const partial = reduceToolEvents([described("e", "msg-3", "Described"), described("f", "msg-3", undefined)]);
   assert(partial.length === 2, "a flow with an unlabeled member stays individual rows");
+  const titledOnly = reduceToolEvents([
+    call("g", "g", { toolFlowId: "msg-4", toolTitle: "Read a.ts", ...session }),
+    call("h", "h", { toolFlowId: "msg-4", toolTitle: "Grep TODO", ...session }),
+  ]);
+  assert(titledOnly.length === 2 && titledOnly.every((item) => item.kind === "tool" && !item.event.stream), "call-stamped flows never stream on titles alone");
 
   const boundary = (content: "start" | "end", flowId: string, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage => ({
     id: `flow-${content}-${flowId}`, type: "tool_flow", content, toolFlowId: flowId, ...session, ...patch,
