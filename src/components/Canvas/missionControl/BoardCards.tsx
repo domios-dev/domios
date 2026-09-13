@@ -86,11 +86,6 @@ export function ProgressPanel({
             ))}
           </ul>
         )}
-        {progress.rest && (
-          <p data-testid="mc-board-task-status-rest" className="mc-board-caption">
-            {progress.rest}
-          </p>
-        )}
       </BoardPanelSection>
       <PlanSpendSection kpi={kpi} />
       <QualitySection bounces={bounces} />
@@ -153,19 +148,10 @@ function QualitySection({ bounces }: { bounces: BounceSummary }) {
   return (
     <BoardPanelSection testId="mc-board-quality" label="Quality">
       <dl className="mc-board-pairs">
-        <Pair
-          label="bounced"
-          testId="mc-board-bounces-amount"
-          warn={bounced > 0}
-          unit={bounced === 1 ? "task" : "tasks"}
-        >
+        <Pair label="bounced" testId="mc-board-bounces-amount" warn={bounced > 0}>
           <AnimatedNumber value={bounced} format={formatCount} />
         </Pair>
-        <Pair
-          label="done first try"
-          testId="mc-board-done-first-try-amount"
-          unit={`of ${formatCount(attempts)} ${attempts === 1 ? "attempt" : "attempts"}`}
-        >
+        <Pair label="first try" testId="mc-board-done-first-try-amount" unit={`of ${formatCount(attempts)}`}>
           <AnimatedNumber value={bounces.first_try_done} format={formatCount} />
         </Pair>
       </dl>

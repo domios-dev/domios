@@ -26,7 +26,7 @@ export function boardLayout(width: number): BoardLayout {
 
 /** Progress beside Spend on a wide board; one column on a phone. */
 export const BOARD_ROW_COLUMNS: Record<BoardLayout, string> = {
-  wide: "minmax(0, 1fr) minmax(0, 1.55fr)",
+  wide: "minmax(0, 1fr) minmax(0, 2fr)",
   narrow: "minmax(0, 1fr)",
 };
 
@@ -62,12 +62,6 @@ export function formatSharePct(value: number): string {
 
 export function formatCountOf(count: number, one: string, many: string): string {
   return `${formatCount(count)} ${count === 1 ? one : many}`;
-}
-
-/** "a, b or c": a readable run of words without middle-dot separators. */
-export function joinWords(words: readonly string[], conjunction: string): string {
-  if (words.length <= 1) return words.join("");
-  return `${words.slice(0, -1).join(", ")} ${conjunction} ${words[words.length - 1]}`;
 }
 
 export function formatAgeMs(ms: number): string {
@@ -457,20 +451,16 @@ export type TaskStatusKey = (typeof TASK_STATUS_FIELDS)[number]["key"];
 
 export interface ProgressReading {
   total: number;
-  /** Statuses holding at least one task, in lifecycle order. */
+  /** Statuses holding at least one task, in lifecycle order; empty statuses are not shown. */
   active: Array<{ key: TaskStatusKey; label: string; count: number }>;
-  /** One quiet line naming the empty statuses; null when nothing is worth saying. */
-  rest: string | null;
 }
 
 export function progressReading(counts: PlanTaskCounts): ProgressReading {
-  const statuses = TASK_STATUS_FIELDS.map((status) => ({ ...status, count: counts[status.key] }));
-  const active = statuses.filter((status) => status.count > 0);
-  const idle = statuses.filter((status) => status.count === 0).map((status) => status.label);
   return {
     total: counts.total,
-    active,
-    rest: active.length > 0 && idle.length > 0 ? `nothing ${joinWords(idle, "or")}` : null,
+    active: TASK_STATUS_FIELDS.map((status) => ({ ...status, count: counts[status.key] })).filter(
+      (status) => status.count > 0,
+    ),
   };
 }
 

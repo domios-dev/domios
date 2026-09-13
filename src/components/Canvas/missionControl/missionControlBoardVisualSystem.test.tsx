@@ -370,9 +370,7 @@ describe("mission control board visual system", () => {
     const statuses = Array.from(host.querySelectorAll('[data-testid="mc-board-task-statuses"] li')) as HTMLElement[];
     expect(statuses.map((status) => status.getAttribute("data-testid"))).toEqual(["mc-board-task-status-paused"]);
     expect(getComputedStyle(statuses[0]!).whiteSpace).toBe("nowrap");
-    expect(host.querySelector('[data-testid="mc-board-task-status-rest"]')?.textContent).toBe(
-      "nothing pending, in progress, in review, blocked, done or cancelled",
-    );
+    expect(host.querySelector('[data-testid="mc-board-task-statuses"]')?.textContent).toBe("4paused");
     expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
     expect(rule(css, ".mc-board-statuses")).toContain("flex-wrap: wrap;");
     expect(rule(css, ".mc-board-fact")).toContain("white-space: nowrap;");
