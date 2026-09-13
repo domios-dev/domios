@@ -11,6 +11,8 @@ export type {
   InteractiveElement,
   InteractiveQuestion,
   InteractiveOption,
+  ChatTimelineMarker,
+  ChatSessionIntent,
   ToolEventKind,
   ToolEdit,
   FileDiff,

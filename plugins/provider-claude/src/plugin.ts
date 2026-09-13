@@ -10,9 +10,11 @@ import {
 } from "./usage";
 import {
   ClaudeEntry,
+  aiTitleFromEntry,
   ClaudeToolUseResult,
   claudeSessionFilePath,
   contentToText,
+  editedTextFilePath,
   extractSetModelFamily,
   familyFromModelId,
   isValidClaudeSessionMessage,
@@ -497,9 +499,45 @@ const plugin: PluginModule = {
         continue;
       }
       const t = v && v.type;
+      let ts: number | null = null;
+      if (typeof v.timestamp === "string") {
+        const d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      }
+      const timestamp = (typeof v.timestamp === "string") ? v.timestamp : null;
+
+      if (t === "ai-title") {
+        const title = aiTitleFromEntry(v);
+        if (!title) continue;
+        out.push({
+          role: "custom",
+          blocks: [],
+          ts,
+          uuid: (typeof v.uuid === "string") ? v.uuid : null,
+          sessionIntent: { title },
+          timestamp,
+        });
+        continue;
+      }
+
+      if (t === "edited_text_file" || (t === "attachment" && v.attachment?.type === "edited_text_file")) {
+        const path = editedTextFilePath(v);
+        if (!path) continue;
+        out.push({
+          role: "system",
+          blocks: [],
+          ts,
+          uuid: (typeof v.uuid === "string") ? v.uuid : null,
+          timelineMarker: { kind: "external_edit", path },
+          timestamp,
+        });
+        continue;
+      }
+
       const blocks: Array<{ kind: string; data: Record<string, unknown> }> = [];
       let role: string;
       let sourceSubtype: string | null = (typeof v.subtype === "string") ? v.subtype : null;
+      let timelineMarker: Record<string, unknown> | undefined;
       if (t === "system") {
         // System rows carry top-level `content` + `subtype`; the host turns them into system/local_command cards.
         role = "system";
@@ -527,6 +565,7 @@ const plugin: PluginModule = {
           } else if (t === "user" && isCompactSummaryRow(v, content)) {
             role = "system";
             sourceSubtype = "compact_summary";
+            timelineMarker = { kind: "context_compaction" };
             blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
           } else if (content) {
             blocks.push({ kind: "text", data: { text: content } });
@@ -593,16 +632,15 @@ const plugin: PluginModule = {
           blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
         } else {
           role = "user";
+          timelineMarker = { kind: "queued" };
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
         continue;
       }
       if (!blocks.length) continue;
-      let ts: number | null = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      if (t === "system" && sourceSubtype === "compact_boundary") {
+        timelineMarker = { kind: "context_compaction" };
       }
       out.push({
         role: role,
@@ -615,7 +653,8 @@ const plugin: PluginModule = {
         level: (typeof v.level === "string") ? v.level : null,
         isCompactSummary: v.isCompactSummary === true ? true : null,
         isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
-        timestamp: (typeof v.timestamp === "string") ? v.timestamp : null,
+        timelineMarker,
+        timestamp,
       });
     }
     return { messages: out };

@@ -267,6 +267,29 @@ const plugin: PluginModule = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
+      const normalizedEventType = v.payload?.type;
+      if (normalizedEventType === "context_compacted") {
+        out.push({
+          role: "system",
+          blocks: [{ kind: "text", data: { text: "context compacted" } }],
+          ts,
+          timestamp: tsIso,
+          timelineMarker: { kind: "context_compaction" },
+        });
+        continue;
+      }
+      if (normalizedEventType === "thread_goal_updated") {
+        const sessionIntent = sessionIntentFromPayload(v.payload!);
+        if (!sessionIntent) continue;
+        out.push({
+          role: "custom",
+          blocks: [],
+          ts,
+          timestamp: tsIso,
+          sessionIntent,
+        });
+        continue;
+      }
       if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
@@ -535,6 +558,10 @@ interface CodexPayload {
   type?: string;
   role?: string;
   content?: string | CodexContentBlock[];
+  goal?: unknown;
+  thread_goal?: unknown;
+  title?: unknown;
+  thread_name?: unknown;
   arguments?: string;
   name?: string;
   output?: unknown;
@@ -607,6 +634,8 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
       || v.payload.type === "task_started"
       || v.payload.type === "task_complete"
       || v.payload.type === "turn_aborted"
+      || v.payload.type === "context_compacted"
+      || (v.payload.type === "thread_goal_updated" && sessionIntentFromPayload(v.payload) !== null)
       || v.payload.type === "sub_agent_activity";
   }
   if (v.type !== "response_item") return false;
@@ -619,11 +648,29 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
     kind !== "function_call" &&
     kind !== "function_call_output" &&
     kind !== "custom_tool_call" &&
-    kind !== "custom_tool_call_output"
+    kind !== "custom_tool_call_output" &&
+    kind !== "context_compacted" &&
+    kind !== "thread_goal_updated"
   ) {
     return false;
   }
   return true;
+}
+
+function cleanIntentValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : undefined;
+}
+
+function sessionIntentFromPayload(payload: CodexPayload): Record<string, string> | null {
+  const title = cleanIntentValue(payload.title) || cleanIntentValue(payload.thread_name);
+  const goal = cleanIntentValue(payload.goal) || cleanIntentValue(payload.thread_goal);
+  if (!title && !goal) return null;
+  return {
+    ...(title ? { title } : {}),
+    ...(goal ? { goal } : {}),
+  };
 }
 
 function codexToolOutputText(output: unknown): string {

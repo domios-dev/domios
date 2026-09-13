@@ -1,6 +1,12 @@
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
-import { MessageBubble, OutboundReportCard } from "@codeterm/chat-ui";
+import {
+  ChatSessionIntentLine,
+  isSessionIntentOnlyMessage,
+  MessageBubble,
+  OutboundReportCard,
+  sessionIntentFromMessages,
+} from "@codeterm/chat-ui";
 import { extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
@@ -168,6 +174,7 @@ export function TabSessionChat({
     error,
     attachmentState,
     transcriptUnavailable,
+    allMessages,
     enrichedMessages,
     hiddenMessageCount,
     canBackfillOlder,
@@ -418,7 +425,11 @@ export function TabSessionChat({
       />
     );
   };
-  const renderedEnrichedMessages = enrichedMessages;
+  const renderedEnrichedMessages = useMemo(
+    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    [enrichedMessages],
+  );
+  const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
   // does: a body that still owns a loading or failed state emits no rail rows.
   const railsVisible = chatRailsVisible(setupView);
@@ -644,6 +655,7 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
         <div
