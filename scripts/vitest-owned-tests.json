@@ -4,6 +4,7 @@
   "packages/chat-ui/src/toolcard/commandGroup.test.tsx",
   "packages/chat-core/src/shellComposition.test.ts",
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
+  "src/components/Canvas/planPresenceMotion.test.tsx",
   "src/components/Canvas/missionControl/MissionControlBoard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlSpendCard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlControls.test.tsx",
