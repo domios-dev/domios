@@ -19,11 +19,11 @@ function statusColor(status: ToolEvent["status"]): string {
   return status === "error" ? "var(--ct-red)" : status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
 }
 
-function statusName(status: ToolEvent["status"]): string {
+export function statusName(status: ToolEvent["status"]): string {
   return status === "unresolved" ? "no result" : status;
 }
 
-function StatusGlyph({ status }: { status: ToolEvent["status"] }) {
+export function StatusGlyph({ status }: { status: ToolEvent["status"] }) {
   const style = { color: statusColor(status) };
   if (status === "pending") {
     return <LoaderCircle data-testid="chat-tool-stream-spinner" aria-hidden="true" size={12} className="shrink-0 motion-safe:animate-spin" style={style} />;

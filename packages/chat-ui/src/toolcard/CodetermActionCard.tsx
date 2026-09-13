@@ -1,5 +1,5 @@
-import type { ToolEvent } from "@codeterm/chat-core";
-import { recognize } from "../codeterm/recognize";
+import { toolCommand, type ToolEvent } from "@codeterm/chat-core";
+import { recognize, type CodetermInvocation } from "../codeterm/recognize";
 import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
@@ -18,6 +18,8 @@ type PlanFocusKind = "plan" | "task" | "section";
 
 interface Props {
   event: ToolEvent;
+  /** The already-recognized invocation; recognized from the event's command when absent. */
+  invocation?: CodetermInvocation;
   expanded: boolean;
   onToggle: () => void;
   resolveTabName?: TabNameResolver;
@@ -29,10 +31,6 @@ interface Props {
   onOpenMemory?: (memoryId: string) => void;
   onOpenSource?: (sourceId: string) => void;
   fontScale?: number;
-}
-
-function commandFor(event: ToolEvent): string {
-  return event.detail?.trim() || event.summary || event.result?.trim() || "";
 }
 
 function targetLabel(target: NavigationTarget): string {
@@ -107,6 +105,7 @@ function actionVisual(invocation: NonNullable<ReturnType<typeof recognize>>): To
 
 export function CodetermActionCard({
   event,
+  invocation,
   expanded,
   onToggle,
   resolveTabName,
@@ -119,7 +118,8 @@ export function CodetermActionCard({
   onOpenMemory,
   onOpenSource,
 }: Props) {
-  const inv = recognize(commandFor(event));
+  const command = toolCommand(event);
+  const inv = invocation ?? recognize(command.command, command.argv);
   const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName, resolvePeerName) : undefined;
   const sendSucceeded = sent?.status?.ok === true;
   const target = inv ? navigationTarget(inv, event.result) : null;
