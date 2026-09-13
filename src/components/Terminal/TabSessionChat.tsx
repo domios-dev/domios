@@ -722,6 +722,7 @@ export function TabSessionChat({
               data-testid="chat-message"
               data-message-role={msg.type}
               data-message-id={msg.id}
+              data-source-message-id={msg.sourceMessageId ?? msg.id}
               role="article"
               aria-label={chatMessageAccessibleName(msg.type, msg.content)}
             >

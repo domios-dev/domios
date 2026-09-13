@@ -1,6 +1,12 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createTranscriptState,
+  reduceTranscript,
+  transcriptRows,
+  type NormalizedChatMessage,
+} from "@codeterm/chat-core";
 import { NeedsYouPanel } from "../Canvas/missionControl/BoardCards";
 import type { HeldForDecision } from "../Canvas/missionControl/missionControlState";
 import { useChatMessageReveal } from "../Terminal/useChatMessageReveal";
@@ -11,6 +17,7 @@ import { getClientTabUiMode, resolveInitialTabUiMode, setClientTabUiMode } from 
 import { jumpToChatMessage } from "./jumpToChatMessage";
 import {
   DEEP_LINK_UNAVAILABLE_COPY,
+  isStableChatMessageId,
   needsYouNotificationItems,
   resolveDeepLink,
 } from "../../lib/notificationDeepLink";
@@ -139,6 +146,16 @@ describe("notification deep link identity", () => {
       .toEqual({ kind: "unavailable", reason: "tab_gone" });
   });
 
+  it("refuses an offset-anchored message id as having no stable id", () => {
+    expect(isStableChatMessageId("0-601-0")).toBe(false);
+    expect(isStableChatMessageId("820083374-12-0")).toBe(false);
+    expect(isStableChatMessageId("result-0-601")).toBe(false);
+    expect(isStableChatMessageId("3f2a9c1e-7b4d-4e0a-9d51-0c6b2f1e8a77-0")).toBe(true);
+    expect(isStableChatMessageId(TARGET_MESSAGE)).toBe(true);
+    expect(resolveDeepLink(record({ chat_message_id: "0-601-0" }), TABS, WORKSPACES))
+      .toEqual({ kind: "unavailable", reason: "no_stable_id" });
+  });
+
   it("reports a target tab without a chat view as unavailable", () => {
     expect(resolveDeepLink(record({ target_tab_id: SHELL_TAB }), TABS, WORKSPACES))
       .toEqual({ kind: "unavailable", reason: "no_chat" });
@@ -206,6 +223,17 @@ describe("Needs you notification rows", () => {
     });
   });
 
+  it("an offset-anchored id reads as having no stable id and cannot be activated", async () => {
+    const onSelectTab = vi.fn();
+    const offset = record({ id: "n-offset", chat_message_id: "0-601-0" });
+    const { host } = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([offset], onSelectTab)} />);
+    expect(rowFor(host, "n-offset").querySelector('[data-testid="needs-you-notification-unavailable"]')?.textContent)
+      .toBe(DEEP_LINK_UNAVAILABLE_COPY.no_stable_id);
+    await pressEnter(links(host)[0]);
+    expect(onSelectTab).not.toHaveBeenCalled();
+    expect(currentChatReveal()).toBeNull();
+  });
+
   it("an unavailable row neither selects a tab nor asks for any message", async () => {
     const onSelectTab = vi.fn();
     const { host } = await render(
@@ -216,6 +244,35 @@ describe("Needs you notification rows", () => {
     await pressEnter(link);
     expect(onSelectTab).not.toHaveBeenCalled();
     expect(currentChatReveal()).toBeNull();
+  });
+});
+
+describe("transcript source identity", () => {
+  it("keeps the emitted id as sourceMessageId while render keys stay range ordinals", () => {
+    const authority = { sourceSessionId: "sid-1", sessionBindingNonce: "nonce-1" };
+    const row = (id: string, content: string, seq: number): NormalizedChatMessage => ({
+      id,
+      type: "assistant",
+      content,
+      seq,
+      sourceSessionId: authority.sourceSessionId,
+    });
+    const snapshot = reduceTranscript(createTranscriptState(), {
+      kind: "snapshot",
+      authority,
+      range: { start: 100, end: 200 },
+      rows: [row("uuid-a-0", "first", 0), row("uuid-b-0", "second", 1)],
+    });
+    expect(transcriptRows(snapshot.state).map((entry) => [entry.id, entry.sourceMessageId]))
+      .toEqual([["100:0", "uuid-a-0"], ["100:1", "uuid-b-0"]]);
+
+    const delta = reduceTranscript(snapshot.state, {
+      kind: "delta",
+      authority,
+      range: { start: 200, end: 260 },
+      rows: [row("uuid-c-0", "third", 0)],
+    });
+    expect(transcriptRows(delta.state).at(-1)).toMatchObject({ id: "200:0", sourceMessageId: "uuid-c-0" });
   });
 });
 
@@ -267,11 +324,12 @@ describe("jump from the Board to the chat", () => {
   });
 });
 
+/** Render keys are range ordinals; one decoy row's render key equals the target's source id. */
 const TRANSCRIPT = [
-  { id: "m-similar", text: SHARED_TEXT },
-  { id: TARGET_MESSAGE, text: SHARED_TEXT },
-  { id: "m-after", text: "Rolling out now" },
-  { id: "m-tail", text: SHARED_TEXT },
+  { id: "0:0", sourceId: "uuid-similar-0", text: SHARED_TEXT },
+  { id: TARGET_MESSAGE, sourceId: "uuid-decoy-0", text: SHARED_TEXT },
+  { id: "0:2", sourceId: TARGET_MESSAGE, text: SHARED_TEXT },
+  { id: "0:3", sourceId: "uuid-tail-0", text: "Rolling out now" },
 ];
 const ROW_HEIGHT = 100;
 
@@ -288,7 +346,9 @@ function ChatHarness({ tabId, ready }: { tabId: string; ready: boolean }) {
   return (
     <div ref={scrollRef} onScroll={handleScroll} data-testid="chat-scroll">
       {TRANSCRIPT.map((message) => (
-        <div key={message.id} data-message-id={message.id}>{message.text}</div>
+        <div key={message.id} data-message-id={message.id} data-source-message-id={message.sourceId}>
+          {message.text}
+        </div>
       ))}
     </div>
   );
@@ -311,15 +371,19 @@ function stubGeometry(host: HTMLElement): HTMLElement {
 }
 
 describe("exact chat message reveal", () => {
-  it("scrolls to the row with the exact id, not an earlier message with the same text", async () => {
+  it("scrolls to the row whose source id matches, not its render key or a same-text message", async () => {
     const { host } = await render(<ChatHarness tabId={TARGET_TAB} ready />);
     const scroll = stubGeometry(host);
     scroll.scrollTop = 350;
 
     act(() => { requestChatMessageReveal(TARGET_TAB, TARGET_MESSAGE, "n-exact"); });
 
+    const target = TRANSCRIPT.findIndex((message) => message.sourceId === TARGET_MESSAGE);
+    const decoy = TRANSCRIPT.findIndex((message) => message.id === TARGET_MESSAGE);
+    expect(TRANSCRIPT[target].id).not.toBe(TARGET_MESSAGE);
     expect(currentChatReveal()?.outcome).toBe("revealed");
-    expect(scroll.scrollTop).toBe(TRANSCRIPT.findIndex((message) => message.id === TARGET_MESSAGE) * ROW_HEIGHT);
+    expect(scroll.scrollTop).toBe(target * ROW_HEIGHT);
+    expect(scroll.scrollTop).not.toBe(decoy * ROW_HEIGHT);
   });
 
   it("waits for a ready transcript and leaves another tab's request alone", async () => {
