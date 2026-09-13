@@ -234,9 +234,10 @@ export function TabSessionChat({
     revealMessage,
   });
 
-  // Sending or jumping to latest must leave history-browsing mode first, or the
-  // bounded window would keep the new tail out of the DOM.
+  // A detached reader stays on its content through a send; only a followed tail
+  // re-projects the bounded window and moves with it.
   const followSentMessage = useCallback(() => {
+    if (!chatFollowTailRef.current) return;
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
