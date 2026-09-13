@@ -315,11 +315,17 @@ fn task_key_contract_every_task_reference_accepts_id_and_key_and_refuses_ambigui
     let mut clash = legacy_task("task_clash1");
     clash.handle = Some("alp-1".into());
     let tasks = vec![keyed_task, clash.clone()];
-    match task_key::match_task_ref(&tasks, "ALP-1") {
-        TaskRefMatch::Ambiguous(hits) => assert_eq!(hits, vec![0, 1]),
-        other => panic!("expected ambiguity, got {other:?}"),
+    for spelling in ["ALP-1", "alp-1", "Alp-1"] {
+        match task_key::match_task_ref(&tasks, spelling) {
+            TaskRefMatch::Ambiguous(hits) => assert_eq!(hits, vec![0, 1], "{spelling}"),
+            other => panic!("expected ambiguity for {spelling}, got {other:?}"),
+        }
+        assert_eq!(
+            task_key::find_task_index(&tasks, spelling),
+            None,
+            "{spelling}"
+        );
     }
-    assert_eq!(task_key::find_task_index(&tasks, "ALP-1"), None);
     assert_eq!(task_key::find_task_index(&tasks, "task_clash1"), Some(1));
     assert_eq!(task_key::find_task_index(&tasks, &keyed), Some(0));
 
@@ -334,14 +340,18 @@ fn task_key_contract_every_task_reference_accepts_id_and_key_and_refuses_ambigui
         .find(|task| task.id == "task_clash1")
         .and_then(|task| task.handle);
     assert_eq!(saved_handle.as_deref(), Some("alp-1"));
-    match store.resolve_task_ref(Some(&plan_id), "ALP-1") {
-        Err(ResolveError::Ambiguous { candidates, .. }) => {
-            assert_eq!(candidates.len(), 2);
-            assert!(candidates.iter().any(|c| c.key.as_deref() == Some("ALP-1")));
+    for spelling in ["ALP-1", "alp-1"] {
+        for plan_ref in [Some(plan_id.as_str()), None] {
+            match store.resolve_task_ref(plan_ref, spelling) {
+                Err(ResolveError::Ambiguous { candidates, .. }) => {
+                    assert_eq!(candidates.len(), 2, "{spelling}");
+                    assert!(candidates.iter().any(|c| c.key.as_deref() == Some("ALP-1")));
+                }
+                other => panic!("expected ambiguity for {spelling}, got {other:?}"),
+            }
         }
-        other => panic!("expected ambiguity, got {other:?}"),
+        assert!(store.show_task(spelling).is_none(), "{spelling}");
     }
-    assert!(store.show_task("ALP-1").is_none());
     assert_eq!(
         store
             .resolve_task_ref(Some(&plan_id), &keyed)
