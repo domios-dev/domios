@@ -1,4 +1,36 @@
 import { useId, type ReactNode } from "react";
+import { formatCount } from "./missionControlBoardModel";
+
+/** Reveals a capped list; absent when everything already fits. */
+export function ShowAll({
+  total,
+  limit,
+  open,
+  controls,
+  testId,
+  onToggle,
+}: {
+  total: number;
+  limit: number;
+  open: boolean;
+  controls: string;
+  testId: string;
+  onToggle: () => void;
+}) {
+  if (total <= limit) return null;
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      className="mc-board-more"
+      aria-expanded={open}
+      aria-controls={controls}
+      onClick={onToggle}
+    >
+      {open ? "Show fewer" : `Show all ${formatCount(total)}`}
+    </button>
+  );
+}
 
 export interface BoardPanelProps {
   testId: string;

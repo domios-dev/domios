@@ -1,11 +1,13 @@
-import { useCallback, useState } from "react";
-import { BoardPanel, BoardPanelSection } from "./BoardPanel";
+import { useCallback, useId, useState } from "react";
+import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
 import {
+  EVENT_LOG_PREVIEW,
   EVENT_PART_SEPARATOR,
   EVENT_REVEAL_HIDE_LABEL,
   EVENT_REVEAL_SHOW_LABEL,
   eventLogCaption,
   eventLogRows,
+  latestEventRows,
   type EventRow,
 } from "./missionControlBoardModel";
 import type { EventLog } from "./missionControlState";
@@ -79,7 +81,10 @@ function LogRow({ event, expanded, onToggle }: LogRowProps) {
 }
 
 export function BoardEventLog({ log, milestoneKinds }: BoardEventLogProps) {
-  const rows = eventLogRows(log, milestoneKinds);
+  const allRows = eventLogRows(log, milestoneKinds);
+  const [showAll, setShowAll] = useState(false);
+  const logId = useId();
+  const rows = showAll ? allRows : latestEventRows(allRows, EVENT_LOG_PREVIEW);
   const [openKeys, setOpenKeys] = useState<readonly string[]>([]);
   const toggle = useCallback((key: string) => {
     setOpenKeys((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
@@ -93,7 +98,7 @@ export function BoardEventLog({ log, milestoneKinds }: BoardEventLogProps) {
             No events yet.
           </p>
         ) : (
-          <div className="mc-board-log">
+          <div id={logId} className="mc-board-log">
             {rows.map((row) =>
               row.event === null ? (
                 <span key={row.key} data-testid="mc-board-event-hour" className="mc-board-log-hour">
@@ -110,6 +115,14 @@ export function BoardEventLog({ log, milestoneKinds }: BoardEventLogProps) {
             )}
           </div>
         )}
+        <ShowAll
+          total={log.entries.length}
+          limit={EVENT_LOG_PREVIEW}
+          open={showAll}
+          controls={logId}
+          testId="mc-board-event-log-more"
+          onToggle={() => setShowAll((value) => !value)}
+        />
       </BoardPanelSection>
     </BoardPanel>
   );

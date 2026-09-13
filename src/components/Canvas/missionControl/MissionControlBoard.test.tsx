@@ -84,6 +84,12 @@ function gridTemplate(el: HTMLElement): string {
   return el.style.gridTemplateColumns || el.getAttribute("style") || "";
 }
 
+async function openAreas(host: HTMLElement): Promise<HTMLButtonElement> {
+  const toggle = host.querySelector('[data-testid="mc-board-areas-toggle"]') as HTMLButtonElement;
+  await act(async () => toggle.click());
+  return toggle;
+}
+
 function statusItems(host: HTMLElement): string[] {
   return Array.from(host.querySelectorAll('[data-testid="mc-board-task-statuses"] li')).map(
     (item) => item.textContent ?? "",
@@ -465,13 +471,65 @@ describe("mission control board panels", () => {
   it("groups by the declared area facet and names the untagged remainder", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
+    expect(areaRows(host)).toEqual([]);
+    const toggle = await openAreas(host);
+    expect(toggle.textContent).toBe("By area");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(areaRows(host)).toEqual([
       { label: "Design", count: "6" },
       { label: "Backend", count: "2" },
       { label: "untagged", count: "2" },
     ]);
-    expect(host.querySelector('[data-testid="mc-board-areas"] h3')?.textContent).toBe("Area");
+    const list = host.querySelector('[data-testid="mc-board-areas"] dl') as HTMLElement;
+    expect(list.getAttribute("aria-label")).toBe("Area");
+    expect(toggle.getAttribute("aria-controls")).toBe(list.id);
     expect(text(host, "mc-board-areas")).not.toContain("%");
+    await act(async () => toggle.click());
+    expect(areaRows(host)).toEqual([]);
+    await unmount();
+  });
+
+  it("caps Needs you at three items behind Show all", async () => {
+    const state = recordingState();
+    state.held.held_reviews = [];
+    state.held.open_gates = Array.from({ length: 5 }, (_, index) => ({
+      id: `g${index}`,
+      question: `Question ${index}?`,
+      status: "open" as const,
+      asked_at: NOW - H,
+      age_ms: H,
+      blocking_task_count: 0,
+    }));
+    const { host, unmount } = await render(board(state));
+
+    const items = () => host.querySelectorAll('[data-testid="mc-board-needs-you-item"]');
+    expect(items()).toHaveLength(3);
+    expect(text(host, "mc-board-needs-you-count")).toBe("5");
+    const more = host.querySelector('[data-testid="mc-board-needs-you-more"]') as HTMLButtonElement;
+    expect(more.textContent).toBe("Show all 5");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => more.click());
+    expect(items()).toHaveLength(5);
+    expect(more.textContent).toBe("Show fewer");
+    await unmount();
+  });
+
+  it("shows the latest eight events and reveals the rest on request", async () => {
+    const state = recordingState();
+    state.event_log.entries = Array.from({ length: 12 }, (_, index) =>
+      logEvent({ ts: DAY + H + index * 60_000, kind: "note", text: `note ${index}` }),
+    );
+    state.event_log.recorded_events = 12;
+    const { host, unmount } = await render(board(state));
+
+    const bodies = () => eventRows(host).map((row) => part(row, "mc-board-event-body")?.textContent);
+    expect(bodies()).toEqual(Array.from({ length: 8 }, (_, index) => `note ${index + 4}`));
+    expect(host.querySelector('[data-testid="mc-board-event-hour"]')).not.toBeNull();
+    const more = host.querySelector('[data-testid="mc-board-event-log-more"]') as HTMLButtonElement;
+    expect(more.textContent).toBe("Show all 12");
+    await act(async () => more.click());
+    expect(bodies()).toHaveLength(12);
+    expect(text(host, "mc-board-event-log-meta")).toBe("12 events");
     await unmount();
   });
 });
@@ -556,11 +614,12 @@ describe("mission control board fallback states", () => {
   it("falls back to stored executor roles under a Roles label", async () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
+    expect((await openAreas(host)).textContent).toBe("By role");
     expect(areaRows(host)).toEqual([
       { label: "frontend-dev", count: "2" },
       { label: "No role recorded", count: "1" },
     ]);
-    expect(host.querySelector('[data-testid="mc-board-areas"] h3')?.textContent).toBe("Roles");
+    expect(host.querySelector('[data-testid="mc-board-areas"] dl')?.getAttribute("aria-label")).toBe("Roles");
     expect(host.querySelectorAll('[data-testid="mc-board-areas"] p')).toHaveLength(0);
     expect(text(host, "mc-board-areas")).not.toContain("%");
     await unmount();

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import {
   areaReading,
   formatCompact,
@@ -8,7 +8,7 @@ import {
   progressReading,
 } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
-import { BoardPanel, BoardPanelSection, Facts } from "./BoardPanel";
+import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
 import type {
   AreaGrouping,
   BounceSummary,
@@ -21,23 +21,38 @@ export { SpendCard } from "./BoardSpendCard";
 
 const WARN_STATUSES = new Set(["blocked", "paused"]);
 
+const NEEDS_YOU_PREVIEW = 3;
+
 export function NeedsYouPanel({ held }: { held: HeldForDecision }) {
   const items = needsYouItems(held);
+  const [showAll, setShowAll] = useState(false);
+  const listId = useId();
   if (items.length === 0) return null;
+  const visible = showAll ? items : items.slice(0, NEEDS_YOU_PREVIEW);
   return (
     <BoardPanel testId="mc-board-needs-you" title="Needs you">
       <div className="mc-board-needs">
         <span data-testid="mc-board-needs-you-count" className="mc-board-figure mc-board-warn">
           <AnimatedNumber value={items.length} format={formatCount} />
         </span>
-        <ul className="mc-board-needs-list">
-          {items.map((item) => (
-            <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
-              <p className="mc-board-needs-title">{item.title}</p>
-              <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
-            </li>
-          ))}
-        </ul>
+        <div className="mc-board-needs-body">
+          <ul id={listId} className="mc-board-needs-list">
+            {visible.map((item) => (
+              <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
+                <p className="mc-board-needs-title">{item.title}</p>
+                <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
+              </li>
+            ))}
+          </ul>
+          <ShowAll
+            total={items.length}
+            limit={NEEDS_YOU_PREVIEW}
+            open={showAll}
+            controls={listId}
+            testId="mc-board-needs-you-more"
+            onToggle={() => setShowAll((value) => !value)}
+          />
+        </div>
       </div>
     </BoardPanel>
   );
@@ -159,14 +174,26 @@ function QualitySection({ bounces }: { bounces: BounceSummary }) {
   );
 }
 
+/** The breakdown is on request, so Progress stays a short summary beside Spend. */
 function AreasSection({ areas }: { areas: AreaGrouping }) {
   const reading = areaReading(areas);
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  if (reading.rows.length === 0) return null;
   return (
-    <BoardPanelSection testId="mc-board-areas" label={reading.title}>
-      {reading.rows.length === 0 ? (
-        <p className="mc-board-note">No tasks to group.</p>
-      ) : (
-        <dl className="mc-board-kv-list">
+    <BoardPanelSection testId="mc-board-areas">
+      <button
+        type="button"
+        data-testid="mc-board-areas-toggle"
+        className="mc-board-more"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {reading.toggleLabel}
+      </button>
+      {open && (
+        <dl id={listId} aria-label={reading.title} className="mc-board-kv-list">
           {reading.rows.map((row) => (
             <div
               key={row.key}
