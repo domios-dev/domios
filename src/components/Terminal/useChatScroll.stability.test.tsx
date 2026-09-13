@@ -53,6 +53,7 @@ let sourceLog: NormalizedChatMessage[];
 let optimistic: NormalizedChatMessage[];
 const heights = new Map<string, number>();
 const followTail = { current: true };
+let modeChanges: string[] = [];
 let hook: UseChatScrollResult | null = null;
 let root: Root | null = null;
 let host: HTMLElement | null = null;
@@ -70,6 +71,7 @@ function Harness({ rows, active }: { rows: NormalizedChatMessage[]; active: bool
     contentVersion: rows,
     prependVersion: rows[0]?.id ?? null,
     followTailRef: followTail,
+    onModeChange: (mode) => modeChanges.push(mode),
   });
   return (
     <div ref={hook.scrollRef} data-testid="scroll">
@@ -247,6 +249,7 @@ beforeEach(() => {
   optimistic = [];
   heights.clear();
   followTail.current = true;
+  modeChanges = [];
   clearPersistedChatScrollState(SESSION);
   fill(40);
 });
@@ -378,9 +381,53 @@ describe("detached reader at the history cap", () => {
     await asyncHeightChange(rows[rows.length - 1].dataset.sourceMessageId!, ROW_HEIGHT - 10);
     expect(readerPosition(anchor)).toBe(position);
     expect(scroll().scrollTop).toBe(scroll().scrollHeight - scroll().clientHeight);
+    expect(hook!.showScrollDown).toBe(true);
 
     await deliverScrollEvent();
     expect(followTail.current).toBe(false);
+    expect(hook!.showScrollDown).toBe(true);
+  });
+});
+
+describe("reattaching at a fractional visual bottom", () => {
+  it.each([0.6, 1, 1.4])(
+    "reattaches a reader who scrolls down to a %spx fractional gap and follows the next send and reply",
+    async (gap) => {
+      await mount();
+      await userScrollTo(500);
+      expect(followTail.current).toBe(false);
+
+      const el = scroll();
+      await userScrollTo(el.scrollHeight - el.clientHeight - gap);
+      expect(el.scrollHeight - el.scrollTop - el.clientHeight).toBeCloseTo(gap);
+      expect(followTail.current).toBe(true);
+      expect(modeChanges[modeChanges.length - 1]).toBe("pinned");
+      expect(hook!.showScrollDown).toBe(false);
+
+      optimistic = [{ id: "opt-4", type: "user", content: "after reattach", correlationId: "opt-4" }];
+      await act(async () => hook!.followSend());
+      await update();
+      expectPinnedToBottom();
+
+      optimistic = [];
+      appendDelta(sourceRow("user", { correlationId: "opt-4" }));
+      appendDelta(sourceRow("assistant"));
+      await update();
+      expectPinnedToBottom();
+      const rendered = domRows();
+      expect(rendered[rendered.length - 1].dataset.sourceMessageId).toBe(sourceLog[sourceLog.length - 1].id);
+    },
+  );
+
+  it("keeps a reader detached while moving up inside the bottom band", async () => {
+    await mount();
+    const el = scroll();
+    const bottom = el.scrollHeight - el.clientHeight;
+    await userScrollTo(bottom - 1);
+    expect(followTail.current).toBe(false);
+    await userScrollTo(bottom - 1.5);
+    expect(followTail.current).toBe(false);
+    expect(hook!.showScrollDown).toBe(true);
   });
 });
 
