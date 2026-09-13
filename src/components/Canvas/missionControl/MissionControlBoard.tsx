@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
 import type { AllowanceWeeks } from "./allowanceWeek";
+import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { ModelsCard, NeedsYouPanel, PlanCard, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
 import { boardRefs } from "./BoardRefText";
@@ -22,6 +23,8 @@ export interface MissionControlBoardProps {
   previousPlans?: readonly Plan[];
   onOpenTask?: (taskId: string) => void;
   onOpenPlan?: (planId: string) => void;
+  /** Needs you notifications in this Board's scope, each one jump to its chat message. */
+  deepLinks?: NeedsYouDeepLinks;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -50,6 +53,7 @@ export function MissionControlBoard({
   previousPlans,
   onOpenTask,
   onOpenPlan,
+  deepLinks,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -91,7 +95,7 @@ export function MissionControlBoard({
               onOpenPlan={onOpenPlan}
             />
           </div>
-          <NeedsYouPanel held={mc.held} refs={refs} />
+          <NeedsYouPanel held={mc.held} refs={refs} deepLinks={deepLinks} />
           <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} refs={refs} />
         </>
       )}

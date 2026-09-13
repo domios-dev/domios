@@ -13,6 +13,7 @@ use crate::notification::{
     channel_placement::SpentQuestion,
     channels,
     dedupe::DeliveryAdmission,
+    deep_link::NotificationTarget,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
     reach::{self, Unseen},
@@ -109,6 +110,8 @@ pub struct NotificationOrigin {
     pub caller_tab_id: Option<String>,
     pub claimed_tab_id: Option<String>,
     pub peer_name: Option<String>,
+    /// The chat message this record jumps to. Navigation only, never provenance.
+    pub target: NotificationTarget,
 }
 
 impl NotificationOrigin {
@@ -193,6 +196,13 @@ pub(crate) fn create_notification_with_delivery(
     }
     let actions = ask.actions.clone();
     let provenance = resolve_origin(&origin, resolve_tab);
+    // A remote peer never names a local tab, so it cannot name one to jump to either.
+    let target = if origin.peer_name.is_some() {
+        NotificationTarget::default()
+    } else {
+        origin.target.clone()
+    };
+    let explicit = matches!(admission, NotificationAdmission::Explicit);
     let parsed_severity = notification_severity(severity);
     let severity_str = match &parsed_severity {
         NotificationSeverity::Warning => "Warning",
@@ -279,6 +289,9 @@ pub(crate) fn create_notification_with_delivery(
         }
     };
 
+    if explicit {
+        store.lock().set_target(&id, target);
+    }
     let stored = store.lock().notification(&id).cloned();
 
     // The answer slot the store just built, so every surface renders the same
@@ -297,6 +310,14 @@ pub(crate) fn create_notification_with_delivery(
         "tab_title": provenance.tab_title.clone(),
         "peer_name": provenance.peer_name.clone(),
     });
+    if let Some(record) = stored.as_ref() {
+        if let Some(tab_id) = &record.target_tab_id {
+            payload["target_tab_id"] = serde_json::json!(tab_id);
+        }
+        if let Some(message_id) = &record.chat_message_id {
+            payload["chat_message_id"] = serde_json::json!(message_id);
+        }
+    }
     let emitted_actions = stored
         .as_ref()
         .and_then(|record| record.actions.clone())
