@@ -1,4 +1,5 @@
 import React from "react";
+import { describe, it } from "vitest";
 import { materializeToolEvent, reduceToolEvents } from "@codeterm/chat-core";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../ToolCallBubble";
@@ -159,8 +160,6 @@ const cases: Array<[string, () => Promise<void>]> = [
   }],
 ];
 
-for (const [name, run] of cases) {
-  await run();
-  console.log(`✓ ${name}`);
-}
-console.log(`command facts tests: ${cases.length}/${cases.length} passed`);
+describe("command facts", () => {
+  for (const [name, run] of cases) it(name, run);
+});

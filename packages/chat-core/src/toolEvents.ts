@@ -257,10 +257,6 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     const value = text(source);
     return value ? `${session ?? ""}:${value}` : undefined;
   };
-  const toolKey = (session: string | undefined, toolId: string | undefined): string | undefined => {
-    const value = text(toolId);
-    return value ? `${session ?? ""}:${value}` : undefined;
-  };
   const resultMatchesCall = (call: ToolEvent, result: ToolEvent): boolean => {
     if (result.pairing === "exact") {
       if (!result.callSourceId || result.callSourceId !== call.callSourceId) return false;
@@ -337,7 +333,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       const flowId = materialized.flowId ?? openFlowBySession.get(message.sourceSessionId ?? "");
       const event = flowId ? { ...materialized, flowId } : materialized;
       const source = sourceKey(message.sourceSessionId, event.callSourceId);
-      const id = toolKey(message.sourceSessionId, event.toolId);
+      const id = text(event.toolId);
       const pendingById = id ? waiting.get(id) ?? [] : [];
       const pendingBySource = source ? waitingBySource.get(source) ?? [] : [];
       const existingSourceCalls = source ? sourceCalls.get(source) ?? [] : [];
@@ -380,7 +376,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       const matching = candidates.filter((candidate) => resultMatchesCall(candidate.event, event));
       call = matching.length === 1 ? matching[0] : undefined;
     } else if (event.toolId) {
-      call = calls.get(toolKey(message.sourceSessionId, event.toolId) ?? "");
+      call = calls.get(text(event.toolId) ?? "");
     }
     if (!event.toolId && event.pairing !== "exact" && event.pairing !== "unavailable") {
       const item = positionalCalls.pop();
@@ -392,7 +388,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
     if (call) {
       const merged = mergeResult(call.event, event);
       items[call.item] = { kind: "tool", event: merged };
-      const id = toolKey(message.sourceSessionId, call.event.toolId);
+      const id = text(call.event.toolId);
       if (id) calls.set(id, { item: call.item, event: merged });
       replaceSourceCall(sourceKey(message.sourceSessionId, merged.callSourceId), call.item, merged);
     } else if (source && event.pairing === "exact") {
@@ -400,7 +396,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       pending.push(event);
       waitingBySource.set(source, pending);
     } else if (event.toolId) {
-      const id = toolKey(message.sourceSessionId, event.toolId);
+      const id = text(event.toolId);
       const pending = id ? waiting.get(id) ?? [] : [];
       pending.push(event);
       if (id) waiting.set(id, pending);
