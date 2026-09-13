@@ -97,7 +97,7 @@ if requested:
     print(requested)
 else:
     print(entry.get("default_model") or "")
-' "$provider" "$requested"
+' "$provider" "$requested" < "$RUN_DIR/providers.json"
 }
 
 # A provider may normalize an alias (haiku -> a full id), so the resolved id must contain the request.
