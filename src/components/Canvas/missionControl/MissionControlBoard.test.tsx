@@ -913,15 +913,20 @@ describe("mission control board layout", () => {
     await unmount();
   });
 
-  it("returns to Progress beside Spend above the narrow bound", async () => {
+  it("stacks the three cards at or below the narrow bound and sets them side by side above it", async () => {
     const { host, setWidth, unmount } = await render(board(recordingState()));
-    await setWidth(390);
-    await setWidth(1200);
-
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
+    const row = () => host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
+
+    await setWidth(BOARD_NARROW_MAX_PX);
+    expect(root.getAttribute("data-board-layout")).toBe("narrow");
+    expect(gridTemplate(row())).toContain("minmax(0, 1fr)");
+    expect(gridTemplate(row())).not.toContain("repeat(3");
+
+    await setWidth(1200);
     expect(root.getAttribute("data-board-layout")).toBe("wide");
-    const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
-    expect(gridTemplate(row)).toContain("2fr");
+    expect(gridTemplate(row())).toContain("repeat(3, minmax(0, 1fr))");
+    expect(row().children).toHaveLength(3);
     await unmount();
   });
 

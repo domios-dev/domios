@@ -456,48 +456,125 @@
   background: var(--mc-tone);
 }
 
-.mc-board-spend-week {
+.mc-board-chart-segment {
   --mc-tone: var(--ct-accent);
 }
 
 .mc-board-swatch[data-tone="1"],
-.mc-board-spend-week[data-tone="1"] {
+.mc-board-chart-segment[data-tone="1"] {
   --mc-tone: var(--ct-magenta);
 }
 
 .mc-board-swatch[data-tone="2"],
-.mc-board-spend-week[data-tone="2"] {
+.mc-board-chart-segment[data-tone="2"] {
   --mc-tone: var(--ct-cyan, var(--ct-accent));
 }
 
 .mc-board-swatch[data-tone="3"],
-.mc-board-spend-week[data-tone="3"] {
+.mc-board-chart-segment[data-tone="3"] {
   --mc-tone: var(--ct-green, var(--ct-magenta));
 }
 
-/* The week's allowance spend, one bar per day in the provider's tone; today at full strength. */
-.mc-board-spend-week {
+/* Spend chart: one stacked bar per day, a segment per source in its tone; today at full strength. */
+.mc-board-chart {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+}
+
+.mc-board-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mc-space-2) var(--mc-space-3);
+  min-width: 0;
+}
+
+.mc-board-chips {
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--mc-space-1);
-  height: 24px;
-  margin-top: var(--mc-space-2);
-  padding-left: var(--mc-space-4);
+  min-width: 0;
 }
 
-.mc-board-spend-day {
-  width: 8px;
+.mc-board-chip {
+  padding: 0 var(--mc-space-2);
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: var(--mc-text-meta);
+  line-height: 1.6;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mc-board-chip[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 16%, transparent);
+  color: var(--ct-fg);
+}
+
+.mc-board-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mc-board-chip:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+.mc-board-chart-bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--mc-space-2);
+  height: 96px;
+  min-width: 0;
+}
+
+.mc-board-chart-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-1);
+  min-width: 0;
+}
+
+.mc-board-chart-track {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  min-height: 0;
+}
+
+.mc-board-chart-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
   min-height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: color-mix(in srgb, var(--mc-tone) 50%, transparent);
+  overflow: hidden;
+  border-radius: var(--ct-radius-sm) var(--ct-radius-sm) 0 0;
+  background: var(--ct-border);
 }
 
-.mc-board-spend-day[data-today="true"] {
+.mc-board-chart-segment {
+  flex: 0 1 0;
+  min-height: 1px;
+  background: color-mix(in srgb, var(--mc-tone) 60%, transparent);
+}
+
+.mc-board-chart-day[data-today="true"] .mc-board-chart-segment {
   background: var(--mc-tone);
 }
 
-.mc-board-spend-day[data-future="true"] {
-  background: var(--ct-border);
+.mc-board-chart-label {
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  text-align: center;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
 }
 
 /* Models: one rule under the column names; numbers share a right edge. */
