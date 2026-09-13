@@ -23,6 +23,7 @@ import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
+import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
@@ -720,6 +721,7 @@ function AppInner() {
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
+          <PlanSidePanelHost api={stableApiConfig} />
         </main>
         </div>
       </div>

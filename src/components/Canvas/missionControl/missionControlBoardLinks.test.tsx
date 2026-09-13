@@ -118,7 +118,7 @@ function respond(body: unknown) {
 }
 
 describe("mission control previous plans", () => {
-  it("mission_control_previous_plans_open_the_archived_plan_detail_by_click_and_keyboard", async () => {
+  it("mission_control_previous_plans_open_the_archived_plan_through_the_navigation_owner_by_click_and_keyboard", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes(`/api/plans/${ACTIVE.id}/state`)) return respond(boardState());
       if (url.includes("/mission-control/state")) {
@@ -134,9 +134,17 @@ describe("mission control previous plans", () => {
       return { ok: false, status: 404, json: async () => ({}), text: async () => "not found" };
     });
     vi.stubGlobal("fetch", fetchMock);
+    const onOpenPlanTarget = vi.fn();
     try {
       const { unmount } = await mount(
-        <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[ACTIVE]} api={API} />,
+        <MissionControlPlanSurface
+          mode="workspace"
+          workspaceId={WS_ID}
+          workspaces={WORKSPACES}
+          plans={[ACTIVE]}
+          api={API}
+          onOpenPlanTarget={onOpenPlanTarget}
+        />,
       );
       await settle();
 
@@ -144,20 +152,19 @@ describe("mission control previous plans", () => {
       expect(toggle).not.toBeNull();
       const entry = () =>
         document.querySelector(`[data-testid="mc-board-previous-plan"][data-plan-id="${ARCHIVED.id}"]`) as HTMLButtonElement;
-      const detailTitle = () => document.querySelector('[data-testid="plan-detail-title"]')?.textContent;
+      const archivedTarget = { planId: ARCHIVED.id, teamId: "team-1" };
 
       await act(async () => toggle.click());
       await act(async () => entry().click());
-      expect(detailTitle()).toBe(ARCHIVED.title);
-
-      await act(async () => keydown(document.body, "Escape"));
-      expect(document.querySelector('[data-testid="plan-detail-title"]')).toBeNull();
+      expect(onOpenPlanTarget).toHaveBeenLastCalledWith(archivedTarget);
 
       await act(async () => toggle.click());
       expect(document.activeElement).toBe(entry());
       await act(async () => keydown(entry(), "Enter"));
-      expect(detailTitle()).toBe(ARCHIVED.title);
+      expect(onOpenPlanTarget).toHaveBeenCalledTimes(2);
+      expect(onOpenPlanTarget).toHaveBeenLastCalledWith(archivedTarget);
       expect(document.querySelector('[data-testid="mc-board-previous-plans-menu"]')).toBeNull();
+      expect(document.querySelector('[data-testid="plan-detail-overlay"]')).toBeNull();
       await unmount();
     } finally {
       vi.unstubAllGlobals();
