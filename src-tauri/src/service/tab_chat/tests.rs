@@ -218,7 +218,7 @@ fn canonical_tool_fields_passthrough_without_input_summary() {
             MessageBlock {
                 kind: "tool_use".into(),
                 data: json!({
-                    "name": "provider_specific_name",
+                    "name": "source_tool_name",
                     "input": {"command": "must not become a summary"},
                     "tool_kind": "command",
                     "tool_summary": "Run command",
@@ -229,7 +229,7 @@ fn canonical_tool_fields_passthrough_without_input_summary() {
             MessageBlock {
                 kind: "tool_use".into(),
                 data: json!({
-                    "name": "another_provider_name",
+                    "name": "another_tool_name",
                     "input": {"command": "must not become JSON"}
                 }),
             },
