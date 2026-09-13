@@ -203,11 +203,13 @@ impl PlanStore {
             .cloned()
             .ok_or(PlanError::NotFound)?;
         let mut staged = arc.lock().clone();
+        let previous = staged.clone();
         let out = f(&mut staged)?;
         staged.updated_at = now_ms;
         if staged.canonical_project_path.trim().is_empty() {
             staged.canonical_project_path = staged.project_path.clone();
         }
+        super::super::store_index::record_lifecycle_events(&mut staged, Some(&previous), now_ms);
         super::tag_model::normalize_plan(&mut staged);
         let path = self
             .persist_plan_and_spec(&staged)

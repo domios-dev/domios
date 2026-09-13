@@ -38,6 +38,7 @@ pub(crate) mod tab_repair_routes;
 pub mod tab_routes;
 pub mod task_routes;
 pub mod team_routes;
+pub mod team_mission_control_routes;
 pub mod team_spend;
 pub mod theme_routes;
 pub mod updater_routes;

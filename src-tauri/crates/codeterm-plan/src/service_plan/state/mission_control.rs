@@ -330,6 +330,10 @@ pub fn build_mission_control(plan: &Plan, now_ms: u64) -> MissionControl {
     }
 }
 
+pub fn build_plan_event_log(plan: &Plan) -> EventLog {
+    event_log(plan)
+}
+
 fn review_verdicts(task: &Task) -> (usize, Option<u64>) {
     let stamps: Vec<u64> = task
         .milestones

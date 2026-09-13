@@ -3,8 +3,8 @@
 // the task counts the same snapshot carries. Field names match the JSON wire shape.
 
 import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
-import type { ApiConfig } from "../../../lib/types";
-import type { GateStatus } from "../types";
+import type { ApiConfig, Team } from "../../../lib/types";
+import type { GateStatus, Plan } from "../types";
 
 export interface PlanTaskCounts {
   pending: number;
@@ -59,6 +59,12 @@ export interface PlanEvent {
   task_id: string | null;
   task_name: string | null;
   text: string;
+}
+
+export interface TeamMissionControlEvent extends PlanEvent {
+  id: string;
+  plan_id: string;
+  plan_title: string;
 }
 
 export interface EventLog {
@@ -176,6 +182,20 @@ export interface PlanBoardState {
   mission_control: MissionControlState;
 }
 
+export interface TeamMissionControlState {
+  team_id: string;
+  team: Team;
+  active_plan: Plan | null;
+  archived_plans: Plan[];
+  events: TeamMissionControlEvent[];
+  next_cursor: string | null;
+}
+
+export interface TeamMissionControlQuery {
+  limit?: number;
+  cursor?: string;
+}
+
 export async function fetchPlanBoardState(
   api: ApiConfig,
   planId: string,
@@ -188,4 +208,22 @@ export async function fetchPlanBoardState(
   if (!res.ok) throw new Error(`plan state failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as PlanBoardState;
   return body;
+}
+
+export async function fetchTeamMissionControlState(
+  api: ApiConfig,
+  teamId: string,
+  query: TeamMissionControlQuery = {},
+  signal?: AbortSignal,
+): Promise<TeamMissionControlState> {
+  const params = new URLSearchParams();
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor !== undefined) params.set("cursor", query.cursor);
+  const suffix = params.toString();
+  const res = await fetch(
+    `${baseUrl(api)}/api/teams/${encodeURIComponent(teamId)}/mission-control/state${suffix ? `?${suffix}` : ""}`,
+    { headers: authHeaders(api), signal },
+  );
+  if (!res.ok) throw new Error(`team mission control state failed: ${res.status} ${await res.text()}`);
+  return (await res.json()) as TeamMissionControlState;
 }
