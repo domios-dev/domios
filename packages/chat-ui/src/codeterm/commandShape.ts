@@ -136,8 +136,8 @@ export function commandRowLabel(row: CommandRow): string {
   return argument ? `${name} ${argument.length > 24 ? `${argument.slice(0, 23)}…` : argument}` : name;
 }
 
+/** A short header for a grouped call: its first meaningful segment plus how many more follow, never the raw chain. */
 export function commandGroupSummary(rows: CommandRow[]): string {
-  return rows
-    .map((row, index) => (index === 0 ? "" : ` ${operatorSymbol(rows[index - 1].segment.operator ?? "then")} `) + commandRowLabel(row))
-    .join("");
+  const lead = rows.find((row) => row.role !== "command") ?? rows[0];
+  return rows.length > 1 ? `${commandRowLabel(lead)} +${rows.length - 1}` : commandRowLabel(lead);
 }

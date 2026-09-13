@@ -95,8 +95,8 @@ function HunkLines({ hunk, language }: { hunk: FileDiffHunk; language: string })
   );
 }
 
-function FileEditCard({ event, diff, showResult }: { event: ToolEvent; diff: FileDiff; showResult: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+function FileEditCard({ event, diff, showResult, initiallyExpanded }: { event: ToolEvent; diff: FileDiff; showResult: boolean; initiallyExpanded: boolean }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const regionId = useId();
   const visual = toolKindVisual.edit;
   const name = diff.movePath ? `${diff.path} → ${diff.movePath}` : diff.path;
@@ -152,11 +152,11 @@ function FileEditCard({ event, diff, showResult }: { event: ToolEvent; diff: Fil
 }
 
 /** One edit card per changed file, built from the source's structured diff. */
-export function FileDiffCards({ event }: { event: ToolEvent }) {
+export function FileDiffCards({ event, initiallyExpanded = false }: { event: ToolEvent; initiallyExpanded?: boolean }) {
   const diffs = event.fileDiffs ?? [];
   return (
     <div data-testid="file-diff-cards" className="mx-auto mb-1.5 flex w-full max-w-4xl min-w-0 flex-col gap-1">
-      {diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} showResult={index === 0} />)}
+      {diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} showResult={index === 0} initiallyExpanded={initiallyExpanded} />)}
     </div>
   );
 }

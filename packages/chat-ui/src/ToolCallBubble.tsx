@@ -62,7 +62,7 @@ export function ToolCallBubble({
   }
 
   // A structured source diff is the truthful record of the edit, so it replaces the old/new-string card.
-  if (event.fileDiffs?.length) return <FileDiffCards event={event} />;
+  if (event.fileDiffs?.length) return <FileDiffCards event={event} initiallyExpanded={expanded} />;
 
   const shape = event.kind === "command" || event.kind === "codeterm" ? toolCommandShape(event) : null;
   if (shape?.kind === "group") {
