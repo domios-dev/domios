@@ -346,11 +346,8 @@ describe("mission control narrow shell", () => {
     expect(text(narrow.host, "mc-board-quality")).toBe("bounced1first try10 of 12");
     expect(text(narrow.host, "mc-board-plan")).not.toContain("5.3M");
     expect(text(narrow.host, "mc-board-needs-you")).toContain("Land the wave");
-    expect(
-      Array.from(narrow.host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).map((gauge) =>
-        gauge.getAttribute("data-window-key"),
-      ),
-    ).toEqual(["claude-weekly", "claude-session", "codex-weekly"]);
+    expect(narrow.host.querySelector('[data-testid="mc-board-spend-gauge"]')).toBeNull();
+    expect(text(narrow.host, "mc-board-spend-empty")).toBe("no data");
     expect(narrow.host.querySelector('[data-testid="mc-board-spend-table"]')).toBeNull();
     expect(narrow.host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(2);
     expect(text(narrow.host, "mc-board-models")).toContain("Unassigned model");

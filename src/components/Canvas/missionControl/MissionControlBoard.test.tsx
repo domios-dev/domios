@@ -538,36 +538,14 @@ describe("mission control board panels", () => {
     await empty.unmount();
   });
 
-  it("mission_control_spend_reads_each_complete_provider_allowance_window_weekly_first", async () => {
+  it("mission_control_spend_never_shows_machine_limits_on_the_team_card", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')) as HTMLElement[];
-    expect(gauges.map((gauge) => gauge.getAttribute("data-window-key"))).toEqual([
-      "claude-weekly",
-      "claude-session",
-      "codex-weekly",
-    ]);
-    expect(gauges.map((gauge) => gauge.textContent)).toEqual(["34%", "session 58%", "81%"]);
-    expect(gauges.map((gauge) => gauge.getAttribute("data-variant"))).toEqual(["weekly", "session", "weekly"]);
-    const pct = (gauge: HTMLElement) => gauge.querySelector('[data-testid="mc-board-spend-window-pct"]') as HTMLElement;
-    expect(pct(gauges[0]!).className).toBe("");
-    expect(pct(gauges[2]!).classList.contains("mc-board-warn")).toBe(true);
-    await unmount();
-  });
-
-  it("mission_control_spend_leaves_out_an_incomplete_allowance_window", async () => {
-    const state = recordingState();
-    state.spend.providers = [
-      {
-        ...state.spend.providers[0]!,
-        allowance: { ...state.spend.providers[0]!.allowance!, session_resets_at: null },
-      },
-    ];
-    const { host, unmount } = await render(board(state));
-
-    const gauges = Array.from(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]'));
-    expect(gauges.map((gauge) => gauge.getAttribute("data-window-key"))).toEqual(["claude-weekly"]);
-    expect(text(host, "mc-board-spend")).not.toContain("—");
+    const spend = text(host, "mc-board-spend").toLowerCase();
+    for (const banned of ["machine", "limit", "week", "session", "—"]) {
+      expect(spend).not.toContain(banned);
+    }
+    expect(host.querySelector('[data-testid="mc-board-spend-gauge"]')).toBeNull();
     await unmount();
   });
 
@@ -742,12 +720,12 @@ describe("mission control board panels", () => {
 });
 
 describe("mission control board fallback states", () => {
-  it("mission_control_spend_says_not_recording_instead_of_drawing_empty_gauges", async () => {
+  it("mission_control_spend_says_no_data_without_a_team_reading_instead_of_drawing_empty_figures", async () => {
     const { host, unmount } = await render(board(notRecordingState()));
 
-    expect(host.querySelectorAll('[data-testid="mc-board-spend-gauge"]')).toHaveLength(0);
+    expect(host.querySelector('[data-testid="mc-board-spend-totals"]')).toBeNull();
     expect(host.querySelectorAll('[data-testid="mc-board-spend-model"]')).toHaveLength(0);
-    expect(text(host, "mc-board-spend-empty")).toBe("not recording, enable kpi.enabled");
+    expect(text(host, "mc-board-spend-empty")).toBe("no data");
     expect(text(host, "mc-board-models-empty")).toBe("not recording, enable kpi.enabled");
     expect(text(host, "mc-board-spend")).not.toContain("—");
     await unmount();

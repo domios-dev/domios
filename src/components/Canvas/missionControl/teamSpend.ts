@@ -151,6 +151,50 @@ export function teamModelRows(spend: TeamSpend): ModelSpendRow[] {
     .sort((a, b) => b.newInput - a.newInput);
 }
 
+export interface TeamSpendTotals {
+  newInput: number;
+  generated: number;
+  turns: number;
+}
+
+/** The team's new input, generated tokens and turns across its plans for the read period. */
+export function teamSpendTotals(spend: TeamSpend): TeamSpendTotals {
+  return teamPlanRows(spend).reduce<TeamSpendTotals>(
+    (totals, row) => ({
+      newInput: totals.newInput + row.uncached_input_tokens,
+      generated: totals.generated + row.output_tokens,
+      turns: totals.turns + row.turns,
+    }),
+    { newInput: 0, generated: 0, turns: 0 },
+  );
+}
+
+export interface TeamPlanShare {
+  planId: string;
+  title: string;
+  /** The plan's position in the team's plans, shared with its chart segment colour. */
+  tone: number;
+  newInput: number;
+  sharePct: number;
+}
+
+/** Each plan that spent in the period with its share of the team's new input, largest first. */
+export function teamPlanShares(spend: TeamSpend): TeamPlanShare[] {
+  const byPlan = new Map<string, number>();
+  for (const row of teamPlanRows(spend)) {
+    const planId = row.plan_id ?? "";
+    byPlan.set(planId, (byPlan.get(planId) ?? 0) + row.uncached_input_tokens);
+  }
+  const total = [...byPlan.values()].reduce((sum, value) => sum + value, 0);
+  return spend.plans
+    .map((plan, tone) => {
+      const newInput = byPlan.get(plan.plan_id) ?? 0;
+      return { planId: plan.plan_id, title: plan.title, tone, newInput, sharePct: total > 0 ? (newInput / total) * 100 : 0 };
+    })
+    .filter((share) => share.newInput > 0)
+    .sort((a, b) => b.newInput - a.newInput);
+}
+
 /** New input the team spent per day, one segment per plan, narrowed to one model on request. */
 export function teamTokensChartSource(spend: TeamSpend): SpendChartSource {
   const rows = teamPlanRows(spend);
@@ -190,12 +234,8 @@ export function teamTokensChartSource(spend: TeamSpend): SpendChartSource {
     });
 
   return {
-    hasData: spend.plans.length > 0,
-    metrics: { tokens: spend.plans.length > 0, points: false },
-    scope: { tokens: TEAM_SCOPE_CAPTION, points: "" },
-    filters: (metric) =>
-      metric === "tokens" && modelFilters.length > 1 ? [{ key: ALL_FILTER, label: "All" }, ...modelFilters] : [],
-    days: (metric, filter) => (metric === "tokens" ? tokenDays(filter) : []),
+    filters: modelFilters.length > 1 ? [{ key: ALL_FILTER, label: "All" }, ...modelFilters] : [],
+    days: tokenDays,
   };
 }
 
