@@ -170,7 +170,7 @@ export function eventPreview(body: string): string {
 function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneKind[]): EventRow {
   const preview = eventPreview(event.text);
   return {
-    key: `event-${index}-${event.ts}`,
+    key: `event-${event.ts}-${event.kind}-${index}`,
     time: formatClock(event.ts),
     kindLabel: eventKindLabel(event.kind, declared),
     strong: STRONG_KINDS.has(event.kind),
@@ -186,36 +186,57 @@ function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneK
   };
 }
 
-/** Time-ordered rows with an hour band wherever the clock hour turns over. */
+/** Rows in the order given, with an hour band wherever the clock hour turns over. */
 export function eventLogRows(
   log: EventLog,
   declared: readonly MilestoneKind[] = [],
+  indexOffset = 0,
 ): EventLogRow[] {
   const rows: EventLogRow[] = [];
   let band: string | null = null;
-  log.entries.forEach((event, index) => {
-    const hour = formatHourBand(event.ts);
+  log.entries.forEach((entry, position) => {
+    const index = indexOffset + position;
+    const hour = formatHourBand(entry.ts);
     if (hour !== band) {
       band = hour;
       rows.push({ key: `band-${index}-${hour}`, band: hour, event: null });
     }
-    rows.push({ key: `row-${index}`, band: null, event: eventRow(event, index, declared) });
+    rows.push({ key: `row-${index}`, band: null, event: eventRow(entry, index, declared) });
   });
   return rows;
 }
 
-/** Events the log shows before its Show all control. */
-export const EVENT_LOG_PREVIEW = 8;
+/** Events per page of the log. */
+export const EVENT_LOG_PAGE = 8;
 
-/** The newest `limit` events, led by the hour band that owns the first of them. */
-export function latestEventRows(rows: EventLogRow[], limit: number): EventLogRow[] {
-  const eventIndexes = rows.flatMap((row, index) => (row.event ? [index] : []));
-  if (eventIndexes.length <= limit) return rows;
-  const start = eventIndexes[eventIndexes.length - limit]!;
-  for (let index = start - 1; index >= 0; index--) {
-    if (rows[index]!.event === null) return [rows[index]!, ...rows.slice(start)];
+/** Where the log reads its pages from: today the plan's stored log, later a team event stream. */
+export interface EventPager {
+  total: number;
+  /** Events newest first, starting `offset` events from the newest. */
+  page(offset: number, size: number): PlanEvent[];
+}
+
+export function planEventPager(log: EventLog): EventPager {
+  const newest = [...log.entries].reverse();
+  return { total: newest.length, page: (offset, size) => newest.slice(offset, offset + size) };
+}
+
+const REF_PATTERN = /\b(?:pl|task)_[a-z0-9]+\b/g;
+
+export type RefPart = { kind: "text"; text: string } | { kind: "ref"; id: string };
+
+/** Splits stored text around plan and task ids so each can be shown by its title. */
+export function splitRefs(text: string): RefPart[] {
+  const parts: RefPart[] = [];
+  let last = 0;
+  for (const match of text.matchAll(REF_PATTERN)) {
+    const at = match.index ?? 0;
+    if (at > last) parts.push({ kind: "text", text: text.slice(last, at) });
+    parts.push({ kind: "ref", id: match[0] });
+    last = at + match[0].length;
   }
-  return rows.slice(start);
+  if (last < text.length) parts.push({ kind: "text", text: text.slice(last) });
+  return parts;
 }
 
 export function eventLogCaption(log: EventLog): string {

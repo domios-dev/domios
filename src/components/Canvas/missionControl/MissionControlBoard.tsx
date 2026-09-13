@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { boardRefs } from "./BoardRefText";
 import type { Plan } from "../types";
 import type { AllowanceWeeks } from "./allowanceWeek";
 import { NeedsYouPanel, ProgressPanel, SpendCard } from "./BoardCards";
@@ -15,6 +16,10 @@ export interface MissionControlBoardProps {
   now?: number;
   /** Day-by-day weekly allowance per provider, read outside the Board. */
   allowanceWeeks?: AllowanceWeeks;
+  /** Plans whose ids and task ids the Board names by title; defaults to this plan. */
+  plans?: readonly Plan[];
+  onOpenTask?: (taskId: string) => void;
+  onOpenPlan?: (planId: string) => void;
 }
 
 function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -39,8 +44,12 @@ export function MissionControlBoard({
   loading = false,
   error = null,
   allowanceWeeks,
+  plans,
+  onOpenTask,
+  onOpenPlan,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const refs = useMemo(() => boardRefs(plans ?? [plan], onOpenTask, onOpenPlan), [plans, plan, onOpenTask, onOpenPlan]);
   const layout = useMeasuredLayout(rootRef);
   const boardState = state?.mission_control ? state : null;
   const mc = boardState?.mission_control ?? null;
@@ -64,7 +73,7 @@ export function MissionControlBoard({
       )}
       {boardState && mc && (
         <>
-          <NeedsYouPanel held={mc.held} />
+          <NeedsYouPanel held={mc.held} refs={refs} />
           <div
             data-testid="mc-board-row"
             className="mc-board-row"
@@ -78,7 +87,7 @@ export function MissionControlBoard({
             />
             <SpendCard spend={mc.spend} weeks={allowanceWeeks} />
           </div>
-          <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} />
+          <BoardEventLog log={mc.event_log} milestoneKinds={plan.milestone_kinds ?? []} refs={refs} />
         </>
       )}
     </div>

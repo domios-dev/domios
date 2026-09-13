@@ -198,6 +198,37 @@
   outline-offset: 2px;
 }
 
+.mc-board-more:disabled {
+  color: var(--ct-muted-fg);
+  text-decoration: none;
+  cursor: default;
+}
+
+.mc-board-log-pager {
+  display: flex;
+  gap: var(--mc-space-3);
+}
+
+/* A plan or task named by its title; opens it without leaving the Board. */
+.mc-board-ref {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ct-accent);
+  cursor: pointer;
+}
+
+.mc-board-ref:hover {
+  text-decoration: underline;
+}
+
+.mc-board-ref:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
 .mc-board-sub-label {
   margin: 0;
   font-size: var(--mc-text-meta);
@@ -613,13 +644,13 @@
   border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
   font-family: var(--ct-font-mono);
   font-size: var(--mc-text-meta);
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
 }
 
 .mc-board-log-time {
   font-family: var(--ct-font-mono);
   font-size: var(--mc-text-meta);
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
 }
 
 .mc-board-log-kind,
@@ -677,13 +708,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   overflow-wrap: anywhere;
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
 }
 
 .mc-board-log-sep,
 .mc-board-log-run {
   flex: 0 0 auto;
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
 }
 
 .mc-board-log-more {
@@ -692,7 +723,7 @@
   border: 0;
   border-bottom: 1px dotted color-mix(in srgb, var(--ct-border) 85%, transparent);
   background: none;
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
   font: inherit;
   font-size: var(--mc-text-meta);
   line-height: inherit;

@@ -9,6 +9,7 @@ import {
 } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
+import { RefText, type BoardRefs } from "./BoardRefText";
 import type {
   AreaGrouping,
   BounceSummary,
@@ -23,7 +24,7 @@ const WARN_STATUSES = new Set(["blocked", "paused"]);
 
 const NEEDS_YOU_PREVIEW = 3;
 
-export function NeedsYouPanel({ held }: { held: HeldForDecision }) {
+export function NeedsYouPanel({ held, refs = new Map() }: { held: HeldForDecision; refs?: BoardRefs }) {
   const items = needsYouItems(held);
   const [showAll, setShowAll] = useState(false);
   const listId = useId();
@@ -39,7 +40,9 @@ export function NeedsYouPanel({ held }: { held: HeldForDecision }) {
           <ul id={listId} className="mc-board-needs-list">
             {visible.map((item) => (
               <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
-                <p className="mc-board-needs-title">{item.title}</p>
+                <p className="mc-board-needs-title">
+                  <RefText text={item.title} refs={refs} />
+                </p>
                 <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
               </li>
             ))}
