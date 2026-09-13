@@ -479,8 +479,15 @@ const plugin: PluginModule = {
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex: number) => {
+      for (; stamped < out.length; stamped++) {
+        (out[stamped] as { recordIndex?: number }).recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       const line = lines[i];
       if (!line) continue;
       let v: ClaudeEntry;
@@ -657,6 +664,7 @@ const plugin: PluginModule = {
         timestamp,
       });
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
 
