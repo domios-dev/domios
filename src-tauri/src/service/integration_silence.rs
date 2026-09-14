@@ -389,8 +389,8 @@ pub enum ReconcileAuthorization {
     AlreadyCurrent,
     /// Nothing was ever consented to, so only the user can start this.
     ConsentMissing,
-    /// The provider trusts its hooks by content hash and that trust is gone;
-    /// rewriting would re-disarm them, so the grant stays the user's action.
+    /// The provider trusts its hooks by content hash, that trust is gone, and no
+    /// consent is recorded to rewrite and re-grant it.
     TrustGrantRequired,
     /// The report says nothing this reading understands.
     Unreadable,
@@ -403,7 +403,8 @@ pub fn authorize_reconciliation(facts: &IntegrationFacts) -> ReconcileAuthorizat
     let Some(state) = facts.state else {
         return ReconcileAuthorization::Unreadable;
     };
-    if state == IntegrationState::UntrustedHash {
+    // Recorded consent covers the rewrite and the trust grant the install makes.
+    if state == IntegrationState::UntrustedHash && !facts.consent_recorded {
         return ReconcileAuthorization::TrustGrantRequired;
     }
     if state == IntegrationState::Installed && facts.contract_current != Some(false) {

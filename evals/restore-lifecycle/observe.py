@@ -11,10 +11,12 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 BASE = "http://127.0.0.1:7686"
 AGENT_FIELDS = ("agent_type", "agent_session_id", "role", "role_profile", "team_id", "parent_tab_id", "title")
+SETUP_EXIT = 3
 
 
 def fail(message):
@@ -83,21 +85,26 @@ class EventWait:
             self.ready.set()
             self.events.put(None)
 
-    def until(self, predicate, what):
+    def until(self, predicate, what, on_deadline=None):
+        def expire():
+            if on_deadline is not None:
+                on_deadline()
+            fail(f"deadline elapsed waiting for {what}")
+
         while True:
             verdict = predicate(None)
             if verdict:
                 return verdict
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
-                fail(f"deadline elapsed waiting for {what}")
+                expire()
             try:
                 event = self.events.get(timeout=remaining)
             except queue.Empty:
                 verdict = predicate(None)
                 if verdict:
                     return verdict
-                fail(f"deadline elapsed waiting for {what}")
+                expire()
             if event is None:
                 fail(f"event stream closed waiting for {what}: {self.error}")
             if event.get("event_type") == "overflow":
@@ -119,6 +126,54 @@ def cmd_wait_bound(deadline, tabs):
 
     wait.until(bound, f"session binding on {' '.join(tabs)}")
     print("bound " + " ".join(tabs))
+
+
+def session_owner(session_id):
+    """What the provider stores report for one session id: (provider, detail)."""
+    try:
+        meta = api("GET", f"/api/sessions/{urllib.parse.quote(session_id, safe='')}")
+    except urllib.error.HTTPError as error:
+        return None, f"sessions get: {error.code}"
+    provider = meta.get("provider") if isinstance(meta, dict) else None
+    if not provider or meta.get("session_id") != session_id:
+        return None, f"sessions get returned {json.dumps(meta)[:200]}"
+    return provider, "owned"
+
+
+def cmd_wait_owned(deadline, identity_path, shells):
+    identity = json.loads(pathlib.Path(identity_path).read_text(encoding="utf-8"))
+    claims = {
+        tab_id: record
+        for tab_id, record in identity.items()
+        if tab_id not in shells and record.get("agent_session_id")
+    }
+    if not claims:
+        fail(f"wait-owned: {identity_path} names no agent session to gate on")
+    wait = EventWait(deadline)
+    unowned = {}
+
+    def owned(_event):
+        unowned.clear()
+        for tab_id, record in claims.items():
+            provider, detail = session_owner(record["agent_session_id"])
+            if provider != record.get("agent_type"):
+                if provider:
+                    detail = f"owned by provider {provider}"
+                unowned[tab_id] = detail
+        return not unowned
+
+    def setup_stop():
+        for tab_id, detail in unowned.items():
+            record = claims[tab_id]
+            print(
+                f"SETUP provider store did not own {record['agent_session_id']} "
+                f"(tab {tab_id} {record.get('title')}, provider {record.get('agent_type')}; {detail})",
+                flush=True,
+            )
+        raise SystemExit(SETUP_EXIT)
+
+    wait.until(owned, "provider stores to own every captured session", on_deadline=setup_stop)
+    print(f"PASS owned {len(claims)} agent sessions owned by their provider stores")
 
 
 def chat_has(tab_id, marker):
@@ -153,6 +208,39 @@ def cmd_send_long_turn(deadline, tab_id, prompt):
 
     wait.until(working, f"tab {tab_id} to report Working")
     print(f"working {tab_id}")
+
+
+def cmd_identity_field(identity_path, tab_id, field):
+    record = json.loads(pathlib.Path(identity_path).read_text(encoding="utf-8")).get(tab_id) or {}
+    if not record.get(field):
+        fail(f"identity-field: {identity_path} has no {field} for tab {tab_id}")
+    print(record[field])
+
+
+def cmd_exit_to_shell(deadline, tab_id, command):
+    wait = EventWait(deadline)
+    api("POST", f"/api/tabs/{tab_id}/send", {"text": command, "enter": True})
+
+    def exited(_event):
+        record = status(tab_id) or {}
+        return record.get("role") and not record.get("agent_type") and not record.get("agent_session_id")
+
+    wait.until(exited, f"tab {tab_id} provider to exit to its shell")
+    print(f"exited {tab_id}")
+
+
+def cmd_assert_recovered(outcome_path, session_id):
+    outcome = json.loads(pathlib.Path(outcome_path).read_text(encoding="utf-8"))
+    failures = [f"{field}={outcome.get(field)!r}" for field in ("recovered_in_place", "agent_ready") if outcome.get(field) is not True]
+    if outcome.get("session_id") != session_id:
+        failures.append(f"session_id={outcome.get('session_id')!r}, exited session {session_id!r}")
+    if not outcome.get("new_pty_id") or outcome.get("old_pty_id") != outcome.get("new_pty_id"):
+        failures.append(f"pty {outcome.get('old_pty_id')!r} -> {outcome.get('new_pty_id')!r}, expected the same shell")
+    if failures:
+        for line in failures:
+            print(f"FAIL recovered {line}")
+        raise SystemExit(1)
+    print(f"PASS recovered session {session_id} in place")
 
 
 def cmd_capture(out_path, tabs):
@@ -226,6 +314,8 @@ def main():
         cmd_send_marker(int(args[0]), args[1], args[2], args[3])
     elif command == "send-long-turn":
         cmd_send_long_turn(int(args[0]), args[1], args[2])
+    elif command == "wait-owned":
+        cmd_wait_owned(int(args[0]), args[1], set(filter(None, args[2].split(","))))
     elif command == "capture":
         cmd_capture(args[0], args[1:])
     elif command == "assert-identity":
@@ -236,6 +326,16 @@ def main():
         import restore_report
 
         restore_report.assert_settled(args, EventWait, fail)
+    elif command == "restore-exited":
+        import restore_report
+
+        restore_report.assert_exited(args, EventWait, fail, status)
+    elif command == "identity-field":
+        cmd_identity_field(args[0], args[1], args[2])
+    elif command == "exit-to-shell":
+        cmd_exit_to_shell(int(args[0]), args[1], args[2])
+    elif command == "assert-recovered":
+        cmd_assert_recovered(args[0], args[1])
     else:
         fail(f"unknown command {command}")
 

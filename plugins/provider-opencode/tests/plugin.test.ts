@@ -380,6 +380,42 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
 
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
+  const queries: { sql: string; params: unknown[] }[] = [];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (value: string) => value === dbPath,
+      sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        return params[0] === "ses_real" ? [{
+          id: "ses_real",
+          directory: "D:/Developer/codeterm",
+          title: "Tool UI",
+          time_created: 1781000000000,
+          time_updated: 1781000005000,
+        }] : [];
+      },
+    },
+  }));
+  eq(p.findSession("ses_real"), {
+    sessionId: "ses_real",
+    provider: "opencode",
+    projectPath: "D:/Developer/codeterm",
+    title: "Tool UI",
+    summary: null,
+    filePath: dbPath,
+    createdTs: 1781000000,
+    modifiedTs: 1781000005,
+  }, "findSession answers from the one session row with the enumerated record shape");
+  eq(p.findSession("ses_missing"), null, "an id without a session row is not owned");
+  eq(p.findSession("01900000-0000-7000-8000-000000000001"), null, "a foreign id shape is refused");
+  eq(queries.map((query) => query.params), [["ses_real"], ["ses_missing"]],
+    "each lookup issues exactly one query keyed by the requested id");
+  assert(queries.every((query) => /WHERE id = \?1 LIMIT 1/.test(query.sql) && query.sql.indexOf("ORDER BY") === -1),
+    "exact lookup never scans the session table");
+}
+
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
   let cwdScanRan = false;
   const p = loadOpencodeWithHost(ocHost({
     fs: {

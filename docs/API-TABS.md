@@ -64,7 +64,7 @@ as one.
 | Method | Path | Body | Description |
 |---|---|---|---|
 | GET | `/api/workspaces` | — | List all workspaces |
-| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. `name` is required; an absent body returns `400` naming that field. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
+| POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` required (absent body: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
 | POST | `/api/workspaces/{id}/close` | `{force?}` or no body | Delete workspace. No body is the ordinary non-forced close. Agent tabs require `force: true`; without it the `403` response identifies the affected tabs and leaves the workspace open. |
@@ -236,4 +236,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

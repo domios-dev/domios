@@ -285,6 +285,7 @@ mod tests {
                         tabs: vec![],
                         active_tab_id: None,
                         cwd: None,
+                        provisioned_cwd: None,
                         protected: false,
                         sort_order: 0,
                     })
@@ -329,6 +330,7 @@ mod tests {
                         tabs: vec![],
                         active_tab_id: None,
                         cwd: None,
+                        provisioned_cwd: None,
                         protected: false,
                         sort_order: 0,
                     })

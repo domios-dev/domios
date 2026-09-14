@@ -15,6 +15,7 @@ use super::debug::DebugAction;
 use super::delayed::DelayedAction;
 use super::effort::EffortAction;
 use super::inbox::InboxAction;
+use super::integration::IntegrationAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
@@ -230,6 +231,12 @@ pub enum Commands {
     Keepawake {
         #[command(subcommand)]
         action: Option<KeepAwakeAction>,
+    },
+
+    /// Provider hook integration: install it with recorded consent and trust, or read its state
+    Integration {
+        #[command(subcommand)]
+        action: IntegrationAction,
     },
 
     /// Theme management

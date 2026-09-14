@@ -8,6 +8,9 @@ pub(crate) use crate::agent_claude::provider::ClaudeProvider;
 mod catalog;
 mod commands;
 mod core;
+mod folder_trust;
+mod launch_session;
+mod permission_prompt;
 mod permission_request;
 mod sessions;
 

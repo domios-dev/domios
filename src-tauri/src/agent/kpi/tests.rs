@@ -423,6 +423,10 @@ fn deliver_kind_mapping_never_double_counts_owned_traffic() {
         deliver_event_kind(MessageKind::Telegram),
         Some(KpiEventKind::Send)
     );
+    assert_eq!(
+        deliver_event_kind(MessageKind::Pebble),
+        Some(KpiEventKind::Send)
+    );
     assert_eq!(deliver_event_kind(MessageKind::Report), None);
     assert_eq!(deliver_event_kind(MessageKind::Reminder), None);
     assert_eq!(deliver_event_kind(MessageKind::System), None);
@@ -460,16 +464,35 @@ fn recorder_announces_the_plans_of_each_committed_batch() {
     let recorder = KpiRecorder::with_ledger(ledger);
     let heard: Arc<parking_lot::Mutex<Vec<Vec<String>>>> = Arc::default();
     let sink = Arc::clone(&heard);
-    recorder.on_commit(move |plans| sink.lock().push(plans));
+    let (parked_tx, parked_rx) = std::sync::mpsc::sync_channel::<()>(0);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel::<()>(0);
+    let gate = parking_lot::Mutex::new(Some((parked_tx, release_rx)));
+    recorder.on_commit(move |plans| {
+        sink.lock().push(plans);
+        let first_call = gate.lock().take();
+        if let Some((parked, release)) = first_call {
+            parked.send(()).unwrap();
+            release.recv().unwrap();
+        }
+    });
 
     recorder.drain();
     assert!(heard.lock().is_empty(), "an empty drain commits nothing");
 
     let unattributed = KpiAttribution::for_tab("tab-loose").provider(Some("codex".into()));
+    recorder.record(unattributed.event_at(KpiEventKind::Send, 1, 1_700_000_000));
+    parked_rx.recv().unwrap();
+    // A batch is whatever is queued when the writer wakes, so both rows are queued
+    // while it is parked inside the previous announcement.
     recorder.record(orchestrator("tab-orch").event_at(KpiEventKind::Send, 12, 1_700_000_001));
     recorder.record(unattributed.event_at(KpiEventKind::Send, 7, 1_700_000_002));
+    release_tx.send(()).unwrap();
     recorder.drain();
-    assert_eq!(heard.lock().clone(), vec![vec!["pl_dwojf1".to_string()]]);
+    assert_eq!(
+        heard.lock().clone(),
+        vec![Vec::new(), vec!["pl_dwojf1".to_string()]],
+        "a machine-only row still announces a commit, and one batch announces its plans once"
+    );
 
     recorder.record(unattributed.event_at(KpiEventKind::Send, 3, 1_700_000_003));
     recorder.drain();

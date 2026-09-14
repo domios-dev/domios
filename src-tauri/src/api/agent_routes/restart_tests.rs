@@ -6,7 +6,7 @@ fn restart_response_reports_observed_transition_legs() {
         Some("pty-new"),
         Some(codeterm_types::pty::BootStage::AgentReady),
         None,
-        "pty-old",
+        Some("pty-old"),
     );
     assert_eq!(
         readiness,
@@ -26,6 +26,7 @@ fn restart_response_reports_observed_transition_legs() {
         old_pty_torn_down: true,
         agent_ready: true,
         binding_restored: true,
+        recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),
     };
@@ -35,6 +36,7 @@ fn restart_response_reports_observed_transition_legs() {
     assert_eq!(body["restart_accepted"], true);
     assert_eq!(body["old_pty_torn_down"], true);
     assert_eq!(body["agent_ready"], true);
+    assert_eq!(body["recovered_in_place"], false);
     assert_eq!(body["old_pty_id"], "pty-old");
     assert_eq!(body["new_pty_id"], "pty-new");
     assert_eq!(body["full_access"], true);
@@ -44,12 +46,39 @@ fn restart_response_reports_observed_transition_legs() {
 }
 
 #[test]
+fn exit_recovery_response_reports_the_same_pty_resumed_in_place() {
+    let outcome = crate::service::agent_restart::RestartOutcome {
+        tab_id: "tab-1".into(),
+        provider: "provider-fixture".into(),
+        session_id: Some("session-1".into()),
+        session_was_stale: false,
+        force: false,
+        auto_approve: false,
+        restart_accepted: true,
+        old_pty_torn_down: false,
+        agent_ready: true,
+        binding_restored: true,
+        recovered_in_place: true,
+        old_pty_id: Some("pty-shell".into()),
+        new_pty_id: Some("pty-shell".into()),
+    };
+
+    let body = agent_restart_response(&outcome);
+
+    assert_eq!(body["recovered_in_place"], true);
+    assert_eq!(body["old_pty_torn_down"], false);
+    assert_eq!(body["session_action"], "resume");
+    assert_eq!(body["session_id"], "session-1");
+    assert_eq!(body["old_pty_id"], body["new_pty_id"]);
+}
+
+#[test]
 fn stale_pre_restart_agent_ready_reports_readiness_was_not_observed() {
     let readiness = crate::service::boot_stage::classify_restart_readiness(
         Some("pty-old"),
         Some(codeterm_types::pty::BootStage::AgentReady),
         None,
-        "pty-old",
+        Some("pty-old"),
     );
     assert_eq!(readiness, None);
 
@@ -64,6 +93,7 @@ fn stale_pre_restart_agent_ready_reports_readiness_was_not_observed() {
         old_pty_torn_down: true,
         agent_ready: false,
         binding_restored: false,
+        recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: None,
     };

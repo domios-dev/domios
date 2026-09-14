@@ -11,6 +11,9 @@ pub struct Workspace {
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Directory the daemon created for this workspace; host provenance, never wire input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provisioned_cwd: Option<String>,
     /// Protected workspaces cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
@@ -469,6 +472,11 @@ pub struct PriorBindingNonce {
     pub nonce: String,
 }
 
+/// Session of the newest retired launch; `None` when that launch never bound one.
+pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
+    lineage.last()?.session_id.as_deref()
+}
+
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
@@ -646,6 +654,12 @@ pub struct Tab {
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
     pub auto_approve: bool,
+    /// Opt-in: answer positively recognized provider permission prompts with
+    /// their affirmative option. Persisted with the session snapshot.
+    #[serde(default)]
+    pub permission_auto_confirm: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permission_auto_confirmations: Vec<codeterm_types::pty::AutoConfirmedPrompt>,
     /// Protected tabs cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
@@ -875,6 +889,8 @@ mod tests {
             pending_prompt: None,
             agent_state: None,
             auto_approve: false,
+            permission_auto_confirm: false,
+            permission_auto_confirmations: Vec::new(),
             protected: false,
             connected_services: vec![],
             agent_set_at: None,

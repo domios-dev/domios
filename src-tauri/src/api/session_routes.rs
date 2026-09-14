@@ -128,8 +128,8 @@ pub async fn search_sessions_api(
     Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
-/// Session lookup enumerates every provider's on-disk history, so it belongs on
-/// the blocking pool for the same reason `search_sessions_api` does.
+/// Exact-id lookup still reads provider stores (files, sqlite, plugin VMs), so it
+/// stays on the blocking pool rather than the async runtime.
 async fn find_session_off_runtime(
     state: &AppState,
     session_id: &str,
@@ -369,6 +369,7 @@ pub async fn resume_session_api(
                     name: ws_name,
                     cwd: Some(cwd.clone()),
                     activate: Some(true),
+                    provision: false,
                 };
                 let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

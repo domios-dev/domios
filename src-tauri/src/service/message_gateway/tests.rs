@@ -159,6 +159,34 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
 }
 
 #[test]
+fn inbound_webhook_pebble_event_replay_is_a_noop_after_the_first_enveloped_delivery() {
+    let gateway = MessageGateway::new();
+    let fake = FakeSeam::default();
+    let msg = OutboundMessage {
+        target: "general".into(),
+        body: MessageBody::Text {
+            body: "focus enabled".into(),
+        },
+        envelope: Some(MessageEnvelope::pebble()),
+        class: DeliveryClass::SystemNotice,
+        origin: MessageOrigin::ServiceToken,
+        idempotency_key: Some("pebble:pebble:event-1".into()),
+    };
+
+    let first = gateway.submit(&fake, msg.clone()).unwrap();
+    let replay = gateway.submit(&fake, msg).unwrap();
+
+    assert!(!first.dedup_hit);
+    assert!(matches!(first.delivery, Some(Delivery::Pty { .. })));
+    assert!(replay.dedup_hit);
+    assert_eq!(fake.enveloped.borrow().len(), 1);
+    assert_eq!(
+        fake.enveloped.borrow()[0].1,
+        "-=-codeterm:pebble source=Pebble trust=untrusted-=-"
+    );
+}
+
+#[test]
 fn plain_text_submit_matches_direct_send_text() {
     let gateway = MessageGateway::new();
     let fake = FakeSeam::default();

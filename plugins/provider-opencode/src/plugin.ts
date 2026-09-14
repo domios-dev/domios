@@ -262,16 +262,15 @@ const plugin: PluginModule = {
       time_created?: number;
       time_updated?: number;
     }>(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
-    return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => ({
-      sessionId: row.id,
-      provider: "opencode",
-      projectPath: typeof row.directory === "string" && row.directory ? row.directory : null,
-      title: typeof row.title === "string" && row.title ? row.title : null,
-      summary: null,
-      filePath: db,
-      createdTs: typeof row.time_created === "number" ? Math.floor(row.time_created / 1000) : null,
-      modifiedTs: typeof row.time_updated === "number" ? Math.floor(row.time_updated / 1000) : null,
-    }));
+    return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => opencodeSessionRecord(row, db));
+  },
+
+  findSession(sessionId: string): unknown | null {
+    if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    const rows = host.fs.sqliteQuery<OpencodeSessionRow>(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
+    return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
   },
 
   checkIntegration(): unknown {
@@ -457,6 +456,13 @@ const plugin: PluginModule = {
 
 interface OpencodeManifest { models?: ModelInfo[] }
 interface OpencodeConfig { "$schema"?: string; plugin?: unknown[] }
+interface OpencodeSessionRow {
+  id?: string;
+  directory?: string;
+  title?: string;
+  time_created?: number;
+  time_updated?: number;
+}
 interface OpencodePart {
   type?: string;
   text?: string;
@@ -865,6 +871,19 @@ function opencodeDbPath(): string | null {
   if (!base) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   return base + sep + "opencode" + sep + "opencode.db";
+}
+
+function opencodeSessionRecord(row: OpencodeSessionRow, db: string): unknown {
+  return {
+    sessionId: row.id,
+    provider: "opencode",
+    projectPath: typeof row.directory === "string" && row.directory ? row.directory : null,
+    title: typeof row.title === "string" && row.title ? row.title : null,
+    summary: null,
+    filePath: db,
+    createdTs: typeof row.time_created === "number" ? Math.floor(row.time_created / 1000) : null,
+    modifiedTs: typeof row.time_updated === "number" ? Math.floor(row.time_updated / 1000) : null,
+  };
 }
 
 function opencodeConfigDir(): string | null {

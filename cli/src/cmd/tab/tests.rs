@@ -509,6 +509,10 @@ fn every_tab_action_rejects_malformed_remote_before_local_transport() {
             option: 1,
             tab: bad(),
         },
+        TabAction::AutoConfirm {
+            mode: crate::args::misc::AutoConfirmMode::On,
+            tab: bad(),
+        },
         TabAction::Rebind {
             session_id: "session-live".into(),
             tab: bad(),
@@ -701,4 +705,18 @@ fn a_converted_tab_failure_renders_as_the_envelope_on_stdout() {
         .as_str()
         .expect("error is a string")
         .contains("-32"));
+}
+
+#[test]
+fn auto_confirm_modes_map_to_the_setting_route() {
+    use crate::args::misc::AutoConfirmMode;
+    assert_eq!(
+        AutoConfirmMode::On.request(),
+        ("POST", Some(serde_json::json!({ "enabled": true })))
+    );
+    assert_eq!(
+        AutoConfirmMode::Off.request(),
+        ("POST", Some(serde_json::json!({ "enabled": false })))
+    );
+    assert_eq!(AutoConfirmMode::Status.request(), ("GET", None));
 }

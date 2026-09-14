@@ -31,7 +31,14 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ("extractSessionName", "none"),
     ("parsePrompt", "universal permission-prompt parser"),
     ("buildPromptResponse", "arrow-down + enter"),
-    ("directoryTrustPromptResponse", "none"),
+    (
+        "directoryTrustPromptResponse",
+        "none — directory-trust dialogs stay with the user",
+    ),
+    (
+        "permissionPromptResponse",
+        "none — permission prompts are never auto-confirmed",
+    ),
     ("sessionFilePath", "manifest sessions.* layout"),
     ("sessionExists", "sessionFilePath existence check"),
     ("sessionCreatedMs", "none"),
@@ -40,6 +47,10 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ("detectSessionModel", "none"),
     ("detectSessionReasoningEffort", "none"),
     ("enumerateSessions", "manifest sessions.* directory scan"),
+    (
+        "findSession",
+        "manifest sessions.* exact <id>.<ext> probe per project dir; else native fallback (bundled drop-ins only), else not found",
+    ),
     ("describeSession", "none (sessions list without title/summary)"),
     ("parseSessionMessages", "native fallback (bundled drop-ins only), else empty"),
     ("parseSessionDelta", "none — chat tailing yields no messages"),

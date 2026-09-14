@@ -27,6 +27,8 @@ pub struct WorkspaceSnapshot {
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provisioned_cwd: Option<String>,
     #[serde(default)]
     pub protected: bool,
     /// Sibling ordinal among workspaces. Legacy snapshots default to 0.
@@ -70,6 +72,10 @@ pub struct AgentIdentitySnapshot {
     pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epochs: Vec<crate::multiplexer::types::ContextEpochArchive>,
+    /// Retired launch nonces tagged with their sessions. Exit recovery reads the
+    /// newest, so they survive a restore that claims no session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prior_session_bindings: Vec<crate::multiplexer::types::PriorBindingNonce>,
     /// Rename-proof assignment identity, persisted so a restart keeps the lane
     /// matchable by task rather than by its mutable title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -174,6 +180,10 @@ pub enum SplitNodeSnapshot {
         /// behaviour instead of silently dropping back to prompting.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         auto_approve: bool,
+        /// Opt-in auto-confirm of recognized provider permission prompts. Unlike
+        /// `auto_approve` it is an explicit per-tab user choice, so it restores.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        permission_auto_confirm: bool,
         /// Missing legacy audience fails closed as automation.
         #[serde(default = "legacy_snapshot_audience")]
         audience: crate::multiplexer::types::TabAudience,

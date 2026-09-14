@@ -25,6 +25,7 @@ fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
         depth: 0,
         chat_view: Some(false),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
@@ -53,6 +54,7 @@ fn backup(specs: &[(&str, Option<&str>, &[&str])]) -> SessionSnapshot {
                 name: (*ws_id).into(),
                 active_tab_id: tab_ids.first().map(|id| (*id).to_string()),
                 cwd: cwd.map(str::to_string),
+                provisioned_cwd: None,
                 protected: false,
                 sort_order: 0,
                 tabs: tab_ids
@@ -105,6 +107,7 @@ fn merge_never_touches_existing_tabs_and_reports_them_as_present() {
         name: "live".into(),
         active_tab_id: Some(existing_tab.clone()),
         cwd: None,
+        provisioned_cwd: None,
         protected: false,
         sort_order: 0,
         tabs: vec![TabSnapshot {

@@ -1,6 +1,16 @@
-import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import type {
+  LaunchParams,
+  LaunchSessionDetection,
+  LaunchSessionEvidence,
+  ModelInfo,
+  ParsedPrompt,
+  PluginModule,
+} from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
+import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import {
+  menuPreamble,
+  parseActiveTerminalChoice,
   parseCodexPrompt,
   responseKeysForIndex,
 } from "./prompt";
@@ -22,6 +32,7 @@ import {
   detectSessionModel as detectCodexSessionModel,
   enumerateSessions as enumerateCodexSessions,
   extractSessionUuid,
+  findSession as findCodexSession,
   sessionFilePath as resolveCodexSessionFilePath,
   sessionExists as codexSessionExists,
 } from "./sessions";
@@ -149,14 +160,15 @@ const plugin: PluginModule = {
     return responseKeysForIndex(optionIndex, String(screen || ""));
   },
 
-  directoryTrustPromptResponse(prompt: ParsedPrompt, screen?: string): string[] | null {
-    const question = String(prompt.question || "").toLowerCase();
-    const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[1] : (first as unknown as { label?: string }).label;
-    if (!question.includes("trust the contents of this directory") || !firstLabel || !/^yes\b/i.test(firstLabel)) {
-      return null;
-    }
-    return responseKeysForIndex(0, String(screen || ""));
+  directoryTrustPromptResponse(screen: string): string[] | null {
+    const view = String(screen || "");
+    const choice = parseActiveTerminalChoice(view);
+    if (!choice) return null;
+    // The trust question is a long paragraph that wraps, so no single row carries it.
+    const preamble = menuPreamble(view, choice.options[0].line).toLowerCase();
+    if (preamble.indexOf("trust the contents of this directory") === -1) return null;
+    if (!/^yes\b/i.test(choice.options[0].label)) return [];
+    return responseKeysForIndex(0, view).slice(0, 1);
   },
 
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
@@ -178,7 +190,8 @@ const plugin: PluginModule = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
-      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : undefined);
+      const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
@@ -225,6 +238,10 @@ const plugin: PluginModule = {
 
   sessionExists(cwd: string, sessionId: string): boolean {
     return codexSessionExists(cwd, sessionId);
+  },
+
+  detectLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
+    return detectCodexLaunchSession(evidence);
   },
 
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
@@ -474,6 +491,10 @@ const plugin: PluginModule = {
 
   enumerateSessions(): unknown[] {
     return enumerateCodexSessions();
+  },
+
+  findSession(sessionId: string): unknown | null {
+    return findCodexSession(sessionId);
   },
 
   // Read the exact model identity from this session's latest turn context.

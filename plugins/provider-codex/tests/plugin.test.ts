@@ -224,8 +224,8 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
-    "detectActiveSession", "enumerateSessions", "detectSessionModel", "parseSessionMessages", "classifyTabState",
-    "providerSelfUpdateCapability",
+    "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "parseSessionMessages", "classifyTabState",
+    "providerSelfUpdateCapability", "detectLaunchSession",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   assert(
@@ -1174,6 +1174,26 @@ for (const [name, fixture] of [
   assert(result.ok === true && result.changed === false, "refresh ignores a hook with a foreign marker");
   assert(writes === 0, "foreign hook bytes are never rewritten");
   assert(files.get(hooksPath) === foreign, "foreign hook content remains byte-identical");
+}
+
+console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\n");
+
+{
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "directory-trust");
+  const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8")) as Array<{ file: string; expect: string }>;
+  const keys: Record<string, string[] | null> = {
+    enter: ["DQ=="],
+    "move-up": ["G1tB"],
+    "move-down": ["G1tC"],
+    hold: [],
+    none: null,
+  };
+  const p = loadHostPlugin();
+  assert(cases.length >= 5, "every declared Codex directory-trust fixture is exercised");
+  for (const c of cases) {
+    const screen = fs.readFileSync(path.join(dir, c.file), "utf8");
+    eq(p.directoryTrustPromptResponse(screen), keys[c.expect], `codex directory trust ${c.file} -> ${c.expect}`);
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

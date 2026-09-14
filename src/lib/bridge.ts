@@ -284,6 +284,14 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/focus`),
   mux_respond_prompt: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/prompt/respond`, a),
+  mux_set_permission_auto_confirm: async (a) => {
+    const resp = await webJson<{ enabled?: boolean }>(
+      "POST",
+      `/api/tabs/${enc(s(a, "tabId"))}/permission-auto-confirm`,
+      { enabled: a.enabled === true },
+    );
+    return resp?.enabled === true;
+  },
   mux_set_tab_agent_type: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent-type`, {
       agent_type: a.agentType,
