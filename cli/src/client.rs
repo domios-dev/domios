@@ -110,34 +110,33 @@ impl SocketClient {
     /// NOT the full `\\.\pipe\codeterm-1234` path.
     /// Tries both with and without `.sock` suffix for compatibility across versions.
     pub fn connect(socket_path: &str) -> Result<Self, String> {
-        if let Ok(client) = Self::try_connect(socket_path) {
-            return Ok(client);
-        }
+        let mut candidates = vec![socket_path.to_string()];
         if !socket_path.ends_with(".sock") {
-            let with_sock = format!("{}.sock", socket_path);
-            if let Ok(client) = Self::try_connect(&with_sock) {
-                return Ok(client);
-            }
+            candidates.push(format!("{}.sock", socket_path));
         }
         if let Some(without) = socket_path.strip_suffix(".sock") {
-            if let Ok(client) = Self::try_connect(without) {
-                return Ok(client);
+            candidates.push(without.to_string());
+        }
+        let mut denied = false;
+        for candidate in &candidates {
+            match Self::try_connect(candidate) {
+                Ok(client) => return Ok(client),
+                Err(error) => denied |= error.kind() == std::io::ErrorKind::PermissionDenied,
             }
         }
-        Err(format!(
-            "Failed to connect to '{}' (tried with/without .sock)",
-            socket_path
+        Err(connect_failure_message(
+            socket_path,
+            denied,
+            std::env::var("CODETERM_TAB_ID")
+                .ok()
+                .filter(|tab| !tab.is_empty())
+                .as_deref(),
         ))
     }
 
-    fn try_connect(socket_path: &str) -> Result<Self, String> {
-        let name = socket_path
-            .to_ns_name::<GenericNamespaced>()
-            .map_err(|e| format!("Invalid socket name '{}': {}", socket_path, e))?;
-
-        let stream = interprocess::local_socket::Stream::connect(name)
-            .map_err(|e| format!("Failed to connect to '{}': {}", socket_path, e))?;
-
+    fn try_connect(socket_path: &str) -> std::io::Result<Self> {
+        let name = socket_path.to_ns_name::<GenericNamespaced>()?;
+        let stream = interprocess::local_socket::Stream::connect(name)?;
         Ok(Self {
             reader: BufReader::new(stream),
             next_id: 1,
@@ -594,9 +593,49 @@ fn discover_unix_socket() -> Result<String, String> {
     )
 }
 
+/// An agent sandbox that denies the daemon pipe must not read as a dead daemon.
+fn connect_failure_message(socket_path: &str, denied: bool, caller_tab: Option<&str>) -> String {
+    let base = format!("Failed to connect to '{socket_path}' (tried with/without .sock)");
+    let restart = |tab: &str| format!("from another tab run `codeterm agent restart --tab {tab}`");
+    match (denied, caller_tab) {
+        (true, Some(tab)) => format!(
+            "{base}: access denied. This agent is likely confined by its provider sandbox, launched without CodeTerm's permission bypass; {}",
+            restart(tab)
+        ),
+        (true, None) => {
+            format!("{base}: access denied; this process is likely confined by a sandbox")
+        }
+        (false, Some(tab)) => format!(
+            "{base}. If CodeTerm is running, this agent may be confined by its provider sandbox; {}",
+            restart(tab)
+        ),
+        (false, None) => base,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connect_failure_diagnostic_names_the_caller_tab_and_distinguishes_denial() {
+        let path = "codeterm-fixture.sock";
+        let plain = connect_failure_message(path, false, None);
+        let agent = connect_failure_message(path, false, Some("fixture-tab"));
+        let denied_agent = connect_failure_message(path, true, Some("fixture-tab"));
+        let denied = connect_failure_message(path, true, None);
+
+        assert!(plain.contains(path));
+        assert!(!plain.contains("fixture-tab"));
+        assert!(agent.contains("fixture-tab"));
+        assert!(denied_agent.contains("fixture-tab"));
+        assert!(!denied.contains("fixture-tab"));
+        for message in [&agent, &denied_agent, &denied] {
+            assert!(message.starts_with(&plain));
+        }
+        assert_ne!(agent, denied_agent);
+        assert_ne!(plain, denied);
+    }
 
     // The helper under test only exists off Windows, where /tmp socket files do.
     #[cfg(not(target_os = "windows"))]
