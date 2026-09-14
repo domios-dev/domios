@@ -1,5 +1,4 @@
-// Codex writes CodeTerm's own launch text into the rollout's early developer and
-// user messages. A thread binds this tab only when that text carries this
+// A thread binds this tab only when its early developer/user messages carry this
 // launch's marker; neither cwd nor recency decides.
 import type { LaunchSessionDetection, LaunchSessionEvidence } from "@codeterm/plugin-sdk";
 import { codexStateDbPath } from "./sessions";
