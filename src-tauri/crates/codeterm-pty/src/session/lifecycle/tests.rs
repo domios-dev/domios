@@ -824,45 +824,66 @@ fn a_close_record_written_before_attribution_reads_as_unattributed() {
     );
 }
 
+fn at(seq: u64, key: &LifecycleKey, transition: LifecycleTransition) -> JournalRecord {
+    JournalRecord::Transition {
+        entry: LifecycleEntry {
+            seq,
+            key: key.clone(),
+            transition,
+            recorded_at: String::new(),
+        },
+    }
+}
+
+fn sealed_launch(first_seq: u64, key: &LifecycleKey, session_id: &str) -> Vec<JournalRecord> {
+    [
+        LifecycleTransition::EpochOpened,
+        LifecycleTransition::ProviderIdentityCommitted {
+            provider: "claude".into(),
+        },
+        LifecycleTransition::SessionBound {
+            session_id: session_id.into(),
+            binding_nonce: format!("nonce-{session_id}"),
+            source: Default::default(),
+        },
+        LifecycleTransition::LaunchReady,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(offset, transition)| at(first_seq + offset as u64, key, transition))
+    .collect()
+}
+
 #[test]
-fn restore_contract_awaiting_agent_restart_keeps_the_verified_binding_through_compaction() {
-    let (journal, _dir) = new_journal();
-    let exited = key("tab-a", 1, "op-a");
-    commit_full_launch(&journal, &exited, "session-a");
-    journal
-        .append(
-            exited,
-            LifecycleTransition::RolledBack {
-                reason: "provider process exited to a surviving shell".into(),
-            },
-        )
-        .unwrap();
+fn restore_contract_awaiting_agent_restart_never_creates_or_alters_a_checkpoint() {
+    use super::reduce::{compact_records, sealed_checkpoints};
+
+    let first = key("tab-a", 1, "op-a");
     let decision = LifecycleTransition::RestoreAwaitingAgentRestart {
         session_id: "session-a".into(),
     };
-    journal
-        .append(key("tab-a", 2, "restore-decision"), decision.clone())
-        .unwrap();
-    assert!(checkpoints(&journal.load()).is_empty());
-
-    journal.compact().unwrap();
-    let load = journal.load();
-
-    assert!(checkpoints(&load).is_empty(), "a diagnostic never seals");
-    let transitions: Vec<&LifecycleTransition> = load
-        .records
-        .iter()
-        .filter_map(|record| match record {
-            JournalRecord::Transition { entry } => Some(&entry.transition),
-            JournalRecord::Checkpoint { .. } => None,
-        })
-        .collect();
     assert!(
-        transitions.iter().any(|transition| matches!(
-            transition,
-            LifecycleTransition::SessionBound { session_id, .. } if session_id == "session-a"
-        )),
-        "exit recovery verifies the exited session against this binding"
+        sealed_checkpoints(&[at(
+            1,
+            &key("tab-a", 2, "restore-decision"),
+            decision.clone()
+        )])
+        .is_empty(),
+        "a diagnostic alone never seals"
     );
-    assert!(transitions.contains(&&decision));
+
+    let mut plain = sealed_launch(1, &first, "session-a");
+    let mut diagnosed = plain.clone();
+    diagnosed.push(at(10, &first, decision.clone()));
+    diagnosed.push(at(11, &key("tab-a", 2, "restore-decision"), decision));
+    assert!(!sealed_checkpoints(&plain).is_empty());
+    assert_eq!(sealed_checkpoints(&diagnosed), sealed_checkpoints(&plain));
+
+    let later = sealed_launch(20, &key("tab-a", 3, "op-c"), "session-c");
+    plain.extend(later.clone());
+    diagnosed.extend(later);
+    let expected = sealed_checkpoints(&plain);
+    assert_eq!(expected[0].authority.session_id, "session-c");
+    assert_eq!(sealed_checkpoints(&diagnosed), expected);
+    assert_eq!(sealed_checkpoints(&compact_records(&diagnosed)), expected);
 }
