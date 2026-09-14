@@ -134,10 +134,23 @@ exec {RELAUNCH_READY_FD}<&-
 RELAUNCH_VISIBLE="$(dc --json tab list --all-workspaces)"
 node "$JSON_STATE" live-tab "$RELAUNCH_TAB" <<<"$RELAUNCH_VISIBLE" || fail "in-tab relaunch is CLI-visible as live"
 
+# Restart readiness is claimed from the provider frame; input is sent only after
+# the restarted stub has bound its own session, which follows its stdin reader.
+exec {RELAUNCH_REBOUND_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" rebound "$RELAUNCH_TAB" "$RELAUNCH_SESSION")
+RELAUNCH_REBOUND_WAIT_PROCESS=$!
+ready=""
+read -r ready <&"$RELAUNCH_REBOUND_FD" || true
+[ "$ready" = READY ] || fail "in-tab relaunch restart binding observer readiness"
 RELAUNCH_RESTART="$(dc --json agent restart --tab "$RELAUNCH_TAB" 2>&1)" \
   || fail "agent restart refused the observed in-tab relaunch: $RELAUNCH_RESTART"
 [ "$(json_field "$RELAUNCH_RESTART" '.agent_ready // .data.agent_ready')" = true ] \
   || fail "agent restart of the in-tab relaunch reached agent_ready: $RELAUNCH_RESTART"
+RELAUNCH_REBOUND=""
+read -r RELAUNCH_REBOUND <&"$RELAUNCH_REBOUND_FD" || true
+wait "$RELAUNCH_REBOUND_WAIT_PROCESS" || fail "in-tab relaunch restart binding observer"
+exec {RELAUNCH_REBOUND_FD}<&-
+[ "$(json_field "$RELAUNCH_REBOUND" '.tab_id')" = "$RELAUNCH_TAB" ] \
+  || fail "restarted stub bound its own session before input"
 
 exec {RELAUNCH_SEND_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" received "$RELAUNCH_TAB" "$RELAUNCH_PROBE")
 RELAUNCH_SEND_WAIT_PROCESS=$!
