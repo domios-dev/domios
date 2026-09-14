@@ -425,7 +425,11 @@ impl ServiceContext {
                 },
                 LaunchObservation::Retired => return,
             };
-            svc.settle_launch_readiness(&attempt, evidence);
+            let hook_missed_deadline = matches!(evidence, LaunchEvidence::Unobserved { .. });
+            let settlement = svc.settle_launch_readiness(&attempt, evidence);
+            if hook_missed_deadline && settlement != LaunchSettlement::Superseded {
+                svc.detect_unbound_launch_session(&attempt.tab_id);
+            }
         });
     }
 }

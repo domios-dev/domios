@@ -151,6 +151,25 @@ fn install_provider_integration_body(
     )
 }
 
+/// An explicit CLI or API install is the consent: it records consent exactly
+/// like the Settings install, then installs with the trust grant.
+pub fn install_provider_integration_with_consent(
+    registry: &crate::agent::registry::AgentRegistry,
+    config: &crate::config::ConfigState,
+    provider_id: String,
+    api_port: u16,
+    precompact_memory_export: bool,
+) -> Result<(), String> {
+    install_provider_integration_body(
+        registry,
+        config,
+        provider_id,
+        Some(api_port),
+        true,
+        Some(precompact_memory_export),
+    )
+}
+
 fn install_and_record_integration(
     install: impl FnOnce() -> Result<(), String>,
     persist: impl FnOnce() -> Result<(), String>,
@@ -343,7 +362,7 @@ fn repair_integration_on_startup(
         }
         ReconcileAuthorization::TrustGrantRequired => {
             log::info!(
-                "[provider {}] hooks are untrusted; only the user can re-grant that trust",
+                "[provider {}] hooks are untrusted and no consent is recorded; nothing was changed",
                 provider.id()
             );
             return IntegrationRepairOutcome::TrustGrantRequired;
@@ -362,11 +381,17 @@ fn repair_integration_on_startup(
         precompact_memory_export,
         repair: true,
     };
-    match provider.install_integration(api_port, &options) {
-        Ok(()) => {
+    // Trust is keyed to content, so a rewrite without the grant disarms the hook.
+    match crate::agent::provider::install_integration_with_trust_grant(provider, api_port, &options)
+    {
+        Ok(grant) => {
             log::info!(
-                "[provider {}] repaired stale integration contract",
-                provider.id()
+                "[provider {}] repaired integration contract; trust grant: {}",
+                provider.id(),
+                grant.map_or_else(
+                    || "not applicable".to_string(),
+                    |outcome| outcome.to_string()
+                )
             );
             IntegrationRepairOutcome::Repaired
         }
@@ -741,20 +766,51 @@ mod tests {
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
+    fn grants(provider: &RepairProbeProvider) -> usize {
+        provider
+            .grant_calls
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     #[test]
-    fn hook_contract_repair_uses_recorded_consent_without_reasking_or_regranting() {
+    fn hook_contract_repair_uses_recorded_consent_and_grants_trust_in_the_same_step() {
         let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
         repair_integration_on_startup(&provider, 7686, false, false);
         assert!(provider.consents.lock().unwrap().is_empty());
+        assert_eq!(grants(&provider), 0);
         repair_integration_on_startup(&provider, 7686, true, false);
         assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
         assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
-        assert_eq!(
-            provider
-                .grant_calls
-                .load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
+        assert_eq!(grants(&provider), 1);
+    }
+
+    #[test]
+    fn untrusted_hash_with_recorded_consent_is_rewritten_and_regranted() {
+        let provider =
+            RepairProbeProvider::new(serde_json::json!({ "integration_state": "untrusted_hash" }));
+        let outcome = repair_integration_on_startup(&provider, 7686, true, false);
+        assert_eq!(outcome, IntegrationRepairOutcome::Repaired);
+        assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(grants(&provider), 1);
+    }
+
+    #[test]
+    fn untrusted_hash_without_consent_is_left_untouched() {
+        let provider =
+            RepairProbeProvider::new(serde_json::json!({ "integration_state": "untrusted_hash" }));
+        let outcome = repair_integration_on_startup(&provider, 7686, false, false);
+        assert_eq!(outcome, IntegrationRepairOutcome::TrustGrantRequired);
+        assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(provider.consents.lock().unwrap().is_empty());
+        assert_eq!(grants(&provider), 0);
+    }
+
+    #[test]
+    fn failed_repair_grants_no_trust() {
+        let provider =
+            RepairProbeProvider::unclassifiable(serde_json::json!({ "hooks_installed": false }));
+        repair_integration_on_startup(&provider, 7686, true, false);
+        assert_eq!(grants(&provider), 0);
     }
 
     #[test]

@@ -71,6 +71,7 @@ mod tests {
             LifecycleTransition::SessionBound {
                 session_id: "session-1".into(),
                 binding_nonce: "nonce-1".into(),
+                source: Default::default(),
             },
             LifecycleTransition::LaunchReady,
         ];

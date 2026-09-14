@@ -705,6 +705,7 @@ fn build_relaunch_command_with_registry(
                     skip_permissions: auto_approve,
                     session_id: Some(sid.to_string()),
                     structured_prompt_server: structured_prompt_server.clone(),
+                    launch_marker: None,
                 })
             });
         }
@@ -743,6 +744,7 @@ fn build_relaunch_command_with_registry(
             skip_permissions: auto_approve,
             session_id: None,
             structured_prompt_server,
+            launch_marker: None,
         })
     })
 }

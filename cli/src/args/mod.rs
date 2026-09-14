@@ -5,6 +5,7 @@ pub mod debug;
 pub mod delayed;
 pub mod effort;
 pub mod inbox;
+pub mod integration;
 pub mod mem;
 pub mod misc;
 pub mod orchestrator;

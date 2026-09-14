@@ -2196,6 +2196,60 @@
       ]
     },
     {
+      "name": "integration",
+      "about": "Provider hook integration: install it with recorded consent and trust, or read its state",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "install",
+          "about": "Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does",
+          "aliases": [],
+          "args": [
+            {
+              "name": "precompact-memory-export",
+              "positional": false,
+              "required": false,
+              "value_name": "PRECOMPACT_MEMORY_EXPORT",
+              "possible_values": [],
+              "default": null,
+              "help": "Also export conversation content to memory before compaction",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider id (e.g. claude, codex)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show a provider's hook integration state",
+          "aliases": [],
+          "args": [
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider id (e.g. claude, codex)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "keepawake",
       "about": "Prevent the system from sleeping while an agent is running",
       "aliases": [],

@@ -674,13 +674,15 @@ fn reconciliation_is_authorized_only_by_consent_and_the_install_report() {
         );
     }
 
-    // Trust is granted by content hash, so rewriting would disarm the hooks.
-    // Consent does not extend to that; only the user can re-grant it.
+    // Trust is granted by content hash. Recorded consent covers the rewrite
+    // plus the grant; without it the untrusted hooks are left alone.
+    let untrusted = json!({ "integration_state": INTEGRATION_STATE_UNTRUSTED_HASH });
     assert_eq!(
-        authorize_reconciliation(&facts(
-            json!({ "integration_state": INTEGRATION_STATE_UNTRUSTED_HASH }),
-            true
-        )),
+        authorize_reconciliation(&facts(untrusted.clone(), true)),
+        ReconcileAuthorization::Reconcile
+    );
+    assert_eq!(
+        authorize_reconciliation(&facts(untrusted, false)),
         ReconcileAuthorization::TrustGrantRequired
     );
 

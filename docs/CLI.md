@@ -472,6 +472,23 @@ Add a standalone task to the workspace Inbox
 - `--why`
 - `--why-file`
 
+#### `codeterm integration`
+
+Provider hook integration: install it with recorded consent and trust, or read its state
+
+#### `codeterm integration install`
+
+Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
+
+- `--precompact-memory-export` — Also export conversation content to memory before compaction
+- `--provider` — Provider id (e.g. claude, codex)
+
+#### `codeterm integration status`
+
+Show a provider's hook integration state
+
+- `--provider` — Provider id (e.g. claude, codex)
+
 #### `codeterm keepawake`
 
 Prevent the system from sleeping while an agent is running
