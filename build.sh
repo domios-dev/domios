@@ -1174,6 +1174,20 @@ managed_pid_from_file() {
   fi
 }
 
+process_pid_for_cleanup() {
+  local shell_pid="$1" windows_pid
+  case "$OSTYPE" in
+    msys*|cygwin*)
+      windows_pid="$(cat "/proc/$shell_pid/winpid" 2>/dev/null || true)"
+      if [[ "$windows_pid" =~ ^[0-9]+$ ]] && [ "$windows_pid" -gt 0 ]; then
+        echo "$windows_pid"
+        return
+      fi
+      ;;
+  esac
+  echo "$shell_pid"
+}
+
 kill_orphan_web_watchers() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     return
@@ -1239,7 +1253,7 @@ start_web_watch() {
   kill_web_watch || true
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
   local vite_entry="node_modules/vite/bin/vite.js"
-  local pid spawn_status
+  local pid shell_pid spawn_status
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
@@ -1249,13 +1263,14 @@ start_web_watch() {
       CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
       ;;
   esac
-  pid=$!
+  shell_pid=$!
   spawn_status=$?
   set -e
-  if [ -z "$pid" ] || [ "$spawn_status" -ne 0 ]; then
+  if [ -z "$shell_pid" ] || [ "$spawn_status" -ne 0 ]; then
     echo "WARNING: web bundle watcher did not start (status=$spawn_status, log $log); continuing without dist/ auto-rebuilds." >&2
     return 0
   fi
+  pid="$(process_pid_for_cleanup "$shell_pid")"
   if ! echo "$pid" > "$(web_watch_pidfile)"; then
     echo "WARNING: web bundle watcher pidfile was not written; continuing without managed watcher cleanup." >&2
     return 0
@@ -1266,7 +1281,7 @@ start_web_watch() {
 start_dev_static_server() {
   kill_dev_static_server || true
   local log="/tmp/codeterm-dev-static${CT_SUFFIX}.log"
-  local pid spawn_status
+  local pid shell_pid spawn_status
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
@@ -1276,13 +1291,14 @@ start_dev_static_server() {
       nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
-  pid=$!
+  shell_pid=$!
   spawn_status=$?
   set -e
-  if [ -z "$pid" ] || [ "$spawn_status" -ne 0 ]; then
+  if [ -z "$shell_pid" ] || [ "$spawn_status" -ne 0 ]; then
     echo "ERROR: dev static server did not start (status=$spawn_status, log $log)" >&2
     return 1
   fi
+  pid="$(process_pid_for_cleanup "$shell_pid")"
   echo "$pid" > "$(dev_static_pidfile)"
   echo "Dev static server started (devUrl port $CT_VITE_PORT, pid $pid, log $log)"
 }
