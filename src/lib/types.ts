@@ -932,6 +932,8 @@ export interface ProviderDescriptor {
   /// JSONL transcript, opencode SSE bus) so pending prompts come from a handle
   /// rather than PTY scraping. Informational on the wire today.
   supports_structured_prompts?: boolean;
+  /// Provider recognizes its own permission prompts, so per-tab auto-confirm is offered.
+  supports_permission_auto_confirm?: boolean;
   /// Binary name to probe via `which` when checking installation. Optional —
   /// providers without a CLI dependency leave this null.
   cli_binary?: string | null;

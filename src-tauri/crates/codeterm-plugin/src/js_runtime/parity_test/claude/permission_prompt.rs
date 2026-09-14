@@ -97,3 +97,15 @@ fn permission_prompt_refusals_native_js_parity() {
         assert_eq!(js, None, "js answered {tool:?} / {:?}", prompt.question);
     }
 }
+
+#[test]
+fn permission_auto_confirm_capability_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    assert!(native.supports_permission_auto_confirm());
+    assert!(js.supports_permission_auto_confirm());
+    assert!(native.describe().supports_permission_auto_confirm);
+    assert!(js.describe().supports_permission_auto_confirm);
+}

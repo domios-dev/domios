@@ -57,6 +57,10 @@ impl AgentProvider for ClaudeProvider {
         true
     }
 
+    fn supports_permission_auto_confirm(&self) -> bool {
+        true
+    }
+
     fn structured_pending_prompt(
         &self,
         cwd: &str,
