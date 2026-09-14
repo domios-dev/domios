@@ -77,7 +77,8 @@
       "expectations": [
         "Uses `codeterm agent restart --tab child_4` as the recovery command",
         "Does NOT spawn a new agent or open a new tab before trying that restart, and does NOT use `--force`",
-        "Verifies afterward that child_4 is live, or states that a refusal (no verified session, or no owning provider) means spawning a fresh agent"
+        "After the `codeterm agent restart --tab child_4` command, checks that child_4 is live (for example with `codeterm tab list`)",
+        "Names spawning a fresh agent only as the fallback for when that restart refuses (no verified session, or no owning provider)"
       ]
     }
   ]
