@@ -71,6 +71,7 @@ time is never an input.
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown,
 so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or
 model label, and the existing guarded-input refusal arms with it.
+In-tab provider relaunch, exit recovery and routed-slash behaviour: `docs/contributing/agent-restart-testing.md`.
 
 Role strings still pass through the literal legacy migration
 (`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a
@@ -236,4 +237,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
