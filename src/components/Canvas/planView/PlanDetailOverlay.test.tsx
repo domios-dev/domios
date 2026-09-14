@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { PlanDetailOverlay } from "./PlanDetailOverlay";
+import { taskReferenceLabel } from "../taskDisplayKey";
 import type { ApiConfig } from "../../../lib/types";
 
 type TestFn = () => void | Promise<void>;
@@ -180,11 +181,12 @@ test("plan document renders relation chips and opens task chips through overlay 
     title: "OAuth contract",
     subsections: [],
   };
+  const linkedTask: Task = { ...FIXTURE_TASK, id: "task-linked", name: "Linked task", handle: "linked-task", section_ids: ["sec-auth"] };
   const plan: Plan = {
     ...FIXTURE_PLAN,
     spec_links: [{ spec_id: "spec-1", spec_section_id: "spec-auth", plan_section_id: "sec-auth" }],
     tasks: [
-      { ...FIXTURE_TASK, id: "task-linked", name: "Linked task", handle: "linked-task", section_ids: ["sec-auth"] },
+      linkedTask,
     ],
   };
   const { host } = await render(
@@ -204,7 +206,7 @@ test("plan document renders relation chips and opens task chips through overlay 
   });
   assert(framedSection === "spec:spec-auth", "spec chip navigates to spec section");
   const taskChip = host.querySelector('[data-testid="canvas-detail-task-chip"]') as HTMLButtonElement;
-  assert(taskChip?.textContent === "linked-task", "task chip uses handle");
+  assert(taskChip?.textContent === taskReferenceLabel(linkedTask), "task chip uses the shared task reference label");
   await act(async () => {
     taskChip.click();
   });

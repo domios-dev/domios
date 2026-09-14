@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { BusyState } from "../../shared/BusyState";
 import { BoardPanel, BoardPanelSection } from "./BoardPanel";
 import { RefLabel, RefText, type BoardRefs } from "./BoardRefText";
 import {
@@ -117,8 +118,8 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager, now 
     <BoardPanel testId="mc-board-event-log" title="What happened" meta={source.caption}>
       <BoardPanelSection>
         {entries === null ? (
-          <p data-testid="mc-board-event-log-loading" className="mc-board-note">
-            Loading…
+          <p className="mc-board-note">
+            <BusyState inline labelKey="eventLogLoad" data-testid="mc-board-event-log-loading" />
           </p>
         ) : rows.length === 0 ? (
           <p data-testid="mc-board-event-log-empty" className="mc-board-note">

@@ -815,10 +815,8 @@ console.log("\n--- versionless Claude alias catalog ---\n");
 }
 
 
-// A marker-less hook that does not match an exact CodeTerm command fingerprint
-// is user-owned even when it resembles one. The installer must preserve it and
-// add a separately-owned entry. (The exact installed forms ARE recognised and
-// migrated — see hook-ownership.test.ts.)
+// A marker-less hook that only resembles a CodeTerm command is user-owned: the
+// installer preserves it beside its own entry, while exact installed forms migrate.
 {
   const settingsPath = "/home/test/.claude/settings.json";
   const legacy = {

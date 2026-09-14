@@ -240,9 +240,8 @@ fn ingest_into_ledger(
     if batch.is_empty() && offset_before == Some(new_offset) {
         return;
     }
-    // The cursor commits past every byte this pass read, so anything consumed and
-    // not recorded is gone for good. Never silent: unreadable lines are real loss,
-    // and a stretch that simply carried no usage still says so.
+    // The cursor commits past every byte this pass read, so consumed but unrecorded
+    // usage is gone for good and must be logged, whether unreadable or merely empty.
     if batch.unreadable_lines > 0 {
         log::warn!(
             "[kpi] {}: {} unreadable lines in {} consumed bytes; their usage is unrecoverable",

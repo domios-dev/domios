@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
+import { busyLabel } from "../../shared/busyStateLabels";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
@@ -673,7 +674,7 @@ describe("mission control board panels", () => {
     expect(load).not.toHaveBeenCalled();
     const older = host.querySelector('[data-testid="mc-board-event-log-older"]') as HTMLButtonElement;
     await act(async () => older.click());
-    expect(text(host, "mc-board-event-log-loading")).toBe("Loading…");
+    expect(text(host, "mc-board-event-log-loading")).toBe(busyLabel("eventLogLoad"));
     expect(load).toHaveBeenCalledWith(1);
     await unmount();
   });

@@ -859,9 +859,8 @@ mod tests {
             BootStage::SpawnFailed,
         );
 
-        // A launch that dies AFTER a provisional stage latched still latches,
-        // from either source: the provisional stage is evidence about one
-        // observer, not a shield.
+        // A provisional stage is evidence about one observer, not a shield, so a
+        // later spawn failure still latches from either source.
         let latches: [fn(&mut Tab, &str); 2] = [latch_deadline, latch_submit_unconfirmed];
         for latch in latches {
             let mut latched = launching_tab("pty-a", "nonce-a");
