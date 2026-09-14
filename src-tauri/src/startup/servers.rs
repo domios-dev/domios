@@ -98,6 +98,25 @@ fn note_frontend_deadline(service_state: &ServiceState) {
     );
 }
 
+const GENERAL_AGENT_FRONTEND_DEADLINE_REASON: &str =
+    "frontend did not report readiness before the launch deadline";
+
+fn report_general_agent_frontend_deadline(service: &crate::service::ServiceContext) {
+    log::error!("[general-agent] {GENERAL_AGENT_FRONTEND_DEADLINE_REASON}");
+    // emit_boot_stage re-locks mux; a scrutinee guard would live through the call.
+    let general_tab_id = service
+        .mux
+        .read()
+        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS);
+    if let Some(tab_id) = general_tab_id {
+        service.emit_boot_stage(
+            &tab_id,
+            codeterm_types::pty::BootStage::SpawnFailed,
+            Some(GENERAL_AGENT_FRONTEND_DEADLINE_REASON),
+        );
+    }
+}
+
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
     let app_handle = app.handle().clone();
@@ -271,18 +290,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                     frontend_readiness_generation,
                     frontend_ready_deadline,
                 ) {
-                    let reason = "frontend did not report readiness before the launch deadline";
-                    log::error!("[general-agent] {reason}");
-                    if let Some(tab_id) = mux
-                        .write()
-                        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
-                    {
-                        svc.emit_boot_stage(
-                            &tab_id,
-                            codeterm_types::pty::BootStage::SpawnFailed,
-                            Some(reason),
-                        );
-                    }
+                    report_general_agent_frontend_deadline(&svc);
                     return;
                 }
                 log::info!("[general-agent] Startup beginning...");
@@ -355,9 +363,59 @@ fn select_web_dist(
 #[cfg(test)]
 mod tests {
     use super::{
-        materialize_restored_backends, select_web_dist, should_materialize_restored_backend,
+        materialize_restored_backends, report_general_agent_frontend_deadline,
+        restored_backend_tab_ids, select_web_dist, should_materialize_restored_backend,
     };
+    use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::TabBacking;
+    use crate::service::test_fixture::ServiceFixture;
+    use codeterm_types::pty::BootStage;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn general_agent_frontend_deadline_releases_mux_for_restored_backends() {
+        let (mut mux, general_tab_id) = MultiplexerState::new();
+        mux.register_alias(crate::service::general_agent::GENERAL_ALIAS, &general_tab_id);
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let restored_tab_id = mux.create_tab(&workspace_id).unwrap();
+        mux.get_tab_mut(&restored_tab_id).unwrap().restored_from_snapshot = true;
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+
+        let (general_tx, general_rx) = mpsc::channel();
+        let general_service = service.clone();
+        std::thread::spawn(move || {
+            report_general_agent_frontend_deadline(&general_service);
+            general_tx.send(()).unwrap();
+        });
+        let (restore_tx, restore_rx) = mpsc::channel();
+        let restore_service = service.clone();
+        std::thread::spawn(move || {
+            let attempted = materialize_restored_backends(
+                || false,
+                || {},
+                || restored_backend_tab_ids(&restore_service),
+                |_| Ok(()),
+            );
+            restore_tx.send(attempted).unwrap();
+        });
+
+        general_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the General Agent deadline path must not self-deadlock on mux");
+        let attempted = restore_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("restored backends must materialize after a missed frontend deadline");
+
+        assert_eq!(attempted, vec![restored_tab_id]);
+        let general = service.mux.read().get_tab(&general_tab_id).cloned().unwrap();
+        assert_eq!(general.boot_stage, Some(BootStage::SpawnFailed));
+    }
 
     #[test]
     fn restore_contract_missed_frontend_deadline_still_materializes_restored_agent_panes() {

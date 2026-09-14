@@ -534,7 +534,8 @@ pub fn start_general_agent(
         // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
         format!("{}\r", cmd).into_bytes()
     };
-    if let Err(e) = pty.lock().write(&pty_id, &payload) {
+    let launch_write = pty.lock().write(&pty_id, &payload);
+    if let Err(e) = launch_write {
         log::error!("[general-agent] Failed to write launch command: {}", e);
         fail_general_agent_start(svc, mux, &tab_id, &e.to_string());
         return;
