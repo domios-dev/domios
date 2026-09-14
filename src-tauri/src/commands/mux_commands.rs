@@ -21,9 +21,14 @@ pub struct OrphanedRestoreInfo {
 pub(crate) async fn mux_get_state_from_service(
     svc: ServiceState,
 ) -> Result<MultiplexerSnapshot, String> {
+    refuse_busy_snapshot_off_runtime(move || svc.try_snapshot_with_reconciled_status()).await
+}
+
+async fn refuse_busy_snapshot_off_runtime(
+    try_snapshot: impl FnOnce() -> Option<MultiplexerSnapshot> + Send + 'static,
+) -> Result<MultiplexerSnapshot, String> {
     tokio::task::spawn_blocking(move || {
-        svc.try_snapshot_with_reconciled_status()
-            .ok_or_else(|| crate::service::SNAPSHOT_BUSY_ERROR.to_string())
+        try_snapshot().ok_or_else(|| crate::service::SNAPSHOT_BUSY_ERROR.to_string())
     })
     .await
     .map_err(|error| error.to_string())?
@@ -76,19 +81,29 @@ pub fn mux_rename_workspace(
 
 #[cfg(test)]
 mod snapshot_refusal_tests {
-    use super::mux_get_state_from_service;
+    use super::refuse_busy_snapshot_off_runtime;
+    use crate::agent::registry::AgentRegistry;
+    use crate::agent::status::TabStatusTracker;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
+    use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;
-    use crate::service::test_fixture::ServiceFixture;
-    use crate::service::SNAPSHOT_BUSY_ERROR;
+    use crate::service::{try_snapshot_with_reconciled_status, SNAPSHOT_BUSY_ERROR};
+    use crate::AgentTrackerState;
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
 
+    // Drives the command's refusal path without a Tauri app: tao refuses to build
+    // its EventLoop off the main thread on macOS, and test threads are not main.
     #[test]
     fn authoritative_command_refuses_without_blocking_runtime() {
         let (state, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(state);
-        let svc = Arc::new(fixture.service.clone());
-        let _lifecycle_owner = fixture.service.mux.write();
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux-command-refusal-test", state));
+        let tracker: AgentTrackerState = Arc::new(TimedMutex::new(
+            "mux-command-refusal-test",
+            TabStatusTracker::new(),
+        ));
+        let _lifecycle_owner = mux.write();
+        let worker_mux = mux.clone();
         let (done_tx, done_rx) = mpsc::channel();
 
         let worker = std::thread::spawn(move || {
@@ -96,8 +111,11 @@ mod snapshot_refusal_tests {
                 .enable_all()
                 .build()
                 .unwrap();
+            let registry = AgentRegistry::new();
             let error = runtime
-                .block_on(mux_get_state_from_service(svc))
+                .block_on(refuse_busy_snapshot_off_runtime(move || {
+                    try_snapshot_with_reconciled_status(&worker_mux, &tracker, &registry)
+                }))
                 .expect_err("a lifecycle-owned mux must be refused");
             done_tx.send(error).unwrap();
         });

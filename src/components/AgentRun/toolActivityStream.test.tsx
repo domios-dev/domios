@@ -254,7 +254,7 @@ describe("Codex tool activity", () => {
     expect(card?.dataset.toolStatus).toBe("unresolved");
     expect(card?.querySelector('[data-testid="toolcard-no-result"]')?.textContent).toBe("no result");
     expect(card?.querySelector('[data-testid="toolcard-status"]')?.getAttribute("aria-label")).toBe("no result");
-    expect(card?.querySelector('.animate-spin, [data-testid="toolcard-spinner"]')).toBeNull();
+    expect(card?.querySelector('[class*="spin"], [data-testid="toolcard-spinner"]')).toBeNull();
 
     expect(open.dataset.toolStatus).toBe("pending");
     expect(open.dataset.flowActive).toBe("true");
@@ -369,8 +369,9 @@ describe("stream presentation", () => {
     const [stream] = streams(view);
     const spinner = stream.querySelector('[data-testid="chat-tool-stream-spinner"]');
     const spinnerClasses = spinner?.getAttribute("class")?.split(/\s+/) ?? [];
-    expect(spinnerClasses).toContain("motion-safe:animate-spin");
-    expect(spinnerClasses).not.toContain("animate-spin");
+    const spinUtilities = spinnerClasses.filter((name) => name.endsWith("spin"));
+    expect(spinUtilities.length).toBeGreaterThan(0);
+    expect(spinUtilities.every((name) => name.startsWith("motion-safe:"))).toBe(true);
     expect(stream.querySelector('[data-testid="chat-tool-stream-title"]')?.className).toContain("motion-reduce:transition-none");
     expect(stream.querySelector('[class*="animate-pulse"], [class*="animate-ping"]')).toBeNull();
     expect(stream.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-r", "border-x"]));

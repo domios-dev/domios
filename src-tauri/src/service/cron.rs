@@ -468,7 +468,6 @@ mod tests {
 
     use parking_lot::Mutex;
 
-    use super::*;
     use crate::agent::test_provider::MockProvider;
     use crate::cron::store::{CronCreateParams, CronStore, CronUpdateParams};
     use crate::service::test_fixture::ServiceFixture;

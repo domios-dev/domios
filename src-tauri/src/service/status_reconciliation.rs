@@ -42,7 +42,7 @@ pub(super) fn snapshot_with_reconciled_status(
     })
 }
 
-pub(super) fn try_snapshot_with_reconciled_status(
+pub(crate) fn try_snapshot_with_reconciled_status(
     mux: &MuxState,
     tracker: &AgentTrackerState,
     registry: &AgentRegistry,

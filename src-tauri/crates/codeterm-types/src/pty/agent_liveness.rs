@@ -97,9 +97,8 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         // evidence the process is running.
         Some(BootStage::ProviderReady) | Some(BootStage::AgentReady) => AgentLiveness::Live,
         Some(BootStage::SpawnFailed) => AgentLiveness::Absent,
-        // A restored tab that proved only its PTY is live has proved nothing
-        // about the agent inside it, and an observer giving up on a launch is
-        // not evidence that the process it gave up on died.
+        // A reattached PTY proves nothing about the agent inside it, and an
+        // observer giving up on a launch is not evidence that the process died.
         Some(BootStage::PtyReattached)
         | Some(BootStage::LaunchDeadlineElapsed)
         | Some(BootStage::LaunchBindingUnconfirmed) => AgentLiveness::Unobserved,

@@ -909,9 +909,8 @@ pub(super) fn dispatch(
             return Err(dispatch_failed("provenance_validation", error));
         }
     };
-    // The red line, asked of the lane the Worker will actually hold. A
-    // provisioned lane has not been through the placement check, and this is
-    // the last statement before a tab can exist.
+    // A provisioned lane skipped the placement check and no tab exists yet, so
+    // the red line is asked here of the lane the Worker will actually hold.
     if let Some(provenance) = initial_provenance.as_ref() {
         if let Err(error) = refuse_unsafe_mutating_write(
             &plan,
