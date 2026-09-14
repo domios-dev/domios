@@ -60,7 +60,7 @@ interface MessageBubbleProps {
   /** Widget ids already answered — kept in the parent so they survive remounts. */
   answeredInteractiveIds?: Set<string>;
   /** When set, this user message arrived via a codeterm channel (cross-tab,
-   *  telegram, mesh, slash-command) and should render as a typed header
+   *  Telegram, Pebble, mesh, slash-command) and should render as a typed header
    *  instead of the default right-aligned "user" styling. */
   origin?: ChatOrigin;
   originAvatar?: React.ReactNode;
@@ -125,7 +125,7 @@ function recordBubbleRender(id: string): void {
 
 export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
-  const isInboundCommunication = origin?.kind === "tab" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh";
+  const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
   const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
@@ -324,7 +324,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     }
 
-    // codeterm channel (cross-tab, telegram, mesh) or wraps slash-commands.
+    // codeterm channel (cross-tab, Telegram, Pebble, mesh) or wraps slash-commands.
     const originHeader = effectiveOrigin ? (() => {
       const OriginIcon =
         effectiveOrigin.kind === "mesh"          ? Network :
@@ -333,6 +333,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
         Send;
       const label =
         effectiveOrigin.kind === "telegram"     ? `Telegram · ${effectiveOrigin.userId.slice(0, 12)}` :
+        effectiveOrigin.kind === "pebble"       ? "Pebble" :
         effectiveOrigin.kind === "mesh"         ? `Mesh · ${effectiveOrigin.peerId.slice(0, 10)}` :
         effectiveOrigin.kind === "plugin_config"? `Configure · ${effectiveOrigin.name}` :
         effectiveOrigin.kind === "command" ? (
