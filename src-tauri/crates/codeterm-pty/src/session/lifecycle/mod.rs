@@ -18,8 +18,7 @@ pub use journal::{
 };
 pub use record::{
     AgentTypeWriteAudit, AgentTypeWriteOrigin, BindingSource, CommittedAuthority, JournalRecord,
-    JournalSeq,
-    LifecycleCheckpoint, LifecycleCheckpointHistoryEntry, LifecycleEntry, LifecycleEpoch,
-    LifecycleKey, LifecycleTransition, PermissionAutoConfirmDecision,
+    JournalSeq, LifecycleCheckpoint, LifecycleCheckpointHistoryEntry, LifecycleEntry,
+    LifecycleEpoch, LifecycleKey, LifecycleTransition, PermissionAutoConfirmDecision,
 };
 pub use reduce::{PERMISSION_AUTO_CONFIRM_AUDIT_LIMIT, PRIOR_CHECKPOINT_LIMIT};
