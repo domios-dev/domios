@@ -44,6 +44,7 @@ mod orchestrator;
 pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
+pub(crate) mod directory_trust;
 mod output;
 mod output_feed;
 pub(crate) mod pending_delivery_payloads;
