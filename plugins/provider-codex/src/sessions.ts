@@ -65,6 +65,7 @@ export function sessionFilePath(_cwd: string, sessionId: string): string | null 
 
 export function sessionExists(_cwd: string, sessionId: string): boolean {
   if (!sessionId) return false;
+  if (threadRow(sessionId) !== null) return true;
   const store = codexSessionStore();
   return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
 }

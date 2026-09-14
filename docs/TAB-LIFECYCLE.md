@@ -23,7 +23,10 @@ change that decision.
    the label before either visible or lazy restoration claims the launch. The
    repair preserves the session and checks the tab's identity again before
    committing; it never replays a historical task. Missing or ambiguous ownership
-   retains the saved session and refuses agent materialization.
+   retains the saved session and refuses agent materialization. A provider
+   proves ownership from its authoritative per-session record, which exists
+   from the session's first turn, never only from a secondary index the provider
+   writes later: a session that has not reached that index yet still resumes.
 3. If a claimed session has no unique provider record, the tab comes back as a
    shell with a null provider label. A snapshot with no claimed session may
    still fresh-launch its explicitly persisted provider. Restore never chooses
@@ -50,6 +53,14 @@ observation changes, until no pane is unobserved. It also records
 `previous_epoch_end` — `clean_shutdown:<reason>` or `crash:<classification>` —
 so a restore that lost every agent to a planned update reads as that, and an
 unexplained one cannot hide behind a plausible story.
+
+Restored agent PTYs are materialized by the backend once the frontend reports
+ready, and still when it misses its readiness deadline: the deadline is never a
+reason to abandon relaunch. The visible and backend paths take the same per-tab
+PTY claim, so a late frontend reuses the live PTY. A wave materialized without
+the frontend records `backend_materialization:
+"frontend_readiness_deadline_elapsed"`, so panes still unobserved name what the
+restore was waiting on.
 
 Liveness itself is one observation, `codeterm_types::pty::agent_liveness`. Its
 inputs are facts: a live PtyManager session, a boot stage emitted at a real
@@ -235,4 +246,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 17 -->
+<!-- revision: 19 -->
