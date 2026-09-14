@@ -24,6 +24,22 @@ codeterm mem secret delete --name openai-prod
 
 `get` writes the raw value without a trailing newline. Use `--json` for `{item_id, name, value, notes}`. `search` and `list` return metadata only. Saving an existing name requires `--overwrite`; deleting prompts unless `--yes` is supplied.
 
+## Well-known entries
+
+| Name | Read by | Purpose |
+|---|---|---|
+| `telegram_bot_token` | `POST /api/bridge/start` with `ensure_token` | Telegram bridge bot token |
+| `pebble_webhook_secret` | `POST /api/plugins/pebble/webhook` | Bearer secret every inbound Pebble event must present |
+
+Create the Pebble secret from stdin so it never reaches argv or shell history, then read it back once to configure the sender:
+
+```bash
+openssl rand -hex 32 | tr -d '\n' | codeterm mem secret save --name pebble_webhook_secret
+codeterm mem secret get --name pebble_webhook_secret
+```
+
+The daemon reads the entry on every request, so a rotation (`save --overwrite`) applies immediately. A missing, empty, or locked entry makes the route answer `503`; the plugin is never called. Route contract: [API-INTEGRATIONS.md](API-INTEGRATIONS.md#inbound-webhooks-pebble).
+
 ## Bitwarden
 
 Install `bw`, select Bitwarden in Settings → Secrets, set the server URL before login, then sign in with either a password or API key.
@@ -143,4 +159,4 @@ Implementation lives in `src-tauri/src/secrets/`:
 
 Override optional organization, collection, sync, or init methods only when the backend supports them. The registry is currently built into the binary; there is no external plugin registration API.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

@@ -16,6 +16,7 @@ pub mod dev_cast_routes;
 pub mod fs_routes;
 pub mod health_routes;
 pub mod hook_routes;
+pub mod inbound_webhook;
 pub mod logs_routes;
 pub mod mem_routes;
 pub mod mesh_inventory;

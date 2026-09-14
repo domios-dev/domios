@@ -12,6 +12,7 @@ export const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
   system: "system",
   mesh: "mesh",
   telegram: "telegram",
+  pebble: "pebble",
 };
 
 export interface StructuredInbound {
@@ -24,6 +25,9 @@ export function structuredInboundFromMessage(message: ChatMessage): StructuredIn
   const fromTab = shortTabRef(message.fromTab);
   if (message.inboundKind === "system") {
     return { kind: "system", origin: { kind: "system" } };
+  }
+  if (message.inboundKind === "pebble") {
+    return { kind: "pebble", origin: { kind: "pebble" } };
   }
   if (!fromLabel && !fromTab) return null;
   const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "tab");

@@ -423,6 +423,10 @@ fn deliver_kind_mapping_never_double_counts_owned_traffic() {
         deliver_event_kind(MessageKind::Telegram),
         Some(KpiEventKind::Send)
     );
+    assert_eq!(
+        deliver_event_kind(MessageKind::Pebble),
+        Some(KpiEventKind::Send)
+    );
     assert_eq!(deliver_event_kind(MessageKind::Report), None);
     assert_eq!(deliver_event_kind(MessageKind::Reminder), None);
     assert_eq!(deliver_event_kind(MessageKind::System), None);
