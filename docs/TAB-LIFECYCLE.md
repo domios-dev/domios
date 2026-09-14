@@ -192,22 +192,13 @@ Ordinary filesystem tools are the intended interface.
 
 ```bash
 JOURNAL=~/.codeterm-dev/sessions/tab-lifecycle.jsonl
-
 # everything that ever happened to one tab, in order
 grep '"tab_id":"db79d2da"' "$JOURNAL"
-
 # just the transition names and when they landed
 grep '"tab_id":"db79d2da"' "$JOURNAL" \
   | jq -r '.entry | "\(.seq)  \(.recorded_at)  \(.transition.transition)"'
-
 # does this tab have a committed checkpoint at all?
 jq -c 'select(.record=="checkpoint" and .checkpoint.key.tab_id=="db79d2da")' "$JOURNAL"
-
-# which tabs reached launch_ready without ever binding a session
-jq -r 'select(.record=="transition") | .entry
-       | "\(.key.tab_id) \(.transition.transition)"' "$JOURNAL" \
-  | sort -u
-
 # what the snapshot persisted, next to what the journal recorded
 jq -r '.workspaces[].tabs[].split_tree
        | select(.agent_type != null or .role != null)
@@ -216,7 +207,6 @@ jq -r '.workspaces[].tabs[].split_tree
 ```
 
 Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way.
-
 For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a
 read-only `lifecycle` object with live lineage, ordered transitions, surviving
 checkpoint, and journal-tail health. Default inspect output and `tab list`
@@ -246,4 +236,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

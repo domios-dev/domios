@@ -381,9 +381,18 @@ mod tests {
             },
         );
 
-        assert!(deadline_noted, "a missed deadline is surfaced, never silent");
-        assert_eq!(materialized, vec!["orchestrator", "codex-worker", "planner"]);
-        assert_eq!(attempted, materialized, "one failed pane never stops the rest");
+        assert!(
+            deadline_noted,
+            "a missed deadline is surfaced, never silent"
+        );
+        assert_eq!(
+            materialized,
+            vec!["orchestrator", "codex-worker", "planner"]
+        );
+        assert_eq!(
+            attempted, materialized,
+            "one failed pane never stops the rest"
+        );
     }
 
     #[test]
