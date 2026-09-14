@@ -9,6 +9,7 @@ use axum::{
 };
 use codeterm_bridge::ports::BridgeTabPort;
 use serde::Serialize;
+#[cfg(test)]
 use serde_json::Value;
 
 use crate::api::routes::AppState;
@@ -21,6 +22,8 @@ use crate::service::message_gateway::{
     DeliveryClass, DeliverySeam, MessageBody, MessageGateway, MessageOrigin, OutboundMessage,
 };
 use crate::service::messenger::MessageEnvelope;
+
+mod payload;
 
 pub(crate) const PEBBLE_WEBHOOK_PATH: &str = "/api/plugins/pebble/webhook";
 pub(crate) const PEBBLE_WEBHOOK_SECRET: &str = "pebble_webhook_secret";
@@ -72,7 +75,7 @@ impl WebhookRejection {
         Self::new(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "unsupported_media_type",
-            "Request body must use JSON media type",
+            "Use multipart/form-data with a boundary, or application/json",
         )
     }
 
@@ -135,6 +138,11 @@ impl WebhookRejection {
 
 impl IntoResponse for WebhookRejection {
     fn into_response(self) -> Response {
+        log::warn!(
+            "[pebble-webhook] request rejected: status={} code={}",
+            self.status.as_u16(),
+            self.code
+        );
         (
             self.status,
             Json(serde_json::json!({
@@ -221,21 +229,6 @@ async fn authenticate(
     Ok(())
 }
 
-fn decode_json(headers: &HeaderMap, body: &Bytes) -> Result<Value, WebhookRejection> {
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.split(';').next().unwrap_or_default().trim());
-    let json_media_type = content_type.is_some_and(|value| {
-        value == "application/json"
-            || (value.starts_with("application/") && value.ends_with("+json"))
-    });
-    if !json_media_type {
-        return Err(WebhookRejection::unsupported_media());
-    }
-    serde_json::from_slice(body).map_err(|_| WebhookRejection::invalid_json())
-}
-
 fn pebble_receiver(
     registry: &WebhookRegistry,
 ) -> Result<Arc<dyn WebhookReceiver>, WebhookRejection> {
@@ -264,7 +257,7 @@ async fn accept(
     if body.len() > MAX_WEBHOOK_BODY_BYTES {
         return Err(WebhookRejection::body_too_large());
     }
-    let payload = decode_json(headers, body)?;
+    let payload = payload::decode(headers, body).await?;
     let receiver = pebble_receiver(registry)?;
     let context = WebhookReceiveContext {
         payload,
