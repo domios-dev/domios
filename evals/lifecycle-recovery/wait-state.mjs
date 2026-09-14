@@ -10,6 +10,7 @@ const observedEventTypes = new Set();
 let lastMatchingTab = null;
 let lastLifecycleTitles = [];
 const matchingTabStates = [];
+let busyMuxSnapshots = 0;
 
 async function json(path) {
   const response = await fetch(`${api}${path}`, { headers, signal: controller.signal });
@@ -17,8 +18,21 @@ async function json(path) {
   return response.json();
 }
 
+// A 503 is the bounded-snapshot back-pressure answer (docs/API-EVENTS.md): no
+// observation from this event; the next matching stream event re-evaluates.
+async function muxSnapshot() {
+  const response = await fetch(`${api}/api/mux/state`, { headers, signal: controller.signal });
+  if (response.status === 503) {
+    busyMuxSnapshots += 1;
+    return null;
+  }
+  if (!response.ok) throw new Error(`/api/mux/state: ${response.status}`);
+  return response.json();
+}
+
 async function observedState() {
-  const mux = await json("/api/mux/state");
+  const mux = await muxSnapshot();
+  if (!mux) return null;
   const tabEnvelope = await json("/api/tabs?all_workspaces=true");
   const tabs = Array.isArray(tabEnvelope) ? tabEnvelope : (tabEnvelope.tabs || []);
   lastLifecycleTitles = tabs
@@ -127,6 +141,7 @@ run().catch((error) => {
     lifecycle_titles: lastLifecycleTitles,
     last_matching_tab: lastMatchingTab,
     matching_tab_states: matchingTabStates,
+    busy_mux_snapshots: busyMuxSnapshots,
   });
   process.stderr.write(`FAIL wait-state ${mode}: ${error.message}; evidence=${evidence}\n`);
   process.exitCode = 1;
