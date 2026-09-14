@@ -27,6 +27,50 @@ Tunables (env):
   deadlines in seconds. Waits re-check on daemon events; elapsed time is never
   success.
 
+- `RL_OWNED_DEADLINE` (`180`) — failure deadline for the pre-restart provider
+  ownership gate below.
+
+## Outcomes: PASS, SETUP, FAIL
+
+| Exit | Last line | Meaning |
+|------|-----------|---------|
+| `0` | `== restore lifecycle PASS cycles=2 midturn_cycle=2 run=…` | Every cycle restored every agent. |
+| `3` | `== restore lifecycle SETUP cycle=N (no restart taken; not a restore verdict) run=…` | Before cycle N, a provider store did not own a captured session. No restart ran, so nothing about restore was measured. |
+| `1` | a `FAIL …` line | Setup was proven and restore broke (report, identity, or a resumed turn), or the harness itself failed. |
+
+Before every restart the bench waits, per agent tab, until the tab's provider
+store owns the session captured in `identity-before.json`:
+`GET /api/sessions/<sid>` (the API behind `dc sessions get <sid>`) must return
+that session with the captured provider. The wait re-checks on daemon events
+under `RL_OWNED_DEADLINE`; there is no sleep. The gate reads the provider's
+session enumeration, which can lag the record restore trusts (Codex lists a
+thread only after naming it), so it is deliberately at least as strict as
+restore: a pass rules out a restart inside a provider persistence window.
+
+A SETUP run prints one line per unowned tab, then the SETUP summary:
+
+```text
+== [cycle-1] every provider store owns its captured session before the restart
+SETUP provider store did not own 01a09e84-… (tab 2b7402d3 rl-codex-worker, provider codex; sessions get: 404)
+== restore lifecycle SETUP cycle=1 (no restart taken; not a restore verdict) run=target-check/evals/restore-lifecycle-…
+```
+
+A FAIL run after a proven setup looks like:
+
+```text
+PASS owned 5 agent sessions owned by their provider stores
+== [cycle-1] full dev stop (reboot analogue) and start
+FAIL identity tab 2b7402d3 (rl-codex-worker) agent_session_id: '01a09e84-…' -> None
+```
+
+## Forensics
+
+Each cycle writes `dc tab inspect --tab … --lifecycle --json` for every tab of
+the run to `lifecycle-cycle-N-before.json` (after the ownership gate, before the
+restart) and `lifecycle-cycle-N-after.json` (once the restore report settled or
+failed). A SETUP stop writes `lifecycle-cycle-N-setup.json`. A failed capture is
+a `WARN` and never changes the verdict.
+
 ## Scenario
 
 1. Workspace `RESTORE-LIFECYCLE-<run>`; `team pair` gives a Claude Orchestrator
