@@ -13,6 +13,17 @@ let lastMatchingTab = null;
 let lastLifecycleTitles = [];
 const matchingTabStates = [];
 const busySnapshots = {};
+const receiptEvents = [];
+// Output-side events for the watched tab follow the stub's receipt into the screen buffer.
+const TAB_OUTPUT_EVENTS = new Set(["agent.task_complete", "tab-status-changed", "chat-stream-preview"]);
+
+function shouldEvaluate(event) {
+  if (["mux-state-changed", "plan-changed", "overflow"].includes(event.event_type)) return true;
+  if (mode !== "received" || !TAB_OUTPUT_EVENTS.has(event.event_type)) return false;
+  if (event.data?.tab_id !== values[0]) return false;
+  receiptEvents.push(event.event_type);
+  return true;
+}
 
 // Every snapshot the waiter reads goes through here. A 503 is the snapshot
 // back-pressure answer: no observation from this event, the next frame re-evaluates.
@@ -191,7 +202,7 @@ async function run() {
       if (payload) {
         const event = JSON.parse(payload);
         observedEventTypes.add(event.event_type);
-        if (event.event_type === "mux-state-changed" || event.event_type === "plan-changed") {
+        if (shouldEvaluate(event)) {
           const state = await observedState();
           if (state) {
             process.stdout.write(`${JSON.stringify(state)}\n`);
@@ -213,6 +224,7 @@ run().catch((error) => {
     last_matching_tab: lastMatchingTab,
     matching_tab_states: matchingTabStates,
     busy_snapshots: busySnapshots,
+    receipt_events: receiptEvents,
   });
   process.stderr.write(`FAIL wait-state ${mode}: ${error.message}; evidence=${evidence}\n`);
   process.exitCode = 1;
