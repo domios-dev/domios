@@ -61,6 +61,40 @@ A pane observed `absent` is reconciled through the ordinary lifecycle teardown,
 so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or
 model label, and the existing guarded-input refusal arms with it.
 
+## In-tab provider relaunch and recovery
+
+A provider started by hand inside a tab's surviving shell (for example through
+`codeterm tab exec`) has no launch pipeline to seal it. When its hook session
+start echoes the tab's current binding nonce with an accepted session, while no
+launch owns the tab (`agent_booting` false), the tab still has a pre-agent stage
+(none, `pty_*`, `reader_ready`, `shell_ready`, `pty_reattached`), and its PTY is
+live, `reconcile_boot_stage_with_session_binding` records `agent_ready`. From
+that transition the tab is observed `live`, public sends and Chat UI sends pass
+the ready gate, a user send parked while it was not ready is delivered once,
+`agent restart` is accepted, and a later provider exit is observed and clears
+the identity. Launch-owned, provisional, failed, and already-ready stages keep
+their own rules.
+
+Before this rule an in-tab relaunch stayed at its shell stage indefinitely: the
+epoch recorded `session_bound` but never `launch_ready`, restart refused it as
+not observed, Chat UI sends waited for `agent_ready` and were parked as
+`tab_busy_refused`, and the provider's exit could not be observed.
+
+A provider exit observed outside a shutdown clears the provider, session and
+live nonce, leaving a `shell_ready` PTY with its role and Team. That tab is
+`absent`: `agent restart` refuses it, and `tab restart` accepts it because it
+is a plain shell again. The supported recovery is a replacement through
+`codeterm agent spawn <provider> --team <team-id> --role ...`. It starts a new
+tab and does not resume the exited session. The cleared nonce no longer
+verifies a relaunch in that surviving shell, so the in-tab rule above does not
+apply after an observed exit.
+
+Routed tab messages carry a return-address marker only when the target record
+declares an agent (`agent_type` set or a launch in flight). A tab whose record
+has no agent receives the body as shell input. A live provider behind a record
+that no longer declares it therefore receives the raw text in its composer,
+where a leading `/` is a provider command.
+
 Role strings still pass through the literal legacy migration
 (`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a
 format upgrade, not a gate.
@@ -235,4 +269,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
