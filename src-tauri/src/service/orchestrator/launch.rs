@@ -1064,6 +1064,26 @@ pub(crate) fn build_agent_command(
     injected_session_id: Option<&str>,
     registry: &AgentRegistry,
 ) -> String {
+    build_agent_command_with_launch_marker(
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+        None,
+    )
+}
+
+/// `launch_marker` is the inert per-launch token a provider may carry into its
+/// own session record for hook-independent binding.
+pub(crate) fn build_agent_command_with_launch_marker(
+    agent_cmd: &str,
+    params: &SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &AgentRegistry,
+    launch_marker: Option<&str>,
+) -> String {
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
     if let Some(ref model) = params.model {
         if !model.is_empty() {
@@ -1137,6 +1157,7 @@ pub(crate) fn build_agent_command(
         skip_permissions: params.permission_bypass_requested(agent_cmd),
         session_id: injected_session_id.map(std::string::ToString::to_string),
         structured_prompt_server: params.structured_prompt_server.clone(),
+        launch_marker: launch_marker.map(str::to_string),
     };
     let cmd = registry
         .with_provider(agent_cmd, |p| {

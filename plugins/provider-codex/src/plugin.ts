@@ -1,5 +1,13 @@
-import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import type {
+  LaunchParams,
+  LaunchSessionDetection,
+  LaunchSessionEvidence,
+  ModelInfo,
+  ParsedPrompt,
+  PluginModule,
+} from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
+import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import {
   parseCodexPrompt,
   responseKeysForIndex,
@@ -178,7 +186,8 @@ const plugin: PluginModule = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
-      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : undefined);
+      const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
@@ -225,6 +234,10 @@ const plugin: PluginModule = {
 
   sessionExists(cwd: string, sessionId: string): boolean {
     return codexSessionExists(cwd, sessionId);
+  },
+
+  detectLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
+    return detectCodexLaunchSession(evidence);
   },
 
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.

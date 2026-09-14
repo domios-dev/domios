@@ -459,6 +459,7 @@ impl ServiceContext {
             LifecycleTransition::SessionBound {
                 session_id,
                 binding_nonce,
+                source: Default::default(),
             },
         );
     }

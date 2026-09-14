@@ -420,6 +420,11 @@ fn main_impl() {
             }
         }
 
+        Commands::Integration { action } => {
+            cmd::integration::handle_integration(cli.json, &action);
+            return;
+        }
+
         Commands::Agent { action } => {
             cmd::agent::handle_agent(&mut client, cli.json, action);
             return;

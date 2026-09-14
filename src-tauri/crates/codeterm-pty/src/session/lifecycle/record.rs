@@ -91,6 +91,17 @@ impl LifecycleKey {
     }
 }
 
+/// Evidence a session binding was taken from. The hook is primary; the other
+/// two read this launch's own provider record after the hook missed its deadline.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BindingSource {
+    #[default]
+    Hook,
+    PidRegistry,
+    LaunchMarker,
+}
+
 /// A committed transition, written by the owner of the mutation in the same
 /// operation that performs it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +135,8 @@ pub enum LifecycleTransition {
     SessionBound {
         session_id: String,
         binding_nonce: String,
+        #[serde(default)]
+        source: BindingSource,
     },
     /// Role and profile as committed. `role: None` records a role that was
     /// deliberately cleared, which is a commit like any other.
