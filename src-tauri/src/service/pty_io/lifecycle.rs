@@ -738,6 +738,62 @@ mod restored_snapshot_launch_tests {
             assert_eq!(tab.pending_delivery.is_some(), was_assigned);
         }
     }
+
+    #[test]
+    fn restored_team_member_resume_carries_bypass_only_when_granted() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        let flags = registry
+            .with_provider("claude", |provider| provider.auto_approve_flags())
+            .unwrap();
+        assert!(!flags.is_empty());
+        for granted in [true, false] {
+            let (mux, tab_id, _, team_id, _) = restored_worker(None);
+            let authorization = crate::service::permission_policy::authorize_permission_bypass(
+                &registry, "claude", granted,
+            );
+            let observed = parking_lot::Mutex::new(None::<RestoredSnapshotLaunchInput>);
+            restore_materialization_core(
+                &mux,
+                &tab_id,
+                "claude",
+                Some("fixture-session"),
+                Some("fixture-cwd"),
+                true,
+                false,
+                || Ok(None),
+                |_, _| panic!("restored fixture must not fail"),
+                |launch, restored_task| {
+                    *observed.lock() = Some(restored_snapshot_launch_input(
+                        &registry,
+                        launch,
+                        restored_task,
+                        authorization.clone(),
+                    ));
+                },
+            )
+            .unwrap()
+            .unwrap();
+            let input = observed.into_inner().unwrap();
+            let command = crate::service::orchestrator::build_agent_command(
+                "claude",
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                &registry,
+            );
+
+            assert_eq!(
+                mux.read().get_tab(&tab_id).unwrap().team_id.as_deref(),
+                Some(team_id.as_str())
+            );
+            assert!(command.contains("fixture-session"));
+            assert_eq!(input.params.permission_bypass_requested("claude"), granted);
+            for flag in &flags {
+                assert_eq!(command.contains(flag.as_str()), granted, "{command}");
+            }
+        }
+    }
 }
 
 pub(crate) fn kill_live_tab_pty(
