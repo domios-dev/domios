@@ -57,12 +57,14 @@ fn inbound_webhook_pebble_pty_and_chatbackend_metadata_are_originated_as_pebble(
     let parsed = crate::message_markers::parse(&marker).expect("pebble marker parses");
     assert_eq!(parsed.kind, "pebble");
     assert_eq!(parsed.attr("source"), Some("Pebble"));
+    assert_eq!(parsed.attr("trust"), Some("untrusted"));
 
     let (msg, marked) = build_chatbackend_inbound(&envelope, "focus enabled", "pebble-1".into());
     assert_eq!(msg.inbound_kind.as_deref(), Some("pebble"));
     assert_eq!(msg.from_label.as_deref(), Some("Pebble"));
     let parsed = crate::message_markers::parse(&marked).expect("inbound marker parses");
     assert_eq!(parsed.attr("kind"), Some("pebble"));
+    assert_eq!(parsed.attr("trust"), Some("untrusted"));
     assert_eq!(parsed.payload, "focus enabled");
 }
 
@@ -247,9 +249,7 @@ fn delivery_mesh_agent_recipient_gets_peer_qualified_prefix() {
     );
     assert_eq!(
         p.as_deref(),
-        Some(
-            "-=-codeterm:tab label=Edison@BLACKSTAR tab=e8a0ac20 model=sonnet mesh=BLACKSTAR-=-"
-        )
+        Some("-=-codeterm:tab label=Edison@BLACKSTAR tab=e8a0ac20 model=sonnet mesh=BLACKSTAR-=-")
     );
 }
 

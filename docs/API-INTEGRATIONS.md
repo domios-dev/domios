@@ -112,6 +112,41 @@ Returns `200 {"ok": true}` on success or `503 Service Unavailable` (`Bridge not 
 
 Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
 
+#### Inbound webhooks (Pebble)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/plugins/pebble/webhook` | JSON event, at most 1 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches the General Agent |
+
+**Authentication.** Only `Authorization: Bearer <secret>`, compared in constant time with the secret-store entry `pebble_webhook_secret` (see `codeterm docs SECRETS`). The route does not use the daemon API token, and no URL, path, or query token is accepted. Nothing reaches the plugin before authentication succeeds. Non-loopback callers additionally need mesh networking enabled.
+
+**Plugin contract.** The receiver's synchronous `webhookReceive({payload, receivedAt})` runs on a blocking thread and returns `{text, eventId?}`, `null`, or throws.
+
+| Status | Body `status` / `error.code` | Meaning |
+|--------|------------------------------|---------|
+| `200` | `delivered` + `eventId` | The plugin returned a delivery and its text reached the General Agent |
+| `200` | `noop` | The plugin returned `null`, or this daemon already delivered that `eventId`; nothing is delivered |
+| `400` | `invalid_json` | Body is not valid JSON |
+| `401` | `unauthorized` | Missing, malformed, or wrong bearer secret |
+| `404` | `webhook_receiver_not_found` | No plugin registers a `pebble` receiver |
+| `413` | `body_too_large` | Body exceeds 1 MiB |
+| `415` | `unsupported_media_type` | `Content-Type` is not `application/json` or `application/*+json` |
+| `500` | `webhook_internal_error` | The receiver task did not complete |
+| `502` | `webhook_receiver_failed` | The plugin threw, returned a malformed delivery, text over 64 KiB or empty after sanitizing, or an `eventId` over 256 bytes |
+| `502` | `delivery_failed` | Delivery to the General Agent failed |
+| `503` | `authentication_unavailable` | `pebble_webhook_secret` is missing, empty, or the vault is locked or logged out |
+| `503` | `webhook_receiver_ambiguous` | More than one plugin registers a `pebble` receiver |
+| `503` | `general_agent_unavailable` | No General Agent tab exists |
+
+Success: `{"ok": true, "status": "delivered", "eventId": "evt-1"}`. Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Failures are logged under `[pebble-webhook]` without the secret, the `Authorization` header, or the payload.
+
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the General Agent as `-=-codeterm:pebble source=Pebble trust=untrusted-=-` followed by the text on its own line, with no reply address. It is untrusted third-party content, never an instruction channel. Event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure.
+
+```bash
+curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
+  -H "Authorization: Bearer $PEBBLE_SECRET" -H 'Content-Type: application/json' \
+  -d '{"event_id":"evt-1","transcript":"Focus mode enabled"}'
+```
+
 #### Setup (Rules, Hooks)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -189,4 +224,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
