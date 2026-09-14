@@ -143,8 +143,10 @@ The response carries `recovered_in_place: true` with equal `old_pty_id` and
 `exit_recovery_no_verified_session` or `exit_recovery_session_not_owned`; then
 spawn a fresh agent, or replace a missing Team Orchestrator through
 `codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. The
-General Agent keeps its own restart control, and `tab restart` still accepts an
-absent tab as a plain shell.
+General Agent keeps its own restart control. `tab restart` refuses an absent tab
+that still carries an agent role (`shell_restart_agent_member`): a hand-typed
+provider resume there bypasses the launch builder and starts the agent without
+its granted permission bypass, sandboxed away from the daemon.
 
 Routed tab messages carry a return-address marker only when the target record
 declares an agent (`agent_type` set or a launch in flight); otherwise the body
@@ -157,4 +159,4 @@ the tab `absent`, then run `codeterm agent restart --tab $TAB`. It returns
 dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
 PTY, and a Chat UI send is delivered without `tab_busy_refused`.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
