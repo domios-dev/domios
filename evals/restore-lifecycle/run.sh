@@ -13,6 +13,9 @@ RL_MIDTURN_CYCLE="${RL_MIDTURN_CYCLE:-2}"
 RL_BIND_DEADLINE="${RL_BIND_DEADLINE:-180}"
 RL_TURN_DEADLINE="${RL_TURN_DEADLINE:-180}"
 RL_REPORT_DEADLINE="${RL_REPORT_DEADLINE:-240}"
+RL_OWNED_DEADLINE="${RL_OWNED_DEADLINE:-180}"
+# A provider store that never owns a bound session is a setup verdict, not a restore FAIL.
+SETUP_EXIT=3
 RL_CLAUDE_MODEL="${RL_CLAUDE_MODEL:-haiku}"
 RL_CODEX_MODEL="${RL_CODEX_MODEL:-}"
 
@@ -219,8 +222,26 @@ turn_all baseline || fail "baseline turn did not complete on every agent"
 observe capture "$RUN_DIR/identity-before.json" "${ALL_TABS[@]}" > /dev/null || exit 1
 observe assert-pre "$RUN_DIR/identity-before.json" "$SHELL_TAB" "${PROVIDERS[@]}" || exit 1
 
+# Forensics only: a failed capture warns and never decides the verdict.
+capture_lifecycle() {
+  local label="$1" args=() tab
+  for tab in "${ALL_TABS[@]}"; do args+=(--tab "$tab"); done
+  dc tab inspect "${args[@]}" --lifecycle --json > "$RUN_DIR/lifecycle-$label.json" 2> "$RUN_DIR/lifecycle-$label.stderr" \
+    || echo "WARN [$label] lifecycle capture failed: $(cat "$RUN_DIR/lifecycle-$label.stderr")"
+}
+
 for cycle in $(seq 1 "$RL_CYCLES"); do
   label="cycle-$cycle"
+  echo "== [$label] every provider store owns its captured session before the restart"
+  observe wait-owned "$RL_OWNED_DEADLINE" "$RUN_DIR/identity-before.json" "$SHELL_TAB"
+  owned_rc=$?
+  if [ "$owned_rc" -eq "$SETUP_EXIT" ]; then
+    capture_lifecycle "$label-setup"
+    echo "== restore lifecycle SETUP cycle=$cycle (no restart taken; not a restore verdict) run=$RUN_DIR"
+    exit "$SETUP_EXIT"
+  fi
+  [ "$owned_rc" -eq 0 ] || exit 1
+  capture_lifecycle "$label-before"
   if [ "$cycle" = "$RL_MIDTURN_CYCLE" ]; then
     echo "== [$label] start a long turn on the Claude worker and restart while it runs"
     observe send-long-turn "$RL_TURN_DEADLINE" "$CLAUDE_WORKER" \
@@ -230,7 +251,10 @@ for cycle in $(seq 1 "$RL_CYCLES"); do
   restart_dev "$label"
 
   echo "== [$label] restore report observes every agent pane live"
-  observe restore-report "$RL_REPORT_DEADLINE" "$restart_since" "${AGENTS[@]}" -- "$SHELL_TAB" || exit 1
+  observe restore-report "$RL_REPORT_DEADLINE" "$restart_since" "${AGENTS[@]}" -- "$SHELL_TAB"
+  report_rc=$?
+  capture_lifecycle "$label-after"
+  [ "$report_rc" -eq 0 ] || exit 1
 
   echo "== [$label] identity is unchanged behind the same tab ids"
   observe capture "$RUN_DIR/identity-$label.json" "${ALL_TABS[@]}" > /dev/null || exit 1
