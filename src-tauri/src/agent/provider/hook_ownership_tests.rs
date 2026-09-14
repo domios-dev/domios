@@ -92,7 +92,9 @@ fn current_unmarked_codeterm_hook_is_owned() {
     }
 
     // The two events the provider asymmetry hides behind, named explicitly.
-    assert!(is_codeterm_hook(&current_unmarked_entry("PermissionRequest")));
+    assert!(is_codeterm_hook(&current_unmarked_entry(
+        "PermissionRequest"
+    )));
     assert!(is_codeterm_hook(&current_unmarked_entry("Stop")));
 
     // Narrowly bounded: the same runtime variables without one of our exact

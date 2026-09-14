@@ -9759,7 +9759,7 @@
                   "value_name": "TASK_ID_OR_HANDLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)",
+                  "help": "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle (see --handle), or a task key (COD-12)",
                   "aliases": []
                 },
                 {
@@ -10958,7 +10958,7 @@
                   "value_name": "TASK_ID_OR_HANDLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement",
+                  "help": "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle, or a task key (COD-12). Use --replace-dependencies for wholesale replacement",
                   "aliases": []
                 },
                 {

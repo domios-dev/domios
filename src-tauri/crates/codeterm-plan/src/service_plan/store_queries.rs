@@ -216,8 +216,8 @@ impl PlanStore {
                 continue;
             }
             // A paused plan still costs its owner tokens, so ownership alone charges spend.
-            let is_owner = plan.mode == PlanMode::Execution
-                && plan.owner.tab_id.as_deref() == Some(tab_id);
+            let is_owner =
+                plan.mode == PlanMode::Execution && plan.owner.tab_id.as_deref() == Some(tab_id);
             let is_planner = matches!(
                 &plan.planner,
                 Some(crate::plan::PlannerRef::Tab {

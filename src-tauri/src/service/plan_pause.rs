@@ -201,7 +201,10 @@ pub(crate) fn pause_preview(
         operation_id: open_pause_operation(plan).map(|operation| operation.id.clone()),
         restore_mode: None,
         agents: if applicable {
-            agents.iter().map(|agent| preview_agent(agent, true)).collect()
+            agents
+                .iter()
+                .map(|agent| preview_agent(agent, true))
+                .collect()
         } else {
             vec![]
         },
@@ -351,7 +354,10 @@ pub(crate) fn execute_plan_pause(
             (schedule.job_id.clone(), outcome)
         })
         .collect();
-    let title = store.get(plan_id).map(|plan| plan.title).unwrap_or_default();
+    let title = store
+        .get(plan_id)
+        .map(|plan| plan.title)
+        .unwrap_or_default();
     let notice = pause_notice_text(plan_id, &title, &operation.reason);
     let agent_outcomes: Vec<_> = operation
         .agents
@@ -387,13 +393,15 @@ pub(crate) fn execute_plan_resume(
     ports: &dyn PlanPausePorts,
     now_ms: u64,
 ) -> Result<PlanLifecycleOutcome, PlanError> {
-    let outcome = |applied: bool, mode: PlanMode, operation: Option<PlanPauseOperation>| PlanLifecycleOutcome {
-        kind: PlanLifecycleKind::Resume,
-        plan_id: plan_id.into(),
-        applied,
-        mode,
-        stride_id: None,
-        operation,
+    let outcome = |applied: bool, mode: PlanMode, operation: Option<PlanPauseOperation>| {
+        PlanLifecycleOutcome {
+            kind: PlanLifecycleKind::Resume,
+            plan_id: plan_id.into(),
+            applied,
+            mode,
+            stride_id: None,
+            operation,
+        }
     };
     let (restored_mode, operation) = match store.begin_plan_resume_operation(plan_id, now_ms)? {
         PlanResumeBegin::NotPaused { mode } => return Ok(outcome(false, mode, None)),
@@ -417,7 +425,10 @@ pub(crate) fn execute_plan_resume(
         })
         .collect();
     let live: Vec<bool> = operation.agents.iter().map(is_live).collect();
-    let title = store.get(plan_id).map(|plan| plan.title).unwrap_or_default();
+    let title = store
+        .get(plan_id)
+        .map(|plan| plan.title)
+        .unwrap_or_default();
     let notice = resume_notice_text(plan_id, &title, &restored_mode);
     let agent_outcomes: Vec<_> = operation
         .agents

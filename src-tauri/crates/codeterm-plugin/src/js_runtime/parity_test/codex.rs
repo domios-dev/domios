@@ -468,10 +468,22 @@ fn parse_session_delta_normalizes_reasoning_and_agent_activity() {
     std::fs::write(tmp.path(), jsonl).unwrap();
 
     let delta = codex().parse_session_delta(tmp.path(), 0);
-    let blocks: Vec<_> = delta.messages.iter().flat_map(|m| m.blocks.iter()).collect();
+    let blocks: Vec<_> = delta
+        .messages
+        .iter()
+        .flat_map(|m| m.blocks.iter())
+        .collect();
     let kinds: Vec<&str> = blocks.iter().map(|b| b.kind.as_str()).collect();
-    assert_eq!(kinds, vec!["thinking", "tool_use", "tool_use"], "{:#?}", delta.messages);
-    assert_eq!(blocks[0].data, serde_json::json!({ "text": "**Inspect sources**" }));
+    assert_eq!(
+        kinds,
+        vec!["thinking", "tool_use", "tool_use"],
+        "{:#?}",
+        delta.messages
+    );
+    assert_eq!(
+        blocks[0].data,
+        serde_json::json!({ "text": "**Inspect sources**" })
+    );
     assert_eq!(blocks[1].data["tool_kind"], "agent");
     assert_eq!(
         blocks[1].data["input"],

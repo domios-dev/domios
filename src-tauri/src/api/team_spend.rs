@@ -495,7 +495,11 @@ fn weekly_limit_days_from_rows(
                 day: day.format("%Y-%m-%d").to_string(),
                 provider: provider.clone(),
                 account_id: account_id.clone(),
-                points_used: if reset { reading } else { reading - base_reading },
+                points_used: if reset {
+                    reading
+                } else {
+                    reading - base_reading
+                },
                 weekly_limit_points: reading,
                 scope: scope_of(&provider, account_id.as_deref()),
                 team_attribution: "unavailable",

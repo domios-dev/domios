@@ -9,7 +9,11 @@ fn line_start(lines: &[&str], line: usize) -> u64 {
     lines[..line].iter().map(|l| l.len() as u64 + 1).sum()
 }
 
-fn anchors(provider: &JsProvider, lines: &[&str], from_offset: u64) -> Vec<(Option<u64>, u32, Option<String>)> {
+fn anchors(
+    provider: &JsProvider,
+    lines: &[&str],
+    from_offset: u64,
+) -> Vec<(Option<u64>, u32, Option<String>)> {
     let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), body).unwrap();
@@ -38,7 +42,11 @@ fn tab_chat_identity_claude_rows_anchor_to_their_record_start() {
         (Some(line_start(&lines, 1)), 0, None),
         (Some(line_start(&lines, 3)), 0, None),
     ];
-    assert_eq!(anchors(&claude, &lines, 0), expected, "multi-record chunk from byte 0");
+    assert_eq!(
+        anchors(&claude, &lines, 0),
+        expected,
+        "multi-record chunk from byte 0"
+    );
     assert_eq!(
         anchors(&claude, &lines, line_start(&lines, 1)),
         expected[1..].to_vec(),
@@ -69,7 +77,11 @@ fn tab_chat_identity_codex_rows_anchor_to_their_record_start() {
         (Some(line_start(&lines, 2)), 0, None),
         (Some(line_start(&lines, 4)), 0, None),
     ];
-    assert_eq!(anchors(&codex, &lines, 0), expected, "multi-record chunk from byte 0");
+    assert_eq!(
+        anchors(&codex, &lines, 0),
+        expected,
+        "multi-record chunk from byte 0"
+    );
     assert_eq!(
         anchors(&codex, &lines, line_start(&lines, 2)),
         expected[1..].to_vec(),
@@ -90,8 +102,10 @@ fn tab_chat_identity_host_numbers_uuidless_rows_within_one_record() {
     ];
     let (mut rows, indexes) = rows_from_plugin(values).expect("well-formed rows");
     anchor_rows(&mut rows, &indexes, bytes, 100);
-    let anchored: Vec<(Option<u64>, u32)> =
-        rows.iter().map(|r| (r.record_start, r.record_row)).collect();
+    let anchored: Vec<(Option<u64>, u32)> = rows
+        .iter()
+        .map(|r| (r.record_start, r.record_row))
+        .collect();
     assert_eq!(
         anchored,
         vec![
@@ -105,7 +119,10 @@ fn tab_chat_identity_host_numbers_uuidless_rows_within_one_record() {
         "uuid rows are not numbered; missing or past-end indexes stay unanchored"
     );
     assert!(
-        serde_json::to_value(&rows[0]).unwrap().get("recordIndex").is_none(),
+        serde_json::to_value(&rows[0])
+            .unwrap()
+            .get("recordIndex")
+            .is_none(),
         "the host anchor never reaches the wire"
     );
     assert!(

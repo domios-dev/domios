@@ -336,7 +336,10 @@ mod tests {
 
         let events = store.get(&plan.id).unwrap().lifecycle_events;
         assert_eq!(
-            events.iter().map(|event| event.kind.as_str()).collect::<Vec<_>>(),
+            events
+                .iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
             vec!["opened", "activated", "archived", "activated"]
         );
     }

@@ -118,10 +118,7 @@ mod tests {
         assert_eq!(outcome["persisted"], json!(false));
         assert_eq!(outcome["transition_rejected"], json!(true));
         assert_eq!(outcome["cause"], json!("missing caller session id"));
-        assert_eq!(
-            outcome["report_outcome"],
-            json!("stale_binding_conflict")
-        );
+        assert_eq!(outcome["report_outcome"], json!("stale_binding_conflict"));
     }
 
     /// The exact delivered-but-refused submission the report card must keep
@@ -161,10 +158,7 @@ mod tests {
             event["task_report"]["cause"],
             json!("missing caller session id")
         );
-        assert_eq!(
-            event["report_outcome"],
-            json!("stale_binding_conflict")
-        );
+        assert_eq!(event["report_outcome"], json!("stale_binding_conflict"));
     }
 
     #[test]

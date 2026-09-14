@@ -309,7 +309,12 @@ mod tests {
             ),
             // model missing: the provider stands in, across every liveness
             (Some("codex"), None, AgentLiveness::Live, Some("codex")),
-            (Some("codex"), None, AgentLiveness::Unobserved, Some("codex?")),
+            (
+                Some("codex"),
+                None,
+                AgentLiveness::Unobserved,
+                Some("codex?"),
+            ),
             (Some("codex"), None, AgentLiveness::Absent, Some("codex!")),
             // empty strings are not observations
             (

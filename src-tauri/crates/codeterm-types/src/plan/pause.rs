@@ -126,7 +126,11 @@ impl PlanPauseOperation {
             .agents
             .iter()
             .filter_map(|a| a.resume_notice.as_ref())
-            .chain(self.schedules.iter().filter_map(|s| s.resume_outcome.as_ref()))
+            .chain(
+                self.schedules
+                    .iter()
+                    .filter_map(|s| s.resume_outcome.as_ref()),
+            )
             .any(PlanPauseStepOutcome::is_failure);
         if failed {
             PlanPauseStage::Incomplete
