@@ -134,7 +134,7 @@ impl AgentTransport for PtyTransport {
             role.as_deref(),
             role_profile.as_deref(),
         );
-        let params = AgentLaunchParams {
+        let mut params = AgentLaunchParams {
             agent_name: None,
             task: launch_task.clone(),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
@@ -144,11 +144,13 @@ impl AgentTransport for PtyTransport {
             structured_prompt_server,
             launch_marker: None,
         };
-        let launch_command = svc
-            .agent_registry
-            .with_provider(ctx.provider_id, |p| {
-                crate::agent::stub_launch::apply(ctx.provider_id, p.build_launch_command(&params))
-            })
+        let launch_command =
+            crate::service::launch_session_detection::marked_provider_launch_command(
+                &svc.agent_registry,
+                ctx.provider_id,
+                ctx.tab_id,
+                &mut params,
+            )
             .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;
         Ok(backend_owned_pty_launch(launch_command, |launch_command| {
             crate::service::orchestrator::launch_agent_in_background(
