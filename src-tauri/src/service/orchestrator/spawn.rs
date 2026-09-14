@@ -400,7 +400,7 @@ impl ServiceContext {
             params.reasoning_effort.as_deref(),
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
-        let (ws_id, ws_cwd) = {
+        let (ws_id, ws_cwd, ws_provisioned_cwd) = {
             let mux = self.mux.write();
             let id = crate::service::spawn::resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
@@ -410,8 +410,10 @@ impl ServiceContext {
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),
             )?;
-            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
-            (id, cwd)
+            let workspace = mux.get_workspace(&id);
+            let cwd = workspace.and_then(|ws| ws.cwd.clone());
+            let provisioned_cwd = workspace.and_then(|ws| ws.provisioned_cwd.clone());
+            (id, cwd, provisioned_cwd)
         };
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
@@ -450,6 +452,17 @@ impl ServiceContext {
             if let Some(ref dir) = params.cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
+                }
+            }
+            let provisioned_cwd = params.provisioned_cwd.clone().or_else(|| {
+                crate::service::directory_trust::inherited_workspace_provenance(
+                    params.cwd.as_deref(),
+                    ws_provisioned_cwd.as_deref(),
+                )
+            });
+            if let Some(provisioned_cwd) = provisioned_cwd {
+                if let Some(tab) = mux.get_tab_mut(&result) {
+                    tab.provisioned_cwd = Some(provisioned_cwd);
                 }
             }
             if let Some(tab) = mux.get_tab_mut(&result) {

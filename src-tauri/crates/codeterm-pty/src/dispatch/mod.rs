@@ -34,6 +34,11 @@ pub trait CommandPort: Send + Sync {
         cwd: Option<String>,
         activate: bool,
     ) -> crate::multiplexer::state::WorkspaceInfo;
+    fn create_provisioned_workspace(
+        &self,
+        name: String,
+        activate: bool,
+    ) -> Result<crate::multiplexer::state::WorkspaceInfo, String>;
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String>;
     fn close_workspace_guarded(
         &self,
@@ -128,12 +133,15 @@ pub enum Command {
     ListAgentProviders,
 
     /// Create a workspace, optionally with a starting cwd inherited by spawned agents.
+    /// `provision` makes the daemon create a fresh directory instead and excludes `cwd`.
     WorkspaceCreate {
         name: String,
         #[serde(default)]
         cwd: Option<String>,
         #[serde(default)]
         activate: Option<bool>,
+        #[serde(default)]
+        provision: bool,
     },
 
     /// Rename an existing workspace.
@@ -210,6 +218,9 @@ pub async fn dispatch_blocking(
 pub const TAB_SUMMARY_BUSY_ERROR: &str =
     "tab summary unavailable while tab state is initializing or changing";
 
+pub const WORKSPACE_PROVISION_CWD_CONFLICT: &str =
+    "provision creates its own directory and cannot be combined with cwd";
+
 pub fn dispatch_tab_summary_if_ready(
     cmd: &Command,
     ctx: &dyn CommandPort,
@@ -282,7 +293,14 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
             name,
             cwd,
             activate,
-        } => cmd_workspace_create(ctx, name.clone(), cwd.clone(), activate.unwrap_or(false)),
+            provision,
+        } => cmd_workspace_create(
+            ctx,
+            name.clone(),
+            cwd.clone(),
+            activate.unwrap_or(false),
+            *provision,
+        ),
         Command::WorkspaceRename { workspace_id, name } => {
             cmd_workspace_rename(ctx, workspace_id, name)
         }
@@ -641,8 +659,16 @@ fn cmd_workspace_create(
     name: String,
     cwd: Option<String>,
     activate: bool,
+    provision: bool,
 ) -> Result<CommandResult, String> {
-    let ws = ctx.create_workspace(name, cwd, activate);
+    let ws = if provision {
+        if cwd.is_some() {
+            return Err(WORKSPACE_PROVISION_CWD_CONFLICT.to_string());
+        }
+        ctx.create_provisioned_workspace(name, activate)?
+    } else {
+        ctx.create_workspace(name, cwd, activate)
+    };
     let json = serde_json::to_value(&ws).map_err(|e| format!("serialize WorkspaceInfo: {}", e))?;
     Ok(CommandResult::Json(json))
 }

@@ -21,6 +21,7 @@ fn snap(workspaces: usize) -> SessionSnapshot {
                 tabs: vec![],
                 active_tab_id: None,
                 cwd: None,
+                provisioned_cwd: None,
                 protected: false,
                 sort_order: i as i32,
             })
@@ -258,6 +259,7 @@ fn desk(specs: &[(&str, &[&str])]) -> SessionSnapshot {
                 name: (*ws_id).into(),
                 active_tab_id: None,
                 cwd: None,
+                provisioned_cwd: None,
                 protected: false,
                 sort_order: 0,
                 tabs: tab_ids

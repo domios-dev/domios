@@ -27,6 +27,8 @@ pub struct WorkspaceSnapshot {
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provisioned_cwd: Option<String>,
     #[serde(default)]
     pub protected: bool,
     /// Sibling ordinal among workspaces. Legacy snapshots default to 0.

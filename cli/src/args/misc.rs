@@ -14,13 +14,16 @@ pub enum WorkspaceAction {
         #[arg(long, value_name = "WORKSPACE_ID")]
         workspace: Option<String>,
     },
-    /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd.
+    /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd. With --provision, the daemon creates a fresh directory for it.
     Create {
         /// Workspace name
         name: String,
         /// Working directory — agents spawned with --workspace inherit this as their CWD
         #[arg(long)]
         cwd: Option<String>,
+        /// Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust
+        #[arg(long, conflicts_with = "cwd")]
+        provision: bool,
     },
     /// Focus a workspace by ID
     Focus {
@@ -609,4 +612,49 @@ pub enum WebAction {
         #[arg(long)]
         query: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use crate::{Cli, Commands};
+
+    use super::WorkspaceAction;
+
+    #[test]
+    fn workspace_create_parses_provision_without_cwd() {
+        let parsed =
+            Cli::try_parse_from(["codeterm", "workspace", "create", "bench", "--provision"])
+                .expect("workspace create --provision parses");
+        match parsed.command {
+            Commands::Workspace {
+                action:
+                    WorkspaceAction::Create {
+                        name,
+                        cwd,
+                        provision,
+                    },
+            } => {
+                assert_eq!(name, "bench");
+                assert!(cwd.is_none());
+                assert!(provision);
+            }
+            _ => panic!("expected workspace create"),
+        }
+    }
+
+    #[test]
+    fn workspace_create_refuses_provision_with_cwd() {
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "workspace",
+            "create",
+            "bench",
+            "--provision",
+            "--cwd",
+            "/home/user/project",
+        ])
+        .is_err());
+    }
 }

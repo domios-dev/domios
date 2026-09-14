@@ -162,10 +162,16 @@ pub(crate) fn handle_workspace_action(
                 }
             }
         }
-        WorkspaceAction::Create { name, cwd } => {
+        WorkspaceAction::Create {
+            name,
+            cwd,
+            provision,
+        } => {
             let requested_name = name.clone();
             let mut params = serde_json::json!({ "name": name });
-            if let Some(cwd) = cwd {
+            if provision {
+                params["provision"] = serde_json::json!(true);
+            } else if let Some(cwd) = cwd {
                 params["cwd"] = serde_json::json!(cwd);
             } else {
                 eprintln!("{}", workspace_create_cwd_hint());

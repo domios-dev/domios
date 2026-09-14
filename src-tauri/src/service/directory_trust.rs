@@ -32,9 +32,21 @@ pub(crate) fn directory_trust_provenance(tab: &Tab) -> Result<(), DirectoryTrust
     }
 }
 
+/// A spawn inherits workspace provenance only when it runs in exactly the daemon-created directory.
+pub(crate) fn inherited_workspace_provenance(
+    resolved_cwd: Option<&str>,
+    workspace_provisioned_cwd: Option<&str>,
+) -> Option<String> {
+    let provisioned = workspace_provisioned_cwd?;
+    let cwd = resolved_cwd?;
+    crate::service::ServiceContext::paths_equal(cwd, provisioned).then(|| provisioned.to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{directory_trust_provenance, DirectoryTrustRefusal};
+    use super::{
+        directory_trust_provenance, inherited_workspace_provenance, DirectoryTrustRefusal,
+    };
     use crate::multiplexer::state::MultiplexerState;
 
     fn state_with_tab(cwd: Option<&str>, provisioned: Option<&str>) -> (MultiplexerState, String) {
@@ -107,5 +119,28 @@ mod tests {
         let spec: crate::service::spawn::AgentSpawnSpec =
             serde_json::from_value(wire).expect("agent spawn spec");
         assert!(spec.provisioned_cwd.is_none());
+    }
+
+    #[test]
+    fn spawn_inherits_workspace_provenance_only_in_the_provisioned_directory() {
+        let provisioned = Some("C:/data/provisioned-workspaces/bench-1");
+        assert_eq!(
+            inherited_workspace_provenance(
+                Some("C:\\data\\provisioned-workspaces\\bench-1\\"),
+                provisioned
+            )
+            .as_deref(),
+            provisioned
+        );
+        assert!(inherited_workspace_provenance(
+            Some("C:/data/provisioned-workspaces/bench-1/user-made"),
+            provisioned
+        )
+        .is_none());
+        assert!(
+            inherited_workspace_provenance(Some("C:/Users/user/project"), provisioned).is_none()
+        );
+        assert!(inherited_workspace_provenance(None, provisioned).is_none());
+        assert!(inherited_workspace_provenance(Some("C:/Users/user/project"), None).is_none());
     }
 }

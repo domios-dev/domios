@@ -12,6 +12,7 @@ impl MultiplexerState {
             tabs: vec![],
             active_tab_id: None,
             cwd: cwd.clone(),
+            provisioned_cwd: None,
             protected: false,
             sort_order: self.next_workspace_sort_order(),
         };
@@ -27,6 +28,19 @@ impl MultiplexerState {
             protected: false,
             tab_ids: vec![],
             existing: None,
+            provisioned: false,
+        }
+    }
+
+    /// `dir` must be a directory the caller just created; the workspace records it as provenance.
+    pub fn create_provisioned_workspace(&mut self, name: String, dir: String) -> WorkspaceInfo {
+        let info = self.create_workspace(name, Some(dir.clone()));
+        if let Some(workspace) = self.workspaces.iter_mut().find(|w| w.id == info.id) {
+            workspace.provisioned_cwd = Some(dir);
+        }
+        WorkspaceInfo {
+            provisioned: true,
+            ..info
         }
     }
 
@@ -69,6 +83,7 @@ impl MultiplexerState {
             protected: ws.protected,
             tab_ids,
             existing: None,
+            provisioned: ws.provisioned_cwd.is_some(),
         })
     }
 
@@ -265,6 +280,7 @@ impl MultiplexerState {
                     protected: w.protected,
                     tab_ids,
                     existing: None,
+                    provisioned: w.provisioned_cwd.is_some(),
                 }
             })
             .collect()

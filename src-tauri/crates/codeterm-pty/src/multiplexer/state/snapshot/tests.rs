@@ -63,6 +63,7 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
             name: "ws".into(),
             active_tab_id: Some("tab".into()),
             cwd: None,
+            provisioned_cwd: None,
             protected: false,
             sort_order: 0,
             tabs: vec![TabSnapshot {
@@ -1023,6 +1024,29 @@ fn provisioned_cwd_round_trips_through_snapshot() {
 
     assert_eq!(tab.cwd.as_deref(), Some(cwd.as_str()));
     assert_eq!(tab.provisioned_cwd.as_deref(), Some(cwd.as_str()));
+}
+
+#[test]
+fn workspace_provisioned_cwd_round_trips_through_snapshot() {
+    let (mut state, _root) = MultiplexerState::new();
+    let dir = "/srv/provisioned-workspaces/bench-1".to_string();
+    let provisioned = state.create_provisioned_workspace("bench".into(), dir.clone());
+    let plain = state.create_workspace("plain".into(), Some("/home/user/project".into()));
+
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+
+    let ws = restored
+        .get_workspace(&provisioned.id)
+        .expect("provisioned workspace");
+    assert_eq!(ws.provisioned_cwd.as_deref(), Some(dir.as_str()));
+    let listed = restored
+        .list_workspaces()
+        .into_iter()
+        .find(|info| info.id == provisioned.id)
+        .expect("listed");
+    assert!(listed.provisioned);
+    let plain_ws = restored.get_workspace(&plain.id).expect("plain workspace");
+    assert!(plain_ws.provisioned_cwd.is_none());
 }
 
 // ── Ghost-tab repro harness ───────────────────────────────────────────────
