@@ -470,7 +470,7 @@ pub fn start_general_agent(
                 return;
             }
         }
-        let params = crate::agent::provider::AgentLaunchParams {
+        let mut params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: (!fallback).then_some(system_prompt.clone()),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
@@ -485,9 +485,12 @@ pub fn start_general_agent(
             ),
             launch_marker: None,
         };
-        let command = match svc.agent_registry.with_provider(provider_name, |p| {
-            crate::agent::stub_launch::apply(provider_name, p.build_launch_command(&params))
-        }) {
+        let command = match crate::service::launch_session_detection::marked_provider_launch_command(
+            &svc.agent_registry,
+            provider_name,
+            &tab_id,
+            &mut params,
+        ) {
             Some(cmd) => cmd,
             None => {
                 log::error!(

@@ -747,14 +747,13 @@ impl ServiceContext {
                 return Err(error.to_string());
             }
         }
-        let launch_marker = self.mint_launch_marker(&tab_id);
-        let launch_cmd = super::launch::build_agent_command_with_launch_marker(
+        let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+            &tab_id,
             &agent_cmd,
             &params,
             bg_task.as_deref(),
             launch_session_id.as_deref(),
             &self.agent_registry,
-            Some(&launch_marker),
         );
         launch_agent_in_background(
             self.clone(),

@@ -14,8 +14,9 @@ pub(crate) use launch::{
     arm_provider_session_for_test, skip_local_worker_role, AgentRegistry, LaunchGeneration,
 };
 pub(crate) use launch::{
-    build_agent_command, launch_agent_in_background, launch_agent_in_background_with_env,
-    record_provider_session, record_reader_termination, ProviderSessionBinding,
+    build_agent_command, build_agent_command_with_launch_marker, launch_agent_in_background,
+    launch_agent_in_background_with_env, record_provider_session, record_reader_termination,
+    ProviderSessionBinding,
 };
 pub(crate) use prompt_compose::{provider_launch_task, role_launch_task};
 #[cfg(test)]

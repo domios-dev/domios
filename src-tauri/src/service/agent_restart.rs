@@ -679,7 +679,7 @@ fn build_relaunch_command(
         session_present,
         structured_prompt_server,
         launch_task,
-        snap.role.as_deref(),
+        &snap.tab_id,
     )
 }
 
@@ -691,7 +691,7 @@ fn build_relaunch_command_with_registry(
     session_present: bool,
     structured_prompt_server: Option<StructuredPromptServer>,
     launch_task: Option<&str>,
-    _role: Option<&str>,
+    tab_id: &str,
 ) -> Option<String> {
     let starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     if session_present && structured_prompt_server.is_some() {
@@ -735,18 +735,18 @@ fn build_relaunch_command_with_registry(
             }
         }
     }
-    registry.with_provider(provider, |p| {
-        p.build_launch_command(&AgentLaunchParams {
-            agent_name: None,
-            task: launch_task.map(str::to_string),
-            starter_prompt,
-            args: None,
-            skip_permissions: auto_approve,
-            session_id: None,
-            structured_prompt_server,
-            launch_marker: None,
-        })
-    })
+    let mut params = AgentLaunchParams {
+        agent_name: None,
+        task: launch_task.map(str::to_string),
+        starter_prompt,
+        args: None,
+        skip_permissions: auto_approve,
+        session_id: None,
+        structured_prompt_server,
+        launch_marker: None,
+    };
+    crate::service::launch_session_detection::mark_fresh_launch(tab_id, &mut params);
+    registry.with_provider(provider, |p| p.build_launch_command(&params))
 }
 
 pub(crate) fn screen_shows_agent_tui(
