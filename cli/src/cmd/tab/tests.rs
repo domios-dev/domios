@@ -238,10 +238,7 @@ fn render_tree_brackets_the_agent_identity_and_never_the_role() {
     ];
     let out = render_tab_tree(&tabs);
 
-    assert!(
-        out.contains("[opus]"),
-        "orchestrator bracket:\n{out}"
-    );
+    assert!(out.contains("[opus]"), "orchestrator bracket:\n{out}");
     assert!(
         out.contains("[sol!]"),
         "a tab with no live agent is marked, not shown as running:\n{out}"

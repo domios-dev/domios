@@ -432,7 +432,11 @@ pub enum NotifyAction {
         target_tab: Option<String>,
 
         /// The exact chat message id inside --target-tab this notification jumps to
-        #[arg(long = "chat-message", value_name = "MESSAGE_ID", requires = "target_tab")]
+        #[arg(
+            long = "chat-message",
+            value_name = "MESSAGE_ID",
+            requires = "target_tab"
+        )]
         chat_message: Option<String>,
     },
     /// List notifications
