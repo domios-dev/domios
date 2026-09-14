@@ -68,6 +68,17 @@
         "Does not use sleep, delayed polling, screen-text readiness heuristics, or resend the assigned task",
         "Does not run `codeterm agent startup-ack` on the child's behalf; the bounded parent action is only `startup-hold`"
       ]
+    },
+    {
+      "id": 7,
+      "name": "recovers-exited-provider-in-place",
+      "prompt": "`codeterm tab list` shows tab child_4 as absent at shell_ready: its Claude agent exited back to its shell, and the tab still has its role. The user wants that same conversation back in that tab. Explain the commands.",
+      "expected_output": "The General Agent recovers the exited provider in place with agent restart, verifies liveness afterward, and falls back to a fresh spawn only when that restart refuses.",
+      "expectations": [
+        "Uses `codeterm agent restart --tab child_4` as the recovery command",
+        "Does NOT spawn a new agent or open a new tab before trying that restart, and does NOT use `--force`",
+        "Verifies afterward that child_4 is live, or states that a refusal (no verified session, or no owning provider) means spawning a fresh agent"
+      ]
     }
   ]
 }

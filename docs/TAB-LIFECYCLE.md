@@ -43,7 +43,7 @@ change that decision.
 6. A provider exit observed while a graceful shutdown is armed (update, quit,
    restart, signal) keeps the tab's provider, session and nonces. The shutdown
    killed that process, so the snapshot written at exit still names the session
-   the next boot resumes. Outside a shutdown the same exit clears the identity.
+   the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place.
 
 ## Restore reporting and observed liveness
 
@@ -237,4 +237,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

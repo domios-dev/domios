@@ -21,13 +21,15 @@ pub(crate) enum RestartReadiness {
     },
 }
 
+/// `replaced_pty_id: None` is an in-place relaunch on the tab's own PTY; its
+/// caller retires the prior stage first, so only the new launch can be ready.
 pub(crate) fn classify_restart_readiness(
     pty_id: Option<&str>,
     stage: Option<BootStage>,
     failure_reason: Option<&str>,
-    old_pty_id: &str,
+    replaced_pty_id: Option<&str>,
 ) -> Option<RestartReadiness> {
-    let new_pty_id = pty_id.filter(|pty_id| *pty_id != old_pty_id);
+    let new_pty_id = pty_id.filter(|pty_id| Some(*pty_id) != replaced_pty_id);
     match (new_pty_id, stage) {
         (Some(pty_id), Some(BootStage::AgentReady)) => Some(RestartReadiness::Ready {
             pty_id: pty_id.to_string(),
@@ -45,7 +47,7 @@ pub(crate) fn classify_restart_readiness(
 pub(crate) fn wait_for_restart_readiness(
     mux: &crate::MuxState,
     tab_id: &str,
-    old_pty_id: &str,
+    replaced_pty_id: Option<&str>,
     timeout: std::time::Duration,
 ) -> RestartReadiness {
     let inspect = || {
@@ -55,7 +57,7 @@ pub(crate) fn wait_for_restart_readiness(
                 tab.pty_id.as_deref(),
                 tab.boot_stage,
                 tab.boot_failure_reason.as_deref(),
-                old_pty_id,
+                replaced_pty_id,
             ),
             None => Some(RestartReadiness::Failed {
                 pty_id: None,
@@ -75,7 +77,7 @@ pub(crate) fn wait_for_restart_readiness(
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.pty_id.clone())
-        .filter(|pty_id| pty_id != old_pty_id);
+        .filter(|pty_id| Some(pty_id.as_str()) != replaced_pty_id);
     RestartReadiness::TimedOut { pty_id }
 }
 

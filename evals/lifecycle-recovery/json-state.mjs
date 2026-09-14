@@ -68,6 +68,21 @@ async function main() {
     return;
   }
 
+  if (mode === "recovered-restart") {
+    const [tabId, sessionId] = args;
+    requireState(Boolean(findObject(value, (item) =>
+      item.tab_id === tabId
+      && item.agent_ready === true
+      && item.recovered_in_place === true
+      && item.old_pty_torn_down === false
+      && item.session_action === "resume"
+      && item.session_id === sessionId
+      && item.new_pty_id != null
+      && item.new_pty_id === item.old_pty_id,
+    )));
+    return;
+  }
+
   if (mode === "general-agent") {
     const tabs = Array.isArray(value) ? value : (value.tabs || []);
     const generalAgent = tabs.find((tab) => tab.role_profile === "general_agent");
