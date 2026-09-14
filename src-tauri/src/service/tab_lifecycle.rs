@@ -50,15 +50,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn record_agent_type_write(&self, tab_id: &str, transition: LifecycleTransition) {
-        let journal = TabLifecycleJournal::shared();
-        let key = self.mux.read().lifecycle_key(tab_id).unwrap_or_else(|| {
-            LifecycleKey::new(
-                tab_id,
-                crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id),
-                format!("agent-type-write-{}", uuid::Uuid::new_v4()),
-            )
-        });
-        append(journal, key, transition);
+        let open_operation = self.mux.read().lifecycle_key(tab_id);
+        match open_operation {
+            Some(key) => append(TabLifecycleJournal::shared(), key, transition),
+            None => append_minted(tab_id, "agent-type-write", transition),
+        }
     }
 
     /// End the tab's authority and drop its lineage, so no snapshot can match
@@ -106,6 +102,17 @@ impl ServiceContext {
             },
         );
     }
+}
+
+/// Journal a diagnostic for a tab with no open operation under a fresh key.
+pub(crate) fn append_minted(tab_id: &str, operation_prefix: &str, transition: LifecycleTransition) {
+    let journal = TabLifecycleJournal::shared();
+    let key = LifecycleKey::new(
+        tab_id,
+        crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id),
+        format!("{operation_prefix}-{}", uuid::Uuid::new_v4()),
+    );
+    append(journal, key, transition);
 }
 
 fn append(journal: &TabLifecycleJournal, key: LifecycleKey, transition: LifecycleTransition) {

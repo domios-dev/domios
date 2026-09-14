@@ -19,6 +19,9 @@ pub struct RestorePane {
     pub agent_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session_id: Option<String>,
+    /// Newest lineage session of a team member whose provider exited before shutdown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exited_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,6 +33,9 @@ pub enum DropReason {
     /// The tab record came back, but no agent process is live behind it — the
     /// pane is a bare shell wearing its old identity.
     AgentNotLive,
+    /// The provider had exited to its shell before shutdown, so restore relaunched
+    /// nothing; `agent restart` resumes `exited_session_id` in place.
+    AgentExitedBeforeShutdown,
     /// The tab record came back and liveness has not been observed yet. An
     /// honest third state: this pane is neither claimed restored nor lost.
     AgentLivenessUnobserved,
@@ -109,6 +115,9 @@ fn outcome_for(pane: &RestorePane, present: bool, liveness: AgentLiveness) -> Pa
     let (restored, drop_reason) = match (present, liveness) {
         (false, _) => (false, Some(DropReason::NotRestored)),
         (true, AgentLiveness::Live) => (true, None),
+        (true, AgentLiveness::Absent) if pane.exited_session_id.is_some() => {
+            (false, Some(DropReason::AgentExitedBeforeShutdown))
+        }
         (true, AgentLiveness::Absent) => (false, Some(DropReason::AgentNotLive)),
         (true, AgentLiveness::Unobserved) => (false, Some(DropReason::AgentLivenessUnobserved)),
     };
@@ -148,7 +157,12 @@ pub fn build_restore_report(
     let restored = panes.iter().filter(|p| p.restored).count() as u32;
     let shell_only = panes
         .iter()
-        .filter(|p| p.drop_reason == Some(DropReason::AgentNotLive))
+        .filter(|p| {
+            matches!(
+                p.drop_reason,
+                Some(DropReason::AgentNotLive | DropReason::AgentExitedBeforeShutdown)
+            )
+        })
         .count() as u32;
     let unobserved = panes
         .iter()
@@ -199,6 +213,15 @@ pub fn log_report(report: &RestoreReport) {
             outcome.liveness.as_str(),
             outcome.drop_reason
         );
+        if let (Some(DropReason::AgentExitedBeforeShutdown), Some(session)) = (
+            outcome.drop_reason,
+            outcome.pane.exited_session_id.as_deref(),
+        ) {
+            log::warn!(
+                "[restore] pane tab={tab} exited before shutdown; recover session {session} with `codeterm agent restart --tab {tab}`",
+                tab = outcome.pane.tab_id,
+            );
+        }
     }
 }
 
@@ -383,6 +406,7 @@ mod tests {
             role: role.map(str::to_string),
             agent_type: agent.map(str::to_string),
             agent_session_id: Some(format!("session-{id}")),
+            exited_session_id: None,
         }
     }
 
@@ -598,6 +622,50 @@ mod tests {
         let back: RestoreReport =
             serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
         assert_eq!(back.previous_epoch_end, report.previous_epoch_end);
+    }
+
+    #[test]
+    fn restore_contract_exited_member_pane_names_its_recoverable_session() {
+        let exited = RestorePane {
+            agent_type: None,
+            agent_session_id: None,
+            exited_session_id: Some("exited-session".into()),
+            ..pane("worker", Some("worker"), None)
+        };
+        let bare = RestorePane {
+            agent_session_id: None,
+            ..pane("shell", Some("worker"), None)
+        };
+        let report = build_restore_report(
+            &[exited, bare],
+            &ids(&["worker", "shell"]),
+            &observed(&[
+                ("worker", AgentLiveness::Absent),
+                ("shell", AgentLiveness::Absent),
+            ]),
+        );
+
+        assert_eq!(report.restored, 0);
+        assert_eq!(report.shell_only, 2);
+        let reasons: Vec<_> = report
+            .panes
+            .iter()
+            .map(|p| (p.pane.tab_id.as_str(), p.drop_reason))
+            .collect();
+        assert_eq!(
+            reasons,
+            vec![
+                ("shell", Some(DropReason::AgentNotLive)),
+                ("worker", Some(DropReason::AgentExitedBeforeShutdown)),
+            ]
+        );
+        let back: RestoreReport =
+            serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
+        assert_eq!(back, report);
+        assert_eq!(
+            back.panes[1].pane.exited_session_id.as_deref(),
+            Some("exited-session")
+        );
     }
 
     #[test]

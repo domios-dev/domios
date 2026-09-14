@@ -14,6 +14,7 @@ RL_BIND_DEADLINE="${RL_BIND_DEADLINE:-180}"
 RL_TURN_DEADLINE="${RL_TURN_DEADLINE:-180}"
 RL_REPORT_DEADLINE="${RL_REPORT_DEADLINE:-240}"
 RL_OWNED_DEADLINE="${RL_OWNED_DEADLINE:-180}"
+RL_EXITED_MEMBER="${RL_EXITED_MEMBER:-1}"
 # A provider store that never owns a bound session is a setup verdict, not a restore FAIL.
 SETUP_EXIT=3
 RL_CLAUDE_MODEL="${RL_CLAUDE_MODEL:-haiku}"
@@ -311,5 +312,35 @@ for cycle in $(seq 1 "$RL_CYCLES"); do
   observe assert-identity "$RUN_DIR/identity-before.json" "$RUN_DIR/identity-$label-after-turn.json" "$SHELL_TAB" || exit 1
 done
 
-echo "== restore lifecycle PASS cycles=$RL_CYCLES midturn_cycle=$RL_MIDTURN_CYCLE run=$RUN_DIR"
+if [ "$RL_EXITED_MEMBER" = "1" ]; then
+  label="exited-member"
+  EXITED_SESSION="$(observe identity-field "$RUN_DIR/identity-before.json" "$CLAUDE_WORKER" agent_session_id)" || exit 1
+  echo "== [$label] the Claude worker's provider exits to its shell before the restart"
+  observe exit-to-shell "$RL_TURN_DEADLINE" "$CLAUDE_WORKER" "/exit" || exit 1
+  capture_lifecycle "$label-before"
+  LIVE_AGENTS=("$ORCH" "$PLANNER" "$CODEX_WORKER" "$STANDALONE")
+  restart_since="$(python3 -c 'import time; print(time.time())')"
+  restart_dev "$label"
+
+  echo "== [$label] other agents restore live; the exited member restores flagged, not relaunched"
+  observe restore-report "$RL_REPORT_DEADLINE" "$restart_since" "${LIVE_AGENTS[@]}" -- "$SHELL_TAB"
+  report_rc=$?
+  observe restore-exited "$RL_REPORT_DEADLINE" "$restart_since" "$CLAUDE_WORKER" "$EXITED_SESSION"
+  exited_rc=$?
+  capture_lifecycle "$label-after"
+  [ "$report_rc" -eq 0 ] && [ "$exited_rc" -eq 0 ] || exit 1
+
+  echo "== [$label] agent restart recovers the exited session in place"
+  cli_json "$label-restart" dc agent restart --tab "$CLAUDE_WORKER" --json > /dev/null || exit 1
+  observe assert-recovered "$RUN_DIR/$label-restart.json" "$EXITED_SESSION" || exit 1
+  observe wait-bound "$RL_BIND_DEADLINE" "$CLAUDE_WORKER" || exit 1
+  observe capture "$RUN_DIR/identity-$label.json" "${ALL_TABS[@]}" > /dev/null || exit 1
+  observe assert-identity "$RUN_DIR/identity-before.json" "$RUN_DIR/identity-$label.json" "$SHELL_TAB" || exit 1
+  marker="$(new_marker)"
+  echo "$label $CLAUDE_WORKER $marker" >> "$RUN_DIR/markers.txt"
+  observe send-marker "$RL_TURN_DEADLINE" "$CLAUDE_WORKER" "$marker" "Reply with exactly $marker and nothing else." \
+    || fail "[$label] the recovered worker did not answer in its resumed session"
+fi
+
+echo "== restore lifecycle PASS cycles=$RL_CYCLES midturn_cycle=$RL_MIDTURN_CYCLE exited_member=$RL_EXITED_MEMBER run=$RUN_DIR"
 SUCCESS=1

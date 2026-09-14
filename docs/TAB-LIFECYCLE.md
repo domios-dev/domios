@@ -44,6 +44,16 @@ change that decision.
    restart, signal) keeps the tab's provider, session and nonces. The shutdown
    killed that process, so the snapshot written at exit still names the session
    the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place.
+7. A team member whose provider had already exited to its shell before shutdown
+   restores as that shell: restore relaunches nothing, because no agent was
+   running and the proof that its session was verified lives only in this
+   journal, which restore never uses as authority. The snapshot persists the
+   binding lineage (`agent_identity.prior_session_bindings`) and restore keeps it
+   even though no session is claimed. The restore report names the pane
+   `agent_exited_before_shutdown` with its `exited_session_id`, the log names the
+   recovery command, and the journal records `restore_awaiting_agent_restart`.
+   `codeterm agent restart --tab <id>` then recovers that exact lineage session
+   in place through exit recovery; never hand-type a provider resume there.
 
 ## Restore reporting and observed liveness
 
@@ -155,6 +165,7 @@ affects only what the journal itself can report — it has no effect on restore.
 | `team_binding` | Team and parent as committed. `team_id` absent means unbound. |
 | `launch_ready` | **Seals** the operation. |
 | `restart_requested` | A restart was accepted; the relaunch opens a new epoch. |
+| `restore_awaiting_agent_restart` | Diagnostic: restore found a team member whose provider exited before shutdown and relaunched nothing; `agent restart` recovers `session_id`. Written under a detached key; never authority. |
 | `rolled_back` | Authority withdrawn. The operation can never seal afterwards. |
 | `closed` | Tab gone. |
 | `permission_auto_confirm` | Diagnostic audit of opt-in permission auto-confirm: `decision` is `enabled`, `disabled`, `confirmed` (with `tool_name`, `option_label`, `rule`, `question`, `prompt_fingerprint`, `session_id`) or `refused` (with `reason`). Never authority; compaction keeps the newest 20 per tab. |
@@ -237,4 +248,4 @@ transaction, so the intermediate state is never observable.
   checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
-<!-- revision: 23 -->
+<!-- revision: 24 -->

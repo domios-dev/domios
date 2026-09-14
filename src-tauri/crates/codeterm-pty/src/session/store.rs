@@ -72,6 +72,10 @@ pub struct AgentIdentitySnapshot {
     pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epochs: Vec<crate::multiplexer::types::ContextEpochArchive>,
+    /// Retired launch nonces tagged with their sessions. Exit recovery reads the
+    /// newest, so they survive a restore that claims no session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prior_session_bindings: Vec<crate::multiplexer::types::PriorBindingNonce>,
     /// Rename-proof assignment identity, persisted so a restart keeps the lane
     /// matchable by task rather than by its mutable title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
