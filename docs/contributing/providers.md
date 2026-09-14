@@ -231,6 +231,7 @@ instead.
 | `sessionFilePath(cwd, sessionId)` | cwd, id | path string or `null` | manifest: `sessions.rootDir` + encoded cwd + `<id>.<fileExtension>`. |
 | `sessionExists(cwd, sessionId)` | cwd, id | bool | existence check on `sessionFilePath`. |
 | `detectSessionId(cwd, exclude, maxAgeMs)` | cwd, excluded ids, recency budget (default 300 000) | id or `null` | manifest-driven scan of the sessions dir for a **single** uuid-ish candidate (stem ≥ 32 chars containing `-`) modified within the budget; any ambiguity ⇒ `null` (honest over guessing). |
+| `detectLaunchSession(evidence)` | `{cwd, launchMarker, launchedAtMs, processes: [{pid, depth, startToken}]}` for this tab's own launch; `processes` is its PTY tree with OS start times | `{sessionId, source: "pid_registry" \| "launch_marker"}` or `null` | `null`. Core asks only after a hooked provider missed its launch binding deadline, then binds through the same ownership validation as a hook report. Read only records keyed to this launch (a pid whose recorded start equals `startToken`, or text carrying `launchMarker`); never cwd or recency. |
 | `detectActiveSession(cwd, currentSid)` | cwd, current id | id or `null` | `null`. |
 | `detectSessionModel(cwd, sessionId)` | cwd, id | model id or `null` (resolved through the model catalog) | `null`. |
 | `detectSessionReasoningEffort(cwd, sessionId)` | cwd, id | effort id or `null` | `null`. |

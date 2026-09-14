@@ -131,6 +131,7 @@ pub struct AgentLaunchParams {
     /// provider's server flags. Fixes the W3 leading-dash `--args` ergonomics
     /// gap — the host allocates the port instead of the caller hand-passing args.
     pub structured_prompt_server: Option<StructuredPromptServer>,
+    pub launch_marker: Option<String>,
 }
 
 /// Everything a resumed session needs beyond its id. `system_prompt` is the
@@ -279,12 +280,16 @@ pub enum PathOpenKind {
 
 mod availability;
 mod capabilities;
+mod launch_session;
 mod model_info;
 mod settings;
+mod usage_snapshot;
 pub use availability::*;
 pub use capabilities::*;
+pub use launch_session::*;
 pub use model_info::*;
 pub use settings::*;
+pub use usage_snapshot::*;
 
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
@@ -561,6 +566,12 @@ pub trait AgentProvider: Send + Sync {
     /// has to detect them post-launch via `detect_session_id`.
     fn session_id_injection(&self) -> SessionIdInjection {
         SessionIdInjection::None
+    }
+
+    /// Session named by this launch's own provider record; `None` when no record
+    /// names it. Never a cwd or recency guess.
+    fn detect_launch_session(&self, _: &LaunchSessionEvidence) -> Option<LaunchSessionDetection> {
+        None
     }
 
     /// Enumerate all past sessions this provider keeps on disk.
@@ -1167,29 +1178,5 @@ pub trait AgentProvider: Send + Sync {
     /// recurse until the stack overflows.
     fn is_native(&self) -> bool {
         true
-    }
-}
-
-/// Cumulative token usage for one agent session.
-#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
-pub struct UsageSnapshot {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cache_creation_input_tokens: u64,
-    pub cache_read_input_tokens: u64,
-    pub message_count: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub window_started_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_activity_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Normalised platform tag used by `install_command(platform)`.
-pub fn current_platform_tag() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "macos",
-        "linux" => "linux",
-        "windows" => "windows",
-        other => other,
     }
 }

@@ -291,6 +291,7 @@ fn apply(
         LifecycleTransition::SessionBound {
             session_id,
             binding_nonce,
+            ..
         } => {
             builder.session = Some((session_id.clone(), binding_nonce.clone()));
             builder.reseal_at(seq);

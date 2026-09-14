@@ -1018,6 +1018,7 @@ impl ServiceContext {
                     &tab_id_outer,
                     &hidden_cwd,
                 ),
+                launch_marker: None,
             };
             let launch_cmd = svc_outer
                 .agent_registry

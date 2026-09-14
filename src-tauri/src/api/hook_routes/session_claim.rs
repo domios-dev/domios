@@ -29,6 +29,28 @@ pub(crate) fn bind_reported_session(
     )
 }
 
+/// A session read from this launch's own provider record. It carries the tab's
+/// launch nonce, so a rotated launch or an already bound tab refuses it.
+pub(crate) fn bind_detected_session(
+    mux: &crate::multiplexer::commands::MuxState,
+    registry: &crate::agent::registry::AgentRegistry,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    binding_nonce: &str,
+) -> Result<SessionStartClaim, SessionBindError> {
+    bind_session(
+        mux,
+        registry,
+        tab_id,
+        provider_id,
+        session_id,
+        Some(binding_nonce),
+        SessionBindingSource::LaunchDetection,
+        None,
+    )
+}
+
 #[cfg(test)]
 pub(crate) fn bind_validated_rebind_session(
     mux: &crate::multiplexer::commands::MuxState,
@@ -216,7 +238,27 @@ fn commit_reported_session(
         false
     };
 
-    if source == SessionBindingSource::Hook {
+    if source == SessionBindingSource::LaunchDetection {
+        if !nonce_verified {
+            return Err((
+                StatusCode::CONFLICT,
+                "launch detection does not carry this tab's launch nonce".to_string(),
+                None,
+            ));
+        }
+        if let Some(current) = tab.agent_session_id.as_deref() {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Tab {tab_id} is already bound to session '{current}'"),
+                None,
+            ));
+        }
+    }
+
+    if matches!(
+        source,
+        SessionBindingSource::Hook | SessionBindingSource::LaunchDetection
+    ) {
         if let Some(existing_provider) = tab.agent_type.as_deref() {
             if existing_provider != provider_id {
                 return Err((

@@ -1,6 +1,14 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
-import type { LaunchParams, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
+import type {
+  LaunchParams,
+  LaunchSessionDetection,
+  LaunchSessionEvidence,
+  ParsedPrompt,
+  PluginModule,
+  ResumeParams,
+} from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
+import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
   parseFetchedClaudeUsage,
@@ -977,6 +985,10 @@ const plugin: PluginModule = {
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
   classifyTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
     return classifyClaudeTabState(snapshot);
+  },
+
+  detectLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
+    return detectClaudeLaunchSession(evidence);
   },
 };
 

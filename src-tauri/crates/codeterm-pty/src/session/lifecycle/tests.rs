@@ -40,6 +40,7 @@ fn commit_full_launch(journal: &TabLifecycleJournal, key: &LifecycleKey, session
             LifecycleTransition::SessionBound {
                 session_id: session_id.into(),
                 binding_nonce: "nonce-1".into(),
+                source: Default::default(),
             },
         )
         .unwrap();
@@ -531,6 +532,7 @@ fn verified_identity_write_advances_checkpoint_and_survives_compaction() {
             LifecycleTransition::SessionBound {
                 session_id: "session-a".into(),
                 binding_nonce: "nonce-1".into(),
+                source: Default::default(),
             },
         )
         .unwrap();
@@ -619,6 +621,7 @@ fn unsealed_launch_never_becomes_a_checkpoint() {
             LifecycleTransition::SessionBound {
                 session_id: "session-a".into(),
                 binding_nonce: "nonce-1".into(),
+                source: Default::default(),
             },
         )
         .unwrap();

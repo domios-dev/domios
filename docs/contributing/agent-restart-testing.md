@@ -11,8 +11,8 @@ Cross-references:
 
 ## What the flow does
 
-Agent restart requires an observed live provider, uses its graceful exit command, and then auto-resumes
-the same Tab. Update shutdown is deliberately different: it tears down owned
+Agent restart takes an observed live provider through its graceful exit command and then auto-resumes
+the same Tab; a provider that already exited to its shell is recovered in place (section 6). Update shutdown is deliberately different: it tears down owned
 PTY process trees without sending `/exit`, preserves each Tab's session binding
 and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
 
@@ -92,8 +92,9 @@ header. Wait for the cooldown, retry, and the call should succeed.
 ## 4. Error cases
 
 - **`404`** — Tab id doesn't exist (typo, closed Tab).
-- **`400`** — Tab is a plain shell with no agent, or the provider
-  doesn't support restart.
+- **`400`** — the Tab has no agent and no verified prior session, its
+  exited session is not owned by exactly one provider, it has no live
+  shell, or the provider doesn't support restart.
 - **`500`** — internal failure (PTY spawn error). Check
   `~/.codeterm-dev/logs/codeterm.log` for the trace.
 
@@ -128,20 +129,32 @@ their own rules. Without this rule the epoch recorded `session_bound` but never
 parked as `tab_busy_refused`.
 
 A provider exit observed outside a shutdown clears the provider, session and
-live nonce, leaving a `shell_ready` PTY with its role and Team. That tab is
-`absent`: `agent restart` refuses it and `tab restart` accepts it as a plain
-shell. The supported recovery is a replacement through
-`codeterm agent spawn <provider> --team <team-id> --role ...`, which starts a new
-tab and does not resume the exited session.
+live nonce, retiring the nonce into `prior_session_binding_nonces` tagged with
+its session, and leaves an `absent` `shell_ready` PTY with its role and Team.
+`agent restart` recovers that tab in place. It takes the newest lineage session
+(the journal's newest `session_bound` when the tab has no lineage), requires a
+journaled nonce-verified binding for it and exactly one provider owning its
+session record (`provider_for_claimed_session`), skips the graceful exit and
+teardown, retires the shell's boot stage, and relaunches that provider with
+resume through `launch_agent_in_background` (origin `exit_recovery`) on the same
+PTY, so the nonce rotates and boot stages and the journal behave as in a launch.
+The response carries `recovered_in_place: true` with equal `old_pty_id` and
+`new_pty_id`. Refusals happen before acceptance with `exit_recovery_no_live_shell`,
+`exit_recovery_no_verified_session` or `exit_recovery_session_not_owned`; then
+spawn a fresh agent, or replace a missing Team Orchestrator through
+`codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. The
+General Agent keeps its own restart control, and `tab restart` still accepts an
+absent tab as a plain shell.
 
 Routed tab messages carry a return-address marker only when the target record
 declares an agent (`agent_type` set or a launch in flight); otherwise the body
 is shell input. A live provider behind a record that no longer declares it
 receives the raw text in its composer, where a leading `/` is a provider command.
 
-Manual check: exit an agent to its shell, `codeterm tab restart --tab $TAB`,
-then `codeterm tab exec --tab $TAB "<provider resume command>"`. The dev log
-shows `in-tab provider launch observed live`, `codeterm agent restart --tab $TAB`
-returns `agent_ready`, and a Chat UI send is delivered without `tab_busy_refused`.
+Manual check: exit an agent to its shell and confirm `codeterm tab list` shows
+the tab `absent`, then run `codeterm agent restart --tab $TAB`. It returns
+`agent_ready` with `recovered_in_place: true` and the prior `session_id`, the
+dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
+PTY, and a Chat UI send is delivered without `tab_busy_refused`.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

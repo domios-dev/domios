@@ -836,6 +836,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
+        Commands::Integration { action } => crate::cmd::integration::api_request(action),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,

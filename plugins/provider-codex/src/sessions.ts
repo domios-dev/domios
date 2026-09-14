@@ -8,6 +8,7 @@ declare const host: {
   fs: {
     fileExists(path: string): boolean;
     readFile(path: string): string | null;
+    readFileHead(path: string, maxBytes: number): string | null;
     readDir(path: string): { name: string; isFile: boolean }[];
     sqliteQuery<T>(db: string, sql: string, params: unknown[]): T[];
   };
@@ -144,7 +145,7 @@ function trimmedField(
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function codexStateDbPath(): string | null {
+export function codexStateDbPath(): string | null {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";

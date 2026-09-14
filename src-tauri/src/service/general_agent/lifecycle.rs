@@ -483,6 +483,7 @@ pub fn start_general_agent(
                 &tab_id,
                 &ga_cwd,
             ),
+            launch_marker: None,
         };
         let command = match svc.agent_registry.with_provider(provider_name, |p| {
             crate::agent::stub_launch::apply(provider_name, p.build_launch_command(&params))

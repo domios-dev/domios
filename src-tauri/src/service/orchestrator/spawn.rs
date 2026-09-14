@@ -1,7 +1,7 @@
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
-use super::launch::{build_agent_command, launch_agent_in_background, skip_local_worker_role};
+use super::launch::{launch_agent_in_background, skip_local_worker_role};
 use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::multiplexer::types::TabCloseReason;
@@ -747,12 +747,14 @@ impl ServiceContext {
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = build_agent_command(
+        let launch_marker = self.mint_launch_marker(&tab_id);
+        let launch_cmd = super::launch::build_agent_command_with_launch_marker(
             &agent_cmd,
             &params,
             bg_task.as_deref(),
             launch_session_id.as_deref(),
             &self.agent_registry,
+            Some(&launch_marker),
         );
         launch_agent_in_background(
             self.clone(),
