@@ -163,6 +163,13 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 - `cron-state-changed` — emitted on any cron CRUD operation
 - `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, tab_id, tab_id}`
 
+## Permission auto-confirm
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/tabs/{id}/permission-auto-confirm` | `{enabled}` | Opt the tab in/out of auto-confirming provider permission prompts the provider positively recognizes (`permissionPromptResponse`) and a hook PermissionRequest backs. Persisted in the session snapshot; journaled. Returns `{ok, tab_id, enabled}`. CLI: `codeterm tab auto-confirm on\|off`. |
+| GET | `/api/tabs/{id}/permission-auto-confirm` | — | `{tab_id, enabled, recent}` — `recent` holds the last auto-confirmations (`tool_name`, `option_label`, `rule`, `question`, `options`, `prompt_fingerprint`, `session_id`, `confirmed_at_ms`). CLI: `codeterm tab auto-confirm status`. |
+
 ## Related documents
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage used by bridge startup: `codeterm docs API-STATE`.
@@ -182,4 +189,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
