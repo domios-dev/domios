@@ -113,14 +113,37 @@ assert_model() {
   fail "[$label] resolved model '$actual', requested '$expected'"
 }
 
+# The forced close is only for the workspace this run created: its recorded id
+# must still carry this run's unique name.
+bench_workspace_is_ours() {
+  [ -n "$WORKSPACE_ID" ] || return 1
+  dev_get /api/workspaces | PYTHONIOENCODING=utf-8 python3 -c '
+import json, sys
+ws_id, ws_name = sys.argv[1], sys.argv[2]
+raw = sys.stdin.read()
+try:
+    entries = json.loads(raw)
+except ValueError:
+    sys.exit(1)
+if isinstance(entries, dict):
+    entries = entries.get("workspaces", [])
+sys.exit(0 if any(isinstance(w, dict) and w.get("id") == ws_id and w.get("name") == ws_name for w in entries) else 1)
+' "$WORKSPACE_ID" "$WORKSPACE_NAME"
+}
+
 cleanup() {
   if [ "$SUCCESS" = "1" ]; then
     echo "== cleanup $WORKSPACE_NAME"
     # dc blanks CODETERM_TAB_ID, so the caller is never a member of the Team or workspace it closes.
     [ -z "$TEAM_ID" ] || dc team close "$TEAM_ID" --json > "$RUN_DIR/team-close.json" 2>&1 \
       || echo "WARN team close refused: $(cat "$RUN_DIR/team-close.json")"
-    [ -z "$WORKSPACE_ID" ] || dc workspace close "$WORKSPACE_ID" > "$RUN_DIR/workspace-close.txt" 2>&1 \
-      || echo "WARN workspace close refused: $(cat "$RUN_DIR/workspace-close.txt")"
+    if bench_workspace_is_ours; then
+      # Standalone agents outlive the Team close; --force acknowledges destroying them.
+      dc workspace close "$WORKSPACE_ID" --force > "$RUN_DIR/workspace-close.txt" 2>&1 \
+        || echo "WARN workspace close refused: $(cat "$RUN_DIR/workspace-close.txt")"
+    elif [ -n "$WORKSPACE_ID" ]; then
+      echo "WARN workspace $WORKSPACE_ID no longer carries name $WORKSPACE_NAME; not closing it"
+    fi
     plan_sweep_new "$PLAN_BASELINE"
   else
     echo "== keeping $WORKSPACE_NAME id=${WORKSPACE_ID:-unknown} team=${TEAM_ID:-unknown} for forensics: $RUN_DIR"
@@ -223,11 +246,32 @@ observe capture "$RUN_DIR/identity-before.json" "${ALL_TABS[@]}" > /dev/null || 
 observe assert-pre "$RUN_DIR/identity-before.json" "$SHELL_TAB" "${PROVIDERS[@]}" || exit 1
 
 # Forensics only: a failed capture warns and never decides the verdict.
+# --lifecycle inspects exactly one tab, so each tab is its own call.
 capture_lifecycle() {
-  local label="$1" args=() tab
-  for tab in "${ALL_TABS[@]}"; do args+=(--tab "$tab"); done
-  dc tab inspect "${args[@]}" --lifecycle --json > "$RUN_DIR/lifecycle-$label.json" 2> "$RUN_DIR/lifecycle-$label.stderr" \
-    || echo "WARN [$label] lifecycle capture failed: $(cat "$RUN_DIR/lifecycle-$label.stderr")"
+  local label="$1" tab parts="$RUN_DIR/lifecycle-$label.parts"
+  rm -rf "$parts"
+  mkdir -p "$parts"
+  for tab in "${ALL_TABS[@]}"; do
+    dc tab inspect --tab "$tab" --lifecycle --json > "$parts/$tab.json" 2> "$parts/$tab.stderr" \
+      || echo "WARN [$label] lifecycle capture failed for tab $tab: $(cat "$parts/$tab.stderr")"
+  done
+  PYTHONIOENCODING=utf-8 python3 - "$parts" "$RUN_DIR/lifecycle-$label.json" "${ALL_TABS[@]}" <<'PY' \
+    || echo "WARN [$label] lifecycle merge failed"
+import json, pathlib, sys
+parts, out, tabs = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3:]
+merged = {}
+for tab in tabs:
+    payload = parts / f"{tab}.json"
+    stderr = parts / f"{tab}.stderr"
+    raw = payload.read_text(encoding="utf-8", errors="replace") if payload.exists() else ""
+    try:
+        merged[tab] = json.loads(raw)
+    except ValueError:
+        detail = stderr.read_text(encoding="utf-8", errors="replace").strip() if stderr.exists() else ""
+        merged[tab] = {"capture_error": detail or raw[:2000] or "empty output"}
+out.write_text(json.dumps(merged, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  rm -rf "$parts"
 }
 
 for cycle in $(seq 1 "$RL_CYCLES"); do
