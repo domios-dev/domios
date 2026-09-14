@@ -237,5 +237,4 @@ transaction, so the intermediate state is never observable.
   checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
-
-<!-- revision: 22 -->
+<!-- revision: 23 -->
