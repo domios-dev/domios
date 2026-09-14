@@ -122,7 +122,9 @@ fn mission_control_spend_records_the_verified_session_model_for_an_unfocused_tab
     let ledger = ledger_on(&mut fixture);
 
     fixture.service.request_kpi_usage_ingest(&bound);
-    fixture.service.record_kpi_event(&unknown, KpiEventKind::Nudge, 8);
+    fixture
+        .service
+        .record_kpi_event(&unknown, KpiEventKind::Nudge, 8);
     fixture.service.kpi.drain();
 
     let expected = crate::service::spawn::normalize_session_model("gpt-5.5-codex");
@@ -136,9 +138,14 @@ fn mission_control_spend_records_the_verified_session_model_for_an_unfocused_tab
         "the provider's session log must produce token_usage rows for this to prove anything"
     );
     assert!(
-        usage.iter().all(|row| row.model.as_deref() == Some(expected.as_str())),
+        usage
+            .iter()
+            .all(|row| row.model.as_deref() == Some(expected.as_str())),
         "every new usage row carries the session's verified model, got {:?}",
-        usage.iter().map(|row| row.model.clone()).collect::<Vec<_>>()
+        usage
+            .iter()
+            .map(|row| row.model.clone())
+            .collect::<Vec<_>>()
     );
     let unresolved = rows
         .iter()
@@ -165,7 +172,11 @@ fn mission_control_spend_keeps_unresolved_models_as_their_own_visible_bucket() {
 
     let spend = super::mission_control_ext::machine_spend(&fixture.service);
     let models = model_row(&spend.providers, "codex");
-    assert_eq!(models.len(), 2, "the unresolved bucket is a row, not a merge");
+    assert_eq!(
+        models.len(),
+        2,
+        "the unresolved bucket is a row, not a merge"
+    );
     let unassigned = models
         .iter()
         .find(|model| model.model.is_none())
@@ -224,7 +235,10 @@ fn mission_control_spend_charges_orchestrator_and_planner_tabs_to_their_active_p
         )
         .unwrap();
     assert_eq!(
-        fixture.service.plan_store.task_binding_for_tab(&orchestrator),
+        fixture
+            .service
+            .plan_store
+            .task_binding_for_tab(&orchestrator),
         None,
         "neither tab holds a task assignment; that is the gap under test"
     );
@@ -423,7 +437,10 @@ fn mission_control_spend_groups_machine_token_usage_by_provider_and_model() {
         .iter()
         .find(|model| model.model.as_deref() == Some("haiku"))
         .unwrap();
-    assert_eq!(haiku.turns, 2, "repeat turns on one model fold into one row");
+    assert_eq!(
+        haiku.turns, 2,
+        "repeat turns on one model fold into one row"
+    );
     assert_eq!(haiku.input_tokens, 700);
     assert_eq!(haiku.uncached_input_tokens, 240);
     assert_eq!(haiku.output_tokens, 0);
@@ -660,8 +677,9 @@ fn mission_control_spend_ingests_a_settled_turn_with_no_status_transition() {
 /// One usage line in the provider's own shape. Written by the test so a second turn
 /// can be appended to the same file, which is what a long-lived session does.
 fn codex_usage_line(ts: &str, input: u64, cached: u64, output: u64) -> String {
-    let usage =
-        format!(r#"{{"input_tokens":{input},"cached_input_tokens":{cached},"output_tokens":{output}}}"#);
+    let usage = format!(
+        r#"{{"input_tokens":{input},"cached_input_tokens":{cached},"output_tokens":{output}}}"#
+    );
     format!(
         r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{usage}}}}}}}"#
     ) + "\n"

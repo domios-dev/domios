@@ -307,7 +307,8 @@ fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
         assert_live_planner_identity(harness.service.mux.read().get_tab(&tab_id).unwrap());
     }
 
-    let serialized = serde_json::to_string(&harness.service.mux.read().to_session_snapshot()).unwrap();
+    let serialized =
+        serde_json::to_string(&harness.service.mux.read().to_session_snapshot()).unwrap();
     let restored_snapshot = serde_json::from_str(&serialized).unwrap();
     let restored = MultiplexerState::from_session_snapshot(&restored_snapshot);
     assert_live_planner_identity(restored.get_tab(&tab_id).unwrap());

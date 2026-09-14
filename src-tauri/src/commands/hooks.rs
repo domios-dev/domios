@@ -239,8 +239,7 @@ pub fn ensure_integration_for_provider(
     }
 }
 
-type ProviderConfigs =
-    std::collections::HashMap<String, crate::config::schema::ProviderConfig>;
+type ProviderConfigs = std::collections::HashMap<String, crate::config::schema::ProviderConfig>;
 
 fn recorded_flag(consented: &ProviderConfigs, id: &str, key: &str) -> bool {
     consented

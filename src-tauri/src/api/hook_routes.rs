@@ -456,7 +456,9 @@ pub async fn hook_session_start(
         &sid,
     ) else {
         let message = format!("session_id '{sid}' has no provider owner for Tab {tab_id}");
-        log::warn!("[hook_session_start] rejecting sid {sid} for Tab {tab_id}: provider unresolved");
+        log::warn!(
+            "[hook_session_start] rejecting sid {sid} for Tab {tab_id}: provider unresolved"
+        );
         state.svc.deferred_session_bindings.refuse(
             &tab_id,
             &sid,

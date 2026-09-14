@@ -66,7 +66,10 @@ fn a_recognised_codex_model_renders_its_codename() {
 fn an_uncodenamed_catalogue_entry_renders_vendor_and_version() {
     assert_eq!(short_model_name("gpt-5.5").as_deref(), Some("gpt 5.5"));
     assert_eq!(short_model_name("gpt-5").as_deref(), Some("gpt 5"));
-    assert_eq!(short_model_name("openai/gpt-5.5").as_deref(), Some("gpt 5.5"));
+    assert_eq!(
+        short_model_name("openai/gpt-5.5").as_deref(),
+        Some("gpt 5.5")
+    );
 }
 
 #[test]

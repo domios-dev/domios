@@ -473,5 +473,9 @@ fn recorder_announces_the_plans_of_each_committed_batch() {
 
     recorder.record(unattributed.event_at(KpiEventKind::Send, 3, 1_700_000_003));
     recorder.drain();
-    assert_eq!(heard.lock().last().cloned(), Some(Vec::new()), "a machine-only row still announces a commit");
+    assert_eq!(
+        heard.lock().last().cloned(),
+        Some(Vec::new()),
+        "a machine-only row still announces a commit"
+    );
 }

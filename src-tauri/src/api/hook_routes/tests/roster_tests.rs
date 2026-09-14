@@ -156,8 +156,7 @@ fn restore_contract_session_start_provider_is_the_session_owner_never_a_default(
     registry.register_provider(Box::new(MockProvider::new("fixture-other")));
 
     assert_eq!(
-        session_start_provider(&registry, None, None, Some("/tmp/project"), "sid-owned")
-            .as_deref(),
+        session_start_provider(&registry, None, None, Some("/tmp/project"), "sid-owned").as_deref(),
         Some("fixture-owner"),
         "a tab that lost its provider label resolves the store owning its own session"
     );

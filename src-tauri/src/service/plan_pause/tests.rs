@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 
 use codeterm_types::plan::{
-    AgentRef, OrchestratorRef, Plan, PlanMode, PlanPauseRole, PlanPauseStage,
-    PlanPauseStepOutcome, PlannerRef, PLAN_PAUSE_EFFECTS,
+    AgentRef, OrchestratorRef, Plan, PlanMode, PlanPauseRole, PlanPauseStage, PlanPauseStepOutcome,
+    PlannerRef, PLAN_PAUSE_EFFECTS,
 };
 
 use super::*;
@@ -41,7 +41,11 @@ impl PlanPausePorts for FakePorts {
 
 impl FakePorts {
     fn recipients(&self) -> Vec<String> {
-        self.sent.borrow().iter().map(|(tab, _)| tab.clone()).collect()
+        self.sent
+            .borrow()
+            .iter()
+            .map(|(tab, _)| tab.clone())
+            .collect()
     }
 
     fn enabled(&self, job_id: &str) -> bool {
@@ -196,7 +200,12 @@ fn world() -> World {
         .unwrap()
         .id;
     let foreign_job = cron
-        .create(cron_params("Foreign digest", &workspace_id, FOREIGN_TEAM, true))
+        .create(cron_params(
+            "Foreign digest",
+            &workspace_id,
+            FOREIGN_TEAM,
+            true,
+        ))
         .unwrap()
         .id;
 
@@ -285,10 +294,7 @@ fn plan_pause_resume_record_round_trips_and_legacy_plan_loads_without_it() {
     assert_eq!(decoded.pause_operations, plan.pause_operations);
 
     let mut legacy = json;
-    legacy
-        .as_object_mut()
-        .unwrap()
-        .remove("pause_operations");
+    legacy.as_object_mut().unwrap().remove("pause_operations");
     let legacy: Plan = serde_json::from_value(legacy).unwrap();
     assert!(legacy.pause_operations.is_empty());
     let untouched = w.store.get(&w.other_plan_id).unwrap();
@@ -349,7 +355,14 @@ fn plan_pause_resume_first_pause_records_exact_agents_and_schedules_and_notifies
     let agents: Vec<_> = op
         .agents
         .iter()
-        .map(|a| (a.tab_id.clone(), a.name.clone(), a.role, a.pause_notice.clone()))
+        .map(|a| {
+            (
+                a.tab_id.clone(),
+                a.name.clone(),
+                a.role,
+                a.pause_notice.clone(),
+            )
+        })
         .collect();
     assert_eq!(
         agents,

@@ -180,8 +180,8 @@ fn record_id_base(rich: &RichMessage) -> Option<String> {
 
 /// Flatten a row parsed from a session byte range.
 pub fn rich_to_chat_msgs_at(rich: &RichMessage, origin: RowOrigin) -> Vec<ChatMsg> {
-    let base = record_id_base(rich)
-        .unwrap_or_else(|| format!("{}-{}", origin.offset, origin.ordinal));
+    let base =
+        record_id_base(rich).unwrap_or_else(|| format!("{}-{}", origin.offset, origin.ordinal));
     flatten_rich(rich, &base, origin.ordinal as i64)
 }
 
@@ -400,7 +400,10 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                         tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
                         tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
                         tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
-                        tool_background_task_id: get_optional_string(&b.data, "tool_background_task_id"),
+                        tool_background_task_id: get_optional_string(
+                            &b.data,
+                            "tool_background_task_id",
+                        ),
                         file_diffs: b.data.get("file_diffs").cloned(),
                         collapsed: true,
                         timestamp: ts.clone(),
@@ -543,9 +546,14 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 let tool_exit_code = b.data.get("tool_exit_code").and_then(|v| v.as_i64());
                 let tool_duration_ms = b.data.get("tool_duration_ms").and_then(|v| v.as_u64());
                 let tool_interrupted = b.data.get("tool_interrupted").and_then(|v| v.as_bool());
-                let tool_background_task_id = get_optional_string(&b.data, "tool_background_task_id");
+                let tool_background_task_id =
+                    get_optional_string(&b.data, "tool_background_task_id");
                 let file_diffs = b.data.get("file_diffs").cloned();
-                let tool_rich_result = b.data.get("tool_rich_result").filter(|v| v.is_object()).cloned();
+                let tool_rich_result = b
+                    .data
+                    .get("tool_rich_result")
+                    .filter(|v| v.is_object())
+                    .cloned();
                 let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
                     Some("success") => Some(false),
                     Some("error") => Some(true),
@@ -608,7 +616,10 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                     tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
                     tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
                     tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
-                    tool_background_task_id: get_optional_string(&b.data, "tool_background_task_id"),
+                    tool_background_task_id: get_optional_string(
+                        &b.data,
+                        "tool_background_task_id",
+                    ),
                     file_diffs: b.data.get("file_diffs").cloned(),
                     collapsed: true,
                     ..Default::default()
