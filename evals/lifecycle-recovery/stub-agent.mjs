@@ -38,6 +38,15 @@ async function post(path, body, extraHeaders = {}) {
 const reportStop = () =>
   post(`/api/tabs/${tabId}/hook/stop`, { binding_nonce: bindingNonce || undefined });
 
+// Attached before any request, so input written once the session binds is always read.
+createInterface({ input: process.stdin }).on("line", async (line) => {
+  const text = line.trim();
+  if (text === "/exit") process.exit(0);
+  if (!text.includes("LR-probe-")) return;
+  process.stdout.write(`stub-received ${text}\n`);
+  if (connected) await reportStop();
+});
+
 process.stdout.write("╭──────────────────────────╮\n│ ❯                        │\n╰──────────────────────────╯\n");
 
 if (connected) {
@@ -68,12 +77,5 @@ if (connected) {
 
 if (exitsToShell || relaunchFixture) process.exit(0);
 
-createInterface({ input: process.stdin }).on("line", async (line) => {
-  const text = line.trim();
-  if (text === "/exit") process.exit(0);
-  if (!text.includes("LR-probe-")) return;
-  process.stdout.write(`stub-received ${text}\n`);
-  if (connected) await reportStop();
-});
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));

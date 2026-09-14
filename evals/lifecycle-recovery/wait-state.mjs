@@ -114,6 +114,27 @@ async function observedState() {
     if (!sealed) return null;
     return { tab_id: tabId, epoch: sealed.key.epoch, operation_id: sealed.key.operation_id };
   }
+  if (mode === "rebound") {
+    const [tabId, previousSessionId] = values;
+    const tab = tabs.find((candidate) => candidate.id === tabId);
+    lastMatchingTab = tab
+      ? {
+          id: tab.id,
+          agent_liveness: tab.agent_liveness,
+          boot_stage: tab.boot_stage ?? null,
+          agent_session_id: tab.agent_session_id ?? null,
+        }
+      : null;
+    if (lastMatchingTab) matchingTabStates.push(lastMatchingTab);
+    if (
+      !tab
+      || tab.agent_liveness !== "live"
+      || tab.boot_stage !== "agent_ready"
+      || !tab.agent_session_id
+      || tab.agent_session_id === previousSessionId
+    ) return null;
+    return { tab_id: tabId, agent_session_id: tab.agent_session_id };
+  }
   if (mode === "received") {
     const [tabId, marker] = values;
     const screen = JSON.stringify(await json(`/api/tabs/${tabId}/text`));
