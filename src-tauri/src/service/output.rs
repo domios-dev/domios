@@ -114,6 +114,7 @@ impl ServiceContext {
             tab_cwd,
             agent_session_id,
             directory_trust_eligible,
+            directory_trust_skip,
         ) = {
             let mux = self.mux.read();
             let pid = mux.tab_id_for_pty(pty_id);
@@ -125,7 +126,18 @@ impl ServiceContext {
             let cwd = tab.and_then(|p| p.cwd.clone());
             let sid = tab.and_then(|p| p.agent_session_id.clone());
             let trust = tab.is_some_and(super::directory_trust::directory_trust_check_applies);
-            (pid, at, active_prompt, auto_approve, nonce, cwd, sid, trust)
+            let skip = tab.and_then(super::directory_trust::directory_trust_skip_reason);
+            (
+                pid,
+                at,
+                active_prompt,
+                auto_approve,
+                nonce,
+                cwd,
+                sid,
+                trust,
+                skip,
+            )
         };
 
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
@@ -199,6 +211,8 @@ impl ServiceContext {
             if directory_trust_eligible {
                 let screen = self.screen_state.lock().get_screen_text(pty_id);
                 self.respond_to_directory_trust(pid, screen.as_deref());
+            } else if let Some(reason) = directory_trust_skip {
+                self.note_directory_trust(pid, reason, None);
             }
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);

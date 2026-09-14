@@ -179,20 +179,43 @@ fn resume_with_context_keeps_the_conservative_default() {
 }
 
 #[test]
-fn directory_trust_prompt_response_reads_the_screen() {
+fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
     if require_plugins().is_none() {
         return;
     }
     use crate::provider::DirectoryTrustPromptResponse;
-    let trust = "> You are in /home/user/lane\n\n  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt injection.\n\n› 1. Yes, continue\n  2. No, quit\n\n  Press enter to continue";
-    assert_eq!(
-        codex().directory_trust_prompt_response(trust),
-        Some(DirectoryTrustPromptResponse::Answer {
-            step: b"\r".to_vec()
-        })
-    );
-    let foreign = "Would you like to run the following command?\n\n  $ ls\n\n› 1. Yes, proceed\n  2. No, and tell Codex what to do differently\n\n  Press enter to confirm or esc to cancel";
-    assert_eq!(codex().directory_trust_prompt_response(foreign), None);
+    let dir = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust");
+    let cases: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).expect("cases.json"))
+            .expect("cases.json parses");
+    let cases = cases.as_array().expect("case list");
+    assert!(cases.len() >= 5, "every declared fixture is exercised");
+    for case in cases {
+        let file = case["file"].as_str().expect("file");
+        let screen = std::fs::read_to_string(dir.join(file)).expect("fixture");
+        let answer = |step: &[u8]| {
+            Some(DirectoryTrustPromptResponse::Answer {
+                step: step.to_vec(),
+            })
+        };
+        let want = match case["expect"].as_str().expect("expect") {
+            "enter" => answer(b"\r"),
+            "move-up" => answer(b"\x1b[A"),
+            "move-down" => answer(b"\x1b[B"),
+            "hold" => Some(DirectoryTrustPromptResponse::Hold),
+            "none" => None,
+            other => panic!("unknown directory-trust expectation {other}"),
+        };
+        assert_eq!(
+            codex().directory_trust_prompt_response(&screen),
+            want,
+            "{file}"
+        );
+    }
 }
 
 #[test]
