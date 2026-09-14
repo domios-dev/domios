@@ -149,11 +149,18 @@ provider resume there bypasses the launch builder and starts the agent without
 its granted permission bypass, sandboxed away from the daemon.
 
 The same recovery holds across a daemon restart. The session snapshot persists
-the binding lineage, so a team member that exited to its shell before shutdown
+the binding lineage (`agent_identity.prior_session_bindings`) and restore keeps
+it for every tab, so a team member that exited to its shell before shutdown
 restores as a shell with its role, Team and lineage intact. Restore does not
-relaunch it; the restore report names the pane `agent_exited_before_shutdown`
-with `exited_session_id`, and `agent restart` recovers that session in place as
-above. Coverage: `restore_contract_exited_member_*`,
+relaunch it: no agent was running, and the proof that its session was verified
+lives only in the lifecycle journal, which restore never uses as authority. The
+restore report names the pane `agent_exited_before_shutdown` with
+`exited_session_id` and logs the recovery command, and the journal records one
+`restore_awaiting_agent_restart` per member and session, not one per boot.
+`codeterm agent restart --tab <id>` recovers that exact lineage session in place
+as above; never hand-type a provider resume there. Coverage:
+`restore_contract_exited_member_*`,
+`restore_contract_startup_flags_an_exited_member_and_journals_its_decision_once`,
 `restore_contract_restored_lineage_recovers_the_session_that_exited_before_shutdown`,
 and the exited-member phase of `evals/restore-lifecycle`.
 

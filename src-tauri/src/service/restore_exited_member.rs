@@ -1,10 +1,10 @@
-//! A team member whose provider exited to its shell before shutdown restores
-//! as that shell. Restore relaunches nothing; `agent restart` resumes the
-//! lineage session through exit recovery, which verifies it against the journal.
+//! A team member whose provider exited before shutdown restores as its shell;
+//! `agent restart` resumes its lineage session through exit recovery.
 
+use crate::crash::restore_report::RestorePane;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{latest_prior_session, Tab};
-use crate::session::lifecycle::LifecycleTransition;
+use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
 
 /// The lineage session `agent restart` recovers for a restored member with no agent.
 pub(crate) fn exited_member_session(tab: &Tab) -> Option<&str> {
@@ -32,18 +32,49 @@ pub(crate) fn exited_members(mux: &MultiplexerState) -> Vec<(String, String)> {
     members
 }
 
-/// Runs once on the freshly restored state, before any launch can touch a tab.
-pub(crate) fn journal_restore_decisions(mux: &MultiplexerState) {
-    for (tab_id, session_id) in exited_members(mux) {
-        log::warn!(
-            "[restore] tab={tab_id} provider exited before shutdown; restored as a shell, recover session {session_id} with `codeterm agent restart --tab {tab_id}`"
-        );
-        crate::service::tab_lifecycle::append_minted(
-            &tab_id,
-            "restore-decision",
-            LifecycleTransition::RestoreAwaitingAgentRestart { session_id },
-        );
+/// Flags the report panes from the restored state and journals each decision
+/// unless the member's newest record already holds it.
+pub(crate) fn apply_restore_decisions(
+    journal: &TabLifecycleJournal,
+    mux: &MultiplexerState,
+    panes: &mut [RestorePane],
+) {
+    let members = exited_members(mux);
+    for pane in panes.iter_mut() {
+        pane.exited_session_id = members
+            .iter()
+            .find(|(tab_id, _)| *tab_id == pane.tab_id)
+            .map(|(_, session_id)| session_id.clone());
     }
+    if members.is_empty() {
+        return;
+    }
+    let records = journal.load().records;
+    for (tab_id, session_id) in members {
+        if !decision_already_journaled(&records, &tab_id, &session_id) {
+            crate::service::tab_lifecycle::append_minted(
+                journal,
+                &tab_id,
+                "restore-decision",
+                LifecycleTransition::RestoreAwaitingAgentRestart { session_id },
+            );
+        }
+    }
+}
+
+fn decision_already_journaled(records: &[JournalRecord], tab_id: &str, session_id: &str) -> bool {
+    let newest = records
+        .iter()
+        .rev()
+        .find(|record| record.tab_id() == tab_id);
+    matches!(
+        newest,
+        Some(JournalRecord::Transition { entry }) if matches!(
+            &entry.transition,
+            LifecycleTransition::RestoreAwaitingAgentRestart { session_id: journaled }
+                if journaled == session_id
+        )
+    )
 }
 
 #[cfg(test)]
