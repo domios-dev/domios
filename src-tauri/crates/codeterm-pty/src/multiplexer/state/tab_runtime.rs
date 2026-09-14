@@ -63,6 +63,8 @@ impl MultiplexerState {
             pending_prompt: None,
             agent_state: None,
             auto_approve: false,
+            permission_auto_confirm: false,
+            permission_auto_confirmations: Vec::new(),
             protected: false,
             connected_services: vec![],
             agent_set_at: None,

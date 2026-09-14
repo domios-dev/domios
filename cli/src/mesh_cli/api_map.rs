@@ -393,6 +393,15 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     Some(serde_json::json!({"value": option.to_string()}).to_string()),
                 )
             }
+            crate::TabAction::AutoConfirm { mode, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                let (method, body) = mode.request();
+                (
+                    method.into(),
+                    format!("/api/tabs/{}/permission-auto-confirm", p),
+                    body.map(|value| value.to_string()),
+                )
+            }
             crate::TabAction::Rebind { session_id, tab } => {
                 let p = tab.as_deref().unwrap_or("general");
                 (

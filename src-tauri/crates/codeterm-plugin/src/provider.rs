@@ -680,6 +680,17 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Recognize this provider's tool-permission prompt for the hook-reported
+    /// `tool_name` and name its affirmative option. `None` leaves it to the user.
+    fn permission_prompt_response(
+        &self,
+        _tool_name: &str,
+        _prompt: &codeterm_types::pty::PendingPrompt,
+        _screen: &str,
+    ) -> Option<crate::permission_prompt::PermissionPromptResponse> {
+        None
+    }
+
     /// Extract the agent's human-readable session display name from the
     /// current screen — e.g. Claude Code prints "vivid-bhabha-1234" in its
     /// TUI banner. Captured once per agent run and stored on the tab so

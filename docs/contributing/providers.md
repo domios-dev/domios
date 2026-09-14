@@ -222,6 +222,7 @@ instead.
 | `parsePrompt(text)` | screen text | `{question, options: [[id, label], …]}` or `null` | universal permission-prompt parser. |
 | `buildPromptResponse(optionIndex, screen)` | selected index, live screen | array of **base64-encoded** byte strings, one per PTY write step (vim j/k, arrows, escape sequences — whatever the TUI expects; `screen` lets you navigate relative to the live highlight) | arrow-down × index + Enter. |
 | `directoryTrustPromptResponse(prompt, screen)` | PendingPrompt, screen | base64 byte steps or `null` | `null` — no special trust-dialog handling. |
+| `permissionPromptResponse(toolName, prompt, screen)` | hook-reported tool name, PendingPrompt, screen | `{optionIndex, rule, steps}` (base64 steps) or `null`. Only for a single-choice tool approval; return `null` for questions, plan decisions, trust gates and anything without an explicit decline option. | `null` — per-tab auto-confirm never answers this provider's prompts. |
 
 ### Session discovery
 
@@ -345,4 +346,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

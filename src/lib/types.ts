@@ -63,6 +63,17 @@ export interface PromptSection {
   completed?: boolean;
 }
 
+export interface AutoConfirmedPrompt {
+  tool_name: string;
+  option_label: string;
+  rule: string;
+  question: string;
+  options: string[];
+  prompt_fingerprint: string;
+  session_id?: string | null;
+  confirmed_at_ms: number;
+}
+
 export interface PendingPrompt {
   question: string;
   options: PromptOption[];
@@ -206,6 +217,9 @@ export interface Tab {
   agent_booting?: boolean;
   /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
   auto_approve?: boolean;
+  /** Opt-in: provider-recognized permission prompts are answered with their affirmative option. */
+  permission_auto_confirm?: boolean;
+  permission_auto_confirmations?: AutoConfirmedPrompt[];
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;

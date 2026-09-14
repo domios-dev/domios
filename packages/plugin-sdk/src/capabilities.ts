@@ -170,6 +170,12 @@ export interface AgentProvider {
   buildResumeCommandWithContext?(params: ResumeParams): string;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   directoryTrustPromptResponse?(prompt: ParsedPrompt, screen?: string): string[] | null;
+  /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */
+  permissionPromptResponse?(
+    toolName: string,
+    prompt: ParsedPrompt,
+    screen?: string,
+  ): { optionIndex: number; rule: string; steps: string[] } | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;

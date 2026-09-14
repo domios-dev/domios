@@ -33,6 +33,7 @@ import {
   parseClaudeNumberedPrompt,
   parseClaudeWizardPrompt,
 } from "./prompts";
+import { claudePermissionPromptResponse } from "./permissionPrompt";
 
 const TITLE_RE = /claude/i;
 // v2.1+ TUIs prefix the title with a braille spinner glyph or ✳/✻.
@@ -256,6 +257,10 @@ const plugin: PluginModule = {
     const isTrustGate = question.includes("trust") && question.includes("project");
     if (!isTrustGate || !firstLabel || !/^yes\b.*trust/i.test(firstLabel)) return null;
     return buildClaudePromptResponse(0, String(screen || ""));
+  },
+
+  permissionPromptResponse(toolName: string, prompt: ParsedPrompt, screen?: string) {
+    return claudePermissionPromptResponse(toolName, prompt, screen);
   },
 
   // Launch command parity for native behavior across OS-specific execution modes.

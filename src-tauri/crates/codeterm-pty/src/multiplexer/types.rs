@@ -649,6 +649,12 @@ pub struct Tab {
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
     pub auto_approve: bool,
+    /// Opt-in: answer positively recognized provider permission prompts with
+    /// their affirmative option. Persisted with the session snapshot.
+    #[serde(default)]
+    pub permission_auto_confirm: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permission_auto_confirmations: Vec<codeterm_types::pty::AutoConfirmedPrompt>,
     /// Protected tabs cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
@@ -878,6 +884,8 @@ mod tests {
             pending_prompt: None,
             agent_state: None,
             auto_approve: false,
+            permission_auto_confirm: false,
+            permission_auto_confirmations: Vec::new(),
             protected: false,
             connected_services: vec![],
             agent_set_at: None,

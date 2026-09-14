@@ -32,6 +32,10 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ("parsePrompt", "universal permission-prompt parser"),
     ("buildPromptResponse", "arrow-down + enter"),
     ("directoryTrustPromptResponse", "none"),
+    (
+        "permissionPromptResponse",
+        "none — permission prompts are never auto-confirmed",
+    ),
     ("sessionFilePath", "manifest sessions.* layout"),
     ("sessionExists", "sessionFilePath existence check"),
     ("sessionCreatedMs", "none"),

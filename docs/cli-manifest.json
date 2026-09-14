@@ -13064,6 +13064,38 @@
       "args": [],
       "subcommands": [
         {
+          "name": "auto-confirm",
+          "about": "Opt a tab in or out of auto-confirming provider permission prompts the provider positively recognizes, or show the setting with recent auto-confirmations. Questions, trust dialogs and unrecognized prompts are never answered",
+          "aliases": [],
+          "args": [
+            {
+              "name": "mode",
+              "positional": true,
+              "required": true,
+              "value_name": "MODE",
+              "possible_values": [
+                "on",
+                "off",
+                "status"
+              ],
+              "default": null,
+              "help": "`on`, `off`, or `status`",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "capture",
           "about": "Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file",
           "aliases": [],

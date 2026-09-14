@@ -389,6 +389,41 @@ impl AgentProvider for JsProvider {
         (!steps.is_empty()).then_some(crate::provider::DirectoryTrustPromptResponse { steps })
     }
 
+    fn permission_prompt_response(
+        &self,
+        tool_name: &str,
+        prompt: &PendingPrompt,
+        screen: &str,
+    ) -> Option<crate::permission_prompt::PermissionPromptResponse> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct WireResponse {
+            option_index: usize,
+            rule: String,
+            steps: Vec<String>,
+        }
+        let value = serde_json::to_value(prompt).ok()?;
+        let wire = self.try_call::<Option<WireResponse>>(
+            "permissionPromptResponse",
+            &[json!(tool_name), value, json!(screen)],
+        )??;
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let steps = wire
+            .steps
+            .iter()
+            .map(|step| engine.decode(step.as_bytes()).ok())
+            .collect::<Option<Vec<_>>>()?;
+        let rule = wire.rule.trim();
+        (!steps.is_empty() && !rule.is_empty()).then(|| {
+            crate::permission_prompt::PermissionPromptResponse {
+                option_index: wire.option_index,
+                rule: rule.to_string(),
+                steps,
+            }
+        })
+    }
+
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         // Hook-reported evidence wins over any reconstruction; absence falls through.
         if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {

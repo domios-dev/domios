@@ -26,6 +26,7 @@ pub(crate) mod optional_json;
 pub mod os_notify;
 pub mod output_stream;
 pub mod pasteboard_routes;
+pub(crate) mod permission_auto_confirm_routes;
 pub mod plan_routes;
 pub mod pty_routes;
 pub mod services_routes;
