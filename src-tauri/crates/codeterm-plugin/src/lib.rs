@@ -9,6 +9,7 @@ pub mod chatbackend_provider;
 pub mod chatpreprocessor;
 pub mod common;
 pub mod detector;
+pub mod directory_trust;
 pub mod embedded;
 pub mod glance;
 pub mod host_traits;

@@ -205,8 +205,24 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   ].join("\n");
   const parsed = hostPlugin.parsePrompt(trust);
   eq(parsed?.question, "Quick safety check: Is this a project you created or one you trust?", "directory trust gate parses as a provider prompt");
-  eq(hostPlugin.directoryTrustPromptResponse(parsed, trust), ["DQ=="], "auto-approved directory trust selects the highlighted affirmative option");
   eq(hostPlugin.permissionPromptResponse("Bash", parsed, trust), null, "directory trust is never a tool permission approval");
+}
+
+{
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "folder-trust");
+  const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8")) as Array<{ file: string; expect: string }>;
+  const keys: Record<string, string[] | null> = {
+    enter: ["DQ=="],
+    "move-down": ["ag=="],
+    "move-up": ["aw=="],
+    hold: [],
+    none: null,
+  };
+  assert(cases.length >= 12, "every declared folder-trust fixture is exercised");
+  for (const c of cases) {
+    const screen = fs.readFileSync(path.join(dir, c.file), "utf8");
+    eq(hostPlugin.directoryTrustPromptResponse(screen), keys[c.expect], `folder trust ${c.file} -> ${c.expect}`);
+  }
 }
 
 {

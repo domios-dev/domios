@@ -1,0 +1,10 @@
+ Accessing workspace:
+
+ /home/dev/.codeterm/provisioned-workspaces/lane-7
+
+ Do you trust the files in this folder?
+
+ ❯ 1. Yes, I trust this folder
+   2. No, exit
+
+ Enter to confirm · Esc to exit

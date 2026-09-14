@@ -372,21 +372,18 @@ impl AgentProvider for JsProvider {
 
     fn directory_trust_prompt_response(
         &self,
-        prompt: &PendingPrompt,
         screen: &str,
     ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
-        let value = serde_json::to_value(prompt).ok()?;
-        let steps = self.try_call::<Option<Vec<String>>>(
-            "directoryTrustPromptResponse",
-            &[value, json!(screen)],
-        )??;
+        let steps = self
+            .try_call::<Option<Vec<String>>>("directoryTrustPromptResponse", &[json!(screen)])??;
         use base64::Engine;
         let engine = base64::engine::general_purpose::STANDARD;
-        let steps = steps
-            .into_iter()
+        let decoded = steps
+            .iter()
             .map(|step| engine.decode(step.as_bytes()).ok())
-            .collect::<Option<Vec<_>>>()?;
-        (!steps.is_empty()).then_some(crate::provider::DirectoryTrustPromptResponse { steps })
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default();
+        Some(crate::provider::DirectoryTrustPromptResponse::from_wire_steps(decoded))
     }
 
     fn permission_prompt_response(

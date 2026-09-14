@@ -1167,6 +1167,76 @@ function claudePermissionPromptResponse(toolName, prompt, screen) {
   };
 }
 
+// plugins/provider-claude/src/folderTrust.ts
+var FRAME_EDGES = /^[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+|[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+$/g;
+var ENTER = "DQ==";
+var MOVE_DOWN = "ag==";
+var MOVE_UP = "aw==";
+function frameContent(line) {
+  return line.replace(FRAME_EDGES, "");
+}
+function isPathRow(row) {
+  return /^(?:\/[^ ]|~[\/\\]|\\\\|[A-Za-z]:[\\\/])/.test(row);
+}
+function pointerLabel(row) {
+  const m = /^[❯>]\s+/.exec(row);
+  return m ? row.slice(m[0].length) : null;
+}
+function stripIndex(label) {
+  const m = /^\d+\.\s+/.exec(label);
+  return m ? label.slice(m[0].length) : label;
+}
+function optionRow(row) {
+  const pointed = pointerLabel(row);
+  return { focused: pointed !== null, label: stripIndex(pointed !== null ? pointed : row) };
+}
+function leadsWith(label, word) {
+  return new RegExp("^" + word + "(?:$|[, .])", "i").test(label);
+}
+function claudeFolderTrustResponse(screen) {
+  const rows = String(screen || "").split("\n").map(frameContent);
+  const path = rows.findIndex(isPathRow);
+  if (path < 0) return null;
+  let trust = -1;
+  for (let i = path + 1; i < rows.length; i++) {
+    if (rows[i].toLowerCase().indexOf("trust") !== -1) {
+      trust = i;
+      break;
+    }
+  }
+  if (trust < 0) return null;
+  let pointer = false;
+  for (let i = trust + 1; i < rows.length; i++) {
+    if (pointerLabel(rows[i]) !== null) {
+      pointer = true;
+      break;
+    }
+  }
+  if (!pointer) return null;
+  return answer(rows, path, trust) || [];
+}
+function answer(rows, path, trust) {
+  if (!rows.slice(0, path).some((row) => row.endsWith(":"))) return null;
+  let footer = rows.length - 1;
+  while (footer >= 0 && !rows[footer]) footer--;
+  if (footer < 0) return null;
+  const footerText = rows[footer].toLowerCase();
+  if (footerText.indexOf("enter") === -1 || footerText.indexOf("esc") === -1) return null;
+  let end = footer;
+  while (end > 0 && !rows[end - 1]) end--;
+  let start = end;
+  while (start > 0 && rows[start - 1]) start--;
+  if (end - start !== 2 || trust >= start) return null;
+  const options = rows.slice(start, end).map(optionRow);
+  if (options.filter((option) => option.focused).length !== 1) return null;
+  const focused = options.findIndex((option) => option.focused);
+  const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
+  const no = options.findIndex((option) => leadsWith(option.label, "no"));
+  if (yes < 0 || no < 0 || options[no].label.toLowerCase().indexOf("exit") === -1) return null;
+  if (focused === yes) return [ENTER];
+  return [yes > focused ? MOVE_DOWN : MOVE_UP];
+}
+
 // plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
@@ -1352,13 +1422,8 @@ var plugin = {
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
-  directoryTrustPromptResponse(prompt, screen) {
-    const question = String(prompt.question || "").toLowerCase();
-    const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[0] : first.label;
-    const isTrustGate = question.includes("trust") && question.includes("project");
-    if (!isTrustGate || !firstLabel || !/^yes\b.*trust/i.test(firstLabel)) return null;
-    return buildClaudePromptResponse(0, String(screen || ""));
+  directoryTrustPromptResponse(screen) {
+    return claudeFolderTrustResponse(screen);
   },
   permissionPromptResponse(toolName, prompt, screen) {
     return claudePermissionPromptResponse(toolName, prompt, screen);
