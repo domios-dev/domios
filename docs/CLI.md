@@ -127,7 +127,7 @@ Send a report to your parent in the hierarchy
 
 #### `codeterm agent restart`
 
-Restart an observed live agent; an exited provider requires a fresh spawn
+Restart a live agent, or resume an exited provider's verified session in its shell
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)

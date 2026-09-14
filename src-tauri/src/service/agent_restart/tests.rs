@@ -271,6 +271,7 @@ fn outcome(session_id: Option<&str>, stale: bool, auto_approve: bool) -> Restart
         old_pty_torn_down: true,
         agent_ready: true,
         binding_restored: true,
+        recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),
     }
@@ -415,7 +416,7 @@ fn stale_pre_restart_agent_ready_without_pty_turnover_is_not_ready() {
         Some("pty-old"),
         Some(codeterm_types::pty::BootStage::AgentReady),
         None,
-        "pty-old",
+        Some("pty-old"),
     );
 
     assert_eq!(readiness, None);
@@ -427,7 +428,7 @@ fn genuine_pty_turnover_reports_new_agent_ready() {
         Some("pty-new"),
         Some(codeterm_types::pty::BootStage::AgentReady),
         None,
-        "pty-old",
+        Some("pty-old"),
     );
 
     assert_eq!(
@@ -460,6 +461,7 @@ fn settle_snapshot_and_outcome(tab_id: &str) -> (TabRestartSnapshot, RestartOutc
         old_pty_torn_down: true,
         agent_ready: true,
         binding_restored: false,
+        recovered_in_place: false,
         old_pty_id: Some("pty-old".into()),
         new_pty_id: Some("pty-new".into()),
     };
