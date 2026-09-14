@@ -109,7 +109,6 @@ if (-not $OwnedOnly) {
     }
   }
 }
-}
 
 $selected = New-Object System.Collections.Generic.HashSet[int]
 function Add-ProcessTree {
