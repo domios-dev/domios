@@ -394,7 +394,7 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
+  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble";
   timelineMarker?: ChatTimelineMarker;
   sessionIntent?: ChatSessionIntent;
   /** Provider-neutral canonical tool metadata, available on any chat transport. */
