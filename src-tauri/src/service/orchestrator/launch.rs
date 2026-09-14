@@ -688,12 +688,19 @@ pub(crate) fn launch_agent_in_background_with_env(
         let provider_tui_visible = registry
             .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
             .unwrap_or(false);
-        if reused_provider_tui_owns_launch(
-            reused_live_pty,
-            tab_agent_type.as_deref(),
-            &agent_cmd,
-            provider_tui_visible,
-        ) {
+        // An exited provider's frame can outlive it on screen; recovery still writes its command.
+        let recovers_exited_provider = matches!(
+            origin,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
+        );
+        if !recovers_exited_provider
+            && reused_provider_tui_owns_launch(
+                reused_live_pty,
+                tab_agent_type.as_deref(),
+                &agent_cmd,
+                provider_tui_visible,
+            )
+        {
             log::info!(
                 "launch_agent: Tab {} already owns live {} TUI on PTY {}; preserving ready state",
                 tab_id,

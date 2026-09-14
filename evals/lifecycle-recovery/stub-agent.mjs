@@ -3,6 +3,8 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 
+import { writeSessionRecord } from "./session-record.mjs";
+
 const argv = process.argv.slice(2);
 const valueAfter = (flag) => {
   const index = argv.indexOf(flag);
@@ -11,15 +13,16 @@ const valueAfter = (flag) => {
 const provider = valueAfter("--stub-provider") || "claude";
 const exitsToShell = argv.includes("--lifecycle-exit-fixture");
 const relaunchFixture = argv.includes("--lifecycle-relaunch-fixture");
-const reportsBound = argv.includes("--stub-report-bound");
 const api = (
   process.env.CODETERM_API_URL || `http://127.0.0.1:${process.env.CODETERM_API_PORT}`
 ).replace(/\/$/, "");
 const token = process.env.CODETERM_API_TOKEN || "";
 const tabId = process.env.CODETERM_TAB_ID || "";
 const bindingNonce = process.env.CODETERM_SESSION_BINDING_NONCE || "";
-const sessionId = valueAfter("--stub-session") || randomUUID();
+// A resumed launch forwards the provider's own `--resume <session>` argv.
+const sessionId = valueAfter("--stub-session") || valueAfter("--resume") || randomUUID();
 const connected = Boolean(api && token && tabId);
+if (argv.includes("--stub-session-record")) writeSessionRecord(provider, process.cwd(), sessionId);
 
 async function post(path, body, extraHeaders = {}) {
   const response = await fetch(`${api}${path}`, {
@@ -70,9 +73,6 @@ if (connected) {
       { "X-CodeTerm-Tab-Id": tabId },
     );
   }
-
-  // The stop report is an observable event that lands after the binding request completed.
-  if (reportsBound) await reportStop();
 }
 
 if (exitsToShell || relaunchFixture) process.exit(0);
