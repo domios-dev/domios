@@ -65,11 +65,20 @@ FAIL identity tab 2b7402d3 (rl-codex-worker) agent_session_id: '01a09e84-…' ->
 
 ## Forensics
 
-Each cycle writes `dc tab inspect --tab … --lifecycle --json` for every tab of
-the run to `lifecycle-cycle-N-before.json` (after the ownership gate, before the
-restart) and `lifecycle-cycle-N-after.json` (once the restore report settled or
-failed). A SETUP stop writes `lifecycle-cycle-N-setup.json`. A failed capture is
-a `WARN` and never changes the verdict.
+`--lifecycle` inspects exactly one tab, so each cycle runs
+`dc tab inspect --tab <id> --lifecycle --json` once per tab of the run and merges
+the results into one JSON object keyed by tab id:
+`lifecycle-cycle-N-before.json` (after the ownership gate, before the restart)
+and `lifecycle-cycle-N-after.json` (once the restore report settled or failed).
+A SETUP stop writes `lifecycle-cycle-N-setup.json`. A tab whose capture failed
+is recorded as `{"capture_error": "<stderr>"}` with a `WARN` line; a capture
+never changes the verdict.
+
+On success, cleanup closes the Team, then closes the run's workspace with
+`dc workspace close <id> --force`, because the standalone agent is not a Team
+member and survives the Team close. `--force` is passed only after
+`/api/workspaces` confirms the recorded id still carries this run's unique
+`RESTORE-LIFECYCLE-<run>` name; any other workspace is never force-closed.
 
 ## Scenario
 
