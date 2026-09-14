@@ -330,16 +330,8 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<crate::plan::PlanMode, TeamPlanError> {
-        let mux = self.mux.read();
-        self.valid_live_plan_team(&mux, plan_id)?;
-        let mode = self
-            .plan_store
-            .resume_plan(plan_id, now_ms)
-            .map_err(TeamPlanError::Plan)?;
-        drop(mux);
-        self.emit_plan_changed(plan_id);
-        self.reconcile_time_reminder_eligibility();
-        Ok(mode)
+        self.resume_plan_operation(plan_id, now_ms)
+            .map(|outcome| outcome.mode)
     }
 
     pub(crate) fn unarchive_team_plan(
@@ -413,7 +405,7 @@ impl ServiceContext {
         self.valid_live_plan_team(&mux, plan_id).map(|_| ())
     }
 
-    fn valid_live_plan_team(
+    pub(super) fn valid_live_plan_team(
         &self,
         mux: &MultiplexerState,
         plan_id: &str,

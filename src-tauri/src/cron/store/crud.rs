@@ -20,6 +20,7 @@ impl CronStore {
             validate_tz(t)?;
         }
         let timeout_seconds = params.timeout_seconds.filter(|n| *n > 0);
+        let reasoning_effort = normalize_reasoning_effort(params.reasoning_effort);
 
         let now_ms = self.now_ms();
         let next_run = if !params.enabled.unwrap_or(true) {
@@ -48,6 +49,7 @@ impl CronStore {
                 .agent
                 .unwrap_or_else(crate::config::default_agent_provider),
             model: params.model,
+            reasoning_effort,
             task: params.task,
             cwd: params.cwd,
             role: params.role,
@@ -153,6 +155,9 @@ impl CronStore {
         }
         if let Some(model) = patch.model {
             job.model = if model.is_empty() { None } else { Some(model) };
+        }
+        if let Some(reasoning_effort) = patch.reasoning_effort {
+            job.reasoning_effort = normalize_reasoning_effort(Some(reasoning_effort));
         }
         if let Some(jitter) = patch.jitter_max_ms {
             job.jitter_max_ms = Some(jitter);
@@ -385,6 +390,12 @@ impl CronStore {
                 .map(|r| (job_id.as_str(), r))
         })
     }
+}
+
+fn normalize_reasoning_effort(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// Increments the failure streak (+backoff, +auto-disable) on `Failed`, resets

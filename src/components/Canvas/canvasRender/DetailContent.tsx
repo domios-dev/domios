@@ -12,6 +12,7 @@ import { PlanRetrospectiveBlock } from "../planView/PlanRetrospectiveBlock.tsx";
 import { PlanSkillsSection } from "../planView/PlanSkillsSection.tsx";
 import { TaskActivityTimeline } from "../planView/TaskActivityTimeline.tsx";
 import { GLYPH_ACCENT } from "./cardContent";
+import { taskReferenceLabel } from "../taskDisplayKey";
 
 
 export interface DetailContentProps {
@@ -432,7 +433,7 @@ function SectionRelations({ section, ctx }: { section: Section; ctx?: RelationCo
           testId="canvas-detail-task-chip"
           onClick={ctx.onOpenTask ? () => ctx.onOpenTask?.(task.id) : undefined}
         >
-          {task.handle || task.name}
+          {taskReferenceLabel(task)}
         </RelationChip>
       ))}
     </div>

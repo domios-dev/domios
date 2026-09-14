@@ -1,0 +1,426 @@
+import { act, type ReactElement, useEffect } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __setListenForTest } from "../../../lib/bridge";
+import type { ApiConfig } from "../../../lib/types";
+import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
+import type { Plan } from "../types";
+import { MissionControlBoard } from "./MissionControlBoard";
+import type {
+  MissionControlState,
+  PlanBoardState,
+  TeamMissionControlEvent,
+  TeamMissionControlState,
+} from "./missionControlState";
+import { usePlanBoardState, type PlanBoardStateResult } from "./usePlanBoardState";
+import { useTeamMissionControl, type TeamMissionControlView } from "./useTeamMissionControl";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const API: ApiConfig = {
+  enabled: true,
+  host: "127.0.0.1",
+  port: 7686,
+  token: "test-token",
+  cors: false,
+};
+const PLAN_ID = "pl_live";
+const PLAN: Plan = { ...FIXTURE_PLAN, id: PLAN_ID, updated_at: 7, milestone_kinds: [] };
+const NOW = 1_700_000_000_000;
+
+type ListenHandler = (event: { payload: unknown }) => void;
+const listeners = new Map<string, Set<ListenHandler>>();
+const mediaListeners = new Set<() => void>();
+let mediaMatches = false;
+let frames = new Map<number, FrameRequestCallback>();
+let nextFrameId = 0;
+
+function boardState({ output = 100, turns = 10, bounces = 1, allowance = 20, eventCount = 1, tasks = 1 } = {}): PlanBoardState {
+  const mission: MissionControlState = {
+    held: { held_reviews: [], open_gates: [], oldest_hold_age_ms: null, verdicts_on_held: 0 },
+    bounces: { total_attempts: 3, tasks_on_second_attempt: bounces, first_try_done: 2, labelled_bounced: bounces },
+    event_log: { recorded_events: eventCount, truncated: false, entries: [] },
+    areas: {
+      state: "no_facet",
+      facet_key: null,
+      facet_label: null,
+      groups: [],
+      untagged_task_count: 0,
+      role_fallback: [],
+    },
+    kpi: {
+      state: "recording",
+      not_recording_reason: null,
+      enable_setting: null,
+      spend: {
+        events: turns,
+        bytes: 10_000,
+        turns,
+        tokens: { input: 200, uncached_input: 20, output, total: output + 200 },
+      },
+    },
+    spend: {
+      scope: "machine",
+      state: "recording",
+      not_recording_reason: null,
+      enable_setting: null,
+      measured_tokens: 200 + output,
+      turns,
+      providers: [{
+        provider: "codex",
+        label: "Codex",
+        allowance: {
+          captured_at: NOW,
+          session_used_pct: allowance,
+          session_resets_at: NOW + 60_000,
+          weekly_used_pct: null,
+          weekly_resets_at: null,
+          stale_reason: null,
+        },
+        turns,
+        input_tokens: 200,
+        uncached_input_tokens: 20,
+        output_tokens: output,
+        models: [{
+          model: "gpt-5.5-codex",
+          turns,
+          input_tokens: 200,
+          uncached_input_tokens: 20,
+          output_tokens: output,
+          token_share_pct: 100,
+        }],
+      }],
+    },
+  };
+  return {
+    plan_id: PLAN_ID,
+    task_counts: { pending: 0, in_progress: tasks, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: tasks },
+    mission_control: mission,
+  };
+}
+
+function response(value: PlanBoardState): Response {
+  return { ok: true, json: async () => value } as Response;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
+function installBrowserHarness() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: () => ({
+      get matches() {
+        return mediaMatches;
+      },
+      addEventListener: (_type: string, listener: () => void) => mediaListeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => mediaListeners.delete(listener),
+      addListener: (listener: () => void) => mediaListeners.add(listener),
+      removeListener: (listener: () => void) => mediaListeners.delete(listener),
+    }),
+  });
+  const requestAnimationFrame = (callback: FrameRequestCallback) => {
+    const id = ++nextFrameId;
+    frames.set(id, callback);
+    return id;
+  };
+  const cancelAnimationFrame = (id: number) => frames.delete(id);
+  Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: requestAnimationFrame });
+  Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: cancelAnimationFrame });
+  Object.defineProperty(window, "requestAnimationFrame", { configurable: true, value: requestAnimationFrame });
+  Object.defineProperty(window, "cancelAnimationFrame", { configurable: true, value: cancelAnimationFrame });
+}
+
+function installListenHarness() {
+  __setListenForTest(async (event, handler) => {
+    const listener = handler as ListenHandler;
+    let set = listeners.get(event);
+    if (!set) {
+      set = new Set();
+      listeners.set(event, set);
+    }
+    set.add(listener);
+    return () => set?.delete(listener);
+  });
+}
+
+function emit(event: string, payload: unknown) {
+  for (const handler of listeners.get(event) ?? []) handler({ payload });
+}
+
+async function flush() {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+}
+
+async function render(ui: ReactElement) {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root: Root = createRoot(host);
+  await act(async () => root.render(ui));
+  return {
+    host,
+    root,
+    unmount: async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
+}
+
+function text(host: HTMLElement, testId: string): string {
+  return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
+}
+
+function Probe({ revision, capture }: { revision: number; capture: { current: PlanBoardStateResult | null } }) {
+  const result = usePlanBoardState(API, PLAN_ID, revision);
+  useEffect(() => {
+    capture.current = result;
+  }, [capture, result]);
+  return (
+    <MissionControlBoard
+      plan={PLAN}
+      state={result.state}
+      loading={result.loading}
+      error={result.error}
+      now={NOW}
+    />
+  );
+}
+
+function advanceFrames(timestamp: number) {
+  const callbacks = [...frames.values()];
+  frames.clear();
+  for (const callback of callbacks) callback(timestamp);
+}
+
+beforeEach(() => {
+  listeners.clear();
+  mediaListeners.clear();
+  mediaMatches = false;
+  frames = new Map();
+  nextFrameId = 0;
+  installBrowserHarness();
+  installListenHarness();
+  vi.stubGlobal("fetch", vi.fn());
+});
+
+afterEach(() => {
+  __setListenForTest(null);
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  listeners.clear();
+  mediaListeners.clear();
+});
+
+describe("Mission Control live refresh", () => {
+  it("mission_control_refreshes_on_relevant_event_without_revision_change", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue(response(boardState({ eventCount: 2 })));
+    fetchMock.mockResolvedValueOnce(response(boardState({ eventCount: 1 })));
+    fetchMock.mockResolvedValueOnce(response(boardState({ output: 200, eventCount: 2 })));
+    const capture: { current: PlanBoardStateResult | null } = { current: null };
+    const rendered = await render(<Probe revision={7} capture={capture} />);
+    await act(async () => flush());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    for (const event of [
+      "mem-activity",
+      "graph-worker-spawned",
+      "graph-worker-progress",
+      "graph-worker-done",
+      "graph-worker-reported",
+      "cron-run-finished",
+      "config-changed",
+      "plan-changed",
+    ]) {
+      expect(listeners.get(event)?.size).toBe(1);
+    }
+
+    await act(async () => {
+      emit("plan-changed", { plan_id: "pl_other" });
+      await flush();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      emit("mem-activity", { op: "write" });
+      await flush();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(capture.current?.state?.mission_control.event_log.recorded_events).toBe(2);
+
+    await rendered.unmount();
+    for (const set of listeners.values()) expect(set.size).toBe(0);
+
+    const remounted = await render(<Probe revision={7} capture={capture} />);
+    await act(async () => flush());
+    for (const event of [
+      "mem-activity",
+      "graph-worker-spawned",
+      "graph-worker-progress",
+      "graph-worker-done",
+      "graph-worker-reported",
+      "cron-run-finished",
+      "config-changed",
+      "plan-changed",
+    ]) {
+      expect(listeners.get(event)?.size).toBe(1);
+    }
+    await remounted.unmount();
+  });
+
+  it("mission_control_keeps_last_snapshot_during_refresh", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const nextRead = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(response(boardState({ tasks: 100, eventCount: 1 })));
+    fetchMock.mockImplementationOnce(() => nextRead.promise);
+    const capture: { current: PlanBoardStateResult | null } = { current: null };
+    const rendered = await render(<Probe revision={7} capture={capture} />);
+    await act(async () => flush());
+
+    await act(async () => {
+      emit("graph-worker-progress", {});
+      await flush();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(rendered.host.querySelector('[data-testid="mc-board-row"]')).not.toBeNull();
+    expect(rendered.host.querySelector('[data-testid="mc-board-pending"]')).toBeNull();
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("100");
+    expect(capture.current?.loading).toBe(true);
+
+    nextRead.resolve(response(boardState({ tasks: 200, eventCount: 2 })));
+    await act(async () => flush());
+    await act(async () => {
+      advanceFrames(0);
+      advanceFrames(360);
+    });
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("200");
+    expect(capture.current?.state?.mission_control.event_log.recorded_events).toBe(2);
+    await rendered.unmount();
+  });
+
+  it("mission_control_animates_changed_figures", async () => {
+    const rendered = await render(
+        <MissionControlBoard plan={PLAN} state={boardState({ output: 100, turns: 10, allowance: 20, tasks: 1 })} now={NOW} />,
+    );
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
+
+    await act(async () => {
+      rendered.root.render(
+        <MissionControlBoard plan={PLAN} state={boardState({ output: 200, turns: 300, bounces: 2, allowance: 60, tasks: 10 })} now={NOW} />,
+      );
+      await flush();
+    });
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
+
+    await act(async () => advanceFrames(0));
+    await act(async () => advanceFrames(180));
+    expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("1");
+    expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("10");
+
+    await act(async () => advanceFrames(1000));
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("10");
+    await rendered.unmount();
+  });
+
+  it("mission_control_reduced_motion_updates_immediately", async () => {
+    const rendered = await render(
+      <MissionControlBoard plan={PLAN} state={boardState({ output: 100, allowance: 20, tasks: 1 })} now={NOW} />,
+    );
+    mediaMatches = true;
+    await act(async () => {
+      for (const listener of [...mediaListeners]) listener();
+      await flush();
+    });
+
+    await act(async () => {
+      rendered.root.render(
+        <MissionControlBoard plan={PLAN} state={boardState({ turns: 30, allowance: 60, tasks: 3 })} now={NOW} />,
+      );
+      await flush();
+    });
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("3");
+    expect(frames.size).toBe(0);
+    await rendered.unmount();
+  });
+});
+
+function teamEvent(index: number, planId = "pl_live"): TeamMissionControlEvent {
+  return {
+    id: `event-${index}`,
+    ts: NOW - index * 1_000,
+    last_ts: NOW - index * 1_000,
+    count: 1,
+    kind: "note",
+    author: "Planck",
+    author_tab_id: null,
+    task_id: null,
+    task_name: null,
+    text: `team event ${index}`,
+    plan_id: planId,
+    plan_title: "Live plan",
+  };
+}
+
+function teamState(events: TeamMissionControlEvent[], nextCursor: string | null): TeamMissionControlState {
+  return {
+    team_id: "team-1",
+    team: { id: "team-1" } as TeamMissionControlState["team"],
+    active_plan: PLAN,
+    archived_plans: [{ ...PLAN, id: "pl_old", status: "archived", updated_at: 3 }],
+    events,
+    next_cursor: nextCursor,
+  };
+}
+
+function TeamProbe({ revision, capture }: { revision: string; capture: { current: TeamMissionControlView | null } }) {
+  const view = useTeamMissionControl(API, "team-1", revision);
+  useEffect(() => {
+    capture.current = view;
+  }, [capture, view]);
+  return null;
+}
+
+describe("Mission Control team stream", () => {
+  it("mission_control_team_pages_events_by_cursor_and_keeps_unchanged_plans", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(response(teamState(Array.from({ length: 50 }, (_, i) => teamEvent(i)), "c2") as never));
+    fetchMock.mockResolvedValueOnce(response(teamState([teamEvent(50), teamEvent(51)], null) as never));
+    fetchMock.mockResolvedValueOnce(response(teamState([teamEvent(0)], null) as never));
+    const capture: { current: TeamMissionControlView | null } = { current: null };
+    const rendered = await render(<TeamProbe revision="r1" capture={capture} />);
+    await act(async () => flush());
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/teams/team-1/mission-control/state?limit=50");
+    const first = capture.current!;
+    expect(first.events.pageCount).toBe(2);
+    expect(first.events.caption).toBe("50+ events");
+    expect(first.events.page(0)).toHaveLength(50);
+    expect(first.events.page(1)).toBeNull();
+    expect(first.archivedPlans.map((plan) => plan.id)).toEqual(["pl_old"]);
+
+    await act(async () => {
+      first.events.load?.(1);
+      await flush();
+    });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cursor=c2");
+    const second = capture.current!;
+    expect(second.events.page(1)?.map((event) => event.text)).toEqual(["team event 50", "team event 51"]);
+    expect(second.events.pageCount).toBe(2);
+    expect(second.events.caption).toBe("52 events");
+    expect(second.archivedPlans).toBe(first.archivedPlans);
+
+    await act(async () => {
+      rendered.root.render(<TeamProbe revision="r2" capture={capture} />);
+      await flush();
+    });
+    expect(capture.current!.events.pageCount).toBe(1);
+    expect(capture.current!.archivedPlans).toBe(first.archivedPlans);
+    await rendered.unmount();
+  });
+});

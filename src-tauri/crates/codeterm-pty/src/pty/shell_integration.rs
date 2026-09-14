@@ -80,7 +80,7 @@ fi
     let powershell_content = r#"# CodeTerm shell integration - do not edit
 if (-not $global:__CodeTermShellIntegrationLoaded) {
   $global:__CodeTermShellIntegrationLoaded = $true
-  $global:__CodeTermPromptSeen = $false
+  $global:__CodeTermLastHistoryId = 0
   $global:__CodeTermShellNonce = $env:CODETERM_SHELL_NONCE
   Remove-Item Env:CODETERM_SHELL_NONCE -ErrorAction SilentlyContinue
   $global:__CodeTermOriginalPrompt = $function:prompt
@@ -89,8 +89,11 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
   }
 
   function global:prompt {
-    $commandFinished = $global:__CodeTermPromptSeen
-    $global:__CodeTermPromptSeen = $true
+    # An empty Enter or a prompt redraw adds no history entry, so it never reads as a finished command.
+    $lastHistory = Get-History -Count 1
+    $historyId = if ($null -eq $lastHistory) { 0 } else { $lastHistory.Id }
+    $commandFinished = $historyId -gt $global:__CodeTermLastHistoryId
+    $global:__CodeTermLastHistoryId = $historyId
     if ($commandFinished -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
       [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
       [Console]::Write(([char]27 + ']633;D' + [char]7))
@@ -485,6 +488,21 @@ mod tests {
         assert_eq!(argv[1], "-NoExit");
         assert_eq!(argv[2], "-File");
         assert_eq!(argv[3], script.as_os_str());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn restore_contract_powershell_command_finished_requires_a_new_history_entry() {
+        ensure_scripts();
+        let content = std::fs::read_to_string(integration_dir().join("powershell.ps1")).unwrap();
+        let prompt = content.find("function global:prompt").unwrap();
+        let history = content.find("Get-History -Count 1").unwrap();
+        let gate = content
+            .find("$historyId -gt $global:__CodeTermLastHistoryId")
+            .unwrap();
+        let authenticated_command = content.find("']633;E;;'").unwrap();
+        assert!(prompt < history && history < gate && gate < authenticated_command);
+        assert!(!content.contains("__CodeTermPromptSeen"));
     }
 
     #[cfg(target_os = "windows")]

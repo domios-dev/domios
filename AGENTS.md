@@ -272,9 +272,15 @@ Rules when touching that code:
   dev. Dev and prod must write byte-identical content, which is what makes it safe
   for both to run.
 - **Never rewrite a hook you do not own.** Match your own marker first.
+- **The marker lives inside the command, not beside it.** Claude Code's settings
+  serializer drops the sibling `_source` key, so ownership keys on an inert
+  CodeTerm header (`X-CodeTerm-Hook`) in the command string. `_source` and the
+  exact pre-marker command fingerprints are migration compatibility only; never
+  widen ownership to a bare route or port shape, which would claim a foreign hook.
 - **Refresh your own hook when it goes stale**, or a machine keeps running a hook
-  from an old release forever; `ensureIntegrationOnStartup` exists for exactly this
-  and must not be a stub.
+  from an old release forever. Core owns that repair: `ensure_integrations_for_all`
+  at daemon start and `ensure_integration_for_provider` after a provider plugin
+  reload, both refusing without a recorded consent.
 - Changing hook content costs the user a re-trust in the provider. Do it when the
   content is genuinely wrong, not to tidy formatting.
 - Windows reserved names apply here too: redirect to `/dev/null`, never `NUL`.
@@ -378,4 +384,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

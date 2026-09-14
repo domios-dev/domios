@@ -118,6 +118,7 @@ pub(super) fn dispatch(
                 "plan.task.compete",
                 "plan.task.judge",
                 "plan.task.rm",
+                "plan.lane_remove",
                 "plan.milestone.add",
                 "plan.milestone.update",
                 "plan.milestone.rm",

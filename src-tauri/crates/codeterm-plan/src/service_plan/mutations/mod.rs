@@ -227,21 +227,13 @@ fn dependency_cycle_reaches(
     })
 }
 
-/// A dependency ref may name a task by full id or by handle (`--depends-on` accepts both).
+/// A dependency ref may name a task by full id, handle, or key.
 fn resolve_dependency_ref(plan: &Plan, reference: &str) -> Result<String, PlanError> {
-    if let Some(task) = plan.tasks.iter().find(|task| task.id == reference) {
-        return Ok(task.id.clone());
-    }
-    if let Some(task) = plan
-        .tasks
-        .iter()
-        .find(|task| task.handle.as_deref() == Some(reference))
-    {
-        return Ok(task.id.clone());
-    }
-    Err(PlanError::DependencyTaskNotFound {
-        task_id: reference.to_string(),
-    })
+    crate::plan::task_key::find_task(&plan.tasks, reference)
+        .map(|task| task.id.clone())
+        .ok_or_else(|| PlanError::DependencyTaskNotFound {
+            task_id: reference.to_string(),
+        })
 }
 
 pub(super) fn validate_task_dependencies(

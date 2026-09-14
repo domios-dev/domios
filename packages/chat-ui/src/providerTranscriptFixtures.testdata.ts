@@ -430,9 +430,3 @@ export const providerTranscriptFixtures: ProviderTranscriptFixture[] = [
 ];
 
 /** Normalized provider casing reaches the shared wait predicate without parser-specific UI logic. */
-export const waitProviderMessages: Record<"claude" | "codex" | "cursor" | "opencode", NormalizedChatMessage[]> = {
-  claude: [{ id: "claude-wait", provider: "claude", type: "tool_call", content: "", toolName: "wait", toolId: "claude-wait", toolInput: { wait_for: "result" }, toolKind: "generic", toolSummary: "Claude wait", timestamp: "1000" }],
-  codex: [{ id: "codex-wait", provider: "codex", type: "tool_call", content: "", toolName: "wait_for_result", toolId: "codex-wait", toolInput: { wait_for_result: "result" }, toolKind: "generic", toolSummary: "Codex wait", timestamp: "1000" }],
-  cursor: [{ id: "cursor-wait", provider: "cursor", type: "tool_call", content: "", toolName: "tool_wait", toolId: "cursor-wait", toolInput: { tool_wait: "result" }, toolKind: "generic", toolSummary: "Cursor wait", timestamp: "1000" }],
-  opencode: [{ id: "opencode-wait", provider: "opencode", type: "tool_call", content: "", toolName: "WAIT_FOR", toolId: "opencode-wait", toolInput: { waitFor: "result" }, toolKind: "generic", toolSummary: "OpenCode wait", timestamp: "1000" }],
-};

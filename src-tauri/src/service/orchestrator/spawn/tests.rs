@@ -298,7 +298,7 @@ fn team_bootstrap_marks_only_the_fallback_transport() {
     let fallback = team_bootstrap_payload(false, "fallback contract".into());
     assert_eq!(
         fallback,
-        "-=-codeterm:system context=team-bootstrap-=-fallback contract"
+        "-=-codeterm:system context=team-bootstrap-=-\nfallback contract"
     );
     assert!(!fallback.contains("tab="));
     assert!(!fallback.contains("[to reply"));

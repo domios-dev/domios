@@ -1365,6 +1365,16 @@
               "aliases": []
             },
             {
+              "name": "reasoning-effort",
+              "positional": false,
+              "required": false,
+              "value_name": "REASONING_EFFORT",
+              "possible_values": [],
+              "default": null,
+              "help": "Reasoning-effort level advertised by the agent provider. Leave unset to use the provider default",
+              "aliases": []
+            },
+            {
               "name": "schedule",
               "positional": false,
               "required": true,
@@ -1556,6 +1566,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reasoning-effort",
+              "positional": false,
+              "required": false,
+              "value_name": "REASONING_EFFORT",
+              "possible_values": [],
+              "default": null,
+              "help": "Reasoning-effort level advertised by the agent provider. Pass empty string to clear",
               "aliases": []
             },
             {
@@ -4929,9 +4949,39 @@
             },
             {
               "name": "report",
-              "about": "Submit final report and mark done (uses $CODETERM_WORKER_ID)",
+              "about": "Submit final report: execution ended (uses $CODETERM_WORKER_ID)",
               "aliases": [],
               "args": [
+                {
+                  "name": "diary",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "DIARY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Mem id of the artifact this run produced, e.g. its dream diary id",
+                  "aliases": []
+                },
+                {
+                  "name": "finalization",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "FINALIZATION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Diary finalization outcome: succeeded | partial | failed",
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "REASON",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Concrete reason for a partial or failed finalization",
+                  "aliases": []
+                },
                 {
                   "name": "summary",
                   "positional": true,
@@ -5252,6 +5302,16 @@
               "aliases": []
             },
             {
+              "name": "chat-message",
+              "positional": false,
+              "required": false,
+              "value_name": "MESSAGE_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "The exact chat message id inside --target-tab this notification jumps to",
+              "aliases": []
+            },
+            {
               "name": "choice",
               "positional": false,
               "required": false,
@@ -5343,6 +5403,16 @@
               "possible_values": [],
               "default": "info",
               "help": "Record identity axis: info, warning, error. Tone comes from --level",
+              "aliases": []
+            },
+            {
+              "name": "target-tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "The tab whose chat holds the message this notification is about",
               "aliases": []
             },
             {
@@ -7082,6 +7152,44 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "lane-remove",
+          "about": "Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "branch",
+              "positional": false,
+              "required": false,
+              "value_name": "BRANCH",
+              "possible_values": [],
+              "default": null,
+              "help": "Lane branch to delete after the worktree is gone",
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Canonical checkout that owns the lane (default: derived from the lane itself)",
+              "aliases": []
+            },
+            {
+              "name": "worktree",
+              "positional": true,
+              "required": true,
+              "value_name": "WORKTREE",
+              "possible_values": [],
+              "default": null,
+              "help": "Lane worktree path to remove",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "lanes",
@@ -9651,7 +9759,7 @@
                   "value_name": "TASK_ID_OR_HANDLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)",
+                  "help": "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle (see --handle), or a task key (COD-12)",
                   "aliases": []
                 },
                 {
@@ -10850,7 +10958,7 @@
                   "value_name": "TASK_ID_OR_HANDLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement",
+                  "help": "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle, or a task key (COD-12). Use --replace-dependencies for wholesale replacement",
                   "aliases": []
                 },
                 {

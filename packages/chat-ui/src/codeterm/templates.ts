@@ -217,11 +217,17 @@ function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: 
   return [...fields].map(([label, value]) => ({ label, value }));
 }
 
-/** Build the compact lead/object/chips payload used by the action card header. */
+/** Build the compact lead/object/chips payload used by the action card header; the object never repeats the lead. */
 export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver): ActionDescriptor {
+  const descriptor = describeInvocation(inv, result, resolve, resolvePeer);
+  const object = descriptor.object?.trim();
+  return object && object.toLowerCase() !== descriptor.lead.trim().toLowerCase() ? descriptor : { ...descriptor, object: undefined };
+}
+
+function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver): ActionDescriptor {
   const path = inv.path.join(" ");
   if (isHelp(inv)) {
-    return { lead: "help", object: path, chips: [] };
+    return { lead: path, object: "help", chips: [] };
   }
   if (isSend(inv)) {
     const sent = parseSend(inv, result, resolve, resolvePeer);

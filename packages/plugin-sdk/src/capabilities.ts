@@ -175,6 +175,7 @@ export interface AgentProvider {
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
+  /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
   parseSessionDelta?(chunk: string): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
@@ -296,12 +297,57 @@ export type ToolEventKind =
   | "task"
   | "fetch"
   | "codeterm"
+  | "web"
+  | "image"
+  | "agent"
   | "generic";
 
 export interface ToolEdit {
   path: string;
   old: string;
   new: string;
+}
+
+export type ChatTimelineMarker =
+  | { kind: "queued" }
+  | { kind: "external_edit"; path: string }
+  | { kind: "context_compaction" };
+
+export interface ChatSessionIntent {
+  title?: string;
+  goal?: string;
+}
+
+/** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
+export interface FileDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/** One changed file; counts are the marked lines of its own hunks. Emitted as `file_diffs` block data. */
+export interface FileDiff {
+  path: string;
+  movePath?: string;
+  additions: number;
+  deletions: number;
+  hunks: FileDiffHunk[];
+}
+
+// Mirrors Rust ChatMsg.tool_rich_result; strings are exact source values, absent when unreported.
+export interface ToolRichResult {
+  kind: "web" | "image";
+  origin?: "generated" | "viewed";
+  query?: string;
+  resultCount?: number;
+  action?: string;
+  url?: string;
+  pattern?: string;
+  path?: string;
+  status?: string;
+  prompt?: string;
 }
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
@@ -316,11 +362,15 @@ export interface NormalizedChatMessage {
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
+  timelineMarker?: ChatTimelineMarker;
+  sessionIntent?: ChatSessionIntent;
   /** Provider-neutral canonical tool metadata, available on any chat transport. */
   toolKind?: ToolEventKind;
   toolSummary?: string;
   toolDetail?: string;
   toolEdits?: ToolEdit[];
+  fileDiffs?: FileDiff[];
+  toolRichResult?: ToolRichResult;
   toolError?: boolean;
 }
 
@@ -440,6 +490,20 @@ export interface ChatPreprocessor {
   }): { text: string } | null; // null = passthrough
 }
 
+export interface WebhookReceiveContext {
+  payload: unknown;
+  receivedAt: string;
+}
+
+export interface WebhookDelivery {
+  text: string;
+  eventId?: string;
+}
+
+export interface WebhookReceiver {
+  webhookReceive(ctx: WebhookReceiveContext): WebhookDelivery | null;
+}
+
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {
@@ -460,6 +524,7 @@ export interface PluginModule
     Partial<Transcriber>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
+    Partial<WebhookReceiver>,
     Partial<AgentCommandHandler> {
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;

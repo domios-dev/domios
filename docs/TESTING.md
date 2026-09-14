@@ -169,10 +169,13 @@ directories is an inotify access event from recursive watch registration, not
 repository churn. Keep access filtering upstream of the debouncer, then rerun
 `repository_watcher_stays_silent_on_irrelevant_churn`; never add a settle wait.
 
-Verify the wrapper itself with the focused shell test:
+**Filtered runs fail closed.** A filtered run that executed zero tests exits `97`
+naming the filter and the crate: a filter that ran nothing verified nothing.
+Unfiltered runs are never checked, so an empty target still passes. Verify the
+wrapper whole, or one named case from `scripts/test-capped.test.sh`:
 
 ```bash
-bash scripts/test-capped.test.sh
+bash scripts/test-capped.test.sh [case]
 ```
 
 **Windows: ConPTY test isolation**
@@ -234,4 +237,4 @@ Git for Windows at its standard location and rerun the same command.
 
 End-to-end and cross-platform verification: `codeterm docs E2E-TESTING`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->

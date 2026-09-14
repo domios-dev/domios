@@ -51,6 +51,7 @@ import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
 import { PlanViewShell } from "./PlanViewShell";
+import { usePlanTargetNavigation } from "./teamViewNavigation";
 import { selectCanvasPlans } from "./canvasPlanSelection";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./planView/PlanFetchErrorState";
 import { planFetchShowsData } from "./planView/planViewFetchGate";
@@ -887,8 +888,9 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focusTabId, api, onClose }: CanvasViewProps) {
-  const { setFocusedTab, setActiveTab } = useMultiplexer();
+  const { setFocusedTab, setActiveTab, selectTabByTab } = useMultiplexer();
   const state = useMuxState();
+  const openPlanTarget = usePlanTargetNavigation();
   const onOpenTab = useCallback(
     (tabId: string) => {
       revealAssignedAgentTab(
@@ -975,6 +977,9 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
       onClose={onClose}
       onOpenTab={onOpenTab}
+      notifications={state.notifications}
+      onSelectTab={selectTabByTab}
+      onOpenPlanTarget={openPlanTarget}
       api={api}
     />
   );

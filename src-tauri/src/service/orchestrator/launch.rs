@@ -163,6 +163,19 @@ impl LaunchFailure {
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
         }
     }
+
+    /// Structural faults of the process or its stream, as opposed to an
+    /// observer's deadline. A live agent's own binding proof cannot survive one.
+    fn proves_process_gone(&self) -> bool {
+        matches!(
+            self,
+            Self::PtySpawn(_)
+                | Self::PtyEof
+                | Self::TabClosed
+                | Self::ReaderSetup(_)
+                | Self::ReaderRuntime(_)
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +246,11 @@ impl LaunchGeneration {
     }
 
     fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
+        // A fault that shows the process died voids the proof it left behind,
+        // so an honest failure is never outranked by a dead agent's binding.
+        if failure.proves_process_gone() {
+            svc.void_launch_session_proof(&self.tab_id);
+        }
         let reason = failure.reason();
         self.finish_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
@@ -274,6 +292,7 @@ impl LaunchGeneration {
 
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
+        svc.void_launch_session_proof(&launch.tab_id);
         let reason = LaunchFailure::PtyEof.reason();
         svc.emit_boot_stage(&launch.tab_id, BootStage::SpawnFailed, Some(&reason));
     });
@@ -861,6 +880,19 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
 
+        // A written launch command is not readiness; observing this attempt to the
+        // bounded deadline turns an early provider exit into one launch failure.
+        let readiness_attempt = crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab_id.clone(),
+            pty_id: pty_id.clone(),
+            binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
+        };
+        crate::service::launch_readiness::arm(readiness_attempt.clone());
+        svc.observe_launch_readiness(
+            readiness_attempt.clone(),
+            crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+        );
+
         let provider_readiness = svc
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
@@ -982,6 +1014,17 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
 
         set_booting(false);
+        // Readiness the shared owner already refuted: this launch never claims
+        // ready over a process that is gone.
+        if let Some(error) =
+            crate::service::launch_readiness::take_published_failure(&readiness_attempt)
+        {
+            LAUNCH_REGISTRY.lock().finish(&launch);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
         if !launch.emit(&svc, BootStage::AgentReady) {
             return;
         }

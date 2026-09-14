@@ -37,6 +37,12 @@ struct Cursor {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsageBatch {
     pub records: Vec<UsageRecord>,
+    /// How far this pass moved the cursor. Those bytes are committed past once the
+    /// batch lands, so a pass that consumes them and records nothing is worth naming.
+    pub consumed: u64,
+    /// Lines the parser could not read at all. Their bytes are committed past too,
+    /// which makes them loss rather than delay, so they are never swallowed.
+    pub unreadable_lines: u64,
 }
 
 /// Category totals over a batch — the shape the fixture tests and phase 4 aggregate on.
@@ -66,6 +72,12 @@ impl UsageBatch {
 
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    /// Moved the cursor without recording anything. Ordinary for a stretch of log
+    /// carrying no usage; the caller reports it rather than hiding it.
+    pub fn consumed_without_recording(&self) -> bool {
+        self.records.is_empty() && self.consumed > 0
     }
 }
 
@@ -133,6 +145,7 @@ fn read_lines_since(path: &Path, cursor: Cursor) -> Result<(UsageBatch, Cursor),
 
     let mut reader = BufReader::new(file);
     let mut records = Vec::new();
+    let mut unreadable_lines = 0u64;
     let mut consumed = start;
     let mut line = String::new();
     loop {
@@ -149,20 +162,43 @@ fn read_lines_since(path: &Path, cursor: Cursor) -> Result<(UsageBatch, Cursor),
             break;
         }
         consumed += read as u64;
-        if let Some(record) = parse_json_line(&line) {
-            records.push(record);
+        match parse_json_line(&line) {
+            ParsedLine::Usage(record) => records.push(record),
+            ParsedLine::NoUsage => {}
+            ParsedLine::Unreadable => unreadable_lines += 1,
         }
     }
-    Ok((UsageBatch { records }, Cursor { offset: consumed }))
+    Ok((
+        UsageBatch {
+            records,
+            consumed: consumed.saturating_sub(start),
+            unreadable_lines,
+        },
+        Cursor { offset: consumed },
+    ))
 }
 
-fn parse_json_line(line: &str) -> Option<UsageRecord> {
+/// Three outcomes, kept distinct on purpose: a usage record, a line that is valid
+/// and simply carries none, and a line the parser could not read at all. The
+/// cursor commits past all three, so only the last one is loss.
+enum ParsedLine {
+    Usage(UsageRecord),
+    NoUsage,
+    Unreadable,
+}
+
+fn parse_json_line(line: &str) -> ParsedLine {
     let trimmed = line.trim();
     if trimmed.is_empty() {
-        return None;
+        return ParsedLine::NoUsage;
     }
-    let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
-    parse_record(&value)
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return ParsedLine::Unreadable;
+    };
+    match parse_record(&value) {
+        Some(record) => ParsedLine::Usage(record),
+        None => ParsedLine::NoUsage,
+    }
 }
 
 /// sqlite sources advance by rowid — the same forward-only contract as a byte offset.
@@ -182,17 +218,28 @@ fn read_sqlite_since(path: &Path, cursor: Cursor) -> Result<(UsageBatch, Cursor)
         .map_err(|e| format!("query messages: {}", e))?;
 
     let mut records = Vec::new();
+    let mut unreadable_lines = 0u64;
     let mut last_rowid = cursor.offset;
     for row in rows.flatten() {
         let (rowid, data) = row;
         last_rowid = rowid as u64;
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&data) {
-            if let Some(record) = parse_record(&value) {
-                records.push(record);
+        match serde_json::from_str::<serde_json::Value>(&data) {
+            Ok(value) => {
+                if let Some(record) = parse_record(&value) {
+                    records.push(record);
+                }
             }
+            Err(_) => unreadable_lines += 1,
         }
     }
-    Ok((UsageBatch { records }, Cursor { offset: last_rowid }))
+    Ok((
+        UsageBatch {
+            records,
+            consumed: last_rowid.saturating_sub(cursor.offset),
+            unreadable_lines,
+        },
+        Cursor { offset: last_rowid },
+    ))
 }
 
 #[cfg(test)]

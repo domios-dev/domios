@@ -5,29 +5,29 @@ use super::*;
 /// fails.
 const PARITY: &[(&str, &str)] = &[
     (
-        "-=-codeterm:voice file=/u/v.webm-=-привет",
+        "-=-codeterm:voice file=/u/v.webm-=-\nпривет",
         "voice→transcript payload",
     ),
     (
-        "-=-codeterm:voice file=/u/v.webm status=untranscribed-=-no daemon",
+        "-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nno daemon",
         "voice→untranscribed note in payload",
     ),
     ("-=-codeterm:photo file=/u/p.jpg name=p.jpg-=-", "photo"),
     (
-        "-=-codeterm:telegram user=100000001 msg=12345-=-do the task",
+        "-=-codeterm:telegram user=100000001 msg=12345-=-\ndo the task",
         "telegram",
     ),
-    ("-=-codeterm:mesh peer=peer-a tab=abc12345-=-hi", "mesh"),
+    ("-=-codeterm:mesh peer=peer-a tab=abc12345-=-\nhi", "mesh"),
     (
-        "-=-codeterm:tab label=General%20Main tab=bda0e267-=-ping",
+        "-=-codeterm:tab label=General%20Main tab=bda0e267-=-\nping",
         "tab label has space",
     ),
     (
-        "-=-codeterm:plugin_config plugin=local-shell name=LM%20Studio-=-hello body",
+        "-=-codeterm:plugin_config plugin=local-shell name=LM%20Studio-=-\nhello body",
         "plugin_config (name has space)",
     ),
     (
-        "-=-codeterm:system_prompt-=-You are CodeTerm.\nUse tools carefully.",
+        "-=-codeterm:system_prompt-=-\nYou are CodeTerm.\nUse tools carefully.",
         "system_prompt body payload",
     ),
 ];
@@ -63,7 +63,7 @@ fn every_parity_wire_parses() {
 
 #[test]
 fn parse_extracts_kind_attrs_payload() {
-    let p = parse("-=-codeterm:telegram user=100000001 msg=12345-=-do the task").unwrap();
+    let p = parse("-=-codeterm:telegram user=100000001 msg=12345-=-\ndo the task").unwrap();
     assert_eq!(p.kind, "telegram");
     assert_eq!(p.attr("user"), Some("100000001"));
     assert_eq!(p.attr("msg"), Some("12345"));
@@ -72,7 +72,7 @@ fn parse_extracts_kind_attrs_payload() {
 
 #[test]
 fn parse_unwraps_bracketed_paste_marker() {
-    let p = parse("\x1b[200~-=-codeterm:tab label=main tab=bda0e267-=-hello\x1b[201~").unwrap();
+    let p = parse("\x1b[200~-=-codeterm:tab label=main tab=bda0e267-=-\nhello\x1b[201~").unwrap();
     assert_eq!(p.kind, "tab");
     assert_eq!(p.attr("tab"), Some("bda0e267"));
     assert_eq!(p.payload, "hello");
@@ -102,7 +102,7 @@ fn parse_none_on_plain_text() {
     assert!(parse("just a normal message").is_none());
     assert!(parse("[voice] not our format").is_none());
     assert!(parse("[[ct:tab label=Main tab=abc12345]]hello").is_none());
-    assert!(parse("-=-codeterm:-=-payload").is_none());
+    assert!(parse("-=-codeterm:-=-\npayload").is_none());
 }
 
 #[test]

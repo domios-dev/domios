@@ -8,13 +8,12 @@
 //! the Claude provider as part of the abstraction pass so adding a new
 //! provider doesn't require touching `commands/`.
 
+use super::hook_ownership::{
+    entries_carry_marker, is_codeterm_hook, marker_header_arg, CODETERM_HOOK_MARKER,
+};
 use crate::prompts::CODETERM_RULE;
 use crate::provider::{HookEventBinding, HookIngestionRoute, IntegrationInstallOptions};
 use serde_json::Value as Json;
-
-// v3 resolves the callback from the launched Tab's environment, so prod and
-// isolated dev instances can safely share Claude's global settings file.
-const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v3";
 
 fn claude_settings_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -51,91 +50,53 @@ fn write_json_atomic(path: &std::path::Path, json: &Json) -> Result<(), String> 
     std::fs::rename(&temporary, path).map_err(|e| e.to_string())
 }
 
-/// True when a hook entry was installed by CodeTerm at any version — used on
-/// install to REMOVE stale entries before writing the current ones.
-fn is_codeterm_hook(hook_entry: &Json) -> bool {
-    hook_entry
-        .get("hooks")
-        .and_then(|hs| hs.as_array())
-        .map(|hs| {
-            hs.iter().any(|h| {
-                if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
-                    if source.starts_with("codeterm-hook") || source == "codeterm" {
-                        return true;
-                    }
-                }
-                h.get("command")
-                    .and_then(|command| command.as_str())
-                    .map(|command| {
-                        let codeterm_origin = command.contains("7685") || command.contains("7686");
-                        let hook_route = command.contains("/api/notifications")
-                            || command.contains("/api/tabs/")
-                            || command.contains("/hook/permission")
-                            || command.contains("/hook/stop")
-                            || command.contains("/hook/session_start")
-                            || command.contains("/api/mem/flush");
-                        codeterm_origin && hook_route
-                    })
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false)
-}
-
-/// True only when the hook matches the CURRENT installer output. Drives
-/// the `hooks_installed` bit so we force-upgrade stale pre-v2 entries.
+/// True only when the hook matches the CURRENT callback contract. Identity is
+/// the command: Claude's serializer drops `_source`, so requiring it here once
+/// reported a working hook as missing.
 fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
-    hook_entry
-        .get("hooks")
-        .and_then(|hs| hs.as_array())
-        .map(|hs| {
-            hs.iter().any(|h| {
-                let current_marker = h
-                    .get("_source")
-                    .and_then(|s| s.as_str())
-                    .map(|src| src == CODETERM_HOOK_MARKER)
-                    .unwrap_or(false);
-                let current_callback_shape = h
-                    .get("command")
-                    .and_then(|command| command.as_str())
-                    .map(|command| {
-                        command.contains("CODETERM_TAB_ID")
-                            && command.contains("CODETERM_API_URL")
-                            && command.contains("CODETERM_API_TOKEN")
-                            && !command.contains("CODETERM_API_PORT")
-                            && !command.contains("CODETERM_PANE_ID")
-                    })
-                    .unwrap_or(false);
-                current_marker && current_callback_shape
-            })
-        })
-        .unwrap_or(false)
+    entry_has_command(hook_entry, |command| {
+        command.contains("CODETERM_TAB_ID")
+            && command.contains("CODETERM_API_URL")
+            && command.contains("CODETERM_API_TOKEN")
+            && !command.contains("CODETERM_API_PORT")
+            && !command.contains("CODETERM_PANE_ID")
+    })
 }
 
 fn is_current_session_start_hook(hook_entry: &Json) -> bool {
+    entry_has_command(hook_entry, |command| {
+        command.contains("CODETERM_SESSION_BINDING_NONCE")
+            && command.contains("CODETERM_TAB_ID")
+            && command.contains("CODETERM_API_URL")
+            && command.contains("CODETERM_API_TOKEN")
+            && !command.contains("CODETERM_API_PORT")
+            && !command.contains("CODETERM_PANE_ID")
+    })
+}
+
+fn entry_has_command(hook_entry: &Json, matches: impl Fn(&str) -> bool) -> bool {
     hook_entry
         .get("hooks")
         .and_then(|hooks| hooks.as_array())
-        .map(|hooks| {
+        .is_some_and(|hooks| {
             hooks.iter().any(|hook| {
-                let current_marker = hook.get("_source").and_then(|source| source.as_str())
-                    == Some(CODETERM_HOOK_MARKER);
-                let current_callback_shape = hook
-                    .get("command")
+                hook.get("command")
                     .and_then(|command| command.as_str())
-                    .map(|command| {
-                        command.contains("CODETERM_SESSION_BINDING_NONCE")
-                            && command.contains("CODETERM_TAB_ID")
-                            && command.contains("CODETERM_API_URL")
-                            && command.contains("CODETERM_API_TOKEN")
-                            && !command.contains("CODETERM_API_PORT")
-                            && !command.contains("CODETERM_PANE_ID")
-                    })
-                    .unwrap_or(false);
-                current_marker && current_callback_shape
+                    .is_some_and(&matches)
             })
         })
-        .unwrap_or(false)
+}
+
+/// Every owned entry across the roster carries the durable command marker.
+/// False means the machine still runs pre-marker hooks that the consented
+/// reconciliation migrates once; it never means the hooks are broken.
+fn owned_hooks_carry_marker(json: &Json) -> bool {
+    hook_event_roster().iter().all(|binding| {
+        json.pointer(&format!("/hooks/{}", binding.event))
+            .and_then(|value| value.as_array())
+            .map(|entries| entries_carry_marker(entries.as_slice()))
+            .unwrap_or(true)
+    })
 }
 
 /// Returns JSON shaped like the legacy `ClaudeHooksStatus` struct so the
@@ -204,12 +165,13 @@ pub fn check_integration() -> Json {
         .map(|arr| arr.iter().any(is_current_session_start_hook))
         .unwrap_or(false);
 
+    let hooks_installed =
+        notification_hook && permission_request_hook && stop_hook && session_start_hook;
+
     serde_json::json!({
         "settings_exists": true,
-        "hooks_installed": notification_hook
-            && permission_request_hook
-            && stop_hook
-            && session_start_hook,
+        "hooks_installed": hooks_installed,
+        "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json),
         "notification_hook": notification_hook,
         "permission_request_hook": permission_request_hook,
         "stop_hook": stop_hook,
@@ -261,8 +223,9 @@ fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> Str
     } else {
         format!("-d '{body}'")
     };
+    let marker = marker_header_arg();
     format!(
-        "if [ -n \"${{CODETERM_API_URL:-}}\" ] && [ -n \"${{CODETERM_API_TOKEN:-}}\" ] && [ -n \"${{CODETERM_TAB_ID:-}}\" ]; then curl -s -o /dev/null -X POST \"$CODETERM_API_URL{path}\" -H 'Content-Type: application/json' -H \"Authorization: Bearer $CODETERM_API_TOKEN\" {extra_headers} {payload} || true; fi"
+        "if [ -n \"${{CODETERM_API_URL:-}}\" ] && [ -n \"${{CODETERM_API_TOKEN:-}}\" ] && [ -n \"${{CODETERM_TAB_ID:-}}\" ]; then curl -s -o /dev/null -X POST \"$CODETERM_API_URL{path}\" -H 'Content-Type: application/json' -H \"Authorization: Bearer $CODETERM_API_TOKEN\" {marker} {extra_headers} {payload} || true; fi"
     )
 }
 
@@ -330,7 +293,7 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
     })
 }
 
-pub(crate) fn install_integration_at(
+pub fn install_integration_at(
     path: &std::path::Path,
     options: &IntegrationInstallOptions,
 ) -> Result<(), String> {
@@ -422,7 +385,7 @@ pub fn install_integration(
     install_integration_at(&claude_settings_path()?, options)
 }
 
-pub(crate) fn uninstall_integration_at(path: &std::path::Path) -> Result<(), String> {
+pub fn uninstall_integration_at(path: &std::path::Path) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
@@ -640,6 +603,7 @@ mod tests {
         assert!(first.contains("CODETERM_API_TOKEN"));
         assert!(first.contains("CODETERM_TAB_ID"));
         assert!(first.contains("if [ -n"));
+        assert!(first.contains("X-CodeTerm-Hook: codeterm-hook-v3"));
         assert!(!first.contains("CODETERM_API_PORT"));
         assert!(!first.contains("localhost:768"));
         assert!(!first.contains("> NUL"));

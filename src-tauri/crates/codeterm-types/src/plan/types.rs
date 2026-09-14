@@ -248,6 +248,15 @@ pub struct TransferRecord {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanLifecycleEvent {
+    #[serde(default)]
+    pub id: String,
+    pub kind: String,
+    pub at: u64,
+    pub author: OrchestratorRef,
+}
+
 /// Append-only audit record of an authorized Orchestrator waiving one or more
 /// pending regression gates so frontier dispatch may proceed. A waiver only
 /// applies while `ts >= group completion` — reopening/reclosing a group re-arms
@@ -500,6 +509,8 @@ pub struct Task {
     pub status_changed_at: u64,
     #[serde(default)]
     pub handle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -638,6 +649,8 @@ pub struct Plan {
     pub mode: PlanMode,
     #[serde(default)]
     pub paused_from_mode: Option<PlanMode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pause_operations: Vec<super::pause::PlanPauseOperation>,
     pub owner: OrchestratorRef,
     /// Optional 1:1 team binding; None keeps legacy plans teamless.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -682,6 +695,8 @@ pub struct Plan {
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
     #[serde(default)]
+    pub lifecycle_events: Vec<PlanLifecycleEvent>,
+    #[serde(default)]
     pub planner: Option<PlannerRef>,
     #[serde(default)]
     pub planning_state: super::planning_state::PlanningState,
@@ -711,6 +726,7 @@ impl Plan {
             status: PlanStatus::Active,
             mode: PlanMode::Planning,
             paused_from_mode: None,
+            pause_operations: vec![],
             owner,
             team_id: None,
             project_path: project_path.clone(),
@@ -734,6 +750,7 @@ impl Plan {
             evidence_reporters: vec![],
             canvas: PlanCanvas::default(),
             owner_history: vec![],
+            lifecycle_events: vec![],
             planner: None,
             planning_state: super::planning_state::PlanningState::default(),
             planning_log: vec![],
@@ -1082,6 +1099,7 @@ mod tests {
                 changed_executable_surfaces: false,
                 distinct_oracle: false,
             }],
+            key: None,
             review_override: Some(ReviewOverride {
                 owner: "andrey".into(),
                 reason: "P0 hotfix".into(),

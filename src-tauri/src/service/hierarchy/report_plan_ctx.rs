@@ -68,9 +68,7 @@ fn tab_holds_task(plan_store: &PlanStore, tab_id: &str, plan_id: &str, task_id: 
     let Some(plan) = plan_store.get(plan_id) else {
         return false;
     };
-    plan.tasks
-        .iter()
-        .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+    crate::plan::task_key::find_task(&plan.tasks, task_id)
         .is_some_and(|task| tab_holds(task, tab_id))
 }
 

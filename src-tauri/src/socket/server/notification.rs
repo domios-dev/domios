@@ -5,6 +5,30 @@ use serde_json::Value;
 
 use super::{get_string_param, JsonRpcError};
 
+fn string_at(params: &Option<Value>, key: &str) -> Option<String> {
+    params
+        .as_ref()
+        .and_then(|p| p.get(key))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Every id here is a caller-supplied hint: the asking tab is resolved against live
+/// tabs, and the jump target is navigation only, so it never becomes provenance.
+pub(super) fn origin_from_params(
+    params: &Option<Value>,
+) -> crate::service::notification::NotificationOrigin {
+    crate::service::notification::NotificationOrigin {
+        caller_tab_id: string_at(params, "caller_tab_id"),
+        claimed_tab_id: string_at(params, "tab_id"),
+        peer_name: None,
+        target: crate::notification::deep_link::NotificationTarget::from_hints(
+            string_at(params, "target_tab_id").as_deref(),
+            string_at(params, "chat_message_id").as_deref(),
+        ),
+    }
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -23,20 +47,8 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("severity"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("info");
-            let string_param = |key: &str| {
-                params
-                    .as_ref()
-                    .and_then(|p| p.get(key))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            };
-            // Both ids are caller-supplied hints; the daemon resolves them and
-            // drops whatever does not name a live tab. `workspace_id` is derived.
-            let origin = crate::service::notification::NotificationOrigin {
-                caller_tab_id: string_param("caller_tab_id"),
-                claimed_tab_id: string_param("tab_id"),
-                peer_name: None,
-            };
+            let string_param = |key: &str| string_at(params, key);
+            let origin = origin_from_params(params);
             // The CLI reaches the daemon here, so `--choice` is parsed on this
             // path too, into the caller-facing set that has no invoke variant.
             let actions = match params.as_ref().and_then(|p| p.get("actions")) {
@@ -132,3 +144,6 @@ pub(super) fn dispatch(
         }),
     }
 }
+
+#[cfg(test)]
+mod tests;

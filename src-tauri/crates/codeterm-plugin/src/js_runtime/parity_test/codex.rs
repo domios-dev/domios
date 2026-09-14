@@ -351,7 +351,14 @@ fn session_fs_capabilities_over_current_stores() {
     }
     let dir = tempfile::tempdir().unwrap();
     let index = dir.path().join("session_index.jsonl");
-    let history = dir.path().join("thread_history_1.sqlite");
+    let state_db = dir.path().join("state_1.sqlite");
+    // detectSessionId requires the project directory to exist on disk.
+    let work_proj = dir.path().join("work-proj");
+    let other_proj = dir.path().join("other-proj");
+    std::fs::create_dir_all(&work_proj).unwrap();
+    std::fs::create_dir_all(&other_proj).unwrap();
+    let work_proj = work_proj.to_str().unwrap().to_string();
+    let other_proj = other_proj.to_str().unwrap().to_string();
     std::fs::write(
         &index,
         format!(
@@ -374,61 +381,42 @@ fn session_fs_capabilities_over_current_stores() {
         ),
     )
     .unwrap();
-    let db = rusqlite::Connection::open(&history).unwrap();
+    // The plugin reads session cwd and model from the Codex state database's threads table.
+    let db = rusqlite::Connection::open(&state_db).unwrap();
     db.execute_batch(
-        "CREATE TABLE thread_items (
-            thread_id TEXT, item_type TEXT, item_json TEXT,
-            rollout_ordinal INTEGER, created_at_ms INTEGER
-        );",
+        "CREATE TABLE threads (id TEXT PRIMARY KEY, model TEXT, rollout_path TEXT, cwd TEXT);",
     )
     .unwrap();
     db.execute(
-        "INSERT INTO thread_items VALUES (?1, 'thread_meta', ?2, 0, 0)",
-        rusqlite::params![
-            CODEX_UUID,
-            r#"{"type":"thread_meta","payload":{"cwd":"/work/proj"}}"#
-        ],
+        "INSERT INTO threads (id, model, rollout_path, cwd) VALUES (?1, 'gpt-5.6-sol', NULL, ?2)",
+        rusqlite::params![CODEX_UUID, work_proj],
     )
     .unwrap();
     db.execute(
-        "INSERT INTO thread_items VALUES (?1, 'turn_context', ?2, 1, 1)",
-        rusqlite::params![
-            CODEX_UUID,
-            r#"{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}"#
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO thread_items VALUES (?1, 'thread_meta', ?2, 0, 0)",
-        rusqlite::params![
-            "22222222-2222-2222-2222-222222222222",
-            r#"{"type":"thread_meta","payload":{"cwd":"/other/proj"}}"#
-        ],
+        "INSERT INTO threads (id, model, rollout_path, cwd) VALUES (?1, NULL, NULL, ?2)",
+        rusqlite::params!["22222222-2222-2222-2222-222222222222", other_proj],
     )
     .unwrap();
 
     let _env = EnvGuard::new(&[
         ("CODETERM_CODEX_SESSION_INDEX_PATH", index.to_str().unwrap()),
-        (
-            "CODETERM_CODEX_THREAD_HISTORY_PATH",
-            history.to_str().unwrap(),
-        ),
+        ("CODETERM_CODEX_STATE_DB_PATH", state_db.to_str().unwrap()),
     ]);
     let j = codex();
 
     assert_eq!(
         j.detect_session_id(
-            "/work/proj",
+            &work_proj,
             &[],
             Some(std::time::Duration::from_secs(365 * 24 * 60 * 60)),
         )
         .as_deref(),
         Some(CODEX_UUID)
     );
-    assert_eq!(j.detect_session_id("/other/proj", &[], None), None);
+    assert_eq!(j.detect_session_id(&other_proj, &[], None), None);
 
-    assert_eq!(j.session_file_path("/work/proj", CODEX_UUID), None);
-    assert_eq!(j.session_jsonl_path("/work/proj", CODEX_UUID), None);
+    assert_eq!(j.session_file_path(&work_proj, CODEX_UUID), None);
+    assert_eq!(j.session_jsonl_path(&work_proj, CODEX_UUID), None);
 
     let sessions = j.enumerate_sessions();
     assert_eq!(sessions.len(), 2, "{sessions:#?}");
@@ -438,11 +426,11 @@ fn session_fs_capabilities_over_current_stores() {
         .expect("folded project session must be enumerated");
     assert_eq!(s.session_id, CODEX_UUID);
     assert_eq!(s.provider, "codex");
-    assert_eq!(s.project_path.as_deref(), Some("/work/proj"));
+    assert_eq!(s.project_path.as_deref(), Some(work_proj.as_str()));
     assert_eq!(s.file_path, index.to_string_lossy());
 
     let model = j
-        .detect_session_model("/work/proj", CODEX_UUID)
+        .detect_session_model(&work_proj, CODEX_UUID)
         .expect("detectSessionModel must resolve a model");
     assert_eq!(model, "gpt-5.6-sol");
 }
@@ -453,4 +441,62 @@ fn codex_stays_on_native_prompt_detector() {
         return;
     }
     assert!(!codex().supports_structured_prompts());
+}
+
+#[test]
+fn parse_session_delta_normalizes_reasoning_and_agent_activity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let jsonl = concat!(
+        r#"{"type":"event_msg","timestamp":"2026-05-01T10:00:00Z","payload":{"type":"item_completed","turn_id":"turn-r","item":{"type":"Reasoning","id":"rs-a","summary_text":["**Inspect sources**","",7],"raw_content":["opaque-raw"]}}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"reasoning","id":"rs-a","summary":[{"type":"summary_text","text":"**Inspect sources**"}],"encrypted_content":"opaque-encrypted"}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"reasoning","id":"rs-empty","summary":[],"encrypted_content":"opaque-encrypted"}}"#,
+        "\n",
+        r#"{"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-r","item":{"type":"SubAgentActivity","id":"call-a","kind":"started","agent_thread_id":"thread-w","agent_path":"/root/worker"}}}"#,
+        "\n",
+        r#"{"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-r","item":{"type":"CollabAgentToolCall","id":"call-wait","tool":"wait","status":"completed","sender_thread_id":"thread-root","receiver_thread_ids":[],"receiver_agents":[],"agents_states":{}}}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"agent_message","id":"amsg-1","author":"/root","recipient":"/root/worker","content":[{"type":"encrypted_content","encrypted_content":"opaque-message"}],"internal_chat_message_metadata_passthrough":{"turn_id":"turn-r"}}}"#,
+        "\n",
+        r#"{"type":"response_item","payload":{"type":"agent_message","id":"amsg-2","author":"/root","recipient":"/root"}}"#,
+        "\n",
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), jsonl).unwrap();
+
+    let delta = codex().parse_session_delta(tmp.path(), 0);
+    let blocks: Vec<_> = delta
+        .messages
+        .iter()
+        .flat_map(|m| m.blocks.iter())
+        .collect();
+    let kinds: Vec<&str> = blocks.iter().map(|b| b.kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        vec!["thinking", "tool_use", "tool_use"],
+        "{:#?}",
+        delta.messages
+    );
+    assert_eq!(
+        blocks[0].data,
+        serde_json::json!({ "text": "**Inspect sources**" })
+    );
+    assert_eq!(blocks[1].data["tool_kind"], "agent");
+    assert_eq!(
+        blocks[1].data["input"],
+        serde_json::json!({ "agent_id": "thread-w", "agent_path": "/root/worker", "agent_state": "started" })
+    );
+    assert_eq!(blocks[1].data["tool_flow_id"], "turn-r");
+    assert_eq!(blocks[2].data["tool_kind"], "agent");
+    assert_eq!(
+        blocks[2].data["input"],
+        serde_json::json!({ "message_from": "/root", "message_to": "/root/worker" })
+    );
+    assert!(
+        !format!("{:?}", delta.messages).contains("opaque"),
+        "encrypted, raw, and message content never crosses"
+    );
 }

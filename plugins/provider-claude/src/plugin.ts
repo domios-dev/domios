@@ -10,14 +10,18 @@ import {
 } from "./usage";
 import {
   ClaudeEntry,
+  aiTitleFromEntry,
+  ClaudeToolUseResult,
   claudeSessionFilePath,
   contentToText,
+  editedTextFilePath,
   extractSetModelFamily,
   familyFromModelId,
   isValidClaudeSessionMessage,
   validateEntry,
 } from "./session";
 import { discoverAnthropicModels } from "./models";
+import { claudeFileDiffs } from "./fileDiffs";
 import {
   classifyClaudeTabState,
   TabStateSnapshot,
@@ -475,8 +479,15 @@ const plugin: PluginModule = {
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex: number) => {
+      for (; stamped < out.length; stamped++) {
+        (out[stamped] as { recordIndex?: number }).recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       const line = lines[i];
       if (!line) continue;
       let v: ClaudeEntry;
@@ -495,9 +506,45 @@ const plugin: PluginModule = {
         continue;
       }
       const t = v && v.type;
+      let ts: number | null = null;
+      if (typeof v.timestamp === "string") {
+        const d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      }
+      const timestamp = (typeof v.timestamp === "string") ? v.timestamp : null;
+
+      if (t === "ai-title") {
+        const title = aiTitleFromEntry(v);
+        if (!title) continue;
+        out.push({
+          role: "custom",
+          blocks: [],
+          ts,
+          uuid: (typeof v.uuid === "string") ? v.uuid : null,
+          sessionIntent: { title },
+          timestamp,
+        });
+        continue;
+      }
+
+      if (t === "edited_text_file" || (t === "attachment" && v.attachment?.type === "edited_text_file")) {
+        const path = editedTextFilePath(v);
+        if (!path) continue;
+        out.push({
+          role: "system",
+          blocks: [],
+          ts,
+          uuid: (typeof v.uuid === "string") ? v.uuid : null,
+          timelineMarker: { kind: "external_edit", path },
+          timestamp,
+        });
+        continue;
+      }
+
       const blocks: Array<{ kind: string; data: Record<string, unknown> }> = [];
       let role: string;
       let sourceSubtype: string | null = (typeof v.subtype === "string") ? v.subtype : null;
+      let timelineMarker: Record<string, unknown> | undefined;
       if (t === "system") {
         // System rows carry top-level `content` + `subtype`; the host turns them into system/local_command cards.
         role = "system";
@@ -525,6 +572,7 @@ const plugin: PluginModule = {
           } else if (t === "user" && isCompactSummaryRow(v, content)) {
             role = "system";
             sourceSubtype = "compact_summary";
+            timelineMarker = { kind: "context_compaction" };
             blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
           } else if (content) {
             blocks.push({ kind: "text", data: { text: content } });
@@ -548,8 +596,30 @@ const plugin: PluginModule = {
               data.tool_summary = canonical.summary;
               data.tool_detail = canonical.detail;
               data.tool_edits = canonical.edits;
+              const description = toolDescription(data.input);
+              if (description) data.tool_description = description;
+              // Parallel calls from one API response share this id; it is the only proven link.
+              if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+              const sourceId = exactSourceIdentity(v.uuid);
+              if (sourceId) data.tool_call_source_id = sourceId;
+            } else if (b.type === "thinking") {
+              // The signature is opaque verification material, never display text.
+              delete data.signature;
+            }
+            if (b.type === "tool_result") {
+              const outcome = commandOutcome(v.toolUseResult);
+              if (outcome) Object.assign(data, outcome);
+              const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
+              data.tool_pairing = sourceId ? "exact" : "unavailable";
+              if (sourceId) data.tool_call_source_id = sourceId;
             }
             blocks.push({ kind: b.type, data: data });
+          }
+          const results = blocks.filter((block) => block.kind === "tool_result");
+          // toolUseResult describes the row's single result; several results leave the link unproven.
+          if (t === "user" && results.length === 1) {
+            const diffs = claudeFileDiffs(v.toolUseResult);
+            if (diffs.length > 0) results[0].data.file_diffs = diffs;
           }
         } else {
           continue;
@@ -569,16 +639,15 @@ const plugin: PluginModule = {
           blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
         } else {
           role = "user";
+          timelineMarker = { kind: "queued" };
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
         continue;
       }
       if (!blocks.length) continue;
-      let ts: number | null = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      if (t === "system" && sourceSubtype === "compact_boundary") {
+        timelineMarker = { kind: "context_compaction" };
       }
       out.push({
         role: role,
@@ -591,9 +660,11 @@ const plugin: PluginModule = {
         level: (typeof v.level === "string") ? v.level : null,
         isCompactSummary: v.isCompactSummary === true ? true : null,
         isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
-        timestamp: (typeof v.timestamp === "string") ? v.timestamp : null,
+        timelineMarker,
+        timestamp,
       });
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
 
@@ -701,9 +772,18 @@ const plugin: PluginModule = {
     const s = present("Stop");
     const pc = present("PreCompact");
     const ss = sessionStartCurrent();
+    const installed = n && pr && s && ss;
+    // False means the machine still runs pre-marker hooks the consented
+    // reconciliation migrates once; it never means the hooks are broken.
+    let marked = true;
+    for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
+      const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
+      if (Array.isArray(arr) && !entriesCarryMarker(arr)) { marked = false; break; }
+    }
     return {
       settings_exists: true,
-      hooks_installed: n && pr && s && ss,
+      hooks_installed: installed,
+      hook_contract_current: installed && marked,
       notification_hook: n,
       permission_request_hook: pr,
       stop_hook: s,
@@ -751,7 +831,7 @@ const plugin: PluginModule = {
     if (!json.hooks) json.hooks = {};
 
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
+    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN" ' + CODETERM_HOOK_MARKER_ARG;
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const finish = " || true; fi";
 
@@ -933,6 +1013,12 @@ function canonicalToolFields(name: string, input: unknown): CanonicalToolFields 
   };
 }
 
+function toolDescription(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const value = (input as Record<string, unknown>).description;
+  return typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").trim() : "";
+}
+
 function extractCanonicalEdits(input: Record<string, unknown>): Array<{ path: string; old: string; new: string }> {
   const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
   const pair = (value: unknown, fallbackPath: string): { path: string; old: string; new: string } | null => {
@@ -953,6 +1039,31 @@ function cleanToolText(value: string, fallback: string): string {
   const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
   if (!text) return fallback;
   return text.length > 120 ? text.slice(0, 117) + "..." : text;
+}
+
+function exactSourceIdentity(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value || value.trim() !== value) return undefined;
+  return value;
+}
+
+function exactOutcomeNumber(value: unknown, nonnegative: boolean): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return undefined;
+  if (nonnegative && value < 0) return undefined;
+  return value;
+}
+
+function commandOutcome(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result = value as ClaudeToolUseResult;
+  const outcome: Record<string, unknown> = {};
+  const exitCode = exactOutcomeNumber(result.returnCode, false);
+  const durationMs = exactOutcomeNumber(result.durationMs, true);
+  if (exitCode !== undefined) outcome.tool_exit_code = exitCode;
+  if (durationMs !== undefined) outcome.tool_duration_ms = durationMs;
+  if (typeof result.interrupted === "boolean") outcome.tool_interrupted = result.interrupted;
+  const backgroundTaskId = exactSourceIdentity(result.backgroundTaskId);
+  if (backgroundTaskId) outcome.tool_background_task_id = backgroundTaskId;
+  return Object.keys(outcome).length > 0 ? outcome : undefined;
 }
 
 // Task-file helpers: write to host temp files with provider-specific suffixes.
@@ -978,7 +1089,44 @@ interface HookEntry { matcher?: string; hooks?: HookCmd[] }
 interface ClaudeSettings { hooks?: Record<string, HookEntry[]> }
 
 const CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+// Claude's serializer drops `_source`, so ownership lives inside the command.
+// Inert, instance-agnostic, and free of any host, port or credential.
+const CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+const CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 const INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+
+// Exact route literals the current generator emits; the unmarked-form
+// fingerprint below accepts nothing outside this list.
+const CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush",
+];
+
+function commandCarriesMarker(cmd: string): boolean {
+  return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+
+// Migration compatibility only: the current command as it exists on machines
+// installed before the marker. Never a bare route or port shape.
+function commandIsCurrentUnmarked(cmd: string): boolean {
+  if (cmd.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (cmd.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (cmd.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  for (let i = 0; i < CODETERM_CURRENT_ROUTES.length; i++) {
+    if (cmd.indexOf(CODETERM_CURRENT_ROUTES[i]) !== -1) return true;
+  }
+  return false;
+}
+
+// Migration compatibility only: the pane-era v2 command, whose `_source` a
+// later settings rewrite may already have removed.
+function commandIsLegacyV2(cmd: string): boolean {
+  if (cmd.indexOf("$CODETERM_PANE_ID") === -1) return false;
+  return cmd.indexOf("/api/panes/$CODETERM_PANE_ID/hook/") !== -1
+    || cmd.indexOf("/api/mem/flush") !== -1;
+}
 
 function isCodetermHook(entry: HookEntry): boolean {
   const hooks = entry && entry.hooks;
@@ -991,19 +1139,29 @@ function isCodetermHook(entry: HookEntry): boolean {
       return true;
     }
     const cmd = h.command;
-    if (typeof cmd === "string") {
-      const codetermOrigin = cmd.indexOf("7685") !== -1
-        || cmd.indexOf("7686") !== -1;
-      const hookRoute = cmd.indexOf("/api/notifications") !== -1
-        || cmd.indexOf("/api/tabs/") !== -1
-        || cmd.indexOf("/hook/permission") !== -1
-        || cmd.indexOf("/hook/stop") !== -1
-        || cmd.indexOf("/hook/session_start") !== -1
-        || cmd.indexOf("/api/mem/flush") !== -1;
-      if (codetermOrigin && hookRoute) return true;
+    if (typeof cmd === "string"
+        && (commandCarriesMarker(cmd) || commandIsCurrentUnmarked(cmd) || commandIsLegacyV2(cmd))) {
+      return true;
     }
   }
   return false;
+}
+
+// Every owned entry in this event carries the durable marker. An event with no
+// owned entry is vacuously current — absence is the install path's problem.
+function entriesCarryMarker(entries: HookEntry[]): boolean {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!isCodetermHook(entry)) continue;
+    const hooks = (entry && entry.hooks) || [];
+    let marked = false;
+    for (let j = 0; j < hooks.length; j++) {
+      const cmd = hooks[j] && hooks[j].command;
+      if (typeof cmd === "string" && commandCarriesMarker(cmd)) { marked = true; break; }
+    }
+    if (!marked) return false;
+  }
+  return true;
 }
 
 export default plugin;

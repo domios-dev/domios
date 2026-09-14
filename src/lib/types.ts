@@ -136,6 +136,8 @@ export type BootStage =
   | "delivering_instructions"
   | "agent_ready"
   | "pty_reattached"
+  | "launch_deadline_elapsed"
+  | "launch_binding_unconfirmed"
   | "spawn_failed";
 
 /** Payload of the `tab-boot-stage` event. */
@@ -330,6 +332,10 @@ export interface Notification {
   key?: string;
   tab_id: string | null;
   workspace_id: string | null;
+  /** Navigation hint: the tab whose chat holds the message this is about. */
+  target_tab_id?: string | null;
+  /** The exact `data-message-id` inside `target_tab_id`; never matched by text. */
+  chat_message_id?: string | null;
   title: string;
   body: string | null;
   icon_svg?: string | null;
@@ -390,6 +396,19 @@ export type GraphWorkerStatus =
   | "timed_out"
   | "orphaned";
 
+export type ExecutionEnd =
+  | { kind: "reported" }
+  | { kind: "process_ended"; detail: string }
+  | { kind: "timed_out"; detail: string }
+  | { kind: "cancelled" }
+  | { kind: "orphaned" };
+
+export type DiaryFinalization =
+  | { state: "pending" }
+  | { state: "succeeded"; diary_id: string }
+  | { state: "partial"; diary_id?: string | null; reason: string }
+  | { state: "failed"; diary_id?: string | null; reason: string };
+
 export interface GraphWorkerInfo {
   worker_id: string;
   tab_id: string | null;
@@ -407,6 +426,9 @@ export interface GraphWorkerInfo {
   model?: string | null;
   session_id?: string | null;
   cwd?: string | null;
+  execution_end?: ExecutionEnd | null;
+  diary_id?: string | null;
+  finalization?: DiaryFinalization | null;
 }
 
 export interface PluginActivity {
@@ -453,6 +475,8 @@ export interface CronJob {
   agent: string;
   /** Model id within the agent provider (e.g. "opus", "gpt-5.4-mini"). `null` = provider default. */
   model: string | null;
+  /** Reasoning-effort id advertised by the agent provider. `null` = provider default. */
+  reasoning_effort: string | null;
   task: string;
   cwd: string | null;
   role: string | null;

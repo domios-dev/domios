@@ -158,7 +158,7 @@ fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
 
 /// Adapter that turns a JSONL [`DeltaSink`] (RichMessage) into the structured
 /// `tab-chat-msg-{id}` stream: it flattens each RichMessage via
-/// `rich_to_chat_msgs` and emits `ChatMsg`s — the SAME shape the snapshot and
+/// `rich_to_chat_msgs_live` and emits `ChatMsg`s — the SAME shape the snapshot and
 /// the DB-backed providers use. This is what lets JSONL providers (claude,
 /// codex) and sqlite providers (opencode) share one client rendering path.
 pub struct FlattenDeltaSink {
@@ -167,9 +167,8 @@ pub struct FlattenDeltaSink {
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
     send_ledger: Option<Arc<crate::service::chat_send_transaction::ChatSendLedger>>,
-    /// Monotonic id base for providers whose rows carry no uuid; uuid-bearing
-    /// rows ignore it. Seeded past the snapshot's message count so stream ids
-    /// never collide with snapshot ids.
+    /// Monotonic stream `seq`, seeded past the snapshot's message count. Ids come
+    /// from each row's uuid or record anchor; only an unanchored row uses it.
     base: std::sync::atomic::AtomicUsize,
 }
 
@@ -185,7 +184,7 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         let mut out: Vec<ChatMsg> = Vec::new();
         for r in &messages {
             let base = self.base.fetch_add(1, Ordering::Relaxed);
-            out.extend(super::rich_to_chat_msgs(r, base));
+            out.extend(super::rich_to_chat_msgs_live(r, base));
         }
         if out.is_empty() {
             return;

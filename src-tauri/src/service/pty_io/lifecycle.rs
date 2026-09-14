@@ -436,7 +436,12 @@ impl ServiceContext {
                 self.resolve_pending_delivery(tab_id)
                     .map_err(|error| error.to_string())
             },
-            |stage, error| self.emit_boot_stage(tab_id, stage, Some(error)),
+            |stage, error| {
+                // Reached only with a dead PTY, so a nonce echoed by the
+                // snapshot's agent proves nothing about this tab now.
+                self.void_launch_session_proof(tab_id);
+                self.emit_boot_stage(tab_id, stage, Some(error));
+            },
             |launch, restored_task| {
                 let input = restored_snapshot_launch_input(
                     &self.agent_registry,
@@ -495,6 +500,8 @@ impl ServiceContext {
     /// the shell survived it. That is a process exit, not a heuristic and not an
     /// elapsed-time guess, so it takes the same teardown a PTY death takes —
     /// which is also what arms the existing guarded-input refusal.
+    /// Identity teardown only, and deliberately blind to a booting tab. Launch
+    /// readiness is settled by the caller before this, never behind this gate.
     pub(crate) fn note_provider_exit_in_surviving_shell(&self, tab_id: &str) -> bool {
         let observed = {
             let mut mux = self.mux.write();

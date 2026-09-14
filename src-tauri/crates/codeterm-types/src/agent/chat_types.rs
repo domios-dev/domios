@@ -58,6 +58,23 @@ pub struct MessageBlock {
     pub data: serde_json::Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ChatTimelineMarker {
+    Queued,
+    ExternalEdit { path: String },
+    ContextCompaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSessionIntent {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub goal: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RichMessage {
     /// Free-form role string. Common values: "user", "assistant",
@@ -96,6 +113,20 @@ pub struct RichMessage {
         default
     )]
     pub source_subtype: Option<String>,
+    #[serde(
+        rename = "timelineMarker",
+        alias = "timeline_marker",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub timeline_marker: Option<ChatTimelineMarker>,
+    #[serde(
+        rename = "sessionIntent",
+        alias = "session_intent",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub session_intent: Option<ChatSessionIntent>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<String>,
     #[serde(
@@ -119,6 +150,13 @@ pub struct RichMessage {
     /// by the enrich pipeline, not by JSONL parsing.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub interactive: Vec<InteractiveElement>,
+    /// Absolute start byte of the session record this row was parsed from.
+    /// Host-assigned from the reader's byte range; never on the wire.
+    #[serde(skip)]
+    pub record_start: Option<u64>,
+    /// Position among the uuid-less rows of the same record.
+    #[serde(skip)]
+    pub record_row: u32,
 }
 
 /// Result of a single delta read on a session JSONL. `new_offset` is the
@@ -176,6 +214,39 @@ pub struct ChatMsg {
     pub tool_detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_edits: Option<serde_json::Value>,
+    /// Human description supplied by the tool call source; never inferred.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_description: Option<String>,
+    /// Short action title derived only from the call's own data.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_title: Option<String>,
+    /// Flow identity the source proves; `tool_flow` rows open or close it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_flow_id: Option<String>,
+    /// Set when the action re-reports a command another call in its flow represents.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_echo: Option<bool>,
+    /// Exact source row identity for a call/result link, when proven by the source.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_call_source_id: Option<String>,
+    /// Result-link evidence state; unavailable evidence must not use positional pairing.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_pairing: Option<String>,
+    /// Source-provided command outcome facts. Missing facts stay absent.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_exit_code: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_interrupted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_background_task_id: Option<String>,
+    /// Per-file diffs with the exact hunks the provider's own edit record supplied.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub file_diffs: Option<serde_json::Value>,
+    /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_rich_result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).
@@ -201,6 +272,20 @@ pub struct ChatMsg {
     /// System-message provenance (skill_context, <cmd>_meta, meta, …).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub system_subtype: Option<String>,
+    #[serde(
+        rename = "timelineMarker",
+        alias = "timeline_marker",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub timeline_marker: Option<ChatTimelineMarker>,
+    #[serde(
+        rename = "sessionIntent",
+        alias = "session_intent",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub session_intent: Option<ChatSessionIntent>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 pub const OPEN: &str = "-=-codeterm:";
+const NEWLINE_CHAR: char = '\n';
 pub const CLOSE: &str = "-=-";
 const BRACKETED_PASTE_START: &str = "\x1b[200~";
 const BRACKETED_PASTE_END: &str = "\x1b[201~";
@@ -101,6 +102,11 @@ impl Marker {
             head.push_str(v);
         }
         head.push_str(CLOSE);
+        // The body reads as its own paragraph after the routing header; `parse`
+        // strips this newline, so the payload a receiver sees is unchanged.
+        if !self.payload.is_empty() {
+            head.push(NEWLINE_CHAR);
+        }
         head.push_str(&self.payload);
         head
     }
@@ -167,7 +173,14 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
     let rest = normalized.strip_prefix(OPEN)?;
     let close = rest.find(CLOSE)?;
     let head = &rest[..close];
-    let payload = &rest[close + CLOSE.len()..];
+    let body = &rest[close + CLOSE.len()..];
+    // The separator the builder adds. A PTY rewrites it to CR in transit, so
+    // accept either form and hand the receiver the payload it was sent.
+    let payload = body
+        .strip_prefix("\r\n")
+        .or_else(|| body.strip_prefix(NEWLINE_CHAR))
+        .or_else(|| body.strip_prefix('\r'))
+        .unwrap_or(body);
 
     let mut tokens = head.split(' ');
     let kind = tokens.next()?.to_string();

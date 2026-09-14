@@ -776,3 +776,70 @@ mod notification_level_field {
         assert_eq!(store.level(superseded.id()), Some(NotifyLevel::Failure));
     }
 }
+
+mod notification_deep_link {
+    use super::super::*;
+
+    #[test]
+    fn notification_deep_link_target_persists_and_serializes() {
+        let mut store = NotificationStore::new(10);
+        let id = store.add(
+            "Approve?".into(),
+            None,
+            NotificationSeverity::Info,
+            None,
+            None,
+        );
+        assert!(store.set_target(
+            &id,
+            NotificationTarget::from_hints(Some("tab-target"), Some("needs-you-message-1")),
+        ));
+
+        let record = store.notification(&id).expect("record stays in the store");
+        assert_eq!(record.target_tab_id.as_deref(), Some("tab-target"));
+        assert_eq!(
+            record.chat_message_id.as_deref(),
+            Some("needs-you-message-1")
+        );
+        let listed = serde_json::to_value(store.list(false)).unwrap();
+        assert_eq!(listed[0]["target_tab_id"], "tab-target");
+        assert_eq!(listed[0]["chat_message_id"], "needs-you-message-1");
+    }
+
+    #[test]
+    fn notification_deep_link_old_record_serializes_without_target_keys() {
+        let mut store = NotificationStore::new(10);
+        let id = store.add(
+            "Legacy".into(),
+            None,
+            NotificationSeverity::Info,
+            None,
+            None,
+        );
+        let record = serde_json::to_value(store.notification(&id).unwrap()).unwrap();
+        assert!(record.get("target_tab_id").is_none());
+        assert!(record.get("chat_message_id").is_none());
+        assert_eq!(record["title"], "Legacy", "the old shape stays readable");
+    }
+
+    #[test]
+    fn notification_deep_link_set_target_refuses_a_missing_record() {
+        let mut store = NotificationStore::new(10);
+        assert!(!store.set_target(
+            "never-stored",
+            NotificationTarget::from_hints(Some("tab-target"), Some("m-1")),
+        ));
+    }
+
+    #[test]
+    fn notification_deep_link_hints_drop_blank_and_orphan_ids() {
+        assert_eq!(
+            NotificationTarget::from_hints(Some("  "), Some("m-1")),
+            NotificationTarget::default(),
+            "a message id without its tab names nothing"
+        );
+        let trimmed = NotificationTarget::from_hints(Some(" tab-target "), Some(" "));
+        assert_eq!(trimmed.tab_id.as_deref(), Some("tab-target"));
+        assert_eq!(trimmed.chat_message_id, None);
+    }
+}

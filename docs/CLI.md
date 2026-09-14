@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 57 -->
+<!-- revision: 61 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -309,6 +309,7 @@ Create a cron job
 - `<name>` — Cron job name
 - `--no-team` — Keep this job outside the calling tab's Team
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
+- `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Leave unset to use the provider default
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
 - `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
 - `--tab` — Tab ID to receive reports. Omit to keep runs private to the cron
@@ -341,6 +342,7 @@ Edit a cron job
 - `--jitter-max-ms` — Max jitter in milliseconds added to each scheduled fire. Set 0 to disable jitter. Omit to leave unchanged
 - `--model` — Model within the agent provider. Pass empty string to clear
 - `--name`
+- `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Pass empty string to clear
 - `--schedule`
 - `--skill` — Mem skill slug to resolve and inject into the task brief at fire time. Pass an empty string to clear
 - `--task`
@@ -1096,8 +1098,11 @@ Report progress (called by worker itself; uses $CODETERM_WORKER_ID)
 
 #### `codeterm mem worker report`
 
-Submit final report and mark done (uses $CODETERM_WORKER_ID)
+Submit final report: execution ended (uses $CODETERM_WORKER_ID)
 
+- `--diary` — Mem id of the artifact this run produced, e.g. its dream diary id
+- `--finalization` — Diary finalization outcome: succeeded | partial | failed
+- `--reason` — Concrete reason for a partial or failed finalization
 - `<summary>`
 
 #### `codeterm mem worker spawn`
@@ -1211,6 +1216,7 @@ List notifications
 Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it
 
 - `<body>` — REFUSED: an inline body is mangled by the shell — stage it in the pad
+- `--chat-message` — The exact chat message id inside --target-tab this notification jumps to
 - `--choice` — Offer one tappable choice; repeat for each. Labels only — a notification takes a chosen label back, never typed text
 - `--event-key` — Stable identity for coalescing. Derived from the title when omitted
 - `--from-file` — REFUSED: a file outside the pad has no provenance — stage it in the pad
@@ -1220,6 +1226,7 @@ Send a notification. The body is read only from the calling tab's AgentPad. Repo
 - `--offer` — Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder
 - `--offer-accept` — Which of this notification's own choices accepts the offer
 - `--severity` — Record identity axis: info, warning, error. Tone comes from --level
+- `--target-tab` — The tab whose chat holds the message this notification is about
 - `<title>` — Notification title
 
 #### `codeterm orchestrator`
@@ -1628,6 +1635,14 @@ Set the declared milestone kind columns (CSV)
 
 - `--kinds`
 - `<plan_id>`
+
+#### `codeterm plan lane-remove`
+
+Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
+
+- `--branch` — Lane branch to delete after the worktree is gone
+- `--project` — Canonical checkout that owns the lane (default: derived from the lane itself)
+- `<worktree>` — Lane worktree path to remove
 
 #### `codeterm plan lanes`
 
@@ -2153,7 +2168,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--correctness-file`
 - `--criterion`
 - `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
-- `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
+- `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle (see --handle), or a task key (COD-12)
 - `--destination`
 - `--execution-intent` — Classifies whether this task changes the repository; dispatch uses read_only | mutating instead
 - `--executor-role` — REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced
@@ -2344,7 +2359,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--correctness-file`
 - `--criterion` — Add an acceptance criterion; repeatable. Appends to the existing array by default — pass --replace-criteria to replace it wholesale instead
 - `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion, subject to the same --replace-criteria semantics
-- `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement
+- `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle, or a task key (COD-12). Use --replace-dependencies for wholesale replacement
 - `--destination`
 - `--executor-role` — Replace the executor role. Cannot be emptied: an update carrying a blank value is refused
 - `--external-ref` — GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number

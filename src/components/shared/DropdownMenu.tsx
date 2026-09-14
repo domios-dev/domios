@@ -4,6 +4,9 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { clampFloatingPosition } from "./floatingPosition";
 
 const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
+const MENU_ITEM_SELECTOR = '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled)';
+const MENU_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
+const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 
 export interface DropdownMenuItem {
   label: string;
@@ -33,6 +36,7 @@ interface DropdownMenuProps {
   header?: ReactNode;
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   menuLabel?: string;
+  menuTestId?: string;
 }
 
 /**
@@ -47,8 +51,10 @@ export function DropdownMenu({
   header,
   contextMenuTargetRef,
   menuLabel = "Actions",
+  menuTestId,
 }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
+  const focusOnOpenRef = useRef(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [activeSubmenu, setActiveSubmenu] = useState<DropdownMenuItem["submenu"]>(undefined);
@@ -77,7 +83,7 @@ export function DropdownMenu({
     document.dispatchEvent(new window.CustomEvent(DROPDOWN_OPEN_EVENT, { detail: ownerRef.current }));
   }, []);
 
-  const toggle = useCallback((e: React.MouseEvent | React.PointerEvent | React.KeyboardEvent) => {
+  const toggle = useCallback((e: React.MouseEvent | React.PointerEvent | React.KeyboardEvent, focusFirstItem = false) => {
     e.stopPropagation();
     e.preventDefault();
     if (open) {
@@ -86,12 +92,39 @@ export function DropdownMenu({
     }
     announceOpen();
     openSourceRef.current = "trigger";
+    focusOnOpenRef.current = focusFirstItem;
     setActiveSubmenu(undefined);
     setPos(calcPos());
     setOpen(true);
   }, [announceOpen, calcPos, open]);
 
   const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+
+  const closeMenu = useCallback((restoreFocus: boolean) => {
+    setOpen(false);
+    setActiveSubmenu(undefined);
+    if (restoreFocus) triggerRef.current?.querySelector<HTMLElement>(TRIGGER_FOCUSABLE)?.focus();
+  }, []);
+
+  const moveFocus = useCallback((key: string) => {
+    const menuItems = Array.from(menuRef.current?.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR) ?? []);
+    if (menuItems.length === 0) return;
+    const current = menuItems.indexOf(document.activeElement as HTMLElement);
+    const next = key === "Home"
+      ? 0
+      : key === "End"
+        ? menuItems.length - 1
+        : key === "ArrowDown"
+          ? (current + 1) % menuItems.length
+          : (current <= 0 ? menuItems.length : current) - 1;
+    menuItems[next]?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!open || !pos || !focusOnOpenRef.current) return;
+    focusOnOpenRef.current = false;
+    moveFocus("Home");
+  }, [moveFocus, open, pos]);
 
   useEffect(() => {
     if (!open) return;
@@ -133,6 +166,7 @@ export function DropdownMenu({
       event.stopPropagation();
       announceOpen();
       openSourceRef.current = "context";
+      focusOnOpenRef.current = false;
       contextPointRef.current = { x: event.clientX, y: event.clientY };
       setActiveSubmenu(undefined);
       setPos(contextPos(event.clientX, event.clientY));
@@ -152,11 +186,14 @@ export function DropdownMenu({
         setActiveSubmenu(undefined);
         return;
       }
-      setOpen(false);
+      const active = document.activeElement;
+      // A pointer open leaves focus where it was; when that is nowhere, Escape lands on the trigger rather than body.
+      const focusLost = !active || active === document.body;
+      closeMenu(focusLost || Boolean(menuRef.current?.contains(active) || triggerRef.current?.contains(active)));
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [activeSubmenu, open]);
+  }, [activeSubmenu, closeMenu, open]);
 
   return (
     <>
@@ -166,7 +203,15 @@ export function DropdownMenu({
         onPointerUp={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(event) => {
-          if ((event.key === "Enter" || event.key === " ") && !event.repeat) toggle(event);
+          if ((event.key === "Enter" || event.key === " ") && !event.repeat) {
+            toggle(event, true);
+            return;
+          }
+          if (!open || (event.key !== "Escape" && event.key !== "ArrowDown")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") closeMenu(true);
+          else moveFocus("Home");
         }}
         className={className}
       >
@@ -178,6 +223,23 @@ export function DropdownMenu({
             ref={menuRef}
             role="menu"
             aria-label={menuLabel}
+            data-testid={menuTestId}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") {
+                event.preventDefault();
+                if (activeSubmenu) setActiveSubmenu(undefined);
+                else closeMenu(true);
+                return;
+              }
+              if (event.key === "Tab") {
+                closeMenu(true);
+                return;
+              }
+              if (!MENU_NAVIGATION_KEYS.has(event.key)) return;
+              event.preventDefault();
+              moveFocus(event.key);
+            }}
             className="ct-portal-menu fixed w-max min-w-[140px] max-w-[calc(100vw-0.5rem)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
             style={{
               top: pos.top,
@@ -211,6 +273,7 @@ export function DropdownMenu({
                 aria-haspopup={item.submenu ? "menu" : undefined}
                 aria-expanded={item.submenu ? activeSubmenu === item.submenu : undefined}
                 data-testid={item["data-testid"]}
+                data-danger={item.danger ? "true" : undefined}
                 title={item.title}
                 disabled={item.disabled}
                 onClick={(e) => {

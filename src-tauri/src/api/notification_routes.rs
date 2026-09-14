@@ -47,6 +47,10 @@ pub(crate) struct CreateNotifBody {
     /// Which offered label applies the offer. Must be one of this
     /// notification's own choices.
     offer_accept: Option<String>,
+    /// The tab whose chat holds the message this notification jumps to.
+    target_tab_id: Option<String>,
+    /// The exact chat message id inside `target_tab_id`.
+    chat_message_id: Option<String>,
 }
 
 /// Adopt a caller's offer to be louder. The surface is resolved against the
@@ -134,6 +138,10 @@ pub async fn create_notification(
         caller_tab_id: crate::api::tab_routes::caller_tab_header(&headers),
         claimed_tab_id: body.tab_id,
         peer_name: body.source_peer,
+        target: crate::notification::deep_link::NotificationTarget::from_hints(
+            body.target_tab_id.as_deref(),
+            body.chat_message_id.as_deref(),
+        ),
     };
     let intent = parse_push_intent(body.level.as_deref(), body.event_key)
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;

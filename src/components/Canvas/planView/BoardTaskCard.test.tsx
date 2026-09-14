@@ -191,7 +191,31 @@ test("interactive card exposes its task action to assistive technology", async (
   );
   const card = host.querySelector('[data-testid="plan-board-task-card"]');
   assert(card?.getAttribute("role") === "button", "interactive card role");
-  assert(card?.getAttribute("aria-label") === "Open task Repair board layout", "task action name");
+  assert(card?.getAttribute("aria-label") === "Open task T-ACCESSIBLE Repair board layout", "task action name");
+});
+
+test("card names the task by its key before the title, with the legacy id fallback", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({ id: "task_keyed1", key: "CT-12", name: "Keyed task" }),
+      task({ id: "task_legacy9", key: null, name: "Legacy task" }),
+    ],
+  };
+  const { host } = await render(
+    <>
+      <BoardTaskCard card={cardFor(plan, "task_keyed1")} onOpen={() => {}} />
+      <BoardTaskCard card={cardFor(plan, "task_legacy9")} onOpen={() => {}} />
+    </>,
+  );
+  const cards = Array.from(host.querySelectorAll('[data-testid="plan-board-task-card"]'));
+  const read = (card: Element) => [
+    card.querySelector('[data-testid="plan-board-task-key"]')?.textContent,
+    card.querySelector('[data-testid="plan-board-task-title"]')?.textContent,
+    card.getAttribute("aria-label"),
+  ];
+  assert(JSON.stringify(read(cards[0]!)) === JSON.stringify(["CT-12", "Keyed task", "Open task CT-12 Keyed task"]), "keyed card");
+  assert(JSON.stringify(read(cards[1]!)) === JSON.stringify(["LEGACY9", "Legacy task", "Open task LEGACY9 Legacy task"]), "legacy card");
 });
 
 let passed = 0;

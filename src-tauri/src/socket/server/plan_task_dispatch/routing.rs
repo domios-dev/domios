@@ -52,22 +52,10 @@ pub(super) fn unqualified_model_error(
 pub(super) fn dispatch_worker_identity(
     task: &Task,
 ) -> (Option<String>, Option<SpawnIdentityProvenance>) {
-    let title = task
-        .personality
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    let provenance = if title.is_some() {
-        match task.personality_provenance {
-            Some(crate::plan::IdentityProvenance::UserSupplied) => {
-                Some(SpawnIdentityProvenance::UserSupplied)
-            }
-            _ => Some(SpawnIdentityProvenance::Suggested),
-        }
-    } else {
-        Some(SpawnIdentityProvenance::Suggested)
-    };
+    let title = crate::service::planned_task_title(task);
+    let provenance = title
+        .as_ref()
+        .map(|_| SpawnIdentityProvenance::UserSupplied);
     (title, provenance)
 }
 

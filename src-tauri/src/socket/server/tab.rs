@@ -37,7 +37,7 @@ pub(super) fn dispatch(
                 .and_then(|value| value.get("agents_only"))
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
-            crate::dispatch::dispatch(
+            crate::dispatch::dispatch_tab_summary_if_ready(
                 &crate::dispatch::Command::TabSummary {
                     workspace_id,
                     caller_tab_id,

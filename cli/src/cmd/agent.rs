@@ -191,6 +191,9 @@ fn handle_report_refusal(
     body["message"] = serde_json::json!(refusal_report_message(&refusal, &original));
     body["kind"] = serde_json::json!("report_refused");
     body["status"] = serde_json::json!("partial");
+    if let Some(outcome) = refusal.report_outcome() {
+        body["report_outcome"] = serde_json::json!(outcome);
+    }
 
     let diagnostic = client.call_detailed("agent.report", Some(body.clone()));
     let (sent, report_id, error) = match diagnostic {
@@ -223,6 +226,7 @@ fn handle_report_refusal(
                 "diagnostic_report_sent": sent,
                 "diagnostic_report_id": report_id,
                 "diagnostic_error": error,
+                "report_outcome": refusal.report_outcome(),
             }))
             .unwrap()
         );

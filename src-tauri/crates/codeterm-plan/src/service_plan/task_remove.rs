@@ -4,10 +4,7 @@ use super::{PlanError, PlanStore};
 impl PlanStore {
     pub fn rm_task(&self, plan_id: &str, task_id: &str, now_ms: u64) -> Result<(), PlanError> {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let canonical_id = plan
-            .tasks
-            .iter()
-            .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+        let canonical_id = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .map(|task| task.id.clone())
             .ok_or(PlanError::TaskNotFound)?;
         if plan
@@ -41,10 +38,7 @@ impl PlanStore {
             );
         }
         let write = self.with_plan(plan_id, now_ms, |p| {
-            let pos = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            let pos = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             p.tasks.remove(pos);
             Ok(())

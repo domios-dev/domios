@@ -304,6 +304,7 @@ mod tests {
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,
+            provisional_launch: None,
         }
     }
 

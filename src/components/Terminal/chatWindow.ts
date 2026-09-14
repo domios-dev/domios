@@ -51,6 +51,44 @@ export function chatWindowRange(
   return { start: Math.max(0, len - size), end: len };
 }
 
+export interface ChatWindowAnchorIdentity {
+  sourceId: string;
+  correlationId?: string;
+}
+
+function itemMessage(item: TimelineItem) {
+  return item.kind === "message" ? item.message : item.event.message;
+}
+
+export function chatWindowAnchorIdentity(
+  items: readonly TimelineItem[],
+  anchorKey: string | null,
+): ChatWindowAnchorIdentity | null {
+  if (anchorKey == null) return null;
+  const item = items.find((candidate) => timelineItemKey(candidate) === anchorKey);
+  if (!item) return null;
+  const message = itemMessage(item);
+  return { sourceId: message.sourceMessageId ?? message.id, correlationId: message.correlationId };
+}
+
+/** The current key of the anchor's source row after a range re-key or an
+ *  optimistic-to-committed replacement; null when that row is gone. */
+export function rekeyedChatWindowAnchor(
+  items: readonly TimelineItem[],
+  identity: ChatWindowAnchorIdentity,
+): string | null {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const message = itemMessage(items[index]);
+    if (
+      (message.sourceMessageId ?? message.id) === identity.sourceId
+      || (identity.correlationId != null && message.correlationId === identity.correlationId)
+    ) {
+      return timelineItemKey(items[index]);
+    }
+  }
+  return null;
+}
+
 /** Slide the window toward older items by up to `step`, returning the new
  *  anchor key (unchanged when nothing older is loaded locally). */
 export function slideChatWindowOlder(

@@ -1,5 +1,25 @@
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// The plan facts a host needs to find the one workspace that owns its task keys.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskKeyScope {
+    pub plan_id: String,
+    pub team_id: Option<String>,
+    pub project_path: String,
+    pub canonical_project_path: String,
+}
+
+pub trait TaskKeyPort: Send + Sync {
+    /// Issues `count` keys atomically and durably, or none when no workspace owns the scope.
+    fn issue_task_keys(
+        &self,
+        scope: &TaskKeyScope,
+        count: usize,
+        high_water: &HashMap<String, u64>,
+    ) -> Vec<String>;
+}
 
 #[derive(Clone)]
 pub struct PlanIndexQuery {

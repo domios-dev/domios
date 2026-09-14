@@ -168,11 +168,6 @@ impl ServiceContext {
                 prev_status,
                 current_status
             );
-            // A settled turn is the event that means the provider log grew; the pass
-            // itself runs on the ledger thread, never here.
-            if let Some(ref pid) = tab_id {
-                self.request_kpi_usage_ingest(pid);
-            }
         }
         let previous_reconciled_status = tab_id
             .as_deref()
@@ -376,10 +371,23 @@ impl ServiceContext {
             crate::api::events::emit_everywhere(&self.app_handle, "chat-stream-preview", &event);
         }
 
-        // agent_tracker (4): two-clock quiescence.
-        let Some((byte_idle_ms, semantic_idle_ms)) =
-            self.agent_tracker.lock().quiescence(pty_id, Instant::now())
-        else {
+        let status = extract_status_line(&lines);
+
+        // agent_tracker (4): two-clock quiescence + the status widget's elapsed
+        // baseline, so an advancing counter survives a quiet repaint gap.
+        let Some((byte_idle_ms, semantic_idle_ms, status_elapsed)) = ({
+            let mut tracker = self.agent_tracker.lock();
+            match tracker.quiescence(pty_id, Instant::now()) {
+                Some((byte_idle_ms, semantic_idle_ms)) => {
+                    let progress = tracker.observe_status_elapsed(
+                        pty_id,
+                        status.as_ref().and_then(|status| status.elapsed_ms),
+                    );
+                    Some((byte_idle_ms, semantic_idle_ms, progress))
+                }
+                None => None,
+            }
+        }) else {
             return;
         };
 
@@ -399,6 +407,7 @@ impl ServiceContext {
                         motion: Motion::Still,
                         cursor_hidden,
                         composer_ready,
+                        status_elapsed,
                     }),
                     previous,
                 )
@@ -417,7 +426,7 @@ impl ServiceContext {
         // when idle, surface the completed-turn summary as a muted secondary line.
         match new_state.state {
             TimelineState::Working => {
-                if let Some(status) = extract_status_line(&lines) {
+                if let Some(status) = status {
                     new_state.status_line = Some(status.line);
                     new_state.phase = status.phase;
                     new_state.elapsed_ms = status.elapsed_ms;
@@ -450,6 +459,9 @@ impl ServiceContext {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
             if became_idle {
+                // The turn boundary, not a status value: the pass itself runs on the
+                // ledger thread, never here.
+                self.on_agent_turn_settled(&tab_id);
                 self.complete_worker_turn_without_report(
                     &tab_id,
                     crate::service::hierarchy::WorkerTurnSignal::IdleTransition,
@@ -482,9 +494,15 @@ impl ServiceContext {
             } = event
             {
                 self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
+                // Claimed before the teardown clears the launch it names, published
+                // after so the teardown still sees the boot stage it decides on.
+                let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
                 // The shell finished its foreground command: if that command was
                 // a proven-up agent, the agent process is gone.
                 self.note_provider_exit_in_surviving_shell(tab_id);
+                if let Some(exited) = exited {
+                    self.publish_launch_exit(&exited);
+                }
             }
             crate::api::events::emit_everywhere(
                 &self.app_handle,

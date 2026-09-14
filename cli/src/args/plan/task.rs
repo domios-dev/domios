@@ -115,7 +115,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "depends-on",
             value_name = "TASK_ID_OR_HANDLE",
-            help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
+            help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle (see --handle), or a task key (COD-12)"
         )]
         depends_on: Vec<String>,
         #[arg(long = "assign-tab", value_name = "TAB")]
@@ -251,7 +251,7 @@ pub enum PlanTaskAction {
             long = "depends-on",
             value_name = "TASK_ID_OR_HANDLE",
             conflicts_with = "clear_dependencies",
-            help = "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement"
+            help = "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, a task handle, or a task key (COD-12). Use --replace-dependencies for wholesale replacement"
         )]
         depends_on: Vec<String>,
         #[arg(

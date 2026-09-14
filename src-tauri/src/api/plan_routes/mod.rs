@@ -19,6 +19,7 @@ pub mod plans;
 pub mod sections;
 pub mod skills;
 pub mod spec;
+pub mod task_lifecycle;
 pub mod tasks;
 
 pub use attachments::attachment;
@@ -32,10 +33,12 @@ pub use loops::{loop_create, loop_record, loop_set, loop_status, loop_stop};
 pub use milestones::{milestone_add, milestone_rm, milestone_update};
 pub use plans::{
     archive, claim, create, delete_plan, disown, get, kinds_set, list, mode_set, next, pause,
-    reconcile, resolve_refs, resume, state, tag_facets_set, transfer, unarchive, update,
+    pause_preview, reconcile, resolve_refs, resume, resume_preview, state, tag_facets_set,
+    transfer, unarchive, update,
 };
 pub use sections::{ingest, section_add, section_rm, section_update};
 pub use skills::{retrospective_write, skills_list, skills_show};
+pub use task_lifecycle::{task_pause, task_resume};
 pub use tasks::{
     task_add, task_adopt_checkpoint, task_assign, task_attempt_show, task_attempts, task_close,
     task_respawn, task_rm, task_update,

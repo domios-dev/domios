@@ -233,17 +233,14 @@ fn render_tree_brackets_the_agent_identity_and_never_the_role() {
                "agent_type":"claude","agent_session_model":"opus","agent_liveness":"live",
                "workspace_name":"W","workspace_id":"w"}),
         json!({"id":"gone","tab_title":"Ghost","role":"Worker",
-               "agent_type":"codex","agent_session_model":"gpt-5","agent_liveness":"absent",
+               "agent_type":"codex","agent_session_model":"gpt-5.6-sol","agent_liveness":"absent",
                "workspace_name":"W","workspace_id":"w"}),
     ];
     let out = render_tab_tree(&tabs);
 
+    assert!(out.contains("[opus]"), "orchestrator bracket:\n{out}");
     assert!(
-        out.contains("[claude:opus]"),
-        "orchestrator bracket:\n{out}"
-    );
-    assert!(
-        out.contains("[codex:gpt-5!]"),
+        out.contains("[sol!]"),
         "a tab with no live agent is marked, not shown as running:\n{out}"
     );
     assert!(
@@ -378,7 +375,11 @@ fn human_row_shows_tab_title_with_model() {
         row
     );
     assert!(row.contains("claude"), "row missing agent: {}", row);
-    assert!(row.contains("Sonnet"), "row missing model: {}", row);
+    assert!(
+        row.contains("[sonnet?]"),
+        "row missing unconfirmed model: {}",
+        row
+    );
     assert!(
         row.contains("ws=WS-claude-renamed"),
         "row missing workspace: {}",

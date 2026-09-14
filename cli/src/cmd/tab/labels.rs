@@ -1,7 +1,8 @@
 //! One label rule for every CLI tab surface.
 //!
-//! The agent IDENTITY is `provider:model`, suffixed by what was observed about
-//! the process, and never carries the role. Role and mesh peer are separate
+//! The agent IDENTITY is the short model name when a catalogue claims the id,
+//! the provider when none does, suffixed by what was observed about the
+//! process, and never the role. Role and mesh peer are separate
 //! components, sourced the same way everywhere so `tab list` and `workspace map`
 //! cannot disagree about the same tab. `tab list` brackets the identity alone;
 //! `workspace map` brackets a detail list whose first component is the identity.
@@ -60,21 +61,23 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// The bracket is the model alone when a catalogue claims it, the provider
+    /// when none does, and never the two joined.
     #[test]
-    fn the_bracket_is_provider_model_for_every_role_and_lifecycle_row() {
+    fn the_bracket_is_the_model_alone_for_every_role_and_lifecycle_row() {
         let rows = [
             (
                 json!({"agent_type": "claude", "agent_session_model": "opus",
                        "agent_liveness": "live", "role": "Manager",
                        "role_profile": "orchestrator"}),
-                Some("claude:opus"),
+                Some("opus"),
                 "orchestrator",
             ),
             (
-                json!({"agent_type": "claude", "agent_session_model": "opus",
+                json!({"agent_type": "claude", "agent_session_model": "claude-sonnet-4-5-20250929",
                        "agent_liveness": "live", "role": "Manager",
                        "role_profile": "planner"}),
-                Some("claude:opus"),
+                Some("sonnet"),
                 "planner",
             ),
             // codex, cursor and opencode never report a session model; the
@@ -82,33 +85,68 @@ mod tests {
             (
                 json!({"agent_type": "codex", "agent_provider_resolved_model": "gpt-5.5",
                        "agent_liveness": "absent", "role": "Worker"}),
-                Some("codex:gpt-5.5!"),
+                Some("gpt 5.5!"),
                 "worker",
             ),
             (
-                json!({"agent_type": "codex", "agent_session_model": "gpt-5",
+                json!({"agent_type": "codex", "agent_session_model": "gpt-5.6-sol",
                        "agent_liveness": "live", "role": "Worker"}),
-                Some("codex:gpt-5"),
+                Some("sol"),
+                "worker",
+            ),
+            (
+                json!({"agent_type": "codex", "agent_session_model": "gpt-5.3-codex-spark",
+                       "agent_liveness": "unobserved", "role": "Worker"}),
+                Some("spark?"),
                 "worker",
             ),
             (
                 json!({"agent_type": "claude", "agent_session_model": "opus",
                        "agent_liveness": "live", "role": "Manager",
                        "role_profile": "general_agent"}),
-                Some("claude:opus"),
+                Some("opus"),
                 "general_agent",
             ),
             (
                 json!({"agent_type": "claude", "agent_session_model": "opus",
                        "agent_liveness": "unobserved"}),
-                Some("claude:opus?"),
+                Some("opus?"),
                 "",
             ),
             (
                 json!({"agent_type": "claude", "agent_session_model": "opus",
                        "agent_liveness": "absent", "role": "Manager"}),
-                Some("claude:opus!"),
+                Some("opus!"),
                 "manager",
+            ),
+            // no model observed: the provider stands in, at every liveness
+            (
+                json!({"agent_type": "codex", "agent_liveness": "live"}),
+                Some("codex"),
+                "",
+            ),
+            (
+                json!({"agent_type": "codex", "agent_liveness": "unobserved"}),
+                Some("codex?"),
+                "",
+            ),
+            (
+                json!({"agent_type": "codex", "agent_liveness": "absent"}),
+                Some("codex!"),
+                "",
+            ),
+            // a model no catalogue claims: the provider stands in
+            (
+                json!({"agent_type": "lmstudio", "agent_session_model": "nvidia/nemotron-3-nano",
+                       "agent_liveness": "live"}),
+                Some("lmstudio"),
+                "",
+            ),
+            (
+                json!({"agent_type": "lmstudio", "agent_session_model": "some-local-gguf",
+                       "agent_liveness": "absent", "role": "Worker"}),
+                Some("lmstudio!"),
+                "worker",
             ),
             (json!({"agent_liveness": "absent"}), None, ""),
         ];
@@ -118,19 +156,47 @@ mod tests {
         }
     }
 
+    /// Choosing the provider is a rendering decision. The projection keeps the
+    /// model it was published with.
+    #[test]
+    fn the_provider_fallback_leaves_the_projected_model_in_place() {
+        let tab = json!({"agent_type": "lmstudio", "agent_session_model": "some-local-gguf",
+                         "agent_liveness": "live"});
+        assert_eq!(agent_label(&tab).as_deref(), Some("lmstudio"));
+        assert_eq!(
+            tab.get("agent_session_model").and_then(Value::as_str),
+            Some("some-local-gguf")
+        );
+    }
+
+    #[test]
+    fn a_recognised_model_never_carries_its_provider() {
+        for (provider, model) in [("claude", "claude-opus-5"), ("codex", "gpt-5.6-terra")] {
+            for liveness in ["live", "unobserved", "absent"] {
+                let tab = json!({"agent_type": provider, "agent_session_model": model,
+                                 "agent_liveness": liveness});
+                let label = agent_label(&tab).expect("a declared provider brackets");
+                assert!(
+                    !label.contains(':') && !label.contains(provider) && !label.contains(model),
+                    "{provider}/{model} at {liveness} rendered {label}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_projection_without_the_daemon_label_recomposes_the_same_string() {
         let composed = json!({"agent_type": "claude", "agent_session_model": "opus",
                               "agent_liveness": "live"});
         let published = json!({"agent_type": "claude", "agent_session_model": "opus",
-                               "agent_liveness": "live", "agent_label": "claude:opus"});
+                               "agent_liveness": "live", "agent_label": "opus"});
         assert_eq!(agent_label(&composed), agent_label(&published));
     }
 
     #[test]
     fn an_unknown_liveness_value_is_unobserved_not_live() {
         let tab = json!({"agent_type": "claude", "agent_session_model": "opus"});
-        assert_eq!(agent_label(&tab).as_deref(), Some("claude:opus?"));
+        assert_eq!(agent_label(&tab).as_deref(), Some("opus?"));
     }
 
     #[test]

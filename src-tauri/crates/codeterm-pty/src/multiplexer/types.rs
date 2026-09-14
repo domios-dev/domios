@@ -18,6 +18,11 @@ pub struct Workspace {
     /// matters; the frontend sorts by it. Legacy snapshots default to 0.
     #[serde(default)]
     pub sort_order: i32,
+    #[serde(
+        default,
+        skip_serializing_if = "codeterm_types::plan::task_key::WorkspaceTaskKeys::is_unissued"
+    )]
+    pub task_keys: codeterm_types::plan::task_key::WorkspaceTaskKeys,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -684,9 +689,13 @@ pub struct Tab {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
     /// Human-readable reason for a failed boot stage. Runtime-only and paired
-    /// with `boot_stage == SpawnFailed`; cleared by any later non-failed stage.
+    /// with a reason-carrying `boot_stage`; cleared by any later plain stage.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub boot_failure_reason: Option<String>,
+    /// Identity of the launch a provisional stage describes. Paired with a
+    /// provisional `boot_stage` and cleared by any stage that is not one.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provisional_launch: Option<codeterm_types::pty::ProvisionalLaunch>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -777,6 +786,15 @@ impl Tab {
         self.prior_session_binding_nonces.iter().any(|entry| {
             entry.nonce == nonce && entry.session_id.as_deref() == Some(current_session)
         })
+    }
+
+    /// The agent of this tab's CURRENT launch echoed that launch's nonce with
+    /// an accepted session, so that exact process proved it owns the tab.
+    pub fn launch_session_authenticated(&self) -> bool {
+        self.agent_type.is_some()
+            && self.agent_session_id.is_some()
+            && self.session_binding_nonce.is_some()
+            && self.session_binding_nonce == self.reported_session_binding_nonce
     }
 
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
@@ -871,6 +889,7 @@ mod tests {
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,
+            provisional_launch: None,
         }
     }
 

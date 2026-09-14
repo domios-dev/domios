@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::BootStage;
+use super::{short_model_name, BootStage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -97,9 +97,11 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         // evidence the process is running.
         Some(BootStage::ProviderReady) | Some(BootStage::AgentReady) => AgentLiveness::Live,
         Some(BootStage::SpawnFailed) => AgentLiveness::Absent,
-        // A restored tab that proved only its PTY is live has proved nothing
-        // about the agent inside it.
-        Some(BootStage::PtyReattached) => AgentLiveness::Unobserved,
+        // A reattached PTY proves nothing about the agent inside it, and an
+        // observer giving up on a launch is not evidence that the process died.
+        Some(BootStage::PtyReattached)
+        | Some(BootStage::LaunchDeadlineElapsed)
+        | Some(BootStage::LaunchBindingUnconfirmed) => AgentLiveness::Unobserved,
         // Everything up to and including `shell_ready` is a shell, not an
         // agent. Absent unless a launch is still running.
         _ if evidence.boot_in_flight => AgentLiveness::Unobserved,
@@ -110,27 +112,32 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
 
 /// THE bracket-label rule, stated once and shared by every renderer.
 ///
-/// The bracket is the tab's agent IDENTITY — `provider:model` — never its role;
-/// role has its own field on every surface. A component that was not observed
-/// is omitted rather than guessed, and the liveness of the process is carried
-/// by a suffix so a label can never claim a running agent that isn't there:
+/// The bracket is the tab's agent IDENTITY — never its role, which has its own
+/// field on every surface. The model REPLACES the provider, it never joins it,
+/// and exactly three cases exist:
 ///
-/// * live         -> `provider:model`
-/// * unobserved   -> `provider:model?`
-/// * absent       -> `provider:model!`
+/// * no usable provider              -> no bracket at all
+/// * provider, model not recognised  -> the provider name
+/// * model recognised                -> the short model name, alone
 ///
-/// A tab with no declared provider has no bracket at all.
+/// Falling back to the provider is a display decision about an id no catalogue
+/// claims; it says nothing about the stored model, which this rule never reads
+/// back to its caller or writes.
+///
+/// The liveness of the process rides as a suffix, so a label can never claim a
+/// running agent that isn't there: live -> `sol`, unobserved -> `sol?`,
+/// absent -> `sol!`.
 pub fn agent_bracket_label(
     provider: Option<&str>,
     model: Option<&str>,
     liveness: AgentLiveness,
 ) -> Option<String> {
     let provider = provider.map(str::trim).filter(|value| !value.is_empty())?;
-    let model = model.map(str::trim).filter(|value| !value.is_empty());
-    let identity = match model {
-        Some(model) => format!("{provider}:{model}"),
-        None => provider.to_string(),
-    };
+    let identity = model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(short_model_name)
+        .unwrap_or_else(|| provider.to_string());
     Some(match liveness {
         AgentLiveness::Live => identity,
         AgentLiveness::Unobserved => format!("{identity}?"),
@@ -192,6 +199,16 @@ mod tests {
         );
     }
 
+    /// The deadline that latched issue 477: an observer gave up, which says
+    /// nothing about whether the process it was watching is running.
+    #[test]
+    fn a_launch_deadline_is_unobserved_not_absent() {
+        assert_eq!(
+            classify_agent_liveness(evidence(Some(BootStage::LaunchDeadlineElapsed))),
+            AgentLiveness::Unobserved
+        );
+    }
+
     #[test]
     fn proven_launch_stages_are_live() {
         for stage in [BootStage::ProviderReady, BootStage::AgentReady] {
@@ -245,30 +262,58 @@ mod tests {
 
     #[test]
     fn bracket_label_follows_one_rule_for_every_row() {
-        let rows: [(Option<&str>, Option<&str>, AgentLiveness, Option<&str>); 8] = [
-            // fresh spawn, everything observed
+        let rows: [(Option<&str>, Option<&str>, AgentLiveness, Option<&str>); 14] = [
+            // recognised model: the model alone, never the provider with it
             (
                 Some("claude"),
                 Some("opus"),
                 AgentLiveness::Live,
-                Some("claude:opus"),
+                Some("opus"),
             ),
-            // launch in flight
             (
                 Some("claude"),
                 Some("opus"),
                 AgentLiveness::Unobserved,
-                Some("claude:opus?"),
+                Some("opus?"),
             ),
-            // restored as a bare shell
             (
                 Some("claude"),
                 Some("opus"),
                 AgentLiveness::Absent,
-                Some("claude:opus!"),
+                Some("opus!"),
             ),
-            // model not observed yet
+            (
+                Some("codex"),
+                Some("gpt-5.6-sol"),
+                AgentLiveness::Live,
+                Some("sol"),
+            ),
+            (
+                Some("codex"),
+                Some("gpt-5.6-luna"),
+                AgentLiveness::Unobserved,
+                Some("luna?"),
+            ),
+            (
+                Some("codex"),
+                Some("gpt-5.3-codex-spark"),
+                AgentLiveness::Absent,
+                Some("spark!"),
+            ),
+            (
+                Some("codex"),
+                Some("gpt-5.5"),
+                AgentLiveness::Live,
+                Some("gpt 5.5"),
+            ),
+            // model missing: the provider stands in, across every liveness
             (Some("codex"), None, AgentLiveness::Live, Some("codex")),
+            (
+                Some("codex"),
+                None,
+                AgentLiveness::Unobserved,
+                Some("codex?"),
+            ),
             (Some("codex"), None, AgentLiveness::Absent, Some("codex!")),
             // empty strings are not observations
             (
@@ -277,8 +322,15 @@ mod tests {
                 AgentLiveness::Live,
                 Some("claude"),
             ),
+            // model present but no catalogue claims it: the provider stands in
+            (
+                Some("lmstudio"),
+                Some("nvidia/nemotron-3-nano"),
+                AgentLiveness::Live,
+                Some("lmstudio"),
+            ),
+            // no usable provider: no bracket, whatever the model says
             (Some(""), Some("opus"), AgentLiveness::Live, None),
-            // a plain terminal has no bracket
             (None, None, AgentLiveness::Absent, None),
         ];
         for (provider, model, liveness, expected) in rows {
@@ -290,12 +342,57 @@ mod tests {
         }
     }
 
+    /// The owner's rule has exactly three cases; a provider-qualified model is
+    /// not one of them, at any liveness.
+    #[test]
+    fn a_recognised_model_never_carries_its_provider() {
+        for liveness in [
+            AgentLiveness::Live,
+            AgentLiveness::Unobserved,
+            AgentLiveness::Absent,
+        ] {
+            for (provider, model) in [("claude", "claude-opus-5"), ("codex", "gpt-5.6-terra")] {
+                let label = agent_bracket_label(Some(provider), Some(model), liveness)
+                    .expect("a declared provider brackets");
+                assert!(
+                    !label.contains(':') && !label.contains(provider),
+                    "{provider}/{model} at {liveness:?} rendered {label}"
+                );
+            }
+        }
+    }
+
+    /// A long vendor id must not become the label; it resolves to its family or
+    /// it is not shown at all.
+    #[test]
+    fn a_vendor_id_never_reaches_the_bracket_verbatim() {
+        for (provider, model) in [
+            ("claude", "claude-sonnet-4-5-20250929"),
+            ("codex", "gpt-5.6-sol"),
+            ("lmstudio", "google/gemma-4-26b-a4b-qat"),
+        ] {
+            let label = agent_bracket_label(Some(provider), Some(model), AgentLiveness::Live)
+                .expect("a declared provider brackets");
+            assert!(!label.contains(model), "{model} leaked as {label}");
+        }
+    }
+
+    /// Choosing the provider is a rendering decision about an unclaimed id. The
+    /// model the caller holds is untouched by it.
+    #[test]
+    fn the_provider_fallback_does_not_erase_the_stored_model() {
+        let stored = String::from("mystery-local-build");
+        let label = agent_bracket_label(Some("lmstudio"), Some(&stored), AgentLiveness::Live);
+        assert_eq!(label.as_deref(), Some("lmstudio"));
+        assert_eq!(stored, "mystery-local-build");
+    }
+
     #[test]
     fn the_bracket_never_carries_a_role() {
         // Role is a separate axis on every surface; the General Agent, an
         // orchestrator and a worker on the same provider/model render alike.
         let label = agent_bracket_label(Some("claude"), Some("opus"), AgentLiveness::Live);
-        assert_eq!(label.as_deref(), Some("claude:opus"));
+        assert_eq!(label.as_deref(), Some("opus"));
         for role in [
             "manager",
             "worker",

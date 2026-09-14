@@ -363,11 +363,11 @@ fn aggregate_by_plan_rolls_up_unattributed_to_none() {
 }
 
 #[test]
-fn kpi_ledger_disabled_by_default_in_config() {
+fn kpi_ledger_enabled_by_default_in_config() {
     let config = crate::config::schema::AppConfig::default();
     assert!(
-        !kpi_ledger_enabled(&config),
-        "KPI ledger must be off by default until phase 3 wires writers"
+        kpi_ledger_enabled(&config),
+        "the shipped default records; the opt-out is the explicit false in config"
     );
 }
 
@@ -470,6 +470,136 @@ fn thousand_mixed_synthetic_events_round_trip_and_aggregate() {
             agg.plan_id
         );
     }
+
+    cleanup(&db);
+}
+
+/// The policy this lane settled: recording is on unless someone opts out, and the gate
+/// every writer consults follows the config rather than a second switch.
+#[test]
+fn kpi_policy_default_or_explicit_opt_in() {
+    use crate::agent::kpi::KpiRecorder;
+    use crate::config::schema::{AppConfig, KpiConfig, KPI_ENABLED_KEY};
+
+    let default_config = AppConfig::default();
+    assert!(
+        default_config.kpi.enabled,
+        "a fresh install records: both preconditions the flag waited on now ship"
+    );
+    assert!(kpi_ledger_enabled(&default_config));
+
+    let opted_out = AppConfig {
+        kpi: KpiConfig { enabled: false },
+        ..AppConfig::default()
+    };
+    assert!(
+        !kpi_ledger_enabled(&opted_out),
+        "the opt-out is honoured by the single gate every writer consults"
+    );
+
+    let dir = std::env::temp_dir().join(format!("kpi-policy-{}", ulid::Ulid::new()));
+    let recorder = KpiRecorder::from_config(&opted_out, &dir);
+    assert!(!recorder.is_enabled());
+    assert!(
+        !recorder.open_failed(),
+        "an opt-out is not a ledger failure, so the surface never blames the ledger"
+    );
+    assert!(recorder.ledger().is_none());
+    assert!(
+        !dir.join("kpi_ledger.db").exists(),
+        "opting out touches no disk at all"
+    );
+
+    let enabled = KpiRecorder::from_config(&AppConfig::default(), &dir);
+    assert!(enabled.is_enabled());
+    assert!(enabled.ledger().is_some());
+    drop(enabled);
+
+    // The key the not-recording surface names must be a real path into this config.
+    let as_json = serde_json::to_value(&default_config).unwrap();
+    let mut cursor = &as_json;
+    for segment in KPI_ENABLED_KEY.split('.') {
+        cursor = cursor.get(segment).unwrap_or_else(|| {
+            panic!(
+                "{} must address a real config field, missing {}",
+                KPI_ENABLED_KEY, segment
+            )
+        });
+    }
+    assert_eq!(cursor.as_bool(), Some(true));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Config files written before `[kpi]` existed must keep loading, and an explicit
+/// choice must survive the load/serialize round trip the config route performs.
+#[test]
+fn kpi_config_round_trips_without_losing_enabled() {
+    use crate::config::schema::AppConfig;
+
+    let legacy = r#"
+[theme]
+name = "dracula"
+
+[font]
+size = 16
+"#;
+    let loaded: AppConfig = toml::from_str(legacy).expect("a config with no [kpi] must still load");
+    assert_eq!(loaded.theme.name, "dracula");
+    assert!(
+        loaded.kpi.enabled,
+        "an absent section takes the default, it does not fail the load"
+    );
+
+    let opted_out: AppConfig = toml::from_str("[kpi]\nenabled = false\n").unwrap();
+    assert!(!opted_out.kpi.enabled);
+    let opted_in: AppConfig = toml::from_str("[kpi]\nenabled = true\n").unwrap();
+    assert!(opted_in.kpi.enabled);
+
+    for original in [opted_out, opted_in] {
+        let expected = original.kpi.enabled;
+        let toml_text = toml::to_string_pretty(&original).expect("config must serialize");
+        let reloaded: AppConfig = toml::from_str(&toml_text).expect("config must reload");
+        assert_eq!(
+            reloaded.kpi.enabled, expected,
+            "a write-back must not flip the stored choice"
+        );
+
+        let json = serde_json::to_value(&original).unwrap();
+        assert_eq!(json["kpi"]["enabled"].as_bool(), Some(expected));
+        let from_json: AppConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(from_json.kpi.enabled, expected);
+    }
+}
+
+#[test]
+fn aggregate_by_plan_counts_only_message_payloads_as_bytes() {
+    let db = temp_db();
+    let ledger = KpiLedger::open_at(&db).unwrap();
+
+    ledger
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 40))
+        .unwrap();
+    ledger
+        .insert(&KpiEventInput {
+            tokens: Some(TokenCounts {
+                input: 146_534,
+                uncached_input: 3_430,
+                output: 5,
+            }),
+            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 146_539)
+        })
+        .unwrap();
+
+    let agg = ledger.aggregate_by_plan().unwrap();
+    let pl1 = agg
+        .iter()
+        .find(|a| a.plan_id.as_deref() == Some("pl_1"))
+        .unwrap();
+    assert_eq!(pl1.count, 2);
+    assert_eq!(pl1.turns, 1);
+    assert_eq!(pl1.total_bytes, 40);
+    assert_eq!(pl1.input_tokens, 146_534);
 
     cleanup(&db);
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Check, Copy, X } from "lucide-react";
 import { iconForDream, iconBySlug, paletteFor, moodLabel, parseDream } from "./dreamVisuals";
+import type { DiaryRecordState } from "./dreamRunStatus";
 
 export interface DreamDiaryEntry {
   id: string;
@@ -21,7 +22,15 @@ function dreamDate(iso: string): { day: string; month: string; year: string } {
   };
 }
 
-export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: () => void }) {
+export function DreamCard({
+  entry,
+  onOpen,
+  recordState,
+}: {
+  entry: DreamDiaryEntry;
+  onOpen: () => void;
+  recordState?: DiaryRecordState;
+}) {
   const parsed = parseDream(entry.body);
   // explicit `<icon>` / `<mood>` block is present.
   const Icon =
@@ -94,7 +103,7 @@ export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: (
         </div>
       </div>
 
-      <div className="px-4 mt-3">
+      <div className="px-4 mt-3 flex items-center gap-1.5 flex-wrap">
         <span
           className="inline-block text-[9px] uppercase tracking-[0.25em] px-2 py-0.5 rounded-full"
           style={{
@@ -104,6 +113,24 @@ export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: (
         >
           {mood}
         </span>
+        {recordState && recordState.state !== "complete" && (
+          <span
+            data-testid="memory-dream-card-incomplete"
+            data-dream-record-state={recordState.state}
+            title={
+              recordState.state === "incomplete_live"
+                ? `Still being written by ${recordState.workerId}`
+                : recordState.reason
+            }
+            className="inline-block text-[9px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full"
+            style={{
+              background: "rgba(251,146,60,0.18)",
+              color: "#fb923c",
+            }}
+          >
+            {recordState.state === "incomplete_live" ? "in progress" : "incomplete"}
+          </span>
+        )}
       </div>
 
       <div

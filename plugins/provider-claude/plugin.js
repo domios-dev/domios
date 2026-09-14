@@ -270,7 +270,26 @@ function usageIsWeekday(s) {
 }
 
 // plugins/provider-claude/src/session.ts
-var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true, attachment: true };
+var CLAUDE_SESSION_DELTA_TYPES = {
+  system: true,
+  user: true,
+  assistant: true,
+  attachment: true,
+  "ai-title": true,
+  edited_text_file: true
+};
+function cleanMetadataValue(value) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : null;
+}
+function aiTitleFromEntry(entry) {
+  return cleanMetadataValue(entry.aiTitle);
+}
+function editedTextFilePath(entry) {
+  const attachment = entry.attachment;
+  return cleanMetadataValue(entry.filename) || cleanMetadataValue(entry.path) || cleanMetadataValue(attachment?.filename) || cleanMetadataValue(attachment?.path);
+}
 function claudeSessionFilePath(cwd, sessionId) {
   const m = manifest();
   const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
@@ -307,6 +326,8 @@ function validateEntry(v) {
 }
 function isValidClaudeSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "ai-title") return aiTitleFromEntry(v) !== null;
+  if (v.type === "edited_text_file") return editedTextFilePath(v) !== null;
   if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
   if (v.type === "system") {
     const sc = v.content;
@@ -315,7 +336,7 @@ function isValidClaudeSessionDelta(v) {
   }
   if (v.type === "attachment") {
     const a = v.attachment;
-    return !!a && typeof a === "object" && a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0;
+    return !!a && typeof a === "object" && (a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0 || a.type === "edited_text_file" && editedTextFilePath(v) !== null);
   }
   const msg = v.message;
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
@@ -526,6 +547,58 @@ function safeJson2(s) {
   } catch (_) {
     return null;
   }
+}
+
+// plugins/provider-claude/src/fileDiffs.ts
+var LINE_MARKERS = " +-\\";
+function lineCount(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+function patchHunk(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const hunk = value;
+  const oldStart = lineCount(hunk.oldStart);
+  const oldLines = lineCount(hunk.oldLines);
+  const newStart = lineCount(hunk.newStart);
+  const newLines = lineCount(hunk.newLines);
+  if (oldStart === null || oldLines === null || newStart === null || newLines === null || !Array.isArray(hunk.lines)) return null;
+  const lines = [];
+  for (const line of hunk.lines) {
+    if (typeof line !== "string" || !line || LINE_MARKERS.indexOf(line.charAt(0)) < 0) return null;
+    lines.push(line);
+  }
+  return { oldStart, oldLines, newStart, newLines, lines };
+}
+function createdHunks(content) {
+  if (!content) return [];
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: lines.length, lines: lines.map((line) => "+" + line) }];
+}
+function fileDiff(path, hunks) {
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      if (line.charAt(0) === "+") additions++;
+      else if (line.charAt(0) === "-") deletions++;
+    }
+  }
+  return { path, additions, deletions, hunks };
+}
+function claudeFileDiffs(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return [];
+  const record = result;
+  const path = typeof record.filePath === "string" ? record.filePath : "";
+  if (!path.trim() || !Array.isArray(record.structuredPatch)) return [];
+  const hunks = [];
+  for (const entry of record.structuredPatch) {
+    const hunk = patchHunk(entry);
+    if (!hunk) return [];
+    hunks.push(hunk);
+  }
+  if (hunks.length > 0) return [fileDiff(path, hunks)];
+  return record.type === "create" && typeof record.content === "string" ? [fileDiff(path, createdHunks(record.content))] : [];
 }
 
 // plugins/provider-claude/src/classify.ts
@@ -1407,8 +1480,15 @@ var plugin = {
   parseSessionDelta(chunk) {
     const out = [];
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex) => {
+      for (; stamped < out.length; stamped++) {
+        out[stamped].recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       const line = lines[i];
       if (!line) continue;
       let v;
@@ -1429,9 +1509,42 @@ var plugin = {
         continue;
       }
       const t = v && v.type;
+      let ts = null;
+      if (typeof v.timestamp === "string") {
+        const d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1e3);
+      }
+      const timestamp = typeof v.timestamp === "string" ? v.timestamp : null;
+      if (t === "ai-title") {
+        const title = aiTitleFromEntry(v);
+        if (!title) continue;
+        out.push({
+          role: "custom",
+          blocks: [],
+          ts,
+          uuid: typeof v.uuid === "string" ? v.uuid : null,
+          sessionIntent: { title },
+          timestamp
+        });
+        continue;
+      }
+      if (t === "edited_text_file" || t === "attachment" && v.attachment?.type === "edited_text_file") {
+        const path = editedTextFilePath(v);
+        if (!path) continue;
+        out.push({
+          role: "system",
+          blocks: [],
+          ts,
+          uuid: typeof v.uuid === "string" ? v.uuid : null,
+          timelineMarker: { kind: "external_edit", path },
+          timestamp
+        });
+        continue;
+      }
       const blocks = [];
       let role;
       let sourceSubtype = typeof v.subtype === "string" ? v.subtype : null;
+      let timelineMarker;
       if (t === "system") {
         role = "system";
         const sysText = typeof v.content === "string" ? v.content : Array.isArray(v.content) ? v.content.filter((c) => c && c.type === "text").map((c) => c.text || "").join("\n") : "";
@@ -1453,6 +1566,7 @@ var plugin = {
           } else if (t === "user" && isCompactSummaryRow(v, content)) {
             role = "system";
             sourceSubtype = "compact_summary";
+            timelineMarker = { kind: "context_compaction" };
             blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
           } else if (content) {
             blocks.push({ kind: "text", data: { text: content } });
@@ -1476,8 +1590,27 @@ var plugin = {
               data.tool_summary = canonical.summary;
               data.tool_detail = canonical.detail;
               data.tool_edits = canonical.edits;
+              const description = toolDescription(data.input);
+              if (description) data.tool_description = description;
+              if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+              const sourceId = exactSourceIdentity(v.uuid);
+              if (sourceId) data.tool_call_source_id = sourceId;
+            } else if (b.type === "thinking") {
+              delete data.signature;
+            }
+            if (b.type === "tool_result") {
+              const outcome = commandOutcome(v.toolUseResult);
+              if (outcome) Object.assign(data, outcome);
+              const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
+              data.tool_pairing = sourceId ? "exact" : "unavailable";
+              if (sourceId) data.tool_call_source_id = sourceId;
             }
             blocks.push({ kind: b.type, data });
+          }
+          const results = blocks.filter((block) => block.kind === "tool_result");
+          if (t === "user" && results.length === 1) {
+            const diffs = claudeFileDiffs(v.toolUseResult);
+            if (diffs.length > 0) results[0].data.file_diffs = diffs;
           }
         } else {
           continue;
@@ -1494,16 +1627,15 @@ var plugin = {
           blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
         } else {
           role = "user";
+          timelineMarker = { kind: "queued" };
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
         continue;
       }
       if (!blocks.length) continue;
-      let ts = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
+      if (t === "system" && sourceSubtype === "compact_boundary") {
+        timelineMarker = { kind: "context_compaction" };
       }
       out.push({
         role,
@@ -1516,9 +1648,11 @@ var plugin = {
         level: typeof v.level === "string" ? v.level : null,
         isCompactSummary: v.isCompactSummary === true ? true : null,
         isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
-        timestamp: typeof v.timestamp === "string" ? v.timestamp : null
+        timelineMarker,
+        timestamp
       });
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
   // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
@@ -1607,9 +1741,19 @@ var plugin = {
     const s = present("Stop");
     const pc = present("PreCompact");
     const ss = sessionStartCurrent();
+    const installed = n && pr && s && ss;
+    let marked = true;
+    for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
+      const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
+      if (Array.isArray(arr) && !entriesCarryMarker(arr)) {
+        marked = false;
+        break;
+      }
+    }
     return {
       settings_exists: true,
-      hooks_installed: n && pr && s && ss,
+      hooks_installed: installed,
+      hook_contract_current: installed && marked,
       notification_hook: n,
       permission_request_hook: pr,
       stop_hook: s,
@@ -1650,7 +1794,7 @@ var plugin = {
     }
     if (!json.hooks) json.hooks = {};
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
+    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN" ' + CODETERM_HOOK_MARKER_ARG;
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const finish = " || true; fi";
     const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
@@ -1796,6 +1940,11 @@ function canonicalToolFields(name, input) {
     edits
   };
 }
+function toolDescription(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const value = input.description;
+  return typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").trim() : "";
+}
 function extractCanonicalEdits(input) {
   const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
   const pair = (value, fallbackPath) => {
@@ -1816,6 +1965,28 @@ function cleanToolText(value, fallback) {
   if (!text) return fallback;
   return text.length > 120 ? text.slice(0, 117) + "..." : text;
 }
+function exactSourceIdentity(value) {
+  if (typeof value !== "string" || !value || value.trim() !== value) return void 0;
+  return value;
+}
+function exactOutcomeNumber(value, nonnegative) {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return void 0;
+  if (nonnegative && value < 0) return void 0;
+  return value;
+}
+function commandOutcome(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const result = value;
+  const outcome = {};
+  const exitCode = exactOutcomeNumber(result.returnCode, false);
+  const durationMs = exactOutcomeNumber(result.durationMs, true);
+  if (exitCode !== void 0) outcome.tool_exit_code = exitCode;
+  if (durationMs !== void 0) outcome.tool_duration_ms = durationMs;
+  if (typeof result.interrupted === "boolean") outcome.tool_interrupted = result.interrupted;
+  const backgroundTaskId = exactSourceIdentity(result.backgroundTaskId);
+  if (backgroundTaskId) outcome.tool_background_task_id = backgroundTaskId;
+  return Object.keys(outcome).length > 0 ? outcome : void 0;
+}
 function writeTaskTempFile(task) {
   const suffix = ".ct-task-" + randomShortHex(8);
   const win = host.platform() === "windows";
@@ -1829,7 +2000,31 @@ function randomShortHex(len) {
   return out;
 }
 var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+var CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush"
+];
+function commandCarriesMarker(cmd) {
+  return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+function commandIsCurrentUnmarked(cmd) {
+  if (cmd.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (cmd.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (cmd.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  for (let i = 0; i < CODETERM_CURRENT_ROUTES.length; i++) {
+    if (cmd.indexOf(CODETERM_CURRENT_ROUTES[i]) !== -1) return true;
+  }
+  return false;
+}
+function commandIsLegacyV2(cmd) {
+  if (cmd.indexOf("$CODETERM_PANE_ID") === -1) return false;
+  return cmd.indexOf("/api/panes/$CODETERM_PANE_ID/hook/") !== -1 || cmd.indexOf("/api/mem/flush") !== -1;
+}
 function isCodetermHook(entry) {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
@@ -1840,12 +2035,27 @@ function isCodetermHook(entry) {
       return true;
     }
     const cmd = h.command;
-    if (typeof cmd === "string") {
-      const codetermOrigin = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
-      const hookRoute = cmd.indexOf("/api/notifications") !== -1 || cmd.indexOf("/api/tabs/") !== -1 || cmd.indexOf("/hook/permission") !== -1 || cmd.indexOf("/hook/stop") !== -1 || cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/api/mem/flush") !== -1;
-      if (codetermOrigin && hookRoute) return true;
+    if (typeof cmd === "string" && (commandCarriesMarker(cmd) || commandIsCurrentUnmarked(cmd) || commandIsLegacyV2(cmd))) {
+      return true;
     }
   }
   return false;
+}
+function entriesCarryMarker(entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!isCodetermHook(entry)) continue;
+    const hooks = entry && entry.hooks || [];
+    let marked = false;
+    for (let j = 0; j < hooks.length; j++) {
+      const cmd = hooks[j] && hooks[j].command;
+      if (typeof cmd === "string" && commandCarriesMarker(cmd)) {
+        marked = true;
+        break;
+      }
+    }
+    if (!marked) return false;
+  }
+  return true;
 }
 var plugin_default = plugin;

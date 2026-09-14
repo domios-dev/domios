@@ -611,10 +611,7 @@ impl PlanStore {
             .map(str::trim)
             .filter(|value| !value.is_empty());
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt = task
                 .execution_attempts
@@ -637,10 +634,7 @@ impl PlanStore {
         request: TaskCompeteRequest,
     ) -> Result<Vec<TaskCompeteDraft>, PlanError> {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
         let (task_provider, task_model) = split_provider_model(task.model.as_deref());
         let metadata_models = task
@@ -728,10 +722,7 @@ impl PlanStore {
         task_id: &str,
     ) -> Result<Vec<TaskAttemptView>, PlanError> {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
         Ok(task
             .execution_attempts
@@ -748,10 +739,7 @@ impl PlanStore {
         attempt_id: &str,
     ) -> Result<TaskAttemptView, PlanError> {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
         let source = find_attempt(task, attempt_id)
             .cloned()
@@ -784,10 +772,7 @@ impl PlanStore {
         request: TaskRespawnRequest,
     ) -> Result<TaskRespawnDraft, PlanError> {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
         let source = find_attempt(task, &request.attempt_id)
             .cloned()
@@ -850,10 +835,7 @@ impl PlanStore {
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if plan.tasks[task_index].status == TaskStatus::Pending {
                 super::review_gate::validate_dispatch_review_capacity(
@@ -902,10 +884,7 @@ impl PlanStore {
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if plan.tasks[task_index].status == TaskStatus::Pending {
                 super::review_gate::validate_dispatch_review_capacity(
@@ -954,10 +933,7 @@ impl PlanStore {
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut judged = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt = task
                 .execution_attempts
@@ -996,10 +972,7 @@ impl PlanStore {
             return Ok(());
         };
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             // Reports attach to the assigned executor's live attempt.
             // They never create or rebind an attempt.
@@ -1050,10 +1023,7 @@ impl PlanStore {
         };
         let committed_review = report.status == Some(ReportStatus::InReview);
         self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if plan.tasks[task_index].assigned_tab_id.as_deref() != Some(reporter_tab) {
                 return Ok(false);

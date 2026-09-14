@@ -436,7 +436,7 @@ pub async fn ordinary_tabs_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<serde_json::Value, String> {
-    let local = crate::dispatch::dispatch(
+    let local = crate::dispatch::dispatch_tab_summary_if_ready(
         &crate::dispatch::Command::TabSummary {
             workspace_id: None,
             caller_tab_id: None,

@@ -19,6 +19,8 @@ pub struct MockProvider {
     status_bar_rows: u16,
     update_command: Option<String>,
     sessions: std::collections::HashSet<String>,
+    session_file: Option<PathBuf>,
+    session_models: std::collections::HashMap<String, String>,
 }
 
 impl MockProvider {
@@ -31,6 +33,26 @@ impl MockProvider {
             status_bar_rows: 0,
             update_command: None,
             sessions: Default::default(),
+            session_file: None,
+            session_models: Default::default(),
+        }
+    }
+
+    /// Declares what the provider's own record says this exact session is running,
+    /// so a test can prove a host path reads a session-scoped model instead of a
+    /// provider-wide or launch-time guess.
+    pub fn with_session_model(mut self, session_id: &str, model: &str) -> Self {
+        self.session_models
+            .insert(session_id.to_string(), model.to_string());
+        self
+    }
+
+    /// Declares the provider's own session log, so a test can drive the host paths
+    /// that read one through the capability instead of a hardcoded layout.
+    pub fn with_session_file(id: &str, path: PathBuf) -> Self {
+        Self {
+            session_file: Some(path),
+            ..Self::new(id)
         }
     }
 
@@ -142,7 +164,10 @@ impl AgentProvider for MockProvider {
         text.to_lowercase().contains(&self.id)
     }
     fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
-        None
+        self.session_file.clone()
+    }
+    fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        self.session_models.get(session_id).cloned()
     }
     fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
         self.sessions.contains(session_id)

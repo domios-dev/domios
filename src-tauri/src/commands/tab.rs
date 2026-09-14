@@ -723,36 +723,38 @@ pub fn chat_backfill_core(
         .flatten()
         .ok_or("no JSONL")?;
 
+    Ok(ChatBackfillResult {
+        source_session_id: Some(session_id),
+        session_binding_nonce,
+        ..backfill_page(&svc.agent_registry, &provider_id, &path, before_offset)?
+    })
+}
+
+/// One backfill page of `path` ending at `before_offset`, without session scope.
+pub(crate) fn backfill_page(
+    registry: &std::sync::Arc<crate::agent::registry::AgentRegistry>,
+    provider_id: &str,
+    path: &std::path::Path,
+    before_offset: u64,
+) -> Result<ChatBackfillResult, String> {
     let page_bytes = crate::service::tab_chat::session_window::BACKFILL_PAGE_BYTES;
-    let (text, aligned_start) = backfill_window_slice(&path, before_offset, page_bytes)
+    let (text, aligned_start) = backfill_window_slice(path, before_offset, page_bytes)
         .map_err(|e| format!("read jsonl: {e}"))?;
     let page = crate::service::tab_chat::session_window::parse_page_before(
-        &svc.agent_registry,
-        &provider_id,
-        &path,
+        registry,
+        provider_id,
+        path,
         before_offset,
     );
-    let messages = page
-        .messages
-        .iter()
-        .enumerate()
-        .flat_map(|(i, r)| {
-            crate::service::tab_chat::rich_to_chat_msgs_at(
-                r,
-                crate::service::tab_chat::RowOrigin::at(aligned_start, i),
-            )
-        })
-        .collect();
-
     Ok(ChatBackfillResult {
         text,
         // `aligned_start` is the first complete record read, so the next page
         // ends there and parses the partial head this read dropped.
         start_offset: aligned_start,
         end_offset: page.end_offset,
-        messages,
-        source_session_id: Some(session_id),
-        session_binding_nonce,
+        messages: crate::service::tab_chat::rich_rows_to_chat_msgs(&page.messages, aligned_start),
+        source_session_id: None,
+        session_binding_nonce: None,
     })
 }
 
@@ -1006,6 +1008,10 @@ mod tests {
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[0].kind, "system");
         assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_summary"));
+        assert_eq!(
+            msgs[0].timeline_marker,
+            Some(crate::agent::chat_types::ChatTimelineMarker::ContextCompaction)
+        );
         assert!(msgs[0].collapsed);
         assert_eq!(msgs[1].kind, "status");
         assert_eq!(msgs[1].content, "Task completed");

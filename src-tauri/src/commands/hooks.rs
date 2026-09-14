@@ -218,6 +218,50 @@ pub fn ensure_integrations_for_all(
     registry: &crate::agent::registry::AgentRegistry,
     config: &crate::config::ConfigState,
 ) {
+    let consented = config.lock().agents.clone();
+    for provider in registry.all_provider_arcs() {
+        spawn_reconciliation(provider, &consented);
+    }
+}
+
+/// The same reconciliation for the one provider a plugin install or upgrade
+/// just reloaded, so a machine carrying an older hook set is repaired when its
+/// provider plugin updates and not only at the next daemon start.
+pub fn ensure_integration_for_provider(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) {
+    let consented = crate::config::load_config().agents;
+    for provider in registry.all_provider_arcs() {
+        if provider.id() == provider_id {
+            spawn_reconciliation(provider, &consented);
+        }
+    }
+}
+
+type ProviderConfigs = std::collections::HashMap<String, crate::config::schema::ProviderConfig>;
+
+fn recorded_flag(consented: &ProviderConfigs, id: &str, key: &str) -> bool {
+    consented
+        .get(id)
+        .and_then(|provider| provider.extra.get(key))
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// One reconciliation per provider at a time. Daemon start and a plugin reload
+/// both reach this, and the hook files are machine-global: two interleaved
+/// read-modify-writes over one file is the duplication being fixed.
+fn reconciling() -> &'static parking_lot::Mutex<std::collections::HashSet<String>> {
+    static IN_FLIGHT: std::sync::OnceLock<parking_lot::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    IN_FLIGHT.get_or_init(Default::default)
+}
+
+fn spawn_reconciliation(
+    provider: std::sync::Arc<dyn crate::agent::provider::AgentProvider>,
+    consented: &ProviderConfigs,
+) {
     let port = match runtime_api_port() {
         Ok(port) => port,
         Err(error) => {
@@ -225,29 +269,34 @@ pub fn ensure_integrations_for_all(
             return;
         }
     };
-    let consented = config.lock().agents.clone();
-    for provider in registry.all_provider_arcs() {
-        let id = provider.id().to_string();
-        let previously_consented = consented
-            .get(&id)
-            .and_then(|provider| {
-                provider
-                    .extra
-                    .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
-            })
-            .and_then(toml::Value::as_bool)
-            .unwrap_or(false);
-        if !repair_is_allowed(provider.as_ref(), previously_consented) {
-            continue;
-        }
-        if let Err(error) = std::thread::Builder::new()
-            .name(format!("integration-repair-{id}"))
-            .spawn(move || {
-                repair_integration_on_startup(provider.as_ref(), port, previously_consented)
-            })
-        {
-            log::warn!("[provider {id}] integration repair thread failed: {error}");
-        }
+    let id = provider.id().to_string();
+    let previously_consented = recorded_flag(
+        consented,
+        &id,
+        crate::config::schema::INTEGRATION_CONSENT_GRANTED,
+    );
+    if !repair_is_allowed(provider.as_ref(), previously_consented) {
+        return;
+    }
+    let precompact = recorded_flag(consented, &id, "precompact_memory_export");
+    if !reconciling().lock().insert(id.clone()) {
+        return;
+    }
+    let done = id.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name(format!("integration-repair-{id}"))
+        .spawn(move || {
+            repair_integration_on_startup(
+                provider.as_ref(),
+                port,
+                previously_consented,
+                precompact,
+            );
+            reconciling().lock().remove(&done);
+        })
+    {
+        reconciling().lock().remove(&id);
+        log::warn!("[provider {id}] integration repair thread failed: {error}");
     }
 }
 
@@ -258,36 +307,59 @@ fn repair_is_allowed(
     provider.has_installable_integration() && previously_consented
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum IntegrationRepairOutcome {
     Current,
     Unconsented,
     Repaired,
     Unclassifiable,
+    TrustGrantRequired,
 }
 
 fn repair_integration_on_startup(
     provider: &dyn crate::agent::provider::AgentProvider,
     api_port: u16,
     previously_consented: bool,
+    precompact_memory_export: bool,
 ) -> IntegrationRepairOutcome {
+    use crate::service::integration_silence::{
+        authorize_reconciliation, facts_from_status, ReconcileAuthorization,
+    };
+
     let status = provider.check_integration();
-    if status
-        .get("hooks_installed")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-    {
-        return IntegrationRepairOutcome::Current;
-    }
-    if !previously_consented {
-        log::info!(
-            "[provider {}] integration remains unchanged because consent was not recorded",
-            provider.id()
-        );
-        return IntegrationRepairOutcome::Unconsented;
+    let facts = facts_from_status(
+        &status,
+        provider.has_installable_integration(),
+        previously_consented,
+    );
+    match authorize_reconciliation(&facts) {
+        ReconcileAuthorization::AlreadyCurrent => return IntegrationRepairOutcome::Current,
+        ReconcileAuthorization::Unreadable => {
+            log::warn!(
+                "[provider {}] integration reports no readable install state; nothing was changed",
+                provider.id()
+            );
+            return IntegrationRepairOutcome::Unclassifiable;
+        }
+        ReconcileAuthorization::TrustGrantRequired => {
+            log::info!(
+                "[provider {}] hooks are untrusted; only the user can re-grant that trust",
+                provider.id()
+            );
+            return IntegrationRepairOutcome::TrustGrantRequired;
+        }
+        ReconcileAuthorization::ConsentMissing => {
+            log::info!(
+                "[provider {}] integration remains unchanged because consent was not recorded",
+                provider.id()
+            );
+            return IntegrationRepairOutcome::Unconsented;
+        }
+        ReconcileAuthorization::Reconcile => {}
     }
     let options = crate::agent::provider::IntegrationInstallOptions {
         consent: true,
-        precompact_memory_export: false,
+        precompact_memory_export,
         repair: true,
     };
     match provider.install_integration(api_port, &options) {
@@ -653,7 +725,7 @@ mod tests {
     #[test]
     fn hook_contract_repair_repairs_stale_contract_to_session_start_route() {
         let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
-        repair_integration_on_startup(&provider, 7686, true);
+        repair_integration_on_startup(&provider, 7686, true, false);
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(
             provider.check_integration()["session_start_route"],
@@ -664,17 +736,17 @@ mod tests {
     #[test]
     fn hook_contract_repair_is_idempotent_by_write_count() {
         let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
-        repair_integration_on_startup(&provider, 7686, true);
-        repair_integration_on_startup(&provider, 7686, true);
+        repair_integration_on_startup(&provider, 7686, true, false);
+        repair_integration_on_startup(&provider, 7686, true, false);
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
     fn hook_contract_repair_uses_recorded_consent_without_reasking_or_regranting() {
         let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
-        repair_integration_on_startup(&provider, 7686, false);
+        repair_integration_on_startup(&provider, 7686, false, false);
         assert!(provider.consents.lock().unwrap().is_empty());
-        repair_integration_on_startup(&provider, 7686, true);
+        repair_integration_on_startup(&provider, 7686, true, false);
         assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
         assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
         assert_eq!(
@@ -689,7 +761,7 @@ mod tests {
     fn hook_contract_repair_preserves_live_session() {
         let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
         let before = provider.live_session.lock().unwrap().clone();
-        repair_integration_on_startup(&provider, 7686, true);
+        repair_integration_on_startup(&provider, 7686, true, false);
         assert_eq!(*provider.live_session.lock().unwrap(), before);
     }
 
@@ -699,7 +771,7 @@ mod tests {
         assert_ne!(provider.id(), "claude");
         assert!(repair_is_allowed(&provider, true));
         assert!(!repair_is_allowed(&provider, false));
-        repair_integration_on_startup(&provider, 7686, true);
+        repair_integration_on_startup(&provider, 7686, true, false);
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
@@ -707,7 +779,7 @@ mod tests {
     fn hook_contract_repair_leaves_unclassifiable_entry_and_reports_outcome() {
         let provider =
             RepairProbeProvider::unclassifiable(serde_json::json!({ "hooks_installed": false }));
-        let outcome = repair_integration_on_startup(&provider, 7686, true);
+        let outcome = repair_integration_on_startup(&provider, 7686, true, false);
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
         assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
         assert!(matches!(outcome, IntegrationRepairOutcome::Unclassifiable));

@@ -54,6 +54,7 @@
 }
 
 .frontend-crash__panel {
+  box-sizing: border-box;
   width: min(760px, 100%);
   padding: 28px;
   border: 1px solid var(--ct-border, #334155);
@@ -67,6 +68,27 @@
   font-size: 24px;
 }
 
+.frontend-crash__detail {
+  margin: 20px 0;
+}
+
+.frontend-crash__detail h2 {
+  margin: 0 0 8px;
+  color: var(--ct-muted-fg, #94a3b8);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.frontend-crash__message {
+  margin: 0;
+  color: var(--ct-text, #d8dee9);
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .frontend-crash__eyebrow {
   margin: 0;
   color: #fb7185;
@@ -76,9 +98,11 @@
   text-transform: uppercase;
 }
 
-.frontend-crash__panel pre {
+.frontend-crash__stack {
+  box-sizing: border-box;
+  width: 100%;
   max-height: 40vh;
-  margin: 20px 0;
+  margin: 0;
   padding: 14px;
   overflow: auto;
   border-radius: 8px;
@@ -86,6 +110,7 @@
   color: #fecdd3;
   font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -102,4 +127,16 @@
 .frontend-crash__panel button:focus-visible {
   outline: 2px solid white;
   outline-offset: 3px;
+}
+
+.frontend-crash__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.frontend-crash__panel button.frontend-crash__secondary {
+  border-color: var(--ct-border, #334155);
+  background: transparent;
+  color: var(--ct-text, #d8dee9);
 }

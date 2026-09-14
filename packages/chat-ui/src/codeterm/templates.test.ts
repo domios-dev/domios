@@ -154,5 +154,31 @@ const TASK = "task_" + "b".repeat(32);
   assert(redacted.fields?.some((f) => f.label === "changes" && f.value === "API_TOKEN=***REDACTED***"), "the card renders whatever the CLI redacted, never a second unredacted source");
 }
 
+// --- lead and object print a command once ---
+{
+  const commands = [
+    "codeterm plan doctor",
+    "codeterm plan decision list",
+    "codeterm task show",
+    "codeterm spec section update --help",
+    "codeterm plan task update --help",
+    "codeterm send --help",
+    "codeterm tab close tab_8f1e2d",
+    `codeterm mem search "query"`,
+  ];
+  for (const command of commands) {
+    const invocation = inv(command);
+    const { lead, object } = describeAction(invocation);
+    const label = object ? `${lead} ${object}` : lead;
+    const path = invocation.path.join(" ");
+    assert(object === undefined || object.trim().toLowerCase() !== lead.trim().toLowerCase(), `${command}: object never repeats the lead`);
+    assert(label.split(path).length <= 2, `${command}: the command path appears at most once in its label`);
+  }
+  const doctor = describeAction(inv("codeterm plan doctor"));
+  assert(doctor.lead === "plan doctor" && doctor.object === undefined, "a path without its own template is its label, printed once");
+  const help = describeAction(inv("codeterm spec section update --help"));
+  assert(help.lead === "spec section update" && help.object === "help", "help leads with the command it documents");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

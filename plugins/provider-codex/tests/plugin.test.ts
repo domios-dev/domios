@@ -747,6 +747,12 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   eq(data[3].tool_summary, "/tmp/update-error.png", "view_image exposes the inspected path");
   eq(data[4].tool_summary, "C:\\work\\update-error.png", "Windows paths survive readable summaries");
   eq(data[5].tool_summary, "first readable line", "unknown exec scripts fall back to one line");
+  eq(
+    data.map((item) => item.tool_title),
+    ["./build.sh check", "rg +1", "Wait for command output", "Read update-error.png", "Read update-error.png", "first readable line"],
+    "action titles come only from call data and keep execWrapper wait titles",
+  );
+  eq(parsed.messages[0].blocks[0].data.input.raw, calls[0], "exact exec script input is preserved beside its title");
 }
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");

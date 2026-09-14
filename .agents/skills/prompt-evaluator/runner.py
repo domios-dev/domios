@@ -70,7 +70,7 @@ def _force_rmtree(path: str) -> None:
 
 # Local import — matcher.py lives next to this file
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from matcher import MatchResult, match_expectation  # noqa: E402
+from matcher import MatchResult, match_expectation, sandbox_env  # noqa: E402
 import cache as _cache  # noqa: E402
 
 # Module-level toggle for cache use; flipped by main() based on --no-cache.
@@ -305,6 +305,7 @@ def run_agent(
                 errors="replace",
                 timeout=timeout_s,
                 cwd=clean_cwd,
+                env=sandbox_env(),
             )
         except subprocess.TimeoutExpired:
             return result(False, f"<timeout after {timeout_s}s>")

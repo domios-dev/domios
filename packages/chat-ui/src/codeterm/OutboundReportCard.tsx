@@ -9,7 +9,8 @@ import { pickUiFontScaleValue } from "../uiFontScale";
 import { formatCommunicationEndpoint } from "./templates";
 import {
   reportContentBody,
-  reportIncidentLine,
+  reportOutcomeLine,
+  reportOutcomeTone,
   reportVerdict,
   shortSha,
   type ReportTaskOutcome,
@@ -42,9 +43,16 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
   const chips = [reportVerdict(report.status, outcome), shortSha(report.sha)]
     .filter((value): value is string => Boolean(value));
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const body = reportContentBody(decodeCliMessageText(report.message)).trim();
-  const incident = reportIncidentLine(outcome);
-  const failed = /^(?:blocked|error|failed)$/i.test(report.status ?? "");
+  const rawBody = decodeCliMessageText(report.message).trim();
+  const body = outcome?.reportOutcome === "delivered_unattached" ? "" : reportContentBody(rawBody).trim();
+  const diagnostics = outcome?.reportOutcome === "delivered_unattached"
+    ? rawBody
+    : outcome?.reportOutcome && body !== rawBody
+      ? rawBody
+      : null;
+  const tone = reportOutcomeTone(outcome);
+  const outcomeLine = reportOutcomeLine(outcome);
+  const failed = tone === "error" || (tone === null && /^(?:blocked|error|failed)$/i.test(report.status ?? ""));
 
   return (
     <InboundActivityCard
@@ -61,13 +69,13 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
       disclosureLabel="report Details"
     >
       <div className={`ct-compact-scroll grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
-        {incident && (
+        {outcomeLine && (
           <div
-            data-testid="chat-outbound-report-incident"
+            data-testid={tone === "error" ? "chat-outbound-report-incident" : "chat-outbound-report-outcome"}
             className="min-w-0 break-words"
-            style={{ color: "var(--ct-red)" }}
+            style={{ color: tone === "error" ? "var(--ct-red)" : "var(--ct-muted-fg)" }}
           >
-            {incident}
+            {outcomeLine}
           </div>
         )}
         {body && (
@@ -78,6 +86,15 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
           >
             {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
           </div>
+        )}
+        {diagnostics && (
+          <pre
+            data-testid="chat-outbound-report-diagnostics"
+            className="whitespace-pre-wrap break-words font-mono text-[11px]"
+            style={{ color: "var(--ct-muted-fg)" }}
+          >
+            {diagnostics}
+          </pre>
         )}
       </div>
     </InboundActivityCard>

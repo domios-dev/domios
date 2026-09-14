@@ -59,6 +59,10 @@ function normalizeTestPath(file) {
   return file.split(path.sep).join("/");
 }
 
+const vitestOwnedTests = new Set(
+  JSON.parse(readFileSync(path.join(root, "scripts/vitest-owned-tests.json"), "utf8")),
+);
+
 function collectTests(directory, tests = []) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.isDirectory()) {
@@ -68,7 +72,8 @@ function collectTests(directory, tests = []) {
       continue;
     }
     if (entry.isFile() && /\.test\.tsx?$/.test(entry.name)) {
-      tests.push(normalizeTestPath(path.relative(root, path.join(directory, entry.name))));
+      const relative = normalizeTestPath(path.relative(root, path.join(directory, entry.name)));
+      if (!vitestOwnedTests.has(relative)) tests.push(relative);
     }
   }
   return tests;

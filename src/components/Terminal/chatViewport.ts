@@ -20,13 +20,22 @@ export function nextChatViewportMode(viewport: ChatViewportGeometry): ChatViewpo
   return isChatViewportAtBottom(viewport) ? "pinned" : "detached";
 }
 
+// Fractional device-pixel scroll offsets can leave the visual bottom short of the exact bottom.
+const VIEWPORT_REATTACH_TOLERANCE_PX = 2;
+
+export function isChatViewportNearBottom(viewport: ChatViewportGeometry): boolean {
+  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < VIEWPORT_REATTACH_TOLERANCE_PX;
+}
+
 export function chatViewportModeAfterScroll(
   currentMode: ChatViewportMode,
   previousScrollTop: number,
   viewport: ChatViewportGeometry,
 ): ChatViewportMode {
   if (isChatViewportAtBottom(viewport)) return "pinned";
-  if (currentMode === "detached") return "detached";
+  if (currentMode === "detached") {
+    return isChatViewportNearBottom(viewport) && viewport.scrollTop >= previousScrollTop ? "pinned" : "detached";
+  }
   return previousScrollTop - viewport.scrollTop > VIEWPORT_TOLERANCE_PX ? "detached" : "pinned";
 }
 

@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::host_traits::PluginProviderRegistrar;
 use crate::provider::AgentProvider;
+use crate::webhook::WebhookReceiveContext;
 
 struct TestRegistrar {
     providers: parking_lot::Mutex<Vec<(String, Box<dyn AgentProvider>)>>,
@@ -53,6 +54,7 @@ fn test_caps() -> CapabilityRegistries {
         chatbackend: Arc::new(crate::chatbackend_provider::ChatBackendRegistry::new()),
         chat_preprocessor: Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new()),
         agent_command: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
+        webhook_receiver: Arc::new(crate::webhook::WebhookRegistry::new()),
         secret: None,
     };
     let _ = capabilities.chatbackend.start_discovery();
@@ -118,6 +120,14 @@ fn capability_manifest_full(id: &str, cap_field: &str, requires_reload: bool) ->
     )
 }
 
+fn webhook_manifest_for(id: &str) -> String {
+    use crate::js_runtime::host_api::HOST_API_VERSION;
+    format!(
+        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+            "capabilities":{{"webhookReceiver":{{"kind":"pebble"}}}},"entry":"plugin.js"}}"#
+    )
+}
+
 fn spawnable_chatbackend_manifest(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
@@ -164,6 +174,82 @@ fn watcher_holds_threaded_capability_registries() {
         &held.chat_preprocessor,
         &caps.chat_preprocessor
     ));
+    assert!(Arc::ptr_eq(&held.webhook_receiver, &caps.webhook_receiver));
+}
+
+#[test]
+fn webhook_receiver_registers_reloads_and_deregisters_without_agent_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let registrar = TestRegistrar::new();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        registrar.clone(),
+        caps.clone(),
+    );
+    let dir = root.path().join("pebble");
+    write(&dir.join("plugin.json"), &webhook_manifest_for("pebble"));
+    write(
+        &dir.join("plugin.js"),
+        r#"module.exports.default = {
+            webhookReceive(ctx) { return { text: "v1:" + ctx.payload.value }; }
+        };"#,
+    );
+
+    watcher.tick();
+
+    let receiver = caps
+        .webhook_receiver
+        .get("pebble")
+        .expect("manifest capability registers receiver");
+    assert_eq!(receiver.id(), "pebble");
+    assert_eq!(
+        receiver.kind(),
+        crate::js_runtime::WebhookReceiverKind::Pebble
+    );
+    assert_eq!(
+        registrar.provider_count(),
+        0,
+        "receiver-only plugin is not an agent"
+    );
+    let first = receiver
+        .receive(WebhookReceiveContext {
+            payload: serde_json::json!({"value": "one"}),
+            received_at: "2026-09-11T07:00:00Z".into(),
+        })
+        .expect("first delivery")
+        .expect("first message");
+    assert_eq!(first.text, "v1:one");
+
+    write(
+        &dir.join("plugin.js"),
+        r#"module.exports.default = {
+            webhookReceive(ctx) { return { text: "v2:" + ctx.payload.value }; }
+        };"#,
+    );
+    bump_mtime(&dir.join("plugin.js"));
+    watcher.tick();
+
+    let reloaded = caps
+        .webhook_receiver
+        .get("pebble")
+        .expect("reload keeps receiver registered");
+    let second = reloaded
+        .receive(WebhookReceiveContext {
+            payload: serde_json::json!({"value": "two"}),
+            received_at: "2026-09-11T07:01:00Z".into(),
+        })
+        .expect("reloaded delivery")
+        .expect("reloaded message");
+    assert_eq!(second.text, "v2:two");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    watcher.tick();
+    assert!(
+        caps.webhook_receiver.get("pebble").is_none(),
+        "removed plugin must leave no stale receiver"
+    );
+    assert_eq!(registrar.provider_count(), 0);
 }
 
 #[test]

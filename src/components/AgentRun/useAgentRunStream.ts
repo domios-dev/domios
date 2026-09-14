@@ -5,12 +5,11 @@ import {
   ClaudeStreamParser,
   mergeAssistantMessages,
   reconcileToolInvocations,
-  selectEffectiveToolInvocations,
 } from "./streamParser";
 import type {
   ClaudeStreamEvent,
-  EffectiveToolInvocationState,
   RawLine,
+  ToolInvocationState,
 } from "./streamParser";
 
 interface UseAgentRunStreamOpts {
@@ -21,7 +20,7 @@ interface UseAgentRunStreamOpts {
 
 export interface UseAgentRunStreamResult {
   events: ClaudeStreamEvent[];
-  invocations: EffectiveToolInvocationState[];
+  invocations: ToolInvocationState[];
   rawLines: RawLine[];
   connected: boolean;
   error: string | null;
@@ -183,7 +182,7 @@ export function useAgentRunStream({
   }, [api.host, api.port, api.token, tabId, enabled, reloadKey]);
 
   const invocations = useMemo(
-    () => selectEffectiveToolInvocations(reconcileToolInvocations(events)),
+    () => reconcileToolInvocations(events),
     [events],
   );
 

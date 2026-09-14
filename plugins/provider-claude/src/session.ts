@@ -1,8 +1,20 @@
 import { manifest } from "./shared";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }
-export interface ClaudeMessage { content?: string | ClaudeContentBlock[]; model?: string }
-export interface ClaudeAttachment { type?: string; prompt?: string; commandMode?: string }
+export interface ClaudeMessage { id?: string; content?: string | ClaudeContentBlock[]; model?: string }
+export interface ClaudeAttachment {
+  type?: string;
+  prompt?: string;
+  commandMode?: string;
+  filename?: unknown;
+  path?: unknown;
+}
+export interface ClaudeToolUseResult {
+  returnCode?: unknown;
+  durationMs?: unknown;
+  interrupted?: unknown;
+  backgroundTaskId?: unknown;
+}
 
 export interface ClaudeEntry {
   type?: string;
@@ -16,9 +28,39 @@ export interface ClaudeEntry {
   isMeta?: boolean;
   isCompactSummary?: boolean;
   isVisibleInTranscriptOnly?: boolean;
+  aiTitle?: unknown;
+  filename?: unknown;
+  path?: unknown;
+  toolUseResult?: unknown;
+  sourceToolAssistantUUID?: unknown;
 }
 
-const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = { system: true, user: true, assistant: true, attachment: true };
+const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = {
+  system: true,
+  user: true,
+  assistant: true,
+  attachment: true,
+  "ai-title": true,
+  edited_text_file: true,
+};
+
+function cleanMetadataValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : null;
+}
+
+export function aiTitleFromEntry(entry: ClaudeEntry): string | null {
+  return cleanMetadataValue(entry.aiTitle);
+}
+
+export function editedTextFilePath(entry: ClaudeEntry): string | null {
+  const attachment = entry.attachment;
+  return cleanMetadataValue(entry.filename)
+    || cleanMetadataValue(entry.path)
+    || cleanMetadataValue(attachment?.filename)
+    || cleanMetadataValue(attachment?.path);
+}
 
 // Session-file/model-label helpers aligned with native `~/.claude/projects`.
 // `encode_cwd_dashed` maps path separators to `-` and matches JsProvider path rules.
@@ -64,6 +106,8 @@ export function validateEntry(v: ClaudeEntry): boolean {
 
 function isValidClaudeSessionDelta(v: ClaudeEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "ai-title") return aiTitleFromEntry(v) !== null;
+  if (v.type === "edited_text_file") return editedTextFilePath(v) !== null;
   if (!CLAUDE_SESSION_DELTA_TYPES[v.type as string]) return false;
   if (v.type === "system") {
     const sc = v.content;
@@ -72,7 +116,10 @@ function isValidClaudeSessionDelta(v: ClaudeEntry): boolean {
   }
   if (v.type === "attachment") {
     const a = v.attachment;
-    return !!a && typeof a === "object" && a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0;
+    return !!a && typeof a === "object" && (
+      (a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0)
+      || (a.type === "edited_text_file" && editedTextFilePath(v) !== null)
+    );
   }
   const msg = v.message;
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;

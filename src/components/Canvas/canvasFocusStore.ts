@@ -7,12 +7,15 @@ export interface CanvasFocusTarget {
   focusTabId?: string;
 }
 
+/** The team view a plan or task jump lands on. */
+export type PlanTargetJump = { view: "plan" } | { view: "task"; taskId: string };
+
 export interface CanvasWorkspaceTarget {
   teamId?: string;
   managerTabId?: string | null;
   planId?: string;
   focusTabId?: string;
-  nodeIds?: string[];
+  jump?: PlanTargetJump;
 }
 
 let open = false;
