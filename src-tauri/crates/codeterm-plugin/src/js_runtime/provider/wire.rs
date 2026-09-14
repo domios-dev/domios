@@ -148,6 +148,7 @@ pub(super) fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "skipPermissions": p.skip_permissions,
         "sessionId": p.session_id,
         "structuredPromptServer": p.structured_prompt_server,
+        "launchMarker": p.launch_marker,
     })
 }
 
