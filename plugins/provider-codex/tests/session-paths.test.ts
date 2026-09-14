@@ -61,6 +61,7 @@ const baseHost = (
   const queries: Query[] = [];
   const logs: { level: string; message: string }[] = [];
   const fileChecks: string[] = [];
+  const readFiles: string[] = [];
   let readDirCalls = 0;
   return {
     host: {
@@ -80,7 +81,10 @@ const baseHost = (
           fileChecks.push(file);
           return existing.has(file) || files.has(file);
         },
-        readFile: (file: string) => files.get(file) ?? null,
+        readFile: (file: string) => {
+          readFiles.push(file);
+          return files.get(file) ?? null;
+        },
         sqliteQuery: (db: string, sql: string, params: unknown[]) => {
           queries.push({ db, sql, params });
           return sqliteRows(db, sql, params);
@@ -105,6 +109,7 @@ const baseHost = (
     queries,
     logs,
     fileChecks,
+    readFiles,
     readDirCalls: () => readDirCalls,
   };
 };
@@ -311,6 +316,45 @@ console.log("\n--- an empty session index stays an ordinary empty result ---\n")
   eq(p.enumerateSessions(), [], "an empty session index enumerates no sessions");
   eq(p.detectSessionId(projectCwd), null, "an empty session index detects no session");
   eq(fixture.logs.length, 0, "an empty session index emits no unresolved diagnostic");
+}
+
+console.log("\n--- find_session_reads_one_thread_row_by_id ---\n");
+{
+  const fixture = baseHost(index, (_db, sql, params) => {
+    if (!/FROM threads/.test(sql)) return [];
+    if (params[0] === projectSession) {
+      return [{ id: projectSession, cwd: projectCwd, name: "new project prompt", title: "raw first prompt",
+        created_at: 1788256800, updated_at: 1788260400 }];
+    }
+    if (params[0] === unindexedSession) {
+      return [{ id: unindexedSession, cwd: missingCwd, name: null, title: "unindexed first prompt",
+        created_at: 1788256900, updated_at: 1788260500 }];
+    }
+    return [];
+  });
+  const p = loadCodexWithHost(fixture.host);
+  eq(p.findSession(projectSession), {
+    sessionId: projectSession,
+    provider: "codex",
+    projectPath: projectCwd,
+    title: "new project prompt",
+    summary: null,
+    filePath: indexPath,
+    createdTs: 1788256800,
+    modifiedTs: 1788260400,
+  }, "the thread row answers the exact id with the enumerated identity fields");
+  const found = p.findSession(unindexedSession);
+  eq(found?.title, "unindexed first prompt", "an unnamed thread falls back to its row title");
+  eq(found?.projectPath, null, "a recorded cwd missing on disk stays unknown");
+  eq(p.findSession(foreignSession), null, "an id without a thread row is not owned");
+  const threadQueries = fixture.queries.filter((query) => /FROM threads/.test(query.sql));
+  eq(threadQueries.map((query) => query.params[0]), [projectSession, unindexedSession, foreignSession],
+    "each lookup issues exactly one thread query keyed by the requested id");
+  eq(fixture.readFiles, [], "exact lookup never reads the session index");
+
+  const before = fixture.queries.length;
+  eq(p.findSession(""), null, "an empty id is refused");
+  eq(fixture.queries.length, before, "an empty id issues no query");
 }
 
 console.log("\n--- detection rejects an absent requested cwd ---\n");
