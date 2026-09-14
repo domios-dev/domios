@@ -73,6 +73,7 @@ function isOwnedCodexHook(hook: NonNullable<CodexHookEntry["hooks"]>[number] | u
 export const CODEX_HOOK_SCRIPT_CONTRACT = [
   CODETERM_CODEX_HOOK_MARKER,
   CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+  "$HookEvent",
   "CODETERM_TAB_ID",
   "CODETERM_API_URL",
   "CODETERM_API_TOKEN",
@@ -104,6 +105,8 @@ export function isOwnedCodexHookScriptContent(text: string): boolean {
 export function isCurrentCodexHookScriptContent(text: string): boolean {
   if (!isOwnedCodexHookScriptContent(text)) return false;
   if (/:\d{2,5}/.test(text)) return false;
+  // An instance fallback (a port variable or a loopback host) routes prod agents to dev.
+  if (text.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
     if (text.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
   }

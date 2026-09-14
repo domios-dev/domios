@@ -786,6 +786,7 @@ fn agent_restart_response(
         "restart_accepted": outcome.restart_accepted,
         "old_pty_torn_down": outcome.old_pty_torn_down,
         "agent_ready": outcome.agent_ready,
+        "recovered_in_place": outcome.recovered_in_place,
         "old_pty_id": outcome.old_pty_id,
         "new_pty_id": outcome.new_pty_id,
         "tab_id": outcome.tab_id,

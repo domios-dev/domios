@@ -95,7 +95,7 @@ pub(crate) async fn rebind_session(
         }
     };
     let response = finish_session_binding(
-        &state,
+        &state.svc,
         &tab_id,
         &commit.provider_id,
         requested,
@@ -104,6 +104,7 @@ pub(crate) async fn rebind_session(
         "cli-rebind",
         &serde_json::Value::Null,
         commit.claim,
+        crate::session::lifecycle::BindingSource::Hook,
     )
     .await?;
     Ok(Json(serde_json::json!({

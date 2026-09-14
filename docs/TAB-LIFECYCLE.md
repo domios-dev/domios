@@ -43,7 +43,7 @@ change that decision.
 6. A provider exit observed while a graceful shutdown is armed (update, quit,
    restart, signal) keeps the tab's provider, session and nonces. The shutdown
    killed that process, so the snapshot written at exit still names the session
-   the next boot resumes. Outside a shutdown the same exit clears the identity.
+   the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place.
 
 ## Restore reporting and observed liveness
 
@@ -100,7 +100,7 @@ One JSON object per line, in journal order. Two record kinds:
 {"record":"transition","entry":{
   "seq":41,
   "key":{"tab_id":"db79d2da","epoch":3,"operation_id":"6f1c…"},
-  "transition":{"transition":"session_bound","session_id":"…","binding_nonce":"…"},
+  "transition":{"transition":"session_bound","session_id":"…","binding_nonce":"…","source":"hook"},
   "recorded_at":"2026-08-04T11:20:31Z"
 }}
 
@@ -150,7 +150,7 @@ affects only what the journal itself can report — it has no effect on restore.
 | `epoch_opened` | A launch operation begins. |
 | `provider_identity_committed` | Provider accepted for this operation. |
 | `agent_type_write` | Provider-label write audit: origin, previous/new/attempted provider, caller tab, claimed session, nonce verification, and whether it applied. Parser writes are diagnostic only. |
-| `session_bound` | Provider session bound and proven by the echoed launch nonce. |
+| `session_bound` | Provider session bound for the tab's current launch nonce. `source` is `hook` (the provider echoed the nonce), `pid_registry` (the provider's per-process record for a process in the tab's own PTY tree, start time matched), or `launch_marker` (the provider's session record carries the marker this launch wrote). The two detected sources run only after the hook missed its launch deadline; records without `source` read as `hook`. |
 | `role_binding` | Role/profile/`can_spawn`/`depth` as committed. `role` absent means a role deliberately cleared. |
 | `team_binding` | Team and parent as committed. `team_id` absent means unbound. |
 | `launch_ready` | **Seals** the operation. |

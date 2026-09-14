@@ -17,7 +17,8 @@ pub use journal::{
     COMPACT_AT_RECORDS, JOURNAL_FILE_NAME,
 };
 pub use record::{
-    AgentTypeWriteAudit, AgentTypeWriteOrigin, CommittedAuthority, JournalRecord, JournalSeq,
+    AgentTypeWriteAudit, AgentTypeWriteOrigin, BindingSource, CommittedAuthority, JournalRecord,
+    JournalSeq,
     LifecycleCheckpoint, LifecycleCheckpointHistoryEntry, LifecycleEntry, LifecycleEpoch,
     LifecycleKey, LifecycleTransition, PermissionAutoConfirmDecision,
 };

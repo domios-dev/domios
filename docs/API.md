@@ -143,7 +143,7 @@ and response shapes are documented in the API-TRANSPORT reference.
 | POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY tab's provider/session identity without restarting it. Modes are mutually exclusive; an empty body defaults to `from_evidence`. Caller proof comes from `X-CodeTerm-Tab-Id` and `X-CodeTerm-Binding-Nonce`, plus `X-CodeTerm-Session-Id` when the launch already knew it; the proven caller must be the target tab or the registered owner of the target's bound plan task. Provider writes require a nonce-verified session record and go through the journaled identity boundary. Response shape, journal mode, and refusals: see API-REPAIR. |
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-TABS |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
-| POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart an observed live agent in this tab; an absent or unobserved process is refused before acceptance. See [Agent Restart](#agent-restart-post-apitabsidagentrestart). |
+| POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart an observed live agent, or resume an exited provider's verified owned session in its shell. See [Agent Restart](#agent-restart-post-apitabsidagentrestart). |
 
 #### Chat attachment authority
 

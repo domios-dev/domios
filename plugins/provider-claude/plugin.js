@@ -33,6 +33,45 @@ function manifest() {
   }
 }
 
+// plugins/provider-claude/src/launchSession.ts
+var PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
+function registryDir() {
+  const override = host.envGet(PROCESS_REGISTRY_DIR_ENV);
+  if (override) return override;
+  const home = host.homeDir();
+  if (!home) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".claude" + sep + "sessions";
+}
+function registrySessionId(raw, pid, startToken) {
+  let record;
+  try {
+    record = JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+  if (!record || typeof record !== "object" || record.pid !== pid) return null;
+  if (typeof record.kind === "string" && record.kind !== "interactive") return null;
+  if (typeof record.procStart !== "string") return null;
+  if (!startToken || record.procStart.trim() !== startToken) return null;
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  return sessionId || null;
+}
+function detectClaudeLaunchSession(evidence) {
+  const dir = registryDir();
+  if (!dir || !evidence || !Array.isArray(evidence.processes)) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const processes = evidence.processes.slice().sort((a, b) => a.depth - b.depth || a.pid - b.pid);
+  for (let i = 0; i < processes.length; i++) {
+    const proc = processes[i];
+    const raw = host.fs.readFile(dir + sep + proc.pid + ".json");
+    if (typeof raw !== "string") continue;
+    const sessionId = registrySessionId(raw, proc.pid, String(proc.startToken || ""));
+    if (sessionId) return { sessionId, source: "pid_registry" };
+  }
+  return null;
+}
+
 // plugins/provider-claude/src/usage.ts
 function usageNormalize(raw) {
   let out = "";
@@ -1956,6 +1995,9 @@ var plugin = {
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
   classifyTabState(snapshot) {
     return classifyClaudeTabState(snapshot);
+  },
+  detectLaunchSession(evidence) {
+    return detectClaudeLaunchSession(evidence);
   }
 };
 function canonicalToolFields(name, input) {

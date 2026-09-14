@@ -17,6 +17,29 @@ const receiptEvents = [];
 // Output-side events for the watched tab follow the stub's receipt into the screen buffer.
 const TAB_OUTPUT_EVENTS = new Set(["agent.task_complete", "tab-status-changed", "chat-stream-preview"]);
 
+// A journal line still being appended does not parse yet; the next event re-reads it.
+function journalRecords(path) {
+  let body;
+  try {
+    body = readFileSync(path, "utf8");
+  } catch {
+    return [];
+  }
+  return body.split(/\r?\n/).filter(Boolean).flatMap((line) => {
+    try {
+      return [JSON.parse(line)];
+    } catch {
+      return [];
+    }
+  });
+}
+const journalSeq = (record) => (record.record === "checkpoint" ? record.checkpoint.committed_through : record.entry.seq);
+const journalTab = (record) => (record.record === "checkpoint" ? record.checkpoint.key.tab_id : record.entry.key.tab_id);
+// Captured before READY, so only records the observed action appended can prove it.
+const journalBaseline = mode === "resumed"
+  ? journalRecords(values[2]).reduce((max, record) => Math.max(max, journalSeq(record)), 0)
+  : 0;
+
 function shouldEvaluate(event) {
   if (["mux-state-changed", "plan-changed", "overflow"].includes(event.event_type)) return true;
   if (mode !== "received" || !TAB_OUTPUT_EVENTS.has(event.event_type)) return false;
@@ -86,7 +109,7 @@ async function observedState() {
     }
     return { tab_id: tab.id, agent_liveness: tab.agent_liveness };
   }
-  if (mode === "in-tab-ready") {
+  if (mode === "resumed") {
     const [tabId, sessionId, journalPath] = values;
     const tab = tabs.find((candidate) => candidate.id === tabId);
     lastMatchingTab = tab
@@ -104,12 +127,14 @@ async function observedState() {
       || tab.boot_stage !== "agent_ready"
       || tab.agent_session_id !== sessionId
     ) return null;
-    const transitions = readFileSync(journalPath, "utf8")
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .filter((record) => record.record === "transition" && record.entry?.key?.tab_id === tabId)
-      .map((record) => record.entry);
+    const appended = journalRecords(journalPath)
+      .filter((record) => journalSeq(record) > journalBaseline && journalTab(record) === tabId);
+    const checkpoint = appended.find((record) => record.record === "checkpoint"
+      && record.checkpoint.authority?.session_id === sessionId);
+    if (checkpoint) {
+      return { tab_id: tabId, epoch: checkpoint.checkpoint.key.epoch, operation_id: checkpoint.checkpoint.key.operation_id };
+    }
+    const transitions = appended.filter((record) => record.record === "transition").map((record) => record.entry);
     const operation = (entry) => `${entry.key.epoch}/${entry.key.operation_id}`;
     const boundOperations = new Set(transitions
       .filter((entry) => entry.transition.transition === "session_bound"
@@ -119,27 +144,6 @@ async function observedState() {
       && boundOperations.has(operation(entry)));
     if (!sealed) return null;
     return { tab_id: tabId, epoch: sealed.key.epoch, operation_id: sealed.key.operation_id };
-  }
-  if (mode === "rebound") {
-    const [tabId, previousSessionId] = values;
-    const tab = tabs.find((candidate) => candidate.id === tabId);
-    lastMatchingTab = tab
-      ? {
-          id: tab.id,
-          agent_liveness: tab.agent_liveness,
-          boot_stage: tab.boot_stage ?? null,
-          agent_session_id: tab.agent_session_id ?? null,
-        }
-      : null;
-    if (lastMatchingTab) matchingTabStates.push(lastMatchingTab);
-    if (
-      !tab
-      || tab.agent_liveness !== "live"
-      || tab.boot_stage !== "agent_ready"
-      || !tab.agent_session_id
-      || tab.agent_session_id === previousSessionId
-    ) return null;
-    return { tab_id: tabId, agent_session_id: tab.agent_session_id };
   }
   if (mode === "received") {
     const [tabId, marker] = values;

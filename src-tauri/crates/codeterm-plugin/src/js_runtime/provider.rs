@@ -481,6 +481,17 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
+    fn detect_launch_session(
+        &self,
+        evidence: &provider::LaunchSessionEvidence,
+    ) -> Option<provider::LaunchSessionDetection> {
+        self.try_call::<Option<provider::LaunchSessionDetection>>(
+            "detectLaunchSession",
+            &[json!(evidence)],
+        )
+        .flatten()
+    }
+
     fn detect_session_id(
         &self,
         cwd: &str,

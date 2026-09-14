@@ -12,6 +12,7 @@
 
 import {
   CODEX_HOOK_SCRIPT_CONTRACT,
+  codexWindowsHookScript,
   codexHookContentHash,
   isCurrentCodexHookScriptContent,
   isOwnedCodexHookScriptContent,
@@ -84,6 +85,21 @@ for (const token of CODEX_HOOK_SCRIPT_CONTRACT) {
   // sends one instance's agents to the other.
   const withPort = satisfiesContract("http://127.0.0.1:7685/api/tabs/x\n");
   eq(isCurrentCodexHookScriptContent(withPort), false, "instance-specific content is never current");
+}
+
+{
+  // A script that falls back to an instance when its environment is missing
+  // is stale, so startup reconciliation replaces it with the fail-closed one.
+  const portFallback = satisfiesContract("$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT }\n");
+  eq(isCurrentCodexHookScriptContent(portFallback), false, "a port-variable fallback is never current");
+  const hostFallback = satisfiesContract("$base = \"http://127.0.0.1:$port\"\n");
+  eq(isCurrentCodexHookScriptContent(hostFallback), false, "a loopback-host fallback is never current");
+}
+
+{
+  const generated = codexWindowsHookScript();
+  eq(isCurrentCodexHookScriptContent(generated), true, "the generated script satisfies its own contract");
+  eq(generated.indexOf("CODETERM_API_PORT"), -1, "the generated script reads no port variable");
 }
 
 {

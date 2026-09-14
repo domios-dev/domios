@@ -32,6 +32,9 @@ pub(crate) struct LaunchRegistry {
     tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
 #[cfg(test)]
+#[path = "launch/exit_recovery_shell_tests.rs"]
+mod exit_recovery_shell_tests;
+#[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
 #[derive(Clone, Debug)]
@@ -376,6 +379,16 @@ fn reused_provider_tui_owns_launch(
     reused_live_pty && tab_agent_type == Some(requested_agent) && provider_tui_visible
 }
 
+/// The screen gate misses a prompt drawn beneath an exited provider's frame, so
+/// recovery on its own PTY reads the shell's command lifecycle as a level instead.
+fn shell_prompt_already_idle(
+    recovers_exited_provider: bool,
+    reused_live_pty: bool,
+    prompt_idle_after_command: impl FnOnce() -> bool,
+) -> bool {
+    recovers_exited_provider && reused_live_pty && prompt_idle_after_command()
+}
+
 fn start_backend_reader(
     svc: &ServiceContext,
     pty_id: &str,
@@ -688,12 +701,19 @@ pub(crate) fn launch_agent_in_background_with_env(
         let provider_tui_visible = registry
             .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
             .unwrap_or(false);
-        if reused_provider_tui_owns_launch(
-            reused_live_pty,
-            tab_agent_type.as_deref(),
-            &agent_cmd,
-            provider_tui_visible,
-        ) {
+        // An exited provider's frame can outlive it on screen; recovery still writes its command.
+        let recovers_exited_provider = matches!(
+            origin,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
+        );
+        if !recovers_exited_provider
+            && reused_provider_tui_owns_launch(
+                reused_live_pty,
+                tab_agent_type.as_deref(),
+                &agent_cmd,
+                provider_tui_visible,
+            )
+        {
             log::info!(
                 "launch_agent: Tab {} already owns live {} TUI on PTY {}; preserving ready state",
                 tab_id,
@@ -719,11 +739,24 @@ pub(crate) fn launch_agent_in_background_with_env(
             &launch.pty_id,
         );
 
-        if !crate::service::pty_io::await_bare_shell_prompt(
-            &svc.screen_state,
-            &pty_id,
-            std::time::Duration::from_secs(30),
-        ) {
+        let shell_already_idle =
+            shell_prompt_already_idle(recovers_exited_provider, reused_live_pty, || {
+                svc.shell_caps.lock().prompt_idle_after_command(&pty_id)
+            });
+        if shell_already_idle {
+            log::info!(
+                "launch_agent: Tab {} exit recovery reuses the idle shell prompt on PTY {}",
+                tab_id,
+                pty_id
+            );
+        }
+        if !shell_already_idle
+            && !crate::service::pty_io::await_bare_shell_prompt(
+                &svc.screen_state,
+                &pty_id,
+                std::time::Duration::from_secs(30),
+            )
+        {
             let error = LaunchFailure::ShellReadyTimeout.reason();
             launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
             set_booting(false);
@@ -1057,6 +1090,26 @@ pub(crate) fn build_agent_command(
     injected_session_id: Option<&str>,
     registry: &AgentRegistry,
 ) -> String {
+    build_agent_command_with_launch_marker(
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+        None,
+    )
+}
+
+/// `launch_marker` is the inert per-launch token a provider may carry into its
+/// own session record for hook-independent binding.
+pub(crate) fn build_agent_command_with_launch_marker(
+    agent_cmd: &str,
+    params: &SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &AgentRegistry,
+    launch_marker: Option<&str>,
+) -> String {
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
     if let Some(ref model) = params.model {
         if !model.is_empty() {
@@ -1130,6 +1183,7 @@ pub(crate) fn build_agent_command(
         skip_permissions: params.permission_bypass_requested(agent_cmd),
         session_id: injected_session_id.map(std::string::ToString::to_string),
         structured_prompt_server: params.structured_prompt_server.clone(),
+        launch_marker: launch_marker.map(str::to_string),
     };
     let cmd = registry
         .with_provider(agent_cmd, |p| {

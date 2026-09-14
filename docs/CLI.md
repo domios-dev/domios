@@ -127,7 +127,7 @@ Send a report to your parent in the hierarchy
 
 #### `codeterm agent restart`
 
-Restart an observed live agent; an exited provider requires a fresh spawn
+Restart a live agent, or resume an exited provider's verified session in its shell
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
@@ -471,6 +471,23 @@ Add a standalone task to the workspace Inbox
 - `--type`
 - `--why`
 - `--why-file`
+
+#### `codeterm integration`
+
+Provider hook integration: install it with recorded consent and trust, or read its state
+
+#### `codeterm integration install`
+
+Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
+
+- `--precompact-memory-export` — Also export conversation content to memory before compaction
+- `--provider` — Provider id (e.g. claude, codex)
+
+#### `codeterm integration status`
+
+Show a provider's hook integration state
+
+- `--provider` — Provider id (e.g. claude, codex)
 
 #### `codeterm keepawake`
 
