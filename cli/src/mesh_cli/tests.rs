@@ -696,6 +696,7 @@ fn workspace_create_over_mesh_preserves_cwd() {
         action: crate::WorkspaceAction::Create {
             name: "remote".into(),
             cwd: Some("D:/Developer/project".into()),
+            provision: false,
         },
     };
 
@@ -706,6 +707,26 @@ fn workspace_create_over_mesh_preserves_cwd() {
     assert_eq!(path, "/api/workspaces");
     assert_eq!(body["name"], "remote");
     assert_eq!(body["cwd"], "D:/Developer/project");
+    assert!(body.get("provision").is_none());
+}
+
+#[test]
+fn workspace_create_over_mesh_carries_provision() {
+    let command = Commands::Workspace {
+        action: crate::WorkspaceAction::Create {
+            name: "bench".into(),
+            cwd: None,
+            provision: true,
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/workspaces");
+    assert_eq!(body["provision"], true);
+    assert!(body.get("cwd").is_none());
 }
 
 #[test]

@@ -51,6 +51,9 @@ pub struct WorkspaceInfo {
     /// Set to true when create_workspace deduped by cwd (no new ws was created).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub existing: Option<bool>,
+    /// True when the daemon created this workspace's directory.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub provisioned: bool,
 }
 
 /// Central multiplexer state: workspaces, tabs, tabs, and their relationships.
@@ -323,6 +326,7 @@ impl MultiplexerState {
             tabs: vec![tab_id.clone()],
             active_tab_id: Some(tab_id.clone()),
             cwd: None,
+            provisioned_cwd: None,
             protected: false,
             sort_order: 0,
         };

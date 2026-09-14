@@ -140,6 +140,7 @@ pub(crate) use worker_lane::{
 };
 mod worker_persona;
 mod workspace;
+mod workspace_provision;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
 

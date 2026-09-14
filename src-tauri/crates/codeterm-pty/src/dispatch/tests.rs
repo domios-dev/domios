@@ -148,6 +148,14 @@ impl CommandPort for StartupBlockedPort {
         unreachable!()
     }
 
+    fn create_provisioned_workspace(
+        &self,
+        _: String,
+        _: bool,
+    ) -> Result<crate::multiplexer::state::WorkspaceInfo, String> {
+        unreachable!()
+    }
+
     fn rename_workspace(&self, _: &str, _: &str) -> Result<(), String> {
         unreachable!()
     }
@@ -292,6 +300,7 @@ fn command_round_trips_through_json() {
             name: "w".into(),
             cwd: None,
             activate: None,
+            provision: true,
         },
         Command::WorkspaceRename {
             workspace_id: "w".into(),
@@ -330,10 +339,12 @@ fn workspace_create_deserialize() {
             name,
             cwd,
             activate,
+            provision,
         } => {
             assert_eq!(name, "proj");
             assert_eq!(cwd.as_deref(), Some("/tmp"));
             assert!(activate.is_none());
+            assert!(!provision);
         }
         _ => panic!("wrong variant"),
     }
@@ -348,10 +359,12 @@ fn workspace_create_deserialize_no_cwd() {
             name,
             cwd,
             activate,
+            provision,
         } => {
             assert_eq!(name, "proj");
             assert!(cwd.is_none());
             assert!(activate.is_none());
+            assert!(!provision);
         }
         _ => panic!("wrong variant"),
     }
@@ -365,6 +378,49 @@ fn workspace_create_deserialize_with_activate() {
         Command::WorkspaceCreate { activate, .. } => assert_eq!(activate, Some(true)),
         _ => panic!("wrong variant"),
     }
+}
+
+#[test]
+fn workspace_create_deserialize_with_provision() {
+    let json = r#"{"cmd":"workspace_create","name":"bench","provision":true}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::WorkspaceCreate { cwd, provision, .. } => {
+            assert!(cwd.is_none());
+            assert!(provision);
+        }
+        _ => panic!("wrong variant"),
+    }
+}
+
+#[test]
+fn workspace_provision_with_cwd_is_refused_before_any_workspace_is_created() {
+    let error = dispatch(
+        &Command::WorkspaceCreate {
+            name: "bench".into(),
+            cwd: Some("/home/user/project".into()),
+            activate: None,
+            provision: true,
+        },
+        &StartupBlockedPort,
+    )
+    .unwrap_err();
+    assert_eq!(error, WORKSPACE_PROVISION_CWD_CONFLICT);
+}
+
+#[test]
+fn workspace_create_wire_cannot_inject_provenance() {
+    let json = r#"{"cmd":"workspace_create","name":"proj","cwd":"/home/user/project","provisioned_cwd":"/home/user/project"}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    let echoed = serde_json::to_value(&cmd).unwrap();
+    assert!(echoed.get("provisioned_cwd").is_none());
+    assert!(matches!(
+        cmd,
+        Command::WorkspaceCreate {
+            provision: false,
+            ..
+        }
+    ));
 }
 
 #[test]

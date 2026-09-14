@@ -227,6 +227,7 @@ fn snapshot(leaves: Vec<SplitNodeSnapshot>) -> SessionSnapshot {
             name: "Main".into(),
             active_tab_id: None,
             cwd: None,
+            provisioned_cwd: None,
             protected: false,
             sort_order: 0,
             tabs: leaves

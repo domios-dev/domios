@@ -14481,7 +14481,7 @@
         },
         {
           "name": "create",
-          "about": "Create a new workspace. With --cwd, reuses an existing workspace at that cwd",
+          "about": "Create a new workspace. With --cwd, reuses an existing workspace at that cwd. With --provision, the daemon creates a fresh directory for it",
           "aliases": [],
           "args": [
             {
@@ -14502,6 +14502,16 @@
               "possible_values": [],
               "default": null,
               "help": "Workspace name",
+              "aliases": []
+            },
+            {
+              "name": "provision",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVISION",
+              "possible_values": [],
+              "default": null,
+              "help": "Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust",
               "aliases": []
             }
           ],

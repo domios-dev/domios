@@ -355,6 +355,7 @@ mod tests {
                 name: "Welcome".into(),
                 active_tab_id: Some("tab-picker".into()),
                 cwd: None,
+                provisioned_cwd: None,
                 protected: false,
                 sort_order: 0,
                 tabs: vec![TabSnapshot {
