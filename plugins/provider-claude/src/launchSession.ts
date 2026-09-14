@@ -1,6 +1,5 @@
-// Claude keeps one registry record per live process, keyed by pid. A record binds
-// this tab only when its pid is in the tab's own process tree and its recorded
-// process start equals the live process's start. Mirrors agent_claude/provider/launch_session.rs.
+// A registry record binds only when its pid is in this tab's process tree and its
+// recorded start equals the live process start (mirrors agent_claude launch_session.rs).
 import type { LaunchSessionDetection, LaunchSessionEvidence } from "@codeterm/plugin-sdk";
 
 export const PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";

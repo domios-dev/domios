@@ -15,6 +15,7 @@ fn bound(seq: u64, tab_id: &str, session_id: &str) -> JournalRecord {
             transition: LifecycleTransition::SessionBound {
                 session_id: session_id.into(),
                 binding_nonce: format!("nonce-{seq}"),
+                source: Default::default(),
             },
             recorded_at: String::new(),
         },
