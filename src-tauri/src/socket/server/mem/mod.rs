@@ -15,7 +15,7 @@ use crate::mem::learnings::{self, LearnKind};
 use crate::mem::store::{with_changed_by, MemKind, MemScope, MemUpdate, NewMemItem};
 use crate::service::ServiceState;
 
-use super::{get_string_param, JsonRpcError};
+use super::{get_string_param, opt_string_param, JsonRpcError};
 use crate::multiplexer::types::TabCloseReason;
 
 pub(super) fn dispatch(
@@ -623,6 +623,11 @@ fn mem_worker_report(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
     let summary = get_string_param(&params, "summary")?;
+    let reported = crate::mem::dream_runs::ReportedFinalization {
+        diary_id: opt_string_param(&params, "diary"),
+        claim: opt_string_param(&params, "finalization"),
+        reason: opt_string_param(&params, "reason"),
+    };
     let worker_tab_id = svc.workers.get(&id).map(|w| w.tab_id.clone());
     let (pty_id, session_id, run_cwd) = worker_tab_id
         .as_ref()
@@ -653,6 +658,7 @@ fn mem_worker_report(
         }
         svc.run_watcher.mark_completed_externally(pty_id);
     }
+    crate::mem::dream_runs::record_reported_finalization(svc, &id, &reported);
     let info = svc.workers.complete(&id, summary).map_err(not_found)?;
     crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-reported", &info);
     let svc_close = svc.clone();

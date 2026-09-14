@@ -6,6 +6,7 @@ impl MultiplexerState {
         let workspace_id = short_id();
 
         let workspace = Workspace {
+            task_keys: Default::default(),
             id: workspace_id.clone(),
             name: name.clone(),
             tabs: vec![],

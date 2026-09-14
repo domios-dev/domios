@@ -41,6 +41,7 @@ pub struct CapabilityRegistries {
     pub chatbackend: crate::chatbackend_provider::ChatBackendRegistryHandle,
     pub chat_preprocessor: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
     pub agent_command: crate::agent_commands::AgentCommandRegistryHandle,
+    pub webhook_receiver: crate::webhook::WebhookRegistryHandle,
     pub secret: Option<Arc<dyn SecretBackendRegistrar>>,
 }
 
@@ -99,6 +100,16 @@ impl CapabilityRegistries {
                 Arc::new(super::JsChatPreprocessor::new(vm.clone(), id.clone())),
             );
         }
+        if let Some(receiver) = &caps.webhook_receiver {
+            self.webhook_receiver.register(
+                id.clone(),
+                Arc::new(super::JsWebhookReceiver::new(
+                    vm.clone(),
+                    id.clone(),
+                    receiver.kind,
+                )),
+            );
+        }
         if vm.agent_commands_allowed() {
             self.agent_command.register(
                 id.clone(),
@@ -137,6 +148,7 @@ impl CapabilityRegistries {
         self.view.unregister(id);
         self.chat_preprocessor.unregister(id);
         self.agent_command.unregister(id);
+        self.webhook_receiver.unregister(id);
     }
 }
 
@@ -527,6 +539,7 @@ impl HotReloadRegistry {
                     provider.set_registrar(self.registrar.clone());
                     self.registrar.register_provider(Box::new(provider));
                     log::info!("[plugin-watcher] registered {id}");
+                    self.registrar.provider_reloaded(&id);
                     self.emit_agent_provider_changed();
                 } else {
                     if was_spawnable_chatbackend

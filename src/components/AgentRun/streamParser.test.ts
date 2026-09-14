@@ -2,7 +2,6 @@ import {
   ClaudeStreamParser,
   mergeAssistantMessages,
   reconcileToolInvocations,
-  selectEffectiveToolInvocations,
   type ClaudeStreamEvent,
 } from "./streamParser";
 
@@ -59,10 +58,6 @@ function toolResult(
 
 function states(chunks: string[]) {
   return reconcileToolInvocations(parseAll(chunks));
-}
-
-function effectiveStates(chunks: string[]) {
-  return selectEffectiveToolInvocations(states(chunks));
 }
 
 {
@@ -128,64 +123,26 @@ function effectiveStates(chunks: string[]) {
 }
 
 {
-  const invocations = effectiveStates([
-    toolUse("exec-1", "Bash", { command: "npm test" }),
-    toolUse("wait-1", "Wait", { command_id: "exec-1" }),
-    toolResult("wait-1", "done"),
-  ]);
-  const parent = invocations.find((item) => item.toolUseId === "exec-1");
-  const wait = invocations.find((item) => item.toolUseId === "wait-1");
-  eq(wait?.link, {
-    parentInvocationKey: "tool:exec-1",
-    relationship: "wait",
-  }, "wait continuation explicitly links to parent exec");
-  eq(
-    [parent?.state, parent?.effectiveState, parent?.effectiveResult, parent?.effectiveIsError, parent?.terminalTransitionCount],
-    ["success", "success", "done", false, 1],
-    "wait completion terminalizes the linked parent exactly once",
-  );
-}
-
-{
-  const invocations = effectiveStates([
-    toolUse("exec-timeout", "Bash", { command: "sleep 20" }),
-    toolUse("wait-timeout", "Wait", { command_id: "exec-timeout" }),
-    toolResult("wait-timeout", "timeout after 20s", true),
-  ]);
-  const parent = invocations.find((item) => item.toolUseId === "exec-timeout");
-  eq(
-    [parent?.state, parent?.effectiveState, parent?.effectiveResult, parent?.effectiveIsError, parent?.terminalTransitionCount],
-    ["timeout", "timeout", "timeout after 20s", true, 1],
-    "wait timeout reconciles into parent effective timeout state",
-  );
-}
-
-{
   const invocations = states([
-    toolUse("exec-late", "Bash", { command: "echo done" }),
-    toolUse("wait-late", "Wait", { command_id: "exec-late" }),
-    toolResult("wait-late", "done"),
-    toolResult("exec-late", "late direct result", false, "exec-late-direct-late"),
-    toolResult("wait-late", "late wait result", true, "wait-late-duplicate"),
+    toolUse("exec-1", "exec", { cmd: "npm test" }),
+    toolUse("wait-1", "exec", { raw: "await tools.write_stdin({session_id:1,chars:\"\"})" }),
+    toolUse("wait-agent-1", "wait_agent", { ids: ["agent-1"] }),
+    toolResult("wait-1", "poll output"),
+    toolResult("wait-agent-1", "agent finished", true),
   ]);
   eq(
-    invocations.map((item) => [item.toolUseId, item.state, item.result, item.terminalTransitionCount]),
+    invocations.map((item) => [item.toolUseId, item.name, item.state, item.result ?? null, item.terminalTransitionCount]),
     [
-      ["exec-late", "success", "done", 1],
-      ["wait-late", "success", "done", 1],
+      ["exec-1", "exec", "running", null, 0],
+      ["wait-1", "exec", "success", "poll output", 1],
+      ["wait-agent-1", "wait_agent", "failure", "agent finished", 1],
     ],
-    "linked phases retain their first terminal transition after late results",
+    "wait and poll follow-ups are ordinary invocations that never settle another call",
   );
-}
-
-{
-  const invocations = effectiveStates([
-    toolUse("orphan-wait", "Wait", { command_id: "missing-parent" }),
-    toolResult("orphan-wait", "done"),
-  ]);
-  const wait = invocations[0];
-  eq(wait?.effectiveState, "success", "wait parent missing still settles its own invocation");
-  eq(wait?.link?.parentInvocationKey, "tool:missing-parent", "missing parent link is preserved");
+  assert(
+    invocations.every((item) => !("link" in item) && !("phase" in item)),
+    "invocations carry no wait relationship or phase",
+  );
 }
 
 {
@@ -241,11 +198,11 @@ function effectiveStates(chunks: string[]) {
   for (let index = 19; index >= 0; index -= 1) {
     chunks.push(toolResult(`parallel-${index}`, `done ${index}`, false, `msg-result-${index}`));
   }
-  const invocations = effectiveStates(chunks);
+  const invocations = states(chunks);
   const keys = invocations.map((item) => item.key);
   eq(new Set(keys).size, 20, "20 interleaved commands keep unique stable keys");
   eq(
-    invocations.every((item) => item.effectiveState === "success"),
+    invocations.every((item) => item.state === "success"),
     true,
     "20 interleaved commands settle independently",
   );

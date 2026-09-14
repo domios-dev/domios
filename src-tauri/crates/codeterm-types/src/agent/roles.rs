@@ -68,6 +68,14 @@ pub enum ReportStatus {
     Partial,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportOutcomeClass {
+    StaleBindingConflict,
+    StructurallyNotAttachable,
+    DeliveredUnattached,
+}
+
 impl ReportStatus {
     pub fn label(self) -> &'static str {
         match self {

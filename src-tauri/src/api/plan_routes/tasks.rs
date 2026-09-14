@@ -13,7 +13,9 @@ use crate::plan::{
 };
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
-use crate::service::{persist_attempt_executor_identity_for_mux, respawn_title_provenance};
+use crate::service::{
+    persist_attempt_executor_identity_for_mux, respawn_title_provenance, ServiceState,
+};
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
@@ -330,6 +332,7 @@ pub async fn task_add(
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "task_id": tid.clone(),
+        "key": state.svc.plan_store.task_display_key(&id, &tid),
         "_hints": crate::service::plan::hints::task_create_hints(
             &id,
             &tid,
@@ -350,7 +353,7 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     task_update_core(&state.svc, &headers, &id, &tid, body)
 }
 
@@ -560,7 +563,7 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     let owner_epoch = state
         .svc
@@ -640,7 +643,7 @@ pub async fn task_assign(
             &crate::api::tab_routes::authenticated_plan_caller(&headers),
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     let owner_epoch = state
         .svc
         .plan_store
@@ -765,24 +768,23 @@ fn rest_task_mutation_authority(
 /// REST twin of the socket gate's recovery classification: only these verbs may
 /// be widened for the live Plan owner. `task_rm` is deliberately excluded.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TaskMutationKind {
+pub(super) enum TaskMutationKind {
     Recovery,
     Ordinary,
 }
 
-fn owner_tab_is_gone(state: &AppState, owner_tab_id: Option<&str>) -> bool {
-    owner_tab_id.is_none_or(|tab_id| state.svc.mux.read().get_tab(tab_id).is_none())
+fn owner_tab_is_gone(svc: &ServiceState, owner_tab_id: Option<&str>) -> bool {
+    owner_tab_id.is_none_or(|tab_id| svc.mux.read().get_tab(tab_id).is_none())
 }
 
-fn verify_task_mutation_owner(
-    state: &AppState,
+pub(super) fn verify_task_mutation_owner(
+    svc: &ServiceState,
     headers: &HeaderMap,
     plan_id: &str,
     task_id: &str,
     recovery: TaskMutationKind,
 ) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
-    let detail = state
-        .svc
+    let detail = svc
         .plan_store
         .show_task(task_id)
         .filter(|detail| detail.plan_id == plan_id)
@@ -791,17 +793,15 @@ fn verify_task_mutation_owner(
         return Ok(());
     }
     if recovery == TaskMutationKind::Recovery
-        && owner_tab_is_gone(state, detail.task.interruption.owner_tab_id.as_deref())
-        && state
-            .svc
+        && owner_tab_is_gone(svc, detail.task.interruption.owner_tab_id.as_deref())
+        && svc
             .authorize_plan_orchestrator(
                 plan_id,
                 &crate::api::tab_routes::authenticated_plan_caller(headers),
             )
             .is_ok()
     {
-        return state
-            .svc
+        return svc
             .plan_store
             .retire_stale_task_owner(plan_id, task_id, None, |_| false, epoch_ms())
             .map(|_| ())
@@ -848,7 +848,7 @@ fn verify_task_mutation_owner(
             "task mutation owner epoch is stale",
         ));
     }
-    let binding_matches = state.svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+    let binding_matches = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
         tab.agent_session_id.as_deref() == Some(session_id)
             && tab.session_binding_nonce.as_deref() == Some(nonce)
             && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
@@ -859,8 +859,7 @@ fn verify_task_mutation_owner(
             "task mutation caller binding is stale or rebound",
         ));
     }
-    if state
-        .svc
+    if svc
         .authorize_plan_orchestrator(
             plan_id,
             &crate::api::tab_routes::authenticated_plan_caller(headers),
@@ -869,9 +868,7 @@ fn verify_task_mutation_owner(
     {
         return Ok(());
     }
-    state
-        .svc
-        .verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
+    svc.verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
         .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
 }
 
@@ -946,7 +943,7 @@ pub async fn task_respawn(
             &crate::api::tab_routes::authenticated_plan_caller(&headers),
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     let draft = state
         .svc
         .plan_store
@@ -1018,7 +1015,7 @@ pub async fn task_rm(
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Ordinary)?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Ordinary)?;
     state
         .svc
         .authorize_draft_structure_mutation(
@@ -1036,4 +1033,4 @@ pub async fn task_rm(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

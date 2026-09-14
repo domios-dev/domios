@@ -382,7 +382,7 @@ impl PluginSandbox {
 pub(super) const HOST_PROVIDED_ENV: &[&str] = &[
     "CODETERM_CODEX_SESSIONS_ROOT",
     "CODETERM_CODEX_SESSION_INDEX_PATH",
-    "CODETERM_CODEX_THREAD_HISTORY_PATH",
+    "CODETERM_CODEX_STATE_DB_PATH",
 ];
 
 /// Install the `host` global into a fresh QuickJS context. Called by

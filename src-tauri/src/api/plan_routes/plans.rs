@@ -221,6 +221,7 @@ struct ResolvedRef {
     title: String,
     plan_title: String,
     task_title: Option<String>,
+    task_key: Option<String>,
     section_title: Option<String>,
     file_path: Option<String>,
     canonical_project_path: Option<String>,
@@ -295,6 +296,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             title: plan_title.clone(),
             plan_title,
             task_title: None,
+            task_key: None,
             section_title: None,
             file_path,
             canonical_project_path,
@@ -320,6 +322,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             title: plan_title.clone(),
             plan_title,
             task_title: None,
+            task_key: None,
             section_title: None,
             file_path,
             canonical_project_path,
@@ -328,11 +331,10 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             owner_session_id,
         },
         ResolveTargetKind::Task => {
-            let task = item.target_id.as_deref().and_then(|task_id| {
-                plan.tasks
-                    .iter()
-                    .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-            });
+            let task = item
+                .target_id
+                .as_deref()
+                .and_then(|task_id| crate::plan::task_key::find_task(&plan.tasks, task_id));
             let task_title = task
                 .map(|task| task.name.trim())
                 .filter(|title| !title.is_empty())
@@ -350,6 +352,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
                 title,
                 plan_title,
                 task_title,
+                task_key: task.map(|task| task.display_key()),
                 section_title: None,
                 file_path,
                 canonical_project_path,
@@ -384,6 +387,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
                 title,
                 plan_title,
                 task_title: None,
+                task_key: None,
                 section_title,
                 file_path,
                 canonical_project_path,
@@ -626,11 +630,9 @@ mod tests {
     }
 
     fn resolve_task_state(plan: &Plan, target_id: Option<String>) -> &'static str {
-        let task = target_id.as_deref().and_then(|task_id| {
-            plan.tasks
-                .iter()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-        });
+        let task = target_id
+            .as_deref()
+            .and_then(|task_id| crate::plan::task_key::find_task(&plan.tasks, task_id));
         if task.is_some() {
             "resolved"
         } else {
@@ -893,15 +895,14 @@ pub async fn pause(
     Json(body): Json<PauseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let stride_id = state
+    let outcome = state
         .svc
-        .plan_store
-        .pause_plan(&id, &body.reason, body.from, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(
-        serde_json::json!({ "ok": true, "stride_id": stride_id }),
-    ))
+        .pause_plan_operation(&id, &body.reason, body.from, epoch_ms())
+        .map_err(team_plan_err)?;
+    let mut response = serde_json::to_value(&outcome).unwrap_or_default();
+    response["ok"] = serde_json::json!(true);
+    response["stride_id"] = serde_json::json!(outcome.stride_id.unwrap_or_default());
+    Ok(Json(response))
 }
 
 pub async fn resume(
@@ -910,11 +911,33 @@ pub async fn resume(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let mode = state
+    let outcome = state
         .svc
-        .resume_team_plan(&id, epoch_ms())
+        .resume_plan_operation(&id, epoch_ms())
         .map_err(team_plan_err)?;
-    Ok(Json(serde_json::json!({ "ok": true, "mode": mode })))
+    let mut response = serde_json::to_value(&outcome).unwrap_or_default();
+    response["ok"] = serde_json::json!(true);
+    Ok(Json(response))
+}
+
+pub async fn pause_preview(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let preview = state.svc.plan_pause_preview(&id).map_err(team_plan_err)?;
+    Ok(Json(serde_json::to_value(preview).unwrap_or_default()))
+}
+
+pub async fn resume_preview(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let preview = state.svc.plan_resume_preview(&id).map_err(team_plan_err)?;
+    Ok(Json(serde_json::to_value(preview).unwrap_or_default()))
 }
 
 #[derive(Deserialize)]

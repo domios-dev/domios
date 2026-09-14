@@ -1,8 +1,9 @@
-import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
+import type { ApiConfig, Notification, Tab, Team, Workspace } from "../../lib/types";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
+import type { PlanTarget } from "./teamViewNavigation";
 import type { Plan } from "./types";
 
-/** Shared read-only context for Canvas | List | Board plan surfaces. */
+/** Shared read-only context for Spec | Plan | Board and parked plan surfaces. */
 export interface PlanViewSurfaceProps {
   mode: "workspace" | "focus";
   plans: Plan[];
@@ -23,5 +24,13 @@ export interface PlanViewSurfaceProps {
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
   onOpenTab?: (tabId: string) => void;
+  notifications?: Notification[];
+  onSelectTab?: (workspaceId: string, tabId: string) => void | Promise<void>;
   api?: ApiConfig;
+  /** Host header element where a surface without its own switcher places its actions. */
+  headerActionsSlot?: HTMLElement | null;
+  /** Switches the host to one of the plan views. */
+  onOpenView?: (mode: "spec" | "plan" | "tasks") => void;
+  /** The single plan and task jump; it lands in the owning team view. */
+  onOpenPlanTarget?: (target: PlanTarget) => void;
 }

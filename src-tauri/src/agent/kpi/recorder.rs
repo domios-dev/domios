@@ -2,8 +2,9 @@
 //! sqlite and provider-file parsing happen on a dedicated std thread, never on the
 //! Tauri async runtime and never inside a delivery's critical section.
 
+use std::collections::BTreeSet;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use super::attribution::KpiAttribution;
 use super::usage::{UsageIngestor, UsageSource};
@@ -18,14 +19,23 @@ enum KpiCommand {
     Drain(SyncSender<()>),
 }
 
+/// Receives the distinct plan ids of one committed batch; unattributed rows add none.
+pub type CommitListener = Box<dyn Fn(Vec<String>) + Send + Sync>;
+
 struct RecorderInner {
     tx: Sender<KpiCommand>,
+    on_commit: Arc<OnceLock<CommitListener>>,
+    /// Read side for callers that project ledger aggregates; writes stay on the thread.
+    ledger: Arc<KpiLedger>,
 }
 
 /// Cheap to clone; a disabled recorder holds no channel, no thread and no db file.
 #[derive(Clone, Default)]
 pub struct KpiRecorder {
     inner: Option<Arc<RecorderInner>>,
+    /// Set when the flag was on but the ledger would not open, so a not-recording
+    /// surface reports a failure instead of telling the owner to turn on a live setting.
+    open_failed: bool,
 }
 
 impl KpiRecorder {
@@ -46,12 +56,23 @@ impl KpiRecorder {
             Ok(ledger) => Self::with_ledger(Arc::new(ledger)),
             Err(e) => {
                 log::warn!("[kpi] ledger open failed: {} — KPI collection disabled", e);
-                Self::disabled()
+                Self {
+                    inner: None,
+                    open_failed: true,
+                }
             }
         }
     }
 
+    /// True only for the configured-on-but-unopenable case; an opt-out reads false.
+    pub fn open_failed(&self) -> bool {
+        self.open_failed
+    }
+
     pub fn with_ledger(ledger: Arc<KpiLedger>) -> Self {
+        let reader = Arc::clone(&ledger);
+        let on_commit: Arc<OnceLock<CommitListener>> = Arc::default();
+        let listener = Arc::clone(&on_commit);
         let (tx, rx) = channel::<KpiCommand>();
         std::thread::Builder::new()
             .name("kpi-ledger".into())
@@ -59,6 +80,7 @@ impl KpiRecorder {
                 let mut ingestor = UsageIngestor::default();
                 let mut pending: Vec<KpiEventInput> = Vec::new();
                 while let Ok(first) = rx.recv() {
+                    let mut committed = Committed::default();
                     // Whatever else is already queued joins this commit; the loop never
                     // waits for a batch to fill.
                     for cmd in std::iter::once(first).chain(rx.try_iter()) {
@@ -68,22 +90,48 @@ impl KpiRecorder {
                                 source,
                                 attribution,
                             } => {
-                                flush(&ledger, &mut pending);
-                                ingest_into_ledger(&ledger, &mut ingestor, &source, &attribution);
+                                flush(&ledger, &mut pending, &mut committed);
+                                ingest_into_ledger(
+                                    &ledger,
+                                    &mut ingestor,
+                                    &source,
+                                    &attribution,
+                                    &mut committed,
+                                );
                             }
                             KpiCommand::Drain(ack) => {
-                                flush(&ledger, &mut pending);
+                                flush(&ledger, &mut pending, &mut committed);
+                                committed.notify(&listener);
                                 let _ = ack.send(());
                             }
                         }
                     }
-                    flush(&ledger, &mut pending);
+                    flush(&ledger, &mut pending, &mut committed);
+                    committed.notify(&listener);
                 }
             })
             .expect("spawn kpi-ledger thread");
         Self {
-            inner: Some(Arc::new(RecorderInner { tx })),
+            inner: Some(Arc::new(RecorderInner {
+                tx,
+                on_commit,
+                ledger: reader,
+            })),
+            open_failed: false,
         }
+    }
+
+    /// Installs the one commit listener; a later call is ignored.
+    pub fn on_commit(&self, listener: impl Fn(Vec<String>) + Send + Sync + 'static) {
+        if let Some(inner) = &self.inner {
+            let _ = inner.on_commit.set(Box::new(listener));
+        }
+    }
+
+    /// `None` when the flag is off — the caller then renders its not-recording state
+    /// instead of falling back to any other source.
+    pub fn ledger(&self) -> Option<Arc<KpiLedger>> {
+        self.inner.as_ref().map(|inner| Arc::clone(&inner.ledger))
     }
 
     /// Choke points must gate attribution work on this — when off, nothing is resolved.
@@ -117,7 +165,31 @@ impl KpiRecorder {
     }
 }
 
-fn flush(ledger: &KpiLedger, pending: &mut Vec<KpiEventInput>) {
+#[derive(Default)]
+struct Committed {
+    wrote: bool,
+    plans: BTreeSet<String>,
+}
+
+impl Committed {
+    fn record(&mut self, events: &[KpiEventInput]) {
+        self.wrote |= !events.is_empty();
+        self.plans
+            .extend(events.iter().filter_map(|event| event.plan_id.clone()));
+    }
+
+    fn notify(&mut self, listener: &OnceLock<CommitListener>) {
+        let committed = std::mem::take(self);
+        if !committed.wrote {
+            return;
+        }
+        if let Some(listener) = listener.get() {
+            listener(committed.plans.into_iter().collect());
+        }
+    }
+}
+
+fn flush(ledger: &KpiLedger, pending: &mut Vec<KpiEventInput>, committed: &mut Committed) {
     if pending.is_empty() {
         return;
     }
@@ -127,6 +199,8 @@ fn flush(ledger: &KpiLedger, pending: &mut Vec<KpiEventInput>) {
             pending.len(),
             e
         );
+    } else {
+        committed.record(pending);
     }
     pending.clear();
 }
@@ -151,6 +225,7 @@ fn ingest_into_ledger(
     ingestor: &mut UsageIngestor,
     source: &UsageSource,
     attribution: &KpiAttribution,
+    committed: &mut Committed,
 ) {
     seed_cursor_from_ledger(ledger, ingestor, source);
     let offset_before = ingestor.cursor_offset(source);
@@ -165,6 +240,22 @@ fn ingest_into_ledger(
     if batch.is_empty() && offset_before == Some(new_offset) {
         return;
     }
+    // The cursor commits past every byte this pass read, so consumed but unrecorded
+    // usage is gone for good and must be logged, whether unreadable or merely empty.
+    if batch.unreadable_lines > 0 {
+        log::warn!(
+            "[kpi] {}: {} unreadable lines in {} consumed bytes; their usage is unrecoverable",
+            source.path.display(),
+            batch.unreadable_lines,
+            batch.consumed
+        );
+    } else if batch.consumed_without_recording() {
+        log::debug!(
+            "[kpi] {}: consumed {} bytes carrying no usage record",
+            source.path.display(),
+            batch.consumed
+        );
+    }
     let events: Vec<KpiEventInput> = batch
         .records
         .iter()
@@ -177,7 +268,8 @@ fn ingest_into_ledger(
             ),
         })
         .collect();
-    if let Err(e) = ledger.insert_usage_batch(&events, &source.path.to_string_lossy(), new_offset) {
-        log::warn!("[kpi] usage insert failed: {}", e);
+    match ledger.insert_usage_batch(&events, &source.path.to_string_lossy(), new_offset) {
+        Ok(()) => committed.record(&events),
+        Err(e) => log::warn!("[kpi] usage insert failed: {}", e),
     }
 }

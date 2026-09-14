@@ -32,6 +32,124 @@ base_repo="$TMPDIR/base-wrapper"
 make_fixture_repo "$base_repo"
 WRAPPER="$base_repo/scripts/test-capped.sh"
 
+FAKE_CARGO="$TMPDIR/fake-cargo-test"
+
+# Stands in for `cargo test`: libtest exits 0 even when a filter matches nothing,
+# which is the success the wrapper must refuse to pass through.
+write_fake_cargo() {
+    cat >"$FAKE_CARGO" <<'FAKE'
+#!/usr/bin/env bash
+set -u
+last=""
+for arg in "$@"; do last="$arg"; done
+case "$last" in
+    wrapper_fixture_matching_test)
+        printf 'running 1 test\n'
+        printf 'test wrapper_fixture_matching_test ... ok\n\n'
+        printf 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 41 filtered out\n'
+        ;;
+    -*|'')
+        printf 'running 0 tests\n\n'
+        printf 'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n\n'
+        printf 'running 42 tests\n\n'
+        printf 'test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n'
+        ;;
+    *)
+        printf 'running 0 tests\n\n'
+        printf 'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out\n'
+        ;;
+esac
+FAKE
+    chmod +x "$FAKE_CARGO"
+}
+
+run_wrapper_against_fake_cargo() {
+    local output=$1
+    shift
+    write_fake_cargo
+    local exit_code=0
+    env -u TEST_CAP_SECS CARGO_TARGET_DIR="$TMPDIR/fixture-target" \
+        CARGO_TEST_CMD="$FAKE_CARGO" "$WRAPPER" "$@" >"$output" 2>&1 || exit_code=$?
+    printf '%s' "$exit_code"
+}
+
+filtered_zero_match_fails_closed() {
+    local output="$TMPDIR/filtered-zero-match.out"
+    local exit_code
+    exit_code=$(run_wrapper_against_fake_cargo "$output" \
+        --manifest-path src-tauri/Cargo.toml -p codeterm-plan --lib no_such_test_name)
+    [ "$exit_code" -eq 97 ] || {
+        printf 'filtered_zero_match_fails_closed: expected exit 97, got %s\n' "$exit_code" >&2
+        exit 1
+    }
+    grep -q 'ZERO MATCHES: filter no_such_test_name selected no tests in codeterm-plan\.' "$output" || {
+        printf 'filtered_zero_match_fails_closed: diagnostic did not name the filter and crate\n' >&2
+        exit 1
+    }
+    ! grep -q 'DEADLOCK / HANG' "$output" || {
+        printf 'filtered_zero_match_fails_closed: zero match was misreported as a timeout\n' >&2
+        exit 1
+    }
+}
+
+filtered_match_remains_successful() {
+    local output="$TMPDIR/filtered-match.out"
+    local exit_code
+    exit_code=$(run_wrapper_against_fake_cargo "$output" \
+        --manifest-path src-tauri/Cargo.toml -p codeterm-plan --lib wrapper_fixture_matching_test)
+    [ "$exit_code" -eq 0 ] || {
+        printf 'filtered_match_remains_successful: expected exit 0, got %s\n' "$exit_code" >&2
+        exit 1
+    }
+    ! grep -q 'ZERO MATCHES' "$output" || {
+        printf 'filtered_match_remains_successful: a matching filter was failed closed\n' >&2
+        exit 1
+    }
+    grep -q '^test wrapper_fixture_matching_test \.\.\. ok$' "$output" || {
+        printf 'filtered_match_remains_successful: wrapper swallowed the runner output\n' >&2
+        exit 1
+    }
+}
+
+full_run_passes_through() {
+    local output="$TMPDIR/full-run.out"
+    local exit_code
+    exit_code=$(run_wrapper_against_fake_cargo "$output" \
+        --manifest-path src-tauri/Cargo.toml -p codeterm-plan --lib)
+    [ "$exit_code" -eq 0 ] || {
+        printf 'full_run_passes_through: expected exit 0, got %s\n' "$exit_code" >&2
+        exit 1
+    }
+    ! grep -q 'ZERO MATCHES' "$output" || {
+        printf 'full_run_passes_through: unfiltered run was treated as a zero-match filter\n' >&2
+        exit 1
+    }
+    grep -q '^running 0 tests$' "$output" || {
+        printf 'full_run_passes_through: fixture did not exercise a zero-test binary\n' >&2
+        exit 1
+    }
+    grep -q '^running 42 tests$' "$output" || {
+        printf 'full_run_passes_through: fixture did not exercise a populated binary\n' >&2
+        exit 1
+    }
+}
+
+if [ "$#" -gt 0 ]; then
+    for requested_case in "$@"; do
+        case "$requested_case" in
+            filtered_zero_match_fails_closed|filtered_match_remains_successful|full_run_passes_through)
+                "$requested_case"
+                ;;
+            *)
+                printf 'unknown case: %s\n' "$requested_case" >&2
+                exit 2
+                ;;
+        esac
+        printf 'ok %s\n' "$requested_case"
+    done
+    exit 0
+fi
+
 absent_repo="$TMPDIR/absent-sidecar"
 make_fixture_repo "$absent_repo"
 run_fixture_wrapper "$absent_repo" "$TMPDIR/absent.out" 'test -f "$1"' bash "$sidecar_rel"
@@ -262,3 +380,7 @@ if kill -0 "$child_pid" 2>/dev/null; then
     printf 'timeout: blocking child %s survived\n' "$child_pid" >&2
     exit 1
 fi
+
+filtered_zero_match_fails_closed
+filtered_match_remains_successful
+full_run_passes_through

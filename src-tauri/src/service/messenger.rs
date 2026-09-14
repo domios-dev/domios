@@ -530,12 +530,14 @@ impl Messenger {
             .build()
     }
 
-    /// Prefix marker + the message body.
+    /// Prefix marker, then the body on its own line. The body is appended
+    /// here rather than carried as the marker payload, so the separation
+    /// belongs here too.
     pub fn wrap(&self, body: &str) -> String {
         let Some(reply_hint) = self.reply_hint() else {
-            return format!("{}{}", self.build(), body);
+            return format!("{}\n{}", self.build(), body);
         };
-        format!("{}{}\n{}", self.build(), body, reply_hint)
+        format!("{}\n{}\n{}", self.build(), body, reply_hint)
     }
 
     fn reply_hint(&self) -> Option<String> {
@@ -784,7 +786,7 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20");
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:tab label=Edison tab=e8a0ac20-=-hello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]"
+            "-=-codeterm:tab label=Edison tab=e8a0ac20-=-\nhello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]"
         );
     }
 
@@ -793,19 +795,19 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20").mesh(Some("BLACKSTAR".into()));
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-hello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]"
+            "-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-\nhello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]"
         );
     }
 
     #[test]
     fn codeterm_system_events_have_no_tab_or_reply_address() {
         let plain = Messenger::from(MessageEnvelope::from_codeterm()).wrap("hello");
-        assert_eq!(plain, "-=-codeterm:system-=-hello");
+        assert_eq!(plain, "-=-codeterm:system-=-\nhello");
         assert!(!plain.contains("tab="));
         assert!(!plain.contains("[to reply"));
 
         let contextual = Messenger::from(MessageEnvelope::codeterm_reminder("plan")).wrap("check");
-        assert_eq!(contextual, "-=-codeterm:system context=plan-=-check");
+        assert_eq!(contextual, "-=-codeterm:system context=plan-=-\ncheck");
         assert!(!contextual.contains("tab="));
         assert!(!contextual.contains("[to reply"));
     }
@@ -881,7 +883,7 @@ mod tests {
             .id(Some("dmsg-1".into()));
         assert_eq!(
             p.wrap("ping"),
-            "-=-codeterm:reminder from=Main tab=e8a0ac20 set_at=1 fire_at=2 id=dmsg-1-=-ping"
+            "-=-codeterm:reminder from=Main tab=e8a0ac20 set_at=1 fire_at=2 id=dmsg-1-=-\nping"
         );
     }
 

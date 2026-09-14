@@ -90,6 +90,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 description: params.description,
                 agent: params.agent,
                 model: params.model,
+                reasoning_effort: None,
                 cwd: params.cwd,
                 role: params.role,
                 skill: None,
@@ -302,13 +303,17 @@ pub fn spawn_headless_worker(
             }
             if tokio::time::Instant::now() > deadline {
                 log::warn!(
-                    "[worker] {}/{} exceeded 30min watchdog, forcing Orphaned + closing Tab",
+                    "[worker] {}/{} exceeded 30min watchdog, recording timeout + closing Tab",
                     intent_for_spawn,
                     worker_id_task
                 );
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, WorkerStatus::Orphaned);
+                let _ = svc_task.workers.finish_execution(
+                    &worker_id_task,
+                    None,
+                    codeterm_mem::dream_status::ExecutionEnd::TimedOut {
+                        detail: "exceeded the 30min worker watchdog".into(),
+                    },
+                );
                 let _ = svc_task.close_tab_with_reason(&handle.tab_id, TabCloseReason::Watchdog);
                 break;
             }

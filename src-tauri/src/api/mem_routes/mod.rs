@@ -18,7 +18,7 @@ pub mod sync;
 pub mod workers;
 
 pub use calibration::{mem_calibration_log, mem_calibration_sweep};
-pub use dream::{mem_dream, mem_dream_report, mem_extract_pending};
+pub use dream::{mem_dream, mem_dream_diary, mem_dream_report, mem_extract_pending};
 pub use graph::{
     mem_graph_alias, mem_graph_collapse_synonym_edges, mem_graph_create, mem_graph_full,
     mem_graph_invalidate, mem_graph_path, mem_graph_prune_dream_hub_edges,

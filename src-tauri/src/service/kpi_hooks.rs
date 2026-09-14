@@ -13,7 +13,7 @@ use crate::agent::kpi_ledger::KpiEventKind;
 
 impl ServiceContext {
     pub(crate) fn kpi_attribution(&self, tab_id: &str) -> KpiAttribution {
-        let (resolved, role, role_profile, provider, model) = {
+        let (resolved, role, role_profile, provider) = {
             let mux = self.mux.read();
             let resolved = mux
                 .resolve_tab_id(tab_id)
@@ -24,18 +24,33 @@ impl ServiceContext {
                 tab.and_then(|p| p.role),
                 tab.and_then(|p| p.role_profile.clone()),
                 tab.and_then(|p| p.agent_type.clone()),
-                tab.and_then(|p| p.agent_session_model.clone()),
             )
         };
-        let (plan_id, task_id) = match self.plan_store.task_binding_for_tab(&resolved) {
-            Some((plan_id, task_id)) => (Some(plan_id), Some(task_id)),
-            None => (None, None),
-        };
+        // Session-scoped provider evidence, or nothing: a tab the model poller has
+        // not reached must not fall back to a provider or launch-time guess.
+        let model = self.verified_session_model(&resolved);
+        let (plan_id, task_id) = self.kpi_plan_context(&resolved);
         KpiAttribution::for_tab(resolved)
             .plan(plan_id, task_id)
             .role(role, role_profile.as_deref())
             .provider(provider)
             .model(model)
+    }
+
+    /// A task assignment carries both ids. Without one, a plan's owner and its
+    /// registered Planner still take the `plan_id` with a null `task_id`. An
+    /// unbound tab and a tab two active plans claim both stay unassigned.
+    fn kpi_plan_context(&self, tab_id: &str) -> (Option<String>, Option<String>) {
+        if let Some((plan_id, task_id)) = self.plan_store.task_binding_for_tab(tab_id) {
+            return (Some(plan_id), Some(task_id));
+        }
+        let mut candidates = self
+            .plan_store
+            .taskless_plan_context_candidates_for_tab(tab_id);
+        match candidates.len() {
+            1 => (candidates.pop(), None),
+            _ => (None, None),
+        }
     }
 
     pub(crate) fn record_kpi_delivery(&self, to_tab: &str, kind: MessageKind, bytes: usize) {
@@ -127,6 +142,13 @@ impl ServiceContext {
         self.kpi.record(attribution.into_event(kind, bytes as u64));
     }
 
+    /// The tab's agent turn just settled, which is the one event that means its
+    /// provider log grew. Bound to the turn boundary itself and never to a tab
+    /// status value: a tab whose status never flips still finishes turns.
+    pub(crate) fn on_agent_turn_settled(&self, tab_id: &str) {
+        self.request_kpi_usage_ingest(tab_id);
+    }
+
     /// Queues a forward-only pass over the tab's provider session log. The path comes
     /// from the provider capability, so core never encodes a per-provider layout.
     pub(crate) fn request_kpi_usage_ingest(&self, tab_id: &str) {
@@ -140,22 +162,42 @@ impl ServiceContext {
         self.kpi.request_ingest(source, attribution);
     }
 
+    /// An unresolvable source used to return `None` without a trace, so a tab whose
+    /// session was never bound recorded nothing and said nothing. Name the missing
+    /// input instead: silence here reads exactly like a tab that spent nothing.
     fn tab_usage_source(&self, tab_id: &str) -> Option<UsageSource> {
         let (agent_type, cwd, session_id) = {
             let mux = self.mux.read();
             let resolved = mux.resolve_tab_id(tab_id)?;
             let tab = mux.get_tab(&resolved)?;
             (
-                tab.agent_type.clone()?,
-                tab.cwd.clone()?,
-                tab.agent_session_id.clone()?,
+                tab.agent_type.clone(),
+                tab.cwd.clone(),
+                tab.agent_session_id.clone(),
             )
         };
-        self.agent_registry
+        let missing = match (&agent_type, &cwd, &session_id) {
+            (None, _, _) => Some("agent_type"),
+            (_, None, _) => Some("cwd"),
+            (_, _, None) => Some("session_id"),
+            _ => None,
+        };
+        if let Some(missing) = missing {
+            log::debug!("[kpi] tab {tab_id}: no usage source, {missing} unknown");
+            return None;
+        }
+        let (agent_type, cwd, session_id) = (agent_type?, cwd?, session_id?);
+        let path = self
+            .agent_registry
             .with_provider(&agent_type, |provider| {
                 provider.session_file_path(&cwd, &session_id)
             })
-            .flatten()
-            .map(UsageSource::new)
+            .flatten();
+        if path.is_none() {
+            log::debug!(
+                "[kpi] tab {tab_id}: provider {agent_type} names no session file for {session_id}"
+            );
+        }
+        path.map(UsageSource::new)
     }
 }

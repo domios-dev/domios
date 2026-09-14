@@ -1,4 +1,6 @@
-use codeterm_types::agent::chat_types::{ChatAttachment, ChatMsg, InteractiveElement, RichMessage};
+use codeterm_types::agent::chat_types::{
+    ChatAttachment, ChatMsg, ChatTimelineMarker, InteractiveElement, RichMessage,
+};
 
 const THINKING_PREVIEW: usize = 200;
 
@@ -131,11 +133,58 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
 /// place JSONL providers' rich rendering lives; the desktop renders the same
 /// output, so there is no second parser.
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
-    let mut out = rich_to_chat_msgs_blocks(rich, base_id);
+    let base = base_id.to_string();
+    let mut out = apply_capabilities(rich, rich_to_chat_msgs_blocks(rich, base_id), &base);
     for m in &mut out {
         m.seq = base_id as i64;
     }
     out
+}
+
+fn apply_capabilities(
+    rich: &RichMessage,
+    mut messages: Vec<ChatMsg>,
+    fallback_base: &str,
+) -> Vec<ChatMsg> {
+    let base = rich
+        .uuid
+        .clone()
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| fallback_base.to_string());
+    if messages.is_empty() && (rich.timeline_marker.is_some() || rich.session_intent.is_some()) {
+        let (kind, content) = match rich.timeline_marker.as_ref() {
+            Some(ChatTimelineMarker::ExternalEdit { path }) => {
+                ("system", format!("changed outside: {path}"))
+            }
+            Some(ChatTimelineMarker::ContextCompaction) => {
+                ("system", "context compacted".to_string())
+            }
+            Some(ChatTimelineMarker::Queued) | None => ("custom", String::new()),
+        };
+        messages.push(ChatMsg {
+            id: format!("{base}-0"),
+            kind: kind.into(),
+            content,
+            timestamp: rich.timestamp.clone(),
+            ..Default::default()
+        });
+    }
+    for message in &mut messages {
+        message.timeline_marker = rich.timeline_marker.clone();
+        message.session_intent = rich.session_intent.clone();
+        match rich.timeline_marker.as_ref() {
+            Some(ChatTimelineMarker::ExternalEdit { path }) => {
+                message.kind = "system".into();
+                message.content = format!("changed outside: {path}");
+            }
+            Some(ChatTimelineMarker::ContextCompaction) => {
+                message.kind = "system".into();
+                message.content = "context compacted".into();
+            }
+            Some(ChatTimelineMarker::Queued) | None => {}
+        }
+    }
+    messages
 }
 
 fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
@@ -270,6 +319,24 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                             .map(String::from),
                         tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                         tool_error: is_error,
+                        tool_call_source_id: b
+                            .data
+                            .get("tool_call_source_id")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                        tool_pairing: b
+                            .data
+                            .get("tool_pairing")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                        tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                        tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                        tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                        tool_background_task_id: b
+                            .data
+                            .get("tool_background_task_id")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
                         collapsed: true,
                         timestamp: ts.clone(),
                         ..Default::default()
@@ -423,6 +490,24 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     tool_input: b.data.get("input").cloned(),
                     tool_id: tool_id.map(String::from),
                     tool_error,
+                    tool_call_source_id: b
+                        .data
+                        .get("tool_call_source_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    tool_pairing: b
+                        .data
+                        .get("tool_pairing")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                    tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                    tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                    tool_background_task_id: b
+                        .data
+                        .get("tool_background_task_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     collapsed: true,
                     interactive,
                     ..Default::default()
@@ -440,6 +525,24 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                         .map(String::from),
                     tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                     tool_error: is_error,
+                    tool_call_source_id: b
+                        .data
+                        .get("tool_call_source_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    tool_pairing: b
+                        .data
+                        .get("tool_pairing")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    tool_exit_code: b.data.get("tool_exit_code").and_then(|v| v.as_i64()),
+                    tool_duration_ms: b.data.get("tool_duration_ms").and_then(|v| v.as_u64()),
+                    tool_interrupted: b.data.get("tool_interrupted").and_then(|v| v.as_bool()),
+                    tool_background_task_id: b
+                        .data
+                        .get("tool_background_task_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     collapsed: true,
                     ..Default::default()
                 }

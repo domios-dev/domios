@@ -243,6 +243,7 @@ mod notification_provenance {
             caller_tab_id: Some("tab_caller".into()),
             claimed_tab_id: Some("tab_bystander".into()),
             peer_name: None,
+            ..Default::default()
         };
         assert_ne!(
             origin.caller_tab_id, origin.claimed_tab_id,
@@ -286,6 +287,7 @@ mod notification_provenance {
             caller_tab_id: None,
             claimed_tab_id: Some("tab_caller".into()),
             peer_name: Some("BLACKSTAR".into()),
+            ..Default::default()
         };
 
         create_notification_with_delivery(
@@ -416,12 +418,12 @@ mod push_render {
 
         let delivered = sent.lock();
         assert_eq!(delivered.len(), 1);
-        // Counted inside the body: the title and the provenance label carry
-        // letters of their own, so a whole-message count is not the body's.
+        // Counted inside the body: the headline carries letters of its own, so
+        // a whole-message count is not the body's.
         let body_line = delivered[0]
             .lines()
             .nth(1)
-            .expect("the body is the line between the title and the label");
+            .expect("the body is the line under the headline");
         assert_eq!(
             body_line.matches('q').count(),
             BOUNDS.body - CUT_NOTE.chars().count(),
@@ -431,7 +433,7 @@ mod push_render {
             delivered[0].chars().count() <= BOUNDS.total,
             "and the truncated message still fits the channel's own ceiling"
         );
-        assert!(delivered[0].contains("via Worker lane"));
+        assert!(delivered[0].starts_with("Worker lane"));
         assert!(!delivered[0].contains("tab_worker"));
         drop(delivered);
 
@@ -705,5 +707,158 @@ mod notification_level_field {
             events[0]["level"], "action_needed",
             "severity being the info default must not drag the level down with it"
         );
+    }
+}
+
+mod notification_deep_link {
+    use super::*;
+
+    const LIVE: [(&str, &str, &str); 2] = [
+        ("tab_asker", "Orchestrator", "ws_team"),
+        ("tab_target", "Worker", "ws_team"),
+    ];
+
+    fn live(candidate: &str) -> Option<NotificationProvenance> {
+        LIVE.iter()
+            .find(|(id, _, _)| *id == candidate)
+            .map(|(id, title, workspace)| NotificationProvenance {
+                tab_id: Some((*id).to_string()),
+                tab_title: Some((*title).to_string()),
+                workspace_id: Some((*workspace).to_string()),
+                peer_name: None,
+            })
+    }
+
+    fn origin_with(target: NotificationTarget) -> NotificationOrigin {
+        NotificationOrigin {
+            caller_tab_id: Some("tab_asker".into()),
+            target,
+            ..Default::default()
+        }
+    }
+
+    fn exact_target() -> NotificationTarget {
+        NotificationTarget::from_hints(Some("tab_target"), Some("needs-you-message-1"))
+    }
+
+    fn send(
+        store: &NotifState,
+        title: &str,
+        origin: NotificationOrigin,
+        emitted: &Mutex<Vec<serde_json::Value>>,
+    ) -> String {
+        create_notification_with_delivery(
+            NotificationAdmission::Explicit,
+            store,
+            |_, _| {},
+            title.into(),
+            None,
+            Some("info"),
+            crate::notification::store::Ask::default(),
+            None,
+            origin,
+            live,
+            PushDispatch {
+                intent: PushIntent {
+                    level: Some(NotifyLevel::ActionNeeded),
+                    event_key: None,
+                },
+                per_scope_limit: 10,
+                deliver: |_: PushEnvelope| Ok::<(), String>(()),
+            },
+            SurfaceDispatch::silent(),
+            |payload| emitted.lock().push(payload),
+        )
+    }
+
+    #[test]
+    fn notification_deep_link_target_reaches_the_record_and_the_payload() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let emitted = Mutex::new(Vec::new());
+        let id = send(&store, "Approve?", origin_with(exact_target()), &emitted);
+
+        let guard = store.lock();
+        let record = guard.notification(&id).expect("the record is stored");
+        assert_eq!(record.target_tab_id.as_deref(), Some("tab_target"));
+        assert_eq!(
+            record.chat_message_id.as_deref(),
+            Some("needs-you-message-1")
+        );
+        assert_eq!(
+            record.tab_id.as_deref(),
+            Some("tab_asker"),
+            "the jump target never replaces the resolved asking tab"
+        );
+        drop(guard);
+
+        let events = emitted.lock();
+        assert_eq!(events[0]["target_tab_id"], "tab_target");
+        assert_eq!(events[0]["chat_message_id"], "needs-you-message-1");
+        assert_eq!(events[0]["tab_id"], "tab_asker");
+    }
+
+    #[test]
+    fn notification_deep_link_old_shaped_request_emits_no_target_keys() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let emitted = Mutex::new(Vec::new());
+        let id = send(
+            &store,
+            "Approve?",
+            origin_with(NotificationTarget::default()),
+            &emitted,
+        );
+
+        let record = serde_json::to_value(store.lock().notification(&id).unwrap()).unwrap();
+        assert!(record.get("target_tab_id").is_none());
+        assert!(record.get("chat_message_id").is_none());
+        let events = emitted.lock();
+        assert!(events[0].get("target_tab_id").is_none());
+        assert!(events[0].get("chat_message_id").is_none());
+    }
+
+    #[test]
+    fn notification_deep_link_mesh_peer_keeps_no_target() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let emitted = Mutex::new(Vec::new());
+        let origin = NotificationOrigin {
+            peer_name: Some("BLACKSTAR".into()),
+            target: exact_target(),
+            ..Default::default()
+        };
+        let id = send(&store, "Remote ask", origin, &emitted);
+
+        let guard = store.lock();
+        let record = guard.notification(&id).unwrap();
+        assert_eq!(record.target_tab_id, None);
+        assert_eq!(record.chat_message_id, None);
+    }
+
+    #[test]
+    fn notification_deep_link_superseding_send_replaces_a_stale_target() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let emitted = Mutex::new(Vec::new());
+        let first = send(
+            &store,
+            "Approve step one?",
+            origin_with(exact_target()),
+            &emitted,
+        );
+        let second = send(
+            &store,
+            "Approve step two?",
+            origin_with(NotificationTarget::default()),
+            &emitted,
+        );
+        assert_eq!(first, second, "the open record is rewritten in place");
+
+        let guard = store.lock();
+        let record = guard.notification(&second).unwrap();
+        assert_eq!(
+            record.target_tab_id, None,
+            "a rewrite must not keep pointing at the earlier message"
+        );
+        assert_eq!(record.chat_message_id, None);
+        drop(guard);
+        assert!(emitted.lock()[1].get("chat_message_id").is_none());
     }
 }

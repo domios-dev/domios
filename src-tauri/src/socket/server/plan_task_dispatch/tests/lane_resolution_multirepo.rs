@@ -202,4 +202,17 @@ fn lane_resolution_multirepo_names_every_unresolvable_address() {
     ]
     .map(|path| message.find(path).unwrap());
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    // A generic refusal once replaced every candidate's own reason, so the
+    // failure pointed at checkout resolution instead of the real condition.
+    for path in [
+        recorded.to_str().unwrap(),
+        explicit.to_str().unwrap(),
+        workspace.to_str().unwrap(),
+        caller.to_str().unwrap(),
+    ] {
+        assert!(
+            message.contains(&format!("'{path}': cannot resolve worker lane path")),
+            "{message}"
+        );
+    }
 }

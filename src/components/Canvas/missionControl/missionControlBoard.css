@@ -1,0 +1,1154 @@
+/* Board system: three text sizes, a 4px spacing step, and raised panels on the Board ground.
+   Layers portaled out of the Board carry the same scale. */
+.mc-board,
+.mc-board-layer {
+  --mc-text-meta: 11px;
+  --mc-text-body: 13px;
+  --mc-text-figure: 20px;
+  --mc-space-1: 4px;
+  --mc-space-2: 8px;
+  --mc-space-3: 12px;
+  --mc-space-4: 16px;
+  --mc-gap: var(--mc-space-3);
+}
+
+.mc-board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-gap);
+  min-width: 0;
+  height: 100%;
+  padding: var(--mc-space-3) var(--mc-space-3) var(--mc-space-4);
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--ct-bg);
+}
+
+.mission-control-actions {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.mission-control-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 7px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mission-control-actions-trigger:hover,
+.mission-control-actions-trigger:focus-visible {
+  border-color: var(--ct-accent);
+  outline: none;
+}
+
+/* In a header the trigger stays no taller than the switcher beside it, so the header keeps its height. */
+.mission-control-surface-header .mission-control-actions-trigger,
+.plan-view-header-actions .mission-control-actions-trigger {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 5px;
+  font-size: 0.95rem;
+}
+
+.mission-control-surface-header .mission-control-actions-trigger:hover,
+.mission-control-surface-header .mission-control-actions-trigger:focus-visible,
+.plan-view-header-actions .mission-control-actions-trigger:hover,
+.plan-view-header-actions .mission-control-actions-trigger:focus-visible {
+  background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-bg));
+}
+
+.mc-lifecycle-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--ct-bg) 55%, transparent);
+}
+
+.mc-lifecycle-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(28rem, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg-elev, var(--ct-surface));
+  color: var(--ct-fg);
+  font-size: 13px;
+  box-shadow: 0 16px 48px color-mix(in srgb, var(--ct-bg) 55%, transparent);
+}
+
+.mc-lifecycle-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mc-lifecycle-meta {
+  margin: 0;
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mc-lifecycle-section h3 {
+  margin: 0 0 4px;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mc-lifecycle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-lifecycle-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mc-lifecycle-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mc-lifecycle-tag,
+.mc-lifecycle-unavailable {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.mc-lifecycle-tag {
+  color: var(--ct-muted-fg);
+}
+
+.mc-lifecycle-unavailable {
+  color: var(--ct-yellow, var(--ct-muted-fg));
+}
+
+.mc-lifecycle-error {
+  margin: 0;
+  color: var(--ct-red);
+  overflow-wrap: anywhere;
+}
+
+.mc-lifecycle-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mc-lifecycle-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: var(--ct-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mc-lifecycle-button:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.mc-lifecycle-button-primary {
+  border-color: var(--ct-accent);
+  background: var(--ct-accent);
+  color: var(--ct-accent-fg, var(--ct-bg));
+}
+
+.mc-lifecycle-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.mc-lifecycle-button-danger {
+  border-color: var(--ct-red);
+  background: var(--ct-red);
+  color: var(--ct-bg);
+}
+
+.mc-action-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+}
+
+.mc-action-input {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  font: inherit;
+}
+
+.mc-action-input:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+/* Revealed like the sidebar row kebab; absolute and opacity-only so showing it never reflows the card. */
+.plan-board-task-actions {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  z-index: 3;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.plan-board-task-card:hover .plan-board-task-actions,
+.plan-board-task-card:focus-within .plan-board-task-actions {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (hover: none) {
+  .plan-board-task-actions {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Cards in the row share one height and edge; each card's readings stay at its top. */
+.mc-board-row {
+  display: grid;
+  gap: var(--mc-gap);
+  align-items: stretch;
+  min-width: 0;
+}
+
+.mc-board .mc-board-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--ct-surface);
+}
+
+.mc-board-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mc-space-2);
+  min-width: 0;
+  padding: var(--mc-space-2) var(--mc-space-3);
+  border-bottom: 1px solid var(--ct-border);
+}
+
+.mc-board-panel-head h2 {
+  margin: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+}
+
+.mc-board-panel-meta {
+  margin-left: auto;
+  min-width: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: right;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-sub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+  padding: var(--mc-space-3);
+}
+
+/* Sections inside a panel are separated by space, not rules. */
+.mc-board-sub + .mc-board-sub {
+  padding-top: 0;
+}
+
+.mc-board-sub-label {
+  margin: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-accent);
+  cursor: pointer;
+}
+
+.mc-board-more:hover {
+  text-decoration: underline;
+}
+
+.mc-board-more:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+.mc-board-more:disabled {
+  color: var(--ct-muted-fg);
+  text-decoration: none;
+  cursor: default;
+}
+
+.mc-board-log-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mc-space-1);
+}
+
+.mc-board-log-pager-gap {
+  padding: 0 var(--mc-space-1);
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+/* A plan or task named by its title; opens it without leaving the Board. */
+.mc-board-ref {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ct-accent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mc-board-ref:hover {
+  text-decoration: underline;
+}
+
+.mc-board-ref:focus {
+  outline: none;
+}
+
+.mc-board-ref:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+.mc-board-figure {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--mc-text-figure);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ct-fg);
+}
+
+.mc-board-num {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-board .mc-board-warn {
+  color: var(--ct-yellow);
+}
+
+.mc-board .mc-board-danger {
+  color: var(--ct-red);
+}
+
+.mc-board-needs {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--mc-space-3);
+  align-items: start;
+  padding: var(--mc-space-3);
+}
+
+.mc-board-needs-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+}
+
+.mc-board-needs-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-board-needs-title {
+  margin: 0;
+  font-size: var(--mc-text-body);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+}
+
+/* The active plan reads by its goal, cut to three lines, then where its tasks stand. */
+.mc-board-plan-heading {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--mc-text-body);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.mc-board-plan-goal {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--mc-text-meta);
+  line-height: 1.45;
+  color: var(--ct-muted-fg);
+  overflow-wrap: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mc-board-plan-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--mc-space-2);
+  min-width: 0;
+}
+
+.mc-board-plan-list-date {
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+}
+
+/* Previous plans wait behind a quiet trigger pinned to the plan card's bottom edge. */
+.mc-board-plan-footer {
+  position: relative;
+  margin-top: auto;
+  padding: 0 var(--mc-space-3) var(--mc-space-3);
+}
+
+.mc-board-plan-count {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-plan-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: min(14rem, calc(100vw - 48px));
+  max-width: min(22rem, calc(100vw - 48px));
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: var(--mc-space-1);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-bg-elev, var(--ct-surface));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ct-bg) 45%, transparent);
+}
+
+.mc-board-plan-menuitem {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mc-space-3);
+  min-height: 32px;
+  padding: var(--mc-space-2);
+  border: 0;
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mc-text-body);
+  text-align: left;
+  color: var(--ct-fg);
+  cursor: pointer;
+}
+
+.mc-board-plan-menuitem:hover,
+.mc-board-plan-menuitem:focus-visible {
+  background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
+  outline: none;
+}
+
+.mc-board-plan-menuitem-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.mc-board-plan-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mc-board-plan-link:hover {
+  color: var(--ct-accent);
+}
+
+.mc-board-meta-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.mc-board-meta-link:hover {
+  color: var(--ct-accent);
+  text-decoration: underline;
+}
+
+.mc-board-plan-link:focus-visible,
+.mc-board-meta-link:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+.mc-board-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--mc-text-body);
+  line-height: 1.4;
+  color: var(--ct-fg);
+  overflow-wrap: break-word;
+}
+
+.mc-board-needs-link {
+  display: block;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.mc-board-needs-link:hover .mc-board-needs-title {
+  text-decoration: underline;
+}
+
+.mc-board-needs-link:focus-visible {
+  box-shadow: 0 0 0 1px var(--ct-accent);
+}
+
+.mc-board-needs-link[aria-disabled="true"] {
+  cursor: default;
+}
+
+.mc-board-needs-link[aria-disabled="true"]:hover .mc-board-needs-title {
+  text-decoration: none;
+}
+
+.mc-board-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--mc-space-1) var(--mc-space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-board-status {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mc-space-2);
+  font-size: var(--mc-text-body);
+  color: var(--ct-fg);
+  white-space: nowrap;
+}
+
+.mc-board-pairs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mc-space-3);
+  margin: 0;
+}
+
+.mc-board-pair {
+  min-width: 0;
+}
+
+.mc-board-pair dt {
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-pair dd {
+  margin: var(--mc-space-1) 0 0;
+  font-size: var(--mc-text-body);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-pair b {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.mc-board-caption {
+  margin: 0;
+  font-size: var(--mc-text-meta);
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--mc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--mc-text-meta);
+  line-height: 1.5;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-fact {
+  white-space: nowrap;
+}
+
+.mc-board-note {
+  margin: 0;
+  font-size: var(--mc-text-body);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--ct-muted-fg);
+  overflow-wrap: break-word;
+}
+
+.mc-board-note-error {
+  color: var(--ct-red);
+}
+
+/* Spend fills its card: team totals, a chart that takes the remaining height, then the plan split. */
+.mc-board-spend-panel > .mc-board-sub {
+  flex: 1 1 auto;
+}
+
+.mc-board-spend-totals {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.mc-board-spend-head {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--mc-space-1) var(--mc-space-2);
+}
+
+/* Compact segmented toggles: one hairline frame, the pressed side tinted with the accent. */
+.mc-board-segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+}
+
+.mc-board-segment {
+  padding: 0 var(--mc-space-2);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--mc-text-meta);
+  line-height: 1.6;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mc-board-segment + .mc-board-segment {
+  border-left: 1px solid var(--ct-border);
+}
+
+.mc-board-segment-solo {
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+}
+
+.mc-board-segment[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 16%, transparent);
+  color: var(--ct-fg);
+}
+
+.mc-board-segment[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mc-board-segment:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: -1px;
+}
+
+.mc-board-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mc-space-1) var(--mc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mc-space-1);
+  white-space: nowrap;
+}
+
+.mc-board-plan-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-fg);
+}
+
+.mc-board-plan-split-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mc-space-2);
+  min-width: 0;
+}
+
+.mc-board-plan-split-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-board-plan-split-share {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.mc-board-swatch {
+  --mc-tone: var(--ct-accent);
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mc-tone);
+}
+
+.mc-board-chart-segment {
+  --mc-tone: var(--ct-accent);
+}
+
+.mc-board-swatch[data-tone="1"],
+.mc-board-chart-segment[data-tone="1"] {
+  --mc-tone: var(--ct-magenta);
+}
+
+.mc-board-swatch[data-tone="2"],
+.mc-board-chart-segment[data-tone="2"] {
+  --mc-tone: var(--ct-cyan, var(--ct-accent));
+}
+
+.mc-board-swatch[data-tone="3"],
+.mc-board-chart-segment[data-tone="3"] {
+  --mc-tone: var(--ct-green, var(--ct-magenta));
+}
+
+/* Spend chart: one stacked bar per day, a segment per source in its tone; today at full strength. */
+.mc-board-chart {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+}
+
+.mc-board-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mc-space-1);
+  min-width: 0;
+}
+
+.mc-board-chip {
+  padding: 0 var(--mc-space-2);
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: var(--mc-text-meta);
+  line-height: 1.6;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mc-board-chip[aria-pressed="true"],
+.mc-board-chip[aria-current="page"] {
+  border-color: color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 16%, transparent);
+  color: var(--ct-fg);
+}
+
+.mc-board-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mc-board-chip:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+/* The bars take whatever height the stretched card leaves, never less than a readable chart. */
+.mc-board-chart-bars {
+  display: grid;
+  flex: 1 1 auto;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--mc-space-2);
+  min-width: 0;
+  min-height: 96px;
+}
+
+.mc-board-chart-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-1);
+  min-width: 0;
+}
+
+.mc-board-chart-track {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  min-height: 0;
+}
+
+.mc-board-chart-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  min-height: 2px;
+  overflow: hidden;
+  border-radius: var(--ct-radius-sm) var(--ct-radius-sm) 0 0;
+  background: var(--ct-border);
+}
+
+.mc-board-chart-segment {
+  flex: 0 1 0;
+  min-height: 1px;
+  background: color-mix(in srgb, var(--mc-tone) 60%, transparent);
+}
+
+.mc-board-chart-day[data-today="true"] .mc-board-chart-segment {
+  background: var(--mc-tone);
+}
+
+.mc-board-chart-label {
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  text-align: center;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+}
+
+/* Models: one rule under the column names; numbers share a right edge. */
+.mc-board-models-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mc-board-models-table th,
+.mc-board-models-table td {
+  padding: var(--mc-space-1) 0;
+  font-size: var(--mc-text-body);
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--ct-fg);
+}
+
+.mc-board-models-table thead th {
+  padding-top: 0;
+  border-bottom: 1px solid var(--ct-border);
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-models-table .mc-board-models-name {
+  overflow-wrap: break-word;
+}
+
+.mc-board-models-table .mc-board-models-num {
+  padding-left: var(--mc-space-3);
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mc-board-models-table thead .mc-board-models-num {
+  font-family: inherit;
+}
+
+.mc-board-models-name .mc-board-swatch {
+  margin-right: var(--mc-space-2);
+}
+
+.mc-board-models-row:hover > * {
+  background: var(--ct-hover);
+}
+
+.mc-board-models-row[data-unassigned="true"] > th {
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log {
+  display: grid;
+  grid-template-columns: 40px 96px 76px minmax(0, 1fr);
+  gap: 3px 10px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: var(--mc-text-body);
+  line-height: 1.45;
+}
+
+.mc-board-log-row {
+  display: contents;
+}
+
+.mc-board-log-hour {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
+  font-family: var(--ct-font-mono);
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log-day {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  font-size: var(--mc-text-meta);
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.mc-board-log-day:first-child {
+  margin-top: 0;
+}
+
+.mc-board-log-time {
+  font-family: var(--ct-font-mono);
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log-kind,
+.mc-board-log-author {
+  min-width: 0;
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-board-log-kind-strong {
+  color: var(--ct-fg);
+  font-weight: 600;
+}
+
+/* The reveal and the run count are their own flex items, so the ellipsis eats
+   only the preview and never the control that recovers the full text. */
+.mc-board-log-message {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--ct-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-board-log-message-quiet {
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log-body {
+  min-width: 0;
+  white-space: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-board-log-message-open {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* The locator yields space before the separator or the reveal ever does, so a
+   squeezed row still shows where the name ends and the reason begins. */
+.mc-board-log-task {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log-sep,
+.mc-board-log-run {
+  flex: 0 0 auto;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-log-more {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted color-mix(in srgb, var(--ct-border) 85%, transparent);
+  background: none;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: var(--mc-text-meta);
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.mc-board-log-more:hover {
+  color: var(--ct-fg);
+}
+
+.mc-board-log-more:focus-visible {
+  border-bottom-color: var(--ct-accent);
+  color: var(--ct-fg);
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
+/* The four fixed log columns leave no room for a title on a phone, so the
+   meta line sits above a full-width message and nothing is ellipsised away. */
+.mc-board[data-board-layout="narrow"] .mc-board-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-message {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-kind,
+.mc-board[data-board-layout="narrow"] .mc-board-log-author,
+.mc-board[data-board-layout="narrow"] .mc-board-log-message,
+.mc-board[data-board-layout="narrow"] .mc-board-log-body {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.mc-board[data-board-layout="narrow"] .mc-board-log-hour {
+  margin-top: 0;
+}
+
+/* Last word on the revealed body at either width: the stored note verbatim,
+   line breaks kept, long tokens broken rather than pushing the board wider. */
+.mc-board .mc-board-log-message-open .mc-board-log-body {
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}

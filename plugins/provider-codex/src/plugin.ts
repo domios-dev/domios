@@ -8,6 +8,10 @@ import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
+import { agentMessageRow, reasoningResponseRow, subAgentRow } from "./agentActivity";
+import { codexFileDiffs } from "./fileDiffs";
+import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
+import { actionTitle } from "./actionTitle";
 import {
   classifyCodexTabState,
   type TabStateClassification,
@@ -232,9 +236,22 @@ const plugin: PluginModule = {
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const activityIds = new Set<string>();
+    // One source record can be reported twice (completion event and response item) under one id.
+    const pushOnce = (row: { uuid?: string } | null) => {
+      if (!row || (row.uuid && activityIds.has(row.uuid))) return;
+      if (row.uuid) activityIds.add(row.uuid);
+      out.push(row);
+    };
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex: number) => {
+      for (; stamped < out.length; stamped++) {
+        (out[stamped] as { recordIndex?: number }).recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       if (!lines[i]) continue;
       let v: CodexEntry;
       try { v = JSON.parse(lines[i]); } catch (_) {
@@ -257,11 +274,55 @@ const plugin: PluginModule = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
+      const normalizedEventType = v.payload?.type;
+      if (normalizedEventType === "context_compacted") {
+        out.push({
+          role: "system",
+          blocks: [{ kind: "text", data: { text: "context compacted" } }],
+          ts,
+          timestamp: tsIso,
+          timelineMarker: { kind: "context_compaction" },
+        });
+        continue;
+      }
+      if (normalizedEventType === "thread_goal_updated") {
+        const sessionIntent = sessionIntentFromPayload(v.payload!);
+        if (!sessionIntent) continue;
+        out.push({
+          role: "custom",
+          blocks: [],
+          ts,
+          timestamp: tsIso,
+          sessionIntent,
+        });
+        continue;
+      }
+      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
+        const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
+        if (!turnId) continue;
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+        continue;
+      }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        const activity = completedActivity(v.payload.item, ts, tsIso);
-        if (activity && !activityIds.has(activity.uuid)) {
-          activityIds.add(activity.uuid);
-          out.push(activity);
+        pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
+        continue;
+      }
+      if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
+        pushOnce(subAgentRow(v.payload as Record<string, unknown>, v.payload.event_id, undefined, ts, tsIso));
+        continue;
+      }
+      if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
+        const result = v.payload.type === "web_search_end"
+          ? webSearchEndResult(v.payload, ts, tsIso)
+          : imageGenerationEndResult(v.payload, ts, tsIso);
+        if (result && !activityIds.has(result.uuid)) {
+          activityIds.add(result.uuid);
+          out.push(result);
         }
         continue;
       }
@@ -269,9 +330,10 @@ const plugin: PluginModule = {
         const p = v.payload;
         const content = typeof p.stdout === "string" ? p.stdout : "";
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const diffs = codexFileDiffs(p.changes);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId } }],
+          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId, ...(diffs.length > 0 ? { file_diffs: diffs } : {}) } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -327,6 +389,10 @@ const plugin: PluginModule = {
           ts: ts,
           timestamp: tsIso,
         });
+      } else if (p.type === "reasoning") {
+        pushOnce(reasoningResponseRow(p as Record<string, unknown>, ts, tsIso));
+      } else if (p.type === "agent_message") {
+        pushOnce(agentMessageRow(p as Record<string, unknown>, ts, tsIso));
       } else if (p.type === "custom_tool_call") {
         let name = typeof p.name === "string" ? p.name.trim() : "";
         if (!name) continue;
@@ -356,6 +422,7 @@ const plugin: PluginModule = {
         });
       }
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
 
@@ -499,6 +566,10 @@ interface CodexPayload {
   type?: string;
   role?: string;
   content?: string | CodexContentBlock[];
+  goal?: unknown;
+  thread_goal?: unknown;
+  title?: unknown;
+  thread_name?: unknown;
   arguments?: string;
   name?: string;
   output?: unknown;
@@ -507,6 +578,14 @@ interface CodexPayload {
   call_id?: string;
   stdout?: string;
   success?: boolean;
+  turn_id?: unknown;
+  id?: unknown;
+  event_id?: unknown;
+  summary?: unknown;
+  author?: unknown;
+  recipient?: unknown;
+  internal_chat_message_metadata_passthrough?: unknown;
+  changes?: unknown;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 export interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
@@ -533,6 +612,11 @@ function nestedApplyPatch(raw: string): string | null {
 export interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 
 function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
+  const fields = baseToolFields(name, input);
+  return { ...fields, tool_title: actionTitle(fields) };
+}
+
+function baseToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
   const raw = typeof input.raw === "string" ? input.raw : "";
   const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
   const script = name === "exec" && raw ? summarizeExecScript(raw) : null;
@@ -551,21 +635,50 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
-    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed";
+    return v.payload.type === "patch_apply_end"
+      || v.payload.type === "item_completed"
+      || v.payload.type === "web_search_end"
+      || v.payload.type === "image_generation_end"
+      || v.payload.type === "task_started"
+      || v.payload.type === "task_complete"
+      || v.payload.type === "turn_aborted"
+      || v.payload.type === "context_compacted"
+      || (v.payload.type === "thread_goal_updated" && sessionIntentFromPayload(v.payload) !== null)
+      || v.payload.type === "sub_agent_activity";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
   if (
     kind !== "message" &&
+    kind !== "reasoning" &&
+    kind !== "agent_message" &&
     kind !== "function_call" &&
     kind !== "function_call_output" &&
     kind !== "custom_tool_call" &&
-    kind !== "custom_tool_call_output"
+    kind !== "custom_tool_call_output" &&
+    kind !== "context_compacted" &&
+    kind !== "thread_goal_updated"
   ) {
     return false;
   }
   return true;
+}
+
+function cleanIntentValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : undefined;
+}
+
+function sessionIntentFromPayload(payload: CodexPayload): Record<string, string> | null {
+  const title = cleanIntentValue(payload.title) || cleanIntentValue(payload.thread_name);
+  const goal = cleanIntentValue(payload.goal) || cleanIntentValue(payload.thread_goal);
+  if (!title && !goal) return null;
+  return {
+    ...(title ? { title } : {}),
+    ...(goal ? { goal } : {}),
+  };
 }
 
 function codexToolOutputText(output: unknown): string {
@@ -599,8 +712,7 @@ function isInternalOrchestrationCall(name: string): boolean {
     || name === "spawn_agent"
     || name === "followup_task"
     || name === "interrupt_agent"
-    || name === "list_agents"
-    || name === "wait_agent";
+    || name === "list_agents";
 }
 
 function classifyCodexSystemText(text: string): string | null {

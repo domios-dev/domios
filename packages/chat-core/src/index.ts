@@ -1,4 +1,6 @@
 export type {
+  AgentActivity,
+  AgentActivityState,
   ChatAttachment,
   ChatMessageKind,
   NormalizedChatMessage,
@@ -9,9 +11,15 @@ export type {
   InteractiveElement,
   InteractiveQuestion,
   InteractiveOption,
+  ChatTimelineMarker,
+  ChatSessionIntent,
   ToolEventKind,
   ToolEdit,
+  FileDiff,
+  FileDiffHunk,
+  ToolRichResult,
 } from "./types";
+export { localThumbnailSource, normalizeToolRichResult, type ThumbnailSource } from "./toolRichResult";
 export {
   shellCommandMessage,
   shellSnapshotToMessages,
@@ -53,11 +61,29 @@ export { countAddedLines, countRemovedLines, countAdded, countRemoved, type Edit
 export { parseCodexPatch, patchTextFromToolInput, type ParsedPatchFile } from "./toolPatches";
 export {
   materializeToolEvent,
-  coalesceWaitEvents,
   reduceToolEvents,
+  toolStreamLabel,
+  type StreamEntry,
   type TimelineItem,
   type ToolEvent,
 } from "./toolEvents";
+export {
+  assignedCommand,
+  commandArgvStart,
+  commandBasename,
+  parseShellComposition,
+  shellSegmentLabel,
+  toolCommand,
+  unwrapShellLauncher,
+  type AssignedCommand,
+  type ShellComposition,
+  type ShellDialect,
+  type ShellOperator,
+  type ShellScript,
+  type ShellSegment,
+  type UnwrappedShellCommand,
+} from "./shellComposition";
+export { type AgentActivityTree, type AgentMessageEdge, type AgentNode } from "./agentActivity";
 export { stabilizeTimelineItems } from "./timelineStability";
 export { buildToolPreview, type ToolPreview } from "./toolPreview";
 export {

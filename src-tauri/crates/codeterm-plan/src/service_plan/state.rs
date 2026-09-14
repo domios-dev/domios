@@ -14,6 +14,7 @@ use crate::plan::{
 use super::next_actions::{compute_next_actions, NextAction};
 
 pub mod lane_rows;
+pub mod mission_control;
 
 const RECENT_STRIDE_LIMIT: usize = 10;
 
@@ -232,6 +233,9 @@ pub struct PlanStateSnapshot {
     pub blocking_regression_gates: Vec<super::milestone_gates::RegressionGate>,
     pub regression_overrides: Vec<RegressionGateOverride>,
     pub review_gate: super::review_gate::ReviewGateStatus,
+    // Stored-field Mission Control projection. The KPI and machine-spend blocks
+    // arrive not-recording; the service layer overlays ledger and usage rows.
+    pub mission_control: mission_control::MissionControl,
     pub next_actions: Vec<NextAction>,
 }
 
@@ -623,6 +627,7 @@ pub fn build_plan_state_snapshot(
         blocking_regression_gates: super::milestone_gates::blocking_regression_gates(plan),
         regression_overrides: plan.regression_gate_overrides.clone(),
         review_gate: super::review_gate::review_gate_status(plan),
+        mission_control: mission_control::build_mission_control(plan, now_ms),
         next_actions: vec![],
     };
     snapshot.next_actions = compute_next_actions(&snapshot);
@@ -681,6 +686,7 @@ mod tests {
             review_round: 0,
             review_oracle: None,
             review_evidence: vec![],
+            key: None,
             review_override: None,
             review_audit: vec![],
             status_label: None,

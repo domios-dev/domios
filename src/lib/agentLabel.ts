@@ -6,6 +6,8 @@
  * fact yet is "unobserved" rather than guessed in either direction.
  */
 
+import { shortModelName } from "./agentModelName";
+
 export type AgentLiveness = "live" | "absent" | "unobserved";
 
 export interface LivenessEvidence {
@@ -41,18 +43,31 @@ export function classifyAgentLiveness(evidence: LivenessEvidence): AgentLiveness
   const stage = evidence.bootStage ?? null;
   if (stage != null && PROVEN_UP.has(stage)) return "live";
   if (stage === "spawn_failed") return "absent";
-  // A re-attached PTY proves the PTY, not the agent inside it.
-  if (stage === "pty_reattached" || stage == null) return "unobserved";
+  // A re-attached PTY proves the PTY, not the agent inside it, and an observer
+  // giving up on a launch is not evidence the process it gave up on died.
+  if (
+    stage === "pty_reattached" ||
+    stage === "launch_deadline_elapsed" ||
+    stage === "launch_binding_unconfirmed" ||
+    stage == null
+  ) {
+    return "unobserved";
+  }
   if (evidence.bootInFlight || LAUNCH_IN_FLIGHT.has(stage)) return "unobserved";
   return "absent";
 }
 
 /**
- * THE bracket rule: the tab's agent IDENTITY as `provider:model`, never its
- * role. An unobserved component is omitted rather than guessed, and the
- * process verdict rides as a suffix so a label can never claim a running agent
- * that is not there: live -> `provider:model`, unobserved -> `provider:model?`,
- * absent -> `provider:model!`. No provider means no bracket.
+ * THE bracket rule: the tab's agent IDENTITY, never its role. The model
+ * REPLACES the provider, it never joins it, and exactly three cases exist:
+ * no usable provider -> no bracket; provider with a model no catalogue claims
+ * -> the provider name; a recognised model -> the short model name, alone.
+ *
+ * Falling back to the provider is a display decision about an unclaimed id; it
+ * says nothing about the stored model, which this rule never writes.
+ *
+ * The process verdict rides as a suffix so a label can never claim a running
+ * agent that is not there: live -> `sol`, unobserved -> `sol?`, absent -> `sol!`.
  */
 export function agentBracketLabel(
   provider: string | null | undefined,
@@ -62,7 +77,7 @@ export function agentBracketLabel(
   const providerText = provider?.trim();
   if (!providerText) return null;
   const modelText = model?.trim();
-  const identity = modelText ? `${providerText}:${modelText}` : providerText;
+  const identity = (modelText ? shortModelName(modelText) : null) ?? providerText;
   if (liveness === "live") return identity;
   return liveness === "absent" ? `${identity}!` : `${identity}?`;
 }

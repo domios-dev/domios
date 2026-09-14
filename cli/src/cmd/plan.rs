@@ -20,6 +20,7 @@ use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source
 use self::caller_context::CallerContext;
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
+use crate::cmd::plan_lanes::render_lane_removed;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
 use crate::cmd::plan_render::{print_plan_result, render_coverage, render_plan_sections};
 use serde_json::{json, Value};
@@ -413,6 +414,26 @@ fn run_plan(
 
         PlanAction::Lanes { plan_id, stale } => {
             return read_cmd::lanes(client, json, plan_id, stale)
+        }
+
+        PlanAction::LaneRemove {
+            worktree,
+            branch,
+            project,
+        } => {
+            let mut params = json!({ "worktree_path": worktree });
+            if let Some(branch) = branch {
+                params["branch"] = json!(branch);
+            }
+            if let Some(project) = project {
+                params["project_path"] = json!(project);
+            }
+            let val = call(client, "plan.lane_remove", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            println!("{}", render_lane_removed(&val));
+            return Ok(None);
         }
 
         PlanAction::Next { plan_id } => {

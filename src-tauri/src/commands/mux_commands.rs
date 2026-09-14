@@ -18,9 +18,25 @@ pub struct OrphanedRestoreInfo {
 }
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
+pub(crate) async fn mux_get_state_from_service(
+    svc: ServiceState,
+) -> Result<MultiplexerSnapshot, String> {
+    refuse_busy_snapshot_off_runtime(move || svc.try_snapshot_with_reconciled_status()).await
+}
+
+async fn refuse_busy_snapshot_off_runtime(
+    try_snapshot: impl FnOnce() -> Option<MultiplexerSnapshot> + Send + 'static,
+) -> Result<MultiplexerSnapshot, String> {
+    tokio::task::spawn_blocking(move || {
+        try_snapshot().ok_or_else(|| crate::service::SNAPSHOT_BUSY_ERROR.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
-pub fn mux_get_state(svc: State<'_, ServiceState>) -> Result<MultiplexerSnapshot, String> {
-    Ok(svc.snapshot_with_reconciled_status())
+pub async fn mux_get_state(svc: State<'_, ServiceState>) -> Result<MultiplexerSnapshot, String> {
+    mux_get_state_from_service(svc.inner().clone()).await
 }
 
 /// Create a new workspace.
@@ -61,6 +77,57 @@ pub fn mux_rename_workspace(
     name: String,
 ) -> Result<(), String> {
     svc.rename_workspace(&workspace_id, &name)
+}
+
+#[cfg(test)]
+mod snapshot_refusal_tests {
+    use super::refuse_busy_snapshot_off_runtime;
+    use crate::agent::registry::AgentRegistry;
+    use crate::agent::status::TabStatusTracker;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::{try_snapshot_with_reconciled_status, SNAPSHOT_BUSY_ERROR};
+    use crate::AgentTrackerState;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    // Drives the command's refusal path without a Tauri app: tao refuses to build
+    // its EventLoop off the main thread on macOS, and test threads are not main.
+    #[test]
+    fn authoritative_command_refuses_without_blocking_runtime() {
+        let (state, _) = MultiplexerState::new();
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux-command-refusal-test", state));
+        let tracker: AgentTrackerState = Arc::new(TimedMutex::new(
+            "mux-command-refusal-test",
+            TabStatusTracker::new(),
+        ));
+        let _lifecycle_owner = mux.write();
+        let worker_mux = mux.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let registry = AgentRegistry::new();
+            let error = runtime
+                .block_on(refuse_busy_snapshot_off_runtime(move || {
+                    try_snapshot_with_reconciled_status(&worker_mux, &tracker, &registry)
+                }))
+                .expect_err("a lifecycle-owned mux must be refused");
+            done_tx.send(error).unwrap();
+        });
+
+        assert_eq!(
+            done_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("the Tauri command must not block its runtime"),
+            SNAPSHOT_BUSY_ERROR
+        );
+        worker.join().unwrap();
+    }
 }
 
 #[cfg(test)]

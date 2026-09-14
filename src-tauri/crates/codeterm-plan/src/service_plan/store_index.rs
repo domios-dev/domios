@@ -1,4 +1,43 @@
 use super::*;
+use crate::plan::OrchestratorRef;
+
+fn append_lifecycle_event(plan: &mut Plan, kind: &str, at: u64, author: OrchestratorRef) {
+    let id = format!("lifecycle-{kind}-{}", plan.lifecycle_events.len());
+    plan.lifecycle_events.push(PlanLifecycleEvent {
+        id,
+        kind: kind.into(),
+        at,
+        author,
+    });
+}
+
+pub(super) fn record_lifecycle_events(plan: &mut Plan, previous: Option<&Plan>, at: u64) {
+    match previous {
+        None => {
+            append_lifecycle_event(plan, "opened", at, plan.owner.clone());
+            match &plan.status {
+                PlanStatus::Active => {
+                    append_lifecycle_event(plan, "activated", at, plan.owner.clone());
+                }
+                PlanStatus::Archived => {
+                    append_lifecycle_event(plan, "archived", at, plan.owner.clone());
+                }
+            }
+        }
+        Some(previous) if previous.status != plan.status => {
+            match (&previous.status, &plan.status) {
+                (PlanStatus::Active, PlanStatus::Archived) => {
+                    append_lifecycle_event(plan, "archived", at, previous.owner.clone());
+                }
+                (PlanStatus::Archived, PlanStatus::Active) => {
+                    append_lifecycle_event(plan, "activated", at, plan.owner.clone());
+                }
+                _ => {}
+            }
+        }
+        Some(_) => {}
+    }
+}
 
 impl PlanStore {
     pub(super) fn index_entry(plan: &Plan, file_path: PathBuf) -> IndexEntry {
@@ -301,7 +340,7 @@ impl PlanStore {
         tag_model::normalize_plan(plan);
         let id = plan.id.clone();
         let existing = { self.plans.read().get(&id).cloned() };
-        let arc = if let Some(arc) = existing {
+        let arc = if let Some(arc) = existing.clone() {
             arc
         } else {
             let mut plans = self.plans.write();
@@ -310,7 +349,7 @@ impl PlanStore {
                 .or_insert_with(|| Arc::new(Mutex::new(plan.clone())))
                 .clone()
         };
-        let staged = {
+        let mut staged = {
             let guard = arc.lock();
             if guard.updated_at <= plan.updated_at {
                 plan.clone()
@@ -318,6 +357,8 @@ impl PlanStore {
                 guard.clone()
             }
         };
+        let previous = existing.as_ref().map(|arc| arc.lock().clone());
+        record_lifecycle_events(&mut staged, previous.as_ref(), now_ms);
         *plan = staged.clone();
         let path = self.persist_plan_and_spec(&staged)?;
         {
@@ -402,6 +443,43 @@ impl PlanStore {
             .write()
             .insert(committed.id.clone(), Self::index_entry(&committed, path));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn team_board_state_lifecycle_events_are_stored() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(root.path());
+        let mut plan = Plan::new(
+            "Team board".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::from_tab("owner-tab"),
+        );
+        plan.team_id = Some("team-a".into());
+        store.save(&mut plan, 10).unwrap();
+        store.archive(&plan.id, 20).unwrap();
+        store.unarchive(&plan.id, 30).unwrap();
+
+        let reopened = PlanStore::open(store.database_path_for_test()).unwrap();
+        let events = reopened.get(&plan.id).unwrap().lifecycle_events;
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["opened", "activated", "archived", "activated"]
+        );
+        assert_eq!(
+            events.iter().map(|event| event.at).collect::<Vec<_>>(),
+            vec![10, 10, 20, 30]
+        );
+        assert!(events
+            .iter()
+            .all(|event| event.author.tab_id.as_deref() == Some("owner-tab")));
     }
 }
 

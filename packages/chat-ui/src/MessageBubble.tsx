@@ -5,7 +5,7 @@ import type {
   ChatAttachment as ImageAttachment,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, shortTabRef } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, shortTabRef, toolCommand } from "@codeterm/chat-core";
 import {
   Download, Image,
   Send,            // generic chat (telegram / service)
@@ -15,6 +15,7 @@ import {
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
+import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
@@ -43,6 +44,7 @@ import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
+import { normalizedTimelineMarker, TimelineMarkerRow } from "./timelineMarkers";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
@@ -89,10 +91,19 @@ function hasVisibleEdit(item: TimelineItem | undefined): boolean {
     && Boolean(item.event.edits?.length);
 }
 
+// Transport ids are re-keyed when a snapshot replaces live rows, so tool expansion keys on source identity.
+function expansionKey(message: ChatMessage, item: TimelineItem | undefined): string {
+  if (item?.kind !== "tool") return message.id;
+  const session = message.sourceSessionId ?? "";
+  if (item.event.stream) return `stream:${session}:${item.event.stream.flowId}`;
+  const toolId = item.event.toolId?.trim();
+  return toolId ? `tool:${session}:${toolId}` : message.id;
+}
+
 function isOutboundMessage(item: TimelineItem | undefined): boolean {
   if (item?.kind !== "tool") return false;
-  const command = item.event.detail?.trim() || item.event.summary || item.event.result?.trim() || "";
-  const invocation = recognize(command);
+  const { command, argv } = toolCommand(item.event);
+  const invocation = recognize(command, argv);
   return invocation != null && isSend(invocation);
 }
 
@@ -118,8 +129,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
   const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
+  const persistKey = expansionKey(message, item);
   const [expanded, setExpanded] = useState(() => {
-    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
     return persisted ?? shouldAutoExpand;
   });
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
@@ -141,23 +153,28 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   }, []);
 
   useEffect(() => {
-    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
     if (persisted != null) {
       setExpanded(persisted);
       return;
     }
     if (shouldAutoExpand) {
       setExpanded(true);
-      TOOL_EXPANDED_BY_ID.set(message.id, true);
+      TOOL_EXPANDED_BY_ID.set(persistKey, true);
     } else {
       setExpanded(false);
     }
-  }, [message.id, shouldAutoExpand]);
+  }, [persistKey, shouldAutoExpand]);
 
   const setExpandedPersistent = useCallback((next: boolean) => {
-    TOOL_EXPANDED_BY_ID.set(message.id, next);
+    TOOL_EXPANDED_BY_ID.set(persistKey, next);
     setExpanded(next);
-  }, [message.id]);
+  }, [persistKey]);
+
+  const timelineMarker = normalizedTimelineMarker(message);
+  if (timelineMarker?.kind === "context_compaction" || timelineMarker?.kind === "external_edit") {
+    return <TimelineMarkerRow message={message} />;
+  }
 
   if (!isRenderableMessage(message)) {
     return null;
@@ -356,6 +373,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
 
     const userBubbleInner = (
       <>
+        {timelineMarker?.kind === "queued" && (
+          <span
+            data-testid="chat-queued-marker"
+            aria-label="Queued"
+            className="mb-1 inline-flex w-fit rounded px-1.5 py-0.5 text-[10px] font-mono motion-reduce:transition-none"
+            style={{
+              background: "color-mix(in srgb, var(--ct-yellow, #d29922) 14%, transparent)",
+              color: "var(--ct-yellow, #d29922)",
+            }}
+          >
+            queued
+          </span>
+        )}
         {formattedUserContent}
         {attachments && attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
@@ -579,6 +609,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
     );
   }
 
+  if (item?.kind === "tool" && item.event.agents) {
+    return <ToolCallBubble event={item.event} expanded={expanded} onToggle={setExpandedPersistent} />;
+  }
+
   if (message.type === "tool_call") {
     return (
         <ToolCallBubble
@@ -651,30 +685,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   if (message.type === "thinking") {
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-        <button
-          onClick={() => setExpandedPersistent(!expanded)}
-          className="inline-flex items-center gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
-          style={{
-            color: "var(--ct-muted-fg)",
-          }}
-        >
-          <span className="opacity-40 text-[10px]">{"..."}</span>
-          <span className="opacity-50 text-[11px]">Thinking</span>
-          <ChevronIcon expanded={expanded} className="opacity-40" />
-        </button>
-        {expanded && (
-          <div
-            className="mt-1 max-w-full min-w-0 rounded-md px-3 py-2 text-xs overflow-x-auto max-h-48 overflow-y-auto italic border border-[var(--ct-border)]"
-            style={{
-              background: "var(--ct-bg)",
-              color: "var(--ct-muted-fg)",
-            }}
-          >
-            <pre className={`${PRE_WRAP_CLASS} m-0 font-[inherit]`}>
-              {message.content}
-            </pre>
-          </div>
-        )}
+        <ThoughtLine text={message.content} expanded={expanded} onToggle={setExpandedPersistent} />
       </div>
     );
   }

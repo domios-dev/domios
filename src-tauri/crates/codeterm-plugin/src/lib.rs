@@ -28,12 +28,18 @@ pub mod transcribe;
 pub mod usage_parser;
 pub mod view;
 pub mod view_host;
+pub mod webhook;
 
 pub use capability::CapabilityRegistry;
 pub use host_traits::{PluginHostCtx, PluginProviderRegistrar, SecretBackendRegistrar};
 pub use js_runtime::hot_reload::{set_watcher_service, CapabilityRegistries, HotReloadRegistry};
+pub use js_runtime::manifest::WebhookReceiverKind;
 pub use plugin_manager::{
     Plugin, PluginActivation, PluginCapabilities, PluginManager, PluginManifest, PluginMeta,
     PluginPermissions, PluginPrompt, PluginTier,
 };
 pub use provider::AgentProvider;
+pub use webhook::{
+    WebhookDelivery, WebhookReceiveContext, WebhookReceiveError, WebhookReceiver, WebhookRegistry,
+    WebhookRegistryHandle,
+};

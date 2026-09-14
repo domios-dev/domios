@@ -136,7 +136,12 @@ reference material for *what* each step means. The walkthrough shows
         codeterm mem graph relate --from <diary_id> --rel belongs_to --to project_dreams
         Verify: codeterm mem graph related --id <diary_id>  → must return ≥1 edge.
 12. (telegram notify — conditional on memory.dreaming_telegram_notify config)
-13. codeterm mem worker report "Hubs: …. Parallel edges: …. Backlinks: …. Diary saved."
+13. codeterm mem worker report --diary <diary_id> --finalization succeeded "Hubs: …. Parallel edges: …. Backlinks: …. Diary saved."
+    If any of steps 10-11 did not confirm (write/update/self-link error or
+    timeout), report the truth instead — --finalization partial (or failed)
+    with --reason "<what did not confirm>". The daemon checks your claim
+    against the stored diary, so a placeholder insight or a pending field
+    surfaces as partial either way.
 ```
 
 The diary id from step 4 is the anchor for the whole run. If you exit
@@ -687,7 +692,15 @@ The summary is a teaser of the insight, not a stat dump:
 Logs the run as complete with the one-line summary the user sees in the
 Recent sessions list:
 
-    codeterm mem worker report "Hubs: <decomposed N, skipped M>. Islands: <bridged X, deleted Y>. Diary saved."
+    codeterm mem worker report --diary <diary_id> --finalization succeeded "Hubs: <decomposed N, skipped M>. Islands: <bridged X, deleted Y>. Diary saved."
+
+`--diary` ties this run to the artifact it produced by identity, and
+`--finalization` states whether that artifact actually landed. They are
+separate facts from the run ending: without them the run shows as
+execution-ended with finalization unverified, never as done.
+
+    # final diary update or self-link did not confirm:
+    codeterm mem worker report --diary <diary_id> --finalization partial --reason "final diary update/self-link timed out" "Hubs: <...>. Islands: <...>."
 
 # STAGE C — Maintenance (mandatory, finishes the run)
 

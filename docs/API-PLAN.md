@@ -2,6 +2,20 @@
 
 Contracts for plan-owned task structure, goals, lanes, and executors, as the CLI and socket surface enforce them.
 
+### Durable task keys and references
+
+Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx`
+id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary.
+A new key is issued once from the plan's owning local workspace: a 2-4 character
+uppercase prefix derived from the workspace name (collisions take the next
+deterministic candidate), fixed by the first key, plus a counter that never
+decreases or reuses a number. A legacy task stores no `key`; its display key is
+its id without `task_`, uppercased. An exact id wins; a handle and key naming
+different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries
+`display_key` beside `task.id` (`task.key` only when stored), sibling/parent
+labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`,
+and `POST /api/tasks` return `key`.
+
 
 ### Planner authority over task structure
 
@@ -47,6 +61,22 @@ never against itself; collapsing those two made a resolved lane look like the
 canonical checkout and dropped it (codeterm#425). A readiness report is no longer
 refused with "cannot locate your lane worktree" for a task dispatched this way.
 
+### A mutating dispatch with no lane provisions one
+
+A repository-mutating `plan.task.dispatch` whose task records no lane no longer
+resolves the canonical checkout as the worker checkout. The dispatcher branches
+one sibling lane off the plan's canonical project, commits its worktree, branch,
+base and Team workspace identity as a single value, and only then spawns. A lane
+the task already records is still used as-is, and a recorded lane that names the
+canonical checkout or another task's lane is refused before any tab is created
+(`data.type = "unsafe_mutating_lane"`). A recorded lane that fails verification
+is refused with `checkout_required` rather than replaced by a fresh one.
+
+Both payloads that report the lane — the synchronous dispatch response and the
+`dispatch_ready` block — carry `lane.canonical_project_path` as the **plan's**
+canonical checkout and `lane.worktree_path` as the **worker's** lane, for a
+provisioned and a pre-created lane alike.
+
 ### Recording an executor that runs elsewhere
 
 A task executed by an agent on another machine records its executor with the
@@ -66,4 +96,4 @@ reader.
 `plan task update` deliberately has no assign flag: assignment is execution
 authority and lives on its own verb, outside what a Planner may write.
 
-<!-- revision: 1 -->
+<!-- revision: 3 -->

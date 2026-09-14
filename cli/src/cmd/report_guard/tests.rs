@@ -557,6 +557,10 @@ fn repository_scope_without_lane_worktree_refuses_instead_of_canonical() {
         "{}",
         err.reason
     );
+    assert_eq!(
+        err.report_outcome(),
+        Some(codeterm_types::agent::ReportOutcomeClass::DeliveredUnattached)
+    );
 }
 
 #[test]
@@ -690,6 +694,10 @@ fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane()
         err.reason.contains("is not a git worktree"),
         "{}",
         err.reason
+    );
+    assert_eq!(
+        err.report_outcome(),
+        Some(codeterm_types::agent::ReportOutcomeClass::DeliveredUnattached)
     );
 }
 

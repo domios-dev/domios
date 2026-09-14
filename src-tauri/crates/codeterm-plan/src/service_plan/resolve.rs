@@ -1,11 +1,11 @@
-//! Unified daemon-side reference resolution: full id | unique prefix | handle.
+//! Unified daemon-side reference resolution: full id | handle or task key | unique prefix.
 //!
 //! Every entity ref that reaches the daemon (plan / task / section / spec) flows through
 //! one resolver. Ambiguity and unknown refs fail loudly with candidate lists; a ref is never
 //! guessed. Old long uuid ids resolve exactly like freshly minted short ids.
 
 use super::PlanStore;
-use crate::plan::{Section, Spec};
+use crate::plan::{task_key, Section, Spec, Task};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +40,8 @@ pub struct RefCandidate {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_id: Option<String>,
@@ -93,8 +95,8 @@ impl std::fmt::Display for ResolveError {
             } => {
                 let listed = candidates
                     .iter()
-                    .map(|c| match &c.handle {
-                        Some(h) => format!("{} ({}, {})", h, c.id, c.label),
+                    .map(|c| match c.key.as_ref().or(c.handle.as_ref()) {
+                        Some(name) => format!("{} ({}, {})", name, c.id, c.label),
                         None => format!("{} ({})", c.id, c.label),
                     })
                     .collect::<Vec<_>>()
@@ -113,6 +115,7 @@ impl std::fmt::Display for ResolveError {
 struct MatchItem {
     id: String,
     handle: Option<String>,
+    key: Option<String>,
     label: String,
     plan_id: Option<String>,
 }
@@ -122,20 +125,35 @@ impl MatchItem {
         RefCandidate {
             id: self.id,
             handle: self.handle,
+            key: self.key,
             label: self.label,
             plan_id: self.plan_id,
         }
     }
+
+    fn task(task: &Task, plan_id: &str) -> Self {
+        MatchItem {
+            id: task.id.clone(),
+            handle: task.handle.clone(),
+            key: Some(task.display_key()),
+            label: task.name.clone(),
+            plan_id: Some(plan_id.to_string()),
+        }
+    }
 }
 
-/// Deterministic precedence: exact id > exact handle > unique prefix (on id or handle).
+/// Deterministic precedence: exact id > exact handle or task key (one tier, must be
+/// unique) > unique prefix (on id or handle).
 fn pick(items: Vec<MatchItem>, reference: &str, kind: RefKind) -> Result<MatchItem, ResolveError> {
     if let Some(hit) = items.iter().find(|i| i.id == reference) {
         return Ok(hit.clone());
     }
     let handle_hits: Vec<&MatchItem> = items
         .iter()
-        .filter(|i| i.handle.as_deref() == Some(reference))
+        .filter(|i| match i.key.as_deref() {
+            Some(key) => task_key::name_matches(i.handle.as_deref(), key, reference),
+            None => i.handle.as_deref() == Some(reference),
+        })
         .collect();
     match handle_hits.len() {
         1 => return Ok(handle_hits[0].clone()),
@@ -191,6 +209,7 @@ fn spec_section_items(spec: &Spec) -> Vec<MatchItem> {
     flat.into_iter()
         .map(|s| MatchItem {
             id: s.id.clone(),
+            key: None,
             handle: s.handle.clone(),
             label: s.title.clone(),
             plan_id: None,
@@ -250,6 +269,7 @@ impl PlanStore {
                 let p = arc.lock();
                 MatchItem {
                     id: p.id.clone(),
+                    key: None,
                     handle: None,
                     label: p.title.clone(),
                     plan_id: None,
@@ -277,6 +297,7 @@ impl PlanStore {
                 let s = arc.lock();
                 MatchItem {
                     id: s.id.clone(),
+                    key: None,
                     handle: None,
                     label: s.title.clone(),
                     plan_id: None,
@@ -345,6 +366,7 @@ impl PlanStore {
             for l in &p.loops {
                 items.push(MatchItem {
                     id: l.id.clone(),
+                    key: None,
                     handle: None,
                     label: l.target.clone(),
                     plan_id: Some(p.id.clone()),
@@ -370,6 +392,7 @@ impl PlanStore {
                     .iter()
                     .map(|e| MatchItem {
                         id: e.id.clone(),
+                        key: None,
                         handle: None,
                         label: e.kind.clone(),
                         plan_id: Some(p.id.clone()),
@@ -400,6 +423,7 @@ impl PlanStore {
                         .iter()
                         .map(|m| MatchItem {
                             id: m.id.clone(),
+                            key: None,
                             handle: None,
                             label: m.kind.clone(),
                             plan_id: Some(plan_id.clone()),
@@ -421,15 +445,7 @@ impl PlanStore {
             .get(plan_id)
             .map(|arc| {
                 let p = arc.lock();
-                p.tasks
-                    .iter()
-                    .map(|t| MatchItem {
-                        id: t.id.clone(),
-                        handle: t.handle.clone(),
-                        label: t.name.clone(),
-                        plan_id: Some(p.id.clone()),
-                    })
-                    .collect()
+                p.tasks.iter().map(|t| MatchItem::task(t, &p.id)).collect()
             })
             .unwrap_or_default()
     }
@@ -438,14 +454,7 @@ impl PlanStore {
         let mut out = Vec::new();
         for arc in self.plans.read().values() {
             let p = arc.lock();
-            for t in &p.tasks {
-                out.push(MatchItem {
-                    id: t.id.clone(),
-                    handle: t.handle.clone(),
-                    label: t.name.clone(),
-                    plan_id: Some(p.id.clone()),
-                });
-            }
+            out.extend(p.tasks.iter().map(|t| MatchItem::task(t, &p.id)));
         }
         out
     }
@@ -461,6 +470,7 @@ impl PlanStore {
                 flat.into_iter()
                     .map(|s| MatchItem {
                         id: s.id.clone(),
+                        key: None,
                         handle: s.handle.clone(),
                         label: s.title.clone(),
                         plan_id: Some(p.id.clone()),
@@ -479,6 +489,7 @@ impl PlanStore {
             for s in flat {
                 out.push(MatchItem {
                     id: s.id.clone(),
+                    key: None,
                     handle: s.handle.clone(),
                     label: s.title.clone(),
                     plan_id: Some(p.id.clone()),
@@ -552,6 +563,7 @@ mod tests {
             review_round: 0,
             review_oracle: None,
             review_evidence: vec![],
+            key: None,
             review_override: None,
             review_audit: vec![],
             status_label: None,

@@ -1,7 +1,6 @@
-//! Which of the two review-entry gates gets NAMED. Both can be true of the same
-//! task, so selection is a decision, not source order — and the observed defect
-//! was a bounce correction being told it had expanded the acceptance oracle when
-//! what it had actually breached was the round bound.
+//! Review entry has exactly one gate left: the acceptance-oracle scope gate.
+//! Review depth is advisory, so a task past the round bound enters review like
+//! any other — these tests pin both halves so neither drifts back.
 //!
 //! Everything here asserts on `PlanError` variants and their `data.type`
 //! constants. Never on the refusal's prose, and never on the remedy's wording.
@@ -80,26 +79,22 @@ fn complete_override() -> ReviewOverride {
     }
 }
 
-/// The reported defect. Past the round bound, the round bound is what fired, so
-/// it is what must be named — even though the oracle also moved and the scope
-/// gate would happily have claimed it.
+/// Past the round bound, review entry is no longer refused at all: the bound is
+/// advice the Orchestrator acts on, never a gate the Worker has to clear.
 #[test]
-fn a_bounce_correction_past_the_round_limit_reports_the_round_gate() {
+fn a_bounce_correction_past_the_round_limit_enters_review_unrefused() {
     let dir = tempfile::tempdir().unwrap();
     let mut task = reviewed_task(dir.path());
     task.review_round = DEFAULT_MAX_REVIEW_ROUNDS;
     task.review_evidence = vec![bounce(true)];
     correct_the_oracle(&mut task);
 
-    let error = validate_enter_review(&task).unwrap_err();
+    validate_enter_review(&task)
+        .expect("the round bound is advisory; a compliant correction still enters review");
     assert!(
-        matches!(error, PlanError::ReviewRoundExceeded { .. }),
-        "the round bound fired; naming the scope gate sends the operator to the wrong remedy"
+        task.review_override.is_none(),
+        "and it enters with no override recorded, so nothing hides a gate"
     );
-    let json = error.to_json();
-    assert_eq!(json["type"], "review_round_exceeded");
-    assert_eq!(json["max_rounds"], DEFAULT_MAX_REVIEW_ROUNDS);
-    assert_ne!(json["type"], "review_oracle_scope_expansion");
 }
 
 /// The other gate, on its own facts: the oracle moved with no bounce
@@ -154,9 +149,8 @@ fn the_scope_gate_still_refuses_and_still_admits_an_unchanged_oracle() {
     ));
 }
 
-/// An override clears whichever gate fired, and an INCOMPLETE one is reported as
-/// incomplete for both — previously only the round gate said so, and an
-/// incomplete override at the scope gate was reported as scope expansion.
+/// An override clears the scope gate at any review depth, and an INCOMPLETE one
+/// is named as incomplete rather than reported as scope expansion.
 #[test]
 fn an_override_clears_the_gate_that_fired_and_incompleteness_is_named() {
     let dir = tempfile::tempdir().unwrap();
@@ -185,12 +179,9 @@ fn an_override_clears_the_gate_that_fired_and_incompleteness_is_named() {
     }
 }
 
-/// Consumption and auditing are separate. A scope override is CONSUMED so it
-/// cannot survive to silently satisfy the round bound later, but it is NOT
-/// written to the audit log: `ReviewAuditEntry` records that a review-ROUND-LIMIT
-/// exception was used, and a correction below the bound is not one. Auditing it
-/// there would rewrite that history into something it does not mean — which is
-/// what `authorized_correction_rebuilds_oracle_without_rewriting_history` pins.
+/// A scope override is CONSUMED when it clears the scope gate, and is never
+/// written to the audit log: `ReviewAuditEntry` records review-ROUND-LIMIT
+/// exceptions, which no longer exist.
 #[test]
 fn a_scope_override_is_consumed_below_the_bound_without_touching_the_audit_log() {
     let dir = tempfile::tempdir().unwrap();
@@ -204,7 +195,7 @@ fn a_scope_override_is_consumed_below_the_bound_without_touching_the_audit_log()
 
     assert!(
         task.review_override.is_none(),
-        "an override spent on the scope gate must not survive to waive the round bound"
+        "an override spent on the scope gate must not survive a later entry"
     );
     assert!(
         task.review_audit.is_empty(),
@@ -218,10 +209,11 @@ fn a_scope_override_is_consumed_below_the_bound_without_touching_the_audit_log()
     );
 }
 
-/// The other half of the same rule: clearing the ROUND bound is exactly what the
-/// audit log exists to record, so that one is written.
+/// The round bound no longer spends anything: with no oracle change there is no
+/// gate to clear, so an override recorded at the bound is neither burnt nor
+/// audited. The audit log stays empty because round-limit exceptions are gone.
 #[test]
-fn a_round_bound_override_is_consumed_and_audited() {
+fn a_round_bound_override_is_never_spent_or_audited() {
     let dir = tempfile::tempdir().unwrap();
     let mut task = reviewed_task(dir.path());
     task.review_round = DEFAULT_MAX_REVIEW_ROUNDS;
@@ -230,10 +222,8 @@ fn a_round_bound_override_is_consumed_and_audited() {
 
     super::review_gate::fix_oracle_and_consume_override(&mut task, 30);
 
-    assert!(task.review_override.is_none());
-    assert_eq!(task.review_audit.len(), 1);
-    assert_eq!(task.review_audit[0].round, DEFAULT_MAX_REVIEW_ROUNDS);
-    assert_eq!(task.review_audit[0].owner, "andrey");
+    assert_eq!(task.review_override, Some(complete_override()));
+    assert!(task.review_audit.is_empty());
 }
 
 /// Nothing tripped, nothing spent: an ordinary first entry must not burn an

@@ -209,7 +209,7 @@ fn compute_session(
                        AND parsed_ok = 1
                        AND (?2 IS NULL OR account_id = ?2)
                        AND captured_at <= ?3
-                       AND session_resets_at = ?4
+                       AND ABS(session_resets_at - ?4) <= 60000
                        AND session_pct IS NOT NULL
                      ORDER BY captured_at ASC"#,
             )
@@ -386,6 +386,13 @@ fn today_delta(
     .unwrap_or(0.0))
 }
 
+/// Providers restamp the same reset with millisecond jitter on every snapshot.
+const RESET_MATCH_TOLERANCE_MS: i64 = 60_000;
+
+fn same_reset(a: i64, b: i64) -> bool {
+    (a - b).abs() <= RESET_MATCH_TOLERANCE_MS
+}
+
 // Pair-walk within day + midnight bridge if prev sample ≤ 2h before day start.
 fn day_delta_for_window(
     store: &UsageStoreHandle,
@@ -423,7 +430,7 @@ fn day_delta_for_window(
             )
             .map_err(|e| format!("query day samples: {}", e))?
             .filter_map(Result::ok)
-            .filter(|(_, _, reset)| reset.map(|r| r == cycle_end_ms).unwrap_or(true))
+            .filter(|(_, _, reset)| reset.map(|r| same_reset(r, cycle_end_ms)).unwrap_or(true))
             .collect();
 
         let yest: Option<(f64, i64, i64)> = conn
@@ -435,7 +442,7 @@ fn day_delta_for_window(
                        AND (?2 IS NULL OR account_id = ?2)
                        AND captured_at < ?3
                        AND weekly_pct IS NOT NULL
-                       AND weekly_resets_at = ?4
+                       AND ABS(weekly_resets_at - ?4) <= 60000
                      ORDER BY captured_at DESC
                      LIMIT 1"#,
             )

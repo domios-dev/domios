@@ -711,15 +711,24 @@ impl AgentProvider for JsProvider {
         let chunk = String::from_utf8_lossy(&window.bytes).to_string();
         #[derive(serde::Deserialize)]
         struct JsDelta {
-            messages: Vec<codeterm_types::agent::chat_types::RichMessage>,
+            messages: Vec<serde_json::Value>,
         }
-        let parsed: Option<JsDelta> =
-            self.try_call("parseSessionDelta", &[serde_json::json!(chunk)]);
+        let parsed = self
+            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk)])
+            .and_then(|d| crate::jsonl_window::rows_from_plugin(d.messages));
         match parsed {
-            Some(d) => SessionDelta {
-                new_offset: from_offset + consumed_bytes,
-                messages: d.messages,
-            },
+            Some((mut messages, record_indexes)) => {
+                crate::jsonl_window::anchor_rows(
+                    &mut messages,
+                    &record_indexes,
+                    &window.bytes,
+                    from_offset,
+                );
+                SessionDelta {
+                    new_offset: from_offset + consumed_bytes,
+                    messages,
+                }
+            }
             None => {
                 // messages, but the tailer escapes the infinite-retry trap. The warning from try_call is enough audit trail.
                 log::warn!(

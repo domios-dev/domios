@@ -30,16 +30,24 @@ pub async fn list_tabs(
     } else {
         caller_tab_header(&headers)
     };
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::TabSummary {
-            workspace_id: query.workspace_id,
-            caller_tab_id,
-            focused_workspace,
-            agents_only: query.agents,
-        },
-        state.svc.as_ref(),
-    )
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs"))?;
+    let command = crate::dispatch::Command::TabSummary {
+        workspace_id: query.workspace_id,
+        caller_tab_id,
+        focused_workspace,
+        agents_only: query.agents,
+    };
+    let result = crate::dispatch::dispatch_tab_summary_if_ready(&command, state.svc.as_ref())
+        .map_err(|error| {
+            if error == crate::dispatch::TAB_SUMMARY_BUSY_ERROR {
+                log::warn!("[api/tabs] {error}");
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    crate::dispatch::TAB_SUMMARY_BUSY_ERROR,
+                )
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
+            }
+        })?;
     let local = result.into_json();
     if query.local_only {
         return Ok(Json(local));

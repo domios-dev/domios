@@ -68,12 +68,9 @@ fn preflight_compete_review_capacity(
 /// Only a Mutating task gets per-competitor lanes. Any other intent — including
 /// the `Unspecified` default of a never-dispatched task — keeps today's path.
 pub(super) fn mutating_competition(plan: &crate::plan::Plan, task_id: &str) -> bool {
-    plan.tasks
-        .iter()
-        .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-        .is_some_and(|task| {
-            task.interruption.execution_intent == crate::plan::ExecutionIntent::Mutating
-        })
+    crate::plan::task_key::find_task(&plan.tasks, task_id).is_some_and(|task| {
+        task.interruption.execution_intent == crate::plan::ExecutionIntent::Mutating
+    })
 }
 
 fn lane_provision_failed(reason: String) -> JsonRpcError {

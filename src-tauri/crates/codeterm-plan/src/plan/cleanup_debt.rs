@@ -93,7 +93,11 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
             issues.push(CleanupDebtIssue {
                 kind: CleanupDebtKind::WorktreePresent,
                 detail: format!("worktree still exists at {worktree_path}"),
-                command: Some(remove_worktree_command(input.project_path, worktree_path)),
+                command: Some(remove_lane_command(
+                    input.project_path,
+                    worktree_path,
+                    branch.as_deref(),
+                )),
             });
         }
     }
@@ -105,11 +109,6 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
         .iter()
         .filter_map(|issue| issue.command.clone())
         .collect::<Vec<_>>();
-    if input.worktree_exists {
-        if let Some(branch) = branch.as_deref() {
-            commands.push(delete_branch_command(input.project_path, branch));
-        }
-    }
     if !done && !deferred {
         commands.push(mark_deferred_command(input.plan_id, input.task_id));
     }
@@ -176,20 +175,17 @@ fn mark_deferred_command(plan_id: &str, task_id: &str) -> String {
     )
 }
 
-fn remove_worktree_command(project_path: &str, worktree_path: &str) -> String {
-    format!(
-        "git -C {} worktree remove {}",
-        shell_quote(project_path),
-        shell_quote(worktree_path)
-    )
-}
-
-fn delete_branch_command(project_path: &str, branch: &str) -> String {
-    format!(
-        "git -C {} branch -D {}",
-        shell_quote(project_path),
-        shell_quote(branch)
-    )
+/// Lane teardown is a CodeTerm verb, never raw git: the daemon is the only side
+/// that can see a live tab still holding the worktree before anything is deleted.
+fn remove_lane_command(project_path: &str, worktree_path: &str, branch: Option<&str>) -> String {
+    let mut command = format!("codeterm plan lane-remove {}", shell_quote(worktree_path));
+    if let Some(branch) = branch {
+        command.push_str(&format!(" --branch {}", shell_quote(branch)));
+    }
+    if !project_path.trim().is_empty() {
+        command.push_str(&format!(" --project {}", shell_quote(project_path)));
+    }
+    command
 }
 
 fn normalized(value: Option<&str>) -> Option<String> {
@@ -245,10 +241,12 @@ mod tests {
             .any(|issue| issue.kind == CleanupDebtKind::LiveTab));
         assert!(item.commands.iter().any(|command| command
             .contains("codeterm plan task update 'pl_1' 'task_1' --cleanup-status done")));
-        assert!(item
+        assert!(item.commands.iter().any(|command| command.as_str()
+            == "codeterm plan lane-remove '/tmp/wt' --branch 'lane/x' --project '/repo'"));
+        assert!(!item
             .commands
             .iter()
-            .any(|command| command.contains("git -C '/repo' worktree remove '/tmp/wt'")));
+            .any(|command| command.starts_with("git ")));
     }
 
     #[test]

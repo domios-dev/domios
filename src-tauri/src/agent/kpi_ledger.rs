@@ -130,12 +130,36 @@ pub struct KindAggregate {
     pub p95_bytes: u64,
 }
 
-/// `plan_id: None` is the unattributable/workspace-scope bucket.
-#[derive(Debug, Clone, PartialEq)]
+/// `plan_id: None` is the unattributable/workspace-scope bucket. Only `token_usage`
+/// rows carry token columns, so `turns` counts the rows that reported a usage record.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlanAggregate {
     pub plan_id: Option<String>,
     pub count: u64,
     pub total_bytes: u64,
+    pub turns: u64,
+    pub input_tokens: u64,
+    pub uncached_input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// One `(provider, model)` bucket of machine-wide `token_usage` rows. `model: None`
+/// is the ledger's own unresolved identity, kept as its own bucket rather than
+/// folded into a neighbour or guessed from the provider.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderModelUsage {
+    pub provider: String,
+    pub model: Option<String>,
+    pub turns: u64,
+    pub input_tokens: u64,
+    pub uncached_input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+impl ProviderModelUsage {
+    pub fn measured_tokens(&self) -> u64 {
+        self.input_tokens.saturating_add(self.output_tokens)
+    }
 }
 
 pub struct KpiLedger {
@@ -486,10 +510,56 @@ impl KpiLedger {
         Ok(rows)
     }
 
+    /// Machine-wide, not plan-scoped: every `token_usage` row in the ledger grouped
+    /// by the provider and model recorded on it. `turns` counts the rows themselves,
+    /// which for this kind is one row per usage record the provider wrote.
+    pub fn aggregate_token_usage_by_provider_model(
+        &self,
+    ) -> Result<Vec<ProviderModelUsage>, String> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                r#"SELECT provider, model, COUNT(*),
+                          COALESCE(SUM(input_tokens), 0),
+                          COALESCE(SUM(uncached_input_tokens), 0),
+                          COALESCE(SUM(output_tokens), 0)
+                   FROM kpi_events
+                   WHERE kind = ?1
+                   GROUP BY provider, model
+                   ORDER BY COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) DESC,
+                            provider ASC"#,
+            )
+            .map_err(|e| format!("kpi ledger provider/model prepare: {}", e))?;
+        let rows = stmt
+            .query_map(params![KpiEventKind::TokenUsage.label()], |r| {
+                Ok(ProviderModelUsage {
+                    provider: r.get(0)?,
+                    model: r.get::<_, Option<String>>(1)?,
+                    turns: r.get::<_, i64>(2)? as u64,
+                    input_tokens: r.get::<_, i64>(3)? as u64,
+                    uncached_input_tokens: r.get::<_, i64>(4)? as u64,
+                    output_tokens: r.get::<_, i64>(5)? as u64,
+                })
+            })
+            .map_err(|e| format!("kpi ledger provider/model query: {}", e))?
+            .filter_map(Result::ok)
+            .collect();
+        Ok(rows)
+    }
+
     pub fn aggregate_by_plan(&self) -> Result<Vec<PlanAggregate>, String> {
         let conn = self.conn.lock();
         let mut stmt = conn
-            .prepare("SELECT plan_id, COUNT(*), COALESCE(SUM(bytes), 0) FROM kpi_events GROUP BY plan_id")
+            .prepare(
+                // Token rows store their token total in `bytes`; only message payloads are bytes.
+                r#"SELECT plan_id, COUNT(*),
+                          COALESCE(SUM(CASE WHEN input_tokens IS NULL THEN bytes END), 0),
+                          COUNT(input_tokens),
+                          COALESCE(SUM(input_tokens), 0),
+                          COALESCE(SUM(uncached_input_tokens), 0),
+                          COALESCE(SUM(output_tokens), 0)
+                   FROM kpi_events GROUP BY plan_id"#,
+            )
             .map_err(|e| format!("kpi ledger plan aggregate prepare: {}", e))?;
         let rows = stmt
             .query_map([], |r| {
@@ -497,6 +567,10 @@ impl KpiLedger {
                     plan_id: r.get(0)?,
                     count: r.get::<_, i64>(1)? as u64,
                     total_bytes: r.get::<_, i64>(2)? as u64,
+                    turns: r.get::<_, i64>(3)? as u64,
+                    input_tokens: r.get::<_, i64>(4)? as u64,
+                    uncached_input_tokens: r.get::<_, i64>(5)? as u64,
+                    output_tokens: r.get::<_, i64>(6)? as u64,
                 })
             })
             .map_err(|e| format!("kpi ledger plan aggregate query: {}", e))?

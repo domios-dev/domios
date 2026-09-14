@@ -42,6 +42,11 @@ pub struct IntegrationFacts {
     /// instances writing byte-identical content report the same value, so the
     /// verdict cannot key on which of them wrote it.
     pub content_hash: Option<String>,
+    /// The provider's own report that the installed hooks carry its current
+    /// ownership contract. `None` when it publishes no such field; `Some(false)`
+    /// is a working but pre-contract install, which reconciliation migrates and
+    /// the announcement stays quiet about.
+    pub contract_current: Option<bool>,
 }
 
 /// The observed state one announcement covered, remembered across restarts.
@@ -319,6 +324,12 @@ pub fn read_content_hash(status: &Json) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The provider's own contract-currency report. Absent is honest: a provider
+/// that declares no contract gets no migration verdict, never a guess.
+pub fn read_contract_current(status: &Json) -> Option<bool> {
+    status.get("hook_contract_current").and_then(Json::as_bool)
+}
+
 pub fn read_target(status: &Json) -> Option<String> {
     status
         .get("target")
@@ -343,18 +354,65 @@ pub fn read_provider_facts(
                 provider.display_name().to_string(),
             )
         })?;
-    let installed = read_installed(&status);
     Some((
-        IntegrationFacts {
-            registers_sessions_via_hooks,
-            state: read_state(&status, installed),
-            installed,
-            consent_recorded,
-            target: read_target(&status),
-            content_hash: read_content_hash(&status),
-        },
+        facts_from_status(&status, registers_sessions_via_hooks, consent_recorded),
         display_name,
     ))
+}
+
+/// One provider's install report read into facts. Shared by the launch
+/// announcement and the daemon-start reconciliation so the two can never read
+/// the same report differently.
+pub fn facts_from_status(
+    status: &Json,
+    registers_sessions_via_hooks: bool,
+    consent_recorded: bool,
+) -> IntegrationFacts {
+    let installed = read_installed(status);
+    IntegrationFacts {
+        registers_sessions_via_hooks,
+        state: read_state(status, installed),
+        installed,
+        consent_recorded,
+        target: read_target(status),
+        content_hash: read_content_hash(status),
+        contract_current: read_contract_current(status),
+    }
+}
+
+/// What the daemon-start (and plugin-reload) trigger may do about one
+/// provider's integration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReconcileAuthorization {
+    /// Consent is on record and the report asks for a rewrite.
+    Reconcile,
+    AlreadyCurrent,
+    /// Nothing was ever consented to, so only the user can start this.
+    ConsentMissing,
+    /// The provider trusts its hooks by content hash and that trust is gone;
+    /// rewriting would re-disarm them, so the grant stays the user's action.
+    TrustGrantRequired,
+    /// The report says nothing this reading understands.
+    Unreadable,
+}
+
+/// The gate in front of the one idempotent reconciliation. It reads the same
+/// facts the launch announcement reads, so a repair can never run against
+/// state the user was never told about, and never without a consent record.
+pub fn authorize_reconciliation(facts: &IntegrationFacts) -> ReconcileAuthorization {
+    let Some(state) = facts.state else {
+        return ReconcileAuthorization::Unreadable;
+    };
+    if state == IntegrationState::UntrustedHash {
+        return ReconcileAuthorization::TrustGrantRequired;
+    }
+    if state == IntegrationState::Installed && facts.contract_current != Some(false) {
+        return ReconcileAuthorization::AlreadyCurrent;
+    }
+    if !facts.consent_recorded {
+        return ReconcileAuthorization::ConsentMissing;
+    }
+    ReconcileAuthorization::Reconcile
 }
 
 pub fn evaluate(provider_id: &str, facts: &IntegrationFacts) -> LaunchVerdict {

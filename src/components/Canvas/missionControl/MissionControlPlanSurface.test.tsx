@@ -93,13 +93,42 @@ function mkPlan(): Plan {
   };
 }
 
-test("renders the flow river with milestone derived from task groups", async () => {
+test("renders the selected plan board without the removed status band", async () => {
   const { host, unmount } = await render(
     <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
   );
-  assert(host.querySelector('[data-testid="plan-river-pl_flow"]'), "plan river rendered");
-  assert(host.textContent?.includes("Wave 26"), "milestone label from task group");
-  assert(host.textContent?.includes("2 of 3 left"), "N-of-M from group members");
+  assert(host.querySelector('[data-testid="mission-control-board"]'), "board rendered");
+  assert(!host.querySelector('[data-testid="plan-board-status"]'), "status header removed");
+  const header = host.querySelector('[data-testid="mission-control-surface-header"]');
+  assert(header, "surface header rendered");
+  const trigger = header.querySelector('[data-testid="mission-control-board-menu-trigger"]') as HTMLButtonElement | null;
+  assert(trigger?.tagName === "BUTTON", "board actions live in the surface header");
+  assert(trigger.tabIndex === 0, "board actions are keyboard reachable");
+  assert(
+    !host.querySelector('[data-testid="mission-control-board"] [data-testid="mission-control-board-actions"]'),
+    "the board itself carries no actions band",
+  );
+  assert(!trigger.closest('[data-testid="plan-board-status"]'), "board actions are outside status band");
+  await act(async () => {
+    trigger.focus();
+    trigger.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  const labels = Array.from(document.querySelectorAll('[data-testid="mission-control-board-menu"] [role="menuitem"]'))
+    .map((item) => item.textContent?.trim());
+  assert(labels.join("|") === "Approve plan|Pause plan|Clear everything", "board actions remain available");
+  assert(
+    host.querySelector('[data-testid="mission-control-board-actions"]')?.getAttribute("data-plan-id") === "pl_flow",
+    "board actions bind to the selected plan",
+  );
+  await unmount();
+});
+
+test("waits for the stored reading instead of inventing card figures", async () => {
+  const { host, unmount } = await render(
+    <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
+  );
+  assert(host.querySelector('[data-testid="mc-board-pending"]'), "pending state without an api config");
+  assert(!host.querySelector('[data-testid="mc-board-row"]'), "no cards without a snapshot");
   await unmount();
 });
 

@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ApiConfig } from "../../../lib/types";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
-import { fetchSpecSections } from "../plansApi";
+import { deleteTask, fetchSpecSections, pauseTask, resumeTask } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { Plan, Section, Task } from "../types";
 import {
@@ -14,17 +13,14 @@ import {
   type BoardColumnKey,
   type BoardPlanModel,
 } from "./boardModel";
-import { BoardTaskCard } from "./BoardTaskCard";
+import { BoardTaskCard, type BoardTaskActions } from "./BoardTaskCard";
 import { CancelledTasksPanel } from "./CancelledTasksPanel";
 import { listCancelledTasks } from "./cancelledTasks";
-import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { enrichSwitcherOptions, selectActiveWork } from "./activeWork";
-import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./PlanFetchErrorState";
 import { planFetchShowsData } from "./planViewFetchGate";
-import { EMPTY_NAV_STACK, navCanGoBack, navPop, navPush, type NavEntry, type NavStack } from "./navStack";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
 
@@ -36,33 +32,6 @@ function readStoredPlanId(): string | null {
   }
 }
 
-type BoardDetail =
-  | { kind: "task"; task: Task; plan: Plan }
-  | { kind: "plan"; plan: Plan; specSections: Section[] }
-  | { kind: "spec"; plan: Plan; specSections: Section[] };
-
-function boardDetailToEntry(detail: BoardDetail, scroll?: number): NavEntry {
-  if (detail.kind === "task") {
-    return { surface: "task", id: detail.task.id, planId: detail.plan.id, scroll };
-  }
-  return { surface: detail.kind, id: detail.plan.id, planId: detail.plan.id, scroll };
-}
-
-function entryToBoardDetail(
-  entry: NavEntry,
-  plans: Plan[],
-  specSections: Section[],
-): BoardDetail | null {
-  const plan = plans.find((p) => p.id === entry.planId);
-  if (!plan) return null;
-  if (entry.surface === "task") {
-    const task = plan.tasks.find((t) => t.id === entry.id);
-    if (!task) return null;
-    return { kind: "task", task, plan };
-  }
-  return { kind: entry.surface, plan, specSections };
-}
-
 function BoardColumn({
   columnKey,
   label,
@@ -70,6 +39,8 @@ function BoardColumn({
   doneExpanded,
   onToggleDone,
   onOpenTask,
+  planId,
+  taskActions,
 }: {
   columnKey: BoardColumnKey;
   label: string;
@@ -77,6 +48,8 @@ function BoardColumn({
   doneExpanded: boolean;
   onToggleDone: () => void;
   onOpenTask: (task: Task) => void;
+  planId: string;
+  taskActions: BoardTaskActions;
 }) {
   const isDone = columnKey === "done";
   const bounds = isDone ? boundDoneColumnCards(cards, doneExpanded) : { visible: cards, total: cards.length, hidden: 0 };
@@ -102,7 +75,13 @@ function BoardColumn({
           </p>
         )}
         {bounds.visible.map((card) => (
-          <BoardTaskCard key={card.task.id} card={card} onOpen={() => onOpenTask(card.task)} />
+          <BoardTaskCard
+            key={card.task.id}
+            card={card}
+            planId={planId}
+            onOpen={() => onOpenTask(card.task)}
+            {...taskActions}
+          />
         ))}
         {isDone && bounds.hidden > 0 && (
           <button
@@ -132,17 +111,13 @@ function BoardColumn({
 function BoardPlanBoard({
   model,
   plan,
-  specSections,
-  onOpenDetail,
-  onOpenTab,
-  api,
+  taskActions,
+  onOpenTask,
 }: {
   model: BoardPlanModel;
   plan: Plan;
-  specSections: Section[];
-  onOpenDetail: (detail: BoardDetail) => void;
-  onOpenTab?: (tabId: string) => void;
-  api?: ApiConfig;
+  taskActions: BoardTaskActions;
+  onOpenTask: (task: Task) => void;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [cancelledOpen, setCancelledOpen] = useState(false);
@@ -150,20 +125,6 @@ function BoardPlanBoard({
 
   return (
     <section data-testid="plan-board-plan" data-plan-id={model.planId} className="plan-board-plan">
-      <PlanContextHeader
-        summary={model.planSummary}
-        spec={model.spec}
-        onOpenPlan={() => onOpenDetail({ kind: "plan", plan, specSections })}
-        onOpenSpec={
-          model.spec
-            ? () => onOpenDetail({ kind: "spec", plan, specSections })
-            : undefined
-        }
-        onOpenTab={onOpenTab}
-        planId={model.planId}
-        plan={plan}
-        api={api}
-      />
       <div data-testid="plan-board-columns" className="plan-board-columns" role="list">
         {model.columns.map((column) => (
           <BoardColumn
@@ -173,7 +134,9 @@ function BoardPlanBoard({
             cards={column.cards}
             doneExpanded={doneExpanded}
             onToggleDone={() => setDoneExpanded((v) => !v)}
-            onOpenTask={(task) => onOpenDetail({ kind: "task", task, plan })}
+            onOpenTask={onOpenTask}
+            planId={plan.id}
+            taskActions={taskActions}
           />
         ))}
       </div>
@@ -188,12 +151,7 @@ function BoardPlanBoard({
           >
             {model.cancelledCount} cancelled task{model.cancelledCount === 1 ? "" : "s"} hidden from board
           </button>
-          {cancelledOpen && (
-            <CancelledTasksPanel
-              tasks={cancelledTasks}
-              onOpenTask={(task) => onOpenDetail({ kind: "task", task, plan })}
-            />
-          )}
+          {cancelledOpen && <CancelledTasksPanel tasks={cancelledTasks} onOpenTask={onOpenTask} />}
         </>
       )}
     </section>
@@ -214,10 +172,18 @@ export function PlanBoardView({
   workspaceId,
   workspaces,
   teams,
-  onOpenTab,
+  onOpenPlanTarget,
   api,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
+  const taskActions = useMemo<BoardTaskActions>(() => (api
+    ? {
+        onPauseTask: (selectedPlanId, taskId, reason) => pauseTask(api, selectedPlanId, taskId, reason),
+        onResumeTask: (selectedPlanId, taskId) => resumeTask(api, selectedPlanId, taskId),
+        onDeleteTask: (selectedPlanId, taskId) => deleteTask(api, selectedPlanId, taskId),
+      }
+    : {}), [api]);
 
   const activeWork = useMemo(
     () => selectActiveWork(effectivePlans, tabs),
@@ -271,15 +237,6 @@ export function PlanBoardView({
     [selectedPlan],
   );
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
-  const [detail, setDetail] = useState<BoardDetail | null>(null);
-  const [navStack, setNavStack] = useState<NavStack>(EMPTY_NAV_STACK);
-  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
-  const [restoreScroll, setRestoreScroll] = useState<number | undefined>(undefined);
-
-  useEffect(() => {
-    setNavStack(EMPTY_NAV_STACK);
-    setDetail(null);
-  }, [selectedPlanId]);
 
   useEffect(() => {
     if (!api || !selectedPlan?.primary_spec_id) return;
@@ -309,45 +266,11 @@ export function PlanBoardView({
     [selectedPlan, tabs, selectedSpecSections],
   );
 
-  const closeDetail = useCallback(() => {
-    setDetail(null);
-    setNavStack(EMPTY_NAV_STACK);
-  }, []);
-
-  const pushCurrentDetail = useCallback((next: BoardDetail) => {
-    if (detail) {
-      const scroll = bodyScrollRef.current?.scrollTop ?? 0;
-      setNavStack((prev) => navPush(prev, boardDetailToEntry(detail, scroll)));
-    }
-    setRestoreScroll(undefined);
-    setDetail(next);
-  }, [detail]);
-
-  const openDetailTask = useCallback((taskId: string) => {
+  const openTask = useCallback((task: Task) => {
     if (!selectedPlan) return;
-    const task = selectedPlan.tasks.find((candidate) => candidate.id === taskId);
-    if (task) pushCurrentDetail({ kind: "task", task, plan: selectedPlan });
-  }, [selectedPlan, pushCurrentDetail]);
+    onOpenPlanTarget?.({ planId: selectedPlan.id, taskId: task.id, teamId: selectedPlan.team_id });
+  }, [selectedPlan, onOpenPlanTarget]);
 
-  const openDetailSection = useCallback((args: { variant: "plan" | "spec" }) => {
-    if (!selectedPlan) return;
-    const next: BoardDetail = args.variant === "spec"
-      ? { kind: "spec", plan: selectedPlan, specSections: selectedSpecSections }
-      : { kind: "plan", plan: selectedPlan, specSections: selectedSpecSections };
-    pushCurrentDetail(next);
-  }, [selectedPlan, selectedSpecSections, pushCurrentDetail]);
-
-  const handleBack = useCallback(() => {
-    const { stack, entry } = navPop(navStack);
-    if (!entry) return;
-    const restored = entryToBoardDetail(entry, orderedPlans, selectedSpecSections);
-    if (!restored) return;
-    setNavStack(stack);
-    setRestoreScroll(entry.scroll);
-    setDetail(restored);
-  }, [navStack, orderedPlans, selectedSpecSections]);
-
-  const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
   return (
@@ -384,32 +307,10 @@ export function PlanBoardView({
           <BoardPlanBoard
             model={boardModel}
             plan={selectedPlan}
-            specSections={selectedSpecSections}
-            onOpenDetail={setDetail}
-            onOpenTab={onOpenTab}
-            api={api}
+            taskActions={taskActions}
+            onOpenTask={openTask}
           />
         </div>
-      )}
-      {detail && overlayKind && (
-        <PlanDetailOverlay
-          kind={overlayKind}
-          task={detail.kind === "task" ? detail.task : undefined}
-          plan={detail.kind === "plan" ? detail.plan : detail.kind === "task" ? detail.plan : undefined}
-          spec={detail.kind === "spec" ? detail.plan : undefined}
-          specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
-          planId={detail.plan.id}
-          api={api}
-          tabs={tabs}
-          onOpenTab={onOpenTab}
-          onOpenTask={openDetailTask}
-          onClose={closeDetail}
-          onSectionClick={openDetailSection}
-          canGoBack={navCanGoBack(navStack)}
-          onBack={handleBack}
-          restoreScroll={restoreScroll}
-          scrollCaptureRef={bodyScrollRef}
-        />
       )}
     </div>
   );

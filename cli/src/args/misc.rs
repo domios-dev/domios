@@ -426,6 +426,18 @@ pub enum NotifyAction {
         /// Which of this notification's own choices accepts the offer.
         #[arg(long = "offer-accept", value_name = "LABEL", requires = "offer")]
         offer_accept: Option<String>,
+
+        /// The tab whose chat holds the message this notification is about
+        #[arg(long = "target-tab", value_name = "TAB_ID")]
+        target_tab: Option<String>,
+
+        /// The exact chat message id inside --target-tab this notification jumps to
+        #[arg(
+            long = "chat-message",
+            value_name = "MESSAGE_ID",
+            requires = "target_tab"
+        )]
+        chat_message: Option<String>,
     },
     /// List notifications
     List {

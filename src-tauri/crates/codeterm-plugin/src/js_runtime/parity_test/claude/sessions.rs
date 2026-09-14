@@ -282,6 +282,57 @@ fn rich_flatten_parity_block_derivable_kinds() {
     assert_eq!(images[0].image_data.as_deref(), Some("IMGBYTES"));
 }
 
+#[test]
+fn rich_flatten_preserves_command_outcome_facts_and_source_identity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::rich_to_chat::rich_to_chat_msgs;
+
+    let j = load_js("claude");
+    let jsonl = concat!(
+        r#"{"type":"assistant","uuid":"assistant-command-facts","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-command-facts","name":"Bash","input":{"command":"printf ok"}}]}}"#,
+        "\n",
+        r#"{"type":"user","sourceToolAssistantUUID":"assistant-command-facts","toolUseResult":{"returnCode":7,"durationMs":1250,"interrupted":true,"backgroundTaskId":"background-command-facts"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-command-facts","content":"stopped","is_error":true}]}}"#,
+        "\n",
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), jsonl).unwrap();
+
+    let delta = j.parse_session_delta(tmp.path(), 0);
+    let msgs: Vec<_> = delta
+        .messages
+        .iter()
+        .enumerate()
+        .flat_map(|(i, r)| rich_to_chat_msgs(r, i))
+        .collect();
+    let call = msgs
+        .iter()
+        .find(|message| message.kind == "tool_call")
+        .expect("command call lost");
+    let result = msgs
+        .iter()
+        .find(|message| message.kind == "tool_result")
+        .expect("command result lost");
+
+    assert_eq!(
+        call.tool_call_source_id.as_deref(),
+        Some("assistant-command-facts")
+    );
+    assert_eq!(
+        result.tool_call_source_id.as_deref(),
+        Some("assistant-command-facts")
+    );
+    assert_eq!(result.tool_pairing.as_deref(), Some("exact"));
+    assert_eq!(result.tool_exit_code, Some(7));
+    assert_eq!(result.tool_duration_ms, Some(1250));
+    assert_eq!(result.tool_interrupted, Some(true));
+    assert_eq!(
+        result.tool_background_task_id.as_deref(),
+        Some("background-command-facts")
+    );
+}
+
 /// Eval: system entries, isMeta rows, and local-command echoes must
 /// normalize to the same system / local_command shapes the desktop
 /// parser produced — these need plugin.js to carry uuid/isMeta and emit
@@ -383,8 +434,12 @@ fn rich_flatten_parity_classifies_dante_system_user_rows() {
     assert_eq!(msgs.len(), 3);
     assert_eq!(msgs[0].kind, "system");
     assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_summary"));
+    assert_eq!(
+        msgs[0].timeline_marker,
+        Some(codeterm_types::agent::chat_types::ChatTimelineMarker::ContextCompaction)
+    );
     assert!(msgs[0].collapsed);
-    assert!(msgs[0].content.contains("Dante, Opus"));
+    assert_eq!(msgs[0].content, "context compacted");
     assert_eq!(msgs[1].kind, "status");
     assert_eq!(msgs[1].system_subtype.as_deref(), Some("task_notification"));
     assert_eq!(msgs[1].content, "Task completed");

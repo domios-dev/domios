@@ -14,8 +14,9 @@ use super::{
     agent_done_routes, agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes,
     debug_routes, fs_routes, health_routes, logs_routes, mem_routes, mesh_inventory, mesh_routes,
     network_routes, notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
-    services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
-    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    services_routes, session_routes, tab_agent_routes, tab_routes, task_routes,
+    team_mission_control_routes, team_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -128,6 +129,14 @@ pub fn create_router(state: AppState) -> Router {
             post(team_routes::add_team_member),
         )
         .route(
+            "/api/teams/{team_id}/mission-control/spend",
+            get(team_spend::team_spend),
+        )
+        .route(
+            "/api/teams/{team_id}/mission-control/state",
+            get(team_mission_control_routes::state),
+        )
+        .route(
             "/api/workspaces",
             get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace),
         )
@@ -217,7 +226,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
         .route("/api/plans/{id}/pause", post(plan_routes::pause))
+        .route(
+            "/api/plans/{id}/pause/preview",
+            get(plan_routes::pause_preview),
+        )
         .route("/api/plans/{id}/resume", post(plan_routes::resume))
+        .route(
+            "/api/plans/{id}/resume/preview",
+            get(plan_routes::resume_preview),
+        )
         .route("/api/plans/{id}/mode", post(plan_routes::mode_set))
         .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
         .route("/api/plans/{id}/state", get(plan_routes::state))
@@ -280,6 +297,14 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/plans/{id}/tasks/{tid}/close",
             post(plan_routes::task_close),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/pause",
+            post(plan_routes::task_pause),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/resume",
+            post(plan_routes::task_resume),
         )
         .route(
             "/api/plans/{id}/tasks/{tid}/assign",
@@ -781,6 +806,7 @@ pub fn create_router(state: AppState) -> Router {
             post(mem_routes::mem_check_duplicate),
         )
         .route("/api/mem/dream", post(mem_routes::mem_dream))
+        .route("/api/mem/dream/diary", get(mem_routes::mem_dream_diary))
         .route(
             "/api/mem/extract-pending",
             post(mem_routes::mem_extract_pending),

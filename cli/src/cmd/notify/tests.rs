@@ -214,11 +214,27 @@ fn notify_answer_choices_carry_the_asking_tab() {
     assert_eq!(params["caller_tab_id"], serde_json::json!("tab-7"));
 }
 
-/// A notification that offers nothing to answer needs no return address, so it
-/// does not carry one — the field means "where an answer goes", not "who sent it".
+/// A plain send still names its asking tab: the daemon resolves provenance and team
+/// scope from it, so a send without choices must not arrive anonymous.
 #[test]
-fn notify_without_choices_carries_no_asking_tab() {
-    let params = params_from_body(
+fn notification_deep_link_keeps_the_asking_tab() {
+    for choices in [Vec::new(), labels(&["Rebase", "Merge"])] {
+        let params = params_from_body(
+            "Build complete",
+            "info",
+            Some(NotifyLevel::ActionNeeded),
+            None,
+            None,
+            &choices,
+            Offer::default(),
+            Some("tab-7"),
+        )
+        .expect("a legal notification");
+        let params = with_target(params, Some("tab-target"), Some("m-1"));
+        assert_eq!(params["caller_tab_id"], serde_json::json!("tab-7"));
+        assert_eq!(params["target_tab_id"], serde_json::json!("tab-target"));
+    }
+    let untargeted = params_from_body(
         "Build complete",
         "info",
         None,
@@ -229,7 +245,7 @@ fn notify_without_choices_carries_no_asking_tab() {
         Some("tab-7"),
     )
     .expect("a title-only notification is legal");
-    assert!(params.get("caller_tab_id").is_none());
+    assert_eq!(untargeted["caller_tab_id"], serde_json::json!("tab-7"));
 }
 
 /// `notify_unseen` — the daemon's report reaching the caller, and staying away
@@ -315,5 +331,31 @@ mod notify_unseen {
             handle_send(&mut client, false, serde_json::json!({ "title": "done" }));
             assert_eq!(client.calls, vec!["notification.create".to_string()]);
         }
+    }
+}
+
+mod notification_deep_link {
+    use super::super::with_target;
+
+    #[test]
+    fn notification_deep_link_params_carry_the_named_ids() {
+        let params = with_target(
+            serde_json::json!({ "title": "Approve?" }),
+            Some("tab-target"),
+            Some("needs-you-message-1"),
+        );
+        assert_eq!(params["target_tab_id"], "tab-target");
+        assert_eq!(params["chat_message_id"], "needs-you-message-1");
+        assert_eq!(
+            params["title"], "Approve?",
+            "the rest of the request is untouched"
+        );
+    }
+
+    #[test]
+    fn notification_deep_link_params_stay_legacy_shaped_without_a_target() {
+        let params = with_target(serde_json::json!({ "title": "Approve?" }), None, None);
+        assert!(params.get("target_tab_id").is_none());
+        assert!(params.get("chat_message_id").is_none());
     }
 }

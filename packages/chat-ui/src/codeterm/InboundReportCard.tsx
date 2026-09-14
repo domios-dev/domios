@@ -12,7 +12,8 @@ import { formatCommunicationEndpoint } from "./templates";
 import {
   parseDeliveredTaskOutcome,
   reportContentBody,
-  reportIncidentLine,
+  reportOutcomeLine,
+  reportOutcomeTone,
   reportVerdict,
   shortSha,
   type ReportTaskOutcome,
@@ -105,12 +106,18 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
   }
   const descriptor = parseInboundReport(message.content);
   const outcome = taskOutcome ?? parseDeliveredTaskOutcome(descriptor.body);
-  const failed = /^(?:blocked|error|failed)$/i.test(descriptor.status ?? "");
+  const tone = reportOutcomeTone(outcome);
+  const failed = tone === "error" || (tone === null && /^(?:blocked|error|failed)$/i.test(descriptor.status ?? ""));
   const chips = [reportVerdict(descriptor.status, outcome), shortSha(descriptor.sha)]
     .filter((value): value is string => Boolean(value));
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const body = reportContentBody(descriptor.body);
-  const incident = reportIncidentLine(outcome);
+  const body = outcome?.reportOutcome === "delivered_unattached" ? "" : reportContentBody(descriptor.body);
+  const diagnostics = outcome?.reportOutcome === "delivered_unattached"
+    ? descriptor.body
+    : outcome?.reportOutcome && body !== descriptor.body
+      ? descriptor.body
+      : null;
+  const outcomeLine = reportOutcomeLine(outcome);
   const detailFields = descriptor.fields.filter((field) => !HEADER_FIELDS.has(field.label));
 
   return (
@@ -128,13 +135,13 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       disclosureLabel="report Details"
     >
       <div className={`ct-compact-scroll grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
-            {incident && (
+            {outcomeLine && (
               <div
-                data-testid="chat-inbound-report-incident"
+                data-testid={tone === "error" ? "chat-inbound-report-incident" : "chat-inbound-report-outcome"}
                 className="min-w-0 break-words"
-                style={{ color: "var(--ct-red)" }}
+                style={{ color: tone === "error" ? "var(--ct-red)" : "var(--ct-muted-fg)" }}
               >
-                {incident}
+                {outcomeLine}
               </div>
             )}
             {body && (
@@ -145,6 +152,15 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
               >
                 {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
               </div>
+            )}
+            {diagnostics && (
+              <pre
+                data-testid="chat-inbound-report-diagnostics"
+                className="whitespace-pre-wrap break-words font-mono text-[11px]"
+                style={{ color: "var(--ct-muted-fg)" }}
+              >
+                {diagnostics}
+              </pre>
             )}
             {detailFields.length > 0 && (
               <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">

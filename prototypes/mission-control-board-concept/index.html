@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control Board concepts</title>
+<style>
+  /* CodeTerm github-dark tokens, computed with themeCss.ts deriveColor/blendColor. */
+  :root {
+    --ct-bg: #0d1117;
+    --ct-surface: #141b24;
+    --ct-chrome: #131921;
+    --ct-hover: #171e29;
+    --ct-border: #232930;
+    --ct-border-subtle: #191d24;
+    --ct-fg: #c9d1d9;
+    --ct-muted: #484f58;
+    --ct-muted-fg: #828a92;
+    --ct-accent: #58a6ff;
+    --ct-selected: #1e324a;
+    --ct-yellow: #d29922;
+    --ct-magenta: #bc8cff;
+    --ct-bright-magenta: #d2a8ff;
+    --ct-radius-sm: 4px;
+    --ct-radius-md: 8px;
+    --ct-font-ui: "Inter", "Segoe UI", "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+    --ct-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace;
+    --t-meta: 11px;
+    --t-body: 13px;
+    --t-figure: 20px;
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+    --claude: var(--ct-accent);
+    --codex: var(--ct-magenta);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding-block: 24px 64px;
+    padding-inline: 24px;
+    background: #090c10;
+    color: var(--ct-fg);
+    font-family: var(--ct-font-ui);
+    font-size: var(--t-body);
+    line-height: 1.45;
+  }
+  h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; padding: 0; }
+  ul, ol { list-style: none; }
+  b { font-weight: 600; }
+  .num { font-family: var(--ct-font-mono); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--ct-muted-fg); }
+  .warn { color: var(--ct-yellow); }
+
+  /* ---------- Document chrome (outside the Board) ---------- */
+  .doc { max-width: 1440px; margin: 0 auto; }
+  .doc > h1 { font-size: 18px; font-weight: 600; }
+  .doc > p { margin-top: var(--s2); max-width: 76ch; color: var(--ct-muted-fg); }
+  .doc > p .needs { vertical-align: 1px; }
+  .direction { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--ct-border); }
+  .direction > h2 { font-size: 16px; font-weight: 600; }
+  .direction > h2 .rec { margin-left: var(--s2); padding: 1px 6px; border: 1px solid var(--ct-accent); border-radius: var(--ct-radius-sm); color: var(--ct-accent); font-size: var(--t-meta); font-weight: 500; vertical-align: 2px; }
+  .spec { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s4); margin-top: var(--s3); }
+  .spec section h3 { font-size: var(--t-meta); font-weight: 600; color: var(--ct-muted-fg); }
+  .spec ol, .spec ul { margin-top: var(--s1); padding-left: 18px; }
+  .spec ol { list-style: decimal; }
+  .spec ul { list-style: disc; }
+  .spec li { margin-top: 2px; max-width: 60ch; }
+  details { margin-top: var(--s3); }
+  summary { cursor: pointer; color: var(--ct-muted-fg); }
+  pre { margin: var(--s2) 0 0; padding: var(--s3); overflow-x: auto; border: 1px solid var(--ct-border); border-radius: var(--ct-radius-md); background: var(--ct-bg); font-family: var(--ct-font-mono); font-size: 11px; line-height: 1.4; color: var(--ct-muted-fg); }
+  .frames { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; margin-top: var(--s4); }
+  .frame-wrap { max-width: 100%; overflow-x: auto; }
+  .frame-wrap > p { margin-bottom: var(--s1); font-size: var(--t-meta); color: var(--ct-muted-fg); }
+
+  /* ---------- App window around each Board ---------- */
+  .window { border: 1px solid var(--ct-border); border-radius: var(--ct-radius-md); overflow: hidden; background: var(--ct-bg); }
+  .w980 { width: 980px; }
+  .w390 { width: 390px; }
+  .appbar { display: flex; align-items: center; gap: var(--s3); padding: 6px var(--s3); border-bottom: 1px solid var(--ct-border); background: var(--ct-chrome); }
+  .modes { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--ct-border); border-radius: 999px; }
+  .modes span { padding: 2px 10px; border-radius: 999px; color: var(--ct-muted-fg); font-size: 12px; }
+  .modes span:first-child { background: var(--ct-selected); color: var(--ct-fg); }
+  .kebab { margin-left: auto; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--ct-border); border-radius: var(--ct-radius-sm); color: var(--ct-fg); }
+
+  /* ---------- Board system shared by all three directions ---------- */
+  .board { container-type: inline-size; display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3); background: var(--ct-bg); }
+  .panel { min-width: 0; border: 1px solid var(--ct-border); border-radius: var(--ct-radius-md); background: var(--ct-surface); }
+  .panel-head { display: flex; align-items: baseline; gap: var(--s2); padding: var(--s2) var(--s3); border-bottom: 1px solid var(--ct-border); }
+  .panel-head h3 { font-size: var(--t-meta); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ct-muted-fg); }
+  .panel-head .head-meta { font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .end { margin-left: auto; }
+  .sub { padding: var(--s3); }
+  .sub + .sub { border-top: 1px solid var(--ct-border-subtle); }
+  .sub-label { margin-bottom: var(--s2); font-size: var(--t-meta); font-weight: 600; color: var(--ct-muted-fg); }
+  .figure { font-family: var(--ct-font-mono); font-variant-numeric: tabular-nums; font-size: var(--t-figure); font-weight: 600; line-height: 1.1; color: var(--ct-fg); }
+  .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+  .sw-claude { background: var(--claude); }
+  .sw-codex { background: var(--codex); }
+  .sw-unassigned { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--codex) 60%, transparent) 0 2px, transparent 2px 4px); outline: 1px solid color-mix(in srgb, var(--codex) 60%, transparent); outline-offset: -1px; }
+  .sw-luna { background: var(--ct-bright-magenta); }
+  /* Readings the data cannot give yet: CodeTerm's soft dashed treatment, never a number. */
+  .needs { display: inline-flex; align-items: center; padding: 0 6px; border: 1px dashed color-mix(in srgb, var(--ct-muted-fg) 55%, transparent); border-radius: var(--ct-radius-sm); font-family: var(--ct-font-ui); font-size: var(--t-meta); font-weight: 400; line-height: 18px; color: var(--ct-muted-fg); white-space: nowrap; }
+  .sample { font-size: var(--t-meta); font-weight: 400; color: var(--ct-muted-fg); text-transform: none; letter-spacing: 0; }
+
+  /* Event log, shared */
+  .log { display: grid; grid-template-columns: 44px 72px minmax(0, 1fr); gap: 6px var(--s3); padding: var(--s3); }
+  .log li { display: contents; }
+  .log time { font-family: var(--ct-font-mono); font-size: var(--t-meta); color: var(--ct-muted); padding-top: 1px; }
+  .log .kind { font-size: var(--t-meta); color: var(--ct-muted-fg); padding-top: 1px; white-space: nowrap; }
+  .log .kind.strong { color: var(--ct-fg); font-weight: 600; }
+  .log .text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-foot { padding: 0 var(--s3) var(--s3); font-size: var(--t-meta); color: var(--ct-accent); }
+  @container (max-width: 600px) {
+    .log { grid-template-columns: 44px minmax(0, 1fr); }
+    .log .kind { display: none; }
+    .log .text { white-space: normal; }
+  }
+
+  /* ================= Direction A: Needs you first ================= */
+  .a-gate { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s3); align-items: start; padding: var(--s3); }
+  .a-gate .figure { color: var(--ct-yellow); }
+  .a-meta { display: flex; flex-wrap: wrap; gap: 2px var(--s3); margin-top: 2px; font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .a-meta li { white-space: nowrap; }
+  .a-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr); gap: var(--s3); align-items: stretch; }
+  .a-status { display: flex; align-items: baseline; gap: var(--s2); }
+  .a-status .figure { color: var(--ct-yellow); }
+  .a-rest { margin-top: 2px; font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .a-pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
+  .a-pairs dt { font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .a-pairs dd { margin-top: 2px; }
+  .a-roles { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px var(--s3); }
+  .a-roles dt { min-width: 0; overflow-wrap: break-word; }
+  .a-roles dd { text-align: right; }
+  .a-story { padding: var(--s3); }
+  .a-story + .a-story { border-top: 1px solid var(--ct-border-subtle); }
+  .a-step { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: var(--s2) var(--s3); align-items: baseline; }
+  .a-step > dt { font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .a-stack { display: grid; gap: var(--s2); }
+  .a-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s3); }
+  .a-line h4 { display: flex; align-items: center; gap: 6px; min-width: 7.5rem; font-size: var(--t-body); font-weight: 600; }
+  .a-line > span { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  .a-line .word { font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .a-line b { font-family: var(--ct-font-mono); }
+  .a-strip { display: flex; height: 22px; border-radius: var(--ct-radius-sm); overflow: hidden; background: var(--ct-bg); }
+  .a-strip span { display: flex; align-items: center; min-width: 2px; padding-inline: 6px; font-size: var(--t-meta); white-space: nowrap; overflow: hidden; }
+  .a-strip .haiku { flex: 61; background: color-mix(in srgb, var(--claude) 34%, var(--ct-surface)); }
+  .a-strip .unassigned { flex: 39; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--codex) 26%, var(--ct-surface)) 0 4px, color-mix(in srgb, var(--codex) 14%, var(--ct-surface)) 4px 8px); }
+  .a-strip .luna { flex: 0 0 2px; padding: 0; background: var(--ct-bright-magenta); }
+  .a-models { margin-top: var(--s2); display: grid; grid-template-columns: minmax(0, 9rem) 3rem minmax(0, 1fr); gap: 4px var(--s3); align-items: baseline; }
+  .a-models li { display: contents; }
+  .a-models .name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .a-models .share { text-align: right; font-weight: 600; }
+  .a-models .figs { display: flex; flex-wrap: wrap; gap: 0 var(--s3); font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .a-models .figs span { white-space: nowrap; }
+  .a-models .figs b { font-family: var(--ct-font-mono); font-weight: 500; color: var(--ct-fg); }
+  .a-models .quiet { color: var(--ct-muted-fg); }
+  @container (max-width: 600px) {
+    .a-row { grid-template-columns: minmax(0, 1fr); }
+    .a-step { grid-template-columns: minmax(0, 1fr); gap: var(--s1); }
+    .a-models { grid-template-columns: minmax(0, 1fr) auto; }
+    .a-models .figs { grid-column: 1 / -1; margin-bottom: var(--s1); }
+  }
+
+  /* ================= Direction B: Plan beside machine ================= */
+  .b-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s3); align-items: start; }
+  .b-group + .b-group { border-top: 1px solid var(--ct-border); }
+  .b-group-label { display: flex; align-items: baseline; gap: var(--s2); padding: var(--s2) var(--s3) var(--s1); font-size: var(--t-meta); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ct-muted-fg); }
+  .b-group-label .count { font-family: var(--ct-font-mono); letter-spacing: 0; }
+  .b-list { padding-bottom: var(--s1); }
+  .b-list > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s2); padding: 5px var(--s3); }
+  .b-list > li + li { border-top: 1px solid var(--ct-border-subtle); }
+  .b-list .label { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; overflow-wrap: break-word; }
+  .b-list .value { font-family: var(--ct-font-mono); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .b-list .note { font-size: var(--t-meta); color: var(--ct-muted-fg); white-space: nowrap; }
+  .b-list .indent { padding-left: calc(var(--s3) + 14px); }
+  .b-gate { padding: 5px var(--s3) var(--s3); }
+  .b-gate p { font-weight: 600; }
+  .b-gate ul { display: flex; flex-wrap: wrap; gap: 2px var(--s3); margin-top: 2px; font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .b-gate li { white-space: nowrap; }
+  .b-prov-head { display: flex; align-items: center; gap: 6px; padding: var(--s2) var(--s3) 2px; font-size: var(--t-body); font-weight: 600; }
+  .b-model { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--s2); margin: 0 var(--s2); padding: 5px var(--s2); border-radius: var(--ct-radius-sm); }
+  .b-model:hover { background: var(--ct-hover); }
+  .b-model .name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .b-model .share { font-family: var(--ct-font-mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; text-align: right; }
+  .b-model .line { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0 var(--s3); font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .b-model .line span { white-space: nowrap; }
+  .b-model .line b { font-family: var(--ct-font-mono); font-weight: 500; color: var(--ct-fg); }
+  .b-quiet { color: var(--ct-muted-fg); }
+  @container (max-width: 600px) {
+    .b-cols { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ================= Direction C: Timeline with a rail ================= */
+  .c-cols { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: var(--s3); align-items: start; }
+  .c-rail { display: flex; flex-direction: column; gap: var(--s3); }
+  .c-pin { margin: var(--s3) var(--s3) 0; padding: var(--s2) var(--s3); border: 1px solid color-mix(in srgb, var(--ct-yellow) 45%, var(--ct-border)); border-radius: var(--ct-radius-sm); background: color-mix(in srgb, var(--ct-yellow) 7%, var(--ct-surface)); }
+  .c-pin p:first-child { font-size: var(--t-meta); color: var(--ct-yellow); font-weight: 600; }
+  .c-pin p + p { margin-top: 2px; }
+  .c-kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .c-kv dt, .c-kv dd { padding: 6px var(--s3); border-top: 1px solid var(--ct-border-subtle); }
+  .c-kv dt:first-of-type, .c-kv dd:first-of-type { border-top: 0; }
+  .c-kv dt { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .c-kv dd { text-align: right; font-family: var(--ct-font-mono); font-weight: 600; white-space: nowrap; }
+  .c-kv dd small { font-family: var(--ct-font-ui); font-size: var(--t-meta); font-weight: 400; color: var(--ct-muted-fg); }
+  .c-kv .sub-row { padding-left: calc(var(--s3) + 14px); color: var(--ct-muted-fg); font-size: var(--t-meta); }
+  .c-step + .c-step { border-top: 1px solid var(--ct-border); }
+  .c-step-label { padding: var(--s2) var(--s3) 0; font-size: var(--t-meta); font-weight: 600; color: var(--ct-muted-fg); }
+  .c-donut-row { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: var(--s3); align-items: center; padding: var(--s2) var(--s3) var(--s3); }
+  .c-donut { position: relative; width: 104px; height: 104px; border-radius: 50%; background: conic-gradient(var(--claude) 0 61%, color-mix(in srgb, var(--codex) 45%, var(--ct-surface)) 61% 99.6%, var(--ct-bright-magenta) 99.6% 100%); }
+  .c-donut::after { content: ""; position: absolute; inset: 16px; border-radius: 50%; background: var(--ct-surface); }
+  .c-donut-label { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; text-align: center; }
+  .c-donut-label b { font-family: var(--ct-font-mono); font-size: 15px; }
+  .c-donut-label span { font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .c-legend li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 3px 0; }
+  .c-legend .share { font-family: var(--ct-font-mono); font-weight: 600; }
+  .c-legend .prov { grid-column: 2 / -1; margin-top: -2px; font-size: var(--t-meta); color: var(--ct-muted-fg); }
+  .c-foot { padding: 0 var(--s3) var(--s3); font-size: var(--t-meta); color: var(--ct-accent); }
+  @container (max-width: 600px) {
+    .c-cols { grid-template-columns: minmax(0, 1fr); }
+    .c-rail { order: -1; }
+  }
+</style>
+</head>
+<body>
+<main class="doc">
+  <h1>Mission Control Board concepts</h1>
+  <p>Three directions for the owner's running plan, each drawn at the real 980px Board width and at 390px with CodeTerm's github-dark tokens and the current Board data. Spend leads with the share of each provider's weekly allowance spent, then shows each provider's tokens in plain words: new input (what costs), read from cache (near free) and generated. There is no summed input or total headline. A dashed chip such as <span class="needs">needs new data</span> marks a reading the data cannot give yet; it never shows a number. Plan figures are drawn with sample values, because no ledger row carries a plan id yet.</p>
+
+  <!-- ===================================================================== -->
+  <article class="direction">
+    <h2>A. Needs you first <span class="rec">Recommended</span></h2>
+    <div class="spec">
+      <section>
+        <h3>Questions, in order</h3>
+        <ol>
+          <li>Is anything waiting on me right now?</li>
+          <li>Is the plan moving, and how well?</li>
+          <li>How much of each provider's weekly allowance went, and on what tokens and models?</li>
+          <li>What happened most recently?</li>
+        </ol>
+      </section>
+      <section>
+        <h3>Shows, merges, drops</h3>
+        <ul>
+          <li>Open gate and held reviews become one Needs you panel carrying the question itself; it disappears when nothing waits.</li>
+          <li>Seven task statuses become the non-zero ones plus one quiet line for the rest; plan figures join Progress.</li>
+          <li>Bounces and done first try share a Quality pair.</li>
+          <li>Dropped: the grid of eight KPI cards, Longest wait (folded into the gate), the separate Held card, output-token headlines, summed input, bytes.</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Treatment</h3>
+        <ul>
+          <li>Every section is a raised panel with a ruled header in the sidebar's own section-label voice; nothing sits loose on the page.</li>
+          <li>Spend is a labelled story down one left rail: Weekly allowance, Took part, By model.</li>
+          <li>Every token figure carries its meaning in words next to the number.</li>
+          <li>Only one graphic: a composition strip for the model split.</li>
+        </ul>
+      </section>
+    </div>
+    <details>
+      <summary>ASCII wireframes</summary>
+<pre>980px
++------------------------------------------------------------------------------+
+| NEEDS YOU  1                                                                 |
+| 1  Resolve the provider mutation-capability incident for pl_gb7irt/...       |
+|    decision gate   waiting 9 h 03 m   blocks Deterministic Snake simulation  |
++------------------------------------------------------------------------------+
++----------------------------+ +-----------------------------------------------+
+| PROGRESS           4 tasks | | SPEND                            this machine |
+| 4 paused                   | | Weekly       # Claude Code  spent [needs proj]|
+| nothing else in any status | | allowance                   65% used now      |
+|----------------------------| |              # Codex        spent [needs proj]|
+| THIS PLAN     sample values| |                             6% used now       |
+| 1.5M new input 4,023 turns | |-----------------------------------------------|
+|----------------------------| | Took part    # Claude Code  1.4M new input    |
+| QUALITY                    | |              182.6M read from cache 195K gen. |
+| 1 bounced  0 of 2 first try| |              # Codex        2.5M new input ...|
+|----------------------------| |-----------------------------------------------|
+| ROLES                      | | By model     [ haiku 61%       |Unassigned 39%]|
+| accessible-interaction-e 1 | |              haiku 61%  1.4M new ...          |
++----------------------------+ +-----------------------------------------------+
++------------------------------------------------------------------------------+
+| WHAT HAPPENED                                           last 5 of 14 events  |
++------------------------------------------------------------------------------+
+
+390px: the same panels stacked in the same order; step labels sit above their content.</pre>
+    </details>
+    <div class="frames">
+      <div class="frame-wrap"><p>980px Board</p><div class="window w980" data-frame="a"></div></div>
+      <div class="frame-wrap"><p>390px</p><div class="window w390" data-frame="a"></div></div>
+    </div>
+  </article>
+
+  <!-- ===================================================================== -->
+  <article class="direction">
+    <h2>B. Plan beside machine</h2>
+    <div class="spec">
+      <section>
+        <h3>Questions, in order</h3>
+        <ol>
+          <li>Where does the plan stand?</li>
+          <li>What needs a decision?</li>
+          <li>How much weekly allowance went per provider, on which tokens, on which models?</li>
+          <li>What happened?</li>
+        </ol>
+      </section>
+      <section>
+        <h3>Shows, merges, drops</h3>
+        <ul>
+          <li>Two panels with a hard boundary: the plan on the left, machine spend on the right, so plan scope and machine scope never mix.</li>
+          <li>The plan panel is a sidebar-style list of groups: status, decisions, this plan, quality, roles.</li>
+          <li>Dropped: every stand-alone KPI card, every zero status line, summed input, bytes.</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Treatment</h3>
+        <ul>
+          <li>Looks like the CodeTerm sidebar grown into panels: uppercase group labels, rows with hover, hairline row rules.</li>
+          <li>Spend has no graphic at all. Groups run Weekly allowance, Took part, Models; every row is a plain-word label and a right-aligned value.</li>
+        </ul>
+      </section>
+    </div>
+    <details>
+      <summary>ASCII wireframes</summary>
+<pre>980px
++--------------------------------------+ +--------------------------------------+
+| PLAN                         4 tasks | | SPEND                   this machine |
+| STATUS                               | | WEEKLY ALLOWANCE                     |
+|  paused                            4 | |  # Claude Code  spent [needs proj.]  |
+| DECISIONS  1                         | |                 65% used now         |
+|  Resolve the provider mutation-...   | |  # Codex        spent [needs proj.]  |
+|  gate open  waiting 9 h 03 m  blocks | |                  6% used now         |
+| THIS PLAN              sample values | | TOOK PART  2                         |
+|  new input                      1.5M | |  # Claude Code                       |
+|  turns                         4,023 | |    new input                    1.4M |
+| QUALITY                              | |    read from cache            182.6M |
+|  bounced tasks                     1 | |    generated                    195K |
+|  done first try          0 of 2      | |    turns   1,973  tool calls [needs] |
+| ROLES  4                             | |  # Codex ...                         |
+|  accessible-interaction-engineer   1 | | MODELS  3                            |
++--------------------------------------+ |  # haiku                         61% |
+                                         |  # Unassigned model              39% |
+                                         |  # luna                           0% |
+                                         +--------------------------------------+
+390px: PLAN panel, then SPEND panel, then WHAT HAPPENED.</pre>
+    </details>
+    <div class="frames">
+      <div class="frame-wrap"><p>980px Board</p><div class="window w980" data-frame="b"></div></div>
+      <div class="frame-wrap"><p>390px</p><div class="window w390" data-frame="b"></div></div>
+    </div>
+  </article>
+
+  <!-- ===================================================================== -->
+  <article class="direction">
+    <h2>C. Timeline with a rail</h2>
+    <div class="spec">
+      <section>
+        <h3>Questions, in order</h3>
+        <ol>
+          <li>What is happening, as a story?</li>
+          <li>What is the one thing waiting on me? (pinned on top of the story)</li>
+          <li>Where do the numbers stand? (rail: plan, then spend)</li>
+        </ol>
+      </section>
+      <section>
+        <h3>Shows, merges, drops</h3>
+        <ul>
+          <li>The event log becomes the main column; the open gate is pinned above it.</li>
+          <li>The rail carries a short plan summary and Spend, allowance first.</li>
+          <li>Dropped: Tasks by role (reachable in the Tasks view), the KPI grid, Longest wait and Held as cards, summed input, bytes.</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Treatment</h3>
+        <ul>
+          <li>Two containers only: one place for the story and one for the numbers.</li>
+          <li>Spend steps are stacked key and value lists in plain words; the model split closes with a donut and a legend grouped by provider.</li>
+          <li>At 390 the rail comes first, then the story.</li>
+        </ul>
+      </section>
+    </div>
+    <details>
+      <summary>ASCII wireframes</summary>
+<pre>980px
++------------------------------------------------------+ +----------------------+
+| WHAT HAPPENED                            14 events   | | PLAN         4 tasks |
+| ! Waiting on you for 9 h 03 m                        | | paused             4 |
+|   Resolve the provider mutation-capability ...       | | gate open   9 h 03 m |
+|------------------------------------------------------| | new input 1.5M smpl  |
+| 12:58 Question  Resolve the provider mutation ...    | +----------------------+
+| 12:58 Decision  startup recovery exhausted ...       | | SPEND   this machine |
+| 12:58 Decision  paused: its rendering and ...        | | Weekly allowance     |
+| ...                                                  | |  Claude spent [needs]|
+|                                                      | |  Codex  spent [needs]|
+|                                                      | | Took part            |
+|                                                      | |  # Claude Code       |
+|                                                      | |    new input    1.4M |
+|                                                      | |    from cache 182.6M |
+|                                                      | | By model (donut)     |
++------------------------------------------------------+ +----------------------+
+
+390px: PLAN, SPEND, then WHAT HAPPENED with the pinned gate.</pre>
+    </details>
+    <div class="frames">
+      <div class="frame-wrap"><p>980px Board</p><div class="window w980" data-frame="c"></div></div>
+      <div class="frame-wrap"><p>390px</p><div class="window w390" data-frame="c"></div></div>
+    </div>
+  </article>
+</main>
+
+<template id="appbar">
+  <div class="appbar"><div class="modes"><span>Board</span><span>Spec</span><span>Plan</span><span>Tasks</span></div><span class="kebab" aria-label="Board actions">⋯</span></div>
+</template>
+
+<template id="log">
+  <section class="panel" aria-label="What happened">
+    <header class="panel-head"><h3>What happened</h3><span class="head-meta end">last 5 of 14 events</span></header>
+    <ol class="log">
+      <li><time>12:58</time><span class="kind strong">Question</span><span class="text">Resolve the provider mutation-capability incident for pl_gb7irt/task_ulu1wz. Identify one supported…</span></li>
+      <li><time>12:58</time><span class="kind strong">Decision</span><span class="text">paused: gate:gate_0dz33o: Resolve the provider mutation-capability incident…</span></li>
+      <li><time>12:58</time><span class="kind strong">Decision</span><span class="text">startup recovery exhausted; provider opencode has no mutation allowance capability</span></li>
+      <li><time>12:58</time><span class="kind strong">Decision</span><span class="text">paused: Paused because its rendering and accessibility dependencies are paused</span></li>
+      <li><time>12:40</time><span class="kind">Decision</span><span class="text">resumed: gate gate_esc6bn answered</span></li>
+    </ol>
+    <p class="log-foot">Show all 14 events</p>
+  </section>
+</template>
+
+<!-- ======================= Direction A board ======================= -->
+<template id="board-a">
+  <div class="board">
+    <section class="panel" aria-label="Needs you">
+      <header class="panel-head"><h3>Needs you</h3><span class="head-meta num">1</span></header>
+      <div class="a-gate">
+        <span class="figure">1</span>
+        <div>
+          <p><b>Resolve the provider mutation-capability incident for pl_gb7irt/task_ulu1wz</b></p>
+          <ul class="a-meta"><li>decision gate</li><li>waiting 9 h 03 m</li><li>blocks Deterministic Snake simulation</li></ul>
+        </div>
+      </div>
+    </section>
+    <div class="a-row">
+      <section class="panel" aria-label="Progress">
+        <header class="panel-head"><h3>Progress</h3><span class="head-meta end">4 tasks</span></header>
+        <div class="sub">
+          <div class="a-status"><span class="figure">4</span><span>paused</span></div>
+          <p class="a-rest">nothing pending, running, in review, blocked, done or cancelled</p>
+        </div>
+        <div class="sub">
+          <p class="sub-label">This plan <span class="sample">sample values</span></p>
+          <dl class="a-pairs">
+            <div><dt>new input</dt><dd><span class="num">1.5M</span></dd></div>
+            <div><dt>turns</dt><dd><span class="num">4,023</span></dd></div>
+          </dl>
+        </div>
+        <div class="sub">
+          <p class="sub-label">Quality</p>
+          <dl class="a-pairs">
+            <div><dt>bounced</dt><dd><span class="num warn">1</span> task</dd></div>
+            <div><dt>done first try</dt><dd><span class="num">0</span> of 2 attempts</dd></div>
+          </dl>
+        </div>
+        <div class="sub">
+          <p class="sub-label">Roles</p>
+          <dl class="a-roles">
+            <dt>accessible-interaction-engineer</dt><dd class="num">1</dd>
+            <dt>frontend-integration-engineer</dt><dd class="num">1</dd>
+            <dt>game-logic-engineer</dt><dd class="num">1</dd>
+            <dt>game-rendering-engineer</dt><dd class="num">1</dd>
+          </dl>
+        </div>
+      </section>
+      <section class="panel" aria-label="Spend">
+        <header class="panel-head"><h3>Spend</h3><span class="head-meta end">this machine</span></header>
+        <div class="a-story">
+          <dl class="a-step">
+            <dt>Weekly allowance</dt>
+            <dd class="a-stack">
+              <div class="a-line"><h4><span class="swatch sw-claude"></span>Claude Code</h4><span><span class="word">spent</span><span class="needs">needs projection change</span></span><span><b class="warn">65%</b><span class="word">used now</span></span><span><b>23%</b><span class="word">of session used now</span></span></div>
+              <div class="a-line"><h4><span class="swatch sw-codex"></span>Codex</h4><span><span class="word">spent</span><span class="needs">needs projection change</span></span><span><b>6%</b><span class="word">used now</span></span></div>
+            </dd>
+          </dl>
+        </div>
+        <div class="a-story">
+          <dl class="a-step">
+            <dt>Took part</dt>
+            <dd class="a-stack">
+              <div class="a-line"><h4><span class="swatch sw-claude"></span>Claude Code</h4><span><b>1.4M</b><span class="word">new input</span></span><span><b>182.6M</b><span class="word">read from cache</span></span><span><b>195K</b><span class="word">generated</span></span><span><b>1,973</b><span class="word">turns</span></span><span><span class="word">tool calls</span><span class="needs">needs new data</span></span></div>
+              <div class="a-line"><h4><span class="swatch sw-codex"></span>Codex</h4><span><b>2.5M</b><span class="word">new input</span></span><span><b>116.6M</b><span class="word">read from cache</span></span><span><b>182K</b><span class="word">generated</span></span><span><b>1,778</b><span class="word">turns</span></span><span><span class="word">tool calls</span><span class="needs">needs new data</span></span></div>
+            </dd>
+          </dl>
+        </div>
+        <div class="a-story">
+          <dl class="a-step">
+            <dt>By model</dt>
+            <dd>
+              <div class="a-strip" role="img" aria-label="Token share: haiku 61 percent, Unassigned model 39 percent, luna 0 percent">
+                <span class="haiku">haiku 61%</span><span class="unassigned">Unassigned 39%</span><span class="luna"></span>
+              </div>
+              <ul class="a-models">
+                <li><span class="name"><span class="swatch sw-claude"></span>haiku</span><span class="share num">61%</span><span class="figs"><span><b>1.4M</b> new input</span><span><b>182.6M</b> from cache</span><span><b>195K</b> generated</span><span><b>1,973</b> turns</span></span></li>
+                <li><span class="name quiet"><span class="swatch sw-unassigned"></span>Unassigned model</span><span class="share num">39%</span><span class="figs"><span><b>2.4M</b> new input</span><span><b>116.6M</b> from cache</span><span><b>182K</b> generated</span><span><b>1,777</b> turns</span></span></li>
+                <li><span class="name"><span class="swatch sw-luna"></span>luna</span><span class="share num">0%</span><span class="figs"><span><b>67.5K</b> new input</span><span><b>10K</b> from cache</span><span><b>5</b> generated</span><span><b>1</b> turn</span></span></li>
+              </ul>
+            </dd>
+          </dl>
+        </div>
+      </section>
+    </div>
+    <div data-slot="log"></div>
+  </div>
+</template>
+
+<!-- ======================= Direction B board ======================= -->
+<template id="board-b">
+  <div class="board">
+    <div class="b-cols">
+      <section class="panel" aria-label="Plan">
+        <header class="panel-head"><h3>Plan</h3><span class="head-meta end">4 tasks</span></header>
+        <div class="b-group">
+          <p class="b-group-label">Status</p>
+          <ul class="b-list"><li><span class="label">paused</span><span class="value warn">4</span></li></ul>
+        </div>
+        <div class="b-group">
+          <p class="b-group-label">Decisions <span class="count">1</span></p>
+          <div class="b-gate">
+            <p>Resolve the provider mutation-capability incident for pl_gb7irt/task_ulu1wz</p>
+            <ul><li>gate open</li><li>waiting 9 h 03 m</li><li>blocks 1 task</li></ul>
+          </div>
+        </div>
+        <div class="b-group">
+          <p class="b-group-label">This plan <span class="sample">sample values</span></p>
+          <ul class="b-list">
+            <li><span class="label">new input</span><span class="value">1.5M</span></li>
+            <li><span class="label">turns</span><span class="value">4,023</span></li>
+          </ul>
+        </div>
+        <div class="b-group">
+          <p class="b-group-label">Quality</p>
+          <ul class="b-list">
+            <li><span class="label">bounced tasks</span><span class="value warn">1</span></li>
+            <li><span class="label">done first try</span><span class="value">0</span><span class="note">of 2 attempts</span></li>
+          </ul>
+        </div>
+        <div class="b-group">
+          <p class="b-group-label">Roles <span class="count">4</span></p>
+          <ul class="b-list">
+            <li><span class="label">accessible-interaction-engineer</span><span class="value">1</span></li>
+            <li><span class="label">frontend-integration-engineer</span><span class="value">1</span></li>
+            <li><span class="label">game-logic-engineer</span><span class="value">1</span></li>
+            <li><span class="label">game-rendering-engineer</span><span class="value">1</span></li>
+          </ul>
+        </div>
+      </section>
+      <section class="panel" aria-label="Spend">
+        <header class="panel-head"><h3>Spend</h3><span class="head-meta end">this machine</span></header>
+        <div class="b-group">
+          <p class="b-group-label">Weekly allowance</p>
+          <ul class="b-list">
+            <li><span class="label"><span class="swatch sw-claude"></span>Claude Code spent</span><span class="needs">needs projection change</span><span class="note"><b class="num warn">65%</b> used now</span></li>
+            <li><span class="label"><span class="swatch sw-codex"></span>Codex spent</span><span class="needs">needs projection change</span><span class="note"><b class="num">6%</b> used now</span></li>
+          </ul>
+        </div>
+        <div class="b-group">
+          <p class="b-group-label">Took part <span class="count">2</span></p>
+          <p class="b-prov-head"><span class="swatch sw-claude"></span>Claude Code</p>
+          <ul class="b-list">
+            <li class="indent"><span class="label">new input</span><span class="value">1.4M</span></li>
+            <li class="indent"><span class="label">read from cache</span><span class="value">182.6M</span></li>
+            <li class="indent"><span class="label">generated</span><span class="value">195K</span></li>
+            <li class="indent"><span class="label">turns</span><span class="value">1,973</span></li>
+            <li class="indent"><span class="label">tool calls</span><span class="needs">needs new data</span></li>
+          </ul>
+          <p class="b-prov-head"><span class="swatch sw-codex"></span>Codex</p>
+          <ul class="b-list">
+            <li class="indent"><span class="label">new input</span><span class="value">2.5M</span></li>
+            <li class="indent"><span class="label">read from cache</span><span class="value">116.6M</span></li>
+            <li class="indent"><span class="label">generated</span><span class="value">182K</span></li>
+            <li class="indent"><span class="label">turns</span><span class="value">1,778</span></li>
+            <li class="indent"><span class="label">tool calls</span><span class="needs">needs new data</span></li>
+          </ul>
+        </div>
+        <div class="b-group">
+          <p class="b-group-label">Models <span class="count">3</span></p>
+          <div class="b-model">
+            <span class="name"><span class="swatch sw-claude"></span>haiku</span><span class="share">61%</span>
+            <span class="line"><span><b>1.4M</b> new input</span><span><b>182.6M</b> from cache</span><span><b>195K</b> generated</span></span>
+          </div>
+          <div class="b-model">
+            <span class="name b-quiet"><span class="swatch sw-unassigned"></span>Unassigned model</span><span class="share">39%</span>
+            <span class="line"><span><b>2.4M</b> new input</span><span><b>116.6M</b> from cache</span><span><b>182K</b> generated</span></span>
+          </div>
+          <div class="b-model" style="margin-bottom: var(--s2)">
+            <span class="name"><span class="swatch sw-luna"></span>luna</span><span class="share">0%</span>
+            <span class="line"><span><b>67.5K</b> new input</span><span><b>10K</b> from cache</span><span><b>5</b> generated</span></span>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div data-slot="log"></div>
+  </div>
+</template>
+
+<!-- ======================= Direction C board ======================= -->
+<template id="board-c">
+  <div class="board">
+    <div class="c-cols">
+      <section class="panel" aria-label="What happened">
+        <header class="panel-head"><h3>What happened</h3><span class="head-meta end">14 events</span></header>
+        <div class="c-pin">
+          <p>Waiting on you for 9 h 03 m</p>
+          <p>Resolve the provider mutation-capability incident for pl_gb7irt/task_ulu1wz</p>
+        </div>
+        <ol class="log">
+          <li><time>12:58</time><span class="kind strong">Question</span><span class="text">Resolve the provider mutation-capability incident for pl_gb7irt/task_ulu1wz. Identify one supported…</span></li>
+          <li><time>12:58</time><span class="kind strong">Decision</span><span class="text">paused: gate:gate_0dz33o: Resolve the provider mutation-capability incident…</span></li>
+          <li><time>12:58</time><span class="kind strong">Decision</span><span class="text">startup recovery exhausted; provider opencode has no mutation allowance capability</span></li>
+          <li><time>12:58</time><span class="kind strong">Decision</span><span class="text">paused: Paused because its rendering and accessibility dependencies are paused</span></li>
+          <li><time>12:58</time><span class="kind strong">Decision</span><span class="text">paused: Paused because deterministic simulation task_ulu1wz is blocked by recovery</span></li>
+          <li><time>12:40</time><span class="kind">Decision</span><span class="text">resumed: gate gate_esc6bn answered</span></li>
+          <li><time>12:40</time><span class="kind strong">Question</span><span class="text">Approve one bounded startup recovery for pl_gb7irt/task_ulu1wz: change routing to…</span></li>
+          <li><time>12:26</time><span class="kind strong">Planning</span><span class="text">drafting to approved</span></li>
+          <li><time>12:25</time><span class="kind">Task added</span><span class="text">CodeTerm route integration and final oracle</span></li>
+          <li><time>12:25</time><span class="kind">Task added</span><span class="text">Keyboard touch and accessible shell</span></li>
+        </ol>
+        <p class="c-foot">Show all 14 events</p>
+      </section>
+      <div class="c-rail">
+        <section class="panel" aria-label="Plan">
+          <header class="panel-head"><h3>Plan</h3><span class="head-meta end">4 tasks</span></header>
+          <dl class="c-kv">
+            <dt>paused</dt><dd class="warn">4</dd>
+            <dt>gate open</dt><dd>9 h 03 m</dd>
+            <dt>bounced tasks</dt><dd class="warn">1</dd>
+            <dt>done first try</dt><dd>0 <small>of 2</small></dd>
+            <dt>new input <span class="sample">sample</span></dt><dd>1.5M</dd>
+          </dl>
+        </section>
+        <section class="panel" aria-label="Spend">
+          <header class="panel-head"><h3>Spend</h3><span class="head-meta end">this machine</span></header>
+          <div class="c-step">
+            <p class="c-step-label">Weekly allowance spent</p>
+            <dl class="c-kv">
+              <dt><span class="swatch sw-claude"></span>Claude Code</dt><dd><span class="needs">needs projection</span> <small>65% now</small></dd>
+              <dt><span class="swatch sw-codex"></span>Codex</dt><dd><span class="needs">needs projection</span> <small>6% now</small></dd>
+            </dl>
+          </div>
+          <div class="c-step">
+            <p class="c-step-label">Took part</p>
+            <dl class="c-kv">
+              <dt><span class="swatch sw-claude"></span>Claude Code</dt><dd><small>1,973 turns</small></dd>
+              <dt class="sub-row">new input</dt><dd>1.4M</dd>
+              <dt class="sub-row">read from cache</dt><dd>182.6M</dd>
+              <dt class="sub-row">generated</dt><dd>195K</dd>
+              <dt><span class="swatch sw-codex"></span>Codex</dt><dd><small>1,778 turns</small></dd>
+              <dt class="sub-row">new input</dt><dd>2.5M</dd>
+              <dt class="sub-row">read from cache</dt><dd>116.6M</dd>
+              <dt class="sub-row">generated</dt><dd>182K</dd>
+              <dt>tool calls</dt><dd><span class="needs">needs new data</span></dd>
+            </dl>
+          </div>
+          <div class="c-step">
+            <p class="c-step-label">By model</p>
+            <div class="c-donut-row">
+              <div class="c-donut" role="img" aria-label="Token share: haiku 61 percent, Unassigned model 39 percent, luna 0 percent">
+                <div class="c-donut-label"><b>3</b><span>models</span></div>
+              </div>
+              <ul class="c-legend">
+                <li><span class="swatch sw-claude"></span><span>haiku</span><span class="share">61%</span><span class="prov">Claude Code, 1.4M new input</span></li>
+                <li><span class="swatch sw-unassigned"></span><span class="muted">Unassigned</span><span class="share">39%</span><span class="prov">Codex, 2.4M new input</span></li>
+                <li><span class="swatch sw-luna"></span><span>luna</span><span class="share">0%</span><span class="prov">Codex, 67.5K new input</span></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+  for (const frame of document.querySelectorAll("[data-frame]")) {
+    frame.append(document.getElementById("appbar").content.cloneNode(true));
+    frame.append(document.getElementById(`board-${frame.dataset.frame}`).content.cloneNode(true));
+    const slot = frame.querySelector('[data-slot="log"]');
+    if (slot) slot.replaceWith(document.getElementById("log").content.cloneNode(true));
+  }
+</script>
+</body>
+</html>

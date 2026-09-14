@@ -20,6 +20,13 @@ export interface Bucket {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** Providers stamp each snapshot's reset time with seconds of jitter, so resets this close are one cycle. */
+export const RESET_MATCH_TOLERANCE_MS = 60_000;
+
+export function sameReset(a: number, b: number): boolean {
+  return Math.abs(a - b) <= RESET_MATCH_TOLERANCE_MS;
+}
+
 /** Index of the first bucket whose cumulative end-of-day total crosses 100%.
  * Past day actuals + today/future targets. Returns -1 when the projection
  * stays under 100% through the whole cycle. */
@@ -171,7 +178,7 @@ function fallbackDeltas(
 ) {
   const cycleRows = rows
     .filter((r) => r.parsed_ok && r.weekly_pct != null)
-    .filter((r) => r.weekly_resets_at == null || r.weekly_resets_at === cycleEnd)
+    .filter((r) => r.weekly_resets_at == null || sameReset(r.weekly_resets_at, cycleEnd))
     .sort((a, b) => a.captured_at - b.captured_at);
   const MAX_BRIDGE_GAP_MS = 2 * 60 * 60 * 1000;
   for (let d = dayStart; d < cycleEnd; d += DAY) {

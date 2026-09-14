@@ -26,8 +26,26 @@ pub enum BootStage {
     AgentReady,
     /// A restored tab proved its PTY is live and re-attached without a spawn.
     PtyReattached,
+    /// The launch-output deadline elapsed with no provider evidence yet.
+    /// Provisional, not a verdict: only authoritative late readiness from the
+    /// same PTY and launch attempt retires it. Carries the deadline reason.
+    LaunchDeadlineElapsed,
+    /// The launch was delivered but no authoritative session binding arrived.
+    /// Provisional for the same reason and retired by the same rule; carries
+    /// the delivery evidence the ledger still holds.
+    LaunchBindingUnconfirmed,
     /// Boot aborted; carries a human-readable reason on the event payload.
     SpawnFailed,
+}
+
+/// The PTY and launch attempt a provisional stage describes, whichever source
+/// latched it. Retirement compares late readiness against both, so a prior PTY
+/// or a superseded attempt can never speak for the launch that is latched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProvisionalLaunch {
+    pub pty_id: String,
+    pub binding_nonce: String,
+    pub reason: String,
 }
 
 impl BootStage {
@@ -55,8 +73,30 @@ impl BootStage {
             BootStage::DeliveringInstructions => "delivering_instructions",
             BootStage::AgentReady => "agent_ready",
             BootStage::PtyReattached => "pty_reattached",
+            BootStage::LaunchDeadlineElapsed => "launch_deadline_elapsed",
+            BootStage::LaunchBindingUnconfirmed => "launch_binding_unconfirmed",
             BootStage::SpawnFailed => "spawn_failed",
         }
+    }
+
+    /// Stages whose payload reason is the stage's own evidence and must survive
+    /// on the tab record for diagnostics.
+    pub fn carries_reason(&self) -> bool {
+        matches!(
+            self,
+            BootStage::SpawnFailed
+                | BootStage::LaunchDeadlineElapsed
+                | BootStage::LaunchBindingUnconfirmed
+        )
+    }
+
+    /// A deadline, or a binding that never arrived, is one observer giving up
+    /// on a launch — never proof the launch failed.
+    pub fn is_provisional(&self) -> bool {
+        matches!(
+            self,
+            BootStage::LaunchDeadlineElapsed | BootStage::LaunchBindingUnconfirmed
+        )
     }
 }
 

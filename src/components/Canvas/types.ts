@@ -69,6 +69,13 @@ export interface TransferRecord {
   reason: string;
 }
 
+export interface PlanLifecycleEvent {
+  id: string;
+  kind: string;
+  at: number;
+  author: OrchestratorRef;
+}
+
 export interface MilestoneKind {
   key: string;
   label: string;
@@ -193,6 +200,8 @@ export interface Task {
   updated_at?: number;
   status_changed_at?: number;
   handle?: string | null;
+  /** Immutable human key (`PREFIX-N`); absent on tasks created before keys existed. */
+  key?: string | null;
   tags?: string[];
   group?: string | null;
   section_ids: string[];
@@ -316,6 +325,7 @@ export interface Plan {
   tasks: Task[];
   canvas: PlanCanvas;
   owner_history: TransferRecord[];
+  lifecycle_events?: PlanLifecycleEvent[];
   goal?: Goal | null;
   heartbeat?: OrchestratorHeartbeat;
   primary_spec_id?: string | null;

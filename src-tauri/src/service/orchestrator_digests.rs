@@ -17,6 +17,9 @@ pub fn deliver_orchestrator_notice_exact(
     text: &str,
 ) -> Result<crate::service::messenger::Delivery, String> {
     let plan = svc.plan_store.get(plan_id).ok_or("plan not found")?;
+    if crate::service::plan::pause_operation::plan_notices_suppressed(&plan) {
+        return Err("plan_paused: plan notices are suppressed while the plan is paused".into());
+    }
     let owner = plan
         .owner
         .tab_id

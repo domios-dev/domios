@@ -1,6 +1,12 @@
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
-import { MessageBubble, OutboundReportCard } from "@codeterm/chat-ui";
+import {
+  ChatSessionIntentLine,
+  isSessionIntentOnlyMessage,
+  MessageBubble,
+  OutboundReportCard,
+  sessionIntentFromMessages,
+} from "@codeterm/chat-ui";
 import { extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
@@ -20,7 +26,7 @@ import {
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
-import { openPlanDeepLink } from "../Canvas/workspacePlanEntry";
+import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
@@ -44,6 +50,7 @@ import { useAgentReportProjection } from "./agentReportProjection";
 import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
+import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 
@@ -120,7 +127,8 @@ export function TabSessionChat({
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
 
-  const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace, answerNotification } = useMultiplexer();
+  const { setFocusedTab, selectTabByTab, addNotification, answerNotification } = useMultiplexer();
+  const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
@@ -167,6 +175,7 @@ export function TabSessionChat({
     error,
     attachmentState,
     transcriptUnavailable,
+    allMessages,
     enrichedMessages,
     hiddenMessageCount,
     canBackfillOlder,
@@ -208,6 +217,7 @@ export function TabSessionChat({
     followSend: rawFollowSentMessage,
     prepareForHistoryPrepend,
     handleScroll,
+    revealMessage,
   } = useChatScroll({
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
@@ -218,10 +228,17 @@ export function TabSessionChat({
     followTailRef: chatFollowTailRef,
     onModeChange: (mode) => setHistoryReading(mode === "detached"),
   });
+  useChatMessageReveal({
+    tabId,
+    ready: isActive && !chatChannelLoading,
+    contentVersion: enrichedMessages,
+    revealMessage,
+  });
 
-  // Sending or jumping to latest must leave history-browsing mode first, or the
-  // bounded window would keep the new tail out of the DOM.
+  // A detached reader stays on its content through a send; only a followed tail
+  // re-projects the bounded window and moves with it.
   const followSentMessage = useCallback(() => {
+    if (!chatFollowTailRef.current) return;
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
@@ -369,6 +386,7 @@ export function TabSessionChat({
           persisted: report.taskOutcome.persisted,
           transitionRejected: report.taskOutcome.transition_rejected,
           cause: report.taskOutcome.cause ?? null,
+          reportOutcome: report.taskOutcome.report_outcome ?? null,
         },
       },
     })),
@@ -409,7 +427,11 @@ export function TabSessionChat({
       />
     );
   };
-  const renderedEnrichedMessages = enrichedMessages;
+  const renderedEnrichedMessages = useMemo(
+    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    [enrichedMessages],
+  );
+  const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
   // does: a body that still owns a loading or failed state emits no rail rows.
   const railsVisible = chatRailsVisible(setupView);
@@ -497,16 +519,13 @@ export function TabSessionChat({
     (planId: string, taskId?: string, targetKind?: "plan" | "task" | "section") => {
       const kind = targetKind ?? (taskId ? "task" : "plan");
       const resolved = resolvedPlanRefs.refs.get(`${kind}:${planId}:${taskId ?? ""}`);
-      openPlanDeepLink(planId, taskId, {
-        index: planIndex,
-        workspaces: planNav.workspaces,
-        activeWorkspaceId: planNav.activeWorkspaceId,
+      openPlanTarget({
+        planId,
+        taskId: kind === "task" ? taskId : undefined,
         canonicalProjectPath: resolved?.canonical_project_path,
-        setActiveWorkspace,
-        onMissing: undefined,
       });
     },
-    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, resolvedPlanRefs.refs, setActiveWorkspace],
+    [openPlanTarget, resolvedPlanRefs.refs],
   );
 
   const resolveFocusTab = useCallback((ref: string) => {
@@ -635,6 +654,7 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
         <div
@@ -701,6 +721,7 @@ export function TabSessionChat({
               data-testid="chat-message"
               data-message-role={msg.type}
               data-message-id={msg.id}
+              data-source-message-id={msg.sourceMessageId ?? msg.id}
               role="article"
               aria-label={chatMessageAccessibleName(msg.type, msg.content)}
             >

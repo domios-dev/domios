@@ -11,7 +11,20 @@ export type ChatMessageKind =
   | "shell_command"
   | "context_request"
   | "watcher_verdict"
+  | "tool_flow"
   | "custom";
+
+export type AgentActivityState = "started" | "running" | "completed" | "failed" | "interrupted" | "closed" | "unknown";
+
+/** Sub-agent activity proven by the row's own session record; absent fields are unknown, never inferred. */
+export interface AgentActivity {
+  agentId?: string;
+  agentPath?: string;
+  state?: AgentActivityState;
+  /** Message direction between two agent references (thread id or path). */
+  messageFrom?: string;
+  messageTo?: string;
+}
 
 /** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
 export type ShellCommandStatus = "running" | "ok" | "failed";
@@ -24,12 +37,48 @@ export type ToolEventKind =
   | "task"
   | "fetch"
   | "codeterm"
+  | "web"
+  | "image"
+  /** Sub-agent activity; `toolInput` carries agent_id, agent_path, agent_state, message_from, message_to. */
+  | "agent"
   | "generic";
+
+/** Provider-neutral web or image result; every string is the source's exact value, absent when unreported. */
+export interface ToolRichResult {
+  kind: "web" | "image";
+  origin?: "generated" | "viewed";
+  query?: string;
+  resultCount?: number;
+  action?: string;
+  url?: string;
+  pattern?: string;
+  path?: string;
+  status?: string;
+  prompt?: string;
+}
 
 export interface ToolEdit {
   path: string;
   old: string;
   new: string;
+}
+
+/** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
+export interface FileDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/** One changed file; counts are the marked lines of its own hunks. */
+export interface FileDiff {
+  path: string;
+  movePath?: string;
+  additions: number;
+  deletions: number;
+  hunks: FileDiffHunk[];
 }
 
 export interface ChatAttachment {
@@ -56,11 +105,23 @@ export interface InteractiveQuestion {
   multiSelect: boolean;
 }
 
+export type ChatTimelineMarker =
+  | { kind: "queued" }
+  | { kind: "external_edit"; path: string }
+  | { kind: "context_compaction" };
+
+export interface ChatSessionIntent {
+  title?: string;
+  goal?: string;
+}
+
 /** Discriminated union, open for future interactive session-event kinds. */
 export type InteractiveElement = InteractiveQuestion;
 
 export interface NormalizedChatMessage {
   id: string;
+  /** The id the source emitted before the transcript re-keyed the row; never a render key. */
+  sourceMessageId?: string;
   type: ChatMessageKind;
   content: string;
   attachments?: ChatAttachment[];
@@ -86,6 +147,8 @@ export interface NormalizedChatMessage {
   subtype?: string;
   tagName?: string;
   systemSubtype?: string;
+  timelineMarker?: ChatTimelineMarker;
+  sessionIntent?: ChatSessionIntent;
   sourceType?: string;
   sourceSubtype?: string;
   level?: string;
@@ -103,6 +166,27 @@ export interface NormalizedChatMessage {
   toolSummary?: string;
   toolDetail?: string;
   toolEdits?: ToolEdit[];
+  /** Human description supplied by the call's source; absent means unknown, never inferred. */
+  toolDescription?: string;
+  /** Short action title derived only from the call's own data. */
+  toolTitle?: string;
+  /** Flow identity the source proves. A `tool_flow` row (content `start`/`end`) opens or closes a flow whose
+   *  source emits no descriptions, so its calls stream by title; call-stamped flows stream only when described. */
+  toolFlowId?: string;
+  /** True when this action re-reports a command that another call in its flow already represents. */
+  toolEcho?: boolean;
+  /** Exact source row identity for a call/result link, when the source proves one. */
+  toolCallSourceId?: string;
+  /** Result-link evidence state; unavailable evidence must not use positional pairing. */
+  toolPairing?: "exact" | "unavailable";
+  /** Source-provided command outcome facts. Missing facts stay absent. */
+  toolExitCode?: number;
+  toolDurationMs?: number;
+  toolInterrupted?: boolean;
+  toolBackgroundTaskId?: string;
+  /** Per-file diffs from the provider's own edit record; absent when none was supplied or it was malformed. */
+  fileDiffs?: FileDiff[];
+  toolRichResult?: ToolRichResult;
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

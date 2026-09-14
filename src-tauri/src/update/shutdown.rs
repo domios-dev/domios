@@ -279,6 +279,7 @@ mod tests {
                 workspaces: workspace_ids
                     .iter()
                     .map(|id| WorkspaceSnapshot {
+                        task_keys: Default::default(),
                         id: (*id).into(),
                         name: (*id).into(),
                         tabs: vec![],
@@ -322,6 +323,7 @@ mod tests {
                 workspaces: workspace_ids
                     .iter()
                     .map(|id| WorkspaceSnapshot {
+                        task_keys: Default::default(),
                         id: (*id).into(),
                         name: (*id).into(),
                         tabs: vec![],

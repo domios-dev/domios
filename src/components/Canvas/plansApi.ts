@@ -1,7 +1,8 @@
 import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import { invoke, IS_WEB } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
-import type { DriftItem, OrchestratorRef, Plan, PlanStatus, Section } from "./types";
+import type { DriftItem, OrchestratorRef, Plan, PlanMode, PlanStatus, Section } from "./types";
+import type { PlanLifecycleKind, PlanLifecyclePreview } from "./planLifecycle";
 
 // without fetching full plan bodies.
 export interface PlanIndexEntry {
@@ -57,6 +58,8 @@ export interface ResolvedPlanRef {
   title: string;
   plan_title: string;
   task_title?: string;
+  /** The task's display key (`PREFIX-N`, or the legacy id fallback) when the task resolved. */
+  task_key?: string;
   section_title?: string;
   file_path?: string;
   canonical_project_path?: string;
@@ -212,6 +215,47 @@ export async function archivePlan(api: ApiConfig, planId: string): Promise<void>
   if (!res.ok) throw new Error(`plan archive failed: ${res.status} ${await res.text()}`);
 }
 
+export async function setPlanMode(api: ApiConfig, planId: string, mode: PlanMode): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/mode`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) throw new Error(`plan mode failed: ${res.status} ${await res.text()}`);
+}
+
+export async function deletePlan(api: ApiConfig, planId: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
+    method: "DELETE",
+    headers: authHeaders(api),
+  });
+  if (!res.ok) throw new Error(`plan delete failed: ${res.status} ${await res.text()}`);
+}
+
+export async function deleteTask(api: ApiConfig, planId: string, taskId: string): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`,
+    { method: "DELETE", headers: authHeaders(api) },
+  );
+  if (!res.ok) throw new Error(`task delete failed: ${res.status} ${await res.text()}`);
+}
+
+export async function pauseTask(api: ApiConfig, planId: string, taskId: string, reason: string): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/pause`,
+    { method: "POST", headers: jsonHeaders(api), body: JSON.stringify({ reason }) },
+  );
+  if (!res.ok) throw new Error(`task pause failed: ${res.status} ${await res.text()}`);
+}
+
+export async function resumeTask(api: ApiConfig, planId: string, taskId: string): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/resume`,
+    { method: "POST", headers: jsonHeaders(api), body: "{}" },
+  );
+  if (!res.ok) throw new Error(`task resume failed: ${res.status} ${await res.text()}`);
+}
+
 export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {
   const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/unarchive`, {
     method: "POST",
@@ -228,6 +272,18 @@ export async function parkPlan(api: ApiConfig, planId: string, reason: string): 
     body: JSON.stringify({ reason }),
   });
   if (!res.ok) throw new Error(`plan park failed: ${res.status} ${await res.text()}`);
+}
+
+export async function fetchPlanLifecyclePreview(
+  api: ApiConfig,
+  planId: string,
+  kind: PlanLifecycleKind,
+): Promise<PlanLifecyclePreview> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/${kind}/preview`, {
+    headers: authHeaders(api),
+  });
+  if (!res.ok) throw new Error(`plan ${kind} preview failed: ${res.status} ${await res.text()}`);
+  return (await res.json()) as PlanLifecyclePreview;
 }
 
 export async function resumePlan(api: ApiConfig, planId: string): Promise<void> {

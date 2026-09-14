@@ -5,6 +5,12 @@ use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::Tab;
 use crate::AgentTrackerState;
 
+/// Stable, observable refusal used when an authoritative snapshot would have
+/// to wait for a lifecycle owner. Callers must wait for the next state event;
+/// this path never turns a readiness wait into a blocking lock acquisition.
+pub(crate) const SNAPSHOT_BUSY_ERROR: &str =
+    "state snapshot unavailable while tab state is initializing or changing";
+
 fn reconcile_tab_status(registry: &AgentRegistry, tab: &Tab, raw: TabStatus) -> TabStatus {
     let deterministic_agent_state = tab
         .agent_type
@@ -36,6 +42,20 @@ pub(super) fn snapshot_with_reconciled_status(
     })
 }
 
+pub(crate) fn try_snapshot_with_reconciled_status(
+    mux: &MuxState,
+    tracker: &AgentTrackerState,
+    registry: &AgentRegistry,
+) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
+    // Preserve the blocking snapshot's lock order while refusing immediately
+    // if startup or a lifecycle transition owns either lock.
+    let mux = mux.try_read()?;
+    let tracker = tracker.try_lock()?;
+    Some(mux.snapshot_with_status_resolver(&tracker, |tab, raw| {
+        reconcile_tab_status(registry, tab, raw)
+    }))
+}
+
 impl ServiceContext {
     fn reconcile_tab_status(&self, tab: &Tab, raw: TabStatus) -> TabStatus {
         reconcile_tab_status(&self.agent_registry, tab, raw)
@@ -53,6 +73,12 @@ impl ServiceContext {
         &self,
     ) -> crate::multiplexer::state::MultiplexerSnapshot {
         snapshot_with_reconciled_status(&self.mux, &self.agent_tracker, &self.agent_registry)
+    }
+
+    pub(crate) fn try_snapshot_with_reconciled_status(
+        &self,
+    ) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
+        try_snapshot_with_reconciled_status(&self.mux, &self.agent_tracker, &self.agent_registry)
     }
 }
 
@@ -100,5 +126,36 @@ mod tests {
 
         assert_eq!(live_status, TabStatus::Idle);
         assert_eq!(snapshot.tab_statuses.get(&tab_id), Some(&live_status));
+    }
+
+    #[test]
+    fn authoritative_snapshot_refusal_is_immediate_while_lifecycle_owns_mux() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (state, _) = MultiplexerState::new();
+        let mux: MuxState = Arc::new(TimedRwLock::new("authoritative-snapshot-test", state));
+        let tracker: AgentTrackerState = Arc::new(TimedMutex::new(
+            "authoritative-snapshot-test",
+            TabStatusTracker::new(),
+        ));
+        let registry = AgentRegistry::new();
+        let _lifecycle_owner = mux.write();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker_mux = mux.clone();
+        let worker_tracker = tracker.clone();
+        let worker = std::thread::spawn(move || {
+            done_tx
+                .send(
+                    try_snapshot_with_reconciled_status(&worker_mux, &worker_tracker, &registry)
+                        .is_none(),
+                )
+                .unwrap();
+        });
+
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("an authoritative snapshot refusal must not wait on the mux lock"));
+        worker.join().unwrap();
     }
 }

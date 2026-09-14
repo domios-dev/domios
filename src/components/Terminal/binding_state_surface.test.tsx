@@ -1,4 +1,4 @@
-import { act, useState } from "react";
+import { Component, act, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,35 @@ function fact(
     reason: null,
     ...overrides,
   };
+}
+
+function unknownKindFact(): SessionBindingFact {
+  return {
+    ...fact("healthy", { current_session_id: null }),
+    kind: "kind_this_build_does_not_map" as SessionBindingFact["kind"],
+  };
+}
+
+function installDom(): void {
+  const window = new Window({ url: "http://localhost:7686/" });
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: window });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: window.document });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: window.navigator });
+  Object.defineProperty(globalThis, "HTMLElement", { configurable: true, value: window.HTMLElement });
+  Object.defineProperty(globalThis, "SVGElement", { configurable: true, value: window.SVGElement });
+  Object.defineProperty(globalThis, "Event", { configurable: true, value: window.Event });
+}
+
+class RenderGuard extends Component<{ children: ReactNode }, { tripped: boolean }> {
+  state = { tripped: false };
+  static getDerivedStateFromError(): { tripped: boolean } {
+    return { tripped: true };
+  }
+  render(): ReactNode {
+    if (this.state.tripped) return <div data-testid="render-guard-tripped" />;
+    return this.props.children;
+  }
 }
 
 const tests: Test[] = [
@@ -116,6 +145,71 @@ const tests: Test[] = [
       "a backend deferral keeps its own quiet line and is never optimistically cleared",
     );
   }],
+  ["binding_state_surface_maps_an_unknown_daemon_kind_to_a_silent_surface", () => {
+    const surface = sessionBindingSurfaceFromFact("tab-a", null, unknownKindFact());
+    assert(surface != null, "a kind this build does not map still yields a surface object");
+    assert(surface.agentState === null, "an unmapped kind stays silent");
+    assert(surface.showRecoveryAction === false, "an unmapped kind offers no repair action");
+    assert(surface.rebindSessionId === null, "an unmapped kind suggests no rebind target");
+  }],
+  ["binding_state_surface_renders_the_empty_state_for_an_unknown_daemon_kind", async () => {
+    installDom();
+    const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+    const { useSessionBindingSurface } = await import("./useSessionBindingSurface");
+
+    let deliver: ((fact: SessionBindingFact) => void) | null = null;
+    let signalSubscribed: () => void = () => undefined;
+    const subscribed = new Promise<void>((resolve) => {
+      signalSubscribed = resolve;
+    });
+    __setListenForTest(async (event, handler) => {
+      if (event === "session-binding-state-changed") {
+        deliver = (fact) => handler({ payload: fact as never });
+        signalSubscribed();
+      }
+      return () => undefined;
+    });
+    __setInvokeForTest(async () => {
+      throw new Error("no snapshot read in this test");
+    });
+
+    // The reported #471 shape: the surface feeds an effect dependency that the
+    // render reads, so an absent surface throws before any markup exists.
+    function ChatSurface() {
+      const surface = useSessionBindingSurface("tab-a", null);
+      const [recoveryOpen, setRecoveryOpen] = useState(true);
+      useEffect(() => {
+        if (!surface.showRecoveryAction) setRecoveryOpen(false);
+      }, [surface.showRecoveryAction]);
+      return (
+        <div data-testid="chat-surface">
+          {recoveryOpen ? "recovery" : "empty"}
+        </div>
+      );
+    }
+
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <RenderGuard>
+        <ChatSurface />
+      </RenderGuard>,
+    ));
+    await act(async () => {
+      await subscribed;
+    });
+    assert(deliver, "the surface subscribed to the daemon binding event");
+    await act(async () => (deliver as (fact: SessionBindingFact) => void)(unknownKindFact()));
+
+    assert(!host.querySelector('[data-testid="render-guard-tripped"]'), "an unknown daemon kind must not throw the render");
+    const surface = host.querySelector('[data-testid="chat-surface"]');
+    assert(surface, "the chat surface still renders after the unknown kind arrives");
+    assert(surface.textContent === "empty", "the unknown kind settles on the empty state, not a recovery banner");
+
+    await act(async () => root.unmount());
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }],
   ["binding_state_surface subscription is event-driven with no timer", () => {
     const source = readFileSync(
       fileURLToPath(new URL("./useSessionBindingSurface.ts", import.meta.url)),
@@ -127,14 +221,7 @@ const tests: Test[] = [
     assert(source.includes("session-binding-state-changed"), "correction arrives on the daemon event");
   }],
   ["binding_state_surface reaches rebind through the visible repair mechanism", async () => {
-    const window = new Window({ url: "http://localhost:7686/" });
-    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
-    Object.defineProperty(globalThis, "window", { configurable: true, value: window });
-    Object.defineProperty(globalThis, "document", { configurable: true, value: window.document });
-    Object.defineProperty(globalThis, "navigator", { configurable: true, value: window.navigator });
-    Object.defineProperty(globalThis, "HTMLElement", { configurable: true, value: window.HTMLElement });
-    Object.defineProperty(globalThis, "SVGElement", { configurable: true, value: window.SVGElement });
-    Object.defineProperty(globalThis, "Event", { configurable: true, value: window.Event });
+    installDom();
     const { __setInvokeForTest } = await import("../../lib/bridge");
     const { AgentStateIndicator } = await import("./AgentStateIndicator");
     const { SessionBindingRecoveryForm } = await import("./SessionBindingRecoveryForm");

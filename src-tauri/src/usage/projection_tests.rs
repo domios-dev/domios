@@ -2,7 +2,7 @@ use super::*;
 use crate::usage::store::UsageStore;
 
 const RESETS_A: i64 = 9_000_000_000_000;
-const RESETS_B: i64 = 9_000_000_000_001;
+const RESETS_B: i64 = RESETS_A + 7 * 24 * 3_600_000;
 
 // Unique provider per test to avoid the static BASELINE_CACHE bleeding between parallel test threads.
 fn unique_provider(tag: &str) -> String {
@@ -512,4 +512,50 @@ fn day_actuals_skip_other_cycle_rows() {
         .unwrap();
     let v = yest.pct.unwrap();
     assert!((v - 20.0).abs() < 0.01, "expected 20%, got {}", v);
+}
+
+#[test]
+fn day_actuals_match_a_reset_restamped_with_millisecond_jitter() {
+    let p = unique_provider("actuals-jitter");
+    let s = store();
+    let now = now_at_hour(15);
+    let today_start = local_start_of_day_ms(now);
+    let cycle_end = today_start + DAY_MS;
+    insert(
+        &s,
+        &p,
+        today_start - DAY_MS + 9 * 3_600_000,
+        Some(10.0),
+        Some(cycle_end - 1_420),
+    );
+    insert(
+        &s,
+        &p,
+        today_start - DAY_MS + 18 * 3_600_000,
+        Some(20.0),
+        Some(cycle_end + 1_490),
+    );
+    insert(
+        &s,
+        &p,
+        today_start - 3_600_000,
+        Some(20.0),
+        Some(cycle_end + 15),
+    );
+    insert(&s, &p, now, Some(25.0), Some(cycle_end - 700));
+    let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
+    let day = |start: i64| {
+        actuals
+            .iter()
+            .find(|a| a.day_start_ms == start)
+            .and_then(|a| a.pct)
+    };
+    assert!(
+        (day(today_start - DAY_MS).unwrap() - 10.0).abs() < 0.01,
+        "yesterday keeps its jittered samples"
+    );
+    assert!(
+        (day(today_start).unwrap() - 5.0).abs() < 0.01,
+        "today bridges across jittered resets"
+    );
 }

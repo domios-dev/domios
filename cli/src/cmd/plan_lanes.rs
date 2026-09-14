@@ -143,6 +143,14 @@ pub fn render_lanes(val: &Value, stale_only: bool) -> String {
     out
 }
 
+pub fn render_lane_removed(val: &Value) -> String {
+    let worktree = opt(val, "worktree_path").unwrap_or("<worktree>");
+    match opt(val, "branch") {
+        Some(branch) => format!("removed lane worktree {worktree} and branch {branch}"),
+        None => format!("removed lane worktree {worktree}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -242,8 +242,15 @@ const plugin: PluginModule = {
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const lines = String(chunk || "").split("\n");
+    let stamped = 0;
+    const stampRows = (lineIndex: number) => {
+      for (; stamped < out.length; stamped++) {
+        (out[stamped] as { recordIndex?: number }).recordIndex = lineIndex;
+      }
+    };
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
+      stampRows(i - 1);
       if (!lines[i]) continue;
       let v: CursorEntry;
       try { v = JSON.parse(lines[i]); } catch (_) {
@@ -261,6 +268,7 @@ const plugin: PluginModule = {
       if (!blocks.length) continue;
       out.push({ role: role, blocks: blocks, ts: null });
     }
+    stampRows(lines.length - 1);
     return { messages: out };
   },
 

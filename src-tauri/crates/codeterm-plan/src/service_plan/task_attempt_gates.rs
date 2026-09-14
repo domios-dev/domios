@@ -45,10 +45,7 @@ impl PlanStore {
             return Ok(());
         };
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
         validate_authorized_gate_claim(task, reporter_tab, Some(claimed_gate))
     }

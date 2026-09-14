@@ -24,13 +24,13 @@ const WITHHELD: [&str; 6] = [
 ];
 
 /// The body line of an assembled push. A character count belongs to the body:
-/// the title and the provenance label carry letters of their own, so counting
-/// across the whole message makes the assertion depend on the fixture's wording.
+/// the headline carries letters of its own, so counting across the whole
+/// message makes the assertion depend on the fixture's wording.
 fn body_line(rendered: &str) -> &str {
     rendered
         .lines()
         .nth(1)
-        .expect("the body is the line between the title and the label")
+        .expect("the body is the line under the headline")
 }
 
 fn provenance() -> NotificationProvenance {
@@ -246,10 +246,10 @@ fn a_wider_budget_does_not_widen_what_the_push_reads() {
     assert_eq!(
         rendered,
         format!(
-            "[{}] {title}\n{body}\nvia {TAB_TITLE}",
+            "{TAB_TITLE}{SOURCE_SEPARATOR}[{}] {title}\n{body}",
             NotifyLevel::ActionNeeded.label()
         ),
-        "with room to spare the push is exactly title, body and the provenance label"
+        "with room to spare the push is exactly the source label, the title and the body"
     );
     for withheld in WITHHELD {
         assert!(

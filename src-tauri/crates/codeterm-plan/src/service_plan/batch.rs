@@ -226,9 +226,7 @@ fn find_task_mut<'a>(tasks: &'a mut [Task], selector: &str) -> Option<&'a mut Ta
             .iter_mut()
             .max_by_key(|task| (task.updated_at, task.created_at));
     }
-    tasks
-        .iter_mut()
-        .find(|task| task.id == selector || task.handle.as_deref() == Some(selector))
+    crate::plan::task_key::find_task_mut(tasks, selector)
 }
 
 fn find_task_index(tasks: &[Task], selector: &str) -> Option<usize> {
@@ -239,9 +237,22 @@ fn find_task_index(tasks: &[Task], selector: &str) -> Option<usize> {
             .max_by_key(|(_, task)| (task.updated_at, task.created_at))
             .map(|(index, _)| index);
     }
-    tasks
+    crate::plan::task_key::find_task_index(tasks, selector)
+}
+
+/// Upserts that will create a task; keys are issued for them before the plan lock.
+fn created_task_count(plan: Option<&Plan>, request: &BatchRequest) -> usize {
+    let existing = plan.map(|plan| plan.tasks.as_slice()).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    request
+        .ops
         .iter()
-        .position(|task| task.id == selector || task.handle.as_deref() == Some(selector))
+        .filter_map(|op| match op {
+            BatchOp::UpsertTask { handle, .. } => Some(handle.as_str()),
+            _ => None,
+        })
+        .filter(|handle| find_task_index(existing, handle).is_none() && seen.insert(*handle))
+        .count()
 }
 
 fn ensure_kind(plan_kinds: &mut Vec<MilestoneKind>, kind: &str) {
@@ -301,6 +312,8 @@ impl PlanStore {
         request: BatchRequest,
         now_ms: u64,
     ) -> Result<BatchResult, PlanError> {
+        let created_count = created_task_count(self.get(plan_id).as_ref(), &request);
+        let mut issued_keys = self.issue_task_keys(plan_id, created_count).into_iter();
         let (result, pending_markdown_writes, staged_specs, staged_plans) =
             self.with_plan(plan_id, now_ms, |plan| {
                 let mut working = plan.clone();
@@ -325,9 +338,9 @@ impl PlanStore {
                             personality,
                             personality_provenance: _,
                         } => {
-                            let created = !working.tasks.iter().any(|task| {
-                                task.id == handle || task.handle.as_deref() == Some(handle.as_str())
-                            });
+                            let created =
+                                crate::plan::task_key::find_task_index(&working.tasks, &handle)
+                                    .is_none();
                             let missing_model = model.as_deref().is_none_or(str::is_empty);
                             let missing_why = why.as_deref().is_none_or(str::is_empty);
                             let missing_sections = sections.is_empty();
@@ -414,6 +427,7 @@ impl PlanStore {
                                     review_round: 0,
                                     review_oracle: None,
                                     review_evidence: vec![],
+                                    key: issued_keys.next(),
                                     review_override: None,
                                     review_audit: vec![],
                                     status_label: None,

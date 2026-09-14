@@ -6,7 +6,8 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
-pub(crate) mod integration;
+pub mod hook_ownership;
+pub mod integration;
 mod interactive;
 mod launch;
 mod schemas;
@@ -114,7 +115,9 @@ impl AgentProvider for ClaudeProvider {
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         VerifySubmitStrategy::TuiInputDrained {
-            initial_key_delay: Duration::ZERO,
+            // The composer swallows a submit key glued to a paste it is still
+            // ingesting, which leaves the text sitting unsent.
+            initial_key_delay: Duration::from_millis(100),
         }
     }
 

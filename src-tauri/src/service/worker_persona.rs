@@ -152,12 +152,16 @@ impl ServiceContext {
         // Workspace-wide, not session-scoped: two sessions racing in one
         // workspace must never claim the same in-flight persona.
         used.extend(reservations.reserved_titles_in_workspace(&scope.workspace_id));
-        let allocation = allocate_worker_persona_name(
-            &used,
-            intent.suggested_title.as_deref(),
-            Some(FALLBACK_PREFIX),
-            seed,
-        );
+        let allocation = if intent.preserve_title {
+            allocate_task_bound_persona_name(intent.suggested_title.as_deref())
+        } else {
+            allocate_worker_persona_name(
+                &used,
+                intent.suggested_title.as_deref(),
+                Some(FALLBACK_PREFIX),
+                seed,
+            )
+        };
         let token = reservations.reserve(scope, allocation.title.clone());
         drop(reservations);
         params.title = Some(allocation.title);
@@ -185,13 +189,19 @@ impl ServiceContext {
         if has_explicit_identity(params.agent_name.as_deref()) {
             return Ok(None);
         }
+        let preserve_title = params.plan_task.is_some() || params.task_launch_authority.is_some();
         match params
             .title_provenance
             .unwrap_or(SpawnIdentityProvenance::Suggested)
         {
-            SpawnIdentityProvenance::UserSupplied => Ok(None),
+            SpawnIdentityProvenance::UserSupplied if !preserve_title => Ok(None),
             SpawnIdentityProvenance::Suggested => Ok(Some(WorkerPersonaIntent {
                 suggested_title: params.title.take(),
+                preserve_title,
+            })),
+            SpawnIdentityProvenance::UserSupplied => Ok(Some(WorkerPersonaIntent {
+                suggested_title: params.title.take(),
+                preserve_title: true,
             })),
         }
     }
@@ -264,6 +274,7 @@ fn workspace_live_titles(
 
 struct WorkerPersonaIntent {
     suggested_title: Option<String>,
+    preserve_title: bool,
 }
 
 pub(crate) fn allocate_worker_persona_name<I, S>(
@@ -314,6 +325,13 @@ where
             };
         }
         suffix += 1;
+    }
+}
+
+fn allocate_task_bound_persona_name(preferred_title: Option<&str>) -> WorkerPersonaAllocation {
+    WorkerPersonaAllocation {
+        title: preferred_title.unwrap_or("Worker").trim().to_string(),
+        exhausted_pool: false,
     }
 }
 
@@ -392,6 +410,28 @@ mod tests {
         let allocation = allocate_worker_persona_name(["Ada"], Some("Ada"), None, 0);
         assert_ne!(allocation.title, "Ada");
         assert!(!allocation.exhausted_pool);
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn task_bound_planned_name_survives_persona_intent_and_allocation() {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            plan_task: Some("task-bound-name".into()),
+            title: Some("Eli".into()),
+            title_provenance: Some(SpawnIdentityProvenance::Suggested),
+            ..Default::default()
+        };
+
+        let reservation = fixture
+            .service
+            .reserve_worker_persona(&mut params)
+            .expect("persona reservation succeeds");
+
+        assert!(reservation.is_some());
+        assert_eq!(params.title.as_deref(), Some("Eli"));
     }
 
     #[test]

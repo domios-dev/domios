@@ -1,5 +1,6 @@
 import type { NormalizedChatMessage } from "./types";
-import type { TimelineItem, ToolEvent } from "./toolEvents";
+import type { StreamEntry, TimelineItem, ToolEvent } from "./toolEvents";
+import { agentTreesEquivalent } from "./agentActivity";
 
 function timelineItemId(item: TimelineItem): string {
   return item.kind === "message" ? `m:${item.message.id}` : `t:${item.event.id}`;
@@ -14,6 +15,13 @@ function messagesEquivalent(a: NormalizedChatMessage, b: NormalizedChatMessage):
   return true;
 }
 
+function entriesEquivalent(a: StreamEntry, b: StreamEntry): boolean {
+  if (a.kind === "thought" || b.kind === "thought") {
+    return a.kind === b.kind && a.kind === "thought" && b.kind === "thought" && a.id === b.id && a.text === b.text;
+  }
+  return a.event.id === b.event.id;
+}
+
 function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
   if (a === b) return true;
   if (
@@ -23,19 +31,32 @@ function toolEventsEquivalent(a: ToolEvent, b: ToolEvent): boolean {
     a.status !== b.status ||
     a.kind !== b.kind ||
     a.summary !== b.summary ||
+    a.description !== b.description ||
+    a.title !== b.title ||
+    a.flowId !== b.flowId ||
     a.detail !== b.detail ||
     a.result !== b.result ||
     a.error !== b.error ||
-    a.edits !== b.edits
+    a.edits !== b.edits ||
+    a.fileDiffs !== b.fileDiffs
   ) {
     return false;
   }
   if (!messagesEquivalent(a.message, b.message)) return false;
-  const batchA = a.waitBatch;
-  const batchB = b.waitBatch;
-  if (!batchA || !batchB) return batchA === batchB;
-  if (batchA.elapsedMs !== batchB.elapsedMs || batchA.members.length !== batchB.members.length) return false;
-  return batchA.members.every((member, index) => toolEventsEquivalent(member, batchB.members[index]));
+  if (!agentTreesEquivalent(a.agents, b.agents)) return false;
+  const streamA = a.stream;
+  const streamB = b.stream;
+  if (!streamA || !streamB) return streamA === streamB;
+  if (
+    streamA.flowId !== streamB.flowId ||
+    streamA.active !== streamB.active ||
+    streamA.members.length !== streamB.members.length ||
+    streamA.entries.length !== streamB.entries.length
+  ) {
+    return false;
+  }
+  return streamA.members.every((member, index) => toolEventsEquivalent(member, streamB.members[index]))
+    && streamA.entries.every((entry, index) => entriesEquivalent(entry, streamB.entries[index]));
 }
 
 /**

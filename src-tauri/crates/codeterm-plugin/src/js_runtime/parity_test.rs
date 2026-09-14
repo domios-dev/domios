@@ -1160,4 +1160,5 @@ mod context_owner;
 mod cursor;
 mod manifest_launch_template;
 mod opencode;
+mod record_identity;
 mod trust_grant;

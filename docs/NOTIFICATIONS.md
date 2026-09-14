@@ -95,6 +95,15 @@ accepting label. An untapped or declined offer changes nothing. The refusal is
 not agent-specific — the daemon cannot tell you from an agent inside a tab, so
 the same command typed by hand in a CodeTerm tab is refused too.
 
+A Needs you notification can point at one chat message: `codeterm notify send
+"…" --level action_needed --target-tab <tab id> --chat-message <message id>`. On
+the Mission Control Board its row is a single jump that leaves the Board, opens
+that tab in Chat and reveals that exact message, never a similar one. Only a
+provider-uuid message id is stable enough to jump to; a position-based id such
+as `0-601-0` reads as having no stable id. When no message was recorded, the tab
+is closed or has no chat view, or the message is not in the loaded chat, the row
+says it is unavailable instead. Both ids are navigation only and never change who asked.
+
 # Per-channel push AUDIENCE, keyed by the channel's bridge service id — the same
 # id `codeterm bridge send --service <id>` takes. Whether a level reaches a
 # channel at all is that channel's column of the level grid above; this answers
@@ -112,4 +121,4 @@ per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 1 -->
+<!-- revision: 4 -->

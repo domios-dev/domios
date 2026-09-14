@@ -38,7 +38,9 @@ const REJECTED_REPORT: AgentReportEventPayload = {
     plan_id: "pl_chatui",
     task_id: "task_transcript",
     cause: "missing caller session id",
+    report_outcome: "stale_binding_conflict",
   },
+  report_outcome: "stale_binding_conflict",
 };
 
 const ACCEPTED_REPORT: AgentReportEventPayload = {
@@ -71,6 +73,40 @@ const UNTASKED_REPORT: AgentReportEventPayload = {
   message: "no task context, still a report",
   report: { id: "0c1c9d54-6b7e-4a5c-a2a0-9d0e1b2c3d4e" },
   task_report: null,
+};
+
+const STRUCTURAL_REPORT: AgentReportEventPayload = {
+  target_tab_id: ORCHESTRATOR_TAB,
+  from_tab_id: WORKER_TAB,
+  from_title: "Planner",
+  message: "plan evidence delivered",
+  report: { id: "d5c2a0a1-4b39-4d53-8aa9-3a5f6df214f0" },
+  task_report: {
+    persisted: false,
+    transition_rejected: false,
+    plan_id: null,
+    task_id: null,
+    cause: null,
+    report_outcome: "structurally_not_attachable",
+  },
+  report_outcome: "structurally_not_attachable",
+};
+
+const UNATTACHED_REPORT: AgentReportEventPayload = {
+  target_tab_id: ORCHESTRATOR_TAB,
+  from_tab_id: WORKER_TAB,
+  from_title: "Worker",
+  message: "REPORT NOT SENT\nreadiness checkout is gone",
+  report: { id: "f0e2c1d3-7b4a-4c9e-8f10-2a6d5b7c9e01" },
+  task_report: {
+    persisted: false,
+    transition_rejected: false,
+    plan_id: null,
+    task_id: null,
+    cause: null,
+    report_outcome: "delivered_unattached",
+  },
+  report_outcome: "delivered_unattached",
 };
 
 async function main(): Promise<void> {
@@ -135,6 +171,10 @@ async function main(): Promise<void> {
       side.taskOutcome?.cause === "missing caller session id",
       "a side dropped the rejection cause",
     );
+    assert(
+      side.taskOutcome?.report_outcome === "stale_binding_conflict",
+      "a side dropped the stale-binding class",
+    );
   }
   assert(!ingestAgentReport(REJECTED_REPORT), "a replayed report_id was projected twice");
   assert(
@@ -153,8 +193,10 @@ async function main(): Promise<void> {
   // (iv) visibility never depends on transition success or on a task existing.
   assert(ingestAgentReport(ACCEPTED_REPORT), "a persisted report was not projected");
   assert(ingestAgentReport(UNTASKED_REPORT), "a report without a task was not projected");
+  assert(ingestAgentReport(STRUCTURAL_REPORT), "a structural report was not projected");
+  assert(ingestAgentReport(UNATTACHED_REPORT), "a delivered-unattached report was not projected");
   const allOutbound = readAgentReportProjection(WORKER_TAB).outbound;
-  assert(allOutbound.length === 3, `sender projected ${allOutbound.length} of 3 reports`);
+  assert(allOutbound.length === 5, `sender projected ${allOutbound.length} of 5 reports`);
   assert(
     allOutbound.filter((card) => card.taskOutcome?.persisted === true).length === 1,
     "persisted truth is not per-report",
@@ -164,9 +206,13 @@ async function main(): Promise<void> {
     "a report with no task outcome was hidden",
   );
   assert(
-    readAgentReportProjection(ORCHESTRATOR_TAB).inbound.length === 3,
+    readAgentReportProjection(ORCHESTRATOR_TAB).inbound.length === 5,
     "the orchestrator hid a report",
   );
+  const structural = allOutbound.find((card) => card.reportId === STRUCTURAL_REPORT.report.id);
+  assert(structural?.taskOutcome?.report_outcome === "structurally_not_attachable", "structural class was changed");
+  const unattached = allOutbound.find((card) => card.reportId === UNATTACHED_REPORT.report.id);
+  assert(unattached?.taskOutcome?.report_outcome === "delivered_unattached", "unattached class was changed");
 
   // Normalize daemon epoch-seconds exactly once while leaving milliseconds unchanged and missing stamps null.
   const stamped = readAgentReportProjection(WORKER_TAB).outbound;

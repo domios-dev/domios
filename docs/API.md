@@ -119,7 +119,7 @@ and response shapes are documented in the API-TRANSPORT reference.
 #### Tabs
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List compact tab summaries. Defaults to the focused workspace; use the explicit inspect endpoint for full payloads. Each row carries `agent_liveness` (`live` \| `absent` \| `unobserved`) — the one observation of whether an agent process is running in that tab — and `agent_label`, the rendered bracket for it. |
+| GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List compact tab summaries. Defaults to the focused workspace; use the explicit inspect endpoint for full payloads. Each row carries `agent_liveness` (`live` \| `absent` \| `unobserved`) — the one observation of whether an agent process is running in that tab — and `agent_label`, the rendered bracket for it: the short model name when a provider catalogue claims the model id, the provider name when none does, suffixed `?` when unobserved and `!` when absent. During a tab-state initialization or lifecycle transition, the authenticated route returns `503` with `tab summary unavailable while tab state is initializing or changing` rather than waiting on the state locks. |
 | GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Return the full tab payload for the selected tab IDs only. |
 | POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. Workspace resolution: explicit `workspace_id`, then the workspace owning `creator_tab_id` (the CLI always sends the calling tab), then the focused workspace. A PTY shell inherits the live creator's Team unless `detach_from_team` is true; explicit `team_id` is membership-checked. Chat-backend tabs do not inherit Team membership. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh tab through the same verified send path used by `/api/tabs/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** tab is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
 | POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path — CLI, mesh relay, and service push tokens all use it. Plain text and every batch item always submit. Use `actions` or `raw` only for explicit low-level terminal input. Not fire-and-forget: returns `{ok:true}` only after delivery is accepted, otherwise a structured delivery error. |
@@ -235,6 +235,6 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
 Mutating dispatch into canonical or another task's lane is refused with `-32013`;
 competition provisions one lane per competitor. Advisory findings ride successful
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
-Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
+Related: `codeterm docs API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 141 -->
+<!-- revision: 145 -->

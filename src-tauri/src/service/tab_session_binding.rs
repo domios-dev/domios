@@ -3,7 +3,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::tab::clear_runtime_model_evidence;
+use super::session_model::clear_runtime_model_evidence;
 use super::ServiceContext;
 
 fn epoch_ms() -> u64 {
@@ -48,7 +48,11 @@ impl ServiceContext {
         drop(mux);
         if changed {
             self.deferred_session_bindings.clear(tab_id);
+            self.schedule_session_model_refresh_after_binding(tab_id);
             self.emit_session_binding_state(tab_id);
+            // The binding commit shuts this tab's tailer down, and chat reads
+            // its authority from the tab record: no broadcast, no re-attach.
+            self.emit_state_changed();
             self.invalidate_guarded_agent_input(tab_id);
         }
         if session_bound {
@@ -72,6 +76,15 @@ impl ServiceContext {
         }
         self.bind_planner_session(tab_id);
         self.heal_recovery_state_if_ready();
+    }
+
+    /// Retire the echoed launch nonce where the process that echoed it is gone
+    /// or belongs to an earlier launch. A proof no live agent stands behind
+    /// must never outrank an honest spawn failure.
+    pub(crate) fn void_launch_session_proof(&self, tab_id: &str) {
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.reported_session_binding_nonce = None;
+        }
     }
 
     /// Rotate the per-launch binding nonce before a provider command is
@@ -126,5 +139,42 @@ impl ServiceContext {
         } else {
             uuid::Uuid::new_v4().to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use std::sync::atomic::Ordering;
+
+    /// Chat reads its authority from the tab record, and the binding commit
+    /// shuts that tab's tailer down. A binding change that never reaches the
+    /// tab-state subscribers therefore leaves the transcript frozen with no
+    /// tailer and nothing to re-attach it.
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn binding_change_broadcasts_tab_state() {
+        let (mux, tab) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let svc = &fixture.service;
+
+        let before = svc.mux_emit_stats.requests.load(Ordering::Relaxed);
+        svc.set_agent_session_id(&tab, Some("session-1".into()));
+        let after_bind = svc.mux_emit_stats.requests.load(Ordering::Relaxed);
+        assert!(
+            after_bind > before,
+            "a binding change must broadcast tab state (before={before} after={after_bind})"
+        );
+
+        svc.set_agent_session_id(&tab, Some("session-1".into()));
+        assert_eq!(
+            svc.mux_emit_stats.requests.load(Ordering::Relaxed),
+            after_bind,
+            "an unchanged binding must not broadcast"
+        );
     }
 }

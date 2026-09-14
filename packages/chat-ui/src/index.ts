@@ -1,5 +1,12 @@
 export { formatAgentWorkingLine, AGENT_WORKING_LINE_SEP } from "./formatAgentWorkingLine";
 export { MessageBubble } from "./MessageBubble";
+export {
+  ChatSessionIntentLine,
+  isSessionIntentOnlyMessage,
+  normalizedTimelineMarker,
+  sessionIntentFromMessages,
+  TimelineMarkerRow,
+} from "./timelineMarkers";
 export { RichMarkdown } from "./MarkdownBody";
 export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
 export { configureHtmlFileLoader } from "./htmlFileLoader";
@@ -25,7 +32,9 @@ export {
   parseDeliveredTaskOutcome,
   reportContentBody,
   reportIncidentLine,
+  reportOutcomeLine,
+  reportOutcomeTone,
   reportVerdict,
   shortSha,
 } from "./codeterm/reportOutcome";
-export type { ReportTaskOutcome } from "./codeterm/reportOutcome";
+export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";

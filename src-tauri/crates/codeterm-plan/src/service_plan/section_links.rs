@@ -207,10 +207,7 @@ impl PlanStore {
         let mut linked = vec![];
         self.with_plan(plan_id, now_ms, |plan| {
             let resolved = resolve_selectors(plan, selectors);
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             for section_id in resolved {
                 if !task.section_ids.iter().any(|id| id == &section_id) {

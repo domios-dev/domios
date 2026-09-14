@@ -30,8 +30,10 @@ pub mod inject_verify;
 pub mod input_parser;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
+pub(crate) mod lane_removal;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
+pub(crate) mod launch_readiness;
 pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
@@ -50,6 +52,7 @@ pub(crate) mod persona;
 pub mod plan;
 mod plan_authority;
 pub(crate) mod plan_batch_authority;
+mod plan_pause;
 mod plan_reconcile;
 pub mod plugin_host;
 pub(crate) mod provider_identity;
@@ -69,6 +72,7 @@ mod role_profile;
 mod session_backup;
 pub(crate) mod session_binding_deferral;
 mod session_binding_state;
+pub(crate) mod session_model;
 pub mod session_persist;
 mod shell_restart;
 pub mod smart_add;
@@ -79,11 +83,15 @@ mod spawn_cli;
 mod spawn_factory;
 mod spawn_params;
 mod spawn_plan_task;
+pub(crate) use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
 pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
 mod status_reconciliation;
+#[cfg(test)]
+pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
+pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
@@ -103,6 +111,14 @@ pub(crate) use team::close_team_with_state_change;
 pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;
+mod task_lane_guard;
+pub(crate) use task_lane_guard::{
+    canonical_path_of, classify_mutating_lane, recorded_lane_matches, UnsafeMutatingLane,
+};
+// The value-only verdict has no production caller; the routes go through the
+// ServiceContext wrapper instead.
+#[cfg(test)]
+pub(crate) use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
 pub(crate) mod test_fixture;
 #[cfg(test)]
@@ -268,6 +284,9 @@ pub struct ServiceContext {
     /// grant). The socket dispatch routes `plugin:<id>.<verb>` here — the inverse
     /// seam letting a spawned agent drive a plugin's `onAgentCommand`.
     pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
+    /// Registry of synchronous webhook receivers declared by JS plugins.
+    /// Inbound API routes resolve the receiver here by manifest plugin id.
+    pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).
@@ -882,6 +901,8 @@ pub struct ReportResult {
     pub persisted_task: Option<(String, String)>,
     pub persisted_plan_evidence: Option<(String, String)>,
     pub rejected_task_transition: Option<RejectedTaskTransition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -889,6 +910,8 @@ pub struct RejectedTaskTransition {
     pub plan_id: Option<String>,
     pub task_id: Option<String>,
     pub cause: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
 }
 
 /// Helper: extract optional string from JSON value.

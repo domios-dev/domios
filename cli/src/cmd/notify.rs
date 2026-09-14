@@ -73,13 +73,13 @@ fn params_from_body(
     if let Some(event_key) = event_key {
         params["event_key"] = serde_json::Value::String(event_key.to_string());
     }
+    // Every record needs its asking tab: it answers questions and places the record in its team.
+    if let Some(tab_id) = caller_tab_id {
+        params["caller_tab_id"] = serde_json::Value::String(tab_id.to_string());
+    }
     if let Some(actions) = choice_actions(choices)? {
         params["actions"] = serde_json::to_value(actions)
             .map_err(|e| format!("choices are not serializable: {e}"))?;
-        // Questions need the originating tab so the tap can be delivered to the right recipient.
-        if let Some(tab_id) = caller_tab_id {
-            params["caller_tab_id"] = serde_json::Value::String(tab_id.to_string());
-        }
     }
     if let Some(surface) = offer.surface {
         params["offer"] = serde_json::Value::String(surface.to_string());
@@ -88,6 +88,22 @@ fn params_from_body(
         params["offer_accept"] = serde_json::Value::String(accept.to_string());
     }
     Ok(params)
+}
+
+/// The chat message this notification jumps to. Both ids travel as navigation
+/// hints; the daemon never treats them as provenance.
+pub fn with_target(
+    mut params: serde_json::Value,
+    target_tab: Option<&str>,
+    chat_message: Option<&str>,
+) -> serde_json::Value {
+    if let Some(tab) = target_tab {
+        params["target_tab_id"] = serde_json::Value::String(tab.to_string());
+        if let Some(message) = chat_message {
+            params["chat_message_id"] = serde_json::Value::String(message.to_string());
+        }
+    }
+    params
 }
 
 /// One surface that will not show the notification, as it travels on the

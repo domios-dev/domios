@@ -22,6 +22,10 @@ export function isRenderableChatMessage(message: NormalizedChatMessage): boolean
       hasText(message.toolResult) ||
       hasText(message.toolSummary) ||
       hasText(message.toolDetail) ||
+      message.toolExitCode !== undefined ||
+      message.toolDurationMs !== undefined ||
+      message.toolInterrupted !== undefined ||
+      hasText(message.toolBackgroundTaskId) ||
       Boolean(message.toolEdits?.length) ||
       hasStructuredValue(message.toolInput) ||
       Boolean(message.interactive?.length)
@@ -29,7 +33,9 @@ export function isRenderableChatMessage(message: NormalizedChatMessage): boolean
   }
 
   if (message.type === "tool_result") {
-    return hasText(message.content) || hasText(message.toolResult) || hasText(message.toolDetail);
+    return hasText(message.content) || hasText(message.toolResult) || hasText(message.toolDetail)
+      || message.toolExitCode !== undefined || message.toolDurationMs !== undefined
+      || message.toolInterrupted !== undefined || hasText(message.toolBackgroundTaskId);
   }
 
   return true;

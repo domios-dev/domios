@@ -238,6 +238,20 @@ try {
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
 
+console.log("\n--- parseSessionDelta thinking ---\n");
+{
+  const rows = hostPlugin.parseSessionDelta([
+    JSON.stringify({ type: "assistant", uuid: "think-a", message: { id: "msg_think", content: [{ type: "thinking", thinking: "Plan the edit", signature: "opaque-signature-a" }] } }),
+    JSON.stringify({ type: "assistant", uuid: "think-b", message: { id: "msg_think", content: [{ type: "thinking", thinking: "", signature: "opaque-signature-b" }] } }),
+    JSON.stringify({ type: "assistant", uuid: "think-c", message: { content: [{ type: "thinking", thinking: "Unlinked" }] } }),
+  ].join("\n")).messages as Array<{ blocks: Array<{ kind: string; data: Record<string, unknown> }> }>;
+  const blocks = rows.flatMap((row) => row.blocks);
+  eq(blocks[0], { kind: "thinking", data: { thinking: "Plan the edit" } }, "thinking keeps its text");
+  eq(blocks[1].data, { thinking: "" }, "a signature-only block carries no displayable text");
+  eq(blocks[2].data, { thinking: "Unlinked" }, "unsigned thinking passes through unchanged");
+  assert(!JSON.stringify(rows).includes("opaque-signature"), "no signature material crosses the provider boundary");
+}
+
 console.log("\n--- parseSessionDelta compact metadata ---\n");
 {
   const compactText = "This session is being continued from a previous conversation.";
@@ -376,7 +390,81 @@ console.log("\n--- canonical tool fields ---\n");
   assert(typeof data[3].tool_summary === "string" && !(data[3].tool_summary as string).includes("{"), "unknown Claude summary is not JSON");
 }
 
+console.log("\n--- tool descriptions and proven flow ids ---\n");
+{
+  const bashInput = { command: "npm test -- --run", description: "Run unit tests" };
+  const lines = [
+    { type: "assistant", message: { id: "msg_parallel", content: [{ type: "tool_use", id: "tu-1", name: "Bash", input: bashInput }] } },
+    { type: "assistant", message: { id: "msg_parallel", content: [{ type: "tool_use", id: "tu-2", name: "Read", input: { file_path: "src/a.ts" } }] } },
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "tu-3", name: "Bash", input: { command: "ls", description: "  " } }] } },
+    { type: "assistant", message: { id: "msg_other", content: [{ type: "tool_use", id: "tu-4", name: "Grep", input: { pattern: "todo", description: "Find\nTODOs" } }] } },
+  ].map((line) => JSON.stringify(line)).join("\n");
+  const parsed = hostPlugin.parseSessionDelta(lines) as { messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }> };
+  const data = parsed.messages.map((message) => message.blocks[0].data);
+  eq(data[0].tool_description, "Run unit tests", "Claude description becomes the normalized description");
+  eq(data[0].tool_summary, "npm test -- --run", "description never replaces the command summary");
+  eq(data[0].input, bashInput, "exact Claude input is preserved");
+  eq(data[0].tool_flow_id, "msg_parallel", "parallel calls carry their shared message id");
+  eq(data[1].tool_flow_id, "msg_parallel", "a sibling call shares the same flow id");
+  eq(data[1].tool_description, undefined, "a call without a description stays unknown");
+  eq(data[2].tool_description, undefined, "a blank description stays unknown");
+  eq(data[2].tool_flow_id, undefined, "a missing message id leaves the flow unknown");
+  eq(data[3].tool_description, "Find TODOs", "descriptions collapse to one line");
+  eq(data[3].tool_flow_id, "msg_other", "separate responses keep separate flows");
+}
+
 console.log("\n--- integration consent and exact-byte transactions ---\n");
+
+console.log("\n--- Bash outcome facts and exact source identities ---\n");
+{
+  const parse = (entry: Record<string, unknown>) => hostPlugin.parseSessionDelta(JSON.stringify(entry)) as {
+    messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }>;
+  };
+  const call = parse({
+    type: "assistant",
+    uuid: "assistant-outcome-exact",
+    message: { id: "message-outcome", content: [{ type: "tool_use", id: "tool-outcome", name: "Bash", input: { command: "printf ok" } }] },
+  });
+  const result = parse({
+    type: "user",
+    uuid: "user-outcome",
+    sourceToolAssistantUUID: "assistant-outcome-exact",
+    toolUseResult: { returnCode: 0, durationMs: 1250, interrupted: false, backgroundTaskId: "background-outcome" },
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-outcome", content: "ok", is_error: false }] },
+  });
+  const callData = call.messages[0].blocks[0].data;
+  const resultData = result.messages[0].blocks[0].data;
+  eq(callData.tool_call_source_id, "assistant-outcome-exact", "Claude Bash call preserves its source identity");
+  eq(resultData.tool_call_source_id, "assistant-outcome-exact", "Claude result preserves the exact source identity");
+  eq(resultData.tool_pairing, "exact", "Claude result marks exact source pairing");
+  eq(resultData.tool_exit_code, 0, "Claude Bash preserves an explicit zero exit code");
+  eq(resultData.tool_duration_ms, 1250, "Claude Bash preserves duration milliseconds");
+  eq(resultData.tool_interrupted, false, "Claude Bash preserves explicit non-interruption");
+  eq(resultData.tool_background_task_id, "background-outcome", "Claude Bash preserves a background task id");
+  const interrupted = parse({
+    type: "user",
+    uuid: "user-interrupted-outcome",
+    sourceToolAssistantUUID: "assistant-outcome-exact",
+    toolUseResult: { returnCode: 130, durationMs: 600, interrupted: true },
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-outcome", content: "stopped", is_error: true }] },
+  }).messages[0].blocks[0].data;
+  eq(interrupted.tool_exit_code, 130, "Claude Bash preserves a nonzero exit code");
+  eq(interrupted.tool_interrupted, true, "Claude Bash normalizes interruption");
+
+  const malformed = parse({
+    type: "user",
+    uuid: "user-malformed-outcome",
+    sourceToolAssistantUUID: { stale: true },
+    toolUseResult: { returnCode: "7", durationMs: -1, interrupted: "yes", backgroundTaskId: 17, unknown: "ignored" },
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-outcome", content: "unknown" }] },
+  }).messages[0].blocks[0].data;
+  eq(malformed.tool_call_source_id, undefined, "malformed Claude source identity stays absent");
+  eq(malformed.tool_pairing, "unavailable", "malformed Claude source identity cannot claim an exact pair");
+  eq(malformed.tool_exit_code, undefined, "malformed Claude exit code stays absent");
+  eq(malformed.tool_duration_ms, undefined, "malformed Claude duration stays absent");
+  eq(malformed.tool_interrupted, undefined, "malformed Claude interruption stays absent");
+  eq(malformed.tool_background_task_id, undefined, "malformed Claude background id stays absent");
+}
 
 for (const [name, fixture] of [
   ["malformed", "{not-json"],
@@ -727,8 +815,8 @@ console.log("\n--- versionless Claude alias catalog ---\n");
 }
 
 
-// A marker-less hook is user-owned even when it resembles an old CodeTerm
-// command. The installer must preserve it and add a separately-owned entry.
+// A marker-less hook that only resembles a CodeTerm command is user-owned: the
+// installer preserves it beside its own entry, while exact installed forms migrate.
 {
   const settingsPath = "/home/test/.claude/settings.json";
   const legacy = {
@@ -739,7 +827,8 @@ console.log("\n--- versionless Claude alias catalog ---\n");
           hooks: [
             {
               type: "command",
-              // The shipped shape: env-var URL, no port literal, no _source marker.
+              // Near the shipped shape but not it: no auth header, so it fails
+              // the migration fingerprint and stays unclassified.
               command:
                 'if [ -n "${CODETERM_API_URL:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start"; fi',
               timeout: 5000,
