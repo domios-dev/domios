@@ -6,6 +6,7 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
+mod folder_trust;
 pub mod hook_ownership;
 pub mod integration;
 mod interactive;
@@ -263,6 +264,13 @@ impl AgentProvider for ClaudeProvider {
         }
         steps.push(b"\r".to_vec());
         steps
+    }
+
+    fn directory_trust_prompt_response(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
+        folder_trust::response(screen)
     }
 
     fn permission_prompt_response(

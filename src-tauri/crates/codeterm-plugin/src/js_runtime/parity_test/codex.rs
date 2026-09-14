@@ -179,38 +179,20 @@ fn resume_with_context_keeps_the_conservative_default() {
 }
 
 #[test]
-fn directory_trust_prompt_response_is_provider_declared() {
+fn directory_trust_prompt_response_reads_the_screen() {
     if require_plugins().is_none() {
         return;
     }
-    use codeterm_types::pty::{PendingPrompt, PromptOption};
-    let prompt = PendingPrompt {
-        question: "Do you trust the contents of this directory?".into(),
-        options: vec![
-            PromptOption {
-                label: "Yes, continue".into(),
-                value: "1".into(),
-            },
-            PromptOption {
-                label: "No, quit".into(),
-                value: "2".into(),
-            },
-        ],
-        sections: None,
-        multi_select: None,
-        submit_available: None,
-        selected_values: None,
-    };
-    assert!(codex()
-        .directory_trust_prompt_response(&prompt, "1. Yes, continue")
-        .is_some());
-    let foreign_prompt = PendingPrompt {
-        question: "Approve this command?".into(),
-        ..prompt
-    };
-    assert!(codex()
-        .directory_trust_prompt_response(&foreign_prompt, "1. Yes, continue")
-        .is_none());
+    use crate::provider::DirectoryTrustPromptResponse;
+    let trust = "> You are in /home/user/lane\n\n  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt injection.\n\n› 1. Yes, continue\n  2. No, quit\n\n  Press enter to continue";
+    assert_eq!(
+        codex().directory_trust_prompt_response(trust),
+        Some(DirectoryTrustPromptResponse::Answer {
+            step: b"\r".to_vec()
+        })
+    );
+    let foreign = "Would you like to run the following command?\n\n  $ ls\n\n› 1. Yes, proceed\n  2. No, and tell Codex what to do differently\n\n  Press enter to confirm or esc to cancel";
+    assert_eq!(codex().directory_trust_prompt_response(foreign), None);
 }
 
 #[test]

@@ -2483,14 +2483,16 @@ var plugin = {
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
   },
-  directoryTrustPromptResponse(prompt, screen) {
+  directoryTrustPromptResponse(screen) {
+    const view = String(screen || "");
+    const prompt = parseCodexPrompt(view);
+    if (!prompt) return null;
     const question = String(prompt.question || "").toLowerCase();
+    if (!question.includes("trust the contents of this directory")) return null;
     const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[1] : first.label;
-    if (!question.includes("trust the contents of this directory") || !firstLabel || !/^yes\b/i.test(firstLabel)) {
-      return null;
-    }
-    return responseKeysForIndex(0, String(screen || ""));
+    const firstLabel = Array.isArray(first) ? first[0] : first.label;
+    if (!firstLabel || !/^yes\b/i.test(firstLabel)) return [];
+    return responseKeysForIndex(0, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
