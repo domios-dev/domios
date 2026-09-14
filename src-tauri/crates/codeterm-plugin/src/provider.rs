@@ -379,6 +379,9 @@ pub struct ProviderDescriptor {
     /// structured handle first and only falls back to PTY scraping otherwise.
     #[serde(default)]
     pub supports_structured_prompts: bool,
+    /// `true` when the provider can recognize its own permission prompts.
+    #[serde(default)]
+    pub supports_permission_auto_confirm: bool,
     /// `true` when a chatBackend plugin implements watcher mode (manifest
     /// `chatBackend: { watcher: true }`). Always `false` for PTY transports.
     #[serde(default)]
@@ -1090,6 +1093,7 @@ pub trait AgentProvider: Send + Sync {
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),
+            supports_permission_auto_confirm: self.supports_permission_auto_confirm(),
             supports_watcher: false,
             trust: self.trust(),
             transport: ProviderTransport::Pty,
@@ -1133,6 +1137,12 @@ pub trait AgentProvider: Send + Sync {
     /// event bus + reply endpoints. codex app-server and cursor ACP are NOT
     /// reachable in interactive-PTY mode, so they stay on the native detector.
     fn supports_structured_prompts(&self) -> bool {
+        false
+    }
+
+    /// Whether `permission_prompt_response` can recognize any prompt, so the UI
+    /// offers per-tab auto-confirm only where it can ever answer.
+    fn supports_permission_auto_confirm(&self) -> bool {
         false
     }
 

@@ -861,6 +861,10 @@ impl AgentProvider for JsProvider {
         }
     }
 
+    fn supports_permission_auto_confirm(&self) -> bool {
+        self.has_js("permissionPromptResponse")
+    }
+
     fn supports_structured_prompts(&self) -> bool {
         self.manifest.spawn.supports_structured_prompts
             || self

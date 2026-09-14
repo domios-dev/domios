@@ -7,7 +7,7 @@ import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
 import { matchesBinding } from "../../lib/keybindings";
-import { reconnectTabSession, restartTabSession } from "./tabSessionActions";
+import { reconnectTabSession, restartTabSession, setTabPermissionAutoConfirm } from "./tabSessionActions";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
@@ -28,6 +28,8 @@ interface TabTopBarProps {
   canRestartSession?: boolean;
   sessionId?: string | null;
   isActive?: boolean;
+  /** Persisted auto-confirm opt-in; `null` when the provider cannot recognize permission prompts. */
+  permissionAutoConfirm?: boolean | null;
 }
 
 /**
@@ -47,6 +49,7 @@ export function TabTopBar({
   canRestartSession = false,
   sessionId = null,
   isActive = false,
+  permissionAutoConfirm = null,
 }: TabTopBarProps) {
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
@@ -77,6 +80,15 @@ export function TabTopBar({
       setRestarting(false);
     }
   }, [tabId, restarting]);
+
+  const togglePermissionAutoConfirm = useCallback(async (enabled: boolean) => {
+    setReconnectError(null);
+    try {
+      await setTabPermissionAutoConfirm(tabId, enabled);
+    } catch (error) {
+      setReconnectError(error instanceof Error ? error.message : String(error));
+    }
+  }, [tabId]);
 
   useEffect(() => {
     if (!isActive || !canReconnect) return;
@@ -124,7 +136,7 @@ export function TabTopBar({
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
-        {(canReconnect || canRestartSession || sessionId) && (
+        {(canReconnect || canRestartSession || sessionId || permissionAutoConfirm !== null) && (
           <TabActionsMenu
             sessionId={sessionId}
             canReconnect={canReconnect}
@@ -134,6 +146,8 @@ export function TabTopBar({
             onReconnect={() => void reconnect()}
             onRestart={() => void restartSession()}
             onError={setReconnectError}
+            permissionAutoConfirm={permissionAutoConfirm}
+            onTogglePermissionAutoConfirm={(enabled) => void togglePermissionAutoConfirm(enabled)}
           />
         )}
       </div>

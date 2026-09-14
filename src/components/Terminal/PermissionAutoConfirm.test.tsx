@@ -3,11 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import {
-  AutoConfirmedPromptRows,
-  PermissionAutoConfirmToggle,
-  autoConfirmationsForSession,
-} from "./PermissionAutoConfirm";
+import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import type { AutoConfirmedPrompt } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
@@ -90,25 +86,6 @@ test("no auto-confirmations render nothing", async () => {
   const { host, root } = await render(<AutoConfirmedPromptRows records={[]} />);
   assert(host.querySelector('[data-testid="auto-confirmed-prompts"]') === null, "empty list renders nothing");
   await act(async () => root.unmount());
-});
-
-test("the toggle is a switch that reports its state and requests the opposite", async () => {
-  for (const enabled of [false, true]) {
-    const calls: boolean[] = [];
-    const { host, root } = await render(
-      <PermissionAutoConfirmToggle enabled={enabled} onToggle={(next) => calls.push(next)} />,
-    );
-    const toggle = host.querySelector<HTMLButtonElement>('[data-testid="permission-auto-confirm-toggle"]');
-    assert(toggle, "toggle rendered");
-    assert(toggle.getAttribute("role") === "switch", "toggle is a switch");
-    assert(toggle.getAttribute("aria-checked") === String(enabled), "switch reports the setting");
-    assert(toggle.getAttribute("aria-label"), "switch has an accessible name");
-    await act(async () => {
-      toggle.click();
-    });
-    assert(calls.length === 1 && calls[0] === !enabled, `expected one request for ${!enabled}, got ${JSON.stringify(calls)}`);
-    await act(async () => root.unmount());
-  }
 });
 
 async function main() {
