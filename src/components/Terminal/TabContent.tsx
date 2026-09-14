@@ -13,7 +13,7 @@ import type {
   TerminalConfigSettings,
 } from "../../lib/types";
 import { usageTrackingEnabled } from "./usageTracking";
-import { tabSessionActionView } from "./tabSessionActions";
+import { permissionAutoConfirmMenuState, tabSessionActionView } from "./tabSessionActions";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 
 interface TabContentProps {
@@ -63,6 +63,7 @@ export function TabContent({
   const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
   const isChatBackend = chatBacking !== null;
   const sessionActions = tabSessionActionView(tab);
+  const permissionAutoConfirm = permissionAutoConfirmMenuState(tab, descriptor);
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
   const usageProvider = !isChatBackend ? (tab.agent_type ?? null) : null;
   const usageVisible = usageTrackingEnabled(
@@ -106,6 +107,7 @@ export function TabContent({
           canReconnect={sessionActions.canReconnect}
           canRestartSession={sessionActions.canRestart}
           sessionId={sessionActions.sessionId}
+          permissionAutoConfirm={permissionAutoConfirm}
           isActive={isVisible}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>

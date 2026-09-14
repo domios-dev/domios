@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, Ellipsis, RefreshCw, RotateCcw } from "lucide-react";
+import { Copy, Ellipsis, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { copyTabSessionId, TAB_SESSION_LABELS } from "./tabSessionActions";
 
 const MENU_WIDTH = 240;
+const MENU_ITEMS = '[role="menuitem"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
 
 interface TabActionsMenuProps {
   sessionId: string | null;
@@ -17,6 +18,9 @@ interface TabActionsMenuProps {
   onReconnect: () => void;
   onRestart: () => void;
   onError: (message: string) => void;
+  /** Persisted auto-confirm opt-in; `null` hides the item for providers that cannot recognize prompts. */
+  permissionAutoConfirm?: boolean | null;
+  onTogglePermissionAutoConfirm?: (enabled: boolean) => void;
 }
 
 export function TabActionsMenu({
@@ -28,12 +32,15 @@ export function TabActionsMenu({
   onReconnect,
   onRestart,
   onError,
+  permissionAutoConfirm = null,
+  onTogglePermissionAutoConfirm,
 }: TabActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const busy = reconnecting || restarting;
+  const showAutoConfirm = permissionAutoConfirm !== null && onTogglePermissionAutoConfirm !== undefined;
 
   const place = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
@@ -42,12 +49,12 @@ export function TabActionsMenu({
       rect.right - MENU_WIDTH,
       rect.bottom + 5,
       MENU_WIDTH,
-      154,
+      showAutoConfirm ? 230 : 154,
       window.innerWidth,
       window.innerHeight,
       8,
     ));
-  }, []);
+  }, [showAutoConfirm]);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -60,7 +67,7 @@ export function TabActionsMenu({
 
   useEffect(() => {
     if (!open) return;
-    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    menuRef.current?.querySelector<HTMLButtonElement>(MENU_ITEMS)?.focus();
     const onPointer = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node) && !triggerRef.current?.contains(event.target as Node)) close();
     };
@@ -83,9 +90,7 @@ export function TabActionsMenu({
 
   const handleMenuKeyDown = (event: React.KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const items = Array.from(
-      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [],
-    );
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>(MENU_ITEMS) ?? []);
     if (items.length === 0) return;
     event.preventDefault();
     const current = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -174,12 +179,28 @@ export function TabActionsMenu({
               onClick={() => choose(onRestart)}
             />
           )}
+          {showAutoConfirm && (
+            <>
+              <div role="separator" className="mx-2 my-1 border-t border-[var(--ct-border)]" />
+              <MenuCheckItem
+                testId="tab-permission-auto-confirm"
+                icon={<ShieldCheck size={14} />}
+                label={TAB_SESSION_LABELS.autoConfirm}
+                description={TAB_SESSION_LABELS.autoConfirmHint}
+                checked={permissionAutoConfirm === true}
+                onToggle={() => onTogglePermissionAutoConfirm?.(permissionAutoConfirm !== true)}
+              />
+            </>
+          )}
         </div>,
         document.body,
       )}
     </>
   );
 }
+
+const ITEM_CLASS =
+  "flex w-full gap-2 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] focus-visible:bg-[var(--ct-hover)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)] disabled:cursor-not-allowed disabled:opacity-40";
 
 function MenuItem({
   testId,
@@ -203,11 +224,58 @@ function MenuItem({
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+      className={`${ITEM_CLASS} items-center`}
     >
       <span className="flex w-4 shrink-0 items-center justify-center text-[var(--ct-muted-fg)]">{icon}</span>
       <span className="min-w-0 flex-1">{label}</span>
       {shortcut && <kbd className="font-mono text-[9px] text-[var(--ct-muted)]">{shortcut}</kbd>}
+    </button>
+  );
+}
+
+function MenuCheckItem({
+  testId,
+  icon,
+  label,
+  description,
+  checked,
+  onToggle,
+}: {
+  testId: string;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  const descriptionId = useId();
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      aria-describedby={descriptionId}
+      data-testid={testId}
+      onClick={onToggle}
+      className={`${ITEM_CLASS} items-start`}
+    >
+      <span className="mt-0.5 flex w-4 shrink-0 items-center justify-center text-[var(--ct-muted-fg)]">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block">{label}</span>
+        <span id={descriptionId} className="mt-0.5 block text-[10px] leading-snug text-[var(--ct-muted-fg)]">
+          {description}
+        </span>
+      </span>
+      <span
+        aria-hidden
+        className="mt-0.5 inline-flex h-3.5 w-6 shrink-0 items-center rounded-full p-px transition-colors"
+        style={{ background: checked ? "var(--ct-green)" : "color-mix(in srgb, var(--ct-muted-fg) 35%, transparent)" }}
+      >
+        <span
+          className="h-2.5 w-2.5 rounded-full bg-[var(--ct-bg)] transition-transform"
+          style={{ transform: checked ? "translateX(10px)" : "translateX(0)" }}
+        />
+      </span>
     </button>
   );
 }

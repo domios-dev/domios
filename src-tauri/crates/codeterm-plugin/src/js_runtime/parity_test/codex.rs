@@ -500,3 +500,12 @@ fn parse_session_delta_normalizes_reasoning_and_agent_activity() {
         "encrypted, raw, and message content never crosses"
     );
 }
+
+#[test]
+fn codex_declares_no_permission_auto_confirm() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert!(!codex().supports_permission_auto_confirm());
+    assert!(!codex().describe().supports_permission_auto_confirm);
+}
