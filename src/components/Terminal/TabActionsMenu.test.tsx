@@ -108,7 +108,10 @@ test("a recognizing provider gets a checkbox item that reports and requests its 
   await act(async () => {
     enabled.click();
   });
-  assert(requested.length === 2 && requested[1] === false, "an enabled item requests disabling");
+  assert(
+    JSON.stringify(requested) === JSON.stringify([true, false]),
+    `an enabled item requests disabling, got ${JSON.stringify(requested)}`,
+  );
   await cleanup(host, root);
 });
 
