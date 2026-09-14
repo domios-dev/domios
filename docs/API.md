@@ -134,7 +134,7 @@ and response shapes are documented in the API-TRANSPORT reference.
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
 | POST | `/api/tabs/{id}/focus` | — | Focus tab |
 | POST | `/api/tabs/{id}/close` | — | Close tab + kill PTY |
-| POST | `/api/tabs/{id}/restart` | `{cwd?}` | Replace a plain shell PTY in the same tab while preserving tab and Team metadata. Agent and chat-backend tabs are rejected. |
+| POST | `/api/tabs/{id}/restart` | `{cwd?}` | Replace a plain shell PTY in the same tab while preserving tab and Team metadata. Agent and chat-backend tabs are rejected, including an agent-role tab whose provider exited (`shell_restart_agent_member`; resume it with `agent restart`). |
 | POST | `/api/tabs/{id}/rename` | `{title}` | Rename tab |
 | POST | `/api/tabs/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
 | POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
@@ -237,4 +237,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 146 -->
+<!-- revision: 147 -->
