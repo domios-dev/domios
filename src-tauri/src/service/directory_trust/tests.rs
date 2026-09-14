@@ -1,0 +1,261 @@
+use std::cell::Cell;
+
+use codeterm_plugin::provider::DirectoryTrustPromptResponse;
+
+use super::{
+    decide, directory_trust_check_applies, directory_trust_provenance,
+    inherited_workspace_provenance, legacy_auto_approve_permitted, DirectoryTrustRefusal,
+    TrustDecision, TrustLedger,
+};
+use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::{PendingPrompt, PromptOption};
+
+fn state_with_tab(cwd: Option<&str>, provisioned: Option<&str>) -> (MultiplexerState, String) {
+    let (mut state, _root) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let tab_id = state.create_tab(&ws_id).expect("tab");
+    let tab = state.get_tab_mut(&tab_id).expect("tab");
+    tab.cwd = cwd.map(str::to_string);
+    tab.provisioned_cwd = provisioned.map(str::to_string);
+    (state, tab_id)
+}
+
+fn agent_tab(provisioned: Option<&str>, authenticated: bool) -> (MultiplexerState, String) {
+    let (mut state, tab_id) = state_with_tab(Some("/srv/lanes/a"), provisioned);
+    let tab = state.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("claude".into());
+    if authenticated {
+        tab.agent_session_id = Some("session-1".into());
+        tab.session_binding_nonce = Some("nonce-1".into());
+        tab.reported_session_binding_nonce = Some("nonce-1".into());
+    }
+    (state, tab_id)
+}
+
+fn answer(step: &[u8]) -> Option<DirectoryTrustPromptResponse> {
+    Some(DirectoryTrustPromptResponse::Answer {
+        step: step.to_vec(),
+    })
+}
+
+#[test]
+fn directory_trust_accepts_directory_codeterm_created() {
+    let (state, tab_id) = state_with_tab(Some("/srv/lanes/a"), Some("/srv/lanes/a/"));
+    assert_eq!(
+        directory_trust_provenance(state.get_tab(&tab_id).unwrap()),
+        Ok(())
+    );
+}
+
+#[test]
+fn directory_trust_refuses_user_supplied_cwd_without_provenance() {
+    let (state, tab_id) = state_with_tab(Some("/home/user/project"), None);
+    assert_eq!(
+        directory_trust_provenance(state.get_tab(&tab_id).unwrap()),
+        Err(DirectoryTrustRefusal::NoProvenance)
+    );
+}
+
+#[test]
+fn directory_trust_refuses_cwd_that_differs_from_provenance() {
+    let (state, tab_id) = state_with_tab(Some("/home/user/project"), Some("/srv/lanes/a"));
+    assert_eq!(
+        directory_trust_provenance(state.get_tab(&tab_id).unwrap()),
+        Err(DirectoryTrustRefusal::CwdDiffersFromProvenance)
+    );
+}
+
+#[test]
+fn directory_trust_refuses_tab_without_cwd() {
+    let (state, tab_id) = state_with_tab(None, Some("/srv/lanes/a"));
+    assert_eq!(
+        directory_trust_provenance(state.get_tab(&tab_id).unwrap()),
+        Err(DirectoryTrustRefusal::NoCwd)
+    );
+}
+
+#[test]
+fn directory_trust_provenance_survives_session_restore() {
+    let (state, tab_id) = state_with_tab(Some("/srv/lanes/a"), Some("/srv/lanes/a"));
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+    assert_eq!(
+        directory_trust_provenance(restored.get_tab(&tab_id).expect("restored tab")),
+        Ok(())
+    );
+}
+
+#[test]
+fn spawn_payloads_cannot_supply_provenance() {
+    let wire = serde_json::json!({
+        "provider": "codex",
+        "cwd": "/home/user/project",
+        "provisioned_cwd": "/home/user/project",
+    });
+    let params: crate::service::SpawnAgentParams =
+        serde_json::from_value(wire.clone()).expect("spawn params");
+    assert_eq!(params.cwd.as_deref(), Some("/home/user/project"));
+    assert!(params.provisioned_cwd.is_none());
+    let spec: crate::service::spawn::AgentSpawnSpec =
+        serde_json::from_value(wire).expect("agent spawn spec");
+    assert!(spec.provisioned_cwd.is_none());
+}
+
+#[test]
+fn spawn_inherits_workspace_provenance_only_in_the_provisioned_directory() {
+    let provisioned = Some("C:/data/provisioned-workspaces/bench-1");
+    assert_eq!(
+        inherited_workspace_provenance(
+            Some("C:\\data\\provisioned-workspaces\\bench-1\\"),
+            provisioned
+        )
+        .as_deref(),
+        provisioned
+    );
+    assert!(inherited_workspace_provenance(
+        Some("C:/data/provisioned-workspaces/bench-1/user-made"),
+        provisioned
+    )
+    .is_none());
+    assert!(inherited_workspace_provenance(Some("C:/Users/user/project"), provisioned).is_none());
+    assert!(inherited_workspace_provenance(None, provisioned).is_none());
+    assert!(inherited_workspace_provenance(Some("C:/Users/user/project"), None).is_none());
+}
+
+#[test]
+fn user_directory_never_invokes_the_recognizer() {
+    let (state, tab_id) = agent_tab(None, false);
+    let applies = directory_trust_check_applies(state.get_tab(&tab_id).unwrap());
+    assert!(!applies);
+    let invoked = Cell::new(false);
+    let ledger = parking_lot::Mutex::new(TrustLedger::default());
+    let decision = decide(applies, &tab_id, "any screen", &ledger, |_| {
+        invoked.set(true);
+        answer(b"\r")
+    });
+    assert_eq!(decision, TrustDecision::NotApplicable);
+    assert!(
+        !invoked.get(),
+        "a user directory must never reach the recognizer"
+    );
+}
+
+#[test]
+fn authenticated_session_is_ignored() {
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/a"), true);
+    assert!(!directory_trust_check_applies(
+        state.get_tab(&tab_id).unwrap()
+    ));
+}
+
+#[test]
+fn tab_without_agent_is_ignored() {
+    let (state, tab_id) = state_with_tab(Some("/srv/lanes/a"), Some("/srv/lanes/a"));
+    assert!(!directory_trust_check_applies(
+        state.get_tab(&tab_id).unwrap()
+    ));
+}
+
+#[test]
+fn provisioned_directory_answers_one_key_per_observed_frame() {
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
+    let applies = directory_trust_check_applies(state.get_tab(&tab_id).unwrap());
+    assert!(applies);
+    let ledger = parking_lot::Mutex::new(TrustLedger::default());
+
+    let first = decide(applies, &tab_id, "focus-on-exit", &ledger, |_| answer(b"j"));
+    assert_eq!(
+        first,
+        TrustDecision::Answer {
+            step: b"j".to_vec()
+        }
+    );
+
+    let in_flight = decide(applies, &tab_id, "focus-on-exit", &ledger, |_| answer(b"j"));
+    assert_eq!(
+        in_flight,
+        TrustDecision::Waiting,
+        "no second key while one is in flight"
+    );
+
+    ledger.lock().settle(&tab_id);
+    let same_frame = decide(applies, &tab_id, "focus-on-exit", &ledger, |_| answer(b"j"));
+    assert_eq!(
+        same_frame,
+        TrustDecision::Waiting,
+        "an unchanged frame is never answered twice"
+    );
+
+    let moved = decide(applies, &tab_id, "focus-on-trust", &ledger, |_| {
+        answer(b"\r")
+    });
+    assert_eq!(
+        moved,
+        TrustDecision::Answer {
+            step: b"\r".to_vec()
+        }
+    );
+
+    ledger.lock().settle(&tab_id);
+    let held = decide(applies, &tab_id, "permissions-variant", &ledger, |_| {
+        Some(DirectoryTrustPromptResponse::Hold)
+    });
+    assert_eq!(held, TrustDecision::Held);
+    let gone = decide(applies, &tab_id, "composer", &ledger, |_| None);
+    assert_eq!(gone, TrustDecision::NoDialog);
+}
+
+#[test]
+fn trust_dialogs_never_reach_the_legacy_yes_responder() {
+    let trust_prompt = PendingPrompt {
+        question: "Quick safety check: Is this a project you created or one you trust?".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, I trust this folder".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "No, exit".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    assert!(
+        crate::service::output::legacy_auto_approve_response(&trust_prompt).is_some(),
+        "precondition: the legacy responder would press Enter on this prompt"
+    );
+
+    for owned in [
+        TrustDecision::Held,
+        TrustDecision::Waiting,
+        TrustDecision::Answer {
+            step: b"\r".to_vec(),
+        },
+    ] {
+        for (authenticated, structured) in [(false, false), (true, false), (true, true)] {
+            assert!(
+                !legacy_auto_approve_permitted(&owned, authenticated, structured),
+                "{owned:?} must keep the legacy responder away"
+            );
+        }
+    }
+    for unrecognized in [TrustDecision::NotApplicable, TrustDecision::NoDialog] {
+        assert!(
+            !legacy_auto_approve_permitted(&unrecognized, false, false),
+            "a screen-scraped prompt before session authentication is never blindly approved"
+        );
+    }
+    assert!(legacy_auto_approve_permitted(
+        &TrustDecision::NotApplicable,
+        true,
+        false
+    ));
+    assert!(legacy_auto_approve_permitted(
+        &TrustDecision::NotApplicable,
+        false,
+        true
+    ));
+}
