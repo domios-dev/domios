@@ -78,6 +78,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         boot_stage: None,
         reasoning_effort: Default::default(),
         context_epochs: vec![],
+        prior_session_bindings: vec![],
         task_binding: None,
         roleless_tracked: false,
         lifecycle_epoch: epoch,
@@ -821,4 +822,47 @@ fn a_close_record_written_before_attribution_reads_as_unattributed() {
         },
         "an unattributed close must never be read back as a user close"
     );
+}
+
+#[test]
+fn restore_contract_awaiting_agent_restart_keeps_the_verified_binding_through_compaction() {
+    let (journal, _dir) = new_journal();
+    let exited = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &exited, "session-a");
+    journal
+        .append(
+            exited,
+            LifecycleTransition::RolledBack {
+                reason: "provider process exited to a surviving shell".into(),
+            },
+        )
+        .unwrap();
+    let decision = LifecycleTransition::RestoreAwaitingAgentRestart {
+        session_id: "session-a".into(),
+    };
+    journal
+        .append(key("tab-a", 2, "restore-decision"), decision.clone())
+        .unwrap();
+    assert!(checkpoints(&journal.load()).is_empty());
+
+    journal.compact().unwrap();
+    let load = journal.load();
+
+    assert!(checkpoints(&load).is_empty(), "a diagnostic never seals");
+    let transitions: Vec<&LifecycleTransition> = load
+        .records
+        .iter()
+        .filter_map(|record| match record {
+            JournalRecord::Transition { entry } => Some(&entry.transition),
+            JournalRecord::Checkpoint { .. } => None,
+        })
+        .collect();
+    assert!(
+        transitions.iter().any(|transition| matches!(
+            transition,
+            LifecycleTransition::SessionBound { session_id, .. } if session_id == "session-a"
+        )),
+        "exit recovery verifies the exited session against this binding"
+    );
+    assert!(transitions.contains(&&decision));
 }

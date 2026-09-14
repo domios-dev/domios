@@ -472,6 +472,11 @@ pub struct PriorBindingNonce {
     pub nonce: String,
 }
 
+/// Session of the newest retired launch; `None` when that launch never bound one.
+pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
+    lineage.last()?.session_id.as_deref()
+}
+
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {

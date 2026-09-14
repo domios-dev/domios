@@ -87,6 +87,7 @@ fn snapshot_agent_panes(
             SplitNodeSnapshot::Leaf {
                 tab_id,
                 claude_session_id,
+                agent_identity,
                 role,
                 agent_type,
                 ..
@@ -95,6 +96,17 @@ fn snapshot_agent_panes(
                 role: role.clone(),
                 agent_type: agent_type.clone(),
                 agent_session_id: claude_session_id.clone(),
+                exited_session_id: agent_identity
+                    .as_ref()
+                    .filter(|_| {
+                        role.is_some() && agent_type.is_none() && claude_session_id.is_none()
+                    })
+                    .and_then(|identity| {
+                        crate::multiplexer::types::latest_prior_session(
+                            &identity.prior_session_bindings,
+                        )
+                    })
+                    .map(str::to_string),
             }),
             SplitNodeSnapshot::Leaf { .. } => {}
             SplitNodeSnapshot::Split { children, .. } => {
@@ -349,6 +361,7 @@ pub(crate) fn init_states() -> AppStates {
         let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
         crate::crash::restore_report::arm(agent_panes_at_shutdown, &restored_pane_ids);
     }
+    service::restore_exited_member::journal_restore_decisions(&mux_state_inner);
     let mut duplicate_generals_closed = 0usize;
     if general_config.enabled {
         service::general_agent::ensure_directories();
