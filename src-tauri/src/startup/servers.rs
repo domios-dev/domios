@@ -20,35 +20,82 @@ fn should_materialize_restored_backend(
     restored_from_snapshot && !protected && matches!(backing, TabBacking::Pty) && pty_id.is_none()
 }
 
+pub(crate) const FRONTEND_READINESS_DEADLINE_ELAPSED: &str = "frontend_readiness_deadline_elapsed";
+
 fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
     std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-        if !super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline) {
-            log::error!("[startup-pty] frontend readiness deadline elapsed");
-            return;
-        }
-        let tab_ids = service_state
-            .mux
-            .read()
-            .snapshot()
-            .tabs
-            .into_values()
-            .filter(|tab| {
-                should_materialize_restored_backend(
-                    tab.restored_from_snapshot,
-                    tab.protected,
-                    &tab.backing,
-                    tab.pty_id.as_deref(),
-                )
-            })
-            .map(|tab| tab.id)
-            .collect::<Vec<_>>();
-        for tab_id in tab_ids {
-            if let Err(error) = service_state.ensure_tab_pty_for_send(&tab_id) {
-                log::error!("[startup-pty] tab={tab_id} materialization failed: {error}");
-            }
-        }
+        materialize_restored_backends(
+            || super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline),
+            || note_frontend_deadline(&service_state),
+            || restored_backend_tab_ids(&service_state),
+            |tab_id| service_state.ensure_tab_pty_for_send(tab_id),
+        );
     });
+}
+
+/// A missed frontend deadline never abandons restored agents: the backend claims
+/// their PTYs, and a later frontend mount reuses them through the same tab claim.
+fn materialize_restored_backends<W, D, T, M>(
+    wait_frontend: W,
+    on_deadline: D,
+    tab_ids: T,
+    mut materialize: M,
+) -> Vec<String>
+where
+    W: FnOnce() -> bool,
+    D: FnOnce(),
+    T: FnOnce() -> Vec<String>,
+    M: FnMut(&str) -> Result<(), String>,
+{
+    if !wait_frontend() {
+        log::warn!(
+            "[startup-pty] frontend readiness deadline elapsed; materializing restored backends without the frontend"
+        );
+        on_deadline();
+    }
+    let tab_ids = tab_ids();
+    for tab_id in &tab_ids {
+        if let Err(error) = materialize(tab_id) {
+            log::error!("[startup-pty] tab={tab_id} materialization failed: {error}");
+        }
+    }
+    tab_ids
+}
+
+fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
+    service_state
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .into_values()
+        .filter(|tab| {
+            should_materialize_restored_backend(
+                tab.restored_from_snapshot,
+                tab.protected,
+                &tab.backing,
+                tab.pty_id.as_deref(),
+            )
+        })
+        .map(|tab| tab.id)
+        .collect()
+}
+
+fn note_frontend_deadline(service_state: &ServiceState) {
+    let restored_ids: std::collections::BTreeSet<String> = service_state
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .values()
+        .filter(|tab| tab.role.is_some() || tab.agent_type.is_some())
+        .map(|tab| tab.id.clone())
+        .collect();
+    crate::crash::restore_report::note_backend_materialization(
+        FRONTEND_READINESS_DEADLINE_ELAPSED,
+        &restored_ids,
+    );
 }
 
 /// Start socket server, REST API server, and cron scheduler.
@@ -307,8 +354,64 @@ fn select_web_dist(
 
 #[cfg(test)]
 mod tests {
-    use super::{select_web_dist, should_materialize_restored_backend};
+    use super::{
+        materialize_restored_backends, select_web_dist, should_materialize_restored_backend,
+    };
     use crate::multiplexer::types::TabBacking;
+
+    #[test]
+    fn restore_contract_missed_frontend_deadline_still_materializes_restored_agent_panes() {
+        let mut deadline_noted = false;
+        let mut materialized = Vec::new();
+        let attempted = materialize_restored_backends(
+            || false,
+            || deadline_noted = true,
+            || {
+                ["orchestrator", "codex-worker", "planner"]
+                    .map(String::from)
+                    .to_vec()
+            },
+            |tab_id| {
+                materialized.push(tab_id.to_string());
+                if tab_id == "codex-worker" {
+                    Err("provider launch refused".to_string())
+                } else {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(
+            deadline_noted,
+            "a missed deadline is surfaced, never silent"
+        );
+        assert_eq!(
+            materialized,
+            vec!["orchestrator", "codex-worker", "planner"]
+        );
+        assert_eq!(
+            attempted, materialized,
+            "one failed pane never stops the rest"
+        );
+    }
+
+    #[test]
+    fn restore_contract_ready_frontend_materializes_without_a_deadline_note() {
+        let mut deadline_noted = false;
+        let mut materialized = Vec::new();
+        materialize_restored_backends(
+            || true,
+            || deadline_noted = true,
+            || vec!["worker".to_string()],
+            |tab_id| {
+                materialized.push(tab_id.to_string());
+                Ok(())
+            },
+        );
+
+        assert!(!deadline_noted);
+        assert_eq!(materialized, vec!["worker"]);
+    }
 
     fn web_bundle(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
         let dist = parent.join(name);

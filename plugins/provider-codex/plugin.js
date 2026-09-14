@@ -1371,6 +1371,7 @@ function sessionFilePath(_cwd, sessionId) {
 }
 function sessionExists(_cwd, sessionId) {
   if (!sessionId) return false;
+  if (threadRow(sessionId) !== null) return true;
   const store = codexSessionStore();
   return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
 }

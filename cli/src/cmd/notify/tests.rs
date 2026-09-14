@@ -346,7 +346,10 @@ mod notification_deep_link {
         );
         assert_eq!(params["target_tab_id"], "tab-target");
         assert_eq!(params["chat_message_id"], "needs-you-message-1");
-        assert_eq!(params["title"], "Approve?", "the rest of the request is untouched");
+        assert_eq!(
+            params["title"], "Approve?",
+            "the rest of the request is untouched"
+        );
     }
 
     #[test]
