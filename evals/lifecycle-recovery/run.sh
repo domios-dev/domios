@@ -21,13 +21,14 @@ WORKSPACE=""
 EXIT_TAB=""
 EXIT_TEAM_ID=""
 EXIT_REPLACEMENT=""
+RELAUNCH_TAB=""
 OLD_ORCHESTRATOR=""
 REPLACEMENT=""
 TEAM_ID=""
 cleanup() {
   [ -z "$TEAM_ID" ] || [ -z "$REPLACEMENT" ] || dc --as-tab "$REPLACEMENT" team close "$TEAM_ID" --json >/dev/null 2>&1 || true
   [ -z "$EXIT_TEAM_ID" ] || [ -z "$EXIT_REPLACEMENT" ] || dc --as-tab "$EXIT_REPLACEMENT" team close "$EXIT_TEAM_ID" --json >/dev/null 2>&1 || true
-  for tab in "$EXIT_TAB" "$OLD_ORCHESTRATOR"; do
+  for tab in "$EXIT_TAB" "$RELAUNCH_TAB" "$OLD_ORCHESTRATOR"; do
     [ -z "$tab" ] || dc --as-tab "$CONTROL_TAB" tab close "$tab" >/dev/null 2>&1 || true
   done
   [ -z "$WORKSPACE" ] || dc --as-tab "$CONTROL_TAB" workspace close "$WORKSPACE" >/dev/null 2>&1 || true
@@ -82,6 +83,66 @@ dc --as-tab "$EXIT_REPLACEMENT" team close "$EXIT_TEAM_ID" --json >/dev/null
 EXIT_TAB=""
 EXIT_TEAM_ID=""
 EXIT_REPLACEMENT=""
+
+RELAUNCH_TITLE="LR-relaunch-$RUN_ID"
+RELAUNCH_SESSION="$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')"
+RELAUNCH_STUB="$ROOT/evals/lifecycle-recovery/stub-agent.mjs"
+RELAUNCH_PROBE="LR-probe-$RUN_ID"
+DEV_DATA="$(dev_data_dir)"
+DEV_DATA_NATIVE="$DEV_DATA"
+if is_windows; then DEV_DATA_NATIVE="$(cygpath -w "$DEV_DATA")"; fi
+JOURNAL="$DEV_DATA_NATIVE/sessions/tab-lifecycle.jsonl"
+DEV_LOG="$DEV_DATA/logs/codeterm.log"
+LOG_OFFSET=0
+[ ! -f "$DEV_LOG" ] || LOG_OFFSET="$(( $(wc -c <"$DEV_LOG") ))"
+
+coproc RELAUNCH_EXIT_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" absent-shell "$RELAUNCH_TITLE"; }
+RELAUNCH_EXIT_WAIT_PROCESS="$RELAUNCH_EXIT_WAIT_PID"
+read -r ready <&"${RELAUNCH_EXIT_WAIT[0]}"
+[ "$ready" = READY ] || fail "in-tab relaunch exit observer readiness"
+RELAUNCH_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$RELAUNCH_TITLE" --non-user-facing --args --lifecycle-relaunch-fixture --stub-session "$RELAUNCH_SESSION")"
+RELAUNCH_TAB="$(json_field "$RELAUNCH_SPAWN" '.tab_id')"
+read -r RELAUNCH_EXITED <&"${RELAUNCH_EXIT_WAIT[0]}"
+wait "$RELAUNCH_EXIT_WAIT_PROCESS"
+[ "$(json_field "$RELAUNCH_EXITED" '.tab_id')" = "$RELAUNCH_TAB" ] || fail "in-tab relaunch exit observation targeted spawned tab"
+set +e
+RELAUNCH_REFUSAL="$(dc --json agent restart --tab "$RELAUNCH_TAB" 2>&1)"
+RELAUNCH_REFUSAL_RC=$?
+set -e
+[ "$RELAUNCH_REFUSAL_RC" -ne 0 ] || fail "absent process was advertised as restartable: $RELAUNCH_REFUSAL"
+SHELL_RESTART="$(dc --json tab restart --tab "$RELAUNCH_TAB" 2>&1)" \
+  || fail "tab restart refused the exited provider's plain shell: $SHELL_RESTART"
+
+coproc RELAUNCH_READY_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" in-tab-ready "$RELAUNCH_TAB" "$RELAUNCH_SESSION" "$JOURNAL"; }
+RELAUNCH_READY_WAIT_PROCESS="$RELAUNCH_READY_WAIT_PID"
+read -r ready <&"${RELAUNCH_READY_WAIT[0]}"
+[ "$ready" = READY ] || fail "in-tab relaunch readiness observer readiness"
+dc tab exec --tab "$RELAUNCH_TAB" "node '$RELAUNCH_STUB' --stub-provider claude --stub-session $RELAUNCH_SESSION --stub-report-bound" >/dev/null \
+  || fail "tab exec relaunch in the same tab"
+read -r RELAUNCH_READY <&"${RELAUNCH_READY_WAIT[0]}"
+wait "$RELAUNCH_READY_WAIT_PROCESS"
+[ "$(json_field "$RELAUNCH_READY" '.tab_id')" = "$RELAUNCH_TAB" ] \
+  || fail "in-tab relaunch observed live, agent_ready, same session and launch_ready"
+RELAUNCH_VISIBLE="$(dc --json tab list --all-workspaces)"
+node "$JSON_STATE" live-tab "$RELAUNCH_TAB" <<<"$RELAUNCH_VISIBLE" || fail "in-tab relaunch is CLI-visible as live"
+
+RELAUNCH_RESTART="$(dc --json agent restart --tab "$RELAUNCH_TAB" 2>&1)" \
+  || fail "agent restart refused the observed in-tab relaunch: $RELAUNCH_RESTART"
+[ "$(json_field "$RELAUNCH_RESTART" '.agent_ready // .data.agent_ready')" = true ] \
+  || fail "agent restart of the in-tab relaunch reached agent_ready: $RELAUNCH_RESTART"
+
+coproc RELAUNCH_SEND_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" received "$RELAUNCH_TAB" "$RELAUNCH_PROBE"; }
+RELAUNCH_SEND_WAIT_PROCESS="$RELAUNCH_SEND_WAIT_PID"
+read -r ready <&"${RELAUNCH_SEND_WAIT[0]}"
+[ "$ready" = READY ] || fail "in-tab relaunch delivery observer readiness"
+dc send "$RELAUNCH_PROBE" --tab "$RELAUNCH_TAB" >/dev/null || fail "send to the restarted in-tab relaunch"
+read -r RELAUNCH_RECEIVED <&"${RELAUNCH_SEND_WAIT[0]}"
+wait "$RELAUNCH_SEND_WAIT_PROCESS"
+[ "$(json_field "$RELAUNCH_RECEIVED" '.tab_id')" = "$RELAUNCH_TAB" ] || fail "stub received the routed send"
+if [ -f "$DEV_LOG" ] && tail -c +"$((LOG_OFFSET + 1))" "$DEV_LOG" | grep -F "$RELAUNCH_TAB" | grep -qF tab_busy_refused; then
+  fail "dev log recorded tab_busy_refused for the in-tab relaunch"
+fi
+pass "in-tab provider relaunch after exit is observed ready, restartable, and receives sends"
 
 ORCH_TITLE="LR-owner-$RUN_ID"
 coproc OWNER_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" live "$ORCH_TITLE"; }
