@@ -567,6 +567,19 @@ pub fn mux_set_chat_view(
     Ok(())
 }
 
+/// Toggle opt-in auto-confirm of recognized provider permission prompts.
+#[tauri::command]
+pub async fn mux_set_permission_auto_confirm(
+    svc: State<'_, ServiceState>,
+    tab_id: String,
+    enabled: bool,
+) -> Result<bool, String> {
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.set_permission_auto_confirm(&tab_id, enabled))
+        .await
+        .map_err(|error| format!("permission auto-confirm task failed: {error}"))?
+}
+
 /// Detect agent session IDs for a given working directory.
 #[tauri::command]
 pub fn detect_claude_session_id(

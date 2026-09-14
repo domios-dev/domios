@@ -154,6 +154,34 @@ pub enum LifecycleTransition {
         #[serde(default = "unattributed_close_reason")]
         reason: String,
     },
+    /// Diagnostic audit of opt-in permission auto-confirm: a toggle, an answered
+    /// prompt, or a refusal. Never lifecycle authority.
+    PermissionAutoConfirm {
+        decision: PermissionAutoConfirmDecision,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        option_label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rule: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt_fingerprint: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionAutoConfirmDecision {
+    Enabled,
+    Disabled,
+    Confirmed,
+    Refused,
 }
 
 fn unattributed_close_reason() -> String {
@@ -173,6 +201,7 @@ impl LifecycleTransition {
             Self::RestartRequested => "restart_requested",
             Self::RolledBack { .. } => "rolled_back",
             Self::Closed { .. } => "closed",
+            Self::PermissionAutoConfirm { .. } => "permission_auto_confirm",
         }
     }
 }

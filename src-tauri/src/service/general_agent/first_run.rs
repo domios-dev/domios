@@ -385,6 +385,7 @@ mod tests {
                         depth: 0,
                         chat_view: Some(false),
                         auto_approve: false,
+                        permission_auto_confirm: false,
                         audience: crate::multiplexer::types::TabAudience::User,
                         agent_session_model: None,
                         agent_planned_model: None,

@@ -107,6 +107,11 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(agent_routes::clear_prompt),
         )
         .route(
+            "/api/tabs/{id}/permission-auto-confirm",
+            get(super::permission_auto_confirm_routes::get_permission_auto_confirm)
+                .post(super::permission_auto_confirm_routes::set_permission_auto_confirm),
+        )
+        .route(
             "/api/tabs/{id}/hook/permission",
             post(hook_routes::hook_permission),
         )
