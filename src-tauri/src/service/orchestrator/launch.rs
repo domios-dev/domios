@@ -880,9 +880,8 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
 
-        // A written launch command is not readiness: the shared owner observes
-        // this exact attempt until the bounded deadline, so a provider that
-        // exits before proving itself becomes one structured launch failure.
+        // A written launch command is not readiness; observing this attempt to the
+        // bounded deadline turns an early provider exit into one launch failure.
         let readiness_attempt = crate::service::launch_readiness::LaunchAttempt {
             tab_id: tab_id.clone(),
             pty_id: pty_id.clone(),

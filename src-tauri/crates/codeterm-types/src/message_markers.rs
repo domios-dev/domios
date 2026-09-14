@@ -102,9 +102,8 @@ impl Marker {
             head.push_str(v);
         }
         head.push_str(CLOSE);
-        // A newline after the frame so the body reads as its own paragraph
-        // rather than running on from the routing header. `parse` strips it
-        // back off, so the payload a receiver sees is unchanged.
+        // The body reads as its own paragraph after the routing header; `parse`
+        // strips this newline, so the payload a receiver sees is unchanged.
         if !self.payload.is_empty() {
             head.push(NEWLINE_CHAR);
         }

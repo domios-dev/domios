@@ -205,9 +205,8 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const diaryStates = diaryEntries.map((entry) =>
     diaryRecordState(entry.id, entry.body, dreamWorkers),
   );
-  // diaryTotal is the store's scoped count; incompleteness can only be judged
-  // from bodies this page loaded, so it is a flag over what's shown, never a
-  // second count the reader could read as a total.
+  // Incompleteness is judgeable only from bodies this page loaded, so it flags what
+  // is shown and never becomes a second count competing with diaryTotal.
   const unfinishedInView = diaryStates.some((s) => s.state === "incomplete_recoverable");
 
   const scrollCarousel = useCallback((dir: 1 | -1) => {
