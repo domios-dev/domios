@@ -213,6 +213,8 @@ export interface AgentProvider {
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   detectSessionReasoningEffort?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
+  /** The one record owning exactly this id, or null; never scans session history. */
+  findSession?(sessionId: string): unknown | null;
   describeSession?(filePath: string, head?: string): {
     projectPath?: string;
     title?: string;

@@ -206,18 +206,31 @@ const plugin: PluginModule = {
       if (f.path.indexOf("agent-transcripts") === -1) continue;
       const stem = f.name.substring(0, f.name.length - 6);
       if (!looksLikeUuid(stem)) continue;
-      out.push({
-        sessionId: stem,
-        provider: "cursor",
-        projectPath: projectPathFromTranscript(root, f.path),
-        title: null,
-        summary: null,
-        filePath: f.path,
-        createdTs: f.createdMs ? Math.floor(f.createdMs / 1000) : null,
-        modifiedTs: f.modifiedMs ? Math.floor(f.modifiedMs / 1000) : null,
-      });
+      out.push(cursorTranscriptRecord(root, stem, f));
     }
     return out;
+  },
+
+  // Probes the transcript layout `sessionFilePath` resolves, once per project dir; never walks history.
+  findSession(sessionId: string): unknown | null {
+    if (!looksLikeUuid(sessionId) || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
+    const root = projectsRoot();
+    if (!root || !host.fs.fileExists(root)) return null;
+    const sep = pathSep();
+    const transcriptName = sessionId + ".jsonl";
+    const dirs = host.fs.readDir(root) || [];
+    for (let i = 0; i < dirs.length; i++) {
+      const d = dirs[i];
+      if (!d || !d.isDir) continue;
+      const dir = d.path + sep + "agent-transcripts" + sep + sessionId;
+      if (!host.fs.fileExists(dir + sep + transcriptName)) continue;
+      const entries = host.fs.readDir(dir) || [];
+      for (let j = 0; j < entries.length; j++) {
+        const f = entries[j];
+        if (f && f.isFile && f.name === transcriptName) return cursorTranscriptRecord(root, sessionId, f);
+      }
+    }
+    return null;
   },
 
   // Chat transcript via append-only JSONL tailer: the CLI can't replay a full
@@ -480,6 +493,23 @@ function projectPathFromTranscript(root: string, transcript: string): string | n
     candidate = "/" + slug.replace(/-/g, "/");
   }
   return host.fs.fileExists(candidate) ? candidate : null;
+}
+
+function cursorTranscriptRecord(
+  root: string,
+  sessionId: string,
+  transcript: { path: string; createdMs?: number | null; modifiedMs?: number | null },
+): unknown {
+  return {
+    sessionId,
+    provider: "cursor",
+    projectPath: projectPathFromTranscript(root, transcript.path),
+    title: null,
+    summary: null,
+    filePath: transcript.path,
+    createdTs: transcript.createdMs ? Math.floor(transcript.createdMs / 1000) : null,
+    modifiedTs: transcript.modifiedMs ? Math.floor(transcript.modifiedMs / 1000) : null,
+  };
 }
 
 function toNativeCwd(cwd: string): string {
