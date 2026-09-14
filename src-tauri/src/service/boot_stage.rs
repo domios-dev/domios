@@ -107,6 +107,22 @@ pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
 }
 
+/// A provider started inside the tab's own shell, outside any owned launch,
+/// proved itself with this PTY's nonce. No launch pipeline will ever seal it.
+pub(crate) fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
+    let shell_stage = matches!(
+        tab.boot_stage,
+        None | Some(
+            BootStage::PtyStarting
+                | BootStage::PtySpawned
+                | BootStage::ReaderReady
+                | BootStage::ShellReady
+                | BootStage::PtyReattached
+        )
+    );
+    shell_stage && !tab.agent_booting && tab.pty_id.is_some() && tab.launch_session_authenticated()
+}
+
 /// Record a stage on the tab. Only a reason-carrying stage keeps its reason, so
 /// any other stage clears a previously latched failure and its launch identity.
 pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
@@ -304,17 +320,35 @@ impl ServiceContext {
     /// own launch, which disproves a failure another observer already latched.
     /// Event-driven by the proof's arrival — never a poll or a retry.
     pub(crate) fn reconcile_boot_stage_with_session_binding(&self, tab_id: &str) {
-        let contradicted = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(binding_disproves_latched_failure);
+        let (contradicted, in_tab_pty) = {
+            let mux = self.mux.read();
+            match mux.get_tab(tab_id) {
+                Some(tab) => (
+                    binding_disproves_latched_failure(tab),
+                    binding_observes_in_tab_launch(tab)
+                        .then(|| tab.pty_id.clone())
+                        .flatten(),
+                ),
+                None => (false, None),
+            }
+        };
         if contradicted {
             log::info!(
                 "[boot-stage] Tab {tab_id} spawn_failed disproved by its nonce-verified session binding"
             );
             self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
+            return;
         }
+        let Some(pty_id) = in_tab_pty else {
+            return;
+        };
+        if self.pty.lock().get_session(&pty_id).is_none() {
+            return;
+        }
+        log::info!(
+            "[boot-stage] Tab {tab_id} in-tab provider launch observed live by its nonce-verified session binding on PTY {pty_id}"
+        );
+        self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
     }
 
     /// A user send refused before the agent was ready waits here, not in the
@@ -358,6 +392,10 @@ impl ServiceContext {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "boot_stage/in_tab_launch_tests.rs"]
+mod in_tab_launch_tests;
 
 #[cfg(test)]
 mod tests {
