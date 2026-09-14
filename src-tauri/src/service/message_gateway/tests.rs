@@ -182,7 +182,7 @@ fn inbound_webhook_pebble_event_replay_is_a_noop_after_the_first_enveloped_deliv
     assert_eq!(fake.enveloped.borrow().len(), 1);
     assert_eq!(
         fake.enveloped.borrow()[0].1,
-        "-=-codeterm:pebble source=Pebble-=-"
+        "-=-codeterm:pebble source=Pebble trust=untrusted-=-"
     );
 }
 

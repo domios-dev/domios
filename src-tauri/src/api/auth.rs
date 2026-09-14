@@ -78,16 +78,7 @@ fn is_custom_auth(method: &Method, path: &str) -> bool {
 }
 
 pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
-    if method != Method::POST {
-        return false;
-    }
-    let Some(plugin_id) = path
-        .strip_prefix("/api/plugins/")
-        .and_then(|rest| rest.strip_suffix("/webhook"))
-    else {
-        return false;
-    };
-    !plugin_id.is_empty() && !plugin_id.contains('/')
+    method == Method::POST && path == super::inbound_webhook::PEBBLE_WEBHOOK_PATH
 }
 
 /// Non-leaking token fingerprint for diagnostics: byte length + a short
@@ -386,8 +377,9 @@ mod tests {
         ));
         assert!(!is_inbound_webhook_path(
             &Method::POST,
-            "/api/plugins//webhook"
+            "/api/plugins/other/webhook"
         ));
+        assert!(!is_custom_auth(&Method::POST, "/api/plugins/other/webhook"));
         assert!(!is_custom_auth(
             &Method::POST,
             "/api/plugins/pebble/webhook/extra"
