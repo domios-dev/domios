@@ -16,6 +16,18 @@ pub(crate) enum DirectoryTrustRefusal {
     CwdDiffersFromProvenance,
 }
 
+impl DirectoryTrustRefusal {
+    pub(crate) fn reason(self) -> &'static str {
+        match self {
+            Self::NoProvenance => "cwd was not created by CodeTerm for this tab",
+            Self::NoCwd => "tab has no cwd",
+            Self::CwdDiffersFromProvenance => "cwd differs from the directory CodeTerm created",
+        }
+    }
+}
+
+const NOTE_BUDGET: usize = 16;
+
 /// Provenance is host state written by the code that created the directory; a
 /// spawn-supplied cwd never carries it, so it can never self-authorize trust.
 pub(crate) fn directory_trust_provenance(tab: &Tab) -> Result<(), DirectoryTrustRefusal> {
@@ -47,6 +59,19 @@ pub(crate) fn directory_trust_check_applies(tab: &Tab) -> bool {
     tab.agent_type.is_some()
         && !tab.launch_session_authenticated()
         && directory_trust_provenance(tab).is_ok()
+}
+
+/// Why a provisioned agent tab skips the trust responder; `None` when it
+/// applies or the tab carries no provenance at all.
+pub(crate) fn directory_trust_skip_reason(tab: &Tab) -> Option<&'static str> {
+    tab.provisioned_cwd.as_ref()?;
+    tab.agent_type.as_ref()?;
+    if tab.launch_session_authenticated() {
+        return Some("launch session already authenticated");
+    }
+    directory_trust_provenance(tab)
+        .err()
+        .map(DirectoryTrustRefusal::reason)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +111,8 @@ pub(crate) struct TrustLedger {
 struct TabTrust {
     answered_frame: Option<u64>,
     in_flight: bool,
+    last_note: Option<(&'static str, u64)>,
+    notes: usize,
 }
 
 impl TrustLedger {
@@ -105,9 +132,34 @@ impl TrustLedger {
         }
     }
 
+    /// True when this outcome differs from the last one noted for the tab and
+    /// the tab still has log budget; a static screen is noted once.
+    pub(crate) fn note(&mut self, tab_id: &str, outcome: &'static str, detail: u64) -> bool {
+        let tab = self.tabs.entry(tab_id.to_string()).or_default();
+        if tab.last_note == Some((outcome, detail)) || tab.notes >= NOTE_BUDGET {
+            return false;
+        }
+        tab.last_note = Some((outcome, detail));
+        tab.notes += 1;
+        true
+    }
+
     fn forget(&mut self, tab_id: &str) {
         self.tabs.remove(tab_id);
     }
+}
+
+fn screen_tail(screen: &str) -> String {
+    let rows: Vec<&str> = screen
+        .lines()
+        .map(str::trim)
+        .filter(|row| !row.is_empty())
+        .collect();
+    rows[rows.len().saturating_sub(4)..]
+        .join(" | ")
+        .chars()
+        .take(240)
+        .collect()
 }
 
 fn frame_id(screen: &str) -> u64 {
@@ -190,6 +242,21 @@ impl ServiceContext {
         let decision = decide(true, tab_id, &screen, &LEDGER, |screen| {
             self.directory_trust_response(&agent_type, screen)
         });
+        match &decision {
+            TrustDecision::NoDialog
+                if crate::agent::detector::detect_interactive_prompt(&screen) =>
+            {
+                self.note_directory_trust(tab_id, "no trust dialog recognized", Some(&screen));
+            }
+            TrustDecision::Held => {
+                self.note_directory_trust(
+                    tab_id,
+                    "provider holds this trust dialog",
+                    Some(&screen),
+                );
+            }
+            _ => {}
+        }
         if let TrustDecision::Answer { step } = &decision {
             log::info!(
                 "[directory-trust] Answering directory trust dialog for Tab {} with {}",
@@ -242,6 +309,25 @@ impl ServiceContext {
             );
         }
         owed
+    }
+
+    pub(crate) fn note_directory_trust(
+        &self,
+        tab_id: &str,
+        outcome: &'static str,
+        screen: Option<&str>,
+    ) {
+        let tail = screen.map(screen_tail);
+        let detail = tail.as_deref().map(frame_id).unwrap_or(0);
+        if !LEDGER.lock().note(tab_id, outcome, detail) {
+            return;
+        }
+        log::info!(
+            "[directory-trust] Not answering provisioned Tab {}: {}; screen tail: {}",
+            tab_id,
+            outcome,
+            tail.as_deref().unwrap_or("-")
+        );
     }
 
     pub(crate) fn forget_directory_trust(&self, tab_id: &str) {

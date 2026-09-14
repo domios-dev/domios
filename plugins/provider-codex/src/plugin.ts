@@ -9,6 +9,8 @@ import type {
 import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import {
+  menuPreamble,
+  parseActiveTerminalChoice,
   parseCodexPrompt,
   responseKeysForIndex,
 } from "./prompt";
@@ -159,13 +161,12 @@ const plugin: PluginModule = {
 
   directoryTrustPromptResponse(screen: string): string[] | null {
     const view = String(screen || "");
-    const prompt = parseCodexPrompt(view);
-    if (!prompt) return null;
-    const question = String(prompt.question || "").toLowerCase();
-    if (!question.includes("trust the contents of this directory")) return null;
-    const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[0] : (first as unknown as { label?: string }).label;
-    if (!firstLabel || !/^yes\b/i.test(firstLabel)) return [];
+    const choice = parseActiveTerminalChoice(view);
+    if (!choice) return null;
+    // The trust question is a long paragraph that wraps, so no single row carries it.
+    const preamble = menuPreamble(view, choice.options[0].line).toLowerCase();
+    if (preamble.indexOf("trust the contents of this directory") === -1) return null;
+    if (!/^yes\b/i.test(choice.options[0].label)) return [];
     return responseKeysForIndex(0, view).slice(0, 1);
   },
 
