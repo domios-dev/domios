@@ -1124,6 +1124,49 @@ function buildWizardSubmitResponse(screen) {
   return steps;
 }
 
+// plugins/provider-claude/src/permissionPrompt.ts
+var PERMISSION_PROMPT_RULE = "claude.tool-permission.yes-once";
+var USER_DECISION_TOOLS = ["AskUserQuestion", "ExitPlanMode"];
+function optionLabel(option) {
+  if (Array.isArray(option)) return String(option[0] ?? "");
+  if (option && typeof option === "object") return String(option.label ?? "");
+  return "";
+}
+function trimFrame(text) {
+  return String(text || "").replace(/^[\s│┃]+|[\s│┃]+$/g, "");
+}
+function isDecline(label) {
+  const lower = label.toLowerCase();
+  return lower === "no" || lower.startsWith("no,") || lower.startsWith("no ");
+}
+function claudeAffirmativeOption(toolName, prompt, screen) {
+  const tool = String(toolName || "").trim();
+  if (!tool || USER_DECISION_TOOLS.indexOf(tool) !== -1) return null;
+  if (!prompt || typeof prompt !== "object") return null;
+  const p = prompt;
+  if (p.multiSelect === true || p.multi_select === true) return null;
+  if (p.submitAvailable === true || p.submit_available === true) return null;
+  if (Array.isArray(p.sections) && p.sections.length > 0) return null;
+  const question = trimFrame(String(p.question ?? ""));
+  const view = String(screen || "");
+  if (!question.endsWith("?") || question.toLowerCase().indexOf("trust") !== -1 || view.indexOf(question) === -1) {
+    return null;
+  }
+  const labels = (Array.isArray(p.options) ? p.options : []).map((option) => trimFrame(optionLabel(option)));
+  if (labels.length < 2 || labels[0].toLowerCase() !== "yes") return null;
+  return labels.slice(1).some(isDecline) ? 0 : null;
+}
+function claudePermissionPromptResponse(toolName, prompt, screen) {
+  const view = String(screen || "");
+  const optionIndex = claudeAffirmativeOption(toolName, prompt, view);
+  if (optionIndex === null) return null;
+  return {
+    optionIndex,
+    rule: PERMISSION_PROMPT_RULE,
+    steps: buildClaudePromptResponse(optionIndex, view)
+  };
+}
+
 // plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
@@ -1316,6 +1359,9 @@ var plugin = {
     const isTrustGate = question.includes("trust") && question.includes("project");
     if (!isTrustGate || !firstLabel || !/^yes\b.*trust/i.test(firstLabel)) return null;
     return buildClaudePromptResponse(0, String(screen || ""));
+  },
+  permissionPromptResponse(toolName, prompt, screen) {
+    return claudePermissionPromptResponse(toolName, prompt, screen);
   },
   // Launch command parity for native behavior across OS-specific execution modes.
   buildLaunchCommand(params) {

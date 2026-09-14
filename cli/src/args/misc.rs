@@ -2,6 +2,24 @@ use clap::builder::TypedValueParser;
 use clap::Subcommand;
 use codeterm_types::notification::NotifyLevel;
 
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoConfirmMode {
+    On,
+    Off,
+    Status,
+}
+
+impl AutoConfirmMode {
+    /// HTTP method and body for `/api/tabs/{id}/permission-auto-confirm`.
+    pub fn request(self) -> (&'static str, Option<serde_json::Value>) {
+        match self {
+            Self::On => ("POST", Some(serde_json::json!({ "enabled": true }))),
+            Self::Off => ("POST", Some(serde_json::json!({ "enabled": false }))),
+            Self::Status => ("GET", None),
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum WorkspaceAction {
     /// Show a compact human-readable workspace → Team/Plan → Tab overview
@@ -210,6 +228,15 @@ pub enum TabAction {
     Respond {
         /// One-based option number shown by `tab status` or `tab inspect`.
         option: usize,
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
+    /// Opt a tab in or out of auto-confirming provider permission prompts the provider positively recognizes, or show the setting with recent auto-confirmations. Questions, trust dialogs and unrecognized prompts are never answered
+    AutoConfirm {
+        /// `on`, `off`, or `status`
+        #[arg(value_enum)]
+        mode: AutoConfirmMode,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,

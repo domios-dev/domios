@@ -53,6 +53,14 @@ pub enum PromptDecision {
 
 pub type ParsedPrompt = Option<PendingPrompt>;
 
+/// One hook-reported permission request. The id is unique per report, so an
+/// answer can be bound to exactly the request it was decided for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PermissionRequestInstance {
+    pub id: u64,
+    pub received_at: Instant,
+}
+
 pub use crate::agent::native_prompt::ResolvedPrompt;
 
 /// A scrape-derived parse: provenance is pinned to non-structured at the seam,
@@ -70,6 +78,8 @@ pub struct PromptDetector {
     states: HashMap<String, TabPromptState>,
     /// Last per-tool permission payload a provider reported, kept verbatim.
     permission_requests: HashMap<String, PermissionRequestSignal>,
+    permission_request_instances: HashMap<String, PermissionRequestInstance>,
+    next_permission_request_id: u64,
     cooldown_ms: u64,
 }
 
@@ -78,6 +88,8 @@ impl PromptDetector {
         Self {
             states: HashMap::new(),
             permission_requests: HashMap::new(),
+            permission_request_instances: HashMap::new(),
+            next_permission_request_id: 0,
             cooldown_ms: 500,
         }
     }
@@ -225,6 +237,14 @@ impl PromptDetector {
     ) -> PromptDecision {
         let prompt = signal.to_pending_prompt();
         self.permission_requests.insert(tab_id.to_string(), signal);
+        self.next_permission_request_id += 1;
+        self.permission_request_instances.insert(
+            tab_id.to_string(),
+            PermissionRequestInstance {
+                id: self.next_permission_request_id,
+                received_at: Instant::now(),
+            },
+        );
         match prompt {
             Some(prompt) => self.hook_detected_explicit(tab_id, prompt),
             None => PromptDecision::None,
@@ -237,10 +257,38 @@ impl PromptDetector {
         self.permission_requests.get(tab_id)
     }
 
+    /// The unanswered permission request for a tab, with its report identity.
+    pub fn pending_permission_request(
+        &self,
+        tab_id: &str,
+    ) -> Option<(PermissionRequestInstance, PermissionRequestSignal)> {
+        let instance = *self.permission_request_instances.get(tab_id)?;
+        let signal = self.permission_requests.get(tab_id)?.clone();
+        Some((instance, signal))
+    }
+
+    /// Consume the request only if it is still the exact reported instance.
+    pub fn take_permission_request(
+        &mut self,
+        tab_id: &str,
+        instance_id: u64,
+    ) -> Option<PermissionRequestSignal> {
+        if self.permission_request_instances.get(tab_id)?.id != instance_id {
+            return None;
+        }
+        self.permission_request_instances.remove(tab_id);
+        self.permission_requests.remove(tab_id)
+    }
+
+    fn forget_permission_request(&mut self, tab_id: &str) {
+        self.permission_request_instances.remove(tab_id);
+        self.permission_requests.remove(tab_id);
+    }
+
     /// Called when prompt is cleared via API (test cleanup) — resets to Idle.
     pub fn clear(&mut self, tab_id: &str) {
         self.states.remove(tab_id);
-        self.permission_requests.remove(tab_id);
+        self.forget_permission_request(tab_id);
     }
 
     pub fn hook_detected_parsed(
@@ -276,6 +324,8 @@ impl PromptDetector {
 
     /// Called when user clicks a prompt button — transitions to Cooldown.
     pub fn mark_responded(&mut self, tab_id: &str) {
+        // An answered prompt spends the request that raised it.
+        self.forget_permission_request(tab_id);
         self.states.insert(
             tab_id.to_string(),
             TabPromptState::Cooldown {
@@ -306,7 +356,7 @@ impl PromptDetector {
     /// Remove state for a closed tab.
     pub fn remove_tab(&mut self, tab_id: &str) {
         self.states.remove(tab_id);
-        self.permission_requests.remove(tab_id);
+        self.forget_permission_request(tab_id);
     }
 
     fn transition_from_parsed(
@@ -344,6 +394,7 @@ impl PromptDetector {
                     }
                     None if hook_owned => PromptDecision::None,
                     None => {
+                        self.forget_permission_request(tab_id);
                         self.states.insert(tab_id.to_string(), TabPromptState::Idle);
                         PromptDecision::PromptCleared {
                             tab_id: tab_id.to_string(),
@@ -705,6 +756,52 @@ mod tests {
 
         assert!(tail.len() <= 300);
         assert!(tail.starts_with('b'));
+    }
+
+    fn bash_request() -> PermissionRequestSignal {
+        PermissionRequestSignal {
+            tool_name: "Bash".into(),
+            tool_input: serde_json::json!({"command": "ls"}),
+            permission_suggestions: vec![],
+        }
+    }
+
+    #[test]
+    fn permission_request_instances_are_unique_and_single_shot() {
+        let mut det = PromptDetector::new();
+        det.hook_detected_permission_request("tab-1", bash_request());
+        let (first, _) = det.pending_permission_request("tab-1").expect("pending");
+        det.hook_detected_permission_request("tab-1", bash_request());
+        let (second, signal) = det.pending_permission_request("tab-1").expect("pending");
+        assert_ne!(first.id, second.id);
+        assert_eq!(signal.tool_name, "Bash");
+
+        assert!(det.take_permission_request("tab-1", first.id).is_none());
+        assert!(det.take_permission_request("tab-1", second.id).is_some());
+        assert!(det.take_permission_request("tab-1", second.id).is_none());
+        assert!(det.pending_permission_request("tab-1").is_none());
+    }
+
+    #[test]
+    fn answering_or_stopping_spends_the_permission_request() {
+        let mut det = PromptDetector::new();
+        det.hook_detected_permission_request("tab-1", bash_request());
+        det.mark_responded("tab-1");
+        assert!(det.pending_permission_request("tab-1").is_none());
+
+        det.hook_detected_permission_request("tab-1", bash_request());
+        det.clear("tab-1");
+        assert!(det.pending_permission_request("tab-1").is_none());
+    }
+
+    #[test]
+    fn a_vanished_screen_prompt_spends_the_permission_request() {
+        let mut det = PromptDetector::new();
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
+        det.hook_detected_permission_request("tab-1", bash_request());
+        let decision = det.evaluate_pty_output("tab-1", true, Some("gone"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
+        assert!(det.pending_permission_request("tab-1").is_none());
     }
 
     #[test]

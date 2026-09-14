@@ -157,6 +157,7 @@ affects only what the journal itself can report — it has no effect on restore.
 | `restart_requested` | A restart was accepted; the relaunch opens a new epoch. |
 | `rolled_back` | Authority withdrawn. The operation can never seal afterwards. |
 | `closed` | Tab gone. |
+| `permission_auto_confirm` | Diagnostic audit of opt-in permission auto-confirm: `decision` is `enabled`, `disabled`, `confirmed` (with `tool_name`, `option_label`, `rule`, `question`, `prompt_fingerprint`, `session_id`) or `refused` (with `reason`). Never authority; compaction keeps the newest 20 per tab. |
 
 Each transition is written by the code that commits the mutation, in the same
 operation that performs it. Nothing observes tab state afterwards and infers a

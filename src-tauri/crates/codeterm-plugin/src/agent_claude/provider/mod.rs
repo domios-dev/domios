@@ -11,6 +11,7 @@ pub mod integration;
 mod interactive;
 mod launch;
 pub(crate) mod launch_session;
+mod permission_prompt;
 mod schemas;
 mod sessions;
 mod usage;
@@ -258,6 +259,20 @@ impl AgentProvider for ClaudeProvider {
         }
         steps.push(b"\r".to_vec());
         steps
+    }
+
+    fn permission_prompt_response(
+        &self,
+        tool_name: &str,
+        prompt: &codeterm_types::pty::PendingPrompt,
+        screen: &str,
+    ) -> Option<crate::permission_prompt::PermissionPromptResponse> {
+        let option_index = permission_prompt::affirmative_option(tool_name, prompt, screen)?;
+        Some(crate::permission_prompt::PermissionPromptResponse {
+            option_index,
+            rule: permission_prompt::RULE.to_string(),
+            steps: self.build_prompt_response(option_index, screen),
+        })
     }
 
     fn status_bar_rows(&self) -> u16 {

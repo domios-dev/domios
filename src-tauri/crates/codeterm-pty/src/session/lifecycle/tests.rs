@@ -9,6 +9,8 @@ use crate::session::store::{
     AgentIdentitySnapshot, SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
 
+mod permission_auto_confirm;
+
 fn new_journal() -> (TabLifecycleJournal, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
@@ -106,6 +108,7 @@ fn leaf(tab_id: &str) -> SplitNodeSnapshot {
         depth: 0,
         chat_view: None,
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: crate::multiplexer::types::TabAudience::Automation,
         agent_session_model: None,
         agent_planned_model: None,

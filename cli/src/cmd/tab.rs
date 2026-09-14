@@ -547,6 +547,56 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 });
             handle_result(json, result);
         }
+        TabAction::AutoConfirm { mode, tab } => {
+            let (method, body) = mode.request();
+            match tab.as_deref().map(classify_remote_tab_id) {
+                Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
+                    let path = format!(
+                        "/api/tabs/{}/permission-auto-confirm",
+                        urlencoding::encode(&remote_tab)
+                    );
+                    let body = body.map(|value| value.to_string());
+                    handle_result(
+                        json,
+                        Ok(relay_tab_json(&peer, method, &path, body.as_deref())),
+                    );
+                    return;
+                }
+                Some(RemoteTabTarget::Invalid) => {
+                    exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
+                }
+                _ => {}
+            }
+            let tab_id = resolve_tab(client, tab);
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
+                Ok(client) => client,
+                Err(error) => {
+                    exit_with_cli_error(
+                        json,
+                        &CliError::new(format!("Auto-confirm request failed: {error}")),
+                    );
+                }
+            };
+            let url = format!("{api_url}/api/tabs/{tab_id}/permission-auto-confirm");
+            let request = match body {
+                Some(body) => api.post(url).json(&body),
+                None => api.get(url),
+            };
+            let result = request
+                .send()
+                .map_err(|error| error.to_string())
+                .and_then(|response| {
+                    let status = response.status();
+                    let body = response.text().unwrap_or_default();
+                    if status.is_success() {
+                        serde_json::from_str(&body).map_err(|error| error.to_string())
+                    } else {
+                        Err(format!("HTTP {}: {body}", status.as_u16()))
+                    }
+                });
+            handle_result(json, result);
+        }
         TabAction::Rebind { session_id, tab } => {
             match tab.as_deref().map(classify_remote_tab_id) {
                 Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
@@ -849,6 +899,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         | TabAction::Exec { tab, .. }
         | TabAction::Status { tab }
         | TabAction::Respond { tab, .. }
+        | TabAction::AutoConfirm { tab, .. }
         | TabAction::Rebind { tab, .. }
         | TabAction::Repair { tab, .. }
         | TabAction::Stop { tab }

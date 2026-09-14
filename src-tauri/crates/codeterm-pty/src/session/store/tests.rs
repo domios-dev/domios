@@ -231,6 +231,7 @@ fn leaf(id: &str) -> SplitNodeSnapshot {
         depth: 0,
         chat_view: None,
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: legacy_snapshot_audience(),
         agent_session_model: None,
         agent_planned_model: None,

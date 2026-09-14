@@ -31,6 +31,11 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
+import {
+  AutoConfirmedPromptRows,
+  PermissionAutoConfirmToggle,
+  autoConfirmationsForSession,
+} from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
@@ -151,6 +156,8 @@ export function TabSessionChat({
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
+  const autoConfirmEnabled = tab?.permission_auto_confirm === true;
+  const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
 
@@ -265,6 +272,14 @@ export function TabSessionChat({
         .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
     },
     [pendingPrompt, tabId, showComposerError],
+  );
+
+  const handleToggleAutoConfirm = useCallback(
+    (enabled: boolean) => {
+      void invoke("mux_set_permission_auto_confirm", { tabId, enabled })
+        .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
+    },
+    [tabId, showComposerError],
   );
 
   // input path the composer uses; jump surfaces the live terminal output.
@@ -625,6 +640,7 @@ export function TabSessionChat({
     && !chatLoading
     && renderedEnrichedMessages.length === 0
     && outboundReports.length === 0
+    && autoConfirmations.length === 0
     && !inlinePrompt;
 
   return (
@@ -760,6 +776,7 @@ export function TabSessionChat({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
         />
+        <AutoConfirmedPromptRows records={autoConfirmations} />
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
         </div>
       </div>
@@ -795,6 +812,11 @@ export function TabSessionChat({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
         />
+        {tabProvider && !effectiveChatBackend && (
+          <div className="mx-auto flex w-full max-w-4xl justify-end pt-1">
+            <PermissionAutoConfirmToggle enabled={autoConfirmEnabled} onToggle={handleToggleAutoConfirm} />
+          </div>
+        )}
         {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}

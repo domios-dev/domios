@@ -174,7 +174,7 @@ pub async fn hook_permission(
                 .prompt_detector
                 .lock()
                 .hook_detected_permission_request(&tab_id, signal);
-            state.svc.apply_prompt_decision(&decision);
+            state.svc.apply_hook_prompt_decision(&tab_id, &decision);
             return Ok(Json(serde_json::json!({"ok": true, "ingested": true})));
         }
     }
@@ -291,7 +291,7 @@ pub async fn hook_permission(
         }
     };
 
-    state.svc.apply_prompt_decision(&decision);
+    state.svc.apply_hook_prompt_decision(&tab_id, &decision);
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
