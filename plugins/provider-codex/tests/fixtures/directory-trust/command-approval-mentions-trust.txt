@@ -1,0 +1,10 @@
+  Would you like to run the following command?
+
+  Reason: confirm whether you trust the contents of this directory before editing
+
+  $ Get-ChildItem -Force
+
+> 1. Yes, proceed
+  2. No, and tell Codex what to do differently
+
+  Press enter to confirm or esc to cancel

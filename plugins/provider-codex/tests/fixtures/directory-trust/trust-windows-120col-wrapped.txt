@@ -1,0 +1,15 @@
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+PS C:\Users\User\.codeterm-dev\provisioned-workspaces\qa-trust-7924-8e6bfdd6011e> codex --dangerously-bypass-approvals-an
+d-sandbox --profile $ctProfileName -- 'Execute the CodeTerm task provided in the developer instructions.'
+
+> You are in C:\Users\User\.codeterm-dev\provisioned-workspaces\qa-trust-7924-8e6bfdd6011e
+
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
+
+> 1. Yes, continue
+  2. No, quit
+
+  Press enter to continue

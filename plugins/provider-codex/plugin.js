@@ -417,6 +417,17 @@ function parseActiveTerminalChoice(screen) {
   if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
   return { question: questionForMenu(lines, options[0].line), options };
 }
+function menuPreamble(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  let i = firstOptionLine - 1;
+  while (i >= 0 && !lines[i].trim()) i--;
+  const parts = [];
+  while (i >= 0 && lines[i].trim()) {
+    parts.unshift(lines[i].trim());
+    i--;
+  }
+  return parts.join(" ");
+}
 function parseCodexPromptShape(screen) {
   return parseCodexNumberedMenu(screen) || parseCodexLetteredPrompt(screen) || parseCodexNumberedQuestion(screen);
 }
@@ -2485,13 +2496,11 @@ var plugin = {
   },
   directoryTrustPromptResponse(screen) {
     const view = String(screen || "");
-    const prompt = parseCodexPrompt(view);
-    if (!prompt) return null;
-    const question = String(prompt.question || "").toLowerCase();
-    if (!question.includes("trust the contents of this directory")) return null;
-    const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[0] : first.label;
-    if (!firstLabel || !/^yes\b/i.test(firstLabel)) return [];
+    const choice = parseActiveTerminalChoice(view);
+    if (!choice) return null;
+    const preamble = menuPreamble(view, choice.options[0].line).toLowerCase();
+    if (preamble.indexOf("trust the contents of this directory") === -1) return null;
+    if (!/^yes\b/i.test(choice.options[0].label)) return [];
     return responseKeysForIndex(0, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
