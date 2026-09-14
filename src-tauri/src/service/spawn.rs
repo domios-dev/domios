@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::orchestrator::{build_agent_command, launch_agent_in_background_with_env};
+use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
@@ -657,16 +657,14 @@ impl ServiceContext {
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = build_agent_command(
+        let launch_cmd = visible_agent_launch_command(
+            &tab_id,
             &agent_cmd,
             &legacy_params,
             role_suffixed_task.as_deref(),
             launch_session_id.as_deref(),
-            &self.agent_registry,
-        );
-        let launch_cmd = super::worker_lane::compose_launch_with_setup(
             agent.lane_setup_command.as_deref(),
-            launch_cmd,
+            &self.agent_registry,
         );
         launch_agent_in_background_with_env(
             self.clone(),
@@ -1092,6 +1090,30 @@ impl ServiceContext {
     }
 }
 
+/// A visible launch carries a minted marker so a hook-less provider still binds
+/// its own session, and lane setup runs before it.
+fn visible_agent_launch_command(
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    lane_setup_command: Option<&str>,
+    registry: &AgentRegistry,
+) -> String {
+    super::worker_lane::compose_launch_with_setup(
+        lane_setup_command,
+        super::launch_session_detection::marked_agent_command(
+            tab_id,
+            agent_cmd,
+            params,
+            task,
+            injected_session_id,
+            registry,
+        ),
+    )
+}
+
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod tests;
@@ -1099,3 +1121,7 @@ mod tests;
 #[cfg(test)]
 #[path = "spawn_tests_chatbackend.rs"]
 mod tests_chatbackend;
+
+#[cfg(test)]
+#[path = "spawn_launch_marker_tests.rs"]
+mod launch_marker_tests;
