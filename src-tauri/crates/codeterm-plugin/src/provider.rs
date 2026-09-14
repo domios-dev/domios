@@ -580,6 +580,12 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// This provider's own record for exactly `session_id`; `None` when it does
+    /// not own the id. Never walks session history, never guesses by cwd or recency.
+    fn find_session(&self, _session_id: &str) -> Option<SessionMetadata> {
+        None
+    }
+
     /// Extract conversation messages from a session file produced by this
     /// provider. Called by the search pipeline for each candidate session;
     /// returning `vec![]` means this provider can't participate in content
