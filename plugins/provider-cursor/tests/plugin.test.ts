@@ -517,6 +517,48 @@ console.log("\n--- enumerateSessions (walk ~/.cursor/projects agent-transcripts)
   eq(sessions[0].createdTs, Math.floor(1781885008048 / 1000), "createdTs from file stat (unix seconds)");
 }
 
+console.log("\n--- findSession (exact agent-transcripts/<id>/<id>.jsonl probe) ---\n");
+{
+  const sid = "cbf7919a-ce25-423d-8e18-1aaae2d82701";
+  const projects = "/tmp/home/.cursor/projects";
+  const sessionDir = `${projects}/Users-u-proj/agent-transcripts/${sid}`;
+  const transcript = `${sessionDir}/${sid}.jsonl`;
+  const listed: string[] = [];
+  const p = loadCursorWithHost(baseHost({
+    fs: {
+      ...baseHost({}).fs,
+      fileExists: (value: string) => value === projects || value === transcript || value === "/Users/u/proj",
+      readDir: (dir: string) => {
+        listed.push(dir);
+        if (dir === projects) {
+          return [
+            { name: "other", path: `${projects}/other`, isFile: false, isDir: true },
+            { name: "Users-u-proj", path: `${projects}/Users-u-proj`, isFile: false, isDir: true },
+          ];
+        }
+        if (dir === sessionDir) {
+          return [{ name: `${sid}.jsonl`, path: transcript, isFile: true, isDir: false, createdMs: 1781885008048, modifiedMs: 1781885033657 }];
+        }
+        return [];
+      },
+      walkDir: () => { throw new Error("findSession must not walk session history"); },
+    },
+  }));
+  eq(p.findSession(sid), {
+    sessionId: sid,
+    provider: "cursor",
+    projectPath: "/Users/u/proj",
+    title: null,
+    summary: null,
+    filePath: transcript,
+    createdTs: 1781885008,
+    modifiedTs: 1781885033,
+  }, "findSession resolves the owning transcript with the enumerated record shape");
+  eq(listed, [projects, sessionDir], "only the projects root and the owning session dir are listed");
+  eq(p.findSession("dddddddd-0000-4000-8000-000000000000"), null, "an id without a transcript is not owned");
+  eq(p.findSession(`../escape/${sid}`), null, "a path-like id is refused");
+}
+
 console.log("\n--- chat path: JSONL tailer, not structured ---\n");
 {
   const p = loadCursorWithHost(baseHost({}));

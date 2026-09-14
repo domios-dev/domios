@@ -32,6 +32,7 @@ import {
   detectSessionModel as detectCodexSessionModel,
   enumerateSessions as enumerateCodexSessions,
   extractSessionUuid,
+  findSession as findCodexSession,
   sessionFilePath as resolveCodexSessionFilePath,
   sessionExists as codexSessionExists,
 } from "./sessions";
@@ -490,6 +491,10 @@ const plugin: PluginModule = {
 
   enumerateSessions(): unknown[] {
     return enumerateCodexSessions();
+  },
+
+  findSession(sessionId: string): unknown | null {
+    return findCodexSession(sessionId);
   },
 
   // Read the exact model identity from this session's latest turn context.

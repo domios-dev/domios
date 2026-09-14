@@ -128,8 +128,8 @@ pub async fn search_sessions_api(
     Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
-/// Session lookup enumerates every provider's on-disk history, so it belongs on
-/// the blocking pool for the same reason `search_sessions_api` does.
+/// Exact-id lookup still reads provider stores (files, sqlite, plugin VMs), so it
+/// stays on the blocking pool rather than the async runtime.
 async fn find_session_off_runtime(
     state: &AppState,
     session_id: &str,
