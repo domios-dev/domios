@@ -191,7 +191,8 @@ export interface AgentProvider {
   /** Implement only when a resumed session drops the launch-time system prompt. */
   buildResumeCommandWithContext?(params: ResumeParams): string;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
-  directoryTrustPromptResponse?(prompt: ParsedPrompt, screen?: string): string[] | null;
+  /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
+  directoryTrustPromptResponse?(screen: string): string[] | null;
   /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */
   permissionPromptResponse?(
     toolName: string,

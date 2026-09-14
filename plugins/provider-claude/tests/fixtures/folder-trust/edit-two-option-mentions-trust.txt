@@ -1,0 +1,14 @@
+────────────────────────────────────────────────────────────────────────────────
+ Edit file
+ /srv/app/src/trust_store.rs
+
+   12  fn trust_level() -> Level {
+   13 -    Level::Low
+   13 +    Level::Verified
+   14  }
+
+ Do you want to make this edit to trust_store.rs?
+ ❯ 1. Yes
+   2. No, and tell Claude what to do differently (esc)
+
+ Esc to cancel

@@ -31,7 +31,10 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ("extractSessionName", "none"),
     ("parsePrompt", "universal permission-prompt parser"),
     ("buildPromptResponse", "arrow-down + enter"),
-    ("directoryTrustPromptResponse", "none"),
+    (
+        "directoryTrustPromptResponse",
+        "none — directory-trust dialogs stay with the user",
+    ),
     (
         "permissionPromptResponse",
         "none — permission prompts are never auto-confirmed",

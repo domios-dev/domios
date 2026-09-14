@@ -113,6 +113,7 @@ impl ServiceContext {
             shell_nonce,
             tab_cwd,
             agent_session_id,
+            directory_trust_eligible,
         ) = {
             let mux = self.mux.read();
             let pid = mux.tab_id_for_pty(pty_id);
@@ -123,7 +124,8 @@ impl ServiceContext {
             let nonce = tab.and_then(|p| p.shell_integration_nonce.clone());
             let cwd = tab.and_then(|p| p.cwd.clone());
             let sid = tab.and_then(|p| p.agent_session_id.clone());
-            (pid, at, active_prompt, auto_approve, nonce, cwd, sid)
+            let trust = tab.is_some_and(super::directory_trust::directory_trust_check_applies);
+            (pid, at, active_prompt, auto_approve, nonce, cwd, sid, trust)
         };
 
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
@@ -194,6 +196,10 @@ impl ServiceContext {
 
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
             self.maybe_detect_agent_session(pid, at);
+            if directory_trust_eligible {
+                let screen = self.screen_state.lock().get_screen_text(pty_id);
+                self.respond_to_directory_trust(pid, screen.as_deref());
+            }
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
@@ -633,7 +639,7 @@ impl ServiceContext {
             PromptDecision::None => {}
             PromptDecision::NewPrompt { tab_id, prompt }
             | PromptDecision::PromptUpdated { tab_id, prompt } => {
-                let (auto_approve, agent_type, pty_id, is_general_tab) = {
+                let (auto_approve, agent_type, pty_id, is_general_tab, session_authenticated) = {
                     let mux = self.mux.read();
                     let is_general_tab = mux
                         .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
@@ -645,42 +651,15 @@ impl ServiceContext {
                         tab.and_then(|p| p.agent_type.clone()),
                         tab.and_then(|p| p.pty_id.clone()),
                         is_general_tab,
+                        tab.is_some_and(|p| p.launch_session_authenticated()),
                     )
                 };
 
+                let trust = self.respond_to_directory_trust(tab_id, screen_text);
+                if trust.owns_prompt() {
+                    return;
+                }
                 if auto_approve {
-                    let directory_trust = agent_type.as_deref().and_then(|provider| {
-                        self.agent_registry
-                            .with_provider(provider, |provider| {
-                                provider.directory_trust_prompt_response(
-                                    prompt,
-                                    screen_text.unwrap_or(""),
-                                )
-                            })
-                            .flatten()
-                    });
-                    if let Some(response) = directory_trust {
-                        let provenance = {
-                            let mux = self.mux.read();
-                            mux.get_tab(tab_id)
-                                .map(crate::service::directory_trust::directory_trust_provenance)
-                        };
-                        match provenance {
-                            Some(Ok(())) => {
-                                self.prompt_detector.lock().mark_responded(tab_id);
-                                if let Some(pty_id) = pty_id {
-                                    write_prompt_steps(self.pty.clone(), pty_id, response.steps);
-                                }
-                            }
-                            Some(Err(refusal)) => log::info!(
-                                "[directory-trust] Left directory trust prompt open for Tab {}: {}",
-                                tab_id,
-                                refusal.reason()
-                            ),
-                            None => {}
-                        }
-                        return;
-                    }
                     if is_general_tab {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
@@ -718,7 +697,18 @@ impl ServiceContext {
                         }
                     }
 
-                    if let Some(response) = legacy_auto_approve_response(prompt) {
+                    let structured_prompt =
+                        crate::service::structured_prompt::pending_for_tab(tab_id)
+                            .is_some_and(|structured| &structured == prompt);
+                    let legacy_permitted = super::directory_trust::legacy_auto_approve_permitted(
+                        &trust,
+                        session_authenticated,
+                        structured_prompt,
+                    );
+                    if let Some(response) = legacy_permitted
+                        .then(|| legacy_auto_approve_response(prompt))
+                        .flatten()
+                    {
                         log::info!(
                             "[auto-approve] Auto-approving {} prompt for Tab {}",
                             response.kind,
@@ -829,12 +819,12 @@ fn should_heuristically_detect_session(
     has_no_injection && !has_hooks && !uses_structured_chat
 }
 
-struct LegacyAutoApproveResponse {
+pub(super) struct LegacyAutoApproveResponse {
     kind: &'static str,
     bytes: Vec<u8>,
 }
 
-fn legacy_auto_approve_response(
+pub(super) fn legacy_auto_approve_response(
     prompt: &crate::multiplexer::types::PendingPrompt,
 ) -> Option<LegacyAutoApproveResponse> {
     let is_yes_no = prompt.options.iter().any(|o| {
