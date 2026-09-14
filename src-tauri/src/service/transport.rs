@@ -142,6 +142,7 @@ impl AgentTransport for PtyTransport {
             skip_permissions: ctx.skip_permissions,
             session_id: None,
             structured_prompt_server,
+            launch_marker: None,
         };
         let launch_command = svc
             .agent_registry

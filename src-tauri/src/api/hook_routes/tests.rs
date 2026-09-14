@@ -101,6 +101,7 @@ impl AgentProvider for HookProvider {
     }
 }
 
+mod launch_detection_tests;
 mod permission_request_tests;
 mod rebind_provider_tests;
 mod roster_tests;

@@ -512,10 +512,10 @@ impl ServiceContext {
         }
     }
 
-    /// Post-launch detection is limited to hookless, file-backed providers.
-    /// Structured sessions require authoritative per-launch provider binding.
+    /// Heuristic detection is limited to hookless, file-backed providers. A
+    /// hooked provider that missed its launch deadline reads its own launch record.
     fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
-        let (cwd, set_at_elapsed, current_session) = {
+        let (cwd, set_at_elapsed, current_session, deadline_elapsed) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
@@ -523,25 +523,38 @@ impl ServiceContext {
             let cwd = tab.cwd.clone().unwrap_or_default();
             let elapsed = tab.agent_set_at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
             let sid = tab.agent_session_id.clone();
-            (cwd, elapsed, sid)
+            let deadline_elapsed = tab.boot_stage
+                == Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed)
+                || tab.agent_set_at.is_some_and(|set_at| {
+                    set_at.elapsed() >= crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+                });
+            (cwd, elapsed, sid, deadline_elapsed)
         };
         if !should_detect_unbound_session(current_session.as_deref()) {
             return;
         }
-        if cwd.is_empty() {
-            return;
-        }
-        let needs = self
+        let (heuristic, hooked) = self
             .agent_registry
             .with_provider(agent_type, |p| {
                 let inj = matches!(
                     p.session_id_injection(),
                     crate::agent::provider::SessionIdInjection::None
                 );
-                should_heuristically_detect_session(inj, p.has_hooks(), p.uses_structured_chat())
+                (
+                    should_heuristically_detect_session(
+                        inj,
+                        p.has_hooks(),
+                        p.uses_structured_chat(),
+                    ),
+                    p.has_hooks(),
+                )
             })
-            .unwrap_or(false);
-        if !needs {
+            .unwrap_or((false, false));
+        let launch_detection = !heuristic && hooked && deadline_elapsed;
+        if !heuristic && !launch_detection {
+            return;
+        }
+        if !launch_detection && cwd.is_empty() {
             return;
         }
         // Throttle: at most once per second per tab.
@@ -554,6 +567,10 @@ impl ServiceContext {
                 }
             }
             cd.insert(tab_id.to_string(), now);
+        }
+        if launch_detection {
+            self.detect_unbound_launch_session(tab_id);
+            return;
         }
 
         let exclude = self.mux.read().other_session_ids(tab_id);

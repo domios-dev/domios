@@ -10,6 +10,7 @@ pub mod hook_ownership;
 pub mod integration;
 mod interactive;
 mod launch;
+pub(crate) mod launch_session;
 mod schemas;
 mod sessions;
 mod usage;
@@ -82,6 +83,13 @@ impl AgentProvider for ClaudeProvider {
     fn session_id_injection(&self) -> SessionIdInjection {
         // Claude Code 2.1.x writes no transcript for a fresh interactive --session-id launch — let it pick its own id, we detect it after launch.
         SessionIdInjection::None
+    }
+
+    fn detect_launch_session(
+        &self,
+        evidence: &crate::provider::LaunchSessionEvidence,
+    ) -> Option<crate::provider::LaunchSessionDetection> {
+        launch_session::detect_launch_session(evidence)
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
