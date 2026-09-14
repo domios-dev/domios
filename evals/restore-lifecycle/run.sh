@@ -21,12 +21,12 @@ RL_CODEX_MODEL="${RL_CODEX_MODEL:-}"
 
 RUN_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex[:10])')"
 WORKSPACE_NAME="RESTORE-LIFECYCLE-$RUN_ID"
-if is_windows; then WORKSPACE_CWD="C:/temp/$WORKSPACE_NAME"; else WORKSPACE_CWD="/tmp/$WORKSPACE_NAME"; fi
 RUN_DIR="$EVAL_LIB_OUT_BASE/restore-lifecycle-$RUN_ID"
-mkdir -p "$RUN_DIR" "$WORKSPACE_CWD"
+mkdir -p "$RUN_DIR"
 
 SUCCESS=0
 WORKSPACE_ID=""
+WORKSPACE_CWD=""
 TEAM_ID=""
 PLAN_BASELINE="$RUN_DIR/plans-before.txt"
 
@@ -175,9 +175,10 @@ echo "== models claude=${CLAUDE_MODEL:-default} codex=${CODEX_MODEL:-default}"
 claude_spec="claude${CLAUDE_MODEL:+:$CLAUDE_MODEL}"
 codex_spec="codex${CODEX_MODEL:+:$CODEX_MODEL}"
 
-echo "== create workspace $WORKSPACE_NAME"
-WORKSPACE_ID="$(new_workspace "$WORKSPACE_NAME" "$WORKSPACE_CWD")"
-[ -n "$WORKSPACE_ID" ] || fail "could not create workspace"
+echo "== create provisioned workspace $WORKSPACE_NAME"
+IFS=$'\t' read -r WORKSPACE_ID WORKSPACE_CWD <<< "$(new_provisioned_workspace "$WORKSPACE_NAME")"
+[ -n "$WORKSPACE_ID" ] && [ -n "$WORKSPACE_CWD" ] || fail "could not create provisioned workspace"
+echo "== workspace $WORKSPACE_ID provisioned at $WORKSPACE_CWD"
 
 echo "== team pair: claude orchestrator + codex planner"
 PAIR="$(cli_json team-pair dc team pair --orchestrator "$claude_spec" --planner "$codex_spec" \
@@ -200,7 +201,7 @@ if not isinstance(teams, list) or not any(isinstance(t, dict) and team_id in (t.
 ' "$TEAM_ID" || exit 1
 
 echo "== spawn Team workers and standalone agents"
-mkdir -p "$WORKSPACE_CWD/claude-worker" "$WORKSPACE_CWD/codex-worker" "$WORKSPACE_CWD/standalone" "$WORKSPACE_CWD/shell"
+# No --cwd: every tab inherits the daemon-created workspace directory, the only cwd with trust provenance.
 spawn_member() {
   local label="$1" expected_model="$2"; shift 2
   local out tab
@@ -210,15 +211,15 @@ spawn_member() {
   printf '%s' "$tab"
 }
 CLAUDE_WORKER="$(spawn_member spawn-claude-worker "$CLAUDE_MODEL" dc --as-tab "$ORCH" agent spawn claude \
-  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/claude-worker" \
+  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" \
   --title rl-claude-worker ${CLAUDE_MODEL:+--model "$CLAUDE_MODEL"} --non-user-facing)" || exit 1
 CODEX_WORKER="$(spawn_member spawn-codex-worker "$CODEX_MODEL" dc --as-tab "$ORCH" agent spawn codex \
-  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/codex-worker" \
+  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" \
   --title rl-codex-worker ${CODEX_MODEL:+--model "$CODEX_MODEL"} --non-user-facing)" || exit 1
 STANDALONE="$(spawn_member spawn-standalone "$CLAUDE_MODEL" dc agent spawn claude \
-  --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/standalone" --title rl-standalone \
+  --workspace "$WORKSPACE_ID" --title rl-standalone \
   ${CLAUDE_MODEL:+--model "$CLAUDE_MODEL"} --non-user-facing)" || exit 1
-SHELL_OUT="$(cli_json spawn-shell dc tab new --workspace "$WORKSPACE_ID" --cwd "$WORKSPACE_CWD/shell" --title rl-shell --json)" || exit 1
+SHELL_OUT="$(cli_json spawn-shell dc tab new --workspace "$WORKSPACE_ID" --title rl-shell --json)" || exit 1
 SHELL_TAB="$(printf '%s' "$SHELL_OUT" | json_get spawn-shell tab_id)" || exit 1
 
 AGENTS=("$ORCH" "$PLANNER" "$CLAUDE_WORKER" "$CODEX_WORKER" "$STANDALONE")

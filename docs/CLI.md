@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -3134,10 +3134,11 @@ Close/delete a workspace
 
 #### `codeterm workspace create`
 
-Create a new workspace. With --cwd, reuses an existing workspace at that cwd
+Create a new workspace. With --cwd, reuses an existing workspace at that cwd. With --provision, the daemon creates a fresh directory for it
 
 - `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
 - `<name>` — Workspace name
+- `--provision` — Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust
 
 #### `codeterm workspace current`
 

@@ -73,6 +73,14 @@ impl CommandPort for ServiceContext {
         ServiceContext::create_workspace(self, name, cwd, activate)
     }
 
+    fn create_provisioned_workspace(
+        &self,
+        name: String,
+        activate: bool,
+    ) -> Result<WorkspaceInfo, String> {
+        ServiceContext::create_provisioned_workspace(self, name, activate)
+    }
+
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String> {
         ServiceContext::rename_workspace(self, ws_id, name)
     }

@@ -11,6 +11,9 @@ pub struct Workspace {
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Directory the daemon created for this workspace; host provenance, never wire input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provisioned_cwd: Option<String>,
     /// Protected workspaces cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
