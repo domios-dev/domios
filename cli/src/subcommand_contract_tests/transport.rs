@@ -134,6 +134,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Rest,
     ),
     (
+        "integration",
+        &["codeterm", "integration", "status", "--provider", "codex"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Rest,
+    ),
+    (
         "theme",
         &["codeterm", "theme", "list"],
         Local::Socket,

@@ -149,17 +149,56 @@ pub async fn check_hooks_api(
     Ok(Json(status))
 }
 
+#[derive(serde::Deserialize)]
+pub struct InstallHooksQuery {
+    pub provider: String,
+    #[serde(default)]
+    pub precompact_memory_export: bool,
+}
+
+/// An authenticated install request is the user's consent: it is recorded like
+/// the Settings install, and the install grants trust to CodeTerm's own hooks.
 pub async fn install_hooks_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let _ = q;
-    Err((
-        StatusCode::FORBIDDEN,
-        "Global provider integration install requires review in the local Settings UI",
-    ))
+    axum::extract::Query(q): axum::extract::Query<InstallHooksQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    if state
+        .svc
+        .agent_registry
+        .with_provider(&q.provider, |_| ())
+        .is_none()
+    {
+        return Err((StatusCode::NOT_FOUND, "Unknown provider".to_string()));
+    }
+    let registry = state.svc.agent_registry.clone();
+    let config = state.config.clone();
+    let api_port = state.api_port;
+    let provider_id = q.provider.clone();
+    let precompact = q.precompact_memory_export;
+    tokio::task::spawn_blocking(move || {
+        crate::commands::install_provider_integration_with_consent(
+            &registry,
+            &config,
+            provider_id,
+            api_port,
+            precompact,
+        )
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    let status = state
+        .svc
+        .agent_registry
+        .with_provider(&q.provider, |p| p.check_integration())
+        .unwrap_or(serde_json::Value::Null);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "provider": q.provider,
+        "status": status,
+    })))
 }
 
 pub async fn uninstall_hooks_api(
