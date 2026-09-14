@@ -760,6 +760,7 @@ impl ServiceContext {
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
+                tab.provisioned_cwd = agent.provisioned_cwd.clone();
                 persist_model_launch_identity(
                     tab,
                     agent.planned_model.as_deref(),

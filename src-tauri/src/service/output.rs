@@ -643,24 +643,24 @@ impl ServiceContext {
                             .flatten()
                     });
                     if let Some(response) = directory_trust {
-                        let exact_provenance = {
+                        let provenance = {
                             let mux = self.mux.read();
-                            mux.get_tab(tab_id).is_some_and(|tab| {
-                                tab.provisioned_cwd.as_deref().is_some_and(|provisioned| {
-                                    tab.cwd.as_deref().is_some_and(|cwd| {
-                                        crate::service::ServiceContext::paths_equal(
-                                            cwd,
-                                            provisioned,
-                                        )
-                                    })
-                                })
-                            })
+                            mux.get_tab(tab_id)
+                                .map(crate::service::directory_trust::directory_trust_provenance)
                         };
-                        if exact_provenance {
-                            self.prompt_detector.lock().mark_responded(tab_id);
-                            if let Some(pty_id) = pty_id {
-                                write_prompt_steps(self.pty.clone(), pty_id, response.steps);
+                        match provenance {
+                            Some(Ok(())) => {
+                                self.prompt_detector.lock().mark_responded(tab_id);
+                                if let Some(pty_id) = pty_id {
+                                    write_prompt_steps(self.pty.clone(), pty_id, response.steps);
+                                }
                             }
+                            Some(Err(refusal)) => log::info!(
+                                "[directory-trust] Left directory trust prompt open for Tab {}: {}",
+                                tab_id,
+                                refusal.reason()
+                            ),
+                            None => {}
                         }
                         return;
                     }
