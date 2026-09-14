@@ -42,16 +42,63 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-impl ServiceContext {
-    /// The inert marker one launch command carries into provider-visible text.
-    pub(crate) fn mint_launch_marker(&self, tab_id: &str) -> String {
-        let marker = format!("ct-launch-{}", uuid::Uuid::new_v4().simple());
-        LAUNCH_MARKERS
-            .lock()
-            .insert(tab_id.to_string(), marker.clone());
-        marker
-    }
+fn mint_launch_marker(tab_id: &str) -> String {
+    let marker = format!("ct-launch-{}", uuid::Uuid::new_v4().simple());
+    LAUNCH_MARKERS
+        .lock()
+        .insert(tab_id.to_string(), marker.clone());
+    marker
+}
 
+/// A launch command carrying the inert marker this launch registers for its
+/// tab. Minted for every provider; the provider alone decides whether to use it.
+pub(crate) fn marked_agent_command(
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &crate::agent::registry::AgentRegistry,
+) -> String {
+    let marker = mint_launch_marker(tab_id);
+    super::orchestrator::build_agent_command_with_launch_marker(
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+        Some(&marker),
+    )
+}
+
+/// Gives hand-built fresh launch params a marker minted and registered for this tab.
+pub(crate) fn mark_fresh_launch(
+    tab_id: &str,
+    params: &mut crate::agent::provider::AgentLaunchParams,
+) {
+    params.launch_marker = Some(mint_launch_marker(tab_id));
+}
+
+/// The provider's stub-aware fresh launch command for hand-built params,
+/// carrying this tab's marker.
+pub(crate) fn marked_provider_launch_command(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    tab_id: &str,
+    params: &mut crate::agent::provider::AgentLaunchParams,
+) -> Option<String> {
+    mark_fresh_launch(tab_id, params);
+    registry.with_provider(provider_id, |provider| {
+        crate::agent::stub_launch::apply(provider_id, provider.build_launch_command(params))
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn registered_launch_marker(tab_id: &str) -> Option<String> {
+    LAUNCH_MARKERS.lock().get(tab_id).cloned()
+}
+
+impl ServiceContext {
     /// One detection per tab at a time. Detection itself refuses a bound tab,
     /// and the commit refuses a launch the tab has since rotated.
     pub(crate) fn detect_unbound_launch_session(&self, tab_id: &str) {
@@ -188,5 +235,74 @@ mod tests {
             binding_source(LaunchSessionSource::PidRegistry),
             BindingSource::Hook
         );
+    }
+
+    #[test]
+    fn marked_agent_command_carries_the_marker_its_tab_currently_holds() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "marked",
+        )));
+        let params = crate::service::SpawnAgentParams {
+            agent: Some("marked".into()),
+            ..Default::default()
+        };
+
+        let first = marked_agent_command("tab-marked", "marked", &params, None, None, &registry);
+        let first_marker = registered_launch_marker("tab-marked").expect("first marker");
+        assert!(!first_marker.is_empty());
+        assert_eq!(first, format!("marked-cli --launch-marker {first_marker}"));
+
+        let relaunch = marked_agent_command("tab-marked", "marked", &params, None, None, &registry);
+        let relaunch_marker = registered_launch_marker("tab-marked").expect("relaunch marker");
+        assert_ne!(relaunch_marker, first_marker);
+        assert_eq!(
+            relaunch,
+            format!("marked-cli --launch-marker {relaunch_marker}")
+        );
+    }
+
+    #[test]
+    fn marked_provider_launch_command_hands_every_fresh_launch_its_tabs_marker() {
+        use crate::agent::provider::AgentLaunchParams;
+
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "direct",
+        )));
+        let cases = [
+            ("tab-direct-plain", AgentLaunchParams::default()),
+            (
+                "tab-direct-task",
+                AgentLaunchParams {
+                    task: Some("fixture task".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tab-direct-injected",
+                AgentLaunchParams {
+                    session_id: Some("injected-session".into()),
+                    ..Default::default()
+                },
+            ),
+        ];
+
+        for (tab_id, mut params) in cases {
+            let command = marked_provider_launch_command(&registry, "direct", tab_id, &mut params)
+                .expect("registered provider builds a command");
+            let marker = registered_launch_marker(tab_id).expect("tab registers its marker");
+            assert_eq!(params.launch_marker.as_deref(), Some(marker.as_str()));
+            assert_eq!(command, format!("direct-cli --launch-marker {marker}"));
+        }
+    }
+
+    #[test]
+    fn mark_fresh_launch_registers_the_marker_it_hands_the_params() {
+        let mut params = crate::agent::provider::AgentLaunchParams::default();
+        mark_fresh_launch("tab-mark-only", &mut params);
+        let marker = registered_launch_marker("tab-mark-only").expect("registered marker");
+        assert!(!marker.is_empty());
+        assert_eq!(params.launch_marker, Some(marker));
     }
 }

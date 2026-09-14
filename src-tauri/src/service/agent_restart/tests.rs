@@ -194,7 +194,7 @@ fn build_relaunch_falls_back_to_fresh_when_session_stale() {
         false,
         None,
         None,
-        None,
+        "tab-restart",
     )
     .expect("fallback launch command");
     assert!(!command.contains("--resume"));
@@ -212,7 +212,7 @@ fn build_relaunch_uses_resume_when_session_present() {
         true,
         None,
         None,
-        None,
+        "tab-restart",
     )
     .expect("resume command");
     assert!(command.contains("--resume"));
@@ -230,7 +230,7 @@ fn build_relaunch_unknown_provider_returns_none() {
         false,
         None,
         None,
-        None,
+        "tab-restart",
     )
     .is_none());
 }
@@ -299,7 +299,7 @@ fn build_relaunch_uses_resolved_full_access() {
         true,
         None,
         None,
-        None,
+        "tab-restart",
     )
     .expect("resume command");
     assert!(resume.contains("--dangerously-skip-permissions"));
@@ -312,7 +312,7 @@ fn build_relaunch_uses_resolved_full_access() {
         false,
         None,
         None,
-        None,
+        "tab-restart",
     )
     .expect("fresh command");
     assert!(fresh.contains("--dangerously-skip-permissions"));
@@ -325,7 +325,7 @@ fn build_relaunch_uses_resolved_full_access() {
         true,
         None,
         None,
-        None,
+        "tab-restart",
     )
     .expect("restricted resume command");
     assert!(!restricted.contains("--dangerously-skip-permissions"));
@@ -355,7 +355,7 @@ fn agent_restart_access_does_not_depend_on_tab_class() {
         true,
         None,
         None,
-        None,
+        "tab-restart",
     )
     .expect("resume command");
     assert!(command.contains("--dangerously-skip-permissions"));
@@ -365,7 +365,14 @@ fn agent_restart_access_does_not_depend_on_tab_class() {
 fn build_relaunch_drops_resume_without_session_id() {
     let registry = registry_with_claude();
     let command = build_relaunch_command_with_registry(
-        &registry, "claude", None, true, true, None, None, None,
+        &registry,
+        "claude",
+        None,
+        true,
+        true,
+        None,
+        None,
+        "tab-restart",
     )
     .expect("fresh launch without session id");
     assert!(!command.contains("--resume"));
@@ -382,7 +389,7 @@ fn fresh_roleless_relaunch_keeps_system_context_without_a_user_turn() {
         false,
         None,
         Some("system context"),
-        None,
+        "tab-restart",
     )
     .expect("fresh roleless launch");
 
@@ -401,13 +408,56 @@ fn restored_worker_never_replays_historical_task_or_wakes() {
         false,
         None,
         Some("restored worker system context"),
-        Some("Worker"),
+        "tab-restart",
     )
     .expect("restored worker relaunch");
 
     assert!(command.contains("--append-system-prompt-file"));
     assert!(!command.contains("historical task metadata"));
     assert!(!command.contains("Execute the CodeTerm task"));
+}
+
+#[test]
+fn fresh_relaunch_carries_the_tabs_marker_and_resume_carries_none() {
+    use crate::service::launch_session_detection::registered_launch_marker;
+
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "restart-marked",
+    )));
+
+    let fresh = build_relaunch_command_with_registry(
+        &registry,
+        "restart-marked",
+        None,
+        false,
+        false,
+        None,
+        None,
+        "tab-restart-fresh",
+    )
+    .expect("fresh relaunch command");
+    let marker = registered_launch_marker("tab-restart-fresh")
+        .expect("fresh relaunch registers its launch marker");
+    assert!(!marker.is_empty());
+    assert_eq!(
+        fresh,
+        format!("restart-marked-cli --launch-marker {marker}")
+    );
+
+    let resumed = build_relaunch_command_with_registry(
+        &registry,
+        "restart-marked",
+        Some("session-restart"),
+        false,
+        true,
+        None,
+        None,
+        "tab-restart-resume",
+    )
+    .expect("resume relaunch command");
+    assert!(!resumed.contains("--launch-marker"));
+    assert_eq!(registered_launch_marker("tab-restart-resume"), None);
 }
 
 #[test]
