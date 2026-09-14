@@ -199,6 +199,7 @@ impl MultiplexerState {
                     name: ws.name.clone(),
                     active_tab_id: ws.active_tab_id.clone(),
                     cwd: ws.cwd.clone(),
+                    provisioned_cwd: ws.provisioned_cwd.clone(),
                     protected: ws.protected,
                     sort_order: ws.sort_order,
                     tabs: ws
@@ -281,6 +282,7 @@ impl MultiplexerState {
                     Some(tab_id)
                 }).collect(),
                 cwd: ws.cwd.clone(),
+                provisioned_cwd: ws.provisioned_cwd.clone(),
                 protected: ws.protected,
                 sort_order: ws.sort_order,
             }
@@ -374,6 +376,7 @@ impl MultiplexerState {
                         tabs: added_tab_ids,
                         active_tab_id,
                         cwd: ws_snap.cwd.clone(),
+                        provisioned_cwd: ws_snap.provisioned_cwd.clone(),
                         // Restored authority is never inferred from a file.
                         protected: false,
                         sort_order: ws_snap.sort_order,

@@ -203,10 +203,17 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::WorkspaceAction::Current { .. } => unsupported(
                 "workspace current is caller-local — use workspace list on the peer",
             ),
-            crate::WorkspaceAction::Create { name, cwd } => {
+            crate::WorkspaceAction::Create {
+                name,
+                cwd,
+                provision,
+            } => {
                 let mut body = serde_json::json!({"name": name});
                 if let Some(cwd) = cwd {
                     body["cwd"] = serde_json::json!(cwd);
+                }
+                if *provision {
+                    body["provision"] = serde_json::json!(true);
                 }
                 ("POST".into(), "/api/workspaces".into(), Some(body.to_string()))
             }

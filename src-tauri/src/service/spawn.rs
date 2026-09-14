@@ -323,7 +323,7 @@ impl ServiceContext {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }
 
-        let (ws_id, ws_cwd) = {
+        let (ws_id, ws_cwd, ws_provisioned_cwd) = {
             let mux = self.mux.write();
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
@@ -333,8 +333,10 @@ impl ServiceContext {
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),
             )?;
-            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
-            (id, cwd)
+            let workspace = mux.get_workspace(&id);
+            let cwd = workspace.and_then(|ws| ws.cwd.clone());
+            let provisioned_cwd = workspace.and_then(|ws| ws.provisioned_cwd.clone());
+            (id, cwd, provisioned_cwd)
         };
 
         // Authorized before the tab exists: a non-member caller must never leave
@@ -373,9 +375,15 @@ impl ServiceContext {
                     tab.cwd = Some(dir.clone());
                 }
             }
-            if let Some(ref provisioned_cwd) = agent.provisioned_cwd {
+            let provisioned_cwd = agent.provisioned_cwd.clone().or_else(|| {
+                super::directory_trust::inherited_workspace_provenance(
+                    resolved_cwd.as_deref(),
+                    ws_provisioned_cwd.as_deref(),
+                )
+            });
+            if let Some(provisioned_cwd) = provisioned_cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
-                    tab.provisioned_cwd = Some(provisioned_cwd.clone());
+                    tab.provisioned_cwd = Some(provisioned_cwd);
                 }
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
@@ -739,9 +747,13 @@ impl ServiceContext {
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or("No workspace for hidden spawn")?
         };
-        let ws_cwd = {
+        let (ws_cwd, ws_provisioned_cwd) = {
             let mux = self.mux.write();
-            mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
+            let workspace = mux.get_workspace(&ws_id);
+            (
+                workspace.and_then(|ws| ws.cwd.clone()),
+                workspace.and_then(|ws| ws.provisioned_cwd.clone()),
+            )
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
@@ -760,7 +772,12 @@ impl ServiceContext {
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
-                tab.provisioned_cwd = agent.provisioned_cwd.clone();
+                tab.provisioned_cwd = agent.provisioned_cwd.clone().or_else(|| {
+                    super::directory_trust::inherited_workspace_provenance(
+                        resolved_cwd.as_deref(),
+                        ws_provisioned_cwd.as_deref(),
+                    )
+                });
                 persist_model_launch_identity(
                     tab,
                     agent.planned_model.as_deref(),

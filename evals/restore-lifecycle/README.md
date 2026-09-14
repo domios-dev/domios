@@ -82,7 +82,8 @@ member and survives the Team close. `--force` is passed only after
 
 ## Scenario
 
-1. Workspace `RESTORE-LIFECYCLE-<run>`; `team pair` gives a Claude Orchestrator
+1. Workspace `RESTORE-LIFECYCLE-<run>` created with `--provision`, so the daemon
+   creates its directory and every tab inherits it with directory trust; `team pair` gives a Claude Orchestrator
    and a Codex Planner; the Orchestrator spawns a Claude Worker and a Codex
    Worker; a standalone Claude agent and a plain shell join the workspace.
 2. Every agent binds a session and completes one marker turn, so each provider

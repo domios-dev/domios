@@ -94,6 +94,7 @@ fn test_session_snapshot_never_derives_agent_type_from_title() {
                 name: "W".to_string(),
                 active_tab_id: Some("tab-1".to_string()),
                 cwd: None,
+                provisioned_cwd: None,
                 protected: false,
                 sort_order: 0,
                 tabs: vec![TabSnapshot {
@@ -165,6 +166,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
             name: "W".to_string(),
             active_tab_id: Some("tab-1".to_string()),
             cwd: None,
+            provisioned_cwd: None,
             protected: false,
             sort_order: 0,
             tabs: vec![TabSnapshot {
@@ -244,6 +246,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
             name: "W".to_string(),
             active_tab_id: Some("tab-1".to_string()),
             cwd: None,
+            provisioned_cwd: None,
             protected: false,
             sort_order: 0,
             tabs: vec![TabSnapshot {
