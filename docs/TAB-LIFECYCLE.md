@@ -51,6 +51,14 @@ observation changes, until no pane is unobserved. It also records
 so a restore that lost every agent to a planned update reads as that, and an
 unexplained one cannot hide behind a plausible story.
 
+Restored agent PTYs are materialized by the backend once the frontend reports
+ready, and still when it misses its readiness deadline: the deadline is never a
+reason to abandon relaunch. The visible and backend paths take the same per-tab
+PTY claim, so a late frontend reuses the live PTY. A wave materialized without
+the frontend records `backend_materialization:
+"frontend_readiness_deadline_elapsed"`, so panes still unobserved name what the
+restore was waiting on.
+
 Liveness itself is one observation, `codeterm_types::pty::agent_liveness`. Its
 inputs are facts: a live PtyManager session, a boot stage emitted at a real
 launch transition, a shell reporting its foreground command with a matching
@@ -235,4 +243,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

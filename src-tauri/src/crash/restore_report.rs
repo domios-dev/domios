@@ -59,6 +59,10 @@ pub struct RestoreReport {
     /// its own losses is what turns the next incident into evidence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_epoch_end: Option<String>,
+    /// Why restored agents were materialized by the backend alone, when they
+    /// were: an unobserved wave then names what it is still waiting on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_materialization: Option<String>,
     pub panes: Vec<PaneOutcome>,
 }
 
@@ -71,6 +75,7 @@ impl Default for RestoreReport {
             shell_only: 0,
             unobserved: 0,
             previous_epoch_end: None,
+            backend_materialization: None,
             panes: Vec::new(),
         }
     }
@@ -89,6 +94,11 @@ impl RestoreReport {
 
     pub fn with_previous_epoch_end(mut self, end: Option<String>) -> Self {
         self.previous_epoch_end = end;
+        self
+    }
+
+    pub fn with_backend_materialization(mut self, note: Option<String>) -> Self {
+        self.backend_materialization = note;
         self
     }
 }
@@ -151,6 +161,7 @@ pub fn build_restore_report(
         shell_only,
         unobserved,
         previous_epoch_end: None,
+        backend_materialization: None,
         panes,
     }
 }
@@ -170,12 +181,13 @@ pub fn log_report(report: &RestoreReport) {
     }
     log::warn!(
         "[restore] {} of {} agent pane(s) did not come back with a live agent \
-         (record-only={} liveness-unobserved={} previous_epoch_end={}) — panes follow",
+         (record-only={} liveness-unobserved={} previous_epoch_end={} backend_materialization={}) — panes follow",
         report.dropped,
         report.bound,
         report.shell_only,
         report.unobserved,
-        report.previous_epoch_end.as_deref().unwrap_or("unknown")
+        report.previous_epoch_end.as_deref().unwrap_or("unknown"),
+        report.backend_materialization.as_deref().unwrap_or("frontend_ready")
     );
     for outcome in report.dropped_panes() {
         log::warn!(
@@ -224,9 +236,11 @@ pub fn record(
     restored_ids: &BTreeSet<String>,
     liveness: &BTreeMap<String, AgentLiveness>,
     previous_epoch_end: Option<String>,
+    backend_materialization: Option<String>,
 ) -> RestoreReport {
     let report = build_restore_report(bound, restored_ids, liveness)
-        .with_previous_epoch_end(previous_epoch_end);
+        .with_previous_epoch_end(previous_epoch_end)
+        .with_backend_materialization(backend_materialization);
     log_report(&report);
     persist(&report);
     report
@@ -253,6 +267,7 @@ pub fn previous_epoch_end_label() -> Option<String> {
 struct PendingRestore {
     bound: Vec<RestorePane>,
     previous_epoch_end: Option<String>,
+    backend_materialization: Option<String>,
     observed: BTreeMap<String, AgentLiveness>,
 }
 
@@ -279,19 +294,56 @@ pub fn pending_tab_ids() -> Vec<String> {
 pub fn arm(bound: Vec<RestorePane>, restored_ids: &BTreeSet<String>) -> RestoreReport {
     let previous_epoch_end = previous_epoch_end_label();
     let observed: BTreeMap<String, AgentLiveness> = BTreeMap::new();
-    let report = record(&bound, restored_ids, &observed, previous_epoch_end.clone());
+    let report = record(
+        &bound,
+        restored_ids,
+        &observed,
+        previous_epoch_end.clone(),
+        None,
+    );
     *PENDING.lock() = Some(PendingRestore {
         bound,
         previous_epoch_end,
+        backend_materialization: None,
         observed,
     });
     report
 }
 
+/// Name why the armed wave is still unobserved: restored agents went to the
+/// backend without a frontend. Re-records at once; a no-op once the wave settled.
+pub fn note_backend_materialization(note: &str, restored_ids: &BTreeSet<String>) -> bool {
+    let Some((bound, previous_epoch_end, observed)) = ({
+        let mut guard = PENDING.lock();
+        let Some(pending) = guard.as_mut() else {
+            return false;
+        };
+        if pending.backend_materialization.as_deref() == Some(note) {
+            return false;
+        }
+        pending.backend_materialization = Some(note.to_string());
+        Some((
+            pending.bound.clone(),
+            pending.previous_epoch_end.clone(),
+            pending.observed.clone(),
+        ))
+    }) else {
+        return false;
+    };
+    record(
+        &bound,
+        restored_ids,
+        &observed,
+        previous_epoch_end,
+        Some(note.to_string()),
+    );
+    true
+}
+
 /// Fold a fresh set of observations into the armed wave. Re-records only when a
 /// verdict actually changed, and disarms once no pane is `Unobserved`.
 pub fn settle(restored_ids: &BTreeSet<String>, observed: BTreeMap<String, AgentLiveness>) -> bool {
-    let Some((bound, previous_epoch_end)) = ({
+    let Some((bound, previous_epoch_end, backend_materialization)) = ({
         let mut guard = PENDING.lock();
         let Some(pending) = guard.as_mut() else {
             return false;
@@ -300,11 +352,21 @@ pub fn settle(restored_ids: &BTreeSet<String>, observed: BTreeMap<String, AgentL
             return false;
         }
         pending.observed = observed.clone();
-        Some((pending.bound.clone(), pending.previous_epoch_end.clone()))
+        Some((
+            pending.bound.clone(),
+            pending.previous_epoch_end.clone(),
+            pending.backend_materialization.clone(),
+        ))
     }) else {
         return false;
     };
-    let report = record(&bound, restored_ids, &observed, previous_epoch_end);
+    let report = record(
+        &bound,
+        restored_ids,
+        &observed,
+        previous_epoch_end,
+        backend_materialization,
+    );
     if report.unobserved == 0 {
         *PENDING.lock() = None;
     }
@@ -536,5 +598,27 @@ mod tests {
         let back: RestoreReport =
             serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
         assert_eq!(back.previous_epoch_end, report.previous_epoch_end);
+    }
+
+    #[test]
+    fn restore_contract_unobserved_wave_names_backend_materialization_without_frontend() {
+        let bound = vec![pane("worker", Some("worker"), Some("codex"))];
+        let report = build_restore_report(&bound, &ids(&["worker"]), &observed(&[]))
+            .with_backend_materialization(Some(
+                crate::startup::FRONTEND_READINESS_DEADLINE_ELAPSED.to_string(),
+            ));
+
+        assert_eq!(report.unobserved, 1);
+        assert!(!report.every_pane_has_a_live_agent());
+        let back: RestoreReport =
+            serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
+        assert_eq!(
+            back.backend_materialization.as_deref(),
+            Some(crate::startup::FRONTEND_READINESS_DEADLINE_ELAPSED)
+        );
+        let plain = build_restore_report(&bound, &ids(&["worker"]), &observed(&[]));
+        let absent: RestoreReport =
+            serde_json::from_str(&serde_json::to_string(&plain).unwrap()).unwrap();
+        assert_eq!(absent.backend_materialization, None);
     }
 }
