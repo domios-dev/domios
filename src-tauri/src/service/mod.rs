@@ -90,6 +90,8 @@ pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
 mod status_reconciliation;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
+#[cfg(test)]
+pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;

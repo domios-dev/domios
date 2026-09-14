@@ -386,9 +386,8 @@ impl ServiceContext {
             );
             return false;
         }
-        // Every observed lifecycle exit funnels through here, whatever saw it,
-        // so this is where a launch still under observation learns its process
-        // is gone — claimed before the clear below retires the launch it names.
+        // Every observed lifecycle exit funnels here, so the observed launch is
+        // claimed before the clear below retires it.
         let exited = self.claim_launch_exit(tab_id, None, None);
         let cleared = {
             let mut mux = self.mux.write();

@@ -494,9 +494,8 @@ impl ServiceContext {
             } = event
             {
                 self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                // Claimed before the teardown below, which clears the launch a
-                // verdict names, and published after so the teardown still sees
-                // the boot stage it decides on.
+                // Claimed before the teardown clears the launch it names, published
+                // after so the teardown still sees the boot stage it decides on.
                 let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
                 // The shell finished its foreground command: if that command was
                 // a proven-up agent, the agent process is gone.

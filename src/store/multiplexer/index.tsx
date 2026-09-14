@@ -505,9 +505,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [acceptBackendState, refreshFromBackend]);
 
 
-  // A startup lock refusal is a not-yet result, not a local-state fallback.
-  // The mux-state-changed listener above owns the next read; no timer or
-  // caller-side retry is needed.
+  // A startup lock refusal is a not-yet result: the mux-state-changed listener
+  // above owns the next read, so no timer or caller-side retry is needed.
   useEffect(() => {
     const hydratedAtBoot = IS_WEB && stateRef.current.generation === HYDRATED_GENERATION;
     if (hydratedAtBoot) {

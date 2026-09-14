@@ -1,6 +1,5 @@
-// TS mirror of the Rust Mission Control projection
-// (src-tauri/crates/codeterm-plan/src/service_plan/state/mission_control.rs) plus
-// the task counts the same snapshot carries. Field names match the JSON wire shape.
+// Mirrors the Rust projection in codeterm-plan service_plan/state/mission_control.rs;
+// field names match its JSON wire shape.
 
 import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
 import type { ApiConfig, Team } from "../../../lib/types";
