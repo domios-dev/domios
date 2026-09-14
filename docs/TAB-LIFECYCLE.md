@@ -23,7 +23,10 @@ change that decision.
    the label before either visible or lazy restoration claims the launch. The
    repair preserves the session and checks the tab's identity again before
    committing; it never replays a historical task. Missing or ambiguous ownership
-   retains the saved session and refuses agent materialization.
+   retains the saved session and refuses agent materialization. A provider
+   proves ownership from its authoritative per-session record, which exists
+   from the session's first turn, never only from a secondary index the provider
+   writes later: a session that has not reached that index yet still resumes.
 3. If a claimed session has no unique provider record, the tab comes back as a
    shell with a null provider label. A snapshot with no claimed session may
    still fresh-launch its explicitly persisted provider. Restore never chooses
@@ -243,4 +246,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
