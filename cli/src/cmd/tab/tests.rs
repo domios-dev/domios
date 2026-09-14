@@ -378,7 +378,11 @@ fn human_row_shows_tab_title_with_model() {
         row
     );
     assert!(row.contains("claude"), "row missing agent: {}", row);
-    assert!(row.contains("Sonnet"), "row missing model: {}", row);
+    assert!(
+        row.contains("[sonnet?]"),
+        "row missing unconfirmed model: {}",
+        row
+    );
     assert!(
         row.contains("ws=WS-claude-renamed"),
         "row missing workspace: {}",
