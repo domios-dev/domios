@@ -12,30 +12,25 @@ const observedEventTypes = new Set();
 let lastMatchingTab = null;
 let lastLifecycleTitles = [];
 const matchingTabStates = [];
-let busyMuxSnapshots = 0;
+const busySnapshots = {};
 
+// Every snapshot the waiter reads goes through here. A 503 is the snapshot
+// back-pressure answer: no observation from this event, the next frame re-evaluates.
 async function json(path) {
   const response = await fetch(`${api}${path}`, { headers, signal: controller.signal });
+  if (response.status === 503) {
+    busySnapshots[path] = (busySnapshots[path] || 0) + 1;
+    return null;
+  }
   if (!response.ok) throw new Error(`${path}: ${response.status}`);
   return response.json();
 }
 
-// A 503 is the bounded-snapshot back-pressure answer (docs/API-EVENTS.md): no
-// observation from this event; the next matching stream event re-evaluates.
-async function muxSnapshot() {
-  const response = await fetch(`${api}/api/mux/state`, { headers, signal: controller.signal });
-  if (response.status === 503) {
-    busyMuxSnapshots += 1;
-    return null;
-  }
-  if (!response.ok) throw new Error(`/api/mux/state: ${response.status}`);
-  return response.json();
-}
-
 async function observedState() {
-  const mux = await muxSnapshot();
+  const mux = await json("/api/mux/state");
   if (!mux) return null;
   const tabEnvelope = await json("/api/tabs?all_workspaces=true");
+  if (!tabEnvelope) return null;
   const tabs = Array.isArray(tabEnvelope) ? tabEnvelope : (tabEnvelope.tabs || []);
   lastLifecycleTitles = tabs
     .map((candidate) => candidate.title)
@@ -137,14 +132,15 @@ async function observedState() {
   }
   if (mode === "received") {
     const [tabId, marker] = values;
-    const screen = JSON.stringify(await json(`/api/tabs/${tabId}/text`));
-    if (!screen.includes(`stub-received ${marker}`)) return null;
+    const text = await json(`/api/tabs/${tabId}/text`);
+    if (!text || !JSON.stringify(text).includes(`stub-received ${marker}`)) return null;
     return { tab_id: tabId, marker };
   }
   if (mode === "recovered") {
     const [teamId, planId] = values;
     const matchingTeams = (mux.teams || []).filter((team) => team.id === teamId);
     const envelope = await json(`/api/plans/${planId}`);
+    if (!envelope) return null;
     const plan = envelope.plan || envelope;
     if (plan.id !== planId || plan.team_id !== teamId || plan.status !== "active") return null;
     const liveOwners = tabs.filter((candidate) => (
@@ -216,7 +212,7 @@ run().catch((error) => {
     lifecycle_titles: lastLifecycleTitles,
     last_matching_tab: lastMatchingTab,
     matching_tab_states: matchingTabStates,
-    busy_mux_snapshots: busyMuxSnapshots,
+    busy_snapshots: busySnapshots,
   });
   process.stderr.write(`FAIL wait-state ${mode}: ${error.message}; evidence=${evidence}\n`);
   process.exitCode = 1;
