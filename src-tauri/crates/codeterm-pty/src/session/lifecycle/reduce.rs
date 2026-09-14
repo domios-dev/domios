@@ -152,7 +152,8 @@ impl CheckpointReducer {
                         self.sealed.remove(&tab_id);
                     }
                     LifecycleTransition::AgentTypeWrite { .. }
-                    | LifecycleTransition::PermissionAutoConfirm { .. } => {}
+                    | LifecycleTransition::PermissionAutoConfirm { .. }
+                    | LifecycleTransition::RestoreAwaitingAgentRestart { .. } => {}
                     _ => {
                         if let Some(checkpoint) = self
                             .open
@@ -322,6 +323,7 @@ fn apply(
         }
         LifecycleTransition::EpochOpened
         | LifecycleTransition::RestartRequested
+        | LifecycleTransition::RestoreAwaitingAgentRestart { .. }
         | LifecycleTransition::PermissionAutoConfirm { .. } => {}
     }
 }

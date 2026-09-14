@@ -132,6 +132,40 @@ fn tab_without_lineage_recovers_its_newest_journaled_binding() {
 }
 
 #[test]
+fn restore_contract_restored_lineage_recovers_the_session_that_exited_before_shutdown() {
+    let (mut state, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = state
+        .create_workspace("exit-before-restore".into(), None)
+        .id;
+    let tab_id = state.create_tab(&workspace).unwrap();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("codex".into());
+    tab.agent_session_id = Some("exited".into());
+    tab.session_binding_nonce = Some("nonce-exited".into());
+    crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab);
+
+    let raw = serde_json::to_string(&state.to_session_snapshot()).unwrap();
+    let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(
+        &serde_json::from_str(&raw).unwrap(),
+    );
+    let lineage = &restored
+        .get_tab(&tab_id)
+        .unwrap()
+        .prior_session_binding_nonces;
+    let journal = verified(&["exited", "newer-foreign-binding"]);
+
+    assert_eq!(
+        select_recovery_session(lineage, &journal).unwrap(),
+        "exited"
+    );
+    assert_eq!(
+        select_recovery_session(&[], &journal).unwrap(),
+        "newer-foreign-binding",
+        "without restored lineage recovery would fall back to the newest journal binding"
+    );
+}
+
+#[test]
 fn plain_shell_without_session_history_is_refused() {
     let message = refusal_message(select_recovery_session(&[], &[]));
 

@@ -210,6 +210,39 @@ def cmd_send_long_turn(deadline, tab_id, prompt):
     print(f"working {tab_id}")
 
 
+def cmd_identity_field(identity_path, tab_id, field):
+    record = json.loads(pathlib.Path(identity_path).read_text(encoding="utf-8")).get(tab_id) or {}
+    if not record.get(field):
+        fail(f"identity-field: {identity_path} has no {field} for tab {tab_id}")
+    print(record[field])
+
+
+def cmd_exit_to_shell(deadline, tab_id, command):
+    wait = EventWait(deadline)
+    api("POST", f"/api/tabs/{tab_id}/send", {"text": command, "enter": True})
+
+    def exited(_event):
+        record = status(tab_id) or {}
+        return record.get("role") and not record.get("agent_type") and not record.get("agent_session_id")
+
+    wait.until(exited, f"tab {tab_id} provider to exit to its shell")
+    print(f"exited {tab_id}")
+
+
+def cmd_assert_recovered(outcome_path, session_id):
+    outcome = json.loads(pathlib.Path(outcome_path).read_text(encoding="utf-8"))
+    failures = [f"{field}={outcome.get(field)!r}" for field in ("recovered_in_place", "agent_ready") if outcome.get(field) is not True]
+    if outcome.get("session_id") != session_id:
+        failures.append(f"session_id={outcome.get('session_id')!r}, exited session {session_id!r}")
+    if not outcome.get("new_pty_id") or outcome.get("old_pty_id") != outcome.get("new_pty_id"):
+        failures.append(f"pty {outcome.get('old_pty_id')!r} -> {outcome.get('new_pty_id')!r}, expected the same shell")
+    if failures:
+        for line in failures:
+            print(f"FAIL recovered {line}")
+        raise SystemExit(1)
+    print(f"PASS recovered session {session_id} in place")
+
+
 def cmd_capture(out_path, tabs):
     records = {}
     for tab_id in tabs:
@@ -293,6 +326,16 @@ def main():
         import restore_report
 
         restore_report.assert_settled(args, EventWait, fail)
+    elif command == "restore-exited":
+        import restore_report
+
+        restore_report.assert_exited(args, EventWait, fail, status)
+    elif command == "identity-field":
+        cmd_identity_field(args[0], args[1], args[2])
+    elif command == "exit-to-shell":
+        cmd_exit_to_shell(int(args[0]), args[1], args[2])
+    elif command == "assert-recovered":
+        cmd_assert_recovered(args[0], args[1])
     else:
         fail(f"unknown command {command}")
 

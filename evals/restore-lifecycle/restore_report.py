@@ -63,3 +63,40 @@ def assert_settled(args, event_wait, fail):
         f"PASS restore-report {len(agents)} agent panes live "
         f"(bound={report.get('bound')} restored={report.get('restored')} previous_epoch_end={report.get('previous_epoch_end')})"
     )
+
+
+def assert_exited(args, event_wait, fail, status):
+    """A member that exited to its shell before shutdown restores flagged, not relaunched."""
+    deadline, since, tab, session = int(args[0]), float(args[1]), args[2], args[3]
+    data_dir = os.environ.get("CODETERM_DEV_DATA_DIR")
+    if not data_dir:
+        fail("restore-exited must run under dev_run (no CODETERM_DEV_DATA_DIR)")
+    path = _report_path(data_dir)
+    wait = event_wait(deadline)
+    latest = {}
+
+    def observed(_event):
+        report = _load(path, since)
+        pane = next((p for p in (report or {}).get("panes", []) if p.get("tab_id") == tab), None)
+        if pane is None or str(pane.get("liveness", "")).lower() == "unobserved":
+            return False
+        latest["pane"] = pane
+        return True
+
+    wait.until(observed, f"an observed restore verdict for exited member {tab} at {path}")
+    pane = latest["pane"]
+    failures = []
+    if pane.get("restored") or pane.get("drop_reason") != "agent_exited_before_shutdown":
+        failures.append(f"pane restored={pane.get('restored')} drop_reason={pane.get('drop_reason')}")
+    if pane.get("exited_session_id") != session:
+        failures.append(f"pane exited_session_id={pane.get('exited_session_id')!r}, exited session {session!r}")
+    record = status(tab) or {}
+    if record.get("agent_type") or record.get("agent_session_id"):
+        failures.append(f"tab relaunched as {record.get('agent_type')!r}/{record.get('agent_session_id')!r}")
+    if not record.get("role") or not record.get("team_id"):
+        failures.append(f"tab lost role/team: role={record.get('role')!r} team={record.get('team_id')!r}")
+    if failures:
+        for line in failures:
+            print(f"FAIL restore-exited {tab} {line}")
+        raise SystemExit(1)
+    print(f"PASS restore-exited {tab} flagged with session {session}, not relaunched")
