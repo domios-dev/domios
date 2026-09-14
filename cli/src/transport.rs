@@ -118,6 +118,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Paste { .. } => socket_rest(),
         Commands::Notify { .. } => socket_rest(),
         Commands::Keepawake { .. } => socket_rest(),
+        Commands::Integration { .. } => socket_rest(),
         Commands::Theme { .. } => socket_rest(),
         Commands::Agent { .. } => socket_rest(),
         Commands::Cron { .. } => socket_rest(),

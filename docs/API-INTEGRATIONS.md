@@ -117,8 +117,10 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 |--------|------|------|-------------|
 | GET | `/api/setup/rules` | — | Check if project rules are installed |
 | POST | `/api/setup/rules/install` | — | Install project rules |
-| GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status. Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete; Settings consumes this status and presents the explicit local repair action. |
-| POST | `/api/setup/hooks/install` | `?provider=<id>` | Returns `403`; global installation requires the review-and-consent action in local Settings |
+| GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status (`codeterm integration status --provider <id>`). Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete. |
+| POST | `/api/setup/hooks/install` | `?provider=<id>&precompact_memory_export=<bool>` | Authenticated install is consent: records `integration_consent_granted`, `integration_consent_recorded_at`, `integration_target` exactly like the Settings install, installs CodeTerm's own marked entries and grants their provider trust in the same step (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
+
+With consent recorded, daemon start and provider plugin reload reconcile a missing, stale, or untrusted (`untrusted_hash`) integration by reinstalling with the trust grant. Without recorded consent nothing is rewritten or trusted.
 | POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
 
 #### Cron Jobs
@@ -180,4 +182,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

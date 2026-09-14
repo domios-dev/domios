@@ -157,6 +157,15 @@ Connected tabs show service icons in the sidebar (`connected_services` field).
 
 Bridge migration, its flags, exit codes, rollback, and split-brain recovery are owned by `codeterm docs MESH`.
 
+### Provider Hook Integration
+Session binding needs each provider's CodeTerm hooks installed and trusted. No Settings click is required:
+```bash
+codeterm integration status --provider codex            # read install/trust state
+codeterm integration install --provider codex           # records consent, installs, grants trust
+codeterm integration install --provider claude --mesh PEER   # same on a paired peer
+```
+Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted CodeTerm hook by themselves (reinstall plus trust grant). Foreign hooks are never rewritten or trusted.
+
 ### Config Management
 Read/write CodeTerm config at runtime:
 ```bash
@@ -170,4 +179,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->
