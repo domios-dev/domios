@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
+import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { switchTabModel, tabModelEntryLabel, tabModelMenuView } from "./tabModelMenu";
@@ -530,6 +530,18 @@ function TabItemInner({
             <TelegramIcon />
           </span>
         )}
+        {tab?.permission_auto_confirm && (
+          <span
+            role="img"
+            aria-label={`${accessibleTitle} auto-confirms recognized permission prompts`}
+            title="Auto-confirms recognized permission prompts"
+            data-testid="tab-auto-confirm-indicator"
+            className="shrink-0"
+            style={{ color: "var(--ct-green)" }}
+          >
+            <ShieldCheck size={12} aria-hidden />
+          </span>
+        )}
         {/* Prompt/status indicator dot */}
         {tab?.pending_prompt && (
           <span
@@ -663,6 +675,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.remote_peer_name === np.remote_peer_name &&
     pp.remote_peer_id === np.remote_peer_id &&
     pp.chat_view === np.chat_view &&
+    pp.permission_auto_confirm === np.permission_auto_confirm &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
     pp.boot_stage === np.boot_stage &&

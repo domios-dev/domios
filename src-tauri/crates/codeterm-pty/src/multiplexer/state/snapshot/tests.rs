@@ -2,6 +2,7 @@ use super::*;
 use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
 mod merge;
+mod permission_auto_confirm;
 mod role_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
@@ -27,6 +28,7 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         depth: 0,
         chat_view: Some(true),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
@@ -408,6 +410,7 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
         depth: 0,
         chat_view: Some(false),
         auto_approve: true,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
@@ -496,6 +499,7 @@ fn tab_description_round_trips_through_snapshot() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
@@ -558,6 +562,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
@@ -609,6 +614,7 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,
@@ -930,6 +936,7 @@ fn spawned_by_round_trips_through_snapshot() {
         depth: 2,
         chat_view: Some(false),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,

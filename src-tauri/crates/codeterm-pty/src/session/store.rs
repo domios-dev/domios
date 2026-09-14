@@ -176,6 +176,10 @@ pub enum SplitNodeSnapshot {
         /// behaviour instead of silently dropping back to prompting.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         auto_approve: bool,
+        /// Opt-in auto-confirm of recognized provider permission prompts. Unlike
+        /// `auto_approve` it is an explicit per-tab user choice, so it restores.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        permission_auto_confirm: bool,
         /// Missing legacy audience fails closed as automation.
         #[serde(default = "legacy_snapshot_audience")]
         audience: crate::multiplexer::types::TabAudience,

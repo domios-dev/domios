@@ -3,6 +3,7 @@ pub mod agent_liveness;
 pub mod agent_model_name;
 pub mod agent_role;
 pub mod boot_stage;
+pub mod permission_auto_confirm;
 pub mod remote_ownership;
 pub mod status_elapsed;
 pub mod tab_status;
@@ -15,6 +16,9 @@ pub use agent_liveness::{
 pub use agent_model_name::{short_model_name, MODEL_FAMILIES};
 pub use agent_role::{AgentRole, PendingPrompt, PromptOption, PromptSection};
 pub use boot_stage::{BootStage, BootStageSink, ProvisionalLaunch};
+pub use permission_auto_confirm::{
+    record_auto_confirmation, AutoConfirmedPrompt, MAX_RECENT_AUTO_CONFIRMATIONS,
+};
 pub use remote_ownership::{RemoteOwnership, RemoteOwnershipTeam};
 pub use status_elapsed::{StatusElapsedProgress, StatusElapsedTracker};
 pub use tab_status::{reconcile_status, TabStatus};

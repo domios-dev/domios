@@ -25,6 +25,7 @@ fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
         depth: 0,
         chat_view: Some(false),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,

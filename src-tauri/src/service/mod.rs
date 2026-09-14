@@ -50,6 +50,7 @@ mod orchestrator_onboard;
 mod output;
 mod output_feed;
 pub(crate) mod pending_delivery_payloads;
+pub(crate) mod permission_auto_confirm;
 pub(crate) mod permission_policy;
 pub(crate) mod persona;
 pub mod plan;

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2802,6 +2802,13 @@ Install an OS login trigger for the external crash-aware supervisor. The supervi
 #### `codeterm tab`
 
 Tab management
+
+#### `codeterm tab auto-confirm`
+
+Opt a tab in or out of auto-confirming provider permission prompts the provider positively recognizes, or show the setting with recent auto-confirmations. Questions, trust dialogs and unrecognized prompts are never answered
+
+- `<mode>` — `on`, `off`, or `status`
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab capture`
 

@@ -206,6 +206,35 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   const parsed = hostPlugin.parsePrompt(trust);
   eq(parsed?.question, "Quick safety check: Is this a project you created or one you trust?", "directory trust gate parses as a provider prompt");
   eq(hostPlugin.directoryTrustPromptResponse(parsed, trust), ["DQ=="], "auto-approved directory trust selects the highlighted affirmative option");
+  eq(hostPlugin.permissionPromptResponse("Bash", parsed, trust), null, "directory trust is never a tool permission approval");
+}
+
+{
+  const approval = [
+    "Bash command",
+    "",
+    "  git status --short",
+    "  Show working tree status",
+    "",
+    "Do you want to proceed?",
+    "❯ 1. Yes",
+    "  2. Yes, and don't ask again for git status commands in /repo",
+    "  3. No, and tell Claude what to do differently (esc)",
+    "",
+    "Esc to cancel",
+  ].join("\n");
+  const parsed = hostPlugin.parsePrompt(approval);
+  const answered = hostPlugin.permissionPromptResponse("Bash", parsed, approval);
+  eq(answered?.optionIndex, 0, "tool approval selects the one-shot affirmative option");
+  eq(answered?.steps, ["DQ=="], "tool approval confirms the highlighted option");
+  assert(typeof answered?.rule === "string" && answered.rule.length > 0, "tool approval names the rule that matched");
+  eq(hostPlugin.permissionPromptResponse("AskUserQuestion", parsed, approval), null, "clarifying question tool is never answered");
+  eq(hostPlugin.permissionPromptResponse("ExitPlanMode", parsed, approval), null, "plan decision is never answered");
+  eq(hostPlugin.permissionPromptResponse("Bash", parsed, "nothing on screen"), null, "a prompt no longer on screen is never answered");
+  const declineless = { question: "Do you want to proceed?", options: [["Yes", "1"], ["Yes, always", "2"]] };
+  eq(hostPlugin.permissionPromptResponse("Bash", declineless, approval), null, "a prompt without a decline path is never answered");
+  const rustShape = { question: "Do you want to proceed?", options: [{ label: "Yes", value: "1" }, { label: "No", value: "2" }], multi_select: true };
+  eq(hostPlugin.permissionPromptResponse("Bash", rustShape, approval), null, "multi-select pickers are never answered");
 }
 
 console.log("\n--- imageSend strategy ---\n");

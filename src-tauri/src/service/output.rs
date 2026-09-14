@@ -736,6 +736,12 @@ impl ServiceContext {
                         tab_id
                     );
                 }
+                if self
+                    .try_permission_auto_confirm(tab_id, screen_text)
+                    .owns_prompt()
+                {
+                    return;
+                }
                 {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
@@ -867,8 +873,24 @@ fn default_prompt_response(option_index: usize) -> Vec<Vec<u8>> {
 }
 
 fn write_prompt_steps(pty: crate::PtyState, pty_id: String, steps: Vec<Vec<u8>>) {
+    write_bound_prompt_steps(pty, pty_id, steps, || true);
+}
+
+/// The prompt responder with a binding check run immediately before the first
+/// key; a refused binding writes nothing.
+pub(super) fn write_bound_prompt_steps<F>(
+    pty: crate::PtyState,
+    pty_id: String,
+    steps: Vec<Vec<u8>>,
+    still_bound: F,
+) where
+    F: FnOnce() -> bool + Send + 'static,
+{
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
+        if !still_bound() {
+            return;
+        }
         for step in steps {
             let _ = pty.lock().write(&pty_id, &step);
             std::thread::sleep(std::time::Duration::from_millis(100));

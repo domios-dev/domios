@@ -283,11 +283,13 @@ mod capabilities;
 mod launch_session;
 mod model_info;
 mod settings;
+mod usage_snapshot;
 pub use availability::*;
 pub use capabilities::*;
 pub use launch_session::*;
 pub use model_info::*;
 pub use settings::*;
+pub use usage_snapshot::*;
 
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
@@ -686,6 +688,17 @@ pub trait AgentProvider: Send + Sync {
         _prompt: &codeterm_types::pty::PendingPrompt,
         _screen: &str,
     ) -> Option<DirectoryTrustPromptResponse> {
+        None
+    }
+
+    /// Recognize this provider's tool-permission prompt for the hook-reported
+    /// `tool_name` and name its affirmative option. `None` leaves it to the user.
+    fn permission_prompt_response(
+        &self,
+        _tool_name: &str,
+        _prompt: &codeterm_types::pty::PendingPrompt,
+        _screen: &str,
+    ) -> Option<crate::permission_prompt::PermissionPromptResponse> {
         None
     }
 
@@ -1165,29 +1178,5 @@ pub trait AgentProvider: Send + Sync {
     /// recurse until the stack overflows.
     fn is_native(&self) -> bool {
         true
-    }
-}
-
-/// Cumulative token usage for one agent session.
-#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
-pub struct UsageSnapshot {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cache_creation_input_tokens: u64,
-    pub cache_read_input_tokens: u64,
-    pub message_count: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub window_started_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_activity_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Normalised platform tag used by `install_command(platform)`.
-pub fn current_platform_tag() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "macos",
-        "linux" => "linux",
-        "windows" => "windows",
-        other => other,
     }
 }

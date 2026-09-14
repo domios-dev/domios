@@ -112,6 +112,12 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       scheduled_at_ms: args.scheduledAtMs,
     });
     case "mux_respond_prompt": return call("POST", "/prompt/respond", args);
+    case "mux_set_permission_auto_confirm": return call(
+      "POST",
+      "/permission-auto-confirm",
+      { enabled: args.enabled === true },
+      (value) => (value as { enabled?: boolean })?.enabled === true,
+    );
     case "restart_agent_tab": return call("POST", "/agent/restart");
     default: return null;
   }
