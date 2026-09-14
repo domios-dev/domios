@@ -7,13 +7,14 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod command_template;
+mod manifest_sessions;
 mod prompt_parse;
 mod wire;
 
 use command_template::{launch_command_from_template, resume_command_from_template};
 use wire::{
-    encode_cwd_dashed, launch_params_to_json, result_from_js, session_description_head,
-    SerdeSessionMessage, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
+    encode_cwd_dashed, launch_params_to_json, result_from_js, SerdeSessionMessage,
+    SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
 };
 
 use crate::provider::{
@@ -544,89 +545,27 @@ impl AgentProvider for JsProvider {
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
-        // plugin doesn't implement `enumerateSessions`.
         if let Some(list) = self.try_call::<Vec<SerdeSessionMetadata>>("enumerateSessions", &[]) {
             return list
                 .into_iter()
                 .map(|m| m.into_session_metadata(&self.manifest.id))
                 .collect();
         }
-        let Some(cfg) = self.manifest.sessions.as_ref() else {
-            return Vec::new();
-        };
-        let Some(root) = PluginManifest::expand_home(&cfg.root_dir) else {
-            return Vec::new();
-        };
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            return Vec::new();
-        };
-        let dot_ext = format!(".{}", cfg.file_extension);
-        let mut out = Vec::new();
-        for entry in entries.flatten() {
-            let Ok(ft) = entry.file_type() else { continue };
-            if !ft.is_dir() {
-                continue;
-            }
-            let dir_path = entry.path();
-            let Ok(files) = std::fs::read_dir(&dir_path) else {
-                continue;
-            };
-            for f in files.flatten() {
-                let name = f.file_name().to_string_lossy().to_string();
-                let Some(stem) = name.strip_suffix(&dot_ext) else {
-                    continue;
-                };
-                if stem.len() < 32 || !stem.contains('-') {
-                    continue;
-                }
-                let file_path_buf = f.path();
-                let meta = f.metadata().ok();
-                let created_ts = meta
-                    .as_ref()
-                    .and_then(|m| provider::fs_time_to_unix(m.created().ok()));
-                let modified_ts = meta
-                    .as_ref()
-                    .and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
-                // Ask the plugin to dig title/summary/project_path out of the session file. We pass the path string — the plugin may choose to ignore (e.g.
-                // plain JSONL provider that only cares about per-line cwd via parse_session_messages).
-                let extra: Option<Value> = self.try_call(
-                    "describeSession",
-                    &[
-                        json!(file_path_buf.to_string_lossy()),
-                        json!(session_description_head(&file_path_buf)),
-                    ],
-                );
-                let title = extra
-                    .as_ref()
-                    .and_then(|v| v.get("title"))
-                    .and_then(|s| s.as_str())
-                    .map(String::from);
-                let summary = extra
-                    .as_ref()
-                    .and_then(|v| v.get("summary"))
-                    .and_then(|s| s.as_str())
-                    .map(String::from);
-                let project_path = extra
-                    .as_ref()
-                    .and_then(|v| v.get("projectPath"))
-                    .and_then(|s| s.as_str())
-                    .map(String::from);
+        self.manifest_enumerate_sessions()
+    }
 
-                out.push(SessionMetadata {
-                    session_id: stem.to_string(),
-                    provider: self.manifest.id.clone(),
-                    project_path,
-                    title,
-                    summary,
-                    file_path: file_path_buf.to_string_lossy().to_string(),
-                    transcript_path: crate::session_evidence::stored_transcript_path(stem)
-                        .map(|p| p.to_string_lossy().to_string()),
-                    created_ts,
-                    modified_ts,
-                });
-            }
+    fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {
+        if self.has_js("findSession") {
+            return self
+                .try_call::<Option<SerdeSessionMetadata>>("findSession", &[json!(session_id)])
+                .flatten()
+                .map(|m| m.into_session_metadata(&self.manifest.id))
+                .filter(|m| m.session_id == session_id);
         }
-        out
+        if self.manifest.sessions.is_some() {
+            return self.manifest_find_session(session_id);
+        }
+        self.native().and_then(|n| n.find_session(session_id))
     }
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {

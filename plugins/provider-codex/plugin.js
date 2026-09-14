@@ -178,23 +178,40 @@ function enumerateSessions() {
     modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
   }));
 }
+function findSession(sessionId) {
+  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row2) return null;
+  const store = codexSessionStore();
+  return {
+    sessionId,
+    provider: "codex",
+    projectPath: resolveThreadCwd(sessionId, row2),
+    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
+    summary: null,
+    filePath: store ? store.indexPath : codexStateDbPath() || "",
+    createdTs: unixSeconds(row2.created_at),
+    modifiedTs: unixSeconds(row2.updated_at)
+  };
+}
 function detectSessionModel(_cwd, sessionId) {
   return trimmedField(threadRow(sessionId), "model");
 }
 function threadRow(sessionId) {
+  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+}
+function queryThreadRow(sessionId, sql) {
   if (!sessionId) return null;
   const db = codexStateDbPath();
   if (!db || !host.fs.fileExists(db)) return null;
   try {
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1",
-      [sessionId]
-    );
+    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
     return rows.length > 0 ? rows[0] : null;
   } catch (_) {
     return null;
   }
+}
+function unixSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
 }
 function trimmedField(row2, field) {
   const value = row2 ? row2[field] : null;
@@ -266,7 +283,9 @@ function sessionIndexEntry(path, sessionId) {
 }
 var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
 function readThreadCwd(sessionId) {
-  const row2 = threadRow(sessionId);
+  return resolveThreadCwd(sessionId, threadRow(sessionId));
+}
+function resolveThreadCwd(sessionId, row2) {
   if (!row2) {
     logUnresolvedCwd(sessionId, "no_row");
     return null;
@@ -2798,6 +2817,9 @@ var plugin = {
   },
   enumerateSessions() {
     return enumerateSessions();
+  },
+  findSession(sessionId) {
+    return findSession(sessionId);
   },
   // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd, sessionId) {

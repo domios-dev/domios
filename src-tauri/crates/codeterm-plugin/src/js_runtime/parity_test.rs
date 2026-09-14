@@ -1159,6 +1159,7 @@ mod codex;
 mod codex_launch_session;
 mod context_owner;
 mod cursor;
+mod find_session;
 mod manifest_launch_template;
 mod opencode;
 mod record_identity;

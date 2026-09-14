@@ -19,6 +19,8 @@ mod usage;
 
 #[cfg(test)]
 pub(crate) use schemas::manifest_defaults;
+#[cfg(test)]
+pub(crate) use sessions::{enumerate_sessions_under, find_session_under};
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -100,6 +102,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         sessions::enumerate_sessions()
+    }
+
+    fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {
+        sessions::find_session(session_id)
     }
 
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
