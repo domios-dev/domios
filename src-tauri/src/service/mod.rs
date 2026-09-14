@@ -69,6 +69,7 @@ pub mod push;
 mod reasoning_effort;
 pub mod remote_tabs;
 pub mod remote_workers;
+pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
 pub(crate) mod role_preset;

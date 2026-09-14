@@ -29,6 +29,8 @@ Tunables (env):
 
 - `RL_OWNED_DEADLINE` (`180`) — failure deadline for the pre-restart provider
   ownership gate below.
+- `RL_EXITED_MEMBER` (`1`) — run the exited-member phase after the cycles; `0`
+  skips it.
 
 ## Outcomes: PASS, SETUP, FAIL
 
@@ -98,6 +100,18 @@ member and survives the Team close. `--force` is passed only after
      bound to two tabs, and the shell has no agent identity;
    - every agent answers a fresh marker turn, and identity is still unchanged
      afterwards (the resumed process is live, not a record).
+6. Exited-member phase: the Claude Worker receives `/exit` and the bench waits
+   until its status keeps role but has no provider or session. One more restart
+   cycle, then:
+   - the other agent panes restore live;
+   - the Worker's pane reads `restored: false`,
+     `drop_reason: agent_exited_before_shutdown`, and `exited_session_id` equal to
+     its captured session, while its status still has no provider or session
+     and keeps its role and Team (restore relaunched nothing);
+   - `dc agent restart --tab <worker> --json` returns `recovered_in_place: true`,
+     `agent_ready: true`, that `session_id`, and the same old and new PTY;
+   - every tab's identity matches `identity-before.json` again, and the Worker
+     answers a marker turn in the resumed session.
 
 The Team id is the Orchestrator's own `team_id` from its tab status, cross-checked
 against `team list --json` (`{"teams": [...]}`). Every CLI JSON payload is saved as

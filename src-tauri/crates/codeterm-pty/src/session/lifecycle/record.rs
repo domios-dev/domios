@@ -157,6 +157,11 @@ pub enum LifecycleTransition {
     /// Seals the operation. Only a sealed operation yields a checkpoint.
     LaunchReady,
     RestartRequested,
+    /// Diagnostic: restore relaunched nothing because the provider had exited
+    /// before shutdown; `agent restart` recovers `session_id`. Never authority.
+    RestoreAwaitingAgentRestart {
+        session_id: String,
+    },
     /// Authority withdrawn; the operation can never seal afterwards.
     RolledBack {
         reason: String,
@@ -212,6 +217,7 @@ impl LifecycleTransition {
             Self::TeamBinding { .. } => "team_binding",
             Self::LaunchReady => "launch_ready",
             Self::RestartRequested => "restart_requested",
+            Self::RestoreAwaitingAgentRestart { .. } => "restore_awaiting_agent_restart",
             Self::RolledBack { .. } => "rolled_back",
             Self::Closed { .. } => "closed",
             Self::PermissionAutoConfirm { .. } => "permission_auto_confirm",
