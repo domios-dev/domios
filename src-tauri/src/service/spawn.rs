@@ -873,7 +873,8 @@ impl ServiceContext {
             }
         };
 
-        if let Some(orphan) = self.mux.write().link_pty(&tab_id, pty_id.clone()) {
+        let orphan = self.mux.write().link_pty(&tab_id, pty_id.clone());
+        if let Some(orphan) = orphan {
             self.kill_ptys(&[orphan]);
         }
         crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
