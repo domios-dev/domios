@@ -999,7 +999,7 @@ impl ServiceContext {
                 .get_tab(&tab_id_outer)
                 .and_then(|p| p.cwd.clone())
                 .unwrap_or_default();
-            let launch_params = crate::agent::provider::AgentLaunchParams {
+            let mut launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
                 task: task_for_thread.clone(),
                 starter_prompt: Default::default(),
@@ -1018,15 +1018,13 @@ impl ServiceContext {
                 ),
                 launch_marker: None,
             };
-            let launch_cmd = svc_outer
-                .agent_registry
-                .with_provider(&provider, |p| {
-                    crate::agent::stub_launch::apply(
-                        &provider,
-                        p.build_launch_command(&launch_params),
-                    )
-                })
-                .unwrap_or_else(|| provider.clone());
+            let launch_cmd = super::launch_session_detection::marked_provider_launch_command(
+                &svc_outer.agent_registry,
+                &provider,
+                &tab_id_outer,
+                &mut launch_params,
+            )
+            .unwrap_or_else(|| provider.clone());
             crate::service::launch_diagnostics::log_launch(
                 crate::service::launch_diagnostics::AgentLaunchOrigin::HiddenSpawn,
                 &tab_id_outer,
