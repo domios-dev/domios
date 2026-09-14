@@ -380,10 +380,15 @@ mod tests {
     )]
     fn general_agent_frontend_deadline_releases_mux_for_restored_backends() {
         let (mut mux, general_tab_id) = MultiplexerState::new();
-        mux.register_alias(crate::service::general_agent::GENERAL_ALIAS, &general_tab_id);
+        mux.register_alias(
+            crate::service::general_agent::GENERAL_ALIAS,
+            &general_tab_id,
+        );
         let workspace_id = mux.list_workspaces()[0].id.clone();
         let restored_tab_id = mux.create_tab(&workspace_id).unwrap();
-        mux.get_tab_mut(&restored_tab_id).unwrap().restored_from_snapshot = true;
+        mux.get_tab_mut(&restored_tab_id)
+            .unwrap()
+            .restored_from_snapshot = true;
         let fixture = ServiceFixture::new(mux);
         let service = Arc::new(fixture.service.clone());
 
@@ -413,7 +418,12 @@ mod tests {
             .expect("restored backends must materialize after a missed frontend deadline");
 
         assert_eq!(attempted, vec![restored_tab_id]);
-        let general = service.mux.read().get_tab(&general_tab_id).cloned().unwrap();
+        let general = service
+            .mux
+            .read()
+            .get_tab(&general_tab_id)
+            .cloned()
+            .unwrap();
         assert_eq!(general.boot_stage, Some(BootStage::SpawnFailed));
     }
 
