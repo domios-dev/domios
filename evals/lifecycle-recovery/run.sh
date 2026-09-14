@@ -96,14 +96,19 @@ DEV_LOG="$DEV_DATA/logs/codeterm.log"
 LOG_OFFSET=0
 [ ! -f "$DEV_LOG" ] || LOG_OFFSET="$(( $(wc -c <"$DEV_LOG") ))"
 
-coproc RELAUNCH_EXIT_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" absent-shell "$RELAUNCH_TITLE"; }
-RELAUNCH_EXIT_WAIT_PROCESS="$RELAUNCH_EXIT_WAIT_PID"
-read -r ready <&"${RELAUNCH_EXIT_WAIT[0]}"
+# Each waiter's stdout is a descriptor this shell owns, so a waiter that
+# resolves before its action returns leaves its line readable after it exits.
+exec {RELAUNCH_EXIT_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" absent-shell "$RELAUNCH_TITLE")
+RELAUNCH_EXIT_WAIT_PROCESS=$!
+ready=""
+read -r ready <&"$RELAUNCH_EXIT_FD" || true
 [ "$ready" = READY ] || fail "in-tab relaunch exit observer readiness"
 RELAUNCH_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$RELAUNCH_TITLE" --non-user-facing --args --lifecycle-relaunch-fixture --stub-session "$RELAUNCH_SESSION")"
 RELAUNCH_TAB="$(json_field "$RELAUNCH_SPAWN" '.tab_id')"
-read -r RELAUNCH_EXITED <&"${RELAUNCH_EXIT_WAIT[0]}"
-wait "$RELAUNCH_EXIT_WAIT_PROCESS"
+RELAUNCH_EXITED=""
+read -r RELAUNCH_EXITED <&"$RELAUNCH_EXIT_FD" || true
+wait "$RELAUNCH_EXIT_WAIT_PROCESS" || fail "in-tab relaunch exit observer"
+exec {RELAUNCH_EXIT_FD}<&-
 [ "$(json_field "$RELAUNCH_EXITED" '.tab_id')" = "$RELAUNCH_TAB" ] || fail "in-tab relaunch exit observation targeted spawned tab"
 set +e
 RELAUNCH_REFUSAL="$(dc --json agent restart --tab "$RELAUNCH_TAB" 2>&1)"
@@ -113,14 +118,17 @@ set -e
 SHELL_RESTART="$(dc --json tab restart --tab "$RELAUNCH_TAB" 2>&1)" \
   || fail "tab restart refused the exited provider's plain shell: $SHELL_RESTART"
 
-coproc RELAUNCH_READY_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" in-tab-ready "$RELAUNCH_TAB" "$RELAUNCH_SESSION" "$JOURNAL"; }
-RELAUNCH_READY_WAIT_PROCESS="$RELAUNCH_READY_WAIT_PID"
-read -r ready <&"${RELAUNCH_READY_WAIT[0]}"
+exec {RELAUNCH_READY_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" in-tab-ready "$RELAUNCH_TAB" "$RELAUNCH_SESSION" "$JOURNAL")
+RELAUNCH_READY_WAIT_PROCESS=$!
+ready=""
+read -r ready <&"$RELAUNCH_READY_FD" || true
 [ "$ready" = READY ] || fail "in-tab relaunch readiness observer readiness"
 dc tab exec --tab "$RELAUNCH_TAB" "node '$RELAUNCH_STUB' --stub-provider claude --stub-session $RELAUNCH_SESSION --stub-report-bound" >/dev/null \
   || fail "tab exec relaunch in the same tab"
-read -r RELAUNCH_READY <&"${RELAUNCH_READY_WAIT[0]}"
-wait "$RELAUNCH_READY_WAIT_PROCESS"
+RELAUNCH_READY=""
+read -r RELAUNCH_READY <&"$RELAUNCH_READY_FD" || true
+wait "$RELAUNCH_READY_WAIT_PROCESS" || fail "in-tab relaunch readiness observer"
+exec {RELAUNCH_READY_FD}<&-
 [ "$(json_field "$RELAUNCH_READY" '.tab_id')" = "$RELAUNCH_TAB" ] \
   || fail "in-tab relaunch observed live, agent_ready, same session and launch_ready"
 RELAUNCH_VISIBLE="$(dc --json tab list --all-workspaces)"
@@ -131,13 +139,16 @@ RELAUNCH_RESTART="$(dc --json agent restart --tab "$RELAUNCH_TAB" 2>&1)" \
 [ "$(json_field "$RELAUNCH_RESTART" '.agent_ready // .data.agent_ready')" = true ] \
   || fail "agent restart of the in-tab relaunch reached agent_ready: $RELAUNCH_RESTART"
 
-coproc RELAUNCH_SEND_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" received "$RELAUNCH_TAB" "$RELAUNCH_PROBE"; }
-RELAUNCH_SEND_WAIT_PROCESS="$RELAUNCH_SEND_WAIT_PID"
-read -r ready <&"${RELAUNCH_SEND_WAIT[0]}"
+exec {RELAUNCH_SEND_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" received "$RELAUNCH_TAB" "$RELAUNCH_PROBE")
+RELAUNCH_SEND_WAIT_PROCESS=$!
+ready=""
+read -r ready <&"$RELAUNCH_SEND_FD" || true
 [ "$ready" = READY ] || fail "in-tab relaunch delivery observer readiness"
 dc send "$RELAUNCH_PROBE" --tab "$RELAUNCH_TAB" >/dev/null || fail "send to the restarted in-tab relaunch"
-read -r RELAUNCH_RECEIVED <&"${RELAUNCH_SEND_WAIT[0]}"
-wait "$RELAUNCH_SEND_WAIT_PROCESS"
+RELAUNCH_RECEIVED=""
+read -r RELAUNCH_RECEIVED <&"$RELAUNCH_SEND_FD" || true
+wait "$RELAUNCH_SEND_WAIT_PROCESS" || fail "in-tab relaunch delivery observer"
+exec {RELAUNCH_SEND_FD}<&-
 [ "$(json_field "$RELAUNCH_RECEIVED" '.tab_id')" = "$RELAUNCH_TAB" ] || fail "stub received the routed send"
 if [ -f "$DEV_LOG" ] && tail -c +"$((LOG_OFFSET + 1))" "$DEV_LOG" | grep -F "$RELAUNCH_TAB" | grep -qF tab_busy_refused; then
   fail "dev log recorded tab_busy_refused for the in-tab relaunch"
