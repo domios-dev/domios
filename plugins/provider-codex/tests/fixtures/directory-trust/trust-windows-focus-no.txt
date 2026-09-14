@@ -1,0 +1,12 @@
+PS C:\Users\dev\.codeterm-dev\provisioned-workspaces\qa-trust-7924-8e6bfdd6011e> codex --dangerously-bypass-approvals-an
+d-sandbox
+
+> You are in C:\Users\dev\.codeterm-dev\provisioned-workspaces\qa-trust-7924-8e6bfdd6011e
+
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
+
+  1. Yes, continue
+> 2. No, quit
+
+  Press enter to continue

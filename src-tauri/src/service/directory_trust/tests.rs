@@ -3,7 +3,7 @@ use std::cell::Cell;
 use codeterm_plugin::provider::DirectoryTrustPromptResponse;
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_provenance,
+    decide, directory_trust_check_applies, directory_trust_provenance, directory_trust_skip_reason,
     inherited_workspace_provenance, legacy_auto_approve_permitted, DirectoryTrustRefusal,
     TrustDecision, TrustLedger,
 };
@@ -258,4 +258,49 @@ fn trust_dialogs_never_reach_the_legacy_yes_responder() {
         false,
         true
     ));
+}
+
+#[test]
+fn skip_reason_names_why_a_provisioned_agent_is_not_answered() {
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/a"), true);
+    assert_eq!(
+        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
+        Some("launch session already authenticated")
+    );
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/b"), false);
+    assert_eq!(
+        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
+        Some(DirectoryTrustRefusal::CwdDiffersFromProvenance.reason())
+    );
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
+    assert_eq!(
+        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
+        None,
+        "an applicable tab is answered, not skipped"
+    );
+    let (state, tab_id) = agent_tab(None, false);
+    assert_eq!(
+        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
+        None,
+        "a user directory is never logged"
+    );
+}
+
+#[test]
+fn trust_notes_are_logged_once_per_outcome_within_a_budget() {
+    let mut ledger = TrustLedger::default();
+    assert!(ledger.note("tab", "no trust dialog recognized", 1));
+    assert!(
+        !ledger.note("tab", "no trust dialog recognized", 1),
+        "an unchanged screen is noted once"
+    );
+    assert!(ledger.note("tab", "no trust dialog recognized", 2));
+    for detail in 3..40 {
+        ledger.note("tab", "no trust dialog recognized", detail);
+    }
+    assert!(
+        !ledger.note("tab", "provider holds this trust dialog", 99),
+        "a tab stops logging once its budget is spent"
+    );
+    assert!(ledger.note("other", "no trust dialog recognized", 1));
 }
