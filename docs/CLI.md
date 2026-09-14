@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 61 -->
+<!-- revision: 63 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -127,7 +127,7 @@ Send a report to your parent in the hierarchy
 
 #### `codeterm agent restart`
 
-Restart an observed live agent; an exited provider requires a fresh spawn
+Restart a live agent, or resume an exited provider's verified session in its shell
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
@@ -471,6 +471,23 @@ Add a standalone task to the workspace Inbox
 - `--type`
 - `--why`
 - `--why-file`
+
+#### `codeterm integration`
+
+Provider hook integration: install it with recorded consent and trust, or read its state
+
+#### `codeterm integration install`
+
+Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
+
+- `--precompact-memory-export` — Also export conversation content to memory before compaction
+- `--provider` — Provider id (e.g. claude, codex)
+
+#### `codeterm integration status`
+
+Show a provider's hook integration state
+
+- `--provider` — Provider id (e.g. claude, codex)
 
 #### `codeterm keepawake`
 
@@ -2786,6 +2803,13 @@ Install an OS login trigger for the external crash-aware supervisor. The supervi
 
 Tab management
 
+#### `codeterm tab auto-confirm`
+
+Opt a tab in or out of auto-confirming provider permission prompts the provider positively recognizes, or show the setting with recent auto-confirmations. Questions, trust dialogs and unrecognized prompts are never answered
+
+- `<mode>` — `on`, `off`, or `status`
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
 #### `codeterm tab capture`
 
 Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file
@@ -3134,10 +3158,11 @@ Close/delete a workspace
 
 #### `codeterm workspace create`
 
-Create a new workspace. With --cwd, reuses an existing workspace at that cwd
+Create a new workspace. With --cwd, reuses an existing workspace at that cwd. With --provision, the daemon creates a fresh directory for it
 
 - `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
 - `<name>` — Workspace name
+- `--provision` — Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust
 
 #### `codeterm workspace current`
 

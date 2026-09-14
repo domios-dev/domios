@@ -121,6 +121,8 @@ impl ServiceContext {
         self.clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.prompt_detector.lock().remove_tab(tab_id);
+        self.forget_permission_auto_confirm(tab_id);
+        self.forget_directory_trust(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.remote_workers.forget_orchestrator(tab_id);
         pad_result

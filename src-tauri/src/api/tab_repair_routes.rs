@@ -216,7 +216,7 @@ async fn repair_tab_from_session(
     };
     let nonce_verified = commit.claim.identity_evidence().nonce_verified();
     let _ = finish_session_binding(
-        state,
+        &state.svc,
         &target.tab_id,
         &commit.provider_id,
         session_id,
@@ -225,6 +225,7 @@ async fn repair_tab_from_session(
         "cli-repair",
         &serde_json::Value::Null,
         commit.claim,
+        crate::session::lifecycle::BindingSource::Hook,
     )
     .await
     .map_err(|(status, message)| {

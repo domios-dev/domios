@@ -69,7 +69,29 @@ export interface LaunchParams {
   /// the plugin maps it to the provider's own server flags (opencode:
   /// `--hostname <h> --port <p>`).
   structuredPromptServer?: { hostname: string; port: number };
+  /** Host-minted inert token a provider may carry into its own session record. */
+  launchMarker?: string;
   [key: string]: unknown;
+}
+
+/** One process in the tab's own PTY tree; `startToken` is its OS process start time. */
+export interface LaunchProcess {
+  pid: number;
+  depth: number;
+  startToken: string;
+}
+
+/** Everything the host knows about one launch, and nothing about any other. */
+export interface LaunchSessionEvidence {
+  cwd: string;
+  launchMarker?: string | null;
+  launchedAtMs: number;
+  processes: LaunchProcess[];
+}
+
+export interface LaunchSessionDetection {
+  sessionId: string;
+  source: "pid_registry" | "launch_marker";
 }
 
 /** Full launch context for a resumed session, not just its id. */
@@ -169,7 +191,14 @@ export interface AgentProvider {
   /** Implement only when a resumed session drops the launch-time system prompt. */
   buildResumeCommandWithContext?(params: ResumeParams): string;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
-  directoryTrustPromptResponse?(prompt: ParsedPrompt, screen?: string): string[] | null;
+  /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
+  directoryTrustPromptResponse?(screen: string): string[] | null;
+  /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */
+  permissionPromptResponse?(
+    toolName: string,
+    prompt: ParsedPrompt,
+    screen?: string,
+  ): { optionIndex: number; rule: string; steps: string[] } | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
@@ -178,10 +207,14 @@ export interface AgentProvider {
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
   parseSessionDelta?(chunk: string): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
+  /** Session named by this launch's own provider record; null when none names it. */
+  detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   detectSessionReasoningEffort?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
+  /** The one record owning exactly this id, or null; never scans session history. */
+  findSession?(sessionId: string): unknown | null;
   describeSession?(filePath: string, head?: string): {
     projectPath?: string;
     title?: string;
@@ -361,7 +394,7 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
+  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble";
   timelineMarker?: ChatTimelineMarker;
   sessionIntent?: ChatSessionIntent;
   /** Provider-neutral canonical tool metadata, available on any chat transport. */

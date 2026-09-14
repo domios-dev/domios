@@ -87,7 +87,14 @@ if CODETERM_INSTANCE=pw1 CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_
 fi
 
 marker_fixture="$(mktemp -d)"
-trap 'rm -rf "$marker_fixture"' EXIT
+pid_translation_shell_pid=""
+cleanup_fixture() {
+  if [ -n "$pid_translation_shell_pid" ]; then
+    kill "$pid_translation_shell_pid" 2>/dev/null || true
+  fi
+  rm -rf "$marker_fixture"
+}
+trap cleanup_fixture EXIT
 mkdir -p "$marker_fixture/home/.codeterm-dev-marker-test" "$marker_fixture/bin"
 printf '[api]\ntoken = "matching-instance-token"\n' > "$marker_fixture/home/.codeterm-dev-marker-test/config.toml"
 cat > "$marker_fixture/bin/curl" <<'EOF'
@@ -112,6 +119,23 @@ grep -q 'POST http://127.0.0.1:7799/api/debug/shutdown/clean-restart' "$marker_f
   echo "dev kill must request a clean restart from the matching dev instance" >&2
   exit 1
 }
+
+pid_translation_source="$(sed -n '/^process_pid_for_cleanup() {/,/^}/p' build.sh)"
+eval "$pid_translation_source"
+tail -f /dev/null >/dev/null 2>&1 &
+pid_translation_shell_pid=$!
+expected_cleanup_pid="$pid_translation_shell_pid"
+case "$OSTYPE" in
+  msys*|cygwin*) expected_cleanup_pid="$(cat "/proc/$pid_translation_shell_pid/winpid")" ;;
+esac
+actual_cleanup_pid="$(process_pid_for_cleanup "$pid_translation_shell_pid")"
+if [ "$actual_cleanup_pid" != "$expected_cleanup_pid" ]; then
+  echo "process PID translation returned $actual_cleanup_pid, expected $expected_cleanup_pid" >&2
+  exit 1
+fi
+kill "$pid_translation_shell_pid" 2>/dev/null || true
+wait "$pid_translation_shell_pid" 2>/dev/null || true
+pid_translation_shell_pid=""
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-windows-dev-cleanup-selection.ps1
 

@@ -42,12 +42,18 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|p| p.get("activate"))
                 .and_then(|v| v.as_bool());
+            let provision = params
+                .as_ref()
+                .and_then(|p| p.get("provision"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::WorkspaceCreate {
                     name,
                     cwd,
                     activate,
+                    provision,
                 },
                 svc.as_ref(),
             )

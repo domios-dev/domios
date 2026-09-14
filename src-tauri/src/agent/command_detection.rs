@@ -122,6 +122,16 @@ impl CommandDetection {
         self.cwd.cwd()
     }
 
+    /// Shell readiness as a level: a command finished, the shell drew its next
+    /// prompt, and nothing has been entered or run since.
+    pub fn prompt_idle_after_command(&self) -> bool {
+        self.active
+            && !self.commands.is_empty()
+            && self.current.command_line.is_none()
+            && !self.current.has_output_start
+            && self.current.exit_code.is_none()
+    }
+
     /// Fold one event; returns a lifecycle change to surface, if any.
     pub fn apply(&mut self, ev: SemanticEvent) -> Option<CommandLifecycle> {
         match ev {
@@ -312,6 +322,12 @@ impl ShellCapabilityTracker {
             commands: si.detection.commands().to_vec(),
             cwd: si.detection.cwd().map(str::to_string),
         })
+    }
+
+    pub fn prompt_idle_after_command(&self, pty_id: &str) -> bool {
+        self.tabs
+            .get(pty_id)
+            .is_some_and(|si| si.detection.prompt_idle_after_command())
     }
 
     pub fn remove(&mut self, pty_id: &str) {

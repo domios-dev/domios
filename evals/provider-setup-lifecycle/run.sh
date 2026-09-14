@@ -175,10 +175,12 @@ HOOK_BEFORE="$(hook_digest)"
 HOOK_STATUS="$(dev_get '/api/setup/hooks?provider=codex')" || fail "Codex integration status API"
 printf '%s' "$HOOK_STATUS" | node "$STATE" hook || fail "Codex full contract or consent-required refusal"
 set +e
-HOOK_REFUSAL="$(CODETERM_HTTP_STATUS_LOG=1 dev_post '/api/setup/hooks/install?provider=codex' '{}' 2>&1)"
+# An authenticated install is consent and writes global hooks, so the bench
+# probes only a provider that cannot exist and proves nothing was written.
+HOOK_REFUSAL="$(CODETERM_HTTP_STATUS_LOG=1 dev_post '/api/setup/hooks/install?provider=codeterm-bench-absent-provider' '{}' 2>&1)"
 HOOK_REFUSAL_RC=$?
 set -e
-[ "$HOOK_REFUSAL_RC" -eq 22 ] && printf '%s' "$HOOK_REFUSAL" | grep -q 'HTTP 403' || fail "Codex unconsented global write refusal"
+[ "$HOOK_REFUSAL_RC" -eq 22 ] && printf '%s' "$HOOK_REFUSAL" | grep -q 'HTTP 404' || fail "unknown-provider install refusal"
 [ "$(hook_digest)" = "$HOOK_BEFORE" ] || fail "Codex hook file changed during read/refusal"
 pass "hook contract/refusal and whole-file non-mutation"
 

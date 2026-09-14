@@ -34,7 +34,12 @@ impl RestoredFreshLaunchInput {
     /// `None` when a resume was asked for but the provider offers no resume
     /// command — the caller clears the stale session and starts fresh rather
     /// than silently sending a fresh-launch command down the resume branch.
-    fn command(&self, registry: &crate::agent::registry::AgentRegistry) -> Option<String> {
+    /// A fresh launch carries a minted marker; a resume already names its session.
+    fn command(
+        &self,
+        registry: &crate::agent::registry::AgentRegistry,
+        tab_id: &str,
+    ) -> Option<String> {
         let provider_id = self.params.agent.as_deref()?;
         registry
             .with_provider(provider_id, |provider| {
@@ -47,14 +52,22 @@ impl RestoredFreshLaunchInput {
                         .is_some(),
                     None => true,
                 };
-                resumable.then(|| {
-                    crate::service::build_agent_command(
+                resumable.then(|| match self.params.resume_session_id {
+                    Some(_) => crate::service::build_agent_command(
                         provider_id,
                         &self.params,
                         self.launch_task.as_deref(),
                         None,
                         registry,
-                    )
+                    ),
+                    None => crate::service::launch_session_detection::marked_agent_command(
+                        tab_id,
+                        provider_id,
+                        &self.params,
+                        self.launch_task.as_deref(),
+                        None,
+                        registry,
+                    ),
                 })
             })
             .flatten()
@@ -288,7 +301,7 @@ pub async fn spawn_pty_core(
                         ..Default::default()
                     },
                 )
-                .command(&svc.agent_registry);
+                .command(&svc.agent_registry, pid);
 
                 if let Some(cmd) = resume_cmd {
                     if resume_enabled {
@@ -454,7 +467,7 @@ pub async fn spawn_pty_core(
                     ..Default::default()
                 },
             );
-            let launch_cmd = input.command(&svc.agent_registry);
+            let launch_cmd = input.command(&svc.agent_registry, pid);
             if let Some(cmd) = launch_cmd {
                 let prompt_delivery = svc
                     .agent_registry

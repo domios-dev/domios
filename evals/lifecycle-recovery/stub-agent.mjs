@@ -1,60 +1,81 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
+import { createInterface } from "node:readline";
+
+import { writeSessionRecord } from "./session-record.mjs";
 
 const argv = process.argv.slice(2);
-const providerIndex = argv.indexOf("--stub-provider");
-const provider = providerIndex >= 0 ? argv[providerIndex + 1] : "claude";
+const valueAfter = (flag) => {
+  const index = argv.indexOf(flag);
+  return index >= 0 ? argv[index + 1] : undefined;
+};
+const provider = valueAfter("--stub-provider") || "claude";
 const exitsToShell = argv.includes("--lifecycle-exit-fixture");
+const relaunchFixture = argv.includes("--lifecycle-relaunch-fixture");
 const api = (
   process.env.CODETERM_API_URL || `http://127.0.0.1:${process.env.CODETERM_API_PORT}`
 ).replace(/\/$/, "");
 const token = process.env.CODETERM_API_TOKEN || "";
 const tabId = process.env.CODETERM_TAB_ID || "";
 const bindingNonce = process.env.CODETERM_SESSION_BINDING_NONCE || "";
-const sessionId = randomUUID();
+// A resumed launch forwards the provider's own `--resume <session>` argv.
+const sessionId = valueAfter("--stub-session") || valueAfter("--resume") || randomUUID();
+const connected = Boolean(api && token && tabId);
+if (argv.includes("--stub-session-record")) writeSessionRecord(provider, process.cwd(), sessionId);
 
-process.stdout.write("╭──────────────────────────╮\n│ ❯                        │\n╰──────────────────────────╯\n");
-
-if (api && token && tabId) {
-  const response = await fetch(`${api}/api/tabs/${tabId}/hook/session_start`, {
+async function post(path, body, extraHeaders = {}) {
+  const response = await fetch(`${api}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      ...extraHeaders,
     },
-    body: JSON.stringify({
-      session_id: sessionId,
-      source: "startup",
-      provider,
-      binding_nonce: bindingNonce || undefined,
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new Error(`session_start failed: ${response.status}`);
+  if (!response.ok) throw new Error(`${path} failed: ${response.status}`);
+}
+
+const reportStop = () =>
+  post(`/api/tabs/${tabId}/hook/stop`, { binding_nonce: bindingNonce || undefined });
+
+// Attached before any request, so input written once the session binds is always read.
+createInterface({ input: process.stdin }).on("line", async (line) => {
+  const text = line.trim();
+  if (text === "/exit") process.exit(0);
+  if (!text.includes("LR-probe-")) return;
+  process.stdout.write(`stub-received ${text}\n`);
+  if (connected) await reportStop();
+});
+
+process.stdout.write("╭──────────────────────────╮\n│ ❯                        │\n╰──────────────────────────╯\n");
+
+if (connected) {
+  await post(`/api/tabs/${tabId}/hook/session_start`, {
+    session_id: sessionId,
+    source: "startup",
+    provider,
+    binding_nonce: bindingNonce || undefined,
+  });
 
   if (exitsToShell) {
-    const planResponse = await fetch(`${api}/api/plans`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "X-CodeTerm-Tab-Id": tabId,
-      },
-      body: JSON.stringify({
+    await post(
+      "/api/plans",
+      {
         title: `lifecycle-exit-${tabId}`,
         project_path: process.cwd(),
         owner: { tab_id: tabId, session_id: sessionId, title: process.env.CODETERM_TAB_TITLE || null },
         session_id: sessionId,
         session_binding_nonce: bindingNonce || null,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!planResponse.ok) throw new Error(`plan_create failed: ${planResponse.status}`);
+      },
+      { "X-CodeTerm-Tab-Id": tabId },
+    );
   }
 }
 
-if (exitsToShell) process.exit(0);
-process.stdin.resume();
+if (exitsToShell || relaunchFixture) process.exit(0);
+
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));

@@ -33,6 +33,8 @@ pub(crate) struct CreateWorkspaceBody {
     cwd: Option<String>,
     #[serde(default)]
     activate: Option<bool>,
+    #[serde(default)]
+    provision: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -45,20 +47,27 @@ pub async fn create_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<CreateWorkspaceBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let body = body.ok_or((StatusCode::BAD_REQUEST, "name is required"))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let body = body.ok_or((StatusCode::BAD_REQUEST, "name is required".to_string()))?;
     let cmd = crate::dispatch::Command::WorkspaceCreate {
         name: body.name,
         cwd: body.cwd,
         activate: body.activate,
+        provision: body.provision,
     };
-    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to create workspace",
-        )
-    })?;
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || crate::dispatch::dispatch(&cmd, svc.as_ref()))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| {
+            let status = if error == crate::dispatch::WORKSPACE_PROVISION_CWD_CONFLICT {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, format!("Failed to create workspace: {error}"))
+        })?;
     Ok(Json(result.into_json()))
 }
 

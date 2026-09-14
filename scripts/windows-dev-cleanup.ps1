@@ -7,6 +7,8 @@ param(
   [Parameter(Mandatory = $true)][int] $VitePort,
   [Parameter(Mandatory = $true)][int] $ApiPort,
   [Parameter(Mandatory = $true)][int] $CdpPort,
+  [Parameter(Mandatory = $false)][int[]] $OwnedProcessIds = @(),
+  [switch] $OwnedOnly,
   [string] $FixturePath,
   [switch] $PlanOnly
 )
@@ -62,44 +64,49 @@ while ($cursorPid -gt 0 -and $selfAncestry.Add($cursorPid)) {
 }
 
 $victimRoots = New-Object System.Collections.Generic.HashSet[int]
-foreach ($proc in $all) {
-  $procId = [int]$proc.ProcessId
-  if ($selfAncestry.Contains($procId)) {
-    continue
-  }
-  $cmd = [string]$proc.CommandLine
-  $exe = [string]$proc.ExecutablePath
-  $name = [string]$proc.Name
-  $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
-  $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
-    ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
-  $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
-  $matchesInstanceConpty = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
-    (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
-      ($cmd -and $cmd.IndexOf($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0))
-  $ownsApi = $procPorts -contains $ApiPort
-  $matchesTarget = $rawTarget -and ($ownsApi -or ($Instance -eq "" -and $procPorts.Count -eq 0))
-  $matchesWebView = $cmd -and
-    $cmd.IndexOf("$Identifier\EBWebView", [StringComparison]::OrdinalIgnoreCase) -ge 0
-  $isRepoScriptHost = @("node.exe", "npm.exe", "pnpm.exe", "cmd.exe", "sh.exe", "bash.exe") -contains $name.ToLowerInvariant()
-  $matchesVite = $isRepoScriptHost -and $cmd -and
-    $cmd.IndexOf($nodeModules, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-    ($cmd -match 'vite\\bin\\vite\.js|@tauri-apps\\cli\\tauri\.js') -and
-    ($cmd.IndexOf(":$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-      $cmd.IndexOf("--port $VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-      $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-      ($cmd.IndexOf("build", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-        $cmd.IndexOf("--watch", [StringComparison]::OrdinalIgnoreCase) -ge 0))
-  $matchesCdp = $cmd -and
-    $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0
-
-  if ($matchesTarget -or $matchesInstanceConpty -or $matchesWebView -or $matchesVite -or $matchesCdp) {
+foreach ($procId in @($OwnedProcessIds)) {
+  if ($procId -gt 0 -and -not $selfAncestry.Contains($procId) -and $parentByPid.ContainsKey($procId)) {
     [void]$victimRoots.Add($procId)
   }
 }
-foreach ($port in @($ApiPort, $VitePort, $CdpPort)) {
-  foreach ($listener in @($listeners | Where-Object { [int]$_.port -eq $port })) {
-    [void]$victimRoots.Add([int]$listener.process_id)
+if (-not $OwnedOnly) {
+  foreach ($proc in $all) {
+    $procId = [int]$proc.ProcessId
+    if ($selfAncestry.Contains($procId)) {
+      continue
+    }
+    $cmd = [string]$proc.CommandLine
+    $exe = [string]$proc.ExecutablePath
+    $name = [string]$proc.Name
+    $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
+    $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
+      ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+    $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
+    $matchesInstanceConpty = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
+      (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
+        ($cmd -and $cmd.IndexOf($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0))
+    $ownsApi = $procPorts -contains $ApiPort
+    $matchesTarget = $rawTarget -and ($ownsApi -or ($Instance -eq "" -and $procPorts.Count -eq 0))
+    $matchesWebView = $cmd -and
+      $cmd.IndexOf("$Identifier\EBWebView", [StringComparison]::OrdinalIgnoreCase) -ge 0
+    $isRepoScriptHost = @("node.exe", "npm.exe", "pnpm.exe", "cmd.exe", "sh.exe", "bash.exe") -contains $name.ToLowerInvariant()
+    $matchesVite = $isRepoScriptHost -and $cmd -and
+      $cmd.IndexOf($nodeModules, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+      ($cmd -match 'vite[\\/]bin[\\/]vite\.js|@tauri-apps[\\/]cli[\\/]tauri\.js') -and
+      ($cmd.IndexOf(":$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $cmd.IndexOf("--port $VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0)
+    $matchesCdp = $cmd -and
+      $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0
+
+    if ($matchesTarget -or $matchesInstanceConpty -or $matchesWebView -or $matchesVite -or $matchesCdp) {
+      [void]$victimRoots.Add($procId)
+    }
+  }
+  foreach ($port in @($ApiPort, $VitePort, $CdpPort)) {
+    foreach ($listener in @($listeners | Where-Object { [int]$_.port -eq $port })) {
+      [void]$victimRoots.Add([int]$listener.process_id)
+    }
   }
 }
 

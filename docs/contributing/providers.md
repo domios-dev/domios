@@ -140,7 +140,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 ### `sessions`
 
 Drives the manifest fallbacks for session discovery (`sessionFilePath`,
-`sessionExists`, `detectSessionId`, `enumerateSessions`).
+`sessionExists`, `detectSessionId`, `enumerateSessions`, `findSession`).
 
 | Field | Type / legal values | Default | Meaning |
 |---|---|---|---|
@@ -221,7 +221,8 @@ instead.
 |---|---|---|---|
 | `parsePrompt(text)` | screen text | `{question, options: [[id, label], …]}` or `null` | universal permission-prompt parser. |
 | `buildPromptResponse(optionIndex, screen)` | selected index, live screen | array of **base64-encoded** byte strings, one per PTY write step (vim j/k, arrows, escape sequences — whatever the TUI expects; `screen` lets you navigate relative to the live highlight) | arrow-down × index + Enter. |
-| `directoryTrustPromptResponse(prompt, screen)` | PendingPrompt, screen | base64 byte steps or `null` | `null` — no special trust-dialog handling. |
+| `directoryTrustPromptResponse(screen)` | live clean screen text | `[key]` (exactly one base64 key toward trusting the folder), `[]` to hold a recognized trust dialog for the user, or `null` when none is shown. Core asks only for an agent tab in the directory CodeTerm created whose launch session is not yet authenticated, and writes one key per observed frame. | `null` — directory-trust dialogs stay with the user. |
+| `permissionPromptResponse(toolName, prompt, screen)` | hook-reported tool name, PendingPrompt, screen | `{optionIndex, rule, steps}` (base64 steps) or `null`. Only for a single-choice tool approval; return `null` for questions, plan decisions, trust gates and anything without an explicit decline option. | `null` — per-tab auto-confirm never answers this provider's prompts. |
 
 ### Session discovery
 
@@ -230,11 +231,13 @@ instead.
 | `sessionFilePath(cwd, sessionId)` | cwd, id | path string or `null` | manifest: `sessions.rootDir` + encoded cwd + `<id>.<fileExtension>`. |
 | `sessionExists(cwd, sessionId)` | cwd, id | bool | existence check on `sessionFilePath`. |
 | `detectSessionId(cwd, exclude, maxAgeMs)` | cwd, excluded ids, recency budget (default 300 000) | id or `null` | manifest-driven scan of the sessions dir for a **single** uuid-ish candidate (stem ≥ 32 chars containing `-`) modified within the budget; any ambiguity ⇒ `null` (honest over guessing). |
+| `detectLaunchSession(evidence)` | `{cwd, launchMarker, launchedAtMs, processes: [{pid, depth, startToken}]}` for this tab's own launch; `processes` is its PTY tree with OS start times | `{sessionId, source: "pid_registry" \| "launch_marker"}` or `null` | `null`. Core asks only after a hooked provider missed its launch binding deadline, then binds through the same ownership validation as a hook report. Read only records keyed to this launch (a pid whose recorded start equals `startToken`, or text carrying `launchMarker`); never cwd or recency. |
 | `detectActiveSession(cwd, currentSid)` | cwd, current id | id or `null` | `null`. |
 | `detectSessionModel(cwd, sessionId)` | cwd, id | model id or `null` (resolved through the model catalog) | `null`. |
 | `detectSessionReasoningEffort(cwd, sessionId)` | cwd, id | effort id or `null` | `null`. |
 | `sessionCreatedMs(cwd, sessionId)` | cwd, id | epoch ms or `null` | `null`. |
 | `enumerateSessions()` | — | `[{sessionId, provider?, projectPath?, title?, summary?, filePath, createdTs?, modifiedTs?}]` | manifest-driven walk of `rootDir` (one directory level, uuid-ish stems), calling `describeSession` per file. |
+| `findSession(sessionId)` | id | `{sessionId, provider?, projectPath?, title?, summary?, filePath, createdTs?, modifiedTs?}` or `null` — the provider's own record for exactly that id; must not scan history or guess by cwd/recency | manifest-driven `<rootDir>/*/<id>.<ext>` probe (one stat per project dir) plus one `describeSession`; else the bundled native fallback; else not found. Backs `GET /api/sessions/{id}`. |
 | `describeSession(filePath, head)` | file path, first ~64 lines (≤64 KB) | `{title?, summary?, projectPath?}` | only ever called **from** the fallback enumerator; skipping it just leaves those fields empty. |
 
 ### Chat UI
@@ -345,4 +348,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 6 -->
+<!-- revision: 9 -->

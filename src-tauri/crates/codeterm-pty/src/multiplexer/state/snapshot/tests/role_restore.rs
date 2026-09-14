@@ -27,6 +27,7 @@ fn role_claim_leaf(role: &str) -> SplitNodeSnapshot {
         depth: 1,
         chat_view: Some(false),
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: TabAudience::User,
         agent_session_model: None,
         agent_planned_model: None,

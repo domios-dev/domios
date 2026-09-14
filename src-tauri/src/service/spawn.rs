@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::orchestrator::{build_agent_command, launch_agent_in_background_with_env};
+use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
@@ -323,7 +323,7 @@ impl ServiceContext {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }
 
-        let (ws_id, ws_cwd) = {
+        let (ws_id, ws_cwd, ws_provisioned_cwd) = {
             let mux = self.mux.write();
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
@@ -333,8 +333,10 @@ impl ServiceContext {
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),
             )?;
-            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
-            (id, cwd)
+            let workspace = mux.get_workspace(&id);
+            let cwd = workspace.and_then(|ws| ws.cwd.clone());
+            let provisioned_cwd = workspace.and_then(|ws| ws.provisioned_cwd.clone());
+            (id, cwd, provisioned_cwd)
         };
 
         // Authorized before the tab exists: a non-member caller must never leave
@@ -373,9 +375,15 @@ impl ServiceContext {
                     tab.cwd = Some(dir.clone());
                 }
             }
-            if let Some(ref provisioned_cwd) = agent.provisioned_cwd {
+            let provisioned_cwd = agent.provisioned_cwd.clone().or_else(|| {
+                super::directory_trust::inherited_workspace_provenance(
+                    resolved_cwd.as_deref(),
+                    ws_provisioned_cwd.as_deref(),
+                )
+            });
+            if let Some(provisioned_cwd) = provisioned_cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
-                    tab.provisioned_cwd = Some(provisioned_cwd.clone());
+                    tab.provisioned_cwd = Some(provisioned_cwd);
                 }
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
@@ -649,16 +657,14 @@ impl ServiceContext {
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = build_agent_command(
+        let launch_cmd = visible_agent_launch_command(
+            &tab_id,
             &agent_cmd,
             &legacy_params,
             role_suffixed_task.as_deref(),
             launch_session_id.as_deref(),
-            &self.agent_registry,
-        );
-        let launch_cmd = super::worker_lane::compose_launch_with_setup(
             agent.lane_setup_command.as_deref(),
-            launch_cmd,
+            &self.agent_registry,
         );
         launch_agent_in_background_with_env(
             self.clone(),
@@ -739,9 +745,13 @@ impl ServiceContext {
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or("No workspace for hidden spawn")?
         };
-        let ws_cwd = {
+        let (ws_cwd, ws_provisioned_cwd) = {
             let mux = self.mux.write();
-            mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
+            let workspace = mux.get_workspace(&ws_id);
+            (
+                workspace.and_then(|ws| ws.cwd.clone()),
+                workspace.and_then(|ws| ws.provisioned_cwd.clone()),
+            )
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
@@ -760,6 +770,12 @@ impl ServiceContext {
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
+                tab.provisioned_cwd = agent.provisioned_cwd.clone().or_else(|| {
+                    super::directory_trust::inherited_workspace_provenance(
+                        resolved_cwd.as_deref(),
+                        ws_provisioned_cwd.as_deref(),
+                    )
+                });
                 persist_model_launch_identity(
                     tab,
                     agent.planned_model.as_deref(),
@@ -857,7 +873,8 @@ impl ServiceContext {
             }
         };
 
-        if let Some(orphan) = self.mux.write().link_pty(&tab_id, pty_id.clone()) {
+        let orphan = self.mux.write().link_pty(&tab_id, pty_id.clone());
+        if let Some(orphan) = orphan {
             self.kill_ptys(&[orphan]);
         }
         crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
@@ -983,7 +1000,7 @@ impl ServiceContext {
                 .get_tab(&tab_id_outer)
                 .and_then(|p| p.cwd.clone())
                 .unwrap_or_default();
-            let launch_params = crate::agent::provider::AgentLaunchParams {
+            let mut launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
                 task: task_for_thread.clone(),
                 starter_prompt: Default::default(),
@@ -1000,16 +1017,15 @@ impl ServiceContext {
                     &tab_id_outer,
                     &hidden_cwd,
                 ),
+                launch_marker: None,
             };
-            let launch_cmd = svc_outer
-                .agent_registry
-                .with_provider(&provider, |p| {
-                    crate::agent::stub_launch::apply(
-                        &provider,
-                        p.build_launch_command(&launch_params),
-                    )
-                })
-                .unwrap_or_else(|| provider.clone());
+            let launch_cmd = super::launch_session_detection::marked_provider_launch_command(
+                &svc_outer.agent_registry,
+                &provider,
+                &tab_id_outer,
+                &mut launch_params,
+            )
+            .unwrap_or_else(|| provider.clone());
             crate::service::launch_diagnostics::log_launch(
                 crate::service::launch_diagnostics::AgentLaunchOrigin::HiddenSpawn,
                 &tab_id_outer,
@@ -1073,6 +1089,30 @@ impl ServiceContext {
     }
 }
 
+/// A visible launch carries a minted marker so a hook-less provider still binds
+/// its own session, and lane setup runs before it.
+fn visible_agent_launch_command(
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    lane_setup_command: Option<&str>,
+    registry: &AgentRegistry,
+) -> String {
+    super::worker_lane::compose_launch_with_setup(
+        lane_setup_command,
+        super::launch_session_detection::marked_agent_command(
+            tab_id,
+            agent_cmd,
+            params,
+            task,
+            injected_session_id,
+            registry,
+        ),
+    )
+}
+
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod tests;
@@ -1080,3 +1120,7 @@ mod tests;
 #[cfg(test)]
 #[path = "spawn_tests_chatbackend.rs"]
 mod tests_chatbackend;
+
+#[cfg(test)]
+#[path = "spawn_launch_marker_tests.rs"]
+mod launch_marker_tests;

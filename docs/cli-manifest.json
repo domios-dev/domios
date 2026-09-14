@@ -409,7 +409,7 @@
         },
         {
           "name": "restart",
-          "about": "Restart an observed live agent; an exited provider requires a fresh spawn",
+          "about": "Restart a live agent, or resume an exited provider's verified session in its shell",
           "aliases": [],
           "args": [
             {
@@ -2188,6 +2188,60 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "integration",
+      "about": "Provider hook integration: install it with recorded consent and trust, or read its state",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "install",
+          "about": "Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does",
+          "aliases": [],
+          "args": [
+            {
+              "name": "precompact-memory-export",
+              "positional": false,
+              "required": false,
+              "value_name": "PRECOMPACT_MEMORY_EXPORT",
+              "possible_values": [],
+              "default": null,
+              "help": "Also export conversation content to memory before compaction",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider id (e.g. claude, codex)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show a provider's hook integration state",
+          "aliases": [],
+          "args": [
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider id (e.g. claude, codex)",
               "aliases": []
             }
           ],
@@ -13064,6 +13118,38 @@
       "args": [],
       "subcommands": [
         {
+          "name": "auto-confirm",
+          "about": "Opt a tab in or out of auto-confirming provider permission prompts the provider positively recognizes, or show the setting with recent auto-confirmations. Questions, trust dialogs and unrecognized prompts are never answered",
+          "aliases": [],
+          "args": [
+            {
+              "name": "mode",
+              "positional": true,
+              "required": true,
+              "value_name": "MODE",
+              "possible_values": [
+                "on",
+                "off",
+                "status"
+              ],
+              "default": null,
+              "help": "`on`, `off`, or `status`",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "capture",
           "about": "Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file",
           "aliases": [],
@@ -14481,7 +14567,7 @@
         },
         {
           "name": "create",
-          "about": "Create a new workspace. With --cwd, reuses an existing workspace at that cwd",
+          "about": "Create a new workspace. With --cwd, reuses an existing workspace at that cwd. With --provision, the daemon creates a fresh directory for it",
           "aliases": [],
           "args": [
             {
@@ -14502,6 +14588,16 @@
               "possible_values": [],
               "default": null,
               "help": "Workspace name",
+              "aliases": []
+            },
+            {
+              "name": "provision",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVISION",
+              "possible_values": [],
+              "default": null,
+              "help": "Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust",
               "aliases": []
             }
           ],

@@ -27,9 +27,65 @@ Tunables (env):
   deadlines in seconds. Waits re-check on daemon events; elapsed time is never
   success.
 
+- `RL_OWNED_DEADLINE` (`180`) — failure deadline for the pre-restart provider
+  ownership gate below.
+- `RL_EXITED_MEMBER` (`1`) — run the exited-member phase after the cycles; `0`
+  skips it.
+
+## Outcomes: PASS, SETUP, FAIL
+
+| Exit | Last line | Meaning |
+|------|-----------|---------|
+| `0` | `== restore lifecycle PASS cycles=2 midturn_cycle=2 run=…` | Every cycle restored every agent. |
+| `3` | `== restore lifecycle SETUP cycle=N (no restart taken; not a restore verdict) run=…` | Before cycle N, a provider store did not own a captured session. No restart ran, so nothing about restore was measured. |
+| `1` | a `FAIL …` line | Setup was proven and restore broke (report, identity, or a resumed turn), or the harness itself failed. |
+
+Before every restart the bench waits, per agent tab, until the tab's provider
+store owns the session captured in `identity-before.json`:
+`GET /api/sessions/<sid>` (the API behind `dc sessions get <sid>`) must return
+that session with the captured provider. The wait re-checks on daemon events
+under `RL_OWNED_DEADLINE`; there is no sleep. The gate reads the provider's
+session enumeration, which can lag the record restore trusts (Codex lists a
+thread only after naming it), so it is deliberately at least as strict as
+restore: a pass rules out a restart inside a provider persistence window.
+
+A SETUP run prints one line per unowned tab, then the SETUP summary:
+
+```text
+== [cycle-1] every provider store owns its captured session before the restart
+SETUP provider store did not own 01a09e84-… (tab 2b7402d3 rl-codex-worker, provider codex; sessions get: 404)
+== restore lifecycle SETUP cycle=1 (no restart taken; not a restore verdict) run=target-check/evals/restore-lifecycle-…
+```
+
+A FAIL run after a proven setup looks like:
+
+```text
+PASS owned 5 agent sessions owned by their provider stores
+== [cycle-1] full dev stop (reboot analogue) and start
+FAIL identity tab 2b7402d3 (rl-codex-worker) agent_session_id: '01a09e84-…' -> None
+```
+
+## Forensics
+
+`--lifecycle` inspects exactly one tab, so each cycle runs
+`dc tab inspect --tab <id> --lifecycle --json` once per tab of the run and merges
+the results into one JSON object keyed by tab id:
+`lifecycle-cycle-N-before.json` (after the ownership gate, before the restart)
+and `lifecycle-cycle-N-after.json` (once the restore report settled or failed).
+A SETUP stop writes `lifecycle-cycle-N-setup.json`. A tab whose capture failed
+is recorded as `{"capture_error": "<stderr>"}` with a `WARN` line; a capture
+never changes the verdict.
+
+On success, cleanup closes the Team, then closes the run's workspace with
+`dc workspace close <id> --force`, because the standalone agent is not a Team
+member and survives the Team close. `--force` is passed only after
+`/api/workspaces` confirms the recorded id still carries this run's unique
+`RESTORE-LIFECYCLE-<run>` name; any other workspace is never force-closed.
+
 ## Scenario
 
-1. Workspace `RESTORE-LIFECYCLE-<run>`; `team pair` gives a Claude Orchestrator
+1. Workspace `RESTORE-LIFECYCLE-<run>` created with `--provision`, so the daemon
+   creates its directory and every tab inherits it with directory trust; `team pair` gives a Claude Orchestrator
    and a Codex Planner; the Orchestrator spawns a Claude Worker and a Codex
    Worker; a standalone Claude agent and a plain shell join the workspace.
 2. Every agent binds a session and completes one marker turn, so each provider
@@ -44,6 +100,18 @@ Tunables (env):
      bound to two tabs, and the shell has no agent identity;
    - every agent answers a fresh marker turn, and identity is still unchanged
      afterwards (the resumed process is live, not a record).
+6. Exited-member phase: the Claude Worker receives `/exit` and the bench waits
+   until its status keeps role but has no provider or session. One more restart
+   cycle, then:
+   - the other agent panes restore live;
+   - the Worker's pane reads `restored: false`,
+     `drop_reason: agent_exited_before_shutdown`, and `exited_session_id` equal to
+     its captured session, while its status still has no provider or session
+     and keeps its role and Team (restore relaunched nothing);
+   - `dc agent restart --tab <worker> --json` returns `recovered_in_place: true`,
+     `agent_ready: true`, that `session_id`, and the same old and new PTY;
+   - every tab's identity matches `identity-before.json` again, and the Worker
+     answers a marker turn in the resumed session.
 
 The Team id is the Orchestrator's own `team_id` from its tab status, cross-checked
 against `team list --json` (`{"teams": [...]}`). Every CLI JSON payload is saved as

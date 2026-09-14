@@ -131,6 +131,7 @@ pub struct AgentLaunchParams {
     /// provider's server flags. Fixes the W3 leading-dash `--args` ergonomics
     /// gap — the host allocates the port instead of the caller hand-passing args.
     pub structured_prompt_server: Option<StructuredPromptServer>,
+    pub launch_marker: Option<String>,
 }
 
 /// Everything a resumed session needs beyond its id. `system_prompt` is the
@@ -163,12 +164,7 @@ pub struct IntegrationInstallOptions {
     pub repair: bool,
 }
 
-/// A provider-owned response for its directory trust prompt. Core only asks
-/// for this after the spawn edge has attested the exact created directory.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DirectoryTrustPromptResponse {
-    pub steps: Vec<Vec<u8>>,
-}
+pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
 /// Bind address for a provider's structured-prompt server (opencode SSE bus).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,12 +275,16 @@ pub enum PathOpenKind {
 
 mod availability;
 mod capabilities;
+mod launch_session;
 mod model_info;
 mod settings;
+mod usage_snapshot;
 pub use availability::*;
 pub use capabilities::*;
+pub use launch_session::*;
 pub use model_info::*;
 pub use settings::*;
+pub use usage_snapshot::*;
 
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
@@ -374,6 +374,9 @@ pub struct ProviderDescriptor {
     /// structured handle first and only falls back to PTY scraping otherwise.
     #[serde(default)]
     pub supports_structured_prompts: bool,
+    /// `true` when the provider can recognize its own permission prompts.
+    #[serde(default)]
+    pub supports_permission_auto_confirm: bool,
     /// `true` when a chatBackend plugin implements watcher mode (manifest
     /// `chatBackend: { watcher: true }`). Always `false` for PTY transports.
     #[serde(default)]
@@ -563,12 +566,24 @@ pub trait AgentProvider: Send + Sync {
         SessionIdInjection::None
     }
 
+    /// Session named by this launch's own provider record; `None` when no record
+    /// names it. Never a cwd or recency guess.
+    fn detect_launch_session(&self, _: &LaunchSessionEvidence) -> Option<LaunchSessionDetection> {
+        None
+    }
+
     /// Enumerate all past sessions this provider keeps on disk.
     /// Used by the cross-provider session search. Default returns empty —
     /// providers without on-disk session history (or not yet implemented)
     /// contribute nothing and fall out of search silently.
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         Vec::new()
+    }
+
+    /// This provider's own record for exactly `session_id`; `None` when it does
+    /// not own the id. Never walks session history, never guesses by cwd or recency.
+    fn find_session(&self, _session_id: &str) -> Option<SessionMetadata> {
+        None
     }
 
     /// Extract conversation messages from a session file produced by this
@@ -670,13 +685,23 @@ pub trait AgentProvider: Send + Sync {
         steps
     }
 
-    /// Recognize and answer this provider's directory-trust prompt. `None`
-    /// means the screen must remain a normal surfaced prompt.
+    /// Recognize this provider's directory-trust dialog on the live screen.
+    /// Core asks only for a tab in the directory CodeTerm created.
     fn directory_trust_prompt_response(
         &self,
-        _prompt: &codeterm_types::pty::PendingPrompt,
         _screen: &str,
     ) -> Option<DirectoryTrustPromptResponse> {
+        None
+    }
+
+    /// Recognize this provider's tool-permission prompt for the hook-reported
+    /// `tool_name` and name its affirmative option. `None` leaves it to the user.
+    fn permission_prompt_response(
+        &self,
+        _tool_name: &str,
+        _prompt: &codeterm_types::pty::PendingPrompt,
+        _screen: &str,
+    ) -> Option<crate::permission_prompt::PermissionPromptResponse> {
         None
     }
 
@@ -1068,6 +1093,7 @@ pub trait AgentProvider: Send + Sync {
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),
+            supports_permission_auto_confirm: self.supports_permission_auto_confirm(),
             supports_watcher: false,
             trust: self.trust(),
             transport: ProviderTransport::Pty,
@@ -1114,6 +1140,12 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    /// Whether `permission_prompt_response` can recognize any prompt, so the UI
+    /// offers per-tab auto-confirm only where it can ever answer.
+    fn supports_permission_auto_confirm(&self) -> bool {
+        false
+    }
+
     /// Build the STRUCTURED pending prompt for an interactive tab, if one is
     /// active and unanswered, from this provider's structured source. `cwd` /
     /// `session_id` identify the tab's own session (detection keys off the
@@ -1156,29 +1188,5 @@ pub trait AgentProvider: Send + Sync {
     /// recurse until the stack overflows.
     fn is_native(&self) -> bool {
         true
-    }
-}
-
-/// Cumulative token usage for one agent session.
-#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
-pub struct UsageSnapshot {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cache_creation_input_tokens: u64,
-    pub cache_read_input_tokens: u64,
-    pub message_count: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub window_started_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_activity_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Normalised platform tag used by `install_command(platform)`.
-pub fn current_platform_tag() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "macos",
-        "linux" => "linux",
-        "windows" => "windows",
-        other => other,
     }
 }
