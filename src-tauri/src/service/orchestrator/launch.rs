@@ -32,6 +32,9 @@ pub(crate) struct LaunchRegistry {
     tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
 #[cfg(test)]
+#[path = "launch/exit_recovery_shell_tests.rs"]
+mod exit_recovery_shell_tests;
+#[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
 #[derive(Clone, Debug)]
@@ -374,6 +377,16 @@ fn reused_provider_tui_owns_launch(
     provider_tui_visible: bool,
 ) -> bool {
     reused_live_pty && tab_agent_type == Some(requested_agent) && provider_tui_visible
+}
+
+/// The screen gate misses a prompt drawn beneath an exited provider's frame, so
+/// recovery on its own PTY reads the shell's command lifecycle as a level instead.
+fn shell_prompt_already_idle(
+    recovers_exited_provider: bool,
+    reused_live_pty: bool,
+    prompt_idle_after_command: impl FnOnce() -> bool,
+) -> bool {
+    recovers_exited_provider && reused_live_pty && prompt_idle_after_command()
 }
 
 fn start_backend_reader(
@@ -726,11 +739,24 @@ pub(crate) fn launch_agent_in_background_with_env(
             &launch.pty_id,
         );
 
-        if !crate::service::pty_io::await_bare_shell_prompt(
-            &svc.screen_state,
-            &pty_id,
-            std::time::Duration::from_secs(30),
-        ) {
+        let shell_already_idle =
+            shell_prompt_already_idle(recovers_exited_provider, reused_live_pty, || {
+                svc.shell_caps.lock().prompt_idle_after_command(&pty_id)
+            });
+        if shell_already_idle {
+            log::info!(
+                "launch_agent: Tab {} exit recovery reuses the idle shell prompt on PTY {}",
+                tab_id,
+                pty_id
+            );
+        }
+        if !shell_already_idle
+            && !crate::service::pty_io::await_bare_shell_prompt(
+                &svc.screen_state,
+                &pty_id,
+                std::time::Duration::from_secs(30),
+            )
+        {
             let error = LaunchFailure::ShellReadyTimeout.reason();
             launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
             set_booting(false);
