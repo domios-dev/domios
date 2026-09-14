@@ -572,40 +572,33 @@ mod model_label_tests {
     }
 }
 
-pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
-    let Some(home) = dirs::home_dir() else {
-        return Vec::new();
-    };
-    let projects_root = home.join(".claude").join("projects");
-    let Ok(entries) = std::fs::read_dir(&projects_root) else {
-        return Vec::new();
-    };
+type SessionsIndex = std::collections::HashMap<String, serde_json::Value>;
 
+fn claude_projects_root() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".claude").join("projects"))
+}
+
+fn is_session_stem(stem: &str) -> bool {
+    stem.len() >= 32 && stem.contains('-')
+}
+
+pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
+    claude_projects_root()
+        .map(|root| enumerate_sessions_under(&root))
+        .unwrap_or_default()
+}
+
+pub(crate) fn enumerate_sessions_under(projects_root: &Path) -> Vec<SessionMetadata> {
+    let Ok(entries) = std::fs::read_dir(projects_root) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for entry in entries.filter_map(|e| e.ok()) {
         if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
             continue;
         }
         let dir_path = entry.path();
-
-        // Also look for a sessions-index.json to pick up titles/summaries.
-        let index: std::collections::HashMap<String, serde_json::Value> =
-            std::fs::read_to_string(dir_path.join("sessions-index.json"))
-                .ok()
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-                .and_then(|v| {
-                    v.get("entries").and_then(|e| e.as_array()).map(|arr| {
-                        arr.iter()
-                            .filter_map(|it| {
-                                it.get("sessionId")
-                                    .and_then(|s| s.as_str())
-                                    .map(|sid| (sid.to_string(), it.clone()))
-                            })
-                            .collect()
-                    })
-                })
-                .unwrap_or_default();
-
+        let index = read_sessions_index(&dir_path);
         let Ok(files) = std::fs::read_dir(&dir_path) else {
             continue;
         };
@@ -614,42 +607,82 @@ pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
             let Some(stem) = name.strip_suffix(".jsonl") else {
                 continue;
             };
-            if stem.len() < 32 || !stem.contains('-') {
-                continue;
+            if is_session_stem(stem) {
+                out.push(session_metadata(stem, &f.path(), &index));
             }
-            let file_path_buf = f.path();
-            let meta = f.metadata().ok();
-            let created_ts = meta
-                .as_ref()
-                .and_then(|m| provider::fs_time_to_unix(m.created().ok()));
-            let modified_ts = meta
-                .as_ref()
-                .and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
-
-            let entry_meta = index.get(stem);
-            let title = entry_meta
-                .and_then(|v| v.get("title").and_then(|s| s.as_str()))
-                .map(String::from);
-            let summary = entry_meta
-                .and_then(|v| v.get("summary").and_then(|s| s.as_str()))
-                .map(String::from);
-            let project_path = read_session_cwd(&file_path_buf);
-
-            out.push(SessionMetadata {
-                session_id: stem.to_string(),
-                provider: "claude".to_string(),
-                project_path,
-                title,
-                summary,
-                file_path: file_path_buf.to_string_lossy().to_string(),
-                transcript_path: crate::session_evidence::stored_transcript_path(stem)
-                    .map(|p| p.to_string_lossy().to_string()),
-                created_ts,
-                modified_ts,
-            });
         }
     }
     out
+}
+
+pub(super) fn find_session(session_id: &str) -> Option<SessionMetadata> {
+    find_session_under(&claude_projects_root()?, session_id)
+}
+
+/// Probes `<project>/<id>.jsonl` once per project dir, so the cost follows the
+/// project count and never the number of stored sessions.
+pub(crate) fn find_session_under(
+    projects_root: &Path,
+    session_id: &str,
+) -> Option<SessionMetadata> {
+    if !crate::session_evidence::valid_session_id(session_id) || !is_session_stem(session_id) {
+        return None;
+    }
+    let file_name = format!("{session_id}.jsonl");
+    std::fs::read_dir(projects_root)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+        .find_map(|e| {
+            let dir_path = e.path();
+            let path = dir_path.join(&file_name);
+            path.is_file()
+                .then(|| session_metadata(session_id, &path, &read_sessions_index(&dir_path)))
+        })
+}
+
+fn read_sessions_index(dir_path: &Path) -> SessionsIndex {
+    std::fs::read_to_string(dir_path.join("sessions-index.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| {
+            v.get("entries").and_then(|e| e.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|it| {
+                        it.get("sessionId")
+                            .and_then(|s| s.as_str())
+                            .map(|sid| (sid.to_string(), it.clone()))
+                    })
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
+fn session_metadata(stem: &str, file_path: &Path, index: &SessionsIndex) -> SessionMetadata {
+    let meta = std::fs::metadata(file_path).ok();
+    let entry_meta = index.get(stem);
+    let index_field = |field: &str| {
+        entry_meta
+            .and_then(|v| v.get(field).and_then(|s| s.as_str()))
+            .map(String::from)
+    };
+    SessionMetadata {
+        session_id: stem.to_string(),
+        provider: "claude".to_string(),
+        project_path: read_session_cwd(file_path),
+        title: index_field("title"),
+        summary: index_field("summary"),
+        file_path: file_path.to_string_lossy().to_string(),
+        transcript_path: crate::session_evidence::stored_transcript_path(stem)
+            .map(|p| p.to_string_lossy().to_string()),
+        created_ts: meta
+            .as_ref()
+            .and_then(|m| provider::fs_time_to_unix(m.created().ok())),
+        modified_ts: meta
+            .as_ref()
+            .and_then(|m| provider::fs_time_to_unix(m.modified().ok())),
+    }
 }
 
 pub(super) fn parse_session_messages(file_path: &Path) -> Vec<SessionMessage> {
@@ -761,6 +794,58 @@ pub(super) fn detect_session_id(
 mod tests {
     use super::*;
     use crate::provider::AgentProvider;
+
+    #[test]
+    fn find_session_under_returns_the_enumerated_record_for_exactly_that_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut env = codeterm_util::test_env::EnvGuard::lock();
+        env.set(
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            tmp.path().join("store"),
+        );
+        let root = tmp.path().join("projects");
+        let owned = "cccc3333-find-4ccc-8ccc-cccccccccccc";
+        let sibling = "dddd4444-find-4ddd-8ddd-dddddddddddd";
+        let other_dir = root.join("-other-project");
+        let owned_dir = root.join("-owned-project");
+        std::fs::create_dir_all(&other_dir).unwrap();
+        std::fs::create_dir_all(&owned_dir).unwrap();
+        std::fs::write(
+            other_dir.join(format!("{sibling}.jsonl")),
+            "{\"cwd\":\"/other\"}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            owned_dir.join(format!("{owned}.jsonl")),
+            "{\"cwd\":\"/owned\"}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            owned_dir.join("sessions-index.json"),
+            format!(r#"{{"entries":[{{"sessionId":"{owned}","title":"Owned","summary":"S"}}]}}"#),
+        )
+        .unwrap();
+
+        let found = find_session_under(&root, owned).expect("owned session resolves by id");
+        let enumerated = enumerate_sessions_under(&root)
+            .into_iter()
+            .find(|s| s.session_id == owned)
+            .expect("fixture session is enumerated");
+        assert_eq!(
+            serde_json::to_value(&found).unwrap(),
+            serde_json::to_value(&enumerated).unwrap()
+        );
+        assert_eq!(found.project_path.as_deref(), Some("/owned"));
+        assert_eq!(found.title.as_deref(), Some("Owned"));
+
+        assert!(find_session_under(&root, "eeee5555-none-4eee-8eee-eeeeeeeeeeee").is_none());
+        assert!(find_session_under(
+            &root,
+            "../-owned-project/cccc3333-find-4ccc-8ccc-cccccccccccc"
+        )
+        .is_none());
+        assert!(find_session_under(&root, "").is_none());
+    }
 
     #[test]
     fn test_encode_cwd() {

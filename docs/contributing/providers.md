@@ -140,7 +140,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 ### `sessions`
 
 Drives the manifest fallbacks for session discovery (`sessionFilePath`,
-`sessionExists`, `detectSessionId`, `enumerateSessions`).
+`sessionExists`, `detectSessionId`, `enumerateSessions`, `findSession`).
 
 | Field | Type / legal values | Default | Meaning |
 |---|---|---|---|
@@ -237,6 +237,7 @@ instead.
 | `detectSessionReasoningEffort(cwd, sessionId)` | cwd, id | effort id or `null` | `null`. |
 | `sessionCreatedMs(cwd, sessionId)` | cwd, id | epoch ms or `null` | `null`. |
 | `enumerateSessions()` | — | `[{sessionId, provider?, projectPath?, title?, summary?, filePath, createdTs?, modifiedTs?}]` | manifest-driven walk of `rootDir` (one directory level, uuid-ish stems), calling `describeSession` per file. |
+| `findSession(sessionId)` | id | `{sessionId, provider?, projectPath?, title?, summary?, filePath, createdTs?, modifiedTs?}` or `null` — the provider's own record for exactly that id; must not scan history or guess by cwd/recency | manifest-driven `<rootDir>/*/<id>.<ext>` probe (one stat per project dir) plus one `describeSession`; else the bundled native fallback; else not found. Backs `GET /api/sessions/{id}`. |
 | `describeSession(filePath, head)` | file path, first ~64 lines (≤64 KB) | `{title?, summary?, projectPath?}` | only ever called **from** the fallback enumerator; skipping it just leaves those fields empty. |
 
 ### Chat UI
@@ -347,4 +348,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
