@@ -263,7 +263,9 @@ class ReleaseIssueContractTest(unittest.TestCase):
     def test_release_pr_collection_is_paginated_not_per_commit(self):
         workflow = (ROOT / ".github" / "workflows" / "release-manifest-validate.yml").read_text(encoding="utf-8")
         resolve = workflow[workflow.index("- name: Resolve included private source public issues") :]
-        self.assertIn("gh api --paginate --slurp", resolve)
+        self.assertIn("gh api --paginate", resolve)
+        self.assertIn("jq -s", resolve)
+        self.assertNotIn("--paginate --slurp", resolve)
         self.assertIn("pulls?state=closed", resolve)
         self.assertIn("$included[.merge_commit_sha]", resolve)
         self.assertIn('--arg source_sha "$SOURCE_SHA"', resolve)
