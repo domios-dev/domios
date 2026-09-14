@@ -8,6 +8,18 @@ JSON_STATE="$ROOT/evals/lifecycle-recovery/json-state.mjs"
 fail() { echo "FAIL $1" >&2; exit 1; }
 pass() { echo "PASS $1"; }
 json_field() { node "$JSON_STATE" field "$2" <<<"$1"; }
+# The CLI makes one GET with no retry, and runs only after a waiter proved the state.
+# A refused snapshot is reported as such, never as a state mismatch.
+cli_tabs() {
+  local output
+  if ! output="$(dc --json tab list --all-workspaces 2>&1)"; then
+    case "$output" in
+      *"HTTP 503"*) fail "$1: CLI tab list refused by snapshot back-pressure after the waiter proved state: $output" ;;
+      *) fail "$1: CLI tab list failed: $output" ;;
+    esac
+  fi
+  printf '%s' "$output"
+}
 
 HEALTH="$(dev_get /api/health)"
 EXPECTED_SHA="$(git -C "$ROOT" rev-parse HEAD)"
@@ -57,7 +69,7 @@ wait "$EXIT_WAIT_PROCESS"
 [ "$(json_field "$EXIT_OBSERVED" '.tab_id')" = "$EXIT_TAB" ] || fail "exit observation targeted spawned tab"
 EXIT_TEAM_ID="$(json_field "$EXIT_OBSERVED" '.team_id')"
 [ -n "$EXIT_TEAM_ID" ] && [ "$EXIT_TEAM_ID" != null ] || fail "exited Orchestrator retained Team identity"
-EXIT_VISIBLE="$(dc --json tab list --all-workspaces)"
+EXIT_VISIBLE="$(cli_tabs "process-exited tab CLI projection")"
 node "$JSON_STATE" absent-orchestrator "$EXIT_TAB" "$EXIT_TEAM_ID" <<<"$EXIT_VISIBLE" \
   || fail "process-exited tab is CLI-visible as absent"
 set +e
@@ -75,7 +87,7 @@ read -r EXIT_RECOVERED <&"${EXIT_RECOVERY_WAIT[0]}"
 wait "$EXIT_RECOVERY_WAIT_PROCESS"
 [ "$(json_field "$EXIT_RECOVERED" '.owner_tab_id')" = "$EXIT_REPLACEMENT" ] || fail "exited-shell replacement observation"
 EXIT_TEAMS="$(dc --json team list)"
-EXIT_REPLACEMENT_VISIBLE="$(dc --json tab list --all-workspaces)"
+EXIT_REPLACEMENT_VISIBLE="$(cli_tabs "exited-shell replacement CLI projection")"
 node "$JSON_STATE" team-count "$EXIT_TEAM_ID" 1 <<<"$EXIT_TEAMS" || fail "exited-shell Team cardinality"
 node "$JSON_STATE" live-tab "$EXIT_REPLACEMENT" <<<"$EXIT_REPLACEMENT_VISIBLE" || fail "exited-shell replacement liveness"
 pass "process-exited Orchestrator is truthfully absent and replaced by one live Team owner"
@@ -131,7 +143,7 @@ wait "$RELAUNCH_READY_WAIT_PROCESS" || fail "in-tab relaunch readiness observer"
 exec {RELAUNCH_READY_FD}<&-
 [ "$(json_field "$RELAUNCH_READY" '.tab_id')" = "$RELAUNCH_TAB" ] \
   || fail "in-tab relaunch observed live, agent_ready, same session and launch_ready"
-RELAUNCH_VISIBLE="$(dc --json tab list --all-workspaces)"
+RELAUNCH_VISIBLE="$(cli_tabs "in-tab relaunch CLI projection")"
 node "$JSON_STATE" live-tab "$RELAUNCH_TAB" <<<"$RELAUNCH_VISIBLE" || fail "in-tab relaunch is CLI-visible as live"
 
 # Restart readiness is claimed from the provider frame; input is sent only after
@@ -205,7 +217,7 @@ wait "$RECOVERY_WAIT_PROCESS"
 
 TEAMS_FINAL="$(dc --json team list)"
 PLAN_FINAL="$(dc --json plan get "$PLAN_ID")"
-REPLACEMENT_VISIBLE="$(dc --json tab list --all-workspaces)"
+REPLACEMENT_VISIBLE="$(cli_tabs "final replacement CLI projection")"
 node "$JSON_STATE" team-count "$TEAM_ID" 1 <<<"$TEAMS_FINAL" || fail "Team cardinality"
 node "$JSON_STATE" plan-state "$PLAN_ID" "$TEAM_ID" "$REPLACEMENT" 2 <<<"$PLAN_FINAL" || fail "Plan identity and owner history"
 node "$JSON_STATE" live-tab "$REPLACEMENT" <<<"$REPLACEMENT_VISIBLE" || fail "replacement liveness"
