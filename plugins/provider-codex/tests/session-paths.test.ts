@@ -41,6 +41,7 @@ const projectSession = "01900000-0000-7000-8000-000000000001";
 const foreignSession = "01900000-0000-7000-8000-000000000002";
 const noRowSession = "01900000-0000-7000-8000-000000000003";
 const noCwdSession = "01900000-0000-7000-8000-000000000004";
+const unindexedSession = "01900000-0000-7000-8000-000000000005";
 
 type Query = { db: string; sql: string; params: unknown[] };
 
@@ -128,6 +129,25 @@ console.log("\n--- session_index folding and shared store paths ---\n");
   eq(p.sessionExists?.(projectCwd, projectSession), true, "claimed indexed session exists without a JSONL path");
   eq(p.sessionExists?.(projectCwd, "unknown-session"), false, "another indexed session cannot prove the claimed session");
   eq(p.sessionExists?.(projectCwd, ""), false, "empty session claims are refused");
+}
+
+console.log("\n--- session_exists_trusts_the_thread_row_before_the_index_names_it ---\n");
+{
+  const fixture = baseHost("", (_db, sql, params) =>
+    /FROM threads/.test(sql) && params[0] === unindexedSession
+      ? [{ model: "gpt-5.5", rollout_path: null, cwd: projectCwd }]
+      : []);
+  const p = loadCodexWithHost(fixture.host);
+  eq(p.sessionExists?.(projectCwd, unindexedSession), true,
+    "a thread row proves the claimed session before Codex writes its index entry");
+  eq(p.sessionExists?.(projectCwd, foreignSession), false,
+    "an id with neither a thread row nor an index entry does not exist");
+  const threadQueries = fixture.queries.filter((query) => /FROM threads/.test(query.sql));
+  assert(threadQueries.length === 2, "existence reads one thread row per claim");
+  assert(threadQueries.every((query) => query.db === stateDb),
+    "existence reads the newest state database");
+  eq(threadQueries.map((query) => query.params[0]), [unindexedSession, foreignSession],
+    "each existence query is keyed by the claimed session id only");
 }
 
 console.log("\n--- thread_cwd_from_state_row_drives_detection_and_enumeration ---\n");

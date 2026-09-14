@@ -111,4 +111,37 @@ Reports the Worker had already sent are preserved (the in-memory
 `ReportStore` is not tab-scoped to PTY id; it's keyed on the parent +
 child Tab ids which don't change across restart).
 
-<!-- revision: 2 -->
+## 6. In-tab provider relaunch and recovery
+
+A provider started by hand inside a tab's surviving shell (for example through
+`codeterm tab exec`) has no launch pipeline to seal it. When its hook session
+start echoes the tab's current binding nonce with an accepted session, while no
+launch owns the tab (`agent_booting` false), the tab still has a pre-agent stage
+(none, `pty_*`, `reader_ready`, `shell_ready`, `pty_reattached`), and its PTY is
+live, `reconcile_boot_stage_with_session_binding` records `agent_ready`. From
+that transition the tab is observed `live`, public and Chat UI sends pass the
+ready gate, a user send parked while it was not ready is delivered once,
+`agent restart` is accepted, and a later provider exit is observed and clears
+the identity. Launch-owned, provisional, failed, and already-ready stages keep
+their own rules. Without this rule the epoch recorded `session_bound` but never
+`launch_ready`, restart refused the tab as not observed, and Chat UI sends were
+parked as `tab_busy_refused`.
+
+A provider exit observed outside a shutdown clears the provider, session and
+live nonce, leaving a `shell_ready` PTY with its role and Team. That tab is
+`absent`: `agent restart` refuses it and `tab restart` accepts it as a plain
+shell. The supported recovery is a replacement through
+`codeterm agent spawn <provider> --team <team-id> --role ...`, which starts a new
+tab and does not resume the exited session.
+
+Routed tab messages carry a return-address marker only when the target record
+declares an agent (`agent_type` set or a launch in flight); otherwise the body
+is shell input. A live provider behind a record that no longer declares it
+receives the raw text in its composer, where a leading `/` is a provider command.
+
+Manual check: exit an agent to its shell, `codeterm tab restart --tab $TAB`,
+then `codeterm tab exec --tab $TAB "<provider resume command>"`. The dev log
+shows `in-tab provider launch observed live`, `codeterm agent restart --tab $TAB`
+returns `agent_ready`, and a Chat UI send is delivered without `tab_busy_refused`.
+
+<!-- revision: 3 -->

@@ -235,8 +235,6 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 The 8-way bound on concurrent `GET /api/mux/state` snapshots, its 503 answer, and the client contract: see `codeterm docs API-EVENTS`.
 
-## Related documents
+Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
-
-<!-- revision: 14 -->
+<!-- revision: 15 -->
