@@ -409,7 +409,7 @@
         },
         {
           "name": "restart",
-          "about": "Restart an observed live agent; an exited provider requires a fresh spawn",
+          "about": "Restart a live agent, or resume an exited provider's verified session in its shell",
           "aliases": [],
           "args": [
             {
