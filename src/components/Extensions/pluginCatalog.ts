@@ -38,6 +38,7 @@ export interface CatalogEntry {
   homepage?: string | null;
   readmeMarkdown?: string | null;
   iconSvg?: string | null;
+  iconColor?: string | null;
   source?: InstalledPlugin["source"] | null;
 }
 
@@ -105,6 +106,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     homepage: p.homepage ?? null,
     readmeMarkdown: p.readme_markdown ?? null,
     iconSvg: p.icon_svg ?? null,
+    iconColor: p.icon_color ?? null,
     source: p.source ?? null,
   };
 }
@@ -140,6 +142,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     homepage: base?.homepage ?? m.homepage ?? null,
     readmeMarkdown: base?.readmeMarkdown ?? m.readme_markdown ?? null,
     iconSvg: base?.iconSvg ?? m.icon_svg ?? null,
+    iconColor: base?.iconColor ?? m.icon_color ?? null,
     source: base?.source ?? null,
   };
   return entry;

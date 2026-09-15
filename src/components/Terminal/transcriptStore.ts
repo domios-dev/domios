@@ -1,7 +1,9 @@
 import { useCallback, useSyncExternalStore } from "react";
 import {
+  ECHO_SKEW_MS,
   createTranscriptState,
   reduceTranscript,
+  timestampMs,
   type TranscriptBatch,
   type TranscriptOutcome,
   type TranscriptState,
@@ -17,7 +19,7 @@ export interface TranscriptWindow {
  *  switch restores the same window instead of building a second copy. */
 const windows = new Map<string, TranscriptWindow>();
 const listeners = new Map<string, Set<() => void>>();
-const pendingSends = new Map<string, Map<string, { correlationId: string; afterArrival: number }>>();
+const pendingSends = new Map<string, Map<string, { correlationId: string; sentAtMs: number }>>();
 const MAX_TRANSCRIPT_WINDOWS = 8;
 
 const EMPTY_WINDOW: TranscriptWindow = { transcript: createTranscriptState(), anchorKey: null };
@@ -50,15 +52,13 @@ export function commitTranscriptBatch(key: string, batch: TranscriptBatch): Tran
   return outcome;
 }
 
-export function trackTranscriptSend(key: string, status: ChatSendStatus): void {
+/** `sentAtMs` is the send's own key; only a user row stamped at or after it can echo it. */
+export function trackTranscriptSend(key: string, status: ChatSendStatus, sentAtMs: number | null): void {
   const correlationId = status.correlationId;
-  if (!correlationId) return;
+  if (!correlationId || sentAtMs == null) return;
   const sends = pendingSends.get(key) ?? new Map();
   if (!sends.has(status.send_id)) {
-    sends.set(status.send_id, {
-      correlationId,
-      afterArrival: readTranscriptWindow(key).transcript.arrivals,
-    });
+    sends.set(status.send_id, { correlationId, sentAtMs });
     pendingSends.set(key, sends);
   }
   if (status.state === "confirmed") stampConfirmedTranscriptRow(key, status);
@@ -75,12 +75,13 @@ export function stampConfirmedTranscriptRow(key: string, status: ChatSendStatus)
   const segments = current.transcript.segments.map((segment) => ({
     ...segment,
     rows: segment.rows.map((row) => {
+      const ts = timestampMs(row.timestamp);
       if (
         stamped
         || row.correlationId != null
         || (row.type !== "user" && row.type !== "local_command")
-        || row.clientOrder == null
-        || row.clientOrder < pending.afterArrival
+        || ts == null
+        || ts < pending.sentAtMs - ECHO_SKEW_MS
       ) return row;
       stamped = true;
       return { ...row, correlationId };

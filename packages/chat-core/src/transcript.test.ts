@@ -1,7 +1,6 @@
 // Every case is a projection the production bounded-snapshot seam produced or must never produce again.
 import {
   createTranscriptState,
-  nextOptimisticOrder,
   projectTranscript,
   reduceTranscript,
   transcriptBackfillCursor,
@@ -10,6 +9,7 @@ import {
   type TranscriptBatch,
   type TranscriptState,
 } from "./transcript";
+import type { ChatSend } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
 
 let passed = 0;
@@ -145,45 +145,61 @@ function contents(state: TranscriptState): string[] {
   eq(contents(replayed.state), contents(authoritative.state), "re-attach at the same range is a no-op");
 }
 
-// ── 3. Send while reattaching: optimistic user stays above its turn, once.
+const send = (id: string, content: string, sentAtMs: number, extra: Partial<ChatSend> = {}): ChatSend => ({
+  id,
+  content,
+  sentAtMs,
+  correlationId: id,
+  ...extra,
+});
+
+// ── 3. Send while reattaching: the send sits at its key, and its echo takes that exact place once.
 {
   const attached = reduceTranscript(
     createTranscriptState(),
     batch("snapshot", 0, 400, [
-      { id: "0-0", type: "assistant", content: "earlier reply", seq: 0, clientOrder: 0, timestamp: "1699999999000" },
+      { id: "0-0", type: "assistant", content: "earlier reply", seq: 0, timestamp: "1699999999000" },
     ]),
   ).state;
-  const optimistic: NormalizedChatMessage[] = [
-    { id: "opt-1", type: "user", content: "run the build", timestamp: "1700000000000", clientOrder: 1 },
-  ];
+  const sends = [send("opt-1", "run the build", 1_700_000_000_000)];
   const turn = reduceTranscript(
     attached,
     batch("delta", 400, 700, [
-      { id: "400-0", type: "tool_call", content: "Bash build.sh", seq: 0, clientOrder: 2, timestamp: "1700000001000" },
+      { id: "400-0", type: "tool_call", content: "Bash build.sh", seq: 0, timestamp: "1700000001000" },
     ]),
   ).state;
+  const pending = projectTranscript(turn, sends);
   eq(
-    projectTranscript(turn, optimistic).rows.map((row) => row.content),
+    pending.rows.map((row) => row.content),
     ["earlier reply", "run the build", "Bash build.sh"],
-    "optimistic user sits inline by timestamp, before the tool row its send triggered",
+    "a pending send sits at its key, before the tool row its send triggered",
   );
   const echoed = reduceTranscript(
     turn,
     batch("delta", 700, 900, [
-      { id: "700-0", type: "user", content: "run the build", seq: 0, clientOrder: 3 },
+      { id: "700-0", type: "user", content: "run the build", seq: 0, timestamp: "1700000000400" },
     ]),
   ).state;
-  const reconciled = projectTranscript(echoed, optimistic);
-  eq(reconciled.pending.length, 0, "the parsed echo reconciles the optimistic row");
+  const reconciled = projectTranscript(echoed, sends);
+  eq(reconciled.pending.length, 0, "the parsed echo reconciles the send");
   eq(
     reconciled.rows.filter((row) => row.content === "run the build").length,
     1,
     "reconciles exactly once — no duplicate user bubble",
   );
+  eq(
+    reconciled.rows.findIndex((row) => row.content === "run the build"),
+    pending.rows.findIndex((row) => row.id === "opt-1"),
+    "the echo changes identity without moving the row",
+  );
+  eq(
+    reconciled.echoes.get("opt-1"),
+    { content: "run the build", timestampMs: 1_700_000_000_400 },
+    "the echo identity is reported for recording",
+  );
 }
 
-// ── 3b. Unconfirmed optimistic: inline by timestamp, never pinned below a
-// later-arriving committed row (the "залипло книзу" bug).
+// ── 3b. The host send key is never replaced by the echo's later provider timestamp.
 {
   const attached = reduceTranscript(
     createTranscriptState(),
@@ -191,10 +207,7 @@ function contents(state: TranscriptState): string[] {
       { id: "0-0", type: "assistant", content: "old reply", seq: 0, timestamp: "1700000000000" },
     ]),
   ).state;
-  const optimistic: NormalizedChatMessage[] = [
-    { id: "opt-9", type: "user", content: "still sending", timestamp: "1700000005000", clientOrder: 1 },
-  ];
-  // A newer committed row lands AFTER the send with no echo for it yet.
+  const sends = [send("opt-9", "still sending", 1_700_000_005_000)];
   const later = reduceTranscript(
     attached,
     batch("delta", 300, 600, [
@@ -202,25 +215,32 @@ function contents(state: TranscriptState): string[] {
     ]),
   ).state;
   eq(
-    projectTranscript(later, optimistic).rows.map((row) => row.content),
+    projectTranscript(later, sends).rows.map((row) => row.content),
     ["old reply", "still sending", "later unrelated"],
-    "unconfirmed optimistic keeps its timestamp slot, not pinned below the later row",
+    "a pending send keeps its key slot, never pinned below a later row",
   );
   const echoed = reduceTranscript(
     later,
     batch("delta", 600, 800, [
-      { id: "600-0", type: "user", content: "still sending", seq: 0, clientOrder: 3 },
+      { id: "600-0", type: "user", content: "still sending", seq: 0, timestamp: "1700000009500" },
     ]),
   ).state;
+  const reconciled = projectTranscript(echoed, sends);
+  eq(reconciled.pending.length, 0, "a matched send disappears into its echo");
   eq(
-    projectTranscript(echoed, optimistic).pending.length,
-    0,
-    "a matched optimistic still disappears on echo",
+    reconciled.rows.map((row) => row.content),
+    ["old reply", "still sending", "later unrelated"],
+    "an echo stamped after later output still orders by its send key",
+  );
+  eq(
+    projectTranscript(echoed).rows.map((row) => row.content),
+    ["old reply", "later unrelated", "still sending"],
+    "without the send, the same row orders by its own provider timestamp",
   );
 }
 
-// ── 3c. Mid-turn send: the source writes the user row where the agent consumed
-// it but stamps it at send time; the row keeps its send slot after committing.
+// ── 3c. Mid-turn send: the source writes the echo where the agent consumed it and
+// stamps it at enqueue time; live, remount and restart projections agree.
 {
   const at = (offset: number) => String(1_700_000_000_000 + offset);
   const history = reduceTranscript(
@@ -229,21 +249,14 @@ function contents(state: TranscriptState): string[] {
       { id: "h-0", type: "assistant", content: "earlier reply", seq: 0, timestamp: at(0) },
     ]),
   ).state;
-  const optimistic: NormalizedChatMessage[] = [{
-    id: "opt-mid",
-    type: "user",
-    content: "also check the logs",
-    timestamp: at(5_000),
-    clientOrder: nextOptimisticOrder(history),
-    correlationId: "opt-mid",
-  }];
+  const sends = [send("opt-mid", "also check the logs", 1_700_000_004_900)];
   const laterOutput: NormalizedChatMessage[] = [
     { id: "w-0", type: "assistant", content: "running the build", seq: 0, timestamp: at(6_000) },
     { id: "w-1", type: "tool_call", content: "Bash build.sh", seq: 1, timestamp: at(7_000) },
   ];
   const working = reduceTranscript(history, batch("delta", 100, 300, laterOutput)).state;
   eq(
-    projectTranscript(working, optimistic).rows.map((row) => row.content),
+    projectTranscript(working, sends).rows.map((row) => row.content),
     ["earlier reply", "also check the logs", "running the build", "Bash build.sh"],
     "a pending mid-turn send holds its send slot while later output follows it",
   );
@@ -268,19 +281,16 @@ function contents(state: TranscriptState): string[] {
     "build ok",
     "logs are clean",
   ];
-  const live = projectTranscript(consumed, optimistic);
+  const live = projectTranscript(consumed, sends);
   eq(live.pending.length, 0, "the consumed echo reconciles the mid-turn send");
-  eq(
-    live.rows.map((row) => row.content),
-    expected,
-    "the committed mid-turn user row keeps its send slot and later rows follow as ordinary rows",
-  );
+  eq(live.rows.map((row) => row.content), expected, "the committed mid-turn user row keeps its send slot");
   eq(
     live.rows.filter((row) => row.type === "user").map((row) => row.id),
     ["300:1"],
     "exactly one user row remains and the committed source row owns it",
   );
-  const fresh = reduceTranscript(
+  const recorded = sends.map((entry) => ({ ...entry, echo: live.echoes.get(entry.id) }));
+  const fresh = () => reduceTranscript(
     createTranscriptState(),
     batch("snapshot", 0, 600, [
       { id: "h-0", type: "assistant", content: "earlier reply", seq: 0, timestamp: at(0) },
@@ -288,14 +298,52 @@ function contents(state: TranscriptState): string[] {
       ...committedTurn,
     ]),
   ).state;
+  const remount = JSON.stringify(projectTranscript(fresh(), recorded).rows);
   eq(
-    projectTranscript(fresh).rows.map((row) => row.content),
+    projectTranscript(fresh(), recorded).rows.map((row) => row.content),
     expected,
-    "a fresh parse of the same bytes projects the same chronological order",
+    "a fresh parse of the same bytes projects the same order",
+  );
+  eq(
+    JSON.stringify(projectTranscript(fresh(), recorded).rows),
+    remount,
+    "a second hydration of the same bytes is byte-for-byte identical",
+  );
+  eq(
+    JSON.stringify(projectTranscript(fresh(), JSON.parse(JSON.stringify(recorded)) as ChatSend[]).rows),
+    remount,
+    "sends restored from storage hydrate byte-for-byte identically",
+  );
+  eq(
+    projectTranscript(fresh()).rows.map((row) => row.content),
+    expected,
+    "without the send, provider enqueue time gives the same order",
   );
 }
 
-// Stable correlation identity replaces optimistic rows even when the server echo has different content.
+// ── 3d. A recorded echo re-pairs by identity, never by content, and hides its send until loaded.
+{
+  const rows: NormalizedChatMessage[] = [
+    { id: "0-0", type: "user", content: "yes", seq: 0, timestamp: "1700000001100" },
+    { id: "0-1", type: "assistant", content: "ok", seq: 1, timestamp: "1700000002000" },
+    { id: "0-2", type: "user", content: "yes", seq: 2, timestamp: "1700000005100" },
+  ];
+  const state = reduceTranscript(createTranscriptState(), batch("snapshot", 0, 400, rows)).state;
+  const sends = [
+    send("opt-a", "yes", 1_700_000_001_000, { echo: { content: "yes", timestampMs: 1_700_000_005_100 } }),
+    send("opt-b", "yes", 1_700_000_004_000),
+  ];
+  const projected = projectTranscript(state, sends);
+  eq(projected.pending.length, 1, "a recorded echo claims only its own row, leaving the other send pending");
+  eq(projected.rows.filter((row) => row.type === "user").length, 3, "repeats never collapse");
+  eq(
+    projectTranscript(createTranscriptState(), [sends[0]]).rows.length,
+    0,
+    "a reconciled send whose echo is not loaded projects no duplicate row",
+  );
+}
+
+// Stable correlation identity replaces a send even when the server echo has different content.
 {
   const attached = reduceTranscript(
     createTranscriptState(),
@@ -304,9 +352,6 @@ function contents(state: TranscriptState): string[] {
     ]),
   ).state;
   const token = "opt-1700000005000-7";
-  const optimistic: NormalizedChatMessage[] = [
-    { id: token, type: "user", content: "see task_x", timestamp: "1700000005000", clientOrder: 1, correlationId: token },
-  ];
   // Server echoes the SAME token onto a committed turn whose content is enriched
   // with an entity-reference chip — raw "see task_x" no longer equals the echo.
   const echoed = reduceTranscript(
@@ -317,16 +362,15 @@ function contents(state: TranscriptState): string[] {
         type: "user",
         content: "◆ task_x — quarterly review #plan_abc ◆",
         seq: 0,
-        clientOrder: 3,
         correlationId: token,
       },
     ]),
   ).state;
-  const reconciled = projectTranscript(echoed, optimistic);
-  eq(reconciled.pending.length, 0, "chip-enriched echo reconciles the optimistic bubble by correlation id");
+  const reconciled = projectTranscript(echoed, [send(token, "see task_x", 1_700_000_005_000)]);
+  eq(reconciled.pending.length, 0, "chip-enriched echo reconciles the send by correlation id");
   const userRows = reconciled.rows.filter((row) => row.type === "user");
-  eq(userRows.length, 1, "optimistic + enriched echo collapse to exactly one user row");
-  eq(userRows[0]?.id, "300:0", "the SERVER row wins the single identity — not the optimistic one");
+  eq(userRows.length, 1, "send + enriched echo collapse to exactly one user row");
+  eq(userRows[0]?.id, "300:0", "the SERVER row wins the single identity — not the send");
   eq(
     new Set(reconciled.rows.map((row) => row.id)).size,
     reconciled.rows.length,
@@ -334,7 +378,7 @@ function contents(state: TranscriptState): string[] {
   );
 }
 
-// ── 3d. Two distinct sends with identical text but DIFFERENT tokens stay two
+// ── 3e. Two distinct sends with identical text but DIFFERENT tokens stay two
 // bubbles — the correlation-id path never collapses real repeats.
 {
   const echoed = reduceTranscript(

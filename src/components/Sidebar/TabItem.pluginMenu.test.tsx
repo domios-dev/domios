@@ -49,6 +49,7 @@ async function main() {
     label: "Receive events here",
     action: "receiverTarget",
     iconSvg: '<svg viewBox="0 0 1 1" fill="currentColor"><path d="M0 0"/></svg>',
+    iconColor: "#336699",
   };
   const ITEM_TEST_ID = `tab-menu-plugin-${ITEM.pluginId}-${ITEM.itemId}`;
 
@@ -147,17 +148,32 @@ async function main() {
     return menu;
   }
 
+  async function openPlugins(host: Element) {
+    const menu = await openMenu(host);
+    const plugins = menu.querySelector('[data-testid="tab-menu-plugins"]');
+    assert(plugins, "the kebab has no Plugins entry");
+    assert(plugins.getAttribute("aria-haspopup") === "menu", "Plugins announces a submenu");
+    assert(!menu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`), "plugin items stay out of the top level");
+    await act(async () => {
+      (plugins as unknown as { click: () => void }).click();
+    });
+    return menu;
+  }
+
   // Without a host bridge the menu still renders, and nothing is fetched or listened to.
   const local = await mount(plainTab());
-  let menu = await openMenu(local.host);
+  let menu = await openPlugins(local.host);
   let item = menu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`);
-  assert(item, "the declared plugin item is missing from the kebab");
+  assert(item, "the declared plugin item is missing from the Plugins submenu");
   assert(item.getAttribute("role") === "menuitemcheckbox", "the plugin item exposes a checkbox role");
   assert(item.getAttribute("aria-checked") === "false", "an unbound tab is unchecked");
   assert(item.textContent?.trim() === ITEM.label, "the accessible name is the declared label");
   assert(item.querySelector("svg")?.getAttribute("aria-hidden") === "true", "plugin menu icon is aria-hidden");
   assert(item.querySelector("svg")?.getAttribute("fill") === "currentColor", "plugin menu icon inherits currentColor");
+  const iconStyle = item.querySelector("svg")?.parentElement?.getAttribute("style") ?? "";
+  assert(iconStyle.includes("#336699") || iconStyle.includes("rgb(51, 102, 153)"), `plugin icon keeps its manifest color: ${iconStyle}`);
   assert(item.getAttribute("aria-label") === null, "the menu item keeps its text label as the accessible name");
+  assert(menu.querySelector('[data-testid="tab-menu-telegram-connect"]'), "Telegram sits beside the plugin items");
 
   await act(async () => {
     (item as unknown as { click: () => void }).click();
@@ -168,7 +184,7 @@ async function main() {
     "the click carries the plugin, item and clicked tab id",
   );
 
-  menu = await openMenu(local.host);
+  menu = await openPlugins(local.host);
   item = menu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`);
   assert(item?.getAttribute("aria-checked") === "true", "the bound tab renders checked");
   await local.dispose();
@@ -183,12 +199,13 @@ async function main() {
   assert(counts().watches === 1, "mounted rows share one contributions listener");
   assert(counts().loads >= 1, "the first subscriber loads the menu state");
 
-  const otherMenu = await openMenu(other.host);
+  const otherMenu = await openPlugins(other.host);
   assert(
     otherMenu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`)?.getAttribute("aria-checked") === "false",
     "only the one bound tab is checked",
   );
   const remoteMenu = await openMenu(remote.host);
+  assert(!remoteMenu.querySelector('[data-testid="tab-menu-plugins"]'), "a peer's tab has no Plugins entry");
   assert(!remoteMenu.querySelector('[role="menuitemcheckbox"]'), "a peer's tab offers no local receiver action");
 
   bridge.bindings[ITEM.pluginId] = "tab-other";
@@ -196,7 +213,7 @@ async function main() {
   bridge.onChange?.();
   await flush();
   assert(counts().loads === loadsBefore + 1, "a contributions event reloads the menu state");
-  const reloaded = await openMenu(other.host);
+  const reloaded = await openPlugins(other.host);
   assert(
     reloaded.querySelector(`[data-testid="${ITEM_TEST_ID}"]`)?.getAttribute("aria-checked") === "true",
     "the reloaded binding checks its tab",
