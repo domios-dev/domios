@@ -7,7 +7,7 @@ use crate::process_util;
 
 #[path = "worker_lane_bootstrap.rs"]
 mod bootstrap;
-pub(crate) use bootstrap::{compose_launch_with_setup, LaneBootstrap};
+pub(crate) use bootstrap::LaneBootstrap;
 
 fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
     role == Some("Worker")
@@ -150,7 +150,6 @@ impl ServiceContext {
         let lane = provision_lane(&cwd, lane_label)?;
         params.cwd = Some(lane.cwd.clone());
         params.provisioned_cwd = Some(lane.cwd.clone());
-        params.lane_setup_command = lane.bootstrap.setup_command.clone();
         Ok(Some(lane))
     }
 
@@ -191,7 +190,6 @@ impl ServiceContext {
         let lane = provision_lane(base_checkout, lane_label)?;
         params.cwd = Some(lane.cwd.clone());
         params.provisioned_cwd = Some(lane.cwd.clone());
-        params.lane_setup_command = lane.bootstrap.setup_command.clone();
         Ok(lane)
     }
 
@@ -260,13 +258,14 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
         return Err(error);
     }
-    let lane_bootstrap = bootstrap::bootstrap_lane(&project_cwd, &lane_cwd);
+    // Worker lanes are source-only; a junction-backed dependency install could
+    // write through the lane into the canonical checkout.
     Ok(ProvisionedWorkerLane {
         canonical_cwd: project_cwd,
         cwd: lane_cwd,
         branch,
         base,
-        bootstrap: lane_bootstrap,
+        bootstrap: LaneBootstrap::default(),
     })
 }
 
