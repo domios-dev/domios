@@ -489,7 +489,10 @@ fn kpi_policy_default_or_explicit_opt_in() {
     assert!(kpi_ledger_enabled(&default_config));
 
     let opted_out = AppConfig {
-        kpi: KpiConfig { enabled: false },
+        kpi: KpiConfig {
+            enabled: false,
+            ..Default::default()
+        },
         ..AppConfig::default()
     };
     assert!(

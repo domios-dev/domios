@@ -134,7 +134,10 @@ fn build_resume_command_shape() {
     let j = codex();
     // Resume accepts a rollout filename stem and extracts the trailing uuid.
     let cmd = j.build_resume_command(CODEX_STEM, true).unwrap();
-    assert!(cmd.starts_with("codex resume"), "resume subcommand: {cmd}");
+    assert!(
+        cmd.starts_with("codex -c tui.animations=false resume"),
+        "resume subcommand without TUI animations: {cmd}"
+    );
     assert!(cmd.contains(CODEX_UUID), "must carry the uuid: {cmd}");
     assert!(
         cmd.contains("--dangerously-bypass-approvals-and-sandbox"),

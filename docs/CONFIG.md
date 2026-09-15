@@ -114,7 +114,10 @@ enabled = true                   # Local orchestration-economics ledger; false o
 records plan, task and tab ids, event kinds, byte counts, token counts and
 timestamps in `~/.codeterm/kpi_ledger.db` — never message text, and nothing leaves
 the machine. Opt out with `codeterm config set kpi.enabled false`; opt back in with
-`codeterm config set kpi.enabled true`. Either way the change takes effect on the
+`codeterm config set kpi.enabled true`. A config saved before KPI defaulted on still
+carries the old `enabled = false`; the first load after upgrading switches it on once
+and records `kpi.default_applied = true`, so an opt-out saved afterwards is kept.
+Either way the change takes effect on the
 next CodeTerm start, and while it is off the Board shows an explicit not-recording
 state naming this key rather than a zero.
 
@@ -202,4 +205,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->

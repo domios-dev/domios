@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { filterPlansForCanvas } from "../planTabMatch";
+import { filterPlansForCanvas, isTeamActivePlan } from "../planTabMatch";
 import {
   deletePlan,
   fetchPlanLifecyclePreview,
@@ -52,6 +52,7 @@ export function MissionControlPlanSurface({
   teams,
   notifications,
   onSelectTab,
+  onClearNotifications,
   api,
   headerActionsSlot = null,
   onOpenView,
@@ -65,9 +66,10 @@ export function MissionControlPlanSurface({
           workspaces: workspaces ?? [],
           scope: { teamId: teamId ?? null, workspaceId: workspaceId ?? null },
           onSelectTab,
+          onClear: onClearNotifications,
         }
       : undefined),
-    [notifications, onSelectTab, tabs, workspaces, teamId, workspaceId],
+    [notifications, onSelectTab, onClearNotifications, tabs, workspaces, teamId, workspaceId],
   );
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
@@ -93,7 +95,7 @@ export function MissionControlPlanSurface({
     return defaultPlanId;
   }, [manualPlanId, orderedPlans, defaultPlanId]);
 
-  const selectedPlan = useMemo(
+  const listedPlan = useMemo(
     () => orderedPlans.find((p) => p.id === selectedPlanId) ?? null,
     [orderedPlans, selectedPlanId],
   );
@@ -106,6 +108,21 @@ export function MissionControlPlanSurface({
     }
   }, []);
 
+  const [boardEvents, setBoardEvents] = useState(0);
+  const boardTeamId = teamId ?? listedPlan?.team_id ?? null;
+  const plansRevision = useMemo(
+    () => effectivePlans.reduce((latest, plan) => Math.max(latest, plan.updated_at), 0),
+    [effectivePlans],
+  );
+  const teamRevision = `${plansRevision}:${boardEvents}`;
+  const team = useTeamMissionControl(api, boardTeamId, teamRevision);
+  // The daemon's team projection owns the active slot, so a draft absent from the plan feed still fills it.
+  const selectedPlan = useMemo(() => {
+    if (listedPlan || !teamId) return listedPlan;
+    const projected = team?.activePlan ?? null;
+    return projected && isTeamActivePlan(projected, teamId) ? projected : null;
+  }, [listedPlan, teamId, team]);
+
   const previousPlans = useMemo(() => {
     const teamOfPlan = selectedPlan?.team_id;
     if (!teamOfPlan) return [] as Plan[];
@@ -115,13 +132,8 @@ export function MissionControlPlanSurface({
   }, [effectivePlans, selectedPlan]);
 
   const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
-  const boardTeamId = teamId ?? selectedPlan?.team_id ?? null;
-  const plansRevision = useMemo(
-    () => effectivePlans.reduce((latest, plan) => Math.max(latest, plan.updated_at), 0),
-    [effectivePlans],
-  );
-  const teamRevision = `${plansRevision}:${boardState.state?.mission_control?.event_log.recorded_events ?? 0}`;
-  const team = useTeamMissionControl(api, boardTeamId, teamRevision);
+  const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
+  useEffect(() => setBoardEvents(recordedEvents), [recordedEvents]);
   const teamSpend = useTeamSpend(api, boardTeamId, teamRevision);
   const teamWeekly = useTeamSpend(api, boardTeamId, teamRevision, "weekly_limit_points");
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;

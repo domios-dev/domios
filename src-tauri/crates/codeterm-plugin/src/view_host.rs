@@ -1,7 +1,7 @@
 //! `view` capability — a plugin ships an HTML/JS/CSS UI rendered in a sandboxed,
 //! CSP-locked iframe that reaches the host only through the `ct.invoke` bridge.
-//! Security boundary: the bridge routes to the single `viewCall` export (never
-//! arbitrary ones), so an XSS'd iframe can't reach other capability methods.
+//! Security boundary: the bridge routes to the single `viewCall` export plus
+//! narrowly capability-gated host-owned settings, never arbitrary exports.
 
 use std::sync::Arc;
 
@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::capability::CapabilityRegistry;
+use crate::js_runtime::WebhookReceiverKind;
 
 #[derive(Debug)]
 pub enum ViewError {
@@ -29,6 +30,11 @@ impl std::error::Error for ViewError {}
 #[async_trait]
 pub trait ViewProvider: Send + Sync {
     fn id(&self) -> &str;
+
+    /// The webhook capability served by this view, when it has one.
+    fn webhook_receiver_kind(&self) -> Option<WebhookReceiverKind> {
+        None
+    }
 
     /// Dispatch one `ct.invoke(method, args)` from the iframe to the plugin's
     /// `viewCall(method, args)` export. Returns its JSON result.

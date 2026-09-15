@@ -83,6 +83,9 @@ impl Default for AppConfig {
 #[serde(default)]
 pub struct KpiConfig {
     pub enabled: bool,
+    /// False only in configs saved before KPI defaulted on; load applies the default once.
+    #[serde(default)]
+    pub default_applied: bool,
 }
 
 /// Dot path of the opt-out, as `codeterm config get/set` and the REST config route
@@ -91,7 +94,10 @@ pub const KPI_ENABLED_KEY: &str = "kpi.enabled";
 
 impl Default for KpiConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            default_applied: true,
+        }
     }
 }
 

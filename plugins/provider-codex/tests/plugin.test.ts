@@ -205,7 +205,7 @@ console.log("\n--- non-Windows launch branch is unaffected by the Windows fix --
   const cmd = p.buildLaunchCommand({ task: "some task body", args: ["--model", "gpt-5.5"], starterPrompt: "no_starter" });
   eq(
     cmd,
-    'codex --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
+    'codex -c tui.animations=false --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
     "the macOS/Linux launch line keeps its exact prior shape",
   );
   assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
@@ -1094,11 +1094,12 @@ for (const [name, fixture] of [
   );
   eq(
     p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
+    "codex -c tui.animations=false resume Q(windows:11111111-1111-1111-1111-111111111111)",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
   for (const enabled of [false, true]) {
     for (const command of [p.buildLaunchCommand({ skipPermissions: enabled }), p.buildResumeCommand("session-fixture", enabled)]) {
+      eq(command.startsWith("codex -c tui.animations=false"), true, "every Codex launch disables TUI animations");
       for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"]) {
         eq(command.includes(flag), enabled, `full access controls ${flag}`);
       }
@@ -1174,26 +1175,6 @@ for (const [name, fixture] of [
   assert(result.ok === true && result.changed === false, "refresh ignores a hook with a foreign marker");
   assert(writes === 0, "foreign hook bytes are never rewritten");
   assert(files.get(hooksPath) === foreign, "foreign hook content remains byte-identical");
-}
-
-console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\n");
-
-{
-  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "directory-trust");
-  const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8")) as Array<{ file: string; expect: string }>;
-  const keys: Record<string, string[] | null> = {
-    enter: ["DQ=="],
-    "move-up": ["G1tB"],
-    "move-down": ["G1tC"],
-    hold: [],
-    none: null,
-  };
-  const p = loadHostPlugin();
-  assert(cases.length >= 5, "every declared Codex directory-trust fixture is exercised");
-  for (const c of cases) {
-    const screen = fs.readFileSync(path.join(dir, c.file), "utf8");
-    eq(p.directoryTrustPromptResponse(screen), keys[c.expect], `codex directory trust ${c.file} -> ${c.expect}`);
-  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

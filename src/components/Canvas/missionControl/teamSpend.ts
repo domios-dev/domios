@@ -75,6 +75,7 @@ export interface TeamSpend {
   to: string;
   state: "recording" | "not_recording";
   not_recording_reason: string | null;
+  enable_setting?: string | null;
   plans: TeamSpendPlan[];
   attribution: {
     team_plan_count: number;
@@ -98,6 +99,16 @@ export interface TeamSpendQuery {
 export const TEAM_SPEND_DAYS = 7;
 
 export const TEAM_SCOPE_CAPTION = "team";
+
+/** Why the ledger has nothing to show; null while it records or simply has no rows yet. */
+export function teamSpendNote(spend: TeamSpend): string | null {
+  if (spend.state !== "not_recording") return null;
+  if (spend.not_recording_reason === "disabled") {
+    return spend.enable_setting ? `not recording, enable ${spend.enable_setting}` : "not recording";
+  }
+  if (spend.not_recording_reason === "ledger_unreadable") return "ledger unavailable";
+  return null;
+}
 
 const UNASSIGNED_KEY = "unassigned";
 

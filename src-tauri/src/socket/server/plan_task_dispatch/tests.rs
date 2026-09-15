@@ -5,10 +5,10 @@ use super::{
     complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
     preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
-    resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
-    task_launch_authority_for_dispatch, unqualified_model_error, verify_dispatched_task_binding,
-    worker_ack_timeout_event, DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure,
-    DISPATCH_READY_TIMEOUT,
+    resolve_dispatch_lane, resolve_dispatch_routing, roll_back_dispatch_attempt,
+    rollback_failed_dispatch, task_launch_authority_for_dispatch, unqualified_model_error,
+    verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
+    DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -37,6 +37,7 @@ mod lane_persist;
 mod lane_provisioning;
 mod lane_resolution_multirepo;
 mod lane_safety;
+mod late_attempt_failure;
 mod qa_pass;
 mod recovery_race;
 mod worker_ack;
@@ -1038,17 +1039,19 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
                 .map_err(|error| error.to_string())
         },
         || {
-            rollback_failed_dispatch(
+            roll_back_dispatch_attempt(
+                &store,
+                &plan.id,
+                &original,
+                &PlanMode::Approved,
+                "tab-worker",
+                "attempt-unrecorded",
                 Some(lane),
-                || {
-                    store
-                        .restore_task_dispatch_snapshot(&plan.id, &original, PlanMode::Approved, 5)
-                        .map_err(|error| error.to_string())
-                },
                 || {
                     closed.set(true);
                     Ok(())
                 },
+                5,
             )
         },
     )
