@@ -10,6 +10,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | POST | `/api/bridge/stop` | `{service?, timeout_ms?}` | Stop the messaging supervisor and persist `telegram_enabled=false` |
 | POST | `/api/bridge/announce` | `{service?, chat_id, text}` | One-shot outbound text via the running bridge (used by `bridge migrate --announce`) |
 | POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
+| socket | `bridge.thread.open` | `{caller_tab_id, tab_id?, service?, chat_id?}` | Open or reuse a tab's Telegram topic; returns `{tab_id, chat_id, thread_id, topic_name, link, created}`. A foreign target from a non-General caller fails with `-32003`. Socket `bridge.send` with `caller_tab_id` routes through that tab's topic. Contract: `TELEGRAM-SETUP` |
 
 **Concurrency contract.** `bridge_start`, `bridge_stop`, and the boot-time spawn all acquire the same `BridgeSupervisor::op_guard()` (tokio Mutex), so start/stop operations on the same daemon are serialized — no two of them ever race.
 

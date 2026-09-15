@@ -50,7 +50,7 @@ Specialized reference docs alongside this skill:
 - `references/mem.md` — full mem command catalog, kinds table, filters, graph queries, search-strategy fallbacks, skill-folder workflow, sessions API
 - `references/roles.md` — agent-role rules, decision tree, common mistakes, task templates
 - `references/cron.md` — full cron flag set, oneshot schedules, lifecycle
-- `references/telegram.md` — bridge setup, media types, formatting, migration orchestration
+- `references/telegram.md` — bridge setup, media types, formatting, per-tab topic threads (`codeterm bridge thread open [--tab ID]`), migration orchestration
 - `references/themes.md` — custom theme TOML format
 - `docs/MODELS.md` (in the CodeTerm repo) — agent model catalog: how the per-provider model list works, how to override or update entries without rebuilding (`<data_dir>/models/<provider>.toml`)
 
@@ -58,4 +58,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->

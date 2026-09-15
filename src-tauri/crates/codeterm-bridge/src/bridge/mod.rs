@@ -8,6 +8,7 @@ pub mod sanitize;
 pub mod supervisor;
 pub mod telegram;
 pub mod text_hooks;
+pub mod threads;
 pub mod traits;
 pub mod voice_transcribe;
 

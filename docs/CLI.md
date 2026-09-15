@@ -234,6 +234,17 @@ Send a message to Telegram or other service
 - `--to` — Recipient chat/user ID
 - `--type` — Content type: text, photo, document, voice, animation, video, sticker
 
+#### `codeterm bridge thread`
+
+Open a tab's Telegram topic thread
+
+#### `codeterm bridge thread open`
+
+Open or reuse a tab's Telegram topic and print its link
+
+- `--service` — Target service
+- `--tab` — Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab
+
 #### `codeterm canvas`
 
 Canvas control commands

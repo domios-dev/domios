@@ -348,6 +348,7 @@ pub async fn bridge_send_api(
         buttons,
         edit: None,
         receipt: None,
+        route: crate::bridge::manager::OutboundRoute::Chat,
     })
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 

@@ -178,6 +178,7 @@ pub(super) fn dispatch(
                 "services.regenerate_token",
                 "activity.list",
                 "bridge.send",
+                "bridge.thread.open",
                 "bridge.react",
                 "bridge.restart",
                 "mem.stats",

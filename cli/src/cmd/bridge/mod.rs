@@ -3,6 +3,7 @@ use crate::cmd::print::handle_result;
 use crate::BridgeAction;
 
 pub mod migrate;
+pub mod thread;
 
 pub(crate) fn bridge_text(text: String, raw_text: bool) -> String {
     if raw_text {
@@ -37,6 +38,8 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
                 "type": r#type,
                 "append": append,
             });
+            // The daemon attributes a tab's send to that tab's thread; outside a tab it stays a plain chat send.
+            crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let text = from_pad
                 .map(|path| {
                     crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
@@ -86,6 +89,7 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
             );
             handle_result(json, result);
         }
+        BridgeAction::Thread { action } => thread::handle_thread(client, json, action),
         BridgeAction::Migrate {
             to,
             service,

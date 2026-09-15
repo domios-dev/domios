@@ -181,7 +181,7 @@ snapshot on reactivation or event-stream resync.
 
 Configure-with-AI, provider install, auto-confirm, the Pebble webhook (`POST /api/plugins/pebble/webhook`), and plugin tab menus with receiver targets (`/api/plugins/tab-menu`, `/api/plugins/{id}/receiver-target`): `codeterm docs API-INTEGRATIONS`.
 
-#### Interactive chat prompts (#162)
+#### Interactive chat prompts
 
 Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream — populated via the `AgentProvider::parse_interactive_events` capability (native or JS `parseInteractiveEvents` + manifest `interactiveEvents` flag), never by branching on a provider id. It rides on both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and the live `tab-chat-msg-{tabId}` events (`ChatMsg[]`, attached to the tool-call message). First element type:
 
@@ -198,7 +198,7 @@ The enum is open for future element types. The frontend renders each as a clicka
 |--------|------|------|-------------|
 | POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
 
-#### Pasteboard (cross-mesh ephemeral payloads, #98)
+#### Pasteboard (cross-mesh ephemeral payloads)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | POST | `/api/pasteboard` | `{body, content_type?, ttl_ms?, pop_on_read?}` | Stash a payload. Returns `{id: "paste:NNNNNN", expires_at}`. TTL default 1h, max 24h. 20-entry cap with oldest-first eviction. |
@@ -234,6 +234,6 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
 Mutating dispatch into canonical or another task's lane is refused with `-32013`;
 competition provisions one lane per competitor. Advisory findings ride successful
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
-Related: `codeterm docs API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
-`API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 150 -->
+Related docs: `API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
+`API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
+<!-- revision: 151 -->
