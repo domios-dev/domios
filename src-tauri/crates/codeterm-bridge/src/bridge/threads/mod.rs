@@ -48,7 +48,10 @@ impl std::fmt::Display for ThreadError {
             ),
             Self::UnknownTab(tab_id) => write!(f, "no live tab '{tab_id}'"),
             Self::GeneralUsesMainChat => {
-                write!(f, "the General Agent talks in the main chat and has no thread")
+                write!(
+                    f,
+                    "the General Agent talks in the main chat and has no thread"
+                )
             }
             Self::BridgeInactive => write!(f, "the Telegram bridge is not running"),
             Self::NoOwnerChat => write!(

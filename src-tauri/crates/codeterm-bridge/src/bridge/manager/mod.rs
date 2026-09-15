@@ -11,11 +11,11 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use super::text_hooks;
+use super::threads::{InboundOrigin, InboundRoute};
 use super::traits::{
     InboundAttachment, InboundMessage, InlineKeyboard, MessagingService, OutboundContent,
     ReplyContext,
 };
-use super::threads::{InboundOrigin, InboundRoute};
 use super::voice_transcribe;
 use crate::ports::BridgeTabPort;
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};

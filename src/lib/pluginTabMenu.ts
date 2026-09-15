@@ -59,7 +59,11 @@ let inFlight = false;
 let stale = false;
 
 function publish(next: PluginTabMenuState): void {
-  state = next;
+  // A host that answers with the wrong shape must not take the sidebar down.
+  state = {
+    items: Array.isArray(next?.items) ? next.items : [],
+    receiverTargets: next?.receiverTargets && typeof next.receiverTargets === "object" ? next.receiverTargets : {},
+  };
   for (const listener of listeners) listener();
 }
 

@@ -250,7 +250,8 @@ fn open_thread(params: &Option<Value>, svc: &ServiceState) -> Result<Value, Json
         .and_then(|v| v.as_i64());
     let svc = svc.clone();
     let opened = tauri::async_runtime::block_on(async move {
-        svc.open_bridge_thread(Some(&caller), &target, chat_id).await
+        svc.open_bridge_thread(Some(&caller), &target, chat_id)
+            .await
     })
     .map_err(|error| JsonRpcError {
         code: if error.is_authority() {

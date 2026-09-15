@@ -140,7 +140,8 @@ pub enum ThreadCaller<'a> {
 
 pub fn authorize_open(caller: ThreadCaller<'_>, target_tab_id: &str) -> Result<(), ThreadError> {
     match caller {
-        ThreadCaller::Owner | ThreadCaller::Tab {
+        ThreadCaller::Owner
+        | ThreadCaller::Tab {
             is_general: true, ..
         } => Ok(()),
         ThreadCaller::Tab { tab_id, .. } if tab_id == target_tab_id => Ok(()),

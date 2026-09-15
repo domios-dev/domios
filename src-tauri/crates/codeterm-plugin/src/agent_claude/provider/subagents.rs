@@ -62,7 +62,12 @@ mod tests {
         touch(&own.join("agent-a.jsonl"));
         touch(&own.join("agent-a.meta.json"));
         touch(&own.join("notes.jsonl"));
-        touch(&tmp.path().join("foreign-session").join("subagents").join("agent-x.jsonl"));
+        touch(
+            &tmp.path()
+                .join("foreign-session")
+                .join("subagents")
+                .join("agent-x.jsonl"),
+        );
 
         assert_eq!(
             usage_sources(&session, "own-session"),
@@ -77,7 +82,12 @@ mod tests {
         touch(&session);
         assert!(usage_sources(&session, "own-session").is_empty());
 
-        touch(&tmp.path().join("other-session").join("subagents").join("agent-x.jsonl"));
+        touch(
+            &tmp.path()
+                .join("other-session")
+                .join("subagents")
+                .join("agent-x.jsonl"),
+        );
         assert!(usage_sources(&session, "other-session").is_empty());
         assert!(usage_sources(&session, "../other-session").is_empty());
     }
