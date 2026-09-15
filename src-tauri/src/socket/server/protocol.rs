@@ -8,7 +8,7 @@
 use super::JsonRpcError;
 
 /// Bump together with `cli/src/protocol.rs` on a breaking CLI↔daemon wire
-/// contract change — see docs/contributing/cli.md (consumer audit).
+/// contract change — see essences/contributing/cli.md (consumer audit).
 pub(crate) const PROTOCOL_VERSION: u64 = 1;
 
 /// JSON-RPC server-error-band code for a protocol version mismatch.

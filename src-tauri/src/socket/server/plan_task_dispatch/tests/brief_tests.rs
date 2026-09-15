@@ -150,7 +150,6 @@ fn test_author_brief_carries_charter_reference_before_task() {
         .expect("body in brief");
 
     assert_eq!(guidance_pos, 0);
-    assert!(brief.contains("docs/contributing/test-authoring.md"));
     assert!(guidance_pos < title_pos);
     assert!(guidance_pos < body_pos);
 }

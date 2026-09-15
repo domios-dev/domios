@@ -12,8 +12,7 @@ resolver = "2"
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "test"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
-# here when called from headless / background Rust code paths). See
-# docs/plans/relay/20-provider-plugins-ts.md. Features chosen to keep
+# here when called from headless / background Rust code paths). Features chosen to keep
 # binary size minimal — no parallel/multi-context, no async, just the
 # core eval surface + ES modules.
 rquickjs = { version = "0.11", features = ["loader", "macro", "parallel"] }

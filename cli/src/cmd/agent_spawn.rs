@@ -543,7 +543,7 @@ mod tests {
         }
     }
 
-    /// codeterm#305: an unbound Worker spawn is accepted (docs/SKILLS.md's
+    /// codeterm#305: an unbound Worker spawn is accepted (prod-docs/SKILLS.md's
     /// ad-hoc pattern) but carries the shared advisory constant.
     #[test]
     fn worker_without_plan_binding_is_refused_or_warned_at_spawn() {

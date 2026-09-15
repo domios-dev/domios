@@ -23,223 +23,211 @@ pub(crate) struct EmbeddedDoc {
     pub body: &'static str,
 }
 
-#[cfg(test)]
-const DOCS_DIR_PREFIX: &str = "../../../docs/";
-
-/// `docs/<file>.md` this entry embeds, or `None` for a source outside `docs/`
-/// or in a nested directory.
-#[cfg(test)]
-pub(crate) fn docs_dir_file(source: &str) -> Option<&str> {
-    source
-        .strip_prefix(DOCS_DIR_PREFIX)
-        .filter(|rest| !rest.contains('/'))
-}
-
 pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
         "CONFIG",
         "Application configuration reference",
-        "../../../docs/CONFIG.md"
+        "../../../prod-docs/CONFIG.md"
     ),
     doc!(
         "NOTIFICATIONS",
         "Notification levels, per-level surfaces, sound, and push channels",
-        "../../../docs/NOTIFICATIONS.md"
+        "../../../prod-docs/NOTIFICATIONS.md"
     ),
     doc!(
         "INTEGRATIONS",
         "Messaging, hooks, transcription, and secret-backed integration settings",
-        "../../../docs/INTEGRATIONS.md"
+        "../../../prod-docs/INTEGRATIONS.md"
     ),
     doc!(
         "RUNTIME-CONFIG",
         "Runtime, UI, session, cron, and memory settings",
-        "../../../docs/RUNTIME-CONFIG.md"
+        "../../../prod-docs/RUNTIME-CONFIG.md"
     ),
     doc!(
         "API",
         "REST, socket, and CLI integration reference",
-        "../../../docs/API.md"
+        "../../../prod-docs/API.md"
     ),
     doc!(
         "API-TABS",
         "Tab and workspace REST contracts",
-        "../../../docs/API-TABS.md"
+        "../../../prod-docs/API-TABS.md"
     ),
     doc!(
         "API-REPAIR",
         "Tab identity repair REST contract",
-        "../../../docs/API-REPAIR.md"
+        "../../../prod-docs/API-REPAIR.md"
     ),
     doc!(
         "API-EVENTS",
         "Event stream and full-state snapshot load contracts",
-        "../../../docs/API-EVENTS.md"
+        "../../../prod-docs/API-EVENTS.md"
     ),
     doc!(
         "API-PLAN",
         "Plan surface contracts: task structure, goals, lanes, executors",
-        "../../../docs/API-PLAN.md"
+        "../../../prod-docs/API-PLAN.md"
     ),
     doc!(
         "MESH-BRIDGE",
         "Moving a bridge between mesh peers",
-        "../../../docs/MESH-BRIDGE.md"
+        "../../../prod-docs/MESH-BRIDGE.md"
     ),
     doc!(
         "API-INTEGRATIONS",
         "Bridge, hook, notification, and cron REST contracts",
-        "../../../docs/API-INTEGRATIONS.md"
+        "../../../prod-docs/API-INTEGRATIONS.md"
     ),
     doc!(
         "API-MEMORY",
         "Memory and graph REST contracts",
-        "../../../docs/API-MEMORY.md"
+        "../../../prod-docs/API-MEMORY.md"
     ),
     doc!(
         "API-SERVICES",
         "Service, activity, cron, and maintenance REST contracts",
-        "../../../docs/API-SERVICES.md"
+        "../../../prod-docs/API-SERVICES.md"
     ),
     doc!(
         "API-STATE",
         "Secrets, sessions, configuration, and update REST contracts",
-        "../../../docs/API-STATE.md"
+        "../../../prod-docs/API-STATE.md"
     ),
     doc!(
         "API-AGENTS",
         "Agent, plan, team, and update REST contracts",
-        "../../../docs/API-AGENTS.md"
+        "../../../prod-docs/API-AGENTS.md"
     ),
     doc!(
         "API-TRANSPORT",
         "Output streaming and socket JSON-RPC protocols",
-        "../../../docs/API-TRANSPORT.md"
+        "../../../prod-docs/API-TRANSPORT.md"
     ),
     doc!(
         "API-CLI",
         "CLI, environment, and agent integration contracts",
-        "../../../docs/API-CLI.md"
+        "../../../prod-docs/API-CLI.md"
     ),
     doc!(
         "TAB-LIFECYCLE",
         "Tab lifecycle journal (telemetry) and unconditional restore",
-        "../../../docs/TAB-LIFECYCLE.md"
+        "../../../prod-docs/TAB-LIFECYCLE.md"
     ),
     doc!(
         "MESH",
         "Peer discovery, trust, and remote routing",
-        "../../../docs/MESH.md"
+        "../../../prod-docs/MESH.md"
     ),
     doc!(
         "MESH-SERVICES",
         "Mesh service registry, health, and peer management",
-        "../../../docs/MESH-SERVICES.md"
+        "../../../prod-docs/MESH-SERVICES.md"
     ),
     doc!(
         "MEMORY",
         "Persistent memory, search, and graph behavior",
-        "../../../docs/MEMORY.md"
+        "../../../prod-docs/MEMORY.md"
     ),
     doc!(
         "MEMORY-SERVICES",
         "Memory skills, workers, synchronization, and dreaming",
-        "../../../docs/MEMORY-SERVICES.md"
+        "../../../prod-docs/MEMORY-SERVICES.md"
     ),
     doc!(
         "MEMORY-USAGE",
         "Memory agent behavior, CLI, REST, and UI",
-        "../../../docs/MEMORY-USAGE.md"
+        "../../../prod-docs/MEMORY-USAGE.md"
     ),
     doc!(
         "HTML",
         "Sandboxed chat HTML behavior",
-        "../../../docs/HTML.md"
+        "../../../prod-docs/HTML.md"
     ),
     doc!(
         "PROMPTS",
         "Prompt sources and assembly",
-        "../../../docs/PROMPTS.md"
+        "../../../prod-docs/PROMPTS.md"
     ),
     doc!(
         "PROMPT-TIERS",
         "Prompt progressive-disclosure tiers",
-        "../../../docs/PROMPT-TIERS.md"
+        "../../../prod-docs/PROMPT-TIERS.md"
     ),
     doc!(
         "SKILLS",
         "CodeTerm skills and agent integration",
-        "../../../docs/SKILLS.md"
+        "../../../prod-docs/SKILLS.md"
     ),
     doc!(
         "AGENT-CONTROL",
         "Agent hierarchy, command palette, and session integration",
-        "../../../docs/AGENT-CONTROL.md"
+        "../../../prod-docs/AGENT-CONTROL.md"
     ),
     doc!(
         "PROMPT-DETECTION",
         "Prompt detection architecture and verification",
-        "../../../docs/PROMPT-DETECTION.md"
+        "../../../prod-docs/PROMPT-DETECTION.md"
     ),
     doc!(
         "TELEGRAM-SETUP",
         "Telegram bridge setup and troubleshooting",
-        "../../../docs/TELEGRAM-SETUP.md"
+        "../../../prod-docs/TELEGRAM-SETUP.md"
     ),
     doc!(
         "SECRETS",
         "Secret storage and synchronization",
-        "../../../docs/SECRETS.md"
+        "../../../prod-docs/SECRETS.md"
     ),
     doc!(
         "ROUTING",
         "Message routing and reply channels",
-        "../../../docs/ROUTING.md"
+        "../../../prod-docs/ROUTING.md"
     ),
     doc!(
         "TEXT-HOOKS",
         "Inbound text hook contracts",
-        "../../../docs/TEXT-HOOKS.md"
+        "../../../prod-docs/TEXT-HOOKS.md"
     ),
     doc!(
         "TRANSCRIBE",
         "Voice transcription integration",
-        "../../../docs/TRANSCRIBE.md"
+        "../../../prod-docs/TRANSCRIBE.md"
     ),
     doc!(
         "ORCHESTRATION",
         "Team orchestration lifecycle",
-        "../../../docs/ORCHESTRATION.md"
+        "../../../prod-docs/ORCHESTRATION.md"
     ),
     doc!(
         "ORCHESTRATION-OPERATIONS",
         "Orchestration verification, integration, heartbeat, and closeout",
-        "../../../docs/ORCHESTRATION-OPERATIONS.md"
+        "../../../prod-docs/ORCHESTRATION-OPERATIONS.md"
     ),
     doc!(
         "PLAN-EDITING",
         "Bounded plan editing operations",
-        "../../../docs/PLAN-EDITING.md"
+        "../../../prod-docs/PLAN-EDITING.md"
     ),
     doc!(
         "LANES",
         "Worker lanes, integration, and cleanup",
-        "../../../docs/LANES.md"
+        "../../../prod-docs/LANES.md"
     ),
     doc!(
         "PLANNER",
         "Planner responsibilities and workflow",
-        "../../../docs/PLANNER.md"
+        "../../../prod-docs/PLANNER.md"
     ),
     doc!(
         "BOUNCE",
         "Review bounce evidence and escalation",
-        "../../../src-tauri/prompts/bounce_unwinding_contract.md"
+        "../../../prod-docs/BOUNCE.md"
     ),
     doc!(
         "TEST-AUTHORING",
         "Focused test authoring rules",
-        "../../../docs/contributing/test-authoring.md"
+        "../../../prod-docs/TEST-AUTHORING.md"
     ),
 ];
 
@@ -344,6 +332,49 @@ mod tests {
         for document in DOCS {
             assert!(names.insert(document.name.to_ascii_lowercase()));
         }
+    }
+
+    #[test]
+    fn every_doc_embedded_lives_in_prod_docs_and_nothing_else_does() {
+        let embedded: HashSet<String> = DOCS
+            .iter()
+            .map(|document| {
+                let file = document
+                    .source
+                    .strip_prefix("../../../prod-docs/")
+                    .unwrap_or_else(|| {
+                        panic!("{} is embedded from outside prod-docs", document.name)
+                    });
+                assert_eq!(
+                    file,
+                    format!("{}.md", document.name),
+                    "{} must be embedded from prod-docs/{}.md",
+                    document.name,
+                    document.name
+                );
+                file.to_string()
+            })
+            .collect();
+
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../prod-docs");
+        let mut unregistered = Vec::new();
+        for entry in std::fs::read_dir(dir).expect("read prod-docs/") {
+            let path = entry.expect("prod-docs entry").path();
+            assert!(
+                path.is_file(),
+                "prod-docs holds only embedded documents: {}",
+                path.display()
+            );
+            let file = path.file_name().unwrap().to_string_lossy().into_owned();
+            if !embedded.contains(&file) {
+                unregistered.push(file);
+            }
+        }
+        unregistered.sort();
+        assert!(
+            unregistered.is_empty(),
+            "prod-docs files must be registered in DOCS, or moved to essences/: {unregistered:?}"
+        );
     }
 
     #[test]

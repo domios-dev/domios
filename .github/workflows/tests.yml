@@ -10,7 +10,7 @@ on:
     branches: [develop, master, 'feat/**', 'lane/**']
     paths-ignore:
       - '.codeterm/**'
-      - 'docs/**'
+      - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
 

@@ -117,13 +117,12 @@ def load_prompt(reference: str) -> str:
 
 # Mirror shared-file substitutions so evals see what the live agent sees.
 def _expand_placeholders(text: str) -> str:
-    prompts_dir = Path(__file__).resolve().parents[3] / "src-tauri" / "prompts"
+    root = Path(__file__).resolve().parents[3]
     shared_files = {
-        "{codeterm_cli}": "codeterm_cli.md",
-        "{bounce_unwinding_contract}": "bounce_unwinding_contract.md",
+        "{codeterm_cli}": root / "src-tauri" / "prompts" / "codeterm_cli.md",
+        "{bounce_unwinding_contract}": root / "prod-docs" / "BOUNCE.md",
     }
-    for placeholder, filename in shared_files.items():
-        source = prompts_dir / filename
+    for placeholder, source in shared_files.items():
         if placeholder in text and source.exists():
             text = text.replace(placeholder, source.read_text(encoding="utf-8"))
     return text

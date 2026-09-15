@@ -21,7 +21,7 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
-pub const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+pub const PLANNER_DOC: &str = include_str!("../../prod-docs/PLANNER.md");
 
 /// The executor-role member of [`PLANNER_TASK_MANDATORY_FIELDS`]. It lives in
 /// that list, not in a sentence beside it: a list member cannot be delivered
@@ -75,16 +75,13 @@ pub fn planner_task_routing_line() -> String {
     )
 }
 
-/// Shared bounce-unwinding contract exposed through embedded docs and fixtures.
-pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
-
 /// Canonical role_guidance for tasks whose primary deliverable is tests.
-pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
+pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. `codeterm docs TEST-AUTHORING` is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
-pub const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+pub const ORCHESTRATION_DOC: &str = include_str!("../../prod-docs/ORCHESTRATION.md");
 
 /// Fills `{roleless_draft_rejection}` in [`ORCHESTRATOR_SUFFIX`], inside the
 /// instruction where drafts are already accepted, revised, or rejected.
