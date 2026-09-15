@@ -94,14 +94,14 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 - **`worker_task_preamble.md`** — wrapper applied by `workers::build_worker_task()` to every headless memory worker. Sets the "you are a Graph Worker" framing, tells the worker how to call back via `codeterm mem worker progress|report`, then injects the inner `{task}`.
 - **`mem_extraction.md`** — inner task body for the auto-extraction worker spawned on `mem save` unless `skip_extract` is set. The code excludes only `MemKind::Summary`; all other kinds are eligible. Worker extracts people, projects, decisions, problems, area; calls back via `codeterm mem graph` commands. The body is truncated to 50,000 chars before substitution.
-- **`dreaming_rem.md`** — inner task body for the REM phase of the dreaming pipeline. Light, Deep, Normalize, and Calibration phases are pure SQL (no LLM) and run server-side in `mem_dream` before the REM worker spawns; REM is the only LLM-driven phase, fired via `dreaming::spawn_rem_worker()`. Triggered by the bundled `mem-dreaming-auto` cron at 6 AM with a 0..30 min delay-only jitter window (legacy 3 AM with 0..90 min delay installs auto-migrate on startup). The prompt runs four stages — STAGE A (structural cleanup), STAGE B (diary + worker report), STAGE C (maintenance), STAGE D (read-only calibration summary). STAGE D used to instruct the LLM to invoke `mem calibration sweep` itself, which it routinely skipped in resumed sessions and replaced with a fabricated `skipped=not_sunday` line; the sweep is now authoritatively executed by the supervisor and STAGE D only reads `mem calibration log` to format the diary's CALIBRATION line. Server still enforces the Sunday-only gate via `strftime('%w','now')`, the 30-changes-per-session cap, and the 6-hour re-entry guard.
+- **`dreaming_rem.md`** — inner task body for REM, the only LLM-driven dreaming phase; Light, Deep, Normalize, and Calibration run as server-side SQL in `mem_dream` before `dreaming::spawn_rem_worker()` fires it. The bundled `mem-dreaming-auto` cron triggers it at 6 AM with 0..30 min delay-only jitter. Stages: A structural cleanup, B diary + worker report, C maintenance, D read-only calibration summary. The supervisor runs the calibration sweep; STAGE D only reads `mem calibration log`. The server enforces the Sunday-only gate, the 30-changes-per-session cap, and the 6-hour re-entry guard.
 - **`mem_rerank.md`** — sent via raw `reqwest` POST from `mem/rerank.rs` to `api.anthropic.com/v1/messages` (`call_anthropic`) or the OpenAI equivalent. The only place in CodeTerm that talks to a model API directly. Used when search needs higher precision than FTS5 + vector cosine alone. The `{items}` placeholder is built in Rust by formatting each `SearchHit` and joining them.
 
 ## Plugin-spawned agent prompts
 
 `plugin_agent_task_preamble.md` is the wrapper applied by `service/plugin_host.rs` when a plugin spawns an agent through the host API. It injects the plugin-owned `{task}` and keeps that agent out of the memory graph-worker protocol: plugin agents should operate through verbs exposed as `codeterm plugin <id> <verb>`, which dispatches to the plugin's `onAgentCommand` handler.
 
-`codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` and inserts them as baseline `NewMemItem` rows. `seed_bundled` runs on every startup, not just a fresh install: each item's overwrite authority is the `mem_items.seed_fingerprint` column (see `docs/MEMORY.md`), a hash of every field the seeder manages, so a prompt edit here reaches an already-seeded machine on its next restart precisely when nothing else has touched that item since it was last (bootstrapped or refreshed) to match. A real edit through `mem update`/the API to any managed field clears the fingerprint in that same write, so the item is left untouched from then on. They live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
+`codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` as baseline memory items on every startup. Overwrite authority is each item's `seed_fingerprint` (see `docs/MEMORY.md`): an edited seed reaches a machine on restart only while nothing else has changed that item; a real edit through `mem update` or the API clears the fingerprint, and the item is left alone from then on. Seeds reach agents only through `codeterm mem search`/`get`.
 
 ## Role presets — one resolver, one composition table
 
@@ -205,12 +205,7 @@ owning loader module (pub const &str)
    cat ~/.codeterm/general/AGENT.md  # for general_agent.md edits
    cat ~/.claude/rules/codeterm.md   # for codeterm_rule.md edits
    ```
-4. **Run the prompt-evaluator** — this is mandatory before committing any prompt change. Spawn it:
-   ```
-   Agent(subagent_type="prompt-evaluator",
-         prompt="A/B compare HEAD~1 vs HEAD for src-tauri/prompts/<file>.md. Report regressions.")
-   ```
-   If the evaluator reports `Δ < 0` on any eval, fix or revert. Do not push through a regression. If no eval set exists for the file yet, ask the evaluator to bootstrap one first. See `.claude/skills/prompt-evaluator/SKILL.md` and `evals/` for the harness.
+4. **Run the prompt-evaluator** before committing any prompt change: A/B compare `HEAD~1` against `HEAD` for the edited file. If any eval reports `Δ < 0`, fix or revert; if the file has no eval set, have the evaluator bootstrap one first. Harness: `.claude/skills/prompt-evaluator/SKILL.md` and `evals/`.
 5. **Commit** — use `prompts:` or `prompt:` scope in the commit message so prompt changes are easy to find in `git log`.
 
 ## Rules
@@ -231,4 +226,4 @@ owning loader module (pub const &str)
 - `docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

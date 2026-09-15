@@ -30,4 +30,24 @@ one, and still needs a waiter cap to avoid an unbounded queue.
 **Clients must treat 503 from this endpoint as retryable-later, not fatal**, and
 must not tighten their refetch interval in response to it.
 
-<!-- revision: 1 -->
+### Snapshot refetch coalescing
+
+`mux-state-changed` is a bare signal, not a snapshot, so each one costs the client
+a full `GET /api/mux/state`, and bursts or the ring replay after an `overflow`
+multiply that. The web bundle keeps **one snapshot fetch in flight**: a request
+arriving mid-fetch never joins it, because that fetch may predate the request's
+event, so it waits for the next one and a burst of any size costs at most two
+round trips. The daemon also refuses immediately while a lifecycle writer owns
+either snapshot lock. Both refusals are back-pressure: the client stays
+not-yet-reconciled and the next `mux-state-changed` or `mesh-state-changed` event
+schedules one coalesced read. There is no timer or polling retry.
+
+### Known gap: event order under concurrent publishers
+
+The stream's "never a silent gap" guarantee does not fully hold today
+(`rollacode/codeterm#428` family). Sequence numbers are allocated under the ring
+lock but published after it is released, so concurrent publishers can arrive out
+of order and the stream drops the lower sequence without an `overflow` frame. The
+ring still holds it in order, so reconnecting with `since` recovers it.
+
+<!-- revision: 2 -->
