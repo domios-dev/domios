@@ -217,6 +217,7 @@ owning loader module (pub const &str)
 - **Run prompt-evaluator on every prompt change.** This is the only guard against silent behavioral regressions — prompt diffs do not show up in unit tests.
 - **No Markdown bold in compiled prompts.** Use plain prose or uppercase for essential labels; `**` spends context tokens without adding agent capability.
 - **Prompts are English-only.** Like all code and docs.
+- **State a rule once, at its owning fragment, in a calm voice.** A role brief carries only what its embedded manual does not already say; capitals and absolutes are for the few hard invariants. Composed role launches, the Worker charter, and the provider rules have measured byte ceilings in `prompts::tests::prompt_diet`; a surface may shrink freely, but raising a ceiling is a decision.
 
 ## Related docs
 
@@ -226,4 +227,4 @@ owning loader module (pub const &str)
 - `docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

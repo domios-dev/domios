@@ -2,6 +2,7 @@
 //! inside the repository size gate; the module contract is unchanged.
 
 mod idle_coordination;
+mod prompt_diet;
 mod task_sequencing;
 
 use super::*;
