@@ -21,7 +21,7 @@ mod tests {
     use crate::multiplexer::types::TaskBinding;
 
     #[test]
-    fn task_bound_rename_guard_explains_fixed_identity() {
+    fn tab_name_contract_task_bound_rename_guard_remains_refused() {
         let binding = TaskBinding {
             plan_id: Some("plan".into()),
             task_id: Some("task".into()),
@@ -36,7 +36,7 @@ mod tests {
     }
 
     #[test]
-    fn unbound_tab_rename_remains_allowed() {
+    fn tab_name_contract_unbound_tab_rename_remains_allowed() {
         assert!(refuse_task_bound_rename("tab", None).is_ok());
     }
 

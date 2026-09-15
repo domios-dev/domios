@@ -212,11 +212,6 @@ impl ServiceContext {
             .clone()
             .unwrap_or_else(crate::config::default_agent_provider);
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
-        let title = params
-            .title
-            .clone()
-            .or_else(|| params.agent_name.clone())
-            .unwrap_or_else(|| agent.clone());
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
@@ -239,6 +234,7 @@ impl ServiceContext {
         if let Some(reservation) = worker_persona_reservation {
             reservation.commit_to_tab(&handle.tab_id);
         }
+        let title = self.mux.read().display_label_for_tab(&handle.tab_id);
         self.record_kpi_spawn(
             &handle.tab_id,
             model_identity.2.as_deref(),
@@ -319,11 +315,6 @@ impl ServiceContext {
             let role = params.role.clone();
             let role_profile = params.role_profile.clone();
             let model = params.model.clone();
-            let title = params
-                .title
-                .clone()
-                .or_else(|| params.agent_name.clone())
-                .unwrap_or_else(|| agent_cmd.clone());
             let bind_params = params.clone();
             let spec = crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(
                 self.chatbackend_registry.as_ref(),
@@ -345,6 +336,7 @@ impl ServiceContext {
             if let Some(reservation) = worker_persona_reservation {
                 reservation.commit_to_tab(&handle.tab_id);
             }
+            let title = self.mux.read().display_label_for_tab(&handle.tab_id);
             self.record_kpi_spawn(
                 &handle.tab_id,
                 requested_model.as_deref(),
@@ -440,15 +432,6 @@ impl ServiceContext {
                     crate::service::spawn::create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?
                 }
             };
-            if let Some(ref t) = params.title {
-                if !t.trim().is_empty() {
-                    let _ = mux.rename_tab_at_level(
-                        &result,
-                        t,
-                        crate::multiplexer::types::TitleLevel::User,
-                    );
-                }
-            }
             if let Some(ref dir) = params.cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
@@ -768,12 +751,7 @@ impl ServiceContext {
 
         // (subscriber already started inside ensure_for_spawn above)
 
-        let title = self
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .map(|p| p.title.clone())
-            .unwrap_or_default();
+        let title = self.mux.read().display_label_for_tab(&tab_id);
 
         if let Some(reservation) = worker_persona_reservation {
             reservation.commit_to_tab(&tab_id);

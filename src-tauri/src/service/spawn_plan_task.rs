@@ -8,17 +8,9 @@ use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
 pub(crate) fn planned_task_title(task: &Task) -> Option<String> {
-    task.personality
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .or_else(|| {
-            task.executor_role
-                .as_deref()
-                .map(str::trim)
-                .filter(|role| !role.is_empty())
-        })
-        .map(str::to_string)
+    crate::service::plan::worker_identity::task_executor_name(task)
+        .ok()
+        .flatten()
 }
 
 pub(crate) fn worker_spawn_plan_task_ref(params: &SpawnAgentParams) -> Option<&str> {
@@ -59,6 +51,11 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
                 "on the dispatch, where they are also enforced"
             )
             .into());
+        }
+    }
+    if is_worker_spawn(params) && worker_spawn_is_task_bound(params) {
+        if let Some(title) = params.title.as_deref() {
+            crate::service::plan::worker_identity::validate_executor_name(title)?;
         }
     }
     if is_worker_spawn(params)
@@ -578,6 +575,19 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.contains("--plan-task"));
+    }
+
+    #[test]
+    fn tab_name_contract_spawn_name_paths_reject_multi_word_task_bound_title() {
+        let error = validate_worker_plan_task_spawn(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            plan_task: Some("spawn-bind".into()),
+            title: Some("Ada Lovelace".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            ..Default::default()
+        })
+        .unwrap_err();
+        assert!(error.contains("one word"), "{error}");
     }
 
     fn verifier(gates: &[&str]) -> SpawnAgentParams {
