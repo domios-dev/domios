@@ -97,10 +97,6 @@ pub struct SpawnAgentParams {
     /// provenance, never accepted from a CLI/REST payload.
     #[serde(default, skip_deserializing)]
     pub provisioned_cwd: Option<String>,
-    /// Legacy host metadata from pre-source-only lane provisioning. It is never
-    /// executed or included in a Worker launch command.
-    #[serde(default, skip_deserializing)]
-    pub lane_setup_command: Option<String>,
     pub title: Option<String>,
     pub title_provenance: Option<SpawnIdentityProvenance>,
     pub description: Option<String>,

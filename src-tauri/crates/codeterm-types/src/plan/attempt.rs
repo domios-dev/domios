@@ -23,12 +23,6 @@ pub struct TaskLaneMetadata {
     pub cleanup_status: Option<String>,
     #[serde(default)]
     pub cleanup_hints: Vec<String>,
-    /// Shared-directory links lane bootstrap created inside the worktree.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bootstrap_links: Vec<String>,
-    /// Bootstrap skip/refusal warnings; recorded, never a dispatch failure.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bootstrap_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
