@@ -87,7 +87,7 @@ fn late_attempt_failure_after_a_newer_live_attempt_keeps_the_task_on_it() {
         .roll_back_task_dispatch_attempt(
             &plan_id,
             &original,
-            PlanMode::Draft,
+            PlanMode::Planning,
             STALE_TAB,
             &stale_attempt,
             9,
@@ -137,7 +137,7 @@ fn late_attempt_failure_replaced_without_retirement_is_still_fenced() {
         .roll_back_task_dispatch_attempt(
             &plan_id,
             &original,
-            PlanMode::Draft,
+            PlanMode::Planning,
             STALE_TAB,
             &stale_attempt,
             5,
@@ -167,7 +167,7 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
         .roll_back_task_dispatch_attempt(
             &plan_id,
             &original,
-            PlanMode::Draft,
+            PlanMode::Planning,
             STALE_TAB,
             &attempt,
             4,
