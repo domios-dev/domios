@@ -551,6 +551,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
         />
       );
     }
+    if (!isCaveat && message.content) {
+      return (
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+          <ThoughtLine
+            text={message.content}
+            label={label}
+            testId="chat-system-meta"
+            expanded={expanded}
+            onToggle={setExpandedPersistent}
+          />
+        </div>
+      );
+    }
     return (
       <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
         <div
