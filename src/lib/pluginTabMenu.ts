@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { IS_WEB, invoke, listen, type UnlistenFn } from "./bridge";
-import { currentToken } from "./webApi";
+import { invoke, listen, type UnlistenFn } from "./bridge";
+import { hostBridgeAvailable } from "./hostBridge";
 
 export type PluginTabMenuAction = "receiverTarget";
 
@@ -31,15 +31,8 @@ export interface PluginTabMenuHost {
   watch(onChange: () => void): Promise<UnlistenFn>;
 }
 
-// A render with no Tauri runtime and no authenticated web session (tests, previews) has nothing to call or hold open.
-function bridgeAvailable(): boolean {
-  if (typeof window === "undefined") return false;
-  if (!IS_WEB) return true;
-  return typeof localStorage !== "undefined" && currentToken() !== null;
-}
-
 const bridgeHost: PluginTabMenuHost = {
-  available: bridgeAvailable,
+  available: hostBridgeAvailable,
   load: () => invoke<PluginTabMenuState>("plugin_tab_menu"),
   run: (item, tabId) =>
     invoke<PluginTabMenuState>("plugin_tab_menu_action", {

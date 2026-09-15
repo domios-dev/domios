@@ -114,7 +114,7 @@ Open or reuse a topic and print its link:
 codeterm bridge thread open [--tab ID] [--service telegram]
 ```
 
-Without `--tab` it opens the caller's own topic. Only the General Agent may name another tab: the topic belongs to the target, carries its header, and routes replies to it. Any other caller naming a foreign tab is refused (socket `bridge.thread.open`, code `-32003`) before any Bot API call. The first open posts `you can talk to <tab> here`; repeated opens create nothing. The tab menu's **Connect Telegram** and **Disconnect Telegram** run the same operations; **Connect Telegram** is also in the sidebar tab menu.
+Without `--tab` it opens the caller's own topic. Only the General Agent may name another tab: the topic belongs to the target, carries its header, and routes replies to it. Any other caller naming a foreign tab is refused (socket `bridge.thread.open`, code `-32003`) before any Bot API call. The first open posts `you can talk to <tab> here`; repeated opens create nothing. **Attach Telegram** and **Detach Telegram** under **Plugins** in the tab actions menu run the same operations; the sidebar tab menu and the tab header menu list them identically.
 
 ## Cross-machine bridge migration
 
@@ -125,4 +125,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

@@ -4,7 +4,9 @@ import { reattachTabChat } from "./chatReattach";
 
 export const TAB_SESSION_LABELS = {
   reconnect: "Reconnect",
+  reconnecting: "Reconnecting…",
   restart: "Restart session",
+  restarting: "Restarting…",
   copy: "Copy session ID",
   autoConfirm: "Auto-confirm permissions",
   autoConfirmHint:
