@@ -2,10 +2,8 @@
 
 import { Window } from "happy-dom";
 import {
-  derivePinned,
   selectExtension,
   SELECT_EXTENSION_EVENT,
-  type TrayPluginData,
 } from "./extensionsTrayLogic";
 
 const tests: Array<[string, () => void]> = [];
@@ -22,26 +20,6 @@ function setupDom() {
   Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
 }
 setupDom();
-
-const plugins: TrayPluginData[] = [
-  { id: "claude" },
-  { id: "bitwarden" },
-  { id: "transcriber" },
-];
-
-test("derivePinned returns only pinned, in snapshot order", () => {
-  const pinned = derivePinned(plugins, { transcriber: { pinned: true }, bitwarden: { pinned: true } });
-  assert(pinned.map((p) => p.id).join(",") === "bitwarden,transcriber", "should keep snapshot order, not config order");
-});
-
-test("derivePinned ignores pinned:false and unknown ids", () => {
-  const pinned = derivePinned(plugins, { bitwarden: { pinned: false }, ghost: { pinned: true } });
-  assert(pinned.length === 0, "false-pinned and ids absent from snapshot must be dropped");
-});
-
-test("derivePinned with no config is empty", () => {
-  assert(derivePinned(plugins, {}).length === 0, "no pins → empty");
-});
 
 test("selectExtension dispatches the deep-link event and opens", () => {
   const events: Array<string | null> = [];

@@ -130,9 +130,9 @@ function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT) {
   return calls;
 }
 
-async function renderExtensions() {
+async function renderExtensions(snapshot: PluginSnapshot = SNAPSHOT) {
   __resetPluginSnapshotStoreForTest();
-  const calls = installInvokeMock();
+  const calls = installInvokeMock(snapshot);
   const view = await render(
     <ExtensionsView
       visible
@@ -170,6 +170,16 @@ function cleanup() {
 }
 
 setupDom();
+
+test("installed plugin rows have no titlebar pin control", async () => {
+  const { host, root } = await renderExtensions(UPDATE_SNAPSHOT);
+  const row = host.querySelector('[data-testid="extensions-plugin-row"][data-plugin-id="git"]');
+  assert(row, "installed plugin row should render");
+  assert(row.querySelectorAll("button").length === 0, "installed plugin rows should not render a secondary control");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
 
 test("selecting a plugin opens its detail view and back returns to the list", async () => {
   const { host, root } = await renderExtensions();

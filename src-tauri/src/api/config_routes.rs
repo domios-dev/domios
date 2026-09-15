@@ -202,6 +202,7 @@ pub async fn patch_config_api(
 
     let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
+    crate::config::sanitize_plugin_settings(&mut new_cfg);
     new_cfg.api.token = cfg.api.token.clone();
     crate::config::validate_api_trust_boundary(&new_cfg.api)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Unsafe API listener configuration"))?;

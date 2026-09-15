@@ -96,12 +96,6 @@ export function ExtensionsView({
   const updates = useMemo(() => updateCount(catalog), [catalog]);
   const selected = selectedId ? catalog.find((e) => e.id === selectedId) ?? null : null;
 
-  const pinned = useMemo(() => {
-    const s = new Set<string>();
-    for (const [id, p] of Object.entries(config?.plugins ?? {})) if (p?.pinned) s.add(id);
-    return s;
-  }, [config]);
-
   const saveSetting = useCallback(async (pluginId: string, key: string, value: unknown) => {
     try {
       const cfg = await invoke<AppConfigShape>("get_config");
@@ -112,21 +106,6 @@ export function ExtensionsView({
       setLocalError(null);
     } catch (e) {
       setLocalError(`Couldn't save ${pluginId} setting: ${String(e)}`);
-    }
-  }, []);
-
-  const togglePin = useCallback(async (id: string) => {
-    try {
-      const cfg = await invoke<AppConfigShape>("get_config");
-      const plugins = { ...(cfg.plugins ?? {}) };
-      const entry = { ...(plugins[id] ?? {}) };
-      entry.pinned = !entry.pinned;
-      plugins[id] = entry;
-      await invoke("update_config", { config: { ...cfg, plugins } });
-      setConfig({ ...cfg, plugins });
-      setLocalError(null);
-    } catch (e) {
-      setLocalError(`Couldn't pin ${id}: ${String(e)}`);
     }
   }, []);
 
@@ -285,8 +264,6 @@ export function ExtensionsView({
                   setNarrowDetailOpen(false);
                 }}
                 updateCount={updates}
-                pinned={pinned}
-                onTogglePin={togglePin}
                 onRemoveChannel={onRemoveChannel}
                 activities={pluginActivities}
                 activityDisplayMap={pluginActivityDisplayMap}
