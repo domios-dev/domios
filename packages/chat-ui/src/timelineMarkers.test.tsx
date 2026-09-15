@@ -219,9 +219,14 @@ describe("timeline markers", () => {
     const root = createRoot(host);
     try {
       await act(async () => {
+        root.render(<ChatSessionIntentLine intent={{ title: "First title" }} />);
+      });
+      expect(host.querySelector('[data-testid="chat-session-intent"]')).toBeNull();
+      await act(async () => {
         root.render(<ChatSessionIntentLine intent={sessionIntentFromMessages(messages)} />);
       });
-      expect(host.querySelector('[data-testid="chat-session-title"]')?.textContent).toContain("First title");
+      expect(host.querySelector('[data-testid="chat-session-title"]')).toBeNull();
+      expect(host.textContent).not.toContain("First title");
       expect(host.querySelector('[data-testid="chat-session-goal"]')?.textContent).toContain("Ship the feature");
       expect(host.textContent).not.toContain("arbitrary prose");
     } finally {
