@@ -19,6 +19,7 @@ mod agent_transition;
 mod analytics_host;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
+pub(crate) mod bridge_threads;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
 mod command_port_impl;
@@ -248,6 +249,8 @@ pub struct ServiceContext {
     >,
     /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
+    /// Per-tab Telegram topic bindings, sender identity and open authority.
+    pub bridge_threads: Arc<codeterm_bridge::bridge::threads::ThreadService>,
     /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
     pub provider_updates: provider_update::ProviderUpdateRegistry,

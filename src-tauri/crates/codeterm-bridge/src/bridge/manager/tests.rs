@@ -27,7 +27,11 @@ fn text_msg() -> InboundMessage {
         attachments: vec![],
         message_id: Some(12345),
         callback_data: None,
-        reply_ctx: ReplyContext::Telegram { chat_id: 100000001 },
+        reply_ctx: ReplyContext::Telegram {
+            chat_id: 100000001,
+            thread_id: None,
+            reply_to_message_id: None,
+        },
     }
 }
 

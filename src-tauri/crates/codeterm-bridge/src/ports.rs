@@ -6,6 +6,7 @@ use std::sync::Arc;
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
 use crate::bridge::manager::{OutboundSender, PlacementReceipt};
+use crate::bridge::threads::{ThreadService, ThreadTabs};
 use crate::transcribe::TranscribeRegistry;
 
 pub use codeterm_plugin::chatpreprocessor::{
@@ -42,4 +43,7 @@ pub trait BridgeTabPort: Send + Sync {
     fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str);
     fn telegram_token(&self) -> Option<String>;
     fn telegram_token_path(&self) -> PathBuf;
+    /// The single owner of per-tab thread bindings.
+    fn threads(&self) -> Arc<ThreadService>;
+    fn thread_tabs(&self) -> &dyn ThreadTabs;
 }

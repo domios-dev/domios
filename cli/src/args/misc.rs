@@ -583,6 +583,11 @@ pub enum BridgeAction {
         /// Emoji to react with (e.g. "👍", "✅", "❤")
         emoji: String,
     },
+    /// Open a tab's Telegram topic thread
+    Thread {
+        #[command(subcommand)]
+        action: BridgeThreadAction,
+    },
     /// Migrate active bridge poller from this node to another mesh peer.
     Migrate {
         /// Target peer instance_name (as shown in `codeterm mesh peers`).
@@ -606,6 +611,19 @@ pub enum BridgeAction {
         /// How long target may take to claim the Telegram lock before the migration is considered failed (ms).
         #[arg(long, default_value_t = 10_000)]
         claim_timeout_ms: u64,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BridgeThreadAction {
+    /// Open or reuse a tab's Telegram topic and print its link
+    Open {
+        /// Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab
+        #[arg(long)]
+        tab: Option<String>,
+        /// Target service
+        #[arg(long, default_value = "telegram")]
+        service: String,
     },
 }
 

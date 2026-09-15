@@ -82,6 +82,7 @@ impl PushChannel for DiscordChannel {
                 buttons: None,
                 edit: None,
                 receipt: None,
+                route: codeterm_bridge::bridge::manager::OutboundRoute::Chat,
             },
         )
     }

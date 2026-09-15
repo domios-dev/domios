@@ -164,6 +164,7 @@ fn channel_ask_options_ride_the_channel_and_the_tapped_label_returns_to_the_aski
         text: "rendered".to_string(),
         choices: store.offered_choices_for_channel(&id),
         record: id.clone(),
+        origin_tab: None,
     };
     assert_eq!(
         message

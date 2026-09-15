@@ -265,6 +265,9 @@ pub fn run() {
             commands::mux_commands::mux_unlock_tab_agent_type,
             commands::mux_commands::mux_set_chat_view,
             commands::mux_commands::mux_set_permission_auto_confirm,
+            commands::bridge_threads::bridge_thread_state,
+            commands::bridge_threads::bridge_thread_open,
+            commands::bridge_threads::bridge_thread_close,
             commands::mux_commands::detect_claude_session_id,
             commands::mux_commands::detect_tab_session_id,
             commands::mux_commands::mux_set_claude_session_id,
@@ -829,6 +832,11 @@ pub fn run() {
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
+                bridge_threads: Arc::new(codeterm_bridge::bridge::threads::ThreadService::new(
+                    codeterm_bridge::bridge::threads::ThreadRegistry::load(
+                        crate::service::bridge_threads::registry_path(),
+                    ),
+                )),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
                 provider_updates: Default::default(),
                 chat_registry: crate::service::tab_chat::ChatRegistry::new(),

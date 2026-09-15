@@ -20,7 +20,8 @@ Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing; t
 ## How it works
 
 - **Inbound** (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the GA tab. Messages within 300ms are debounced into one delivery. Typing indicator is sent automatically.
-- **Outbound** (Agent → Telegram): `codeterm bridge send` from any tab, not just GA.
+- **Outbound** (Agent → Telegram): `codeterm bridge send` from any tab, not just GA. With BotFather topics enabled, a tab's sends and notifications land in that tab's own topic with a `title · role · workspace · machine` header and a linked pointer in the main chat; the General Agent stays in the main chat.
+- **Threads**: a message in a tab's topic, or a reply to a tab's message, reaches that tab (marker carries `thread=`). Closing the tab deletes its topic.
 - UTF-8 safe: chunks Cyrillic/emoji/multi-byte correctly.
 - Resilient: auto-restarts polling after 5 seconds on failure.
 
@@ -52,6 +53,22 @@ codeterm bridge send --to USER_ID --type sticker --file /path/to/sticker.webp
 ```
 
 Supported `--type`: `text` (default), `photo`, `document`, `voice`, `animation`, `video`, `sticker`. Positional text becomes the caption if `--caption` is not set. Stickers have no caption.
+
+## Per-tab topic threads
+
+Open or reuse your own topic and print its link:
+
+```bash
+codeterm bridge thread open --service telegram
+```
+
+Only the General Agent may open another tab's topic, then reply in the main chat with the printed link:
+
+```bash
+codeterm bridge thread open --tab TAB_ID --service telegram
+```
+
+Any other tab naming a foreign `--tab` is refused and nothing is created. Without BotFather topics the owner is told once and sends stay in the main chat. Full contract: `codeterm docs TELEGRAM-SETUP`.
 
 ## Formatting
 

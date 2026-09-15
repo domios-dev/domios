@@ -7,6 +7,7 @@ pub struct DirCompletion {
 }
 
 mod agent;
+pub(crate) mod bridge_threads;
 mod clipboard;
 mod completions;
 mod context_epochs;
