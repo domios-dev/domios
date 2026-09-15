@@ -1413,12 +1413,19 @@ ensure_deps() {
 }
 
 prepare_release_bundle_inputs() {
+  local cargo_target_args=()
+  if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    cargo_target_args=(--target "$CARGO_BUILD_TARGET")
+  fi
   pnpm build
   node scripts/touch-cli-main.js
-  cargo build --release --manifest-path cli/Cargo.toml
+  cargo build --release --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
   node scripts/prepare-embed-stub.js
-  cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+  cargo build --release --manifest-path src-tauri/Cargo.toml \
+    "${cargo_target_args[@]}" \
+    --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+    --bin codeterm --bin codeterm-embed
   node scripts/bundle-embed.js
 }
 
