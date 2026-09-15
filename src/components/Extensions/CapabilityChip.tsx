@@ -63,6 +63,7 @@ export const CAPABILITY_LABELS: Record<string, string> = {
   network: "Network & mesh access",
   subprocess: "Run allowed local tools",
   secrets: "Use its own secret store",
+  analytics: "Read this machine's usage analytics",
   manage_crons: "Schedule recurring tasks",
   admin: "Full control",
   chat_backend: "Drive a chat tab",

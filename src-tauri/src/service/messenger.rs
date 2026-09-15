@@ -32,6 +32,8 @@ pub struct MessageEnvelope {
     pub from_tab: String,
     pub from_model: Option<String>,
     pub from_mesh: Option<String>,
+    pub from_plugin: Option<String>,
+    pub plugin_icon_svg: Option<String>,
     pub peer: Option<String>,
     pub set_at: Option<u64>,
     pub fire_at: Option<u64>,
@@ -129,6 +131,16 @@ impl MessageEnvelope {
         Self {
             kind: MessageKind::Pebble,
             from_label: "Pebble".into(),
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn plugin(plugin_id: impl Into<String>, icon_svg: Option<String>) -> Self {
+        Self {
+            kind: MessageKind::Pebble,
+            from_label: "Pebble".into(),
+            from_plugin: Some(plugin_id.into()),
+            plugin_icon_svg: icon_svg,
             ..Default::default()
         }
     }
@@ -504,7 +516,8 @@ impl Messenger {
         }
         if self.envelope.kind == MessageKind::Pebble {
             return crate::message_markers::Marker::new("pebble")
-                .attr("source", "Pebble")
+                .attr("source", &clean_name(&self.envelope.from_label))
+                .attr_opt("plugin", self.envelope.from_plugin.as_deref())
                 .build();
         }
         let tab = short_id(&self.envelope.from_tab);
@@ -646,6 +659,7 @@ fn build_chatbackend_inbound(
     message_id: String,
 ) -> (crate::agent::chat_types::ChatMsg, String) {
     let marked = inbound_model_context(envelope, body);
+    let inbound_kind = envelope_inbound_kind(envelope);
     let msg = crate::agent::chat_types::ChatMsg {
         id: message_id,
         kind: "user".into(),
@@ -655,7 +669,9 @@ fn build_chatbackend_inbound(
         from_tab: Some(short_id(&envelope.from_tab).to_string()).filter(|s| !s.is_empty()),
         from_model: envelope.from_model.clone(),
         from_mesh: envelope.from_mesh.clone().or(envelope.peer.clone()),
-        inbound_kind: Some(envelope.kind.inbound_kind().to_string()),
+        from_plugin: envelope.from_plugin.clone(),
+        plugin_icon_svg: envelope.plugin_icon_svg.clone(),
+        inbound_kind: Some(inbound_kind.to_string()),
         ..Default::default()
     };
     (msg, marked)
@@ -664,7 +680,7 @@ fn build_chatbackend_inbound(
 fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     let label = clean_name(&envelope.from_label);
     crate::message_markers::Marker::new("inbound")
-        .attr("kind", envelope.kind.inbound_kind())
+        .attr("kind", envelope_inbound_kind(envelope))
         .attr_opt("from_label", Some(label.as_str()).filter(|s| !s.is_empty()))
         .attr_opt(
             "from_tab",
@@ -680,8 +696,17 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
                 .or(envelope.peer.as_deref())
                 .map(str::trim),
         )
+        .attr_opt("from_plugin", envelope.from_plugin.as_deref())
         .payload(body)
         .build()
+}
+
+fn envelope_inbound_kind(envelope: &MessageEnvelope) -> &'static str {
+    if envelope.from_plugin.is_some() {
+        "plugin"
+    } else {
+        envelope.kind.inbound_kind()
+    }
 }
 
 /// Reminders and host events always mark agent input; other kinds keep the

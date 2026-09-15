@@ -741,6 +741,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             // React over mesh isn't relayable today (no /api/bridge/react endpoint).
             crate::BridgeAction::React { .. } => ("GET".into(), "/api/health".into(), None),
+            // Thread authority is proven by the local caller tab, which a mesh relay cannot carry.
+            crate::BridgeAction::Thread { .. } => ("GET".into(), "/api/health".into(), None),
             // Migrate is intercepted in main.rs before reaching the relay path.
             crate::BridgeAction::Migrate { .. } => ("GET".into(), "/api/health".into(), None),
         },

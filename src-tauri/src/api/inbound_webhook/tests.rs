@@ -15,6 +15,8 @@ use crate::service::pty_io::SendBatchItem;
 
 const SECRET: &str = "shared-secret";
 const GENERAL: &str = "general-tab";
+const BOUND: &str = "bound-tab";
+const ICON: &str = "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>";
 
 #[derive(Clone)]
 enum Outcome {
@@ -51,6 +53,10 @@ impl WebhookReceiver for ScriptedReceiver {
 
     fn kind(&self) -> WebhookReceiverKind {
         WebhookReceiverKind::Pebble
+    }
+
+    fn icon_svg(&self) -> Option<&str> {
+        Some(ICON)
     }
 
     fn receive(
@@ -168,12 +174,28 @@ impl Pipeline<'_> {
         headers: &HeaderMap,
         body: &[u8],
     ) -> Result<WebhookResponse, WebhookRejection> {
+        self.run_bound(headers, body, None).await
+    }
+
+    async fn run_bound(
+        &self,
+        headers: &HeaderMap,
+        body: &[u8],
+        live_bound_target: Option<&'static str>,
+    ) -> Result<WebhookResponse, WebhookRejection> {
         let body = Bytes::copy_from_slice(body);
         let (receiver, context) = accept(self.store, self.registry, headers, &body).await?;
         let general_agent = self.general_agent;
         receive_and_deliver(
             self.gateway,
             self.seam,
+            move |receiver_id: &str| {
+                assert_eq!(
+                    receiver_id, "pebble",
+                    "routing asks for the receiver's own id"
+                );
+                live_bound_target.map(str::to_string)
+            },
             move || general_agent.map(str::to_string).map_err(str::to_string),
             receiver.as_ref(),
             context,
@@ -368,6 +390,7 @@ async fn delivery_reaches_the_general_agent_once_as_a_pebble_event() {
     assert_eq!(target, GENERAL);
     let marker = crate::message_markers::parse_host_injected(wrapped).expect("leading marker");
     assert_eq!(marker.kind, "pebble");
+    assert_eq!(marker.attr("plugin"), Some("pebble"));
     assert_eq!(marker.attr("trust"), None);
     assert!(wrapped.ends_with("\nFocus mode enabled"));
 }
@@ -477,6 +500,102 @@ async fn failed_general_agent_delivery_is_never_reported_as_success() {
         .unwrap_err();
     assert_eq!(error.status, StatusCode::BAD_GATEWAY);
     assert_eq!(error.code, "delivery_failed");
+}
+
+fn pipeline<'a>(
+    store: &'a MockStore,
+    registry: &'a WebhookRegistry,
+    gateway: &'a MessageGateway,
+    seam: &'a FakeSeam,
+    general_agent: Result<&'static str, &'static str>,
+) -> Pipeline<'a> {
+    Pipeline {
+        store,
+        registry,
+        gateway,
+        seam,
+        general_agent,
+    }
+}
+
+#[tokio::test]
+async fn pebble_receiver_target_live_binding_receives_the_event_with_the_pebble_marker() {
+    let store = store_with_secret().await;
+    let registry = registry_with(&[delivering()]);
+    let gateway = MessageGateway::new();
+    let seam = FakeSeam::default();
+    let response = pipeline(&store, &registry, &gateway, &seam, Ok(GENERAL))
+        .run_bound(&valid_headers(), EVENT, Some(BOUND))
+        .await
+        .expect("bound delivery");
+
+    assert_eq!(response.status, "delivered");
+    assert_eq!(response.event_id.as_deref(), Some("evt-1"));
+    let enveloped = seam.enveloped.borrow();
+    assert_eq!(enveloped.len(), 1);
+    let (target, wrapped) = &enveloped[0];
+    assert_eq!(target, BOUND);
+    let marker = crate::message_markers::parse_host_injected(wrapped).expect("leading marker");
+    assert_eq!(marker.kind, "pebble");
+    assert_eq!(marker.attr("trust"), None);
+    assert!(wrapped.ends_with("\nFocus mode enabled"));
+}
+
+#[tokio::test]
+async fn pebble_receiver_target_live_binding_does_not_need_a_general_agent() {
+    let store = store_with_secret().await;
+    let registry = registry_with(&[delivering()]);
+    let gateway = MessageGateway::new();
+    let seam = FakeSeam::default();
+    let response = pipeline(
+        &store,
+        &registry,
+        &gateway,
+        &seam,
+        Err("General Agent not found"),
+    )
+    .run_bound(&valid_headers(), EVENT, Some(BOUND))
+    .await
+    .expect("bound delivery");
+    assert_eq!(response.status, "delivered");
+    assert_eq!(seam.enveloped.borrow()[0].0, BOUND);
+}
+
+#[tokio::test]
+async fn pebble_receiver_target_failed_bound_delivery_never_falls_back_to_the_general_agent() {
+    let store = store_with_secret().await;
+    let registry = registry_with(&[delivering()]);
+    let gateway = MessageGateway::new();
+    let seam = FakeSeam {
+        fail: true,
+        ..FakeSeam::default()
+    };
+    let error = pipeline(&store, &registry, &gateway, &seam, Ok(GENERAL))
+        .run_bound(&valid_headers(), EVENT, Some(BOUND))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "delivery_failed");
+    let enveloped = seam.enveloped.borrow();
+    assert_eq!(enveloped.len(), 1, "the payload is delivered at most once");
+    assert_eq!(enveloped[0].0, BOUND);
+}
+
+#[tokio::test]
+async fn pebble_receiver_target_unbound_event_keeps_the_general_agent_path() {
+    let store = store_with_secret().await;
+    let registry = registry_with(&[delivering()]);
+    let gateway = MessageGateway::new();
+    let seam = FakeSeam::default();
+    let response = pipeline(&store, &registry, &gateway, &seam, Ok(GENERAL))
+        .run_bound(&valid_headers(), EVENT, None)
+        .await
+        .expect("general delivery");
+    assert_eq!(response.status, "delivered");
+    let enveloped = seam.enveloped.borrow();
+    assert_eq!(enveloped[0].0, GENERAL);
+    let marker =
+        crate::message_markers::parse_host_injected(&enveloped[0].1).expect("leading marker");
+    assert_eq!(marker.kind, "pebble");
 }
 
 #[test]

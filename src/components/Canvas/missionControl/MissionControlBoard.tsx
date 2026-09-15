@@ -29,8 +29,6 @@ export interface MissionControlBoardProps {
   eventPager?: EventPager;
   /** The team's token spend by plan, model and day; machine spend is shown without it. */
   teamSpend?: TeamSpend | null;
-  /** The team's weekly allowance points by day, read per provider account. */
-  teamWeekly?: TeamSpend | null;
 }
 
 export function useMeasuredLayout(ref: RefObject<HTMLDivElement | null>): BoardLayout {
@@ -63,7 +61,6 @@ export function MissionControlBoard({
   deepLinks,
   eventPager,
   teamSpend = null,
-  teamWeekly = null,
 }: MissionControlBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -95,7 +92,7 @@ export function MissionControlBoard({
             className="mc-board-row"
             style={{ gridTemplateColumns: BOARD_ROW_COLUMNS[layout] }}
           >
-            <SpendCard teamSpend={teamSpend} teamWeekly={teamWeekly} />
+            <SpendCard teamSpend={teamSpend} />
             <ModelsCard spend={mc.spend} teamSpend={teamSpend} />
             <PlanCard
               plan={plan}

@@ -1,0 +1,281 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+/*KIT*/
+/* Values lifted from src/styles/tokens.css, the github-dark output of themeToCSS(), globals.css and missionControlBoard.css. */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Helvetica Neue", sans-serif; font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; background: #0d1117; -webkit-font-smoothing: antialiased; }
+a { color: #58a6ff; } a:hover { color: #79c0ff; }
+button { font: inherit; cursor: pointer; }
+.mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ct-panel-card { border: 1px solid #232930; background: #0d1117; border-radius: 8px; }
+.ct-small-pill { display: inline-flex; align-items: center; gap: .3rem; min-height: 1.25rem; padding: 0 .45rem; border-radius: 999px; border: 1px solid #232930; color: #828a92; font-size: .6875rem; white-space: nowrap; }
+.ct-chip-accent { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.ct-chip-warning { border-color: color-mix(in srgb, #d29922 40%, transparent); color: #d29922; }
+.ct-chip-danger { border-color: color-mix(in srgb, #ff7b72 40%, transparent); color: #ff7b72; }
+.ct-btn { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 1.875rem; padding: 0 .75rem; border-radius: 4px; border: 1px solid #232930; background: #0d1117; color: #c9d1d9; font-size: 0.8125rem; white-space: nowrap; }
+.ct-btn-ghost { background: transparent; color: #828a92; border-color: transparent; }
+.ct-btn-compact { min-height: 1.625rem; padding: 0 .5rem; }
+.ct-btn-accent { border-color: color-mix(in srgb, #58a6ff 45%, transparent); background: color-mix(in srgb, #58a6ff 22%, transparent); color: #c9d1d9; font-weight: 600; }
+.card { display: flex; flex-direction: column; min-width: 0; padding: 12px; gap: 10px; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; letter-spacing: -.006em; color: #c9d1d9; }
+.hrow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; }
+.caption { font-size: 11px; color: #828a92; }
+.small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
+.small b { color: #c9d1d9; font-weight: 500; }
+.src { font-size: 10px; color: #484f58; line-height: 1.5; margin: 0; padding-top: 6px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); }
+.door { border: 0; background: none; padding: 0; color: #58a6ff; font-size: 0.8125rem; white-space: nowrap; }
+.amount { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: 26px; font-weight: 600; color: #c9d1d9; letter-spacing: .01em; line-height: 1.1; }
+.amount.muted { color: #484f58; }
+.sep { color: #484f58; }
+/* Segmented control, as in the Board's mode switch. */
+.seg { --seg-count: 3; --seg-index: 0; position: relative; display: inline-flex; overflow: hidden; padding: 3px; border: 1px solid #232930; border-radius: 999px; background: color-mix(in srgb, #141b24 80%, transparent); height: 26px; flex-shrink: 0; }
+.seg .thumb { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--seg-count)); border: 1px solid color-mix(in srgb, #58a6ff 45%, transparent); border-radius: 999px; background: color-mix(in srgb, #58a6ff 22%, transparent); transform: translateX(calc(var(--seg-index) * 100%)); }
+.seg .opt { position: relative; z-index: 1; display: flex; flex: 1 0 0; align-items: center; justify-content: center; padding: 0 .75rem; border: 0; border-radius: 999px; background: transparent; color: #828a92; font-size: .6875rem; white-space: nowrap; }
+.seg .opt[aria-checked="true"] { color: #c9d1d9; font-weight: 600; }
+/* Titlebar: UI_TRAY_BTN is w-7 h-7 rounded-md, muted until hover. */
+.titlebar { height: 32px; display: flex; align-items: center; background: #11161d; box-shadow: inset 0 -0.5px 0 #1f252d; flex-shrink: 0; }
+.titlebar.web-narrow { height: 44px; }
+.brand { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; height: 100%; }
+.brand .logo { width: 16px; height: 16px; border-radius: 2px; background: #2d333b; }
+.brand .name { font-size: 11px; font-weight: 500; color: #828a92; }
+.tray { display: flex; align-items: center; gap: 4px; padding-right: 6px; flex-shrink: 0; }
+.tray.narrow { gap: 2px; padding-right: 4px; }
+.tray-btn { position: relative; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: #484f58; border: 0; background: transparent; padding: 0; flex-shrink: 0; }
+.tray-btn.is-hover { background: #1a2029; color: #c9d1d9; }
+.tray-btn.is-focus { color: #c9d1d9; outline: 2px solid #58a6ff; outline-offset: -2px; }
+.tray-btn.is-open { background: #232a33; color: #c9d1d9; }
+.tray-btn.is-open::after { content: ""; position: absolute; left: 9px; right: 9px; bottom: 2px; height: 2px; border-radius: 2px; background: #58a6ff; }
+.tray-divider { width: 0; height: 16px; margin: 0 4px; border-left: 1.5px solid #484f58; opacity: .5; flex-shrink: 0; }
+.pin-pill { display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px; border-radius: 999px; border: 1px solid #1f252d; background: #131921; }
+.pin-pill .pin { width: 24px; height: 24px; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
+.winctl { width: 46px; height: 32px; display: flex; align-items: center; justify-content: center; color: #828a92; flex-shrink: 0; }
+.hamb { width: 32px; height: 100%; display: flex; align-items: center; justify-content: center; color: #828a92; flex-shrink: 0; }
+.sidebar { width: 240px; flex-shrink: 0; background: #11161d; border-right: 1px solid #1f252d; display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; }
+.skel { height: 9px; border-radius: 4px; background: #1a2029; }
+/* The Analytics view. */
+.view { flex: 1; min-width: 0; background: #131921; display: flex; flex-direction: column; }
+.view-title { margin: 0; font-size: 1rem; font-weight: 600; line-height: 1.28; letter-spacing: -.012em; color: #c9d1d9; }
+.scope { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11px; color: #828a92; }
+.filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vr { width: 1px; height: 18px; background: #232930; }
+.dd { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 10px; border: 1px solid #232930; border-radius: 6px; background: #0d1117; color: #828a92; font-size: .6875rem; white-space: nowrap; }
+.dd b { color: #c9d1d9; font-weight: 600; }
+.dd.set { border-color: color-mix(in srgb, #58a6ff 45%, transparent); background: color-mix(in srgb, #58a6ff 10%, #0d1117); }
+.note { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; color: #828a92; line-height: 1.5; }
+.note b { color: #c9d1d9; font-weight: 600; }
+.note svg { flex-shrink: 0; margin-top: 2px; color: #484f58; }
+.swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
+.sw-0 { background: #58a6ff; }
+.sw-1 { background: #bc8cff; }
+.sw-2 { background: #39c5cf; }
+.sw-3 { background: #7ee787; }
+.sw-other { background: #6e7681; }
+.sw-nr { background: repeating-linear-gradient(135deg, #828a92 0 1.5px, transparent 1.5px 3.5px); box-shadow: inset 0 0 0 1px #484f58; }
+/* Chart: 24px bars, 4px data end, 2px surface gap between segments; a segment is the tone at 60%, today's at full. */
+.plotwrap { display: grid; grid-template-columns: 40px minmax(0, 1fr); }
+.yaxis { position: relative; }
+.ytick { position: absolute; right: 8px; transform: translateY(50%); font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; color: #484f58; }
+.plot { position: relative; display: grid; border-bottom: 1px solid #2d333b; }
+.gl { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid #1b2129; }
+.band { position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.band.hover { background: color-mix(in srgb, #c9d1d9 5%, transparent); border-radius: 4px 4px 0 0; }
+.stack { width: 24px; display: flex; flex-direction: column-reverse; gap: 2px; }
+.stack > span:last-child { border-radius: 4px 4px 0 0; }
+.s0 { background: color-mix(in srgb, #58a6ff 60%, transparent); }
+.s1 { background: color-mix(in srgb, #bc8cff 60%, transparent); }
+.today .s0 { background: #58a6ff; } .today .s1 { background: #bc8cff; }
+.norec { width: 24px; border-radius: 4px 4px 0 0; background: repeating-linear-gradient(135deg, rgba(130, 138, 146, .28) 0 1px, transparent 1px 6px); box-shadow: inset 0 0 0 1px #1f252d; }
+.zero { width: 24px; height: 2px; background: #484f58; border-radius: 1px; }
+.cap { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; color: #c9d1d9; margin-bottom: 4px; white-space: nowrap; }
+.cap.quiet { color: #828a92; }
+.xaxis { display: grid; }
+.xl { text-align: center; font-size: 10px; color: #828a92; padding-top: 6px; line-height: 1.3; white-space: nowrap; }
+.xl i { font-style: normal; color: #484f58; display: block; }
+.xl.today { color: #c9d1d9; font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 11px; color: #828a92; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.tooltip { position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 4px; min-width: 176px; background: #1a2029; border: 1px solid #2d333b; border-radius: 8px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(1, 4, 9, .6); font-size: 11px; color: #c9d1d9; }
+.tooltip .tr { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tooltip .tr span { display: inline-flex; align-items: center; gap: 6px; color: #828a92; }
+.tooltip .tr b { font-family: "JetBrains Mono", Consolas, monospace; font-weight: 600; }
+/* Breakdown table. */
+.bt { display: flex; flex-direction: column; }
+.bt-row { display: grid; grid-template-columns: minmax(0, 1fr) 68px 112px 64px 64px 52px; gap: 10px; align-items: center; min-height: 30px; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); font-size: .8125rem; color: #c9d1d9; }
+.bt-head { min-height: 24px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; border-bottom-color: #232930; }
+.bt .r { text-align: right; }
+.bt .n { text-align: right; font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; }
+.bt .n.q { color: #828a92; font-weight: 400; }
+.nm { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt .parent .nm { font-weight: 600; }
+.bt .parent .n:nth-child(2) { font-weight: 600; }
+.bt .child .nm { padding-left: 34px; }
+.nr-label { color: #828a92; font-style: italic; }
+.shr { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 6px; align-items: center; }
+.sharebar { position: relative; height: 4px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
+.sharebar > span { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 99px; background: #6e7681; }
+.pct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
+.chev { color: #484f58; flex-shrink: 0; }
+/* Allowance gauges, as on the Board's runway card. */
+.gauge { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 10px; }
+.gauge .glabel { font-size: 11px; color: #c9d1d9; font-weight: 500; }
+.gauge .gpct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; }
+.gauge .bar { grid-column: 1 / 3; position: relative; margin-top: 6px; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
+.gauge .bar .fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: inherit; background: #58a6ff; }
+.gauge .reset { grid-column: 1 / 3; margin-top: 4px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 9.5px; color: #828a92; }
+/* Phone list rows: 44px minimum targets. */
+.pl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; column-gap: 10px; row-gap: 6px; align-items: center; padding: 9px 0; min-height: 44px; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); }
+.pl-row .sharebar { grid-column: 1 / -1; }
+.pl-row .v { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; text-align: right; }
+.pl-row.child .nm { padding-left: 22px; }
+.pl-row.child .sharebar { margin-left: 22px; }
+.pl-detail { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; margin-left: 22px; font-size: 11px; color: #828a92; }
+.pl-detail b { font-family: "JetBrains Mono", Consolas, monospace; color: #c9d1d9; font-weight: 500; }
+/* Banners and state frames. */
+.banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid; border-radius: 8px; }
+.banner.warn { border-color: color-mix(in srgb, #d29922 40%, transparent); background: color-mix(in srgb, #d29922 7%, #0d1117); }
+.banner.warn svg { color: #d29922; }
+.banner.err { border-color: color-mix(in srgb, #ff7b72 40%, transparent); background: color-mix(in srgb, #ff7b72 7%, #0d1117); }
+.banner.err svg { color: #ff7b72; }
+.banner .bt-title { font-weight: 600; color: #c9d1d9; }
+.banner p { margin: 2px 0 0; font-size: 11px; color: #828a92; line-height: 1.5; }
+.banner svg { flex-shrink: 0; margin-top: 2px; }
+.state-label { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; color: #58a6ff; letter-spacing: .04em; text-transform: uppercase; }
+.cond { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; color: #828a92; overflow-wrap: anywhere; }
+.frame { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: #131921; border: 1px solid #1f252d; min-width: 0; }
+.ph { color: #d29922; font-family: "JetBrains Mono", Consolas, monospace; }
+.skel-block { border-radius: 6px; background: linear-gradient(90deg, #161c24, #1a2029, #161c24); }
+/* Spec sheets. */
+.sheet { display: flex; flex-direction: column; gap: 18px; padding: 20px; background: #131921; }
+.sheet h1 { margin: 0; font-size: 1rem; font-weight: 600; color: #c9d1d9; letter-spacing: -.012em; }
+.sheet h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
+.sheet p { margin: 0; font-size: 0.8125rem; line-height: 1.55; color: #828a92; max-width: 68ch; }
+.sheet p b { color: #c9d1d9; font-weight: 500; }
+.sheet section { display: flex; flex-direction: column; gap: 8px; }
+code, .code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; overflow-wrap: anywhere; }
+pre { margin: 0; padding: 12px; border-radius: 8px; border: 1px solid #232930; background: #0d1117; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; line-height: 1.55; color: #c9d1d9; white-space: pre-wrap; }
+pre i { font-style: normal; color: #6e7681; }
+table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; padding: 6px 10px 6px 0; border-bottom: 1px solid #232930; }
+td { padding: 7px 10px 7px 0; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); vertical-align: top; line-height: 1.45; color: #828a92; }
+td.k { color: #c9d1d9; font-weight: 600; white-space: nowrap; }
+/*END KIT*/
+.strip { display: flex; flex-direction: column; gap: 8px; }
+.zoomed { zoom: 3; display: flex; align-items: center; gap: 4px; padding: 2px 4px; background: #11161d; border-radius: 3px; }
+.tip { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); padding: 2px 6px; border-radius: 4px; background: #1a2029; border: 1px solid #2d333b; font-size: 9px; color: #c9d1d9; white-space: nowrap; }
+.callout { position: absolute; top: 36px; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; color: #58a6ff; white-space: nowrap; }
+.callout::before { content: ""; width: 1px; height: 14px; background: #58a6ff; }
+  </style>
+</helmet>
+<div class="sheet" style="width: 1200px; gap: 28px;">
+  <section>
+    <h1>The Analytics entry in the titlebar</h1>
+    <p>A new tray button sits <b>immediately left of Plugins</b> and uses the same <code>UI_TRAY_BTN</code> (28 × 28, 6px radius, muted until hovered) and a lucide chart-column glyph at 14px with a 1.8 stroke, so it reads as one family with the bell and the puzzle piece. It is the only tray button with an open state, because it opens a main view.</p>
+  </section>
+
+  <section class="strip">
+    <span class="label">Windows and Linux · 1200px · Analytics closed</span>
+    <div style="position: relative; padding-bottom: 44px;">
+      <div class="titlebar" style="width: 1160px; border: 1px solid #1f252d; border-radius: 6px; overflow: hidden;">
+        <div class="brand"><span class="logo"></span><span class="name">CodeTerm</span></div>
+        <div style="flex: 1 1 auto;"></div>
+        <div class="tray">
+          <button class="tray-btn" aria-label="Notifications"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg></button>
+          <button class="tray-btn" aria-label="Analytics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></button>
+          <button class="tray-btn" aria-label="Plugins"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.98.98 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"></path></svg></button>
+          <button class="tray-btn" aria-label="Keep awake"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2"></path><path d="M14 2v2"></path><path d="M6 2v2"></path><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"></path></svg></button>
+          <span class="tray-divider"></span>
+          <button class="tray-btn" aria-label="Settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="8" stroke-dasharray="3 2.3"></circle></svg></button>
+        </div>
+        <div class="winctl"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 5h8" stroke="currentColor"></path></svg></div>
+        <div class="winctl"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1.5" y="1.5" width="7" height="7" stroke="currentColor"></rect></svg></div>
+        <div class="winctl"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor"></path></svg></div>
+      </div>
+      <div class="callout" style="left: 832px;">Analytics</div>
+      <div class="callout" style="left: 866px; color: #828a92;">Plugins</div>
+    </div>
+    <p style="max-width: none;">Order, left to right: notifications · <b>Analytics</b> · Plugins · keep awake · divider · settings. The settings and keep-awake glyphs here are stand-ins for the existing icons, which don't change.</p>
+  </section>
+
+  <section class="strip">
+    <span class="label">The four states, drawn at 3×</span>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+        <div class="zoomed"><button class="tray-btn" aria-label="Analytics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></button></div>
+        <span class="caption"><b style="color: #c9d1d9;">Rest</b> · <code>--ct-muted</code> glyph, no fill</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+        <div class="zoomed" style="position: relative; overflow: visible;"><button class="tray-btn is-hover" aria-label="Analytics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></button></div>
+        <span class="caption"><b style="color: #c9d1d9;">Hover</b> · <code>--ct-hover</code> fill, <code>--ct-fg</code> glyph, native title “Analytics”</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+        <div class="zoomed"><button class="tray-btn is-focus" aria-label="Analytics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></button></div>
+        <span class="caption"><b style="color: #c9d1d9;">Keyboard focus</b> · 2px <code>--ct-accent</code> ring inside the button, only on focus-visible</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+        <div class="zoomed"><button class="tray-btn is-open" aria-label="Analytics" aria-current="page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></button></div>
+        <span class="caption"><b style="color: #c9d1d9;">Open</b> · <code>--ct-active</code> fill plus a 2px accent underline, <code>aria-current="page"</code>; shape carries it, not colour alone</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="strip">
+    <span class="label">With pinned plugins · Analytics stays outside the pill</span>
+    <div style="display: flex; align-items: center; gap: 4px; padding: 2px 6px; width: fit-content; background: #11161d; border-radius: 6px; zoom: 2;">
+      <button class="tray-btn" aria-label="Notifications"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg></button>
+      <button class="tray-btn" aria-label="Analytics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></button>
+      <div class="pin-pill">
+        <span class="pin"><span style="width: 14px; height: 14px; border-radius: 4px; background: #2d333b;"></span></span>
+        <span class="pin"><span style="width: 14px; height: 14px; border-radius: 4px; background: #2d333b;"></span></span>
+        <span class="tray-divider"></span>
+        <span class="pin" style="color: #484f58;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.98.98 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"></path></svg></span>
+      </div>
+      <button class="tray-btn" aria-label="Keep awake"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2"></path><path d="M14 2v2"></path><path d="M6 2v2"></path><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"></path></svg></button>
+    </div>
+    <p>The pill holds plugins the user pinned. Analytics is a fixed core entry and isn't pinnable, so it sits before the pill rather than inside it, and pinning or unpinning never moves it.</p>
+  </section>
+
+  <section class="strip">
+    <span class="label">Web · 390px · Analytics open</span>
+    <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
+      <div class="titlebar web-narrow" style="width: 390px; border: 1px solid #1f252d; border-radius: 6px; overflow: hidden;">
+        <span class="hamb"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75ZM1.75 12h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5Z"></path></svg></span>
+        <div style="flex: 1 1 auto;"></div>
+        <div class="tray narrow">
+          <button class="tray-btn" aria-label="Notifications"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg></button>
+          <button class="tray-btn is-open" aria-label="Analytics" aria-current="page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></button>
+          <button class="tray-btn" aria-label="Plugins"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.98.98 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"></path></svg></button>
+          <button class="tray-btn" aria-label="Keep awake"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2"></path><path d="M14 2v2"></path><path d="M6 2v2"></path><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"></path></svg></button>
+          <span class="tray-divider"></span>
+          <button class="tray-btn" aria-label="Settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="8" stroke-dasharray="3 2.3"></circle></svg></button>
+        </div>
+      </div>
+      <p style="flex: 1 1 360px;">At 390px the logo and name are already hidden (below 430px) and the tray is <code>shrink-0</code>, so it keeps all six controls: 5 × 28px + 9.5px divider + 4 × 2px gaps + 4px padding ≈ <b>162px of 390</b>. The embedded toast container is what gives way, never a tray button. Each tray button stays 28 × 28 on narrow web like its neighbours; bringing the whole tray to 44px targets is a separate tray-wide change and is not part of this entry.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Behaviour</h2>
+    <table>
+      <tr><th style="width: 180px;">Aspect</th><th>Decision</th></tr>
+      <tr><td class="k">Placement</td><td>In <code>Titlebar.tsx</code>'s tray, rendered before <code>ExtensionsTray</code>; on every platform and both themes.</td></tr>
+      <tr><td class="k">Identity</td><td><code>data-testid="titlebar-analytics"</code>, <code>aria-label="Analytics"</code>, <code>title="Analytics"</code>. No text label at any width, matching Plugins.</td></tr>
+      <tr><td class="k">Click</td><td>Toggles the <code>analytics</code> main view: closed → open; open → back to the workspace. Opening closes Settings, Memory, Mesh or Plugins, as those views already do to each other.</td></tr>
+      <tr><td class="k">Scope</td><td>Machine-wide. It is a main view like Plugins, not a tab-owned plugin view, so switching tabs or workspaces doesn't close it; focusing a tab does return to the workspace, as for the other main views.</td></tr>
+      <tr><td class="k">Keyboard</td><td>Tab order bell → Analytics → Plugins. Enter or Space toggles. Escape inside the view returns to the workspace and puts focus back on the button.</td></tr>
+      <tr><td class="k">Visibility</td><td>Shown while the core <code>analytics</code> plugin is enabled, which it is by default. If the user disables the plugin, the button goes away; it never opens an empty or broken view.</td></tr>
+      <tr><td class="k">Recording off</td><td>The button stays. The view explains that recording is off and names <code>kpi.enabled</code>; the button never carries a badge or a warning dot.</td></tr>
+    </table>
+  </section>
+</div>
+</x-dc>
+</body>
+</html>

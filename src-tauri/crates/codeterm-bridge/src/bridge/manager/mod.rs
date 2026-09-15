@@ -11,6 +11,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use super::text_hooks;
+use super::threads::{InboundOrigin, InboundRoute};
 use super::traits::{
     InboundAttachment, InboundMessage, InlineKeyboard, MessagingService, OutboundContent,
     ReplyContext,
@@ -35,6 +36,17 @@ pub struct OutboundMessage {
     /// Report back where this message landed, so its sender can address it
     /// again later. Absent means the sender never needs to find it.
     pub receipt: Option<PlacementReceipt>,
+    /// Who the message speaks for.
+    pub route: OutboundRoute,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum OutboundRoute {
+    /// The addressed chat itself, unattributed.
+    #[default]
+    Chat,
+    /// A tab's own voice: its topic thread, sender header and main-chat pointer.
+    Tab { tab_id: String },
 }
 
 /// Which already-sent message to rewrite. A rewrite always restates the
@@ -160,41 +172,25 @@ impl BridgeManager {
                         }
                     }
 
-                    let merged_text: String = messages.iter()
-                        .map(|m| m.text.as_str())
-                        .filter(|t| !t.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let merged_attachments: Vec<_> = messages.iter()
-                        .flat_map(|m| m.attachments.iter().cloned())
-                        .collect();
-                    let first = &messages[0];
-
-                    log::info!("[bridge] inbound from {} ({}, {} msg, {} attachments): {}",
-                        first.user_name, first.service, messages.len(), merged_attachments.len(),
-                        &merged_text.chars().take(100).collect::<String>());
-
-                    let ReplyContext::Telegram { chat_id } = &first.reply_ctx;
-                    *fallback_clone.lock() = Some(*chat_id);
-                    send_typing(&client, &api_base, &token, *chat_id).await;
-
-                    let merged_msg = InboundMessage {
-                        service: first.service.clone(),
-                        user_id: first.user_id,
-                        user_name: first.user_name.clone(),
-                        text: merged_text,
-                        attachments: merged_attachments,
-                        message_id: first.message_id,
-                        callback_data: first.callback_data.clone(),
-                        reply_ctx: first.reply_ctx.clone(),
-                    };
-
                     let voice_cfg = tab.voice_transcribe_config();
                     let text_hooks_cfg = tab.text_hooks_config();
-                    if let Err(e) =
-                        inject_message(&tab, &merged_msg, &voice_cfg, &text_hooks_cfg).await
-                    {
-                        log::error!("[bridge] inject failed: {}", e);
+                    // Messages from different threads or reply targets never merge: each group has its own recipient.
+                    for group in threaded::group_by_context(messages) {
+                        let count = group.len();
+                        let merged_msg = threaded::merge(group);
+                        log::info!("[bridge] inbound from {} ({}, {} msg, {} attachments): {}",
+                            merged_msg.user_name, merged_msg.service, count, merged_msg.attachments.len(),
+                            &merged_msg.text.chars().take(100).collect::<String>());
+
+                        let ReplyContext::Telegram { chat_id, thread_id, .. } = merged_msg.reply_ctx;
+                        *fallback_clone.lock() = Some(chat_id);
+                        send_typing(&client, &api_base, &token, chat_id, thread_id).await;
+
+                        if let Err(e) =
+                            inject_message(&tab, &merged_msg, &voice_cfg, &text_hooks_cfg).await
+                        {
+                            log::error!("[bridge] inject failed: {}", e);
+                        }
                     }
                 }
 
@@ -206,6 +202,13 @@ impl BridgeManager {
                     if chat_id == 0 {
                         log::warn!("[bridge-outbound] no chat_id, dropping");
                         continue;
+                    }
+
+                    if let (OutboundRoute::Tab { tab_id }, None) = (&out_msg.route, out_msg.edit.as_ref()) {
+                        if tab.threads().is_attached() {
+                            threaded::send_for_tab(&tab, &client, &api_base, &token, chat_id, tab_id, &out_msg).await;
+                            continue;
+                        }
                     }
 
                     match out_msg.content {
@@ -247,7 +250,7 @@ impl BridgeManager {
                         }
                         ref media_content => {
                             log::info!("[bridge-outbound] sending media {:?} to {}", std::mem::discriminant(media_content), chat_id);
-                            if let Err(e) = send_media(&client, &api_base, &token, chat_id, media_content).await {
+                            if let Err(e) = send_media(&client, &api_base, &token, chat_id, None, media_content).await {
                                 log::error!("[bridge-outbound] media send failed: {}", e);
                             }
                         }
@@ -377,10 +380,20 @@ fn tg_url(base: &str, token: &str, method: &str) -> String {
     format!("{}/bot{}/{}", base.trim_end_matches('/'), token, method)
 }
 
-async fn send_typing(client: &reqwest::Client, base: &str, token: &str, chat_id: i64) {
+async fn send_typing(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    chat_id: i64,
+    thread_id: Option<i64>,
+) {
+    let mut payload = serde_json::json!({ "chat_id": chat_id, "action": "typing" });
+    if let Some(thread_id) = thread_id {
+        payload["message_thread_id"] = serde_json::json!(thread_id);
+    }
     let _ = client
         .post(tg_url(base, token, "sendChatAction"))
-        .json(&serde_json::json!({ "chat_id": chat_id, "action": "typing" }))
+        .json(&payload)
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await;
@@ -527,6 +540,7 @@ async fn send_media(
     base: &str,
     token: &str,
     chat_id: i64,
+    thread_id: Option<i64>,
     content: &OutboundContent,
 ) -> Result<(), String> {
     let (method, file_path, raw_caption, filename) = match content {
@@ -582,6 +596,9 @@ async fn send_media(
     let mut form = reqwest::multipart::Form::new()
         .text("chat_id", chat_id.to_string())
         .part(file_field, part);
+    if let Some(thread_id) = thread_id {
+        form = form.text("message_thread_id", thread_id.to_string());
+    }
 
     if let Some(cap) = caption {
         form = form.text("caption", cap.to_string());
@@ -618,6 +635,9 @@ async fn send_media(
             let mut form2 = reqwest::multipart::Form::new()
                 .text("chat_id", chat_id.to_string())
                 .part(file_field, part2);
+            if let Some(thread_id) = thread_id {
+                form2 = form2.text("message_thread_id", thread_id.to_string());
+            }
             if let Some(cap) = caption {
                 form2 = form2.text("caption", cap.to_string());
             }
@@ -769,6 +789,7 @@ async fn apply_hook(
                     buttons: None,
                     edit: None,
                     receipt: None,
+                    route: OutboundRoute::Chat,
                 };
                 if let Some(ref tx) = *outbound.lock() {
                     if let Err(e) = tx.send(out) {
@@ -789,7 +810,20 @@ async fn inject_message(
     voice_cfg: &VoiceTranscribeConfig,
     text_hooks_cfg: &TextHooksConfig,
 ) -> Result<(), String> {
-    let tab_id = tab.resolve_general_tab()?;
+    let ReplyContext::Telegram {
+        chat_id,
+        thread_id,
+        reply_to_message_id,
+    } = msg.reply_ctx;
+    let route =
+        tab.threads()
+            .resolve_inbound(tab.thread_tabs(), chat_id, thread_id, reply_to_message_id);
+    let (tab_id, thread_id, origin) = match route {
+        InboundRoute::Tab { tab_id, thread_id } => (tab_id, thread_id, None),
+        InboundRoute::General { thread_id, origin } => {
+            (tab.resolve_general_tab()?, thread_id, origin)
+        }
+    };
     let agent_type = tab.tab_agent_type(&tab_id);
 
     let body = build_message_body(msg, &tab.transcribe_registry(), &voice_cfg.active).await;
@@ -802,11 +836,16 @@ async fn inject_message(
 
     let msg_id = msg.message_id.map(|id| id.to_string());
     let prefixed = match msg.service.as_str() {
-        "telegram" => codeterm_types::message_markers::telegram(
-            &msg.user_id.to_string(),
-            msg_id.as_deref(),
-            &body,
-        ),
+        "telegram" => {
+            let thread = thread_id.map(|id| id.to_string());
+            codeterm_types::message_markers::telegram_routed(
+                &msg.user_id.to_string(),
+                msg_id.as_deref(),
+                thread.as_deref(),
+                origin.as_ref().map(InboundOrigin::marker_value),
+                &body,
+            )
+        }
         service => codeterm_types::message_markers::Marker::new(service)
             .attr("user", &msg.user_id.to_string())
             .attr_opt("msg", msg_id.as_deref())
@@ -816,6 +855,8 @@ async fn inject_message(
 
     tab.deliver_inbound(&tab_id, &prefixed, agent_type.as_deref())
 }
+
+mod threaded;
 
 #[cfg(test)]
 mod tests;

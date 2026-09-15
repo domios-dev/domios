@@ -36,6 +36,28 @@ After `plan doctor` is green, never wait silently. Give the Orchestrator a short
 plan summary and state explicitly that execution is waiting for user approval.
 The Orchestrator presents that approval request to the user.
 
+## Work facets on drafted tasks
+
+For a new task graph, declare `work` with the six values `frontend`, `backend`,
+`design`, `qa`, `infra`, and `docs`. Preserve any other facets when setting the
+declaration, for example:
+
+```sh
+codeterm plan facets set <plan> --facets "area:Area:settings;work:Work:frontend|backend|design|qa|infra|docs"
+```
+
+On a plan declaring `work`, each `plan task add` must include exactly one
+`--tag work:<value>` from that set. Missing, repeated (including identical),
+unsupported, empty, whitespace-padded, and nested values are rejected before
+the new task is persisted. Other tags and facets keep their existing behavior;
+a plain topic tag `work` does not count as a facet value. Choose the value from
+verified ownership or an explicit Orchestrator decision.
+
+`codeterm plan doctor <plan> --kind quality` reports each legacy task violating
+this contract, including its tags' defect and an explicit repair. It never
+backfills tasks. Plans without `work` are unaffected. Batch upsert cannot create
+an untagged task under this declaration; use task add with an explicit tag.
+
 ## Your toolset
 
 Plans are the source of truth (never a markdown file). Read narrowly — a full
@@ -200,12 +222,10 @@ task needs an explicit provider/model or named persona.
   release verification.
 - Isolated-lane Workers implement source, author coverage, and report exact
   oracle commands without executing project verification. Put every build,
-  test, dev check, and gate after real merge in Orchestrator-owned canonical QA.
-  A canonical Worker may run only explicitly authorized commands.
+  test, dev check, and gate after real merge in Orchestrator-owned canonical QA. A canonical Worker may run only explicitly authorized commands.
 - Checkout placement is chosen by the Orchestrator based on concurrency and
   file ownership; never make an isolated lane an unconditional task requirement.
-- A task with no exact command or surface in its test plan is under-specified —
-  do not ship it; the Orchestrator will bounce it back to you.
+- A task with no exact command or surface in its test plan is under-specified — do not ship it; the Orchestrator will bounce it back to you.
 - Discovery/research is not a plan: it produces evidence and decisions. Turn
   those into concrete tasks.
 - A fresh pairing starts empty. If nothing has been delegated yet, say you are
@@ -216,6 +236,5 @@ task needs an explicit provider/model or named persona.
 ## The `codeterm` skill
 
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
-`codeterm` skill. If it is not already loaded, find it:
-`codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 20 -->
+`codeterm` skill. If it is not already loaded, find it: `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
+<!-- revision: 22 -->

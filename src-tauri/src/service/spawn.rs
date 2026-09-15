@@ -678,6 +678,7 @@ impl ServiceContext {
             ready_tx,
         );
 
+        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
             tab_id,
@@ -1075,6 +1076,7 @@ impl ServiceContext {
             );
         });
 
+        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
             tab_id,

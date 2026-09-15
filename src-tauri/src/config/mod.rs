@@ -19,6 +19,14 @@ fn config_path() -> Result<PathBuf, String> {
     crate::paths::config_path()
 }
 
+pub(crate) fn sanitize_plugin_settings(config: &mut AppConfig) {
+    for settings in config.plugins.values_mut() {
+        if let serde_json::Value::Object(fields) = settings {
+            fields.remove("pinned");
+        }
+    }
+}
+
 /// Generate the default config TOML with helpful comments.
 fn default_config_toml() -> String {
     r##"# CodeTerm Configuration
@@ -741,6 +749,32 @@ enabled = true
         );
     }
 
+    #[test]
+    fn serialized_plugin_settings_drop_legacy_pin_and_preserve_other_fields() {
+        let mut config = AppConfig::default();
+        config.plugins.insert(
+            "bitwarden".to_string(),
+            serde_json::json!({
+                "pinned": true,
+                "serverUrl": "https://vault.example",
+                "defaultOrganization": "personal"
+            }),
+        );
+
+        let serialized = serialize_config(&config).expect("config should serialize");
+        let reloaded: AppConfig =
+            toml::from_str(&serialized).expect("serialized config should parse");
+        let settings = reloaded
+            .plugins
+            .get("bitwarden")
+            .expect("plugin settings should remain");
+
+        assert_eq!(settings["serverUrl"], "https://vault.example");
+        assert_eq!(settings["defaultOrganization"], "personal");
+        assert!(settings.get("pinned").is_none());
+        assert!(config.plugins["bitwarden"].get("pinned").is_some());
+    }
+
     /// General config invariant: a key the current schema does not recognise
     /// (a future field, or one dropped in this codebase's own history) is not
     /// silently destroyed by a load-modify-save round trip. Per-provider
@@ -807,11 +841,16 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create config directory: {}", e))?;
     }
-    let toml_str =
-        toml::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let toml_str = serialize_config(config)?;
     write_config_atomic(&path, &toml_str).map_err(|e| format!("Failed to write config: {}", e))?;
     log::info!("Config saved to {}", path.display());
     Ok(())
+}
+
+fn serialize_config(config: &AppConfig) -> Result<String, String> {
+    let mut sanitized = config.clone();
+    sanitize_plugin_settings(&mut sanitized);
+    toml::to_string_pretty(&sanitized).map_err(|e| format!("Failed to serialize config: {}", e))
 }
 
 // Tauri commands
@@ -829,6 +868,7 @@ pub async fn update_config(
     config: AppConfig,
 ) -> Result<(), String> {
     let mut resolved = config;
+    sanitize_plugin_settings(&mut resolved);
     validate_api_trust_boundary(&resolved.api)?;
 
     // If the theme name changed, load the builtin theme fresh instead of trying to detect overrides.

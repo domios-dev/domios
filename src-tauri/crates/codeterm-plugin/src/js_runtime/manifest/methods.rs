@@ -9,10 +9,32 @@ impl PluginManifest {
     pub fn load(path: &Path) -> Result<Self, String> {
         let text =
             std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-        let mut m: PluginManifest =
-            serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
+        let mut m =
+            Self::from_json_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
         m.source_path = Some(path.to_path_buf());
+        m.icon_svg = m
+            .icon
+            .as_deref()
+            .and_then(|relative| crate::plugin_icon::load_plugin_icon(path.parent()?, relative));
+        let plugin_icon = m.icon_svg.clone();
+        let bundle_dir = path.parent();
+        for item in &mut m.capabilities.tab_menu {
+            item.icon_svg = item
+                .icon
+                .as_deref()
+                .and_then(|relative| {
+                    bundle_dir.and_then(|dir| crate::plugin_icon::load_plugin_icon(dir, relative))
+                })
+                .or_else(|| plugin_icon.clone());
+        }
         Ok(m)
+    }
+
+    /// Strict parse plus the cross-field capability rules every load path enforces.
+    pub fn from_json_str(text: &str) -> Result<Self, String> {
+        let manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        manifest.capabilities.validate_tab_menu()?;
+        Ok(manifest)
     }
 
     /// Directory the manifest lives in — `plugin.js` resolves relative

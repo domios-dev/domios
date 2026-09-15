@@ -245,9 +245,23 @@ pub fn attachment(file: &str, name: Option<&str>) -> String {
 }
 
 pub fn telegram(user: &str, msg: Option<&str>, body: &str) -> String {
+    telegram_routed(user, msg, None, None, body)
+}
+
+/// A Telegram inbound that names its forum thread and, when it reached the
+/// General Agent from somewhere else, why.
+pub fn telegram_routed(
+    user: &str,
+    msg: Option<&str>,
+    thread: Option<&str>,
+    origin: Option<&str>,
+    body: &str,
+) -> String {
     Marker::new("telegram")
         .attr("user", user)
         .attr_opt("msg", msg)
+        .attr_opt("thread", thread)
+        .attr_opt("origin", origin)
         .payload(body)
         .build()
 }

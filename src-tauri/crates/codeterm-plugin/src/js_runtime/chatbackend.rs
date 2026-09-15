@@ -22,9 +22,7 @@ pub struct JsChatBackend {
     vm: Arc<PluginVm>,
     id: String,
     display_name: String,
-    icon_hint: Option<String>,
     icon_svg: Option<String>,
-    icon_color: Option<String>,
     /// `{ spawnable: true }` ⇒ user-openable from the picker; bare `chatBackend: true` ⇒ false (backend-only).
     spawnable: bool,
     watcher_capable: bool,
@@ -40,9 +38,7 @@ impl JsChatBackend {
             vm,
             display_name: id.clone(),
             id,
-            icon_hint: None,
             icon_svg: None,
-            icon_color: None,
             spawnable: false,
             watcher_capable: false,
             session_config: false,
@@ -56,9 +52,7 @@ impl JsChatBackend {
             vm,
             id: manifest.id.clone(),
             display_name: manifest.display_name.clone(),
-            icon_hint: manifest.icon_hint.clone(),
             icon_svg: manifest.icon_svg.clone(),
-            icon_color: manifest.icon_color.clone(),
             spawnable: manifest.capabilities.chat_backend_spawnable(),
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
@@ -75,6 +69,19 @@ impl JsChatBackend {
             .cloned()
             .unwrap_or_default();
         super::host_exec::host_env_scope(env)
+    }
+
+    fn normalize_plugin_origins(&self, messages: &mut [ChatMsg]) {
+        for message in messages {
+            if message.inbound_kind.as_deref() == Some("plugin")
+                || message.from_plugin.is_some()
+                || message.plugin_icon_svg.is_some()
+            {
+                message.inbound_kind = Some("plugin".into());
+                message.from_plugin = Some(self.id.clone());
+                message.plugin_icon_svg = self.icon_svg.clone();
+            }
+        }
     }
 }
 
@@ -187,7 +194,7 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn icon_hint(&self) -> Option<&str> {
-        self.icon_hint.as_deref()
+        None
     }
 
     fn icon_svg(&self) -> Option<&str> {
@@ -195,7 +202,7 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn icon_color(&self) -> Option<&str> {
-        self.icon_color.as_deref()
+        None
     }
 
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError> {
@@ -262,21 +269,27 @@ impl ChatBackendProvider for JsChatBackend {
         let out: PollOut = call_json(&self.vm, "poll", &[json!(session_id), json!(cursor)])
             .map_err(|e| map_err("poll", e))?;
         Ok(match out {
-            PollOut::List(messages) => StructuredChat {
-                messages,
-                cursor: None,
-                // Legacy list pollers do not advertise busy state, so watcher arming is host-gated only.
-                done: None,
-            },
+            PollOut::List(mut messages) => {
+                self.normalize_plugin_origins(&mut messages);
+                StructuredChat {
+                    messages,
+                    cursor: None,
+                    // Legacy list pollers do not advertise busy state, so watcher arming is host-gated only.
+                    done: None,
+                }
+            }
             PollOut::Wrapped {
-                messages,
+                mut messages,
                 cursor,
                 done,
-            } => StructuredChat {
-                messages,
-                cursor,
-                done,
-            },
+            } => {
+                self.normalize_plugin_origins(&mut messages);
+                StructuredChat {
+                    messages,
+                    cursor,
+                    done,
+                }
+            }
         })
     }
 
@@ -533,6 +546,29 @@ mod tests {
         assert_eq!(msgs[0].kind, "user");
         assert_eq!(msgs[0].content, "hi");
         assert_eq!(msgs[1].kind, "assistant");
+    }
+
+    #[test]
+    fn plugin_icon_svg_poll_replaces_plugin_supplied_icon_with_host_asset() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                poll() { return [{
+                    id: "1", type: "user", content: "hello",
+                    inboundKind: "plugin", fromPlugin: "other",
+                    pluginIconSvg: "<svg><script>alert(1)</script></svg>"
+                }]; }
+            }"#,
+        );
+        let mut b = JsChatBackend::new(vm, "pebble");
+        b.icon_svg =
+            Some("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into());
+
+        let mut messages = b.poll("s1", None).unwrap().messages;
+        let message = messages.remove(0);
+
+        assert_eq!(message.inbound_kind.as_deref(), Some("plugin"));
+        assert_eq!(message.from_plugin.as_deref(), Some("pebble"));
+        assert_eq!(message.plugin_icon_svg.as_deref(), b.icon_svg.as_deref(),);
     }
 
     #[test]

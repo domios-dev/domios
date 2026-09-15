@@ -3,7 +3,7 @@ import type { PluginIconData } from "./PluginIcon";
 import { daemonHttpBase, daemonAuthToken } from "../../lib/webApi";
 
 export interface AppConfigShape {
-  plugins?: Record<string, { pinned?: boolean; serverUrl?: string; [k: string]: unknown } | undefined>;
+  plugins?: Record<string, { serverUrl?: string; [k: string]: unknown } | undefined>;
   integrations?: {
     secrets?: { backend?: string; default_organization?: string; default_collection?: string };
   };
@@ -34,9 +34,9 @@ export async function readApiError(r: Response, fallback: string): Promise<strin
   return j?.error?.message ?? j?.message ?? `${fallback} (${r.status})`;
 }
 
-/** Adapt a catalog entry's camelCase icon fields back to the PluginIcon shape. */
-export function iconOf(entry: Pick<CatalogEntry, "iconSvg" | "iconColor" | "iconHint">): PluginIconData {
-  return { icon_svg: entry.iconSvg, icon_color: entry.iconColor, icon_hint: entry.iconHint };
+/** Adapt a catalog entry's sanitized host icon to the shared renderer shape. */
+export function iconOf(entry: Pick<CatalogEntry, "iconSvg">): PluginIconData {
+  return { icon_svg: entry.iconSvg };
 }
 
 export function GroupLabel({ children }: { children: React.ReactNode }) {

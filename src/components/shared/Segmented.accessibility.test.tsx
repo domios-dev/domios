@@ -61,7 +61,9 @@ async function main() {
   assert.doesNotMatch(segmentedSource, /text-\[var\(--ct-bg\)\]/);
   assert.doesNotMatch(segmentedSource, /duration-200|ease-out/);
 
-  const globals = readFileSync(resolve(import.meta.dirname, "../../styles/globals.css"), "utf8");
+  const globals = ["globals.css", "primitives.css"]
+    .map((name) => readFileSync(resolve(import.meta.dirname, "../../styles", name), "utf8"))
+    .join("\n");
   const tokens = readFileSync(resolve(import.meta.dirname, "../../styles/tokens.css"), "utf8");
   assert.match(globals, /\.ct-liquid-segmented__option\[aria-selected="true"\]\s*\{[^}]*color:\s*var\(--ct-fg\)/s);
   assert.doesNotMatch(globals, /\.ct-liquid-segmented__option\[aria-selected="true"\]\s*\{[^}]*var\(--ct-bg\)/s);

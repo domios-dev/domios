@@ -81,9 +81,15 @@ pub struct InboundMessage {
     pub reply_ctx: ReplyContext,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReplyContext {
-    Telegram { chat_id: i64 },
+    Telegram {
+        chat_id: i64,
+        /// Forum topic the message was posted in; `None` is the main chat or general topic.
+        thread_id: Option<i64>,
+        /// The message this one explicitly replies to.
+        reply_to_message_id: Option<i64>,
+    },
 }
 
 pub trait MessagingService: Send + 'static {

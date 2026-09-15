@@ -83,6 +83,13 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix("-=-codeterm:pebble source=Pebble plugin=pebble-=-yo");
+  eq(r?.origin, { kind: "plugin", pluginId: "pebble", name: "Pebble" }, "plugin marker keeps its identity");
+  eq(r?.body, "yo", "plugin marker body stripped");
+  assert(r?.origin.kind === "plugin" && r.origin.iconSvg === undefined, "plugin marker carries no inline icon payload");
+}
+
+{
   const r = detectChatPrefix("-=-codeterm:system_prompt-=-# Shell rules\n\nUse tools carefully.");
   eq(r?.origin, { kind: "system_prompt" }, "ct system_prompt marker parses");
   eq(r?.body, "# Shell rules\n\nUse tools carefully.", "ct system_prompt marker body stripped");

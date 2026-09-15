@@ -12,6 +12,16 @@ export interface EnrichedChatEntry {
 export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 
 function enrichUserMessage(m: ChatMessage, item: TimelineItem): EnrichedChatEntry[] {
+  const pluginId = m.fromPlugin?.trim();
+  if (pluginId) {
+    const origin: ChatOrigin = {
+      kind: "plugin",
+      pluginId,
+      name: m.fromLabel,
+      iconSvg: m.pluginIconSvg,
+    };
+    return [{ msg: m, item, origin }];
+  }
   const splitPrefixes = splitChatPrefixedMessages(m.content);
   if (splitPrefixes && splitPrefixes.length > 1) {
     return splitPrefixes.map((prefix, index) => {

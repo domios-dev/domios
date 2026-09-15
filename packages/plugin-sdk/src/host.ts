@@ -192,6 +192,159 @@ export interface HostMem {
   }): { hits: { id: string; text: string; score: number }[] };
 }
 
+// ── host.analytics (machine-wide KPI aggregates; needs permissions.analytics) ──
+
+export type AnalyticsBucket = "day" | "week";
+export type AnalyticsGroupBy = "provider_model" | "workspace" | "team" | "plan";
+export type AnalyticsCoverage = "recorded" | "partial" | "not_recorded";
+export type AnalyticsDimension = "provider" | "model" | "workspace" | "team" | "plan";
+export type AnalyticsKeyReason =
+  | "provider_not_reported"
+  | "model_not_reported"
+  | "workspace_not_recorded"
+  | "workspace_deleted"
+  | "no_plan"
+  | "plan_deleted"
+  | "no_team"
+  | "team_deleted";
+
+export interface AnalyticsModelKey {
+  provider: string;
+  model: string | null;
+}
+
+// Local calendar days, inclusive, at most 92; day buckets at most 31.
+export interface AnalyticsQuery {
+  range: { from: string; to: string; tz: string };
+  bucket: AnalyticsBucket;
+  // Choices in one list widen; lists narrow each other. null selects the null key.
+  filters?: {
+    providers?: string[];
+    models?: AnalyticsModelKey[];
+    workspaces?: (string | null)[];
+    teams?: (string | null)[];
+    plans?: (string | null)[];
+  };
+  group_by: AnalyticsGroupBy;
+  scope?: { kind: "machine"; includes_mesh_peers?: false };
+}
+
+export interface AnalyticsTotals {
+  new_input: number;
+  generated: number;
+  read_from_cache: number;
+  turns: number;
+}
+
+export interface AnalyticsGroupKey {
+  dimension: AnalyticsDimension;
+  id: string | null;
+  provider?: string;
+  reason?: AnalyticsKeyReason;
+}
+
+export interface AnalyticsGroup {
+  key: AnalyticsGroupKey;
+  label: string | null;
+  totals: AnalyticsTotals;
+  children?: AnalyticsGroup[];
+}
+
+export interface AnalyticsTokenBucket {
+  start: number;
+  end: number;
+  label: string;
+  coverage: AnalyticsCoverage;
+  totals: AnalyticsTotals | null;
+  groups: { key: AnalyticsGroupKey; totals: AnalyticsTotals }[];
+}
+
+export interface AnalyticsTabBucket {
+  start: number;
+  end: number;
+  label: string;
+  coverage: AnalyticsCoverage;
+  total: number | null;
+}
+
+export interface AnalyticsAllowance {
+  provider: string;
+  allowance: {
+    captured_at: number;
+    session_used_pct: number | null;
+    session_resets_at: number | null;
+    weekly_used_pct: number | null;
+    weekly_resets_at: number | null;
+    stale_reason: string | null;
+  };
+  attribution: {
+    model: "unavailable";
+    workspace: "unavailable";
+    team: "unavailable";
+    plan: "unavailable";
+  };
+}
+
+// Every missing figure is null, never 0.
+export interface AnalyticsSnapshot {
+  scope: { kind: "machine"; includes_mesh_peers: false };
+  as_of: number;
+  range: { from: string; to: string; tz: string };
+  bucket: AnalyticsBucket;
+  group_by: AnalyticsGroupBy;
+  recording: {
+    state: "recording" | "disabled" | "unavailable";
+    reason: string | null;
+    enable_setting: string | null;
+    first_recorded_at: number | null;
+    last_recorded_at: number | null;
+    workspace_recorded_since: number | null;
+  };
+  tokens: {
+    totals: AnalyticsTotals | null;
+    series: AnalyticsTokenBucket[];
+    groups: AnalyticsGroup[];
+  };
+  tabs_created: {
+    state: "counted" | "not_counted" | "not_attributed";
+    counted_since: number | null;
+    total: number | null;
+    by_kind: { agent: number; terminal: number } | null;
+    series: AnalyticsTabBucket[];
+  };
+  allowance: AnalyticsAllowance[];
+  money: { state: "not_recorded" };
+}
+
+export interface AnalyticsRefusal {
+  error: "invalid_query" | "foreign_scope" | string;
+  message?: string;
+}
+
+// null = the host could not answer at all.
+export interface HostAnalytics {
+  query(query: AnalyticsQuery): AnalyticsSnapshot | AnalyticsRefusal | null;
+}
+
+// The calling plugin's own receiver binding. Only host chrome (tab menu, API, CLI) assigns a tab.
+export interface ReceiverTargetView {
+  pluginId: string;
+  // null means events take the General Agent path.
+  tabId: string | null;
+  // false when the bound tab is absent or not live; events then take the General Agent path.
+  live: boolean;
+}
+
+export interface ReceiverTargetRefusal {
+  error: "receiver_not_found" | "persist_failed" | "receiver_target_unavailable" | string;
+  message?: string;
+}
+
+export interface HostReceiverTarget {
+  get(): ReceiverTargetView | ReceiverTargetRefusal | null;
+  clear(): ReceiverTargetView | ReceiverTargetRefusal | null;
+}
+
 export interface HostProgressOpts {
   label: string;
   percent?: number;
@@ -261,6 +414,11 @@ export interface Host {
   workspace: HostWorkspace;
   agent: HostAgent;
   mem: HostMem;
+  analyticsQuery(queryJson: string): string;
+  analytics: HostAnalytics;
+  receiverTargetGet(): string;
+  receiverTargetClear(): string;
+  receiverTarget: HostReceiverTarget;
 }
 
 declare global {

@@ -179,9 +179,9 @@ snapshot on reactivation or event-stream resync.
 | POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_tab_id?, plan_id? (alias `plan`), can_spawn?, task?, task_id?, plan_task? (alias `plan-task`), execution_intent?, authorized_gates?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, audience?, report_to?, origin_peer?, team_id?, creator_tab_id?}` | One-call agent spawn (see below). `audience` accepts `user` (default) or `automation`; automation-owned prompts remain available to the harness but never raise user-visible Input-needed notifications. `description` follows the same trim/empty-clear/200-char validation as tab description. `reasoning_effort` is capability-validated against the provider's `reasoning_efforts`: an unsupported value is rejected with a structured error and **no agent launch** (never silently downgraded); the resolved effort and its `{planned,requested,resolved,actual}` provenance ride back on the spawn result. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. A `Planner` spawn requires `plan_id` and, when `parent_tab_id` is omitted, resolves its parent from the plan's live Orchestrator owner instead of refusing (an explicit `parent_tab_id` still wins). Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (Tab id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. `team_id` + `creator_tab_id` (`codeterm agent spawn --team`) attach a ROLELESS agent to an existing Team: `creator_tab_id` must already belong to `team_id`, and the pair is rejected alongside `role` or `plan_task`. Membership is checked before the tab is created, so a non-member caller leaves nothing behind. Socket `team.adopt_agent` applies the same check to an already-running tab; see API-TRANSPORT. Staffing a Team with a **roled** member is a different verb: `POST /api/teams/{team_id}/members` / socket `team.add_member`, which is also where `codeterm agent spawn <provider> --team <id> --role Orchestrator` lands to hand a Team whose Orchestrator is gone a new one; see API-AGENTS. A `Worker` spawn needs no task binding when `execution_intent` is `read_only`: that is the canonical verification Worker — it owns no task, so it can report against none and transition none, and `authorized_gates` (an array of exact commands) is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are also enforced by `RPC_UNAUTHORIZED_GATE_CLAIM`). |
 | GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
-Configure-with-AI, provider install, auto-confirm and the Pebble webhook (`POST /api/plugins/pebble/webhook`): `codeterm docs API-INTEGRATIONS`.
+Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `codeterm docs API-INTEGRATIONS`.
 
-#### Interactive chat prompts (#162)
+#### Interactive chat prompts
 
 Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream — populated via the `AgentProvider::parse_interactive_events` capability (native or JS `parseInteractiveEvents` + manifest `interactiveEvents` flag), never by branching on a provider id. It rides on both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and the live `tab-chat-msg-{tabId}` events (`ChatMsg[]`, attached to the tool-call message). First element type:
 
@@ -198,7 +198,7 @@ The enum is open for future element types. The frontend renders each as a clicka
 |--------|------|------|-------------|
 | POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
 
-#### Pasteboard (cross-mesh ephemeral payloads, #98)
+#### Pasteboard (cross-mesh ephemeral payloads)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | POST | `/api/pasteboard` | `{body, content_type?, ttl_ms?, pop_on_read?}` | Stash a payload. Returns `{id: "paste:NNNNNN", expires_at}`. TTL default 1h, max 24h. 20-entry cap with oldest-first eviction. |
@@ -234,6 +234,6 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
 Mutating dispatch into canonical or another task's lane is refused with `-32013`;
 competition provisions one lane per competitor. Advisory findings ride successful
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
-Related: `codeterm docs API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
-`API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 149 -->
+Related docs: `API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
+`API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
+<!-- revision: 152 -->

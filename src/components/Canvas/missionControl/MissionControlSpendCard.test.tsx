@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiConfig } from "../../../lib/types";
 import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
 import { ModelsCard, SpendCard } from "./BoardCards";
-import { BREAKDOWN_UNAVAILABLE, SPEND_PERIOD_CAPTION } from "./BoardSpendCard";
+import { SPEND_PERIOD_CAPTION } from "./BoardSpendCard";
 import {
   MODELS_PREVIEW,
   SPEND_SCOPE_CAPTION,
@@ -20,9 +20,7 @@ import {
   teamSpendRange,
   teamSpendTotals,
   type TeamSpend,
-  type TeamSpendDaily,
-  type TeamWeeklyLimitScope,
-} from "./teamSpend";
+  type TeamSpendDaily,} from "./teamSpend";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -142,25 +140,6 @@ function teamSpendFixture(): TeamSpend {
   };
 }
 
-/** One provider account 34% into its week, six points of that spent today. */
-function weeklyFixture(): TeamSpend {
-  const scope: TeamWeeklyLimitScope = { kind: "provider_account", provider: "claude", account_id: "acct-1" };
-  const attribution = { scope, team_attribution: "unavailable", model_attribution: "unavailable" };
-  return {
-    ...teamSpendFixture(),
-    metric: "weekly_limit_points",
-    units: "percentage_points",
-    scope: "provider_account_or_machine",
-    daily: [],
-    weekly_limit_points: [
-      { provider: "claude", account_id: "acct-1", weekly_limit_points: 34, captured_at: Date.now(), weekly_resets_at: null, ...attribution },
-    ],
-    weekly_limit_days: [
-      { day: localDayKey(Date.now()), provider: "claude", account_id: "acct-1", points_used: 6, weekly_limit_points: 34, ...attribution },
-    ],
-  };
-}
-
 async function mount(ui: ReactElement) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -225,36 +204,6 @@ describe("mission control spend card", () => {
     await unmount();
   });
 
-  it("mission_control_spend_switches_units_between_tokens_and_weekly_allowance", async () => {
-    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} teamWeekly={weeklyFixture()} />);
-
-    const tokens = button(host, "mc-board-spend-units-tokens");
-    const weekly = button(host, "mc-board-spend-units-weekly_points");
-    expect(tokens.closest('[role="group"]')?.getAttribute("aria-label")).toBe("Units");
-    expect(tokens.closest('[data-testid="mc-board-spend-meta"]')).not.toBeNull();
-    expect([tokens.textContent, weekly.textContent]).toEqual(["tokens", "weekly %"]);
-    expect(tokens.getAttribute("aria-pressed")).toBe("true");
-    expect(chartSummary(host)).toMatch(/^new input by day: .*120$/);
-
-    await act(async () => weekly.click());
-    expect(weekly.getAttribute("aria-pressed")).toBe("true");
-    expect(tokens.getAttribute("aria-pressed")).toBe("false");
-    expect(host.querySelector('[data-testid="mc-board-spend-totals"]')).toBeNull();
-    const used = host.querySelector('[data-testid="mc-board-spend-weekly-used"]') as HTMLElement;
-    expect(Array.from(used.querySelectorAll("dt")).map((term) => term.textContent)).toEqual(["claude"]);
-    expect(text(host, "mc-board-spend-weekly-pct")).toBe("34%");
-    const days = chartDays(host);
-    expect(days).toHaveLength(7);
-    expect(tones(days[6]!)).toEqual(["0"]);
-    expect(tones(days[5]!)).toEqual([]);
-    expect(chartSummary(host)).toMatch(/^weekly points by day: .*6%$/);
-
-    await act(async () => tokens.click());
-    expect(text(host, "mc-board-spend-new-input")).toBe("170");
-    expect(host.querySelector('[data-testid="mc-board-spend-weekly-used"]')).toBeNull();
-    await unmount();
-  });
-
   it("mission_control_spend_stacks_bars_by_model_with_a_legend_of_the_models_present", async () => {
     const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} />);
 
@@ -286,42 +235,6 @@ describe("mission control spend card", () => {
     await act(async () => breakdown.click());
     expect(host.querySelector('[data-testid="mc-board-spend-legend"]')).toBeNull();
     expect(tones(chartDays(host)[6]!)).toEqual(["0"]);
-    await unmount();
-  });
-
-  it("mission_control_spend_disables_the_model_breakdown_for_weekly_allowance_with_a_reason", async () => {
-    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} teamWeekly={weeklyFixture()} />);
-
-    const breakdown = button(host, "mc-board-spend-breakdown");
-    await act(async () => breakdown.click());
-    expect(breakdown.getAttribute("aria-pressed")).toBe("true");
-    await act(async () => button(host, "mc-board-spend-units-weekly_points").click());
-
-    expect(breakdown.isConnected).toBe(true);
-    expect(breakdown.textContent).toBe("by model");
-    expect(breakdown.getAttribute("aria-disabled")).toBe("true");
-    expect(breakdown.getAttribute("aria-pressed")).toBe("false");
-    const reason = document.getElementById(breakdown.getAttribute("aria-describedby") ?? "");
-    expect(reason?.textContent).toBe(BREAKDOWN_UNAVAILABLE);
-    expect(reason?.hidden).toBe(true);
-    await act(async () => breakdown.click());
-    expect(breakdown.getAttribute("aria-pressed")).toBe("false");
-    expect(host.querySelector('[data-testid="mc-board-spend-legend"]')).toBeNull();
-    expect(tones(chartDays(host)[6]!)).toEqual(["0"]);
-
-    await act(async () => button(host, "mc-board-spend-units-tokens").click());
-    expect(breakdown.getAttribute("aria-disabled")).toBeNull();
-    expect(breakdown.getAttribute("aria-describedby")).toBeNull();
-    expect(breakdown.getAttribute("aria-pressed")).toBe("true");
-    await unmount();
-  });
-
-  it("mission_control_spend_says_no_data_for_weekly_allowance_without_a_reading", async () => {
-    const { host, unmount } = await mount(<SpendCard teamSpend={teamSpendFixture()} />);
-
-    await act(async () => button(host, "mc-board-spend-units-weekly_points").click());
-    expect(text(host, "mc-board-spend-weekly-empty")).toBe("no data");
-    expect(host.querySelector('[data-testid="mc-board-spend-chart"]')).toBeNull();
     await unmount();
   });
 

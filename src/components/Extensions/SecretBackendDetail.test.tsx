@@ -83,6 +83,7 @@ function entry(): CatalogEntry {
     dev: false,
     compatible: true,
     updateAvailable: false,
+    iconSvg: '<svg viewBox="0 0 1 1" fill="currentColor"><path d="M0 0"/></svg>',
   };
 }
 
@@ -135,6 +136,10 @@ async function main() {
 
   await renderOnce();
   await flush();
+
+  const icon = host.querySelector("svg");
+  assert(icon?.getAttribute("aria-hidden") === "true", "plugin icon is hidden from assistive technology");
+  assert(host.textContent?.includes("Bitwarden"), "plugin text label remains the accessible name");
 
   assert(calls.status === 1, `mount must issue exactly one status fetch, got ${calls.status}`);
   assert(timer.pendingCount() === 0, "no refresh may be scheduled while the first status fetch is still in flight");

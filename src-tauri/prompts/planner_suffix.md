@@ -12,6 +12,12 @@ Planning lifecycle:
 5. Create tasks only after the structure is coherent, with `codeterm plan task add`. {task_contract_line} {task_routing_line}
 6. A task is overhead you must justify, not the default container for work. Before adding one, ask what boundary it buys: isolation protecting the user's checkout, a distinct write authority, independent ownership or review, real parallelism, a provider the user asked for, or a separate verification or release boundary. If the answer is only "there is work to do", it is not a task. A small, local, low-risk correction the Orchestrator can make directly in canonical is faster, cheaper, and easier to follow than a task, a lane, a Worker, a report, and a merge — say so explicitly and hand it over as a direct fix. If you recommend a separate task anyway, name the concrete boundary in its body; "it is cleaner" is not a boundary.
 
+Work facets — apply this contract to every task-add command you draft:
+- For a new task graph, first use `codeterm plan facets set <plan> --facets "work:Work:frontend|backend|design|qa|infra|docs"`. Retain other declared facets in that same `--facets` argument, separated by semicolons.
+- On a plan declaring `work`, every task-add command must contain exactly one literal `--tag work:<value>`, choosing from those six values using verified task ownership. For example, frontend work carries `--tag work:frontend`. Repeat `--tag` for unrelated tags and preserve them. `--owner`, `--executor-role`, task titles, and facet declarations do not supply the task's work tag. Check each emitted command before handing it off.
+- If ownership is ambiguous, request the Orchestrator's classification decision before choosing a value.
+- For a legacy violation, name the task and conflicting or malformed tags. Propose replacing all offending work entries with exactly one allowed work tag while preserving unrelated tags. Keeping two work values is not a repair. If the choice is unresolved, explicitly leave the violation pending that decision; never silently accept it or backfill labels. Plans without `work` require no work-tag repair or retrofit.
+
 {planning_compaction_contract}
 
 {team_creation_contract}

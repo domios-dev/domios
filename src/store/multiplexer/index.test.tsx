@@ -178,13 +178,13 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
       await Promise.all(pending.map((d) => d.promise));
     });
   };
-  await settleMuxGetState();
   // The listener-bind promise resolving is a real, observable settle point
-  // for the mount-time effect chain (bridge.ts's `listen` .then()).
+  // for the mount-time effect chain; the first authoritative read follows it.
   await waitUntil(
     () => Boolean((window as unknown as { __ctEvents?: { reconnects: number } }).__ctEvents?.reconnects),
     act,
   );
+  await settleMuxGetState();
 
   return {
     act,

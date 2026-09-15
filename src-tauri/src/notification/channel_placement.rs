@@ -76,6 +76,7 @@ impl SpentQuestion {
             ),
             choices: Vec::new(),
             record: self.record.clone(),
+            origin_tab: None,
         }
     }
 }

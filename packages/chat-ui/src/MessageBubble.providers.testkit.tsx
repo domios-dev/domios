@@ -1,5 +1,5 @@
 import { Window } from "happy-dom";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
@@ -8,6 +8,7 @@ import {
   type ProviderTranscriptFixture,
 } from "./providerTranscriptFixtures.testdata";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import type { ChatOrigin } from "@codeterm/chat-core";
 
 type TestCase = {
   name: string;
@@ -131,7 +132,11 @@ export async function renderTranscript(fixture: ProviderTranscriptFixture): Prom
   return { host, root };
 }
 
-export async function renderMessages(messages: NormalizedChatMessage[], latestFailedToolCallId?: string): Promise<{
+export async function renderMessages(
+  messages: NormalizedChatMessage[],
+  latestFailedToolCallId?: string,
+  originOptions?: { origin?: ChatOrigin; originAvatar?: ReactNode },
+): Promise<{
   host: HTMLElement;
   root: Root;
 }> {
@@ -149,6 +154,8 @@ export async function renderMessages(messages: NormalizedChatMessage[], latestFa
               message={message}
               item={item.kind === "tool" ? item : undefined}
               isLatestFailedToolCall={message.id === latestFailedToolCallId}
+              origin={originOptions?.origin}
+              originAvatar={originOptions?.originAvatar}
             />
           );
         })}

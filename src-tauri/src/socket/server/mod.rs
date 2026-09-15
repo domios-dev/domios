@@ -44,6 +44,7 @@ mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 pub(crate) mod protocol;
+mod receiver_target;
 mod safety_nudge;
 mod services;
 mod spec;

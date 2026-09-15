@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use codeterm_bridge::bridge::manager::PlacementReceipt;
+use codeterm_bridge::bridge::threads::{SenderIdentity, ThreadService, ThreadTabs};
 use codeterm_bridge::ports::{
     AttachmentStorePort, BridgeTabPort, ChatPreprocessorPort, ChatPreprocessorProvider,
 };
@@ -136,6 +137,32 @@ impl BridgeTabPort for ServiceBridgeTabPort {
 
     fn telegram_token_path(&self) -> PathBuf {
         codeterm_bridge::bridge::telegram::token_path(&AppAttachmentStorePort)
+    }
+
+    fn threads(&self) -> Arc<ThreadService> {
+        self.0.bridge_threads.clone()
+    }
+
+    fn thread_tabs(&self) -> &dyn ThreadTabs {
+        self
+    }
+}
+
+impl ThreadTabs for ServiceBridgeTabPort {
+    fn sender_identity(&self, tab_id: &str) -> Option<SenderIdentity> {
+        self.0.bridge_sender_identity(tab_id)
+    }
+
+    fn live_tab_titles(&self) -> Vec<(String, String)> {
+        self.0.bridge_live_tab_titles()
+    }
+
+    fn is_live_tab(&self, tab_id: &str) -> bool {
+        self.0.bridge_is_live_tab(tab_id)
+    }
+
+    fn is_general_tab(&self, tab_id: &str) -> bool {
+        self.0.bridge_is_general_tab(tab_id)
     }
 }
 

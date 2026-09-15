@@ -44,17 +44,17 @@ function registryDir() {
   return home + sep + ".claude" + sep + "sessions";
 }
 function registrySessionId(raw, pid, startToken) {
-  let record;
+  let record2;
   try {
-    record = JSON.parse(raw);
+    record2 = JSON.parse(raw);
   } catch (_) {
     return null;
   }
-  if (!record || typeof record !== "object" || record.pid !== pid) return null;
-  if (typeof record.kind === "string" && record.kind !== "interactive") return null;
-  if (typeof record.procStart !== "string") return null;
-  if (!startToken || record.procStart.trim() !== startToken) return null;
-  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  if (!record2 || typeof record2 !== "object" || record2.pid !== pid) return null;
+  if (typeof record2.kind === "string" && record2.kind !== "interactive") return null;
+  if (typeof record2.procStart !== "string") return null;
+  if (!startToken || record2.procStart.trim() !== startToken) return null;
+  const sessionId = typeof record2.sessionId === "string" ? record2.sessionId.trim() : "";
   return sessionId || null;
 }
 function detectClaudeLaunchSession(evidence) {
@@ -176,10 +176,10 @@ function isoToMs(value) {
 function usageBlockIsComplete(block) {
   return block.pct === null || block.resetsMs !== null;
 }
-function usageParseBlock(text, marker, isWeekly, nowMs) {
-  const markerMatch = new RegExp(marker).exec(text);
+function usageParseBlock(text2, marker, isWeekly, nowMs) {
+  const markerMatch = new RegExp(marker).exec(text2);
   if (!markerMatch) return { pct: null, resetsMs: null };
-  const tail = text.slice(markerMatch.index + markerMatch[0].length, markerMatch.index + markerMatch[0].length + 800);
+  const tail = text2.slice(markerMatch.index + markerMatch[0].length, markerMatch.index + markerMatch[0].length + 800);
   const nextBlock = /\n\s*Current\s+/i.exec(tail);
   const block = nextBlock ? tail.slice(0, nextBlock.index) : tail;
   const pctCaps = /(\d+(?:\.\d+)?)\s*%\s*used/.exec(block);
@@ -627,17 +627,267 @@ function fileDiff(path, hunks) {
 }
 function claudeFileDiffs(result) {
   if (!result || typeof result !== "object" || Array.isArray(result)) return [];
-  const record = result;
-  const path = typeof record.filePath === "string" ? record.filePath : "";
-  if (!path.trim() || !Array.isArray(record.structuredPatch)) return [];
+  const record2 = result;
+  const path = typeof record2.filePath === "string" ? record2.filePath : "";
+  if (!path.trim() || !Array.isArray(record2.structuredPatch)) return [];
   const hunks = [];
-  for (const entry of record.structuredPatch) {
+  for (const entry of record2.structuredPatch) {
     const hunk = patchHunk(entry);
     if (!hunk) return [];
     hunks.push(hunk);
   }
   if (hunks.length > 0) return [fileDiff(path, hunks)];
-  return record.type === "create" && typeof record.content === "string" ? [fileDiff(path, createdHunks(record.content))] : [];
+  return record2.type === "create" && typeof record2.content === "string" ? [fileDiff(path, createdHunks(record2.content))] : [];
+}
+
+// plugins/provider-claude/src/toolFields.ts
+function canonicalToolFields(name, input) {
+  const tool = name.trim();
+  const value = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const text2 = (key) => typeof value[key] === "string" ? value[key] : "";
+  const command = text2("command");
+  const path = text2("file_path") || text2("filePath") || text2("path");
+  const pattern = text2("pattern");
+  const edits = extractCanonicalEdits(value);
+  const lower = tool.toLowerCase();
+  if (lower === "bash" || lower === "shell" || lower === "exec") {
+    return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
+  }
+  if (lower === "edit" || lower === "multiedit" || lower === "write") {
+    return { kind: "edit", summary: path || "File edit", detail: path, edits };
+  }
+  if (lower === "read") {
+    return { kind: "read", summary: path || "Read file", detail: path, edits: [] };
+  }
+  if (lower === "glob" || lower === "grep" || lower === "search") {
+    return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
+  }
+  return {
+    kind: "generic",
+    summary: cleanToolText(tool, "Tool"),
+    detail: tool,
+    edits
+  };
+}
+function toolDescription(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const value = input.description;
+  return typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").trim() : "";
+}
+function extractCanonicalEdits(input) {
+  const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
+  const pair = (value, fallbackPath) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const item = value;
+    const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
+    const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
+    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
+    const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
+    return { path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
+  };
+  if (Array.isArray(input.edits)) return input.edits.map((edit) => pair(edit, parentPath)).filter((e) => e !== null);
+  const single = pair(input, parentPath);
+  return single ? [single] : [];
+}
+function cleanToolText(value, fallback) {
+  const text2 = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
+  if (!text2) return fallback;
+  return text2.length > 120 ? text2.slice(0, 117) + "..." : text2;
+}
+
+// plugins/provider-claude/src/subagents.ts
+var SIDECHAIN_TAIL_BYTES = 256 * 1024;
+var MAX_ACTIONS = 60;
+var PLAIN_ID_RE = /^[A-Za-z0-9_-]+$/;
+var AGENT_LOG_RE = /^agent-[A-Za-z0-9_-]+\.jsonl$/;
+var LAUNCH_STATES = {
+  async_launched: "running",
+  running: "running",
+  completed: "completed",
+  failed: "failed"
+};
+var NOTIFICATION_STATES = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  error: "failed",
+  killed: "interrupted",
+  stopped: "interrupted",
+  cancelled: "interrupted",
+  canceled: "interrupted"
+};
+function record(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function text(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function count(value) {
+  if (value === null || !/^\d+$/.test(value)) return void 0;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : void 0;
+}
+function modelFamily(value) {
+  const model = text(value);
+  return model ? familyFromModelId(model) : void 0;
+}
+function xmlTagBody(content, tag) {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  const start = content.indexOf(open);
+  if (start < 0) return null;
+  const bodyStart = start + open.length;
+  const end = content.indexOf(close, bodyStart);
+  if (end < 0) return null;
+  return content.slice(bodyStart, end).trim();
+}
+function agentBlock(callId, fields, summary) {
+  const input = { agent_call_id: callId };
+  for (const key in fields) {
+    const value = fields[key];
+    if (value !== void 0 && value !== "") input[key] = value;
+  }
+  return { kind: "tool_use", data: {
+    name: "agent_activity",
+    input,
+    tool_kind: "agent",
+    tool_summary: summary || callId,
+    tool_status: "success",
+    tool_flow_id: callId
+  } };
+}
+function isAgentActivityBlock(block) {
+  return block.kind === "tool_use" && block.data.tool_kind === "agent";
+}
+function isSubAgentCall(name, input) {
+  const tool = text(name);
+  return (tool === "Agent" || tool === "Task") && typeof record(input)?.prompt === "string";
+}
+function subAgentCallBlock(id, input) {
+  const callId = text(id);
+  if (!callId) return null;
+  const description = toolDescription(input);
+  return agentBlock(callId, {
+    agent_state: "started",
+    agent_description: description,
+    agent_model: modelFamily(record(input)?.model)
+  }, description);
+}
+function subAgentLaunchBlock(toolUseId, toolUseResult) {
+  const callId = text(toolUseId);
+  const result = record(toolUseResult);
+  const agentId = text(result?.agentId);
+  const state = LAUNCH_STATES[text(result?.status)];
+  if (!callId || !result || !PLAIN_ID_RE.test(agentId) || !state) return null;
+  const description = toolDescription(result);
+  return agentBlock(callId, {
+    agent_id: agentId,
+    agent_state: state,
+    agent_description: description,
+    agent_model: modelFamily(result.resolvedModel)
+  }, description);
+}
+function subAgentNotification(content) {
+  const start = content.indexOf("<task-notification>");
+  const end = content.indexOf("</task-notification>", start);
+  if (start < 0 || end < 0) return null;
+  const block = content.slice(start, end);
+  const callId = xmlTagBody(block, "tool-use-id") ?? "";
+  const agentId = xmlTagBody(block, "task-id") ?? "";
+  const result = xmlTagBody(block, "result");
+  const usage = xmlTagBody(block, "usage");
+  if (!callId || !PLAIN_ID_RE.test(agentId) || result === null && usage === null) return null;
+  return {
+    callId,
+    agentId,
+    state: NOTIFICATION_STATES[xmlTagBody(block, "status") ?? ""] ?? "unknown",
+    ...result ? { result } : {},
+    ...usage !== null ? {
+      tokens: count(xmlTagBody(usage, "subagent_tokens")),
+      toolUses: count(xmlTagBody(usage, "tool_uses")),
+      durationMs: count(xmlTagBody(usage, "duration_ms"))
+    } : {}
+  };
+}
+function readTail(path) {
+  try {
+    const raw = host.fs.readFileTail(path, SIDECHAIN_TAIL_BYTES);
+    return typeof raw === "string" ? raw : null;
+  } catch (_) {
+    return null;
+  }
+}
+function subAgentSidechain(entry, agentId) {
+  const cwd = text(entry.cwd);
+  const sessionId = text(entry.sessionId);
+  if (!cwd || !PLAIN_ID_RE.test(sessionId) || !PLAIN_ID_RE.test(agentId)) return null;
+  const mainPath = claudeSessionFilePath(cwd, sessionId);
+  if (!mainPath || !mainPath.endsWith(`${sessionId}.jsonl`)) return null;
+  const sep = mainPath.lastIndexOf("\\") > mainPath.lastIndexOf("/") ? "\\" : "/";
+  const raw = readTail(`${mainPath.slice(0, -".jsonl".length)}${sep}subagents${sep}agent-${agentId}.jsonl`);
+  if (raw === null) return null;
+  const actions = [];
+  const byId = {};
+  let model;
+  for (const line of raw.split("\n")) {
+    let row;
+    try {
+      row = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!row || row.isSidechain !== true || row.agentId !== agentId || row.sessionId !== sessionId) continue;
+    if (row.type === "assistant" && !model) model = modelFamily(row.message?.model);
+    const content = row.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (!block) continue;
+      if (row.type === "assistant" && block.type === "tool_use") {
+        const id = text(block.id);
+        const canonical = canonicalToolFields(text(block.name), block.input);
+        const description = toolDescription(block.input);
+        const action = { id, kind: canonical.kind, summary: canonical.summary, status: "pending" };
+        if (canonical.detail) action.detail = canonical.detail;
+        if (description) action.description = description;
+        actions.push(action);
+        if (id) byId[id] = action;
+      } else if (row.type === "user" && block.type === "tool_result") {
+        const action = byId[text(block.tool_use_id)];
+        if (action) action.status = block.is_error === true ? "error" : "success";
+      }
+    }
+  }
+  return { actions: actions.slice(-MAX_ACTIONS), ...model ? { model } : {} };
+}
+function subAgentNotificationBlock(content, entry) {
+  const notice = subAgentNotification(content);
+  if (!notice) return null;
+  const sidechain = subAgentSidechain(entry, notice.agentId);
+  return agentBlock(notice.callId, {
+    agent_id: notice.agentId,
+    agent_state: notice.state,
+    agent_result: notice.result,
+    agent_tokens: notice.tokens,
+    agent_tool_uses: notice.toolUses,
+    agent_duration_ms: notice.durationMs,
+    agent_model: sidechain?.model,
+    agent_actions: sidechain && sidechain.actions.length > 0 ? sidechain.actions : void 0
+  }, notice.agentId);
+}
+function subAgentUsageSources(sessionFilePath, sessionId) {
+  const file = text(sessionFilePath);
+  const id = text(sessionId);
+  if (!file || !PLAIN_ID_RE.test(id)) return [];
+  const cut = Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\"));
+  if (file.slice(cut + 1) !== `${id}.jsonl`) return [];
+  const sep = cut >= 0 ? file.charAt(cut) : "/";
+  let entries = [];
+  try {
+    entries = host.fs.readDir(`${file.slice(0, cut + 1)}${id}${sep}subagents`) || [];
+  } catch (_) {
+    return [];
+  }
+  return entries.filter((entry) => entry && entry.isFile && AGENT_LOG_RE.test(entry.name)).map((entry) => entry.path).sort();
 }
 
 // plugins/provider-claude/src/classify.ts
@@ -859,8 +1109,8 @@ function scoreAuthPrompt(screen) {
 // plugins/provider-claude/src/prompts.ts
 var WIZARD_SUBMIT_VALUE = 9e3;
 var WIZARD_MULTI_MASK_BASE = 1e4;
-function parseClaudeWizardPrompt(text) {
-  const raw = String(text || "");
+function parseClaudeWizardPrompt(text2) {
+  const raw = String(text2 || "");
   if (raw.indexOf("Submit") === -1 || raw.indexOf("Enter to select") === -1) return null;
   const tabLine = findWizardTabLine(raw);
   if (!tabLine) return null;
@@ -880,15 +1130,15 @@ function parseClaudeWizardPrompt(text) {
     selectedValues: options.filter((opt) => opt.selected).map((opt) => opt.value)
   };
 }
-function findWizardTabLine(text) {
-  const lines = String(text || "").split("\n");
+function findWizardTabLine(text2) {
+  const lines = String(text2 || "").split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (line.indexOf("Submit") !== -1 && (line.indexOf("\u2610") !== -1 || line.indexOf("\u2714") !== -1)) {
       return line;
     }
   }
-  const m = /←[\s\S]{0,160}Submit\s*→/.exec(text);
+  const m = /←[\s\S]{0,160}Submit\s*→/.exec(text2);
   return m ? m[0] : null;
 }
 function parseWizardSections(tabLine) {
@@ -907,10 +1157,10 @@ function parseWizardSections(tabLine) {
   if (active >= 0) sections[active].active = true;
   return sections;
 }
-function wizardBody(text, knownTabLine) {
-  const tabLine = knownTabLine || findWizardTabLine(text);
-  if (!tabLine) return text;
-  return text.slice(text.indexOf(tabLine) + tabLine.length);
+function wizardBody(text2, knownTabLine) {
+  const tabLine = knownTabLine || findWizardTabLine(text2);
+  if (!tabLine) return text2;
+  return text2.slice(text2.indexOf(tabLine) + tabLine.length);
 }
 function parseWizardQuestion(body) {
   const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
@@ -921,11 +1171,11 @@ function parseWizardOptions(body) {
   if (checkbox.length >= 2) return checkbox;
   return parseNumberedOptions(body);
 }
-function parseNumberedOptions(text) {
+function parseNumberedOptions(text2) {
   const options = [];
   const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
   let m;
-  while ((m = re.exec(text)) !== null) {
+  while ((m = re.exec(text2)) !== null) {
     const label = cleanOptionLabel(m[2]);
     if (!label) continue;
     options.push({
@@ -937,11 +1187,11 @@ function parseNumberedOptions(text) {
   }
   return options;
 }
-function parseCheckboxOptions(text) {
+function parseCheckboxOptions(text2) {
   const options = [];
   const re = /^\s*[❯>]?\s*((?:\[[ xX]\])|☐|☑|☒|✔)\s*([^\r\n]*)/gm;
   let m;
-  while ((m = re.exec(text)) !== null) {
+  while ((m = re.exec(text2)) !== null) {
     const label = cleanOptionLabel(m[2]);
     if (!label) continue;
     const mark = m[1];
@@ -957,8 +1207,8 @@ function parseCheckboxOptions(text) {
 function cleanOptionLabel(value) {
   return String(value || "").replace(/─+/g, " ").replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "").replace(/\s+/g, " ").trim();
 }
-function parseClaudeNumberedPrompt(text) {
-  const raw = String(text || "");
+function parseClaudeNumberedPrompt(text2) {
+  const raw = String(text2 || "");
   if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
   const options = parseNumberedOptions(raw);
   if (options.length < 2) return null;
@@ -970,8 +1220,8 @@ function parseClaudeNumberedPrompt(text) {
     options: options.map((opt) => [opt.label, opt.value])
   };
 }
-function parseClaudeLetteredPrompt(text) {
-  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+function parseClaudeLetteredPrompt(text2) {
+  const lines = String(text2 || "").replace(/\r\n?/g, "\n").split("\n");
   const optionStarts = [];
   const optionRe = /^\s*(?:[-*]\s*)?([A-Z])[.)]\s+(.+?)\s*$/;
   for (let i = 0; i < lines.length; i++) {
@@ -1065,8 +1315,8 @@ function findCompoundTitle(lines, beforeQuestionIndex) {
 function cleanClaudeLine(line) {
   return String(line || "").trim().replace(/^⏺\s*/, "").trim();
 }
-function findQuestion(text) {
-  const lines = String(text || "").split("\n").map((line) => line.trim()).filter(Boolean);
+function findQuestion(text2) {
+  const lines = String(text2 || "").split("\n").map((line) => line.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (lines[i].endsWith("?")) return lines[i];
   }
@@ -1117,8 +1367,8 @@ function buildWizardSubmitResponse(screen) {
   const parsed = parseClaudeWizardPrompt(screen);
   const steps = [];
   const active = parsed?.sections?.findIndex((section) => section.active) ?? -1;
-  const count = parsed?.sections?.length ?? 0;
-  const moves = active >= 0 && count > active ? count - active : 1;
+  const count2 = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count2 > active ? count2 - active : 1;
   for (let i = 0; i < moves; i++) steps.push("G1tD");
   steps.push("DQ==");
   return steps;
@@ -1132,8 +1382,8 @@ function optionLabel(option) {
   if (option && typeof option === "object") return String(option.label ?? "");
   return "";
 }
-function trimFrame(text) {
-  return String(text || "").replace(/^[\s│┃]+|[\s│┃]+$/g, "");
+function trimFrame(text2) {
+  return String(text2 || "").replace(/^[\s│┃]+|[\s│┃]+$/g, "");
 }
 function isDecline(label) {
   const lower = label.toLowerCase();
@@ -1272,16 +1522,6 @@ function starterPrompt(prompt, hostText) {
   if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return FILE_TASK_PROMPT;
 }
-function xmlTagBody(content, tag) {
-  const open = `<${tag}>`;
-  const close = `</${tag}>`;
-  const start = content.indexOf(open);
-  if (start < 0) return null;
-  const bodyStart = start + open.length;
-  const end = content.indexOf(close, bodyStart);
-  if (end < 0) return null;
-  return content.slice(bodyStart, end).trim();
-}
 function taskNotificationStatus(content) {
   const trimmed = content.trim();
   const start = trimmed.indexOf("<task-notification>");
@@ -1335,8 +1575,8 @@ var plugin = {
     const first = t.charAt(0);
     return isBrailleSpinner(first) && t.length > 2;
   },
-  detectFromOutput(text) {
-    const t = String(text || "");
+  detectFromOutput(text2) {
+    const t = String(text2 || "");
     for (let i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
       if (t.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) return true;
     }
@@ -1350,8 +1590,8 @@ var plugin = {
     }
     return s.indexOf("\u259B") !== -1 || s.indexOf("\u259C") !== -1;
   },
-  isOutputNoise(text) {
-    const trimmed = String(text || "").trim();
+  isOutputNoise(text2) {
+    const trimmed = String(text2 || "").trim();
     if (!trimmed) return true;
     for (let i = 0; i < NOISE_FRAGMENTS.length; i++) {
       if (trimmed.indexOf(NOISE_FRAGMENTS[i]) !== -1) return true;
@@ -1390,8 +1630,8 @@ var plugin = {
     const projectPath = sessionProjectPath(head ?? "");
     return projectPath ? { projectPath } : null;
   },
-  detectEvents(text) {
-    const t = String(text || "");
+  detectEvents(text2) {
+    const t = String(text2 || "");
     const events = [];
     if (parseClaudeWizardPrompt(t)) events.push("permission_request");
     const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
@@ -1416,8 +1656,8 @@ var plugin = {
     }
     return events;
   },
-  parsePrompt(text) {
-    return parseClaudeWizardPrompt(text) || parseClaudeNumberedPrompt(text) || parseClaudeLetteredPrompt(text);
+  parsePrompt(text2) {
+    return parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
   },
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
@@ -1550,9 +1790,9 @@ var plugin = {
     if (!raw.trim()) return null;
     const fetched = parseFetchedClaudeUsage(raw, nowMs);
     if (fetched !== void 0) return fetched;
-    const text = usageNormalize(raw);
-    const session = usageParseBlock(text, "Current session", false, nowMs);
-    const weekly = usageParseBlock(text, "Current week\\s*\\(\\s*all\\s*models\\s*\\)", true, nowMs);
+    const text2 = usageNormalize(raw);
+    const session = usageParseBlock(text2, "Current session", false, nowMs);
+    const weekly = usageParseBlock(text2, "Current week\\s*\\(\\s*all\\s*models\\s*\\)", true, nowMs);
     if (session.pct === null && weekly.pct === null) return null;
     if (!usageBlockIsComplete(session) || !usageBlockIsComplete(weekly)) return null;
     return {
@@ -1571,9 +1811,9 @@ var plugin = {
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
-  parseSessionMessages(text) {
+  parseSessionMessages(text2) {
     const out = [];
-    const lines = String(text || "").split("\n");
+    const lines = String(text2 || "").split("\n");
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -1601,9 +1841,9 @@ var plugin = {
       const msg = v.message;
       if (!msg) continue;
       const content = msg.content;
-      let text2 = "";
+      let text22 = "";
       if (typeof content === "string") {
-        text2 = content;
+        text22 = content;
       } else if (Array.isArray(content)) {
         const chunks = [];
         for (let j = 0; j < content.length; j++) {
@@ -1612,17 +1852,17 @@ var plugin = {
             chunks.push(b.text);
           }
         }
-        text2 = chunks.join(" ");
+        text22 = chunks.join(" ");
       } else {
         continue;
       }
-      if (!text2 || !text2.trim()) continue;
+      if (!text22 || !text22.trim()) continue;
       let ts = null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
-      out.push({ role: msgType, text: text2, ts, isMeta });
+      out.push({ role: msgType, text: text22, ts, isMeta });
     }
     return out;
   },
@@ -1708,8 +1948,11 @@ var plugin = {
         if (!msg) continue;
         const content = msg.content;
         if (typeof content === "string") {
-          const taskStatus = t === "user" ? taskNotificationStatus(content) : null;
-          if (taskStatus) {
+          const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
+          const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
+          if (agentNotice) {
+            blocks.push(agentNotice);
+          } else if (taskStatus) {
             role = "status";
             sourceSubtype = "task_notification";
             blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
@@ -1731,6 +1974,13 @@ var plugin = {
                 data[k] = b[k];
               }
             }
+            if (b.type === "tool_use" && isSubAgentCall(data.name, data.input)) {
+              const agent = subAgentCallBlock(data.id, data.input);
+              if (agent) {
+                blocks.push(agent);
+                continue;
+              }
+            }
             if (b.type === "tool_use") {
               const canonical = canonicalToolFields(
                 typeof data.name === "string" ? data.name : "",
@@ -1749,6 +1999,11 @@ var plugin = {
               delete data.signature;
             }
             if (b.type === "tool_result") {
+              const agent = subAgentLaunchBlock(data.tool_use_id, v.toolUseResult);
+              if (agent) {
+                blocks.push(agent);
+                continue;
+              }
               const outcome = commandOutcome(v.toolUseResult);
               if (outcome) Object.assign(data, outcome);
               const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
@@ -1765,13 +2020,18 @@ var plugin = {
         } else {
           continue;
         }
+        if (blocks.length > 0 && blocks.every(isAgentActivityBlock)) role = "assistant";
       } else if (t === "attachment") {
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
           continue;
         }
-        const taskStatus = att.commandMode === "task-notification" ? taskNotificationStatus(att.prompt) ?? "Task notification" : taskNotificationStatus(att.prompt);
-        if (taskStatus) {
+        const agentNotice = subAgentNotificationBlock(att.prompt, v);
+        const taskStatus = agentNotice ? null : att.commandMode === "task-notification" ? taskNotificationStatus(att.prompt) ?? "Task notification" : taskNotificationStatus(att.prompt);
+        if (agentNotice) {
+          role = "assistant";
+          blocks.push(agentNotice);
+        } else if (taskStatus) {
           role = "status";
           sourceSubtype = "task_notification";
           blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
@@ -1809,6 +2069,9 @@ var plugin = {
   sessionJsonlPath(_cwd, sessionId) {
     if (!sessionId) return null;
     return claudeSessionFilePath(_cwd, sessionId);
+  },
+  sessionUsageSources(sessionFilePath, sessionId) {
+    return subAgentUsageSources(sessionFilePath, sessionId);
   },
   // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
   installBridgeRule(payload) {
@@ -2065,59 +2328,6 @@ var plugin = {
     return detectClaudeLaunchSession(evidence);
   }
 };
-function canonicalToolFields(name, input) {
-  const tool = name.trim();
-  const value = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  const text = (key) => typeof value[key] === "string" ? value[key] : "";
-  const command = text("command");
-  const path = text("file_path") || text("filePath") || text("path");
-  const pattern = text("pattern");
-  const edits = extractCanonicalEdits(value);
-  const lower = tool.toLowerCase();
-  if (lower === "bash" || lower === "shell" || lower === "exec") {
-    return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
-  }
-  if (lower === "edit" || lower === "multiedit" || lower === "write") {
-    return { kind: "edit", summary: path || "File edit", detail: path, edits };
-  }
-  if (lower === "read") {
-    return { kind: "read", summary: path || "Read file", detail: path, edits: [] };
-  }
-  if (lower === "glob" || lower === "grep" || lower === "search") {
-    return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
-  }
-  return {
-    kind: "generic",
-    summary: cleanToolText(tool, "Tool"),
-    detail: tool,
-    edits
-  };
-}
-function toolDescription(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
-  const value = input.description;
-  return typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").trim() : "";
-}
-function extractCanonicalEdits(input) {
-  const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
-  const pair = (value, fallbackPath) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    const item = value;
-    const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
-    const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
-    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
-    const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
-    return { path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
-  };
-  if (Array.isArray(input.edits)) return input.edits.map((edit) => pair(edit, parentPath)).filter((e) => e !== null);
-  const single = pair(input, parentPath);
-  return single ? [single] : [];
-}
-function cleanToolText(value, fallback) {
-  const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
-  if (!text) return fallback;
-  return text.length > 120 ? text.slice(0, 117) + "..." : text;
-}
 function exactSourceIdentity(value) {
   if (typeof value !== "string" || !value || value.trim() !== value) return void 0;
   return value;

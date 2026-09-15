@@ -4,7 +4,8 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { clampFloatingPosition } from "./floatingPosition";
 
 const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
-const MENU_ITEM_SELECTOR = '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled)';
+const MENU_ITEM_SELECTOR =
+  '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
 const MENU_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
 const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 
@@ -25,7 +26,14 @@ export interface DropdownMenuItem {
   title?: string;
   /** Present ⇒ the item is one choice in a set: `menuitemradio` + `aria-checked`. */
   selected?: boolean;
+  /** Present ⇒ an independent on/off item: `menuitemcheckbox` + `aria-checked`. */
+  checked?: boolean;
   "data-testid"?: string;
+}
+
+function menuItemRole(item: DropdownMenuItem): "menuitem" | "menuitemradio" | "menuitemcheckbox" {
+  if (item.checked !== undefined) return "menuitemcheckbox";
+  return item.selected === undefined ? "menuitem" : "menuitemradio";
 }
 
 interface DropdownMenuProps {
@@ -268,8 +276,8 @@ export function DropdownMenu({
             {visibleItems.map((item, i) => (
               <button
                 key={`${item.label}:${i}`}
-                role={item.selected === undefined ? "menuitem" : "menuitemradio"}
-                aria-checked={item.selected}
+                role={menuItemRole(item)}
+                aria-checked={item.checked ?? item.selected}
                 aria-haspopup={item.submenu ? "menu" : undefined}
                 aria-expanded={item.submenu ? activeSubmenu === item.submenu : undefined}
                 data-testid={item["data-testid"]}

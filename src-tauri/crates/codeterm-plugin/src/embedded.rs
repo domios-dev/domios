@@ -174,6 +174,18 @@ mod tests {
         }
     }
 
+    /// The Analytics view is a default core plugin: embedded with its UI and in the trust table.
+    #[test]
+    fn embedded_ships_core_analytics_view() {
+        let plugin = EMBEDDED
+            .get_dir("analytics")
+            .expect("analytics core plugin is embedded");
+        assert!(plugin.get_file("analytics/plugin.json").is_some());
+        assert!(plugin.get_file("analytics/plugin.js").is_some());
+        assert!(plugin.get_file("analytics/ui/index.html").is_some());
+        assert!(system_plugins::lookup("analytics").is_some());
+    }
+
     /// Extracting an embedded plugin produces bytes whose canonical
     /// hash matches the SYSTEM_PLUGIN_HASHES entry — the loader's
     /// trust check works against the embedded fallback by construction.

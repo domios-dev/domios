@@ -81,6 +81,14 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.mem = {
     search: function (opts) { return parseJson(host.memSearch(JSON.stringify(opts))) || { hits: [] }; },
   };
+  // null means the host could not answer; a refusal arrives as an { error } object.
+  host.analytics = {
+    query: function (query) { return parseJson(host.analyticsQuery(JSON.stringify(query || {}))); },
+  };
+  host.receiverTarget = {
+    get:   function () { return parseJson(host.receiverTargetGet()); },
+    clear: function () { return parseJson(host.receiverTargetClear()); },
+  };
   host.workspace = {
     ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
     tabs: function (workspaceId) { return parseJson(host.workspaceTabs(workspaceId)) || []; },

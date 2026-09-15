@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 use crate::agent::status::TabStatus;
@@ -56,7 +59,35 @@ pub(crate) fn try_snapshot_with_reconciled_status(
     }))
 }
 
+/// Blocks until both snapshot locks are free, taken in the snapshot's lock order.
+pub(crate) fn wait_until_snapshot_readable(mux: &MuxState, tracker: &AgentTrackerState) {
+    let _mux = mux.read();
+    let _tracker = tracker.lock();
+}
+
+static SNAPSHOT_RELEASE_WAKE_ARMED: AtomicBool = AtomicBool::new(false);
+
 impl ServiceContext {
+    /// Keeps a refusal's promise of a later state event, including when the
+    /// lock owner itself never emits one (a session save, for example).
+    pub(crate) fn emit_state_changed_when_snapshot_readable(self: &Arc<Self>) {
+        if SNAPSHOT_RELEASE_WAKE_ARMED.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let svc = Arc::clone(self);
+        let spawned = std::thread::Builder::new()
+            .name("mux-release-wake".into())
+            .spawn(move || {
+                wait_until_snapshot_readable(&svc.mux, &svc.agent_tracker);
+                SNAPSHOT_RELEASE_WAKE_ARMED.store(false, Ordering::Release);
+                svc.emit_state_changed();
+            });
+        if let Err(error) = spawned {
+            SNAPSHOT_RELEASE_WAKE_ARMED.store(false, Ordering::Release);
+            log::error!("[events] snapshot release wake spawn failed: {error}");
+        }
+    }
+
     fn reconcile_tab_status(&self, tab: &Tab, raw: TabStatus) -> TabStatus {
         reconcile_tab_status(&self.agent_registry, tab, raw)
     }
@@ -157,5 +188,41 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("an authoritative snapshot refusal must not wait on the mux lock"));
         worker.join().unwrap();
+    }
+
+    #[test]
+    fn snapshot_release_wait_completes_only_after_lifecycle_owner_releases() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (state, _) = MultiplexerState::new();
+        let mux: MuxState = Arc::new(TimedRwLock::new("snapshot-release-wake-test", state));
+        let tracker: AgentTrackerState = Arc::new(TimedMutex::new(
+            "snapshot-release-wake-test",
+            TabStatusTracker::new(),
+        ));
+        let registry = AgentRegistry::new();
+        let lifecycle_owner = mux.write();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (readable_tx, readable_rx) = mpsc::channel();
+        let waiter_mux = mux.clone();
+        let waiter_tracker = tracker.clone();
+        let waiter = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            wait_until_snapshot_readable(&waiter_mux, &waiter_tracker);
+            readable_tx.send(()).unwrap();
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            readable_rx.try_recv().is_err(),
+            "an owned mux must hold the release wake"
+        );
+        drop(lifecycle_owner);
+        readable_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("releasing the lifecycle owner must wake the waiter");
+        waiter.join().unwrap();
+        assert!(try_snapshot_with_reconciled_status(&mux, &tracker, &registry).is_some());
     }
 }
