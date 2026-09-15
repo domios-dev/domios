@@ -3,7 +3,6 @@ import QRCode from "qrcode";
 import { Check, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
-import { IS_WEB, webJson } from "../../lib/webApi";
 import logoUrl from "../../assets/logo.png";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
@@ -22,7 +21,7 @@ import { LiquidTabRail } from "../shared/LiquidTabRail";
 import {
   buildWebAccessUrls,
   planServeSetup,
-  serveSetupTask,
+  startWebAccessSetupHelper,
   webLinkWithToken,
   webLinkWithTokenAndRelay,
   type ServeSetupPlan,
@@ -123,33 +122,14 @@ function WebUiModal({
     }
   }, [config]);
 
-  // Not installed (or native enable failed) → spawn a Claude tab pre-loaded with the setup task and jump into it.
   const spawnSetupChat = useCallback(async () => {
-    const body = {
-      agent: "claude",
-      title: "Set up Web Access",
-      task: serveSetupTask(serve, target.port),
-      activate: true,
-    };
     try {
-      if (IS_WEB) {
-        await webJson("POST", "/api/agents/spawn", body);
-      } else {
-        const host = config.api.host === "0.0.0.0" ? "127.0.0.1" : config.api.host;
-        await fetch(`http://${host}:${config.api.port}/api/agents/spawn`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(config.api.token ? { Authorization: `Bearer ${config.api.token}` } : {}),
-          },
-          body: JSON.stringify(body),
-        });
-      }
+      await startWebAccessSetupHelper(serve, target.port, config.api);
       onExitMesh();
     } catch (e) {
-      setSetupMsg(`Couldn't open setup chat: ${String(e)}`);
+      setSetupMsg(`Couldn't open setup chat: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [serve, target.port, config, onExitMesh]);
+  }, [serve, target.port, config.api, onExitMesh]);
 
   useEffect(() => {
     let cancelled = false;
