@@ -1,20 +1,17 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, Cpu, MessageSquare, Pencil, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
-import { openTelegramThread, TELEGRAM_THREAD_LABELS } from "../Terminal/telegramThreadActions";
-import { pluginTabMenuEntries, runPluginTabMenuItem, usePluginTabMenu } from "../../lib/pluginTabMenu";
+import { ShieldCheck } from "lucide-react";
+import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
-import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
-import { switchTabModel, tabModelEntryLabel, tabModelMenuView } from "./tabModelMenu";
-import { switchTabProvider, tabProviderEntryLabel, tabProviderMenuView } from "./tabProviderMenu";
-import { getTabProviderApi } from "./tabProviderApi";
-import { listAgentDescriptors } from "../../lib/agentDescriptorCache";
-import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescriptorCache";
+import { TabMenu } from "../Terminal/TabMenu";
+import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
+import { performTabMenuAction } from "../Terminal/tabMenuActions";
+import { useTelegramThreadMenu } from "../Terminal/useTelegramThreadMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
-import { PluginIcon } from "../Extensions/PluginIcon";
 import type { Tab, TabStatus } from "../../lib/types";
-import { anchorsTeam, isPlanner, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
+import { anchorsTeam, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { agentBracketLabel, classifyAgentLiveness } from "../../lib/agentLabel";
@@ -29,23 +26,11 @@ import {
   type ActiveWorkSnapshot,
 } from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
-import { canMakeOrchestrator, makeOrchestrator, makePlanner } from "../../lib/orchestratorOnboard";
-import {
-  copyTabSessionId,
-  tabSessionActionView,
-  TAB_SESSION_LABELS,
-  reconnectTabSession,
-  restartTabSession,
-} from "../Terminal/tabSessionActions";
 import { StatusDot } from "./StatusDot";
 import {
   declaredAttentionLabel,
   type DeclaredAttentionLevel,
 } from "./declaredAttention";
-import {
-  orchestratorRecoveryMenuView,
-  replaceOrchestrator,
-} from "./orchestratorRecoveryMenu";
 
 interface TabItemProps {
   tab: Tab;
@@ -249,189 +234,27 @@ function TabItemInner({
   }, [isClosing, closePhase]);
 
   const pluginTabMenu = usePluginTabMenu();
+  const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
+  const menuEntries = useMemo(() => buildTabMenu({
+    tab,
+    surface: "sidebar",
+    status: status ?? null,
+    descriptor,
+    descriptors: listAgentDescriptors(),
+    activity: activity ?? null,
+    orchestrators,
+    canRename: true,
+    canClose,
+    pluginTabMenu,
+    telegramThread: telegramThread.state,
+  }), [activity, canClose, descriptor, orchestrators, pluginTabMenu, status, tab, telegramThread.state]);
 
-  const menuItems: DropdownMenuItem[] = useMemo(() => {
-    const items: DropdownMenuItem[] = [];
-    // Main (the protected GA tab) is the anchor — no rename.
-    if (!tab?.protected) {
-      items.push({
-        label: "Rename",
-        icon: <Pencil size={11} strokeWidth={2} />,
-        onClick: () => { setEditName(canonicalTitle); setEditing(true); },
-      });
-    }
-    if (tab && canMakeOrchestrator(tab)) {
-      items.push({
-        label: "Make Orchestrator",
-        icon: <UserCog size={11} strokeWidth={2} />,
-        onClick: () => { void makeOrchestrator(tab.id); },
-      });
-    }
-    if (
-      tab
-      && activity?.kind === "worker"
-      && !isPlanner(tab)
-    ) {
-      items.push({
-        label: "Make Planner",
-        icon: <UserCog size={11} strokeWidth={2} />,
-        onClick: () => { void makePlanner(tab.id, activity.planId); },
-      });
-    }
-    const modelMenu = tab ? tabModelMenuView(tab, descriptor, status) : null;
-    if (modelMenu) {
-      items.push({
-        label: tabModelEntryLabel(modelMenu),
-        icon: <Cpu size={11} strokeWidth={2} />,
-        disabled: Boolean(modelMenu.blockedReason),
-        title: modelMenu.blockedReason ?? undefined,
-        "data-testid": "tab-menu-model",
-        submenu: {
-          label: tabModelEntryLabel(modelMenu),
-          // The switch is the provider's own in-agent command on the live
-          // session — say so, because the neighbouring entry does restart one.
-          description: `Switches in session — ${providerName} keeps this session and its history.`,
-          items: modelMenu.models.map((model) => ({
-            label: model.display_name,
-            selected: model.id === modelMenu.currentModel?.id,
-            icon: model.id === modelMenu.currentModel?.id
-              ? <Check size={11} strokeWidth={2} />
-              : <span className="w-3 h-3" />,
-            onClick: () => {
-              void switchTabModel(modelMenu, model.id)
-                .catch((error) => console.warn("Model switch failed:", error));
-            },
-            "data-testid": `tab-menu-model-${model.id}`,
-          })),
-        },
-      });
-    }
-    const providerMenu = tab ? tabProviderMenuView(tab, listAgentDescriptors(), status) : null;
-    if (providerMenu) {
-      items.push({
-        label: tabProviderEntryLabel(providerMenu),
-        icon: <Bot size={11} strokeWidth={2} />,
-        disabled: Boolean(providerMenu.blockedReason),
-        title: providerMenu.blockedReason ?? undefined,
-        "data-testid": "tab-menu-provider",
-        submenu: {
-          label: tabProviderEntryLabel(providerMenu),
-          // The neighbouring model entry switches in session; this one does not.
-          description: "Restarts the session — the new provider starts fresh.",
-          items: providerMenu.providers.map((provider) => ({
-            label: provider.display_name,
-            selected: provider.id === providerMenu.currentProviderId,
-            icon: provider.id === providerMenu.currentProviderId
-              ? <Check size={11} strokeWidth={2} />
-              : <span className="w-3 h-3" />,
-            onClick: () => {
-              if (provider.id === providerMenu.currentProviderId) return;
-              void switchTabProvider(getTabProviderApi(), tab.id, provider.id)
-                .catch((error) => console.warn("Provider switch failed:", error));
-            },
-            "data-testid": `tab-menu-provider-${provider.id}`,
-          })),
-        },
-      });
-    }
-    const recoveryMenu = tab
-      ? orchestratorRecoveryMenuView(tab, listAgentDescriptors(), orchestrators)
-      : null;
-    if (recoveryMenu) {
-      items.push({
-        label: "Replace Orchestrator",
-        icon: <UserCog size={11} strokeWidth={2} />,
-        "data-testid": "tab-menu-replace-orchestrator",
-        submenu: {
-          label: "Replace Orchestrator",
-          description: "Starts a new Team owner without resuming this session.",
-          items: recoveryMenu.providers.map((candidate) => ({
-            label: candidate.display_name,
-            icon: <Bot size={11} strokeWidth={2} />,
-            onClick: () => {
-              void replaceOrchestrator(recoveryMenu, candidate.id)
-                .catch((error) => console.warn("Orchestrator replacement failed:", error));
-            },
-            "data-testid": `tab-menu-replace-orchestrator-${candidate.id}`,
-          })),
-        },
-      });
-    }
-    const sessionActions = tab ? tabSessionActionView(tab) : null;
-    if (tab && sessionActions?.canReconnect) {
-      items.push({
-        label: TAB_SESSION_LABELS.reconnect,
-        icon: <RefreshCw size={11} strokeWidth={2} />,
-        onClick: () => { void reconnectTabSession(tab.id).catch((error) => console.warn("Reconnect failed:", error)); },
-      });
-    }
-    if (tab && sessionActions?.canRestart) {
-      items.push({
-        label: TAB_SESSION_LABELS.restart,
-        icon: <RotateCcw size={11} strokeWidth={2} />,
-        onClick: () => { void restartTabSession(tab.id).catch((error) => console.warn("Restart failed:", error)); },
-        "data-testid": "tab-menu-restart-session",
-      });
-    }
-    // Plugin contributions: host-owned actions on local tabs only; a peer's tab has no local binding.
-    if (tab && !tab.remote_peer_id) {
-      for (const entry of pluginTabMenuEntries(pluginTabMenu, tab.id)) {
-        items.push({
-          label: entry.label,
-          icon: <PluginIcon plugin={{ icon_svg: entry.iconSvg, icon_color: entry.iconColor }} size={11} />,
-          checked: entry.checked,
-          onClick: () => {
-            void runPluginTabMenuItem(entry, tab.id)
-              .catch((error) => console.warn("Plugin tab action failed:", error));
-          },
-          "data-testid": `tab-menu-plugin-${entry.pluginId}-${entry.itemId}`,
-        });
-      }
-      items.push({
-        label: TELEGRAM_THREAD_LABELS.open,
-        icon: <MessageSquare size={11} strokeWidth={2} />,
-        onClick: () => {
-          void openTelegramThread(tab.id).catch((error) => console.warn("Connect Telegram failed:", error));
-        },
-        "data-testid": "tab-menu-telegram-connect",
-      });
-    }
-    if (canClose && !tab?.protected) {
-      items.push({
-        label: hasAgent ? "Close Session" : "Close Tab",
-        icon: <X size={11} strokeWidth={2} />,
-        onClick: onClose,
-        danger: true,
-        "data-testid": "tab-menu-close",
-      });
-    }
-    return items;
-  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, orchestrators, pluginTabMenu, providerName, status]);
-
-  const sessionActions = tab ? tabSessionActionView(tab) : null;
-  const sessionId = sessionActions?.sessionId ?? null;
-  const sessionHeader = sessionActions?.canReconnect ? (
-    <div className="mx-1 mb-1 flex min-w-48 items-center gap-1 border-b border-[var(--ct-border)] px-2 pb-1.5 pt-0.5">
-      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[var(--ct-muted-fg)]" title={sessionId ?? "Session ID is not available yet"}>
-        {sessionId ?? "ID not available yet"}
-      </span>
-      <button
-        type="button"
-        role="menuitem"
-        data-testid="tab-menu-copy-session-id"
-        aria-label={TAB_SESSION_LABELS.copy}
-        title={TAB_SESSION_LABELS.copy}
-        disabled={!sessionId}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (sessionId) void copyTabSessionId(sessionId).catch((error) => console.warn("Copy failed:", error));
-        }}
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:cursor-not-allowed disabled:opacity-35"
-      >
-        <Copy size={12} />
-      </button>
-    </div>
-  ) : null;
+  const runMenuAction = (action: TabMenuAction) => {
+    performTabMenuAction(tab.id, action, {
+      rename: () => { setEditName(canonicalTitle); setEditing(true); },
+      close: onClose,
+    }).catch((error) => console.warn("Tab action failed:", error));
+  };
 
   const animClass = isClosing
     ? closePhase === 2
@@ -605,12 +428,14 @@ function TabItemInner({
         {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
         ) : null}
-        {menuItems.length > 0 && (
-          <DropdownMenu
-            items={menuItems}
-            header={sessionHeader}
+        {menuEntries.length > 0 && (
+          <TabMenu
+            entries={menuEntries}
+            onAction={runMenuAction}
+            onOpenChange={(open) => {
+              if (open) telegramThread.refresh();
+            }}
             contextMenuTargetRef={tabRef}
-            menuLabel="Tab actions"
             className={
               touchMode
                 ? "flex h-11 w-11 items-center justify-center"
