@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, finish, it } from "../test/standaloneTest";
-import { agentBracketLabel, classifyAgentLiveness, type AgentLiveness } from "./agentLabel";
+import {
+  agentBadgeLabel,
+  agentBracketLabel,
+  agentModelForBadge,
+  classifyAgentLiveness,
+  type AgentLiveness,
+} from "./agentLabel";
 import { shortModelName } from "./agentModelName";
 
 interface LabelRow {
@@ -180,6 +186,51 @@ describe("agentBracketLabel", () => {
     const tab = { agent_type: "lmstudio", agent_session_model: "mystery-local-build" };
     expect(agentBracketLabel(tab.agent_type, tab.agent_session_model, "live")).toBe("lmstudio");
     expect(tab.agent_session_model).toBe("mystery-local-build");
+  });
+});
+
+describe("model_badge model evidence", () => {
+  it("model_badge_prefers the current session over launch provenance", () => {
+    expect(
+      agentBadgeLabel(
+        "claude",
+        { sessionModel: "opus", providerResolvedModel: "sonnet", requestedModel: "haiku" },
+        "live",
+      ),
+    ).toBe("opus");
+  });
+
+  it("model_badge_uses the own resolved model while binding is pending", () => {
+    const evidence = { sessionModel: null, providerResolvedModel: "opus", requestedModel: "sonnet" };
+    expect(agentModelForBadge(evidence)).toBe("opus");
+    expect(agentBadgeLabel("claude", evidence, "live")).toBe("opus");
+  });
+
+  it("model_badge_uses the own request when resolution has not completed", () => {
+    const evidence = { sessionModel: null, providerResolvedModel: null, requestedModel: "gpt-5.5" };
+    expect(agentBadgeLabel("codex", evidence, "unobserved")).toBe("gpt 5.5?");
+  });
+
+  it("model_badge_falls back to the provider for an invalid current session model", () => {
+    const evidence = { sessionModel: "unknown-local-build", providerResolvedModel: "opus" };
+    expect(agentBadgeLabel("claude", evidence, "live")).toBe("claude");
+  });
+
+  it("model_badge_preserves liveness suffix across startup order variants", () => {
+    for (const evidence of [
+      { sessionModel: null, providerResolvedModel: "opus" },
+      { sessionModel: "opus", providerResolvedModel: "opus" },
+    ]) {
+      expect(agentBadgeLabel("claude", evidence, "unobserved")).toBe("opus?");
+      expect(agentBadgeLabel("claude", evidence, "absent")).toBe("opus!");
+    }
+  });
+
+  it("model_badge_does_not borrow another tab's model evidence", () => {
+    const firstTab = { sessionModel: "opus", providerResolvedModel: null };
+    const secondTab = { sessionModel: null, providerResolvedModel: "sonnet" };
+    expect(agentBadgeLabel("claude", firstTab, "live")).toBe("opus");
+    expect(agentBadgeLabel("claude", secondTab, "live")).toBe("sonnet");
   });
 });
 

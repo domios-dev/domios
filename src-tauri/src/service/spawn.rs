@@ -517,6 +517,14 @@ impl ServiceContext {
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);
         })?;
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+            persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
+            super::reasoning_effort::persist_launch_identity(
+                tab,
+                agent.planned_reasoning_effort.as_deref(),
+                agent.reasoning_effort.as_deref(),
+            );
+        }
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -529,14 +537,6 @@ impl ServiceContext {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
-        }
-        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
-            persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
-            super::reasoning_effort::persist_launch_identity(
-                tab,
-                agent.planned_reasoning_effort.as_deref(),
-                agent.reasoning_effort.as_deref(),
-            );
         }
         self.emit_state_changed();
 
