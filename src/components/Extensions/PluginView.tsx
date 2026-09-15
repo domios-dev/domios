@@ -64,10 +64,12 @@ export function PluginView({
       if (alive && event.payload.kind === `plugin_view:${pluginId}`) {
         setReloadNonce((n) => n + 1);
       }
-    }).then((fn) => {
-      if (alive) unlisten = fn;
-      else fn();
-    });
+    })
+      .then((fn) => {
+        if (alive) unlisten = fn;
+        else fn();
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
       unlisten?.();
