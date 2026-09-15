@@ -59,6 +59,15 @@ void brokenBackend;
 
 const msg: NormalizedChatMessage = { id: "1", type: "assistant", content: "hi" };
 void msg;
+const pluginInbound: NormalizedChatMessage = {
+  id: "plugin-1",
+  type: "user",
+  content: "hello",
+  inboundKind: "plugin",
+  fromPlugin: "pebble",
+  pluginIconSvg: "<svg />",
+};
+void pluginInbound;
 const polled: NormalizedChatMessage[] = backend.poll("s").messages;
 void polled;
 
@@ -213,6 +222,7 @@ const receiverMenu: TabMenuContribution = {
   id: "receiver-target",
   label: "Receive events here",
   action: "receiverTarget",
+  icon: "icon.svg",
 };
 void receiverMenu;
 // @ts-expect-error tab menu actions are a closed host-owned set

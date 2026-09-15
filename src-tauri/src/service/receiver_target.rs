@@ -132,6 +132,8 @@ pub struct TabMenuEntry {
     pub item_id: String,
     pub label: String,
     pub action: TabMenuAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -322,6 +324,7 @@ impl ServiceContext {
                         item_id: item.id.clone(),
                         label: item.label.clone(),
                         action: item.action,
+                        icon_svg: item.icon_svg.clone(),
                     })
                     .collect::<Vec<_>>()
             })

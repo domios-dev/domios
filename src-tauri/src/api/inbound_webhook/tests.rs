@@ -16,6 +16,7 @@ use crate::service::pty_io::SendBatchItem;
 const SECRET: &str = "shared-secret";
 const GENERAL: &str = "general-tab";
 const BOUND: &str = "bound-tab";
+const ICON: &str = "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>";
 
 #[derive(Clone)]
 enum Outcome {
@@ -52,6 +53,10 @@ impl WebhookReceiver for ScriptedReceiver {
 
     fn kind(&self) -> WebhookReceiverKind {
         WebhookReceiverKind::Pebble
+    }
+
+    fn icon_svg(&self) -> Option<&str> {
+        Some(ICON)
     }
 
     fn receive(
@@ -385,6 +390,7 @@ async fn delivery_reaches_the_general_agent_once_as_a_pebble_event() {
     assert_eq!(target, GENERAL);
     let marker = crate::message_markers::parse_host_injected(wrapped).expect("leading marker");
     assert_eq!(marker.kind, "pebble");
+    assert_eq!(marker.attr("plugin"), Some("pebble"));
     assert_eq!(marker.attr("trust"), None);
     assert!(wrapped.ends_with("\nFocus mode enabled"));
 }

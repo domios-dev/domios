@@ -330,7 +330,10 @@ fn receive_and_deliver<S: DeliverySeam>(
             OutboundMessage {
                 target,
                 body: MessageBody::Text { body: text },
-                envelope: Some(MessageEnvelope::pebble()),
+                envelope: Some(MessageEnvelope::plugin(
+                    receiver.id(),
+                    receiver.icon_svg().map(str::to_string),
+                )),
                 class: DeliveryClass::SystemNotice,
                 origin: MessageOrigin::ServiceToken,
                 idempotency_key,

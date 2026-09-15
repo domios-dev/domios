@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, Cpu, Pencil, Plug, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
+import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
 import { pluginTabMenuEntries, runPluginTabMenuItem, usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
@@ -11,6 +11,7 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
+import { PluginIcon } from "../Extensions/PluginIcon";
 import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isPlanner, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -376,7 +377,7 @@ function TabItemInner({
       for (const entry of pluginTabMenuEntries(pluginTabMenu, tab.id)) {
         items.push({
           label: entry.label,
-          icon: <Plug size={11} strokeWidth={2} />,
+          icon: <PluginIcon plugin={{ icon_svg: entry.iconSvg }} size={11} />,
           checked: entry.checked,
           onClick: () => {
             void runPluginTabMenuItem(entry, tab.id)

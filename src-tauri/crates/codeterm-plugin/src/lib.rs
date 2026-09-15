@@ -18,6 +18,7 @@ pub mod jsonl_window;
 pub mod model_catalog;
 pub mod permission_prompt;
 pub mod plugin_manager;
+pub mod plugin_icon;
 pub mod prompt;
 pub mod prompts;
 pub mod provider;

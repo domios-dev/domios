@@ -10,8 +10,6 @@ const STATUSES = new Set<PluginActivityStatus>(["running", "done", "error"]);
 export interface PluginActivityDisplay {
   displayName: string;
   iconSvg?: string | null;
-  iconColor?: string | null;
-  iconHint?: string | null;
 }
 
 export type PluginActivityDisplayMap = Map<string, PluginActivityDisplay>;
@@ -20,8 +18,6 @@ interface SnapshotPlugin {
   id?: string | null;
   display_name?: string | null;
   icon_svg?: string | null;
-  icon_color?: string | null;
-  icon_hint?: string | null;
 }
 
 interface PluginSnapshot {
@@ -65,8 +61,6 @@ export function buildPluginActivityDisplayMap(snapshot: PluginSnapshot | null | 
     map.set(plugin.id, {
       displayName: plugin.display_name || plugin.id,
       iconSvg: plugin.icon_svg ?? null,
-      iconColor: plugin.icon_color ?? null,
-      iconHint: plugin.icon_hint ?? null,
     });
   };
 
@@ -173,8 +167,6 @@ function pluginActivityToast(
     title: display.displayName,
     body: activity.label,
     icon_svg: display.iconSvg ?? null,
-    icon_color: display.iconColor ?? null,
-    icon_hint: display.iconHint ?? null,
     severity: "Info",
     level: "verbose",
     sticky: true,

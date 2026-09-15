@@ -46,7 +46,7 @@ drop unsuitable for direct import into the playground.
 | --- | --- | --- |
 | `assets/logo.png` | **Byte-identical; safe reference only.** | SHA-256 `e81e4be187c12379d0788c200e16b692eed0964142b288c6e5eb679a842e9589`, identical to `src/assets/logo.png`. Do not duplicate it. |
 | `assets/icon.svg` | Not an app asset. | SHA-256 `5f5794d8…`; generic Bitwarden-style shield markup. |
-| `assets/icons/{bitwarden,chat-preprocessor,git,lmstudio,transcriber}.svg` | **Not byte-accurate to anything in this repository or `plugins/`.** | Repo plugin icons are runtime `iconSvg` manifest fields (for example `plugins/chat-preprocessor/plugin.json`), not these files. The drop uses generic/common SVG paths (shield, sparkles, git graph, robot, microphone), so they could readily be inferred from plugin ids or generated from an icon library. Provenance is unverified. |
+| `assets/icons/{bitwarden,chat-preprocessor,git,lmstudio,transcriber}.svg` | **Not byte-accurate to anything in this repository or `plugins/`.** | Repo plugin icons are shipped `icon.svg` assets referenced by their manifests (for example `plugins/provider-claude/plugin.json`), not these files. The drop uses generic/common SVG paths (shield, sparkles, git graph, robot, microphone), so they could readily be inferred from plugin ids or generated from an icon library. Provenance is unverified. |
 
 ## Salvage and discard
 
@@ -57,8 +57,8 @@ added, derive `Button` from `src/components/shared/Button.tsx` and loading from
 `BusyState.tsx`, without self-injected CSS or static theme blocks.
 
 **Discard:** `tokens/themes.css`, `tokens/fonts.css`, semantic recipes, all
-direct-import JSX components, phase dots, and all extension icon assets. The
+direct-import JSX components, phase dots, and the drop's extension icon assets. The
 highest risks are runtime-theme override, invented Git-specific UI, lost
 accessibility/interaction behavior, and unproven icon provenance.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

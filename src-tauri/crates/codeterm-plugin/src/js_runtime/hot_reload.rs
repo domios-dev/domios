@@ -108,10 +108,11 @@ impl CapabilityRegistries {
         if let Some(receiver) = &caps.webhook_receiver {
             self.webhook_receiver.register(
                 id.clone(),
-                Arc::new(super::JsWebhookReceiver::new(
+                Arc::new(super::JsWebhookReceiver::with_icon(
                     vm.clone(),
                     id.clone(),
                     receiver.kind,
+                    manifest.icon_svg.clone(),
                 )),
             );
         }
