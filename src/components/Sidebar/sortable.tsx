@@ -36,6 +36,12 @@ export const POINTER_DRAG_ACTIVATION_DISTANCE = 4;
 export const WS_PREFIX = "ws:";
 export const TAB_PREFIX = "tab:";
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.matches("input, textarea, select, [contenteditable]")
+    || target.closest("input, textarea, select, [contenteditable]") !== null;
+}
+
 /** Strip the type prefix off a sortable id, yielding the raw backend id. */
 export function rawId(prefixed: string): string {
   const idx = prefixed.indexOf(":");
@@ -90,6 +96,10 @@ export function SortableRow({
       }}
       {...attributes}
       {...listeners}
+      onKeyDown={(event) => {
+        if (isEditableTarget(event.target)) return;
+        listeners?.onKeyDown?.(event);
+      }}
     >
       {children}
     </div>
