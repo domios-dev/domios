@@ -44,7 +44,7 @@ Tomorrow: the mesh becomes a **unified fabric** where:
 
 ## Plugins
 
-Core stays small: PTY, multiplexer, mesh transport, plugin host. Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. Provider/plugin architecture: `essences/contributing/architecture.md`.
+Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/CORE.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. Provider/plugin architecture: `essences/contributing/architecture.md`.
 
 ## Future capabilities
 
@@ -61,3 +61,5 @@ Core stays small: PTY, multiplexer, mesh transport, plugin host. Features — ag
 5. **Distributed-first** — every feature should work across mesh, not just locally
 6. **Terminal-native** — the terminal is the universal interface; don't fight it, enhance it
 7. **Progressive capability** — works standalone, gets better with mesh, gets smarter with memory
+
+<!-- revision: 1 -->
