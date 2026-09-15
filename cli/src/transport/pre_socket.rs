@@ -64,6 +64,11 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
             None
         }
 
+        Commands::EssenceMap { action } => {
+            cmd::essence_map::handle(json, action);
+            None
+        }
+
         // `docs` reads embedded markdown — no daemon dependency.
         Commands::Docs { name } => {
             cmd::docs::handle(name);

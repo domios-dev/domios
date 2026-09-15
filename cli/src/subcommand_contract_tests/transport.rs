@@ -51,6 +51,15 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ),
     ),
     (
+        "essence-map",
+        &["codeterm", "essence-map", "validate"],
+        Local::PreSocket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported(
+            "essence-map is local-only — it reads the repository's source essences",
+        ),
+    ),
+    (
         "workspace",
         &["codeterm", "workspace", "list"],
         Local::Socket,
@@ -381,7 +390,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 16, "unsupported command count changed");
+    assert_eq!(checked, 17, "unsupported command count changed");
 }
 
 #[test]
