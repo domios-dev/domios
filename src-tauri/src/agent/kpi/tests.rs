@@ -81,6 +81,7 @@ fn scripted_orchestrator_worker_exchange_writes_the_expected_event_sequence() {
             output: 204,
         },
         1_700_000_006,
+        "usage:response:msg_scripted:req_scripted".into(),
     ));
 
     recorder.drain();
@@ -251,8 +252,8 @@ const SIDECHAIN_FIXTURE: &str = include_str!(
 );
 
 /// A sub-agent transcript is its own usage source: each file keeps its own cursor, both
-/// land on the same tab, plan and workspace, and a second pass appends nothing. The
-/// parent's async launch result and task notification carry no ledger usage of their own.
+/// land on the same tab, plan and workspace, and a second pass appends nothing. Its seven
+/// usage lines are three streamed responses, so it records three turns.
 #[test]
 fn sidechain_usage_is_ingested_once_beside_the_main_session() {
     let dir = scratch("sidechain");
@@ -275,11 +276,7 @@ fn sidechain_usage_is_ingested_once_beside_the_main_session() {
     }
 
     let rows = ledger.list_all().unwrap();
-    assert_eq!(
-        rows.len(),
-        1 + 7,
-        "one parent turn plus seven sidechain turns"
-    );
+    assert_eq!(rows.len(), 1 + 3);
     let tokens: Vec<_> = rows.iter().filter_map(|r| r.tokens).collect();
     let totals = (
         tokens.iter().map(|t| t.input).sum::<u64>(),
@@ -287,8 +284,8 @@ fn sidechain_usage_is_ingested_once_beside_the_main_session() {
         tokens.iter().map(|t| t.output).sum::<u64>(),
     );
     // Parent: 2 fresh + 76 cache write, 116_217 cache read, 544 output.
-    // Sidechain: 60 fresh + 82_964 cache write, 185_437 cache read, 1_008 output.
-    assert_eq!(totals, (116_295 + 268_461, 78 + 83_024, 544 + 1_008));
+    // Sidechain, largest line per response: 26 fresh + 40_534 cache write, 74_554 cache read, 838 output.
+    assert_eq!(totals, (116_295 + 115_114, 78 + 40_560, 544 + 838));
     for row in &rows {
         assert_eq!(row.tab_id, "tab-worker");
         assert_eq!(row.plan_id.as_deref(), Some("pl_dwojf1"));

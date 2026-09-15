@@ -7,8 +7,10 @@ use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender};
 use std::sync::{Arc, OnceLock};
 
 use super::attribution::KpiAttribution;
-use super::usage::{UsageIngestor, UsageSource};
-use crate::agent::kpi_ledger::{KpiEventInput, KpiLedger};
+use super::usage::{UsageCursor, UsageIngestor, UsageRecord, UsageSource};
+use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, KpiLedger, UsageRebuildOutcome};
+
+type RebuildReply = SyncSender<Result<UsageRebuildOutcome, String>>;
 
 enum KpiCommand {
     Event(KpiEventInput),
@@ -16,6 +18,7 @@ enum KpiCommand {
         source: UsageSource,
         attribution: Box<KpiAttribution>,
     },
+    RebuildUsage(RebuildReply),
     Drain(SyncSender<()>),
 }
 
@@ -104,6 +107,14 @@ impl KpiRecorder {
                                     &mut committed,
                                 );
                             }
+                            KpiCommand::RebuildUsage(reply) => {
+                                flush(&ledger, &mut pending, &mut committed);
+                                let outcome = super::rebuild::rebuild_usage(&ledger, &mut ingestor);
+                                if let Ok(outcome) = &outcome {
+                                    committed.touch(outcome.plans.iter().cloned());
+                                }
+                                let _ = reply.send(outcome);
+                            }
                             KpiCommand::Drain(ack) => {
                                 flush(&ledger, &mut pending, &mut committed);
                                 committed.notify(&listener);
@@ -159,6 +170,21 @@ impl KpiRecorder {
         }
     }
 
+    /// Blocks until the ledger thread has re-derived the token rows of every recorded source.
+    pub fn rebuild_usage(&self) -> Result<UsageRebuildOutcome, String> {
+        let Some(inner) = &self.inner else {
+            return Err("kpi ledger is not recording".to_string());
+        };
+        let (reply_tx, reply_rx) = sync_channel(1);
+        inner
+            .tx
+            .send(KpiCommand::RebuildUsage(reply_tx))
+            .map_err(|_| "kpi ledger thread stopped".to_string())?;
+        reply_rx
+            .recv()
+            .map_err(|_| "kpi ledger thread stopped".to_string())?
+    }
+
     /// Blocks until every command queued before this call has been applied. The ack is an
     /// explicit ordering signal on the same FIFO channel, not a timed wait.
     pub fn drain(&self) {
@@ -181,6 +207,11 @@ impl Committed {
         self.wrote |= !events.is_empty();
         self.plans
             .extend(events.iter().filter_map(|event| event.plan_id.clone()));
+    }
+
+    fn touch(&mut self, plans: impl IntoIterator<Item = String>) {
+        self.wrote = true;
+        self.plans.extend(plans);
     }
 
     fn notify(&mut self, listener: &OnceLock<CommitListener>) {
@@ -214,14 +245,24 @@ fn flush(ledger: &KpiLedger, pending: &mut Vec<KpiEventInput>, committed: &mut C
 /// current process — without this, a daemon restart re-reads every session file from
 /// byte/rowid zero and re-inserts every already-recorded row.
 fn seed_cursor_from_ledger(ledger: &KpiLedger, ingestor: &mut UsageIngestor, source: &UsageSource) {
-    if ingestor.cursor_offset(source).is_some() {
+    if ingestor.cursor(source).is_some() {
         return;
     }
     let path = source.path.to_string_lossy();
     match ledger.load_usage_cursor(&path) {
-        Ok(Some(offset)) => ingestor.seed_cursor(source, offset),
+        Ok(Some(state)) => ingestor.seed_cursor(source, UsageCursor::from_persisted(state)),
         Ok(None) => {}
         Err(e) => log::warn!("[kpi] usage cursor load {} failed: {}", path, e),
+    }
+}
+
+fn usage_event(attribution: &KpiAttribution, record: &UsageRecord) -> KpiEventInput {
+    match record.tokens {
+        Some(tokens) => attribution.token_event_at(tokens, record.timestamp, record.key.clone()),
+        None => KpiEventInput {
+            dedup_key: Some(record.key.clone()),
+            ..attribution.event_at(KpiEventKind::Compaction, 0, record.timestamp)
+        },
     }
 }
 
@@ -233,7 +274,7 @@ fn ingest_into_ledger(
     committed: &mut Committed,
 ) {
     seed_cursor_from_ledger(ledger, ingestor, source);
-    let offset_before = ingestor.cursor_offset(source);
+    let cursor_before = ingestor.cursor(source);
     let batch = match ingestor.ingest(source) {
         Ok(batch) => batch,
         Err(e) => {
@@ -241,8 +282,8 @@ fn ingest_into_ledger(
             return;
         }
     };
-    let new_offset = ingestor.cursor_offset(source).unwrap_or_default();
-    if batch.is_empty() && offset_before == Some(new_offset) {
+    let cursor = ingestor.cursor(source).unwrap_or_default();
+    if batch.is_empty() && cursor_before == Some(cursor) {
         return;
     }
     // The cursor commits past every byte this pass read, so consumed but unrecorded
@@ -264,16 +305,9 @@ fn ingest_into_ledger(
     let events: Vec<KpiEventInput> = batch
         .records
         .iter()
-        .map(|record| match record.tokens {
-            Some(tokens) => attribution.token_event_at(tokens, record.timestamp),
-            None => attribution.event_at(
-                crate::agent::kpi_ledger::KpiEventKind::Compaction,
-                0,
-                record.timestamp,
-            ),
-        })
+        .map(|record| usage_event(attribution, record))
         .collect();
-    match ledger.insert_usage_batch(&events, &source.path.to_string_lossy(), new_offset) {
+    match ledger.insert_usage_batch(&events, &source.path.to_string_lossy(), cursor.persisted()) {
         Ok(()) => committed.record(&events),
         Err(e) => log::warn!("[kpi] usage insert failed: {}", e),
     }

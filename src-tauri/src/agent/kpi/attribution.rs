@@ -106,9 +106,16 @@ impl KpiAttribution {
         }
     }
 
-    pub fn token_event_at(&self, tokens: TokenCounts, timestamp: u64) -> KpiEventInput {
+    /// `response_key` names the provider response; the ledger keeps one row per key.
+    pub fn token_event_at(
+        &self,
+        tokens: TokenCounts,
+        timestamp: u64,
+        response_key: String,
+    ) -> KpiEventInput {
         KpiEventInput {
             tokens: Some(tokens),
+            dedup_key: Some(response_key),
             ..self
                 .clone()
                 .into_event_at(KpiEventKind::TokenUsage, tokens.total(), timestamp)

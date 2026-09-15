@@ -977,6 +977,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/usage/projection", get(usage_routes::usage_projection))
         .route("/api/usage/refresh", post(usage_routes::usage_refresh))
         .route(
+            "/api/usage/ledger/rebuild",
+            post(usage_routes::usage_ledger_rebuild),
+        )
+        .route(
             "/api/logs",
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );

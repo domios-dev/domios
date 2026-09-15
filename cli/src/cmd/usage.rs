@@ -27,6 +27,26 @@ pub fn handle_usage(
             );
             get_json(http, &url, token, json_mode, render_projection);
         }
+        UsageAction::RebuildLedger => {
+            let mut req = http
+                .post(format!("{}/api/usage/ledger/rebuild", base))
+                .json(&serde_json::json!({}));
+            if let Some(t) = token {
+                req = req.header("Authorization", format!("Bearer {}", t));
+            }
+            match req
+                .send()
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.json::<serde_json::Value>())
+            {
+                Ok(v) if json_mode => println!("{}", serde_json::to_string(&v).unwrap_or_default()),
+                Ok(v) => render_rebuild(&v),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         UsageAction::Refresh {
             provider,
             account_id,
@@ -116,6 +136,18 @@ fn render_latest(v: &serde_json::Value) {
     let week_reset = v.get("weekly_resets_at").and_then(|x| x.as_i64());
     println!("session: {}  reset {}", fmt_pct(sess), fmt_ts(sess_reset));
     println!("weekly:  {}  reset {}", fmt_pct(week), fmt_ts(week_reset));
+}
+
+fn render_rebuild(v: &serde_json::Value) {
+    let count = |key: &str| v.get(key).and_then(|x| x.as_u64()).unwrap_or(0);
+    println!(
+        "rebuilt {} sources: {} responses, {} line-counted rows replaced, {} unattributed, {} missing sources",
+        count("sources"),
+        count("responses"),
+        count("legacy_rows_removed"),
+        count("unattributed_responses"),
+        count("missing_sources")
+    );
 }
 
 fn render_projection(v: &serde_json::Value) {
