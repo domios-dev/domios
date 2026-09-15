@@ -343,7 +343,7 @@ describe("mission control board panels", () => {
     await unmount();
   });
 
-  it("opens on the spend, models and plan row with Needs you under it and the log last", async () => {
+  it("opens on the spend, models and plan row with the log under it when nothing needs the owner", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
     expect(host.querySelector('[data-testid="plan-board-status"]')).toBeNull();
@@ -352,7 +352,6 @@ describe("mission control board panels", () => {
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
       "mc-board-row",
-      "mc-board-needs-you",
       "mc-board-event-log",
     ]);
     const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
@@ -364,26 +363,6 @@ describe("mission control board panels", () => {
     for (const removed of ["mc-board-progress", "mc-board-areas-toggle", "mc-board-spend-table", "mc-board-plan-turns"]) {
       expect(host.querySelector(`[data-testid="${removed}"]`)).toBeNull();
     }
-    await unmount();
-  });
-
-  it("asks for every open gate and held review in one Needs you panel", async () => {
-    const { host, unmount } = await render(board(recordingState()));
-
-    const items = Array.from(host.querySelectorAll('[data-testid="mc-board-needs-you-item"]')) as HTMLElement[];
-    expect(
-      items.map((item) => [item.getAttribute("data-kind"), item.querySelector(".mc-board-needs-title")?.textContent]),
-    ).toEqual([
-      ["gate", "Ship the migration now?"],
-      ["review", "Land the wave"],
-      ["review", "Triage backlog"],
-    ]);
-    const facts = (item: HTMLElement) =>
-      Array.from(item.querySelectorAll(".mc-board-fact")).map((fact) => fact.textContent);
-    expect(facts(items[0]!)).toEqual(["decision gate", "waiting 2 h", "blocks 2 tasks"]);
-    expect(facts(items[1]!)).toEqual(["review held", "waiting 1 h 07 m", "5 verdicts"]);
-    expect(text(host, "mc-board-needs-you-count")).toBe("3");
-    expect(text(host, "mc-board-needs-you")).not.toContain("·");
     await unmount();
   });
 
@@ -549,32 +528,6 @@ describe("mission control board panels", () => {
       expect(spend).not.toContain(banned);
     }
     expect(host.querySelector('[data-testid="mc-board-spend-gauge"]')).toBeNull();
-    await unmount();
-  });
-
-  it("caps Needs you at three items behind Show all", async () => {
-    const state = recordingState();
-    state.held.held_reviews = [];
-    state.held.open_gates = Array.from({ length: 5 }, (_, index) => ({
-      id: `g${index}`,
-      question: `Question ${index}?`,
-      status: "open" as const,
-      asked_at: NOW - H,
-      age_ms: H,
-      blocking_task_count: 0,
-      tab_id: null,
-    }));
-    const { host, unmount } = await render(board(state));
-
-    const items = () => host.querySelectorAll('[data-testid="mc-board-needs-you-item"]');
-    expect(items()).toHaveLength(3);
-    expect(text(host, "mc-board-needs-you-count")).toBe("5");
-    const more = host.querySelector('[data-testid="mc-board-needs-you-more"]') as HTMLButtonElement;
-    expect(more.textContent).toBe("Show all 5");
-    expect(more.getAttribute("aria-expanded")).toBe("false");
-    await act(async () => more.click());
-    expect(items()).toHaveLength(5);
-    expect(more.textContent).toBe("Show fewer");
     await unmount();
   });
 
@@ -754,6 +707,31 @@ describe("mission control board panels", () => {
     ]);
     await act(async () => (refs[0] as HTMLButtonElement).click());
     expect(onOpenTask).toHaveBeenCalledWith("task_render1");
+    await unmount();
+  });
+
+  it.each([
+    { planning_state: "drafting" as const, label: "Draft · Drafting" },
+    { planning_state: "structure_ready" as const, label: "Draft · Structure ready" },
+  ])("marks a $planning_state plan in the Plan box as a draft", async ({ planning_state, label }) => {
+    const draft: Plan = { ...PLAN, mode: "planning", planning_state };
+    const { host, unmount } = await render(
+      <MissionControlBoard plan={draft} state={boardState(recordingState())} now={NOW} />,
+    );
+    const marker = host.querySelector('[data-testid="mc-board-plan"] [data-testid="mc-board-plan-draft"]');
+    expect(marker?.textContent).toBe(label);
+    expect(marker?.getAttribute("data-planning-state")).toBe(planning_state);
+    expect(text(host, "mc-board-plan-heading")).toBe(draft.title);
+    await unmount();
+  });
+
+  it("shows no draft marker once the plan is approved", async () => {
+    const approved: Plan = { ...PLAN, mode: "approved", planning_state: "approved" };
+    const { host, unmount } = await render(
+      <MissionControlBoard plan={approved} state={boardState(recordingState())} now={NOW} />,
+    );
+    expect(host.querySelector('[data-testid="mc-board-plan-draft"]')).toBeNull();
+    expect(text(host, "mc-board-plan-heading")).toBe(approved.title);
     await unmount();
   });
 });

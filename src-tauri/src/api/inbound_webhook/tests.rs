@@ -346,7 +346,7 @@ async fn oversized_or_non_json_bodies_never_reach_the_plugin() {
 }
 
 #[tokio::test]
-async fn delivery_reaches_the_general_agent_once_as_an_untrusted_pebble_event() {
+async fn delivery_reaches_the_general_agent_once_as_a_pebble_event() {
     let store = store_with_secret().await;
     let receiver = delivering();
     let seam = FakeSeam::default();
@@ -368,7 +368,7 @@ async fn delivery_reaches_the_general_agent_once_as_an_untrusted_pebble_event() 
     assert_eq!(target, GENERAL);
     let marker = crate::message_markers::parse_host_injected(wrapped).expect("leading marker");
     assert_eq!(marker.kind, "pebble");
-    assert_eq!(marker.attr("trust"), Some("untrusted"));
+    assert_eq!(marker.attr("trust"), None);
     assert!(wrapped.ends_with("\nFocus mode enabled"));
 }
 

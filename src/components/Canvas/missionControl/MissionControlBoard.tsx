@@ -107,7 +107,7 @@ export function MissionControlBoard({
               onOpenTasksView={onOpenView && (() => onOpenView("tasks"))}
             />
           </div>
-          <NeedsYouPanel held={mc.held} refs={refs} deepLinks={deepLinks} />
+          <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
           <BoardEventLog
             log={mc.event_log}
             milestoneKinds={plan.milestone_kinds ?? []}

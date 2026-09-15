@@ -8,7 +8,6 @@ import {
   type NormalizedChatMessage,
 } from "@codeterm/chat-core";
 import { NeedsYouPanel } from "../Canvas/missionControl/BoardCards";
-import type { HeldForDecision } from "../Canvas/missionControl/missionControlState";
 import { useChatMessageReveal } from "../Terminal/useChatMessageReveal";
 import { useChatScroll } from "../Terminal/useChatScroll";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
@@ -56,8 +55,6 @@ const TABS: Record<string, Tab> = {
 const WORKSPACES = [
   { id: "ws-1", tabs: Object.keys(TABS) },
 ] as unknown as Workspace[];
-
-const NOTHING_HELD = { held_reviews: [], open_gates: [] } as unknown as HeldForDecision;
 
 function record(overrides: Partial<Notification> = {}): Notification {
   return {
@@ -187,12 +184,37 @@ describe("notification deep link identity", () => {
   });
 });
 
+describe("Needs you answered and cleared questions", () => {
+  it("drops answered questions and clears exactly the questions it shows", async () => {
+    const onClear = vi.fn();
+    const answered = record({
+      id: "n-answered",
+      answer: { answered: "Ship it", delivered: true } as unknown as Notification["answer"],
+    });
+    const open = record({ id: "n-open", timestamp: 1_700_000_000_500 });
+    const { host } = await render(
+      <NeedsYouPanel deepLinks={{ ...deepLinks([answered, open]), onClear }} />,
+    );
+
+    expect(Array.from(host.querySelectorAll("[data-notification-id]")).map((row) => row.getAttribute("data-notification-id"))).toEqual(["n-open"]);
+    const clear = host.querySelector<HTMLButtonElement>('[data-testid="mc-board-needs-you-clear"]');
+    expect(clear).not.toBeNull();
+    await act(async () => clear!.click());
+    expect(onClear).toHaveBeenCalledWith(["n-open"]);
+  });
+
+  it("renders nothing once every question is answered", async () => {
+    const answered = record({ answer: { answered: "No", delivered: true } as unknown as Notification["answer"] });
+    const { host } = await render(<NeedsYouPanel deepLinks={deepLinks([answered])} />);
+    expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
+  });
+});
+
 describe("Needs you notification rows", () => {
   it("renders each row as one keyboard-reachable jump with no action buttons", async () => {
     const onSelectTab = vi.fn();
     const { host } = await render(
       <NeedsYouPanel
-        held={NOTHING_HELD}
         deepLinks={deepLinks([record(), legacyRecord(), record({ id: "n-closed", target_tab_id: "tab-closed" })], onSelectTab)}
       />,
     );
@@ -218,7 +240,7 @@ describe("Needs you notification rows", () => {
 
   it("Enter on an available row selects the target tab and requests its exact message", async () => {
     const onSelectTab = vi.fn();
-    const { host } = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([record()], onSelectTab)} />);
+    const { host } = await render(<NeedsYouPanel deepLinks={deepLinks([record()], onSelectTab)} />);
     await pressEnter(links(host)[0]);
 
     expect(onSelectTab).toHaveBeenCalledTimes(1);
@@ -234,7 +256,7 @@ describe("Needs you notification rows", () => {
   it("an offset-anchored id reads as having no stable id and cannot be activated", async () => {
     const onSelectTab = vi.fn();
     const offset = record({ id: "n-offset", chat_message_id: "0-601-0" });
-    const { host } = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([offset], onSelectTab)} />);
+    const { host } = await render(<NeedsYouPanel deepLinks={deepLinks([offset], onSelectTab)} />);
     expect(rowFor(host, "n-offset").querySelector('[data-testid="needs-you-notification-unavailable"]')?.textContent)
       .toBe(DEEP_LINK_UNAVAILABLE_COPY.no_stable_id);
     await pressEnter(links(host)[0]);
@@ -245,7 +267,7 @@ describe("Needs you notification rows", () => {
   it("an unavailable row neither selects a tab nor asks for any message", async () => {
     const onSelectTab = vi.fn();
     const { host } = await render(
-      <NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([record({ target_tab_id: "tab-closed" })], onSelectTab)} />,
+      <NeedsYouPanel deepLinks={deepLinks([record({ target_tab_id: "tab-closed" })], onSelectTab)} />,
     );
     const [link] = links(host);
     await act(async () => link.click());
@@ -293,7 +315,7 @@ describe("jump from the Board to the chat", () => {
     });
     setClientTabUiMode(TARGET_TAB, "terminal");
     const onSelectTab = vi.fn();
-    const { host } = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([record()], onSelectTab)} />);
+    const { host } = await render(<NeedsYouPanel deepLinks={deepLinks([record()], onSelectTab)} />);
 
     await pressEnter(links(host)[0]);
 
@@ -312,7 +334,7 @@ describe("jump from the Board to the chat", () => {
     act(() => canvasFocusStore.openWorkspace({ teamId: TEAM }));
     const onSelectTab = vi.fn();
     const shellRecord = record({ id: "n-shell", target_tab_id: SHELL_TAB });
-    const { host } = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([shellRecord], onSelectTab)} />);
+    const { host } = await render(<NeedsYouPanel deepLinks={deepLinks([shellRecord], onSelectTab)} />);
 
     expect(rowFor(host, "n-shell").querySelector('[data-testid="needs-you-notification-unavailable"]')?.textContent)
       .toBe(DEEP_LINK_UNAVAILABLE_COPY.no_chat);
@@ -422,7 +444,7 @@ describe("exact chat message reveal", () => {
     const [item] = needsYouNotificationItems([gone], TABS, WORKSPACES, { teamId: TEAM }, currentChatReveal());
     expect(item.state).toEqual({ kind: "unavailable", reason: "message_gone" });
 
-    const panel = await render(<NeedsYouPanel held={NOTHING_HELD} deepLinks={deepLinks([gone])} />);
+    const panel = await render(<NeedsYouPanel deepLinks={deepLinks([gone])} />);
     expect(rowFor(panel.host, "n-gone").querySelector('[data-testid="needs-you-notification-unavailable"]')?.textContent)
       .toBe(DEEP_LINK_UNAVAILABLE_COPY.message_gone);
   });

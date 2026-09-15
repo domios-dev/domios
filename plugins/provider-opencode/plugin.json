@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.10.19",
-  "minCodeterm": "1.10.19",
+  "version": "1.10.20",
+  "minCodeterm": "1.10.20",
   "hostApi": 2,
   "displayName": "OpenCode",
   "binaryName": "opencode",
