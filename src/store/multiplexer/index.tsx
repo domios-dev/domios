@@ -408,7 +408,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         refreshFromBackend();
       }
     };
-    let firstListenerRenewal = true;
+    // The authoritative read follows the bind: a refused read waits for the next
+    // state event, and one emitted before the bind would never reach this page.
     const renewMuxListener = () => {
       const generation = ++muxListenGeneration;
       muxUnlisten?.();
@@ -421,13 +422,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           }
           muxUnlisten = unlisten;
           (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).reconnects++;
+          void refreshFromBackend();
         })
-        .catch((error) => console.warn("Failed to renew mux event listener:", error));
-      if (firstListenerRenewal) {
-        firstListenerRenewal = false;
-      } else {
-        refreshFromBackend();
-      }
+        .catch((error) => {
+          console.warn("Failed to renew mux event listener:", error);
+          if (generation === muxListenGeneration) void refreshFromBackend();
+        });
     };
     renewMuxListener();
     if (isCodeTermFrontendTestMode()) {
@@ -505,8 +505,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [acceptBackendState, refreshFromBackend]);
 
 
-  // A startup lock refusal is a not-yet result: the mux-state-changed listener
-  // above owns the next read, so no timer or caller-side retry is needed.
+  // The mux-state-changed listener above owns the first authoritative read and
+  // every read after a refusal, so no timer or caller-side retry is needed.
   useEffect(() => {
     const hydratedAtBoot = IS_WEB && stateRef.current.generation === HYDRATED_GENERATION;
     if (hydratedAtBoot) {
@@ -521,7 +521,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    void refreshFromBackend();
     invoke<Notification[]>("list_notifications", { unreadOnly: false })
       .then((notifications) =>
         dispatch({
@@ -535,7 +534,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         }),
       )
       .catch((err) => console.warn("Failed to load notification history:", err));
-  }, [refreshFromBackend]);
+  }, []);
 
   const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
     try {

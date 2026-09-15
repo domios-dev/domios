@@ -30,6 +30,7 @@
   "src/components/Canvas/missionControl/BoardSpendChart.test.tsx",
   "src/components/Extensions/PluginView.activation.test.tsx",
   "src/components/Titlebar/AnalyticsTray.test.tsx",
+  "src/store/multiplexer/reloadHydration.test.tsx",
   "plugins/analytics/tests/plugin.test.ts",
   "plugins/analytics/ui/src/model/model.test.ts",
   "plugins/analytics/ui/src/Dashboard.test.tsx",

@@ -40,10 +40,13 @@ pub async fn mux_state(
     let snapshot = tokio::task::spawn_blocking(move || svc.try_snapshot_with_reconciled_status())
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let snapshot = snapshot.ok_or((
-        StatusCode::SERVICE_UNAVAILABLE,
-        crate::service::SNAPSHOT_BUSY_ERROR.to_string(),
-    ))?;
+    let Some(snapshot) = snapshot else {
+        state.svc.emit_state_changed_when_snapshot_readable();
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            crate::service::SNAPSHOT_BUSY_ERROR.to_string(),
+        ));
+    };
     Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
 }
 
