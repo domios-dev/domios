@@ -185,6 +185,7 @@ class ProductionPublicationGateTest(unittest.TestCase):
         self.assertIn("needs: release", read("release.yml"))
         self.assertIn("release-completion-release.json", read("release.yml"))
 
+
     def test_closing_a_public_issue_is_guarded_by_the_verification_record(self):
         closing = [
             step for step in steps(read("release-manifest-validate.yml"))
@@ -203,6 +204,51 @@ class ProductionPublicationGateTest(unittest.TestCase):
         self.assertTrue(verifying)
         self.assertTrue(minting)
         self.assertLess(verifying[0], minting[0])
+
+
+class ReleaseBuildSpeedContractTest(unittest.TestCase):
+    RELEASE_LANES = ("release.yml", "release-windows.yml", "release-linux.yml")
+
+    def test_release_lanes_do_not_cache_target_outputs(self):
+        for name in self.RELEASE_LANES:
+            with self.subTest(workflow=name):
+                text = read(name)
+                self.assertNotRegex(text, r"(?i)rust-cache|swatinem")
+
+    def test_direct_tauri_lanes_pin_target_directory_target_and_features(self):
+        for name in ("release-windows.yml", "release-linux.yml"):
+            with self.subTest(workflow=name):
+                text = read(name)
+                self.assertIn("CARGO_TARGET_DIR: src-tauri/target", text)
+                self.assertIn("CARGO_INCREMENTAL: '0'", text)
+                self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
+                self.assertIn(
+                    "args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }}",
+                    text,
+                )
+
+    def test_release_input_prebuilds_the_app_and_embed_bins_with_the_same_contract(self):
+        build = (ROOT / "build.sh").read_text(encoding="utf-8")
+        self.assertIn('cargo_target_args=(--target "$CARGO_BUILD_TARGET")', build)
+        self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings}"', build)
+        self.assertIn("--bin codeterm --bin codeterm-embed", build)
+
+    def test_metadata_only_completion_jobs_are_not_on_linux_build(self):
+        for name in ("release.yml", "release-windows.yml"):
+            with self.subTest(workflow=name):
+                _, marker, tail = read(name).partition("  completion:\n")
+                self.assertTrue(marker)
+                self.assertIn("runs-on: ubuntu-latest", tail)
+                self.assertNotIn("linux-build", tail.split("permissions:", 1)[0])
+
+    def test_mac_pipeline_has_an_explicit_notarization_overlap_stage(self):
+        script = (ROOT / ".codeterm" / "build-machine" / "scripts" / "mac-overlap.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('notarize-dmg.sh" "$ARM_DMG"', script)
+        self.assertIn("ARM_NOTARY_PID=$!", script)
+        self.assertIn('mac-bundle.sh" "$VER" x86_64', script)
+        self.assertIn('wait "$ARM_NOTARY_PID"', script)
 
 
 class ReleaseNotesContractTest(unittest.TestCase):
