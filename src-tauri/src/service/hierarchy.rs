@@ -433,7 +433,7 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         message: &str,
-        details: ReportDetails,
+        mut details: ReportDetails,
         plan_id: Option<&str>,
         task_id: Option<&str>,
         milestone_kind: Option<&str>,
@@ -622,6 +622,45 @@ impl ServiceContext {
             }
         }
 
+        let mut diagnostics = None;
+        if details.status == Some(ReportStatus::InReview)
+            && !homed_to_remote
+            && !foreign
+            && rejected_task_transition.is_none()
+        {
+            if let (Some(plan_id), Some(task_id)) =
+                (eff_plan_id.as_deref(), eff_task_id.as_deref())
+            {
+                if let Some(request) = self.diagnostics_request_for_report(
+                    tab_id, plan_id, task_id, &details,
+                ) {
+                    let fallback_worktree = request.lane_worktree_path.clone();
+                    let fallback_attempt = request.attempt_id.clone();
+                    let summary = match self.lane_diagnostics.run(request) {
+                        Ok(summary) => summary,
+                        Err(error) => {
+                            let summary = codeterm_types::plan::LaneDiagnosticsSummary::incomplete(
+                                plan_id.to_string(),
+                                task_id.to_string(),
+                                fallback_attempt,
+                                fallback_worktree,
+                                format!("diagnostics incomplete: {error}"),
+                            );
+                            if let Err(storage_error) = self.lane_diagnostics.store_summary(&summary) {
+                                notices.push(format!("lane diagnostics could not be stored: {storage_error}"));
+                            }
+                            summary
+                        }
+                    };
+                    if summary.incomplete {
+                        notices.push("lane diagnostics incomplete; the report was delivered with the bounded-run finding".into());
+                    }
+                    details.diagnostics = Some(summary.clone());
+                    diagnostics = Some(summary);
+                }
+            }
+        }
+
         let persisted_plan_evidence = persist_plan_only_evidence(
             self,
             plan_only_authority,
@@ -800,6 +839,7 @@ impl ServiceContext {
             persisted_plan_evidence,
             rejected_task_transition,
             report_outcome,
+            diagnostics,
         })
     }
 

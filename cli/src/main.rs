@@ -435,6 +435,11 @@ fn main_impl() {
             return;
         }
 
+        Commands::Lane { action } => {
+            cmd::lane::handle_lane(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Spec { action } => {
             cmd::spec::handle_spec(&mut client, cli.json, action);
             return;

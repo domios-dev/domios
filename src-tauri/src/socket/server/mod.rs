@@ -13,6 +13,7 @@ mod cron;
 mod dispatch;
 mod error_codes;
 mod local_api;
+mod lane;
 mod mem;
 mod notification;
 mod orchestration;
