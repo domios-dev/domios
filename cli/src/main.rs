@@ -100,6 +100,7 @@ pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
 pub use args::delayed::DelayedAction;
 pub use args::effort::EffortAction;
+pub use args::essence_map::EssenceMapAction;
 pub use args::inbox::InboxAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
@@ -447,6 +448,11 @@ fn main_impl() {
 
         Commands::Effort { action } => {
             cmd::effort::handle_effort(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::EssenceMap { action } => {
+            cmd::essence_map::handle(cli.json, action);
             return;
         }
 
