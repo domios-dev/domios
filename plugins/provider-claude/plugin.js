@@ -33,6 +33,45 @@ function manifest() {
   }
 }
 
+// plugins/provider-claude/src/launchSession.ts
+var PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
+function registryDir() {
+  const override = host.envGet(PROCESS_REGISTRY_DIR_ENV);
+  if (override) return override;
+  const home = host.homeDir();
+  if (!home) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".claude" + sep + "sessions";
+}
+function registrySessionId(raw, pid, startToken) {
+  let record;
+  try {
+    record = JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+  if (!record || typeof record !== "object" || record.pid !== pid) return null;
+  if (typeof record.kind === "string" && record.kind !== "interactive") return null;
+  if (typeof record.procStart !== "string") return null;
+  if (!startToken || record.procStart.trim() !== startToken) return null;
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  return sessionId || null;
+}
+function detectClaudeLaunchSession(evidence) {
+  const dir = registryDir();
+  if (!dir || !evidence || !Array.isArray(evidence.processes)) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const processes = evidence.processes.slice().sort((a, b) => a.depth - b.depth || a.pid - b.pid);
+  for (let i = 0; i < processes.length; i++) {
+    const proc = processes[i];
+    const raw = host.fs.readFile(dir + sep + proc.pid + ".json");
+    if (typeof raw !== "string") continue;
+    const sessionId = registrySessionId(raw, proc.pid, String(proc.startToken || ""));
+    if (sessionId) return { sessionId, source: "pid_registry" };
+  }
+  return null;
+}
+
 // plugins/provider-claude/src/usage.ts
 function usageNormalize(raw) {
   let out = "";
@@ -1085,6 +1124,119 @@ function buildWizardSubmitResponse(screen) {
   return steps;
 }
 
+// plugins/provider-claude/src/permissionPrompt.ts
+var PERMISSION_PROMPT_RULE = "claude.tool-permission.yes-once";
+var USER_DECISION_TOOLS = ["AskUserQuestion", "ExitPlanMode"];
+function optionLabel(option) {
+  if (Array.isArray(option)) return String(option[0] ?? "");
+  if (option && typeof option === "object") return String(option.label ?? "");
+  return "";
+}
+function trimFrame(text) {
+  return String(text || "").replace(/^[\s│┃]+|[\s│┃]+$/g, "");
+}
+function isDecline(label) {
+  const lower = label.toLowerCase();
+  return lower === "no" || lower.startsWith("no,") || lower.startsWith("no ");
+}
+function claudeAffirmativeOption(toolName, prompt, screen) {
+  const tool = String(toolName || "").trim();
+  if (!tool || USER_DECISION_TOOLS.indexOf(tool) !== -1) return null;
+  if (!prompt || typeof prompt !== "object") return null;
+  const p = prompt;
+  if (p.multiSelect === true || p.multi_select === true) return null;
+  if (p.submitAvailable === true || p.submit_available === true) return null;
+  if (Array.isArray(p.sections) && p.sections.length > 0) return null;
+  const question = trimFrame(String(p.question ?? ""));
+  const view = String(screen || "");
+  if (!question.endsWith("?") || question.toLowerCase().indexOf("trust") !== -1 || view.indexOf(question) === -1) {
+    return null;
+  }
+  const labels = (Array.isArray(p.options) ? p.options : []).map((option) => trimFrame(optionLabel(option)));
+  if (labels.length < 2 || labels[0].toLowerCase() !== "yes") return null;
+  return labels.slice(1).some(isDecline) ? 0 : null;
+}
+function claudePermissionPromptResponse(toolName, prompt, screen) {
+  const view = String(screen || "");
+  const optionIndex = claudeAffirmativeOption(toolName, prompt, view);
+  if (optionIndex === null) return null;
+  return {
+    optionIndex,
+    rule: PERMISSION_PROMPT_RULE,
+    steps: buildClaudePromptResponse(optionIndex, view)
+  };
+}
+
+// plugins/provider-claude/src/folderTrust.ts
+var FRAME_EDGES = /^[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+|[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+$/g;
+var ENTER = "DQ==";
+var MOVE_DOWN = "ag==";
+var MOVE_UP = "aw==";
+function frameContent(line) {
+  return line.replace(FRAME_EDGES, "");
+}
+function isPathRow(row) {
+  return /^(?:\/[^ ]|~[\/\\]|\\\\|[A-Za-z]:[\\\/])/.test(row);
+}
+function pointerLabel(row) {
+  const m = /^[❯>]\s+/.exec(row);
+  return m ? row.slice(m[0].length) : null;
+}
+function stripIndex(label) {
+  const m = /^\d+\.\s+/.exec(label);
+  return m ? label.slice(m[0].length) : label;
+}
+function optionRow(row) {
+  const pointed = pointerLabel(row);
+  return { focused: pointed !== null, label: stripIndex(pointed !== null ? pointed : row) };
+}
+function leadsWith(label, word) {
+  return new RegExp("^" + word + "(?:$|[, .])", "i").test(label);
+}
+function claudeFolderTrustResponse(screen) {
+  const rows = String(screen || "").split("\n").map(frameContent);
+  const path = rows.findIndex(isPathRow);
+  if (path < 0) return null;
+  let trust = -1;
+  for (let i = path + 1; i < rows.length; i++) {
+    if (rows[i].toLowerCase().indexOf("trust") !== -1) {
+      trust = i;
+      break;
+    }
+  }
+  if (trust < 0) return null;
+  let pointer = false;
+  for (let i = trust + 1; i < rows.length; i++) {
+    if (pointerLabel(rows[i]) !== null) {
+      pointer = true;
+      break;
+    }
+  }
+  if (!pointer) return null;
+  return answer(rows, path, trust) || [];
+}
+function answer(rows, path, trust) {
+  if (!rows.slice(0, path).some((row) => row.endsWith(":"))) return null;
+  let footer = rows.length - 1;
+  while (footer >= 0 && !rows[footer]) footer--;
+  if (footer < 0) return null;
+  const footerText = rows[footer].toLowerCase();
+  if (footerText.indexOf("enter") === -1 || footerText.indexOf("esc") === -1) return null;
+  let end = footer;
+  while (end > 0 && !rows[end - 1]) end--;
+  let start = end;
+  while (start > 0 && rows[start - 1]) start--;
+  if (end - start !== 2 || trust >= start) return null;
+  const options = rows.slice(start, end).map(optionRow);
+  if (options.filter((option) => option.focused).length !== 1) return null;
+  const focused = options.findIndex((option) => option.focused);
+  const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
+  const no = options.findIndex((option) => leadsWith(option.label, "no"));
+  if (yes < 0 || no < 0 || options[no].label.toLowerCase().indexOf("exit") === -1) return null;
+  if (focused === yes) return [ENTER];
+  return [yes > focused ? MOVE_DOWN : MOVE_UP];
+}
+
 // plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
@@ -1270,13 +1422,11 @@ var plugin = {
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
-  directoryTrustPromptResponse(prompt, screen) {
-    const question = String(prompt.question || "").toLowerCase();
-    const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[0] : first.label;
-    const isTrustGate = question.includes("trust") && question.includes("project");
-    if (!isTrustGate || !firstLabel || !/^yes\b.*trust/i.test(firstLabel)) return null;
-    return buildClaudePromptResponse(0, String(screen || ""));
+  directoryTrustPromptResponse(screen) {
+    return claudeFolderTrustResponse(screen);
+  },
+  permissionPromptResponse(toolName, prompt, screen) {
+    return claudePermissionPromptResponse(toolName, prompt, screen);
   },
   // Launch command parity for native behavior across OS-specific execution modes.
   buildLaunchCommand(params) {
@@ -1910,6 +2060,9 @@ var plugin = {
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
   classifyTabState(snapshot) {
     return classifyClaudeTabState(snapshot);
+  },
+  detectLaunchSession(evidence) {
+    return detectClaudeLaunchSession(evidence);
   }
 };
 function canonicalToolFields(name, input) {

@@ -1,7 +1,7 @@
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
-use super::launch::{build_agent_command, launch_agent_in_background, skip_local_worker_role};
+use super::launch::{launch_agent_in_background, skip_local_worker_role};
 use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::multiplexer::types::TabCloseReason;
@@ -400,7 +400,7 @@ impl ServiceContext {
             params.reasoning_effort.as_deref(),
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
-        let (ws_id, ws_cwd) = {
+        let (ws_id, ws_cwd, ws_provisioned_cwd) = {
             let mux = self.mux.write();
             let id = crate::service::spawn::resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
@@ -410,8 +410,10 @@ impl ServiceContext {
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),
             )?;
-            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
-            (id, cwd)
+            let workspace = mux.get_workspace(&id);
+            let cwd = workspace.and_then(|ws| ws.cwd.clone());
+            let provisioned_cwd = workspace.and_then(|ws| ws.provisioned_cwd.clone());
+            (id, cwd, provisioned_cwd)
         };
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
@@ -450,6 +452,17 @@ impl ServiceContext {
             if let Some(ref dir) = params.cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
+                }
+            }
+            let provisioned_cwd = params.provisioned_cwd.clone().or_else(|| {
+                crate::service::directory_trust::inherited_workspace_provenance(
+                    params.cwd.as_deref(),
+                    ws_provisioned_cwd.as_deref(),
+                )
+            });
+            if let Some(provisioned_cwd) = provisioned_cwd {
+                if let Some(tab) = mux.get_tab_mut(&result) {
+                    tab.provisioned_cwd = Some(provisioned_cwd);
                 }
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
@@ -734,7 +747,8 @@ impl ServiceContext {
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = build_agent_command(
+        let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+            &tab_id,
             &agent_cmd,
             &params,
             bg_task.as_deref(),
@@ -764,6 +778,7 @@ impl ServiceContext {
         if let Some(reservation) = worker_persona_reservation {
             reservation.commit_to_tab(&tab_id);
         }
+        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         let reasoning_effort = params.reasoning_effort.clone();
         self.record_kpi_spawn(

@@ -146,6 +146,55 @@ fn hook_event_roster_attributes_ingestion_to_non_claude_descriptor() {
 }
 
 #[test]
+fn restore_contract_session_start_provider_is_the_session_owner_never_a_default() {
+    use crate::agent::test_provider::MockProvider;
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(MockProvider::with_session(
+        "fixture-owner",
+        "sid-owned",
+    )));
+    registry.register_provider(Box::new(MockProvider::new("fixture-other")));
+
+    assert_eq!(
+        session_start_provider(&registry, None, None, Some("/tmp/project"), "sid-owned").as_deref(),
+        Some("fixture-owner"),
+        "a tab that lost its provider label resolves the store owning its own session"
+    );
+    assert_eq!(
+        session_start_provider(
+            &registry,
+            None,
+            Some("fixture-tab".into()),
+            Some("/tmp/project"),
+            "sid-owned"
+        )
+        .as_deref(),
+        Some("fixture-tab"),
+        "the tab's own provider outranks store ownership"
+    );
+    assert_eq!(
+        session_start_provider(
+            &registry,
+            Some("fixture-report".into()),
+            Some("fixture-tab".into()),
+            Some("/tmp/project"),
+            "sid-owned"
+        )
+        .as_deref(),
+        Some("fixture-report")
+    );
+    assert_eq!(
+        session_start_provider(&registry, None, None, Some("/tmp/project"), "sid-unknown"),
+        None,
+        "an unowned session stays unresolved instead of borrowing a configured default"
+    );
+    assert_eq!(
+        session_start_provider(&registry, None, None, None, "sid-owned"),
+        None
+    );
+}
+
+#[test]
 fn default_hook_event_roster_registration_matches_today() {
     use crate::agent::provider::session_start_hook_roster;
     use crate::plugin::agent_claude::ClaudeProvider;

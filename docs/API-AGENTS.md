@@ -3,7 +3,7 @@ REST endpoints for agent lifecycle, plans, teams, updates, batches, and orchestr
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart an agent whose process is currently observed live in a tab. The body is optional; no body uses the defaults below. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session. A provider already observed to have exited into its surviving shell is absent, not restartable metadata, and is refused before acceptance.
+Restart an agent whose process is currently observed live in a tab. The body is optional; no body uses the defaults below. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session. A provider observed to have exited into its surviving shell is recovered in place: CodeTerm skips the exit and teardown legs, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -20,6 +20,7 @@ Restart an agent whose process is currently observed live in a tab. The body is 
   "restart_accepted": true,
   "old_pty_torn_down": true,
   "agent_ready": true,
+  "recovered_in_place": false,
   "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e",
   "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
   "tab_id": "a3f1b2c7",
@@ -32,13 +33,11 @@ Restart an agent whose process is currently observed live in a tab. The body is 
 }
 ```
 
-The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`. A pre-restart `AgentReady` value attached to the old PTY never satisfies this contract.
-
-`session_was_stale` is `true` when the recorded session id pointed at a JSONL that no longer exists on disk; the restart proceeds without `--resume` and a fresh session is created.
+The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`; a pre-restart `AgentReady` attached to the old PTY never satisfies this contract. `recovered_in_place` marks an exited-provider recovery: nothing is torn down, `new_pty_id` equals `old_pty_id`, and the shell's prior stage is retired before launch, so only the relaunch can report `AgentReady`. `session_was_stale` is `true` when the recorded session id pointed at a JSONL that no longer exists on disk; the restart proceeds without `--resume` and a fresh session is created.
 
 **Errors:**
 - `404` — tab id not found
-- `400` — the agent process is absent or unobserved, the tab has no agent, or the provider is unsupported
+- `400` — the agent process is unobserved, the provider is unsupported, a chat-backend session is closed, or exit recovery is refused: `exit_recovery_no_live_shell`, `exit_recovery_no_verified_session` (no agent and no nonce-verified prior session), or `exit_recovery_session_not_owned` (no single provider owns that session record)
 - `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-tab to avoid restart loops
 - `500` — teardown or relaunch failed
 - `504` — the replacement PTY did not reach `AgentReady` inside the bounded readiness deadline
@@ -235,8 +234,6 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-## Plan surface contracts
+Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-Planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
-
-<!-- revision: 21 -->
+<!-- revision: 23 -->

@@ -18,7 +18,9 @@ mod session_claim;
 
 #[cfg(test)]
 pub(crate) use session_claim::bind_validated_rebind_session;
-pub(crate) use session_claim::{bind_reported_session, commit_materialized_rebind_session};
+pub(crate) use session_claim::{
+    bind_detected_session, bind_reported_session, commit_materialized_rebind_session,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionStartClaim {
@@ -39,6 +41,7 @@ pub(crate) type SessionBindError = (StatusCode, String, Option<DeferredBindingPr
 enum SessionBindingSource {
     Hook,
     ValidatedRebind,
+    LaunchDetection,
 }
 
 impl SessionStartClaim {
@@ -78,6 +81,27 @@ fn sole_hook_route_declarer(registry: &AgentRegistry, route: HookIngestionRoute)
         .map(|(id, _)| id);
     let sole = declarers.next()?;
     declarers.next().is_none().then_some(sole)
+}
+
+/// SessionStart identity ladder: report > tab > the store owning the reported
+/// session > the route's sole declarer. Unknown stays unknown, never a default.
+fn session_start_provider(
+    registry: &AgentRegistry,
+    reported: Option<String>,
+    tab_provider: Option<String>,
+    cwd: Option<&str>,
+    session_id: &str,
+) -> Option<String> {
+    reported
+        .or(tab_provider)
+        .or_else(|| {
+            cwd.and_then(|cwd| {
+                crate::agent::provider_identity::provider_for_claimed_session(
+                    registry, cwd, session_id,
+                )
+            })
+        })
+        .or_else(|| sole_hook_route_declarer(registry, HookIngestionRoute::SessionStart))
 }
 
 /// Attribute an unclaimed shell from the provider-specific permission route.
@@ -150,7 +174,7 @@ pub async fn hook_permission(
                 .prompt_detector
                 .lock()
                 .hook_detected_permission_request(&tab_id, signal);
-            state.svc.apply_prompt_decision(&decision);
+            state.svc.apply_hook_prompt_decision(&tab_id, &decision);
             return Ok(Json(serde_json::json!({"ok": true, "ingested": true})));
         }
     }
@@ -267,7 +291,7 @@ pub async fn hook_permission(
         }
     };
 
-    state.svc.apply_prompt_decision(&decision);
+    state.svc.apply_hook_prompt_decision(&tab_id, &decision);
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -414,24 +438,38 @@ pub async fn hook_session_start(
         ));
     };
 
-    let provider_id = {
-        let existing = state
-            .svc
-            .mux
-            .write()
-            .get_tab(&tab_id)
-            .and_then(|p| p.agent_type.clone());
-        // Identity ladder: report > tab > the route's sole declaring descriptor
-        // > configured default. Never a provider-id literal.
-        provider_id
-            .or(existing)
-            .or_else(|| {
-                sole_hook_route_declarer(
-                    &state.svc.agent_registry,
-                    HookIngestionRoute::SessionStart,
-                )
-            })
-            .unwrap_or_else(crate::config::default_agent_provider)
+    let (existing, cwd, current_session_id) = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .map(|tab| {
+            (
+                tab.agent_type.clone(),
+                tab.cwd.clone(),
+                tab.agent_session_id.clone(),
+            )
+        })
+        .unwrap_or_default();
+    let Some(provider_id) = session_start_provider(
+        &state.svc.agent_registry,
+        provider_id,
+        existing,
+        cwd.as_deref(),
+        &sid,
+    ) else {
+        let message = format!("session_id '{sid}' has no provider owner for Tab {tab_id}");
+        log::warn!(
+            "[hook_session_start] rejecting sid {sid} for Tab {tab_id}: provider unresolved"
+        );
+        state.svc.deferred_session_bindings.refuse(
+            &tab_id,
+            &sid,
+            current_session_id.as_deref(),
+            &message,
+        );
+        state.svc.emit_session_binding_state(&tab_id);
+        return Err((StatusCode::CONFLICT, message));
     };
 
     let claim = match bind_reported_session(
@@ -520,7 +558,7 @@ pub async fn hook_session_start(
         }
     };
     finish_session_binding(
-        &state,
+        &state.svc,
         &tab_id,
         &provider_id,
         &sid,
@@ -529,6 +567,7 @@ pub async fn hook_session_start(
         &source,
         &body,
         claim,
+        crate::session::lifecycle::BindingSource::Hook,
     )
     .await
 }
@@ -639,7 +678,7 @@ async fn complete_deferred_session_binding(
     ) {
         Ok(claim) => {
             let _ = finish_session_binding(
-                &state,
+                &state.svc,
                 &tab_id,
                 &binding.provider_id,
                 &binding.session_id,
@@ -648,6 +687,7 @@ async fn complete_deferred_session_binding(
                 &source,
                 &body,
                 claim,
+                crate::session::lifecycle::BindingSource::Hook,
             )
             .await;
         }
@@ -682,7 +722,7 @@ pub(crate) fn deferred_binding_still_applies(
 }
 
 pub(crate) async fn finish_session_binding(
-    state: &AppState,
+    svc: &crate::service::ServiceContext,
     tab_id: &str,
     provider_id: &str,
     sid: &str,
@@ -691,18 +731,16 @@ pub(crate) async fn finish_session_binding(
     source: &str,
     body: &serde_json::Value,
     claim: SessionStartClaim,
+    binding_source: crate::session::lifecycle::BindingSource,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if claim.changed {
-        state.svc.deferred_session_bindings.clear(tab_id);
+        svc.deferred_session_bindings.clear(tab_id);
     } else {
-        state
-            .svc
-            .deferred_session_bindings
-            .clear_session(tab_id, sid);
+        svc.deferred_session_bindings.clear_session(tab_id, sid);
     }
-    state.svc.emit_session_binding_state(tab_id);
+    svc.emit_session_binding_state(tab_id);
     let (current_nonce, reported_nonce) = {
-        let mux = state.svc.mux.read();
+        let mux = svc.mux.read();
         let tab = mux.get_tab(&tab_id);
         (
             tab.and_then(|tab| tab.session_binding_nonce.clone()),
@@ -724,7 +762,7 @@ pub(crate) async fn finish_session_binding(
     let identity_committed = if let Some(origin) = identity_origin {
         if origin == crate::session::lifecycle::AgentTypeWriteOrigin::Hook {
             matches!(
-                state.svc.write_hook_tab_agent_type_from_claim(
+                svc.write_hook_tab_agent_type_from_claim(
                     tab_id,
                     provider_id.to_string(),
                     Some(tab_id),
@@ -736,7 +774,7 @@ pub(crate) async fn finish_session_binding(
                 )
             )
         } else {
-            state.svc.set_and_lock_tab_agent_type_from(
+            svc.set_and_lock_tab_agent_type_from(
                 tab_id,
                 provider_id.to_string(),
                 origin,
@@ -754,36 +792,36 @@ pub(crate) async fn finish_session_binding(
         claim.nonce_verified,
         reported_nonce.clone(),
     ) {
-        state.svc.record_lifecycle(
+        svc.record_lifecycle(
             &tab_id,
             crate::session::lifecycle::LifecycleTransition::ProviderIdentityCommitted {
                 provider: provider_id.to_string(),
             },
         );
-        state.svc.record_lifecycle(
+        svc.record_lifecycle(
             &tab_id,
             crate::session::lifecycle::LifecycleTransition::SessionBound {
                 session_id: sid.to_string(),
                 binding_nonce,
+                source: binding_source,
             },
         );
     }
     crate::service::general_agent::binding_wait::notify_session_bound();
-    let launch_identity =
-        authenticated_launch_identity(&state.svc.mux, tab_id, &claim, report_nonce);
-    acknowledge_authenticated_launch(&state.svc.mux, tab_id, &claim, report_nonce);
+    let launch_identity = authenticated_launch_identity(&svc.mux, tab_id, &claim, report_nonce);
+    acknowledge_authenticated_launch(&svc.mux, tab_id, &claim, report_nonce);
     if claim.nonce_verified {
-        state.svc.rearm_authenticated_agent_input(&tab_id);
-        state.svc.reconcile_boot_stage_with_session_binding(&tab_id);
+        svc.rearm_authenticated_agent_input(&tab_id);
+        svc.reconcile_boot_stage_with_session_binding(&tab_id);
     }
     // Ordering: the identity above is read from state the nonce check already
     // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {
-        state.svc.retire_provisional_launch(tab_id, evidence);
+        svc.retire_provisional_launch(tab_id, evidence);
     }
 
     // while it runs — not only after completion.
-    run_session::propagate(state, tab_id, sid);
+    run_session::propagate(svc, tab_id, sid);
     if let Some(reported_transcript) = reported_transcript_path(body) {
         let evidence_sid = sid.to_string();
         let persisted = tokio::task::spawn_blocking(move || {
@@ -799,16 +837,14 @@ pub(crate) async fn finish_session_binding(
             );
         }
     }
-    let transcript_progress = durable_transcript_progress(state, tab_id, provider_id, sid).await;
-    state
-        .svc
-        .run_watcher
-        .observe_durable_transcript(&state.svc, &tab_id, transcript_progress);
+    let transcript_progress = durable_transcript_progress(svc, tab_id, provider_id, sid).await;
+    svc.run_watcher
+        .observe_durable_transcript(svc, &tab_id, transcript_progress);
 
     if !claim.changed {
         if claim.nonce_verified {
-            state.svc.bind_planner_session(&tab_id);
-            state.svc.schedule_planner_replay(&tab_id);
+            svc.bind_planner_session(&tab_id);
+            svc.schedule_planner_replay(&tab_id);
         }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
     }
@@ -821,33 +857,29 @@ pub(crate) async fn finish_session_binding(
         claim.prev.as_deref().unwrap_or("-"),
         sid
     );
-    if let Ok(Some(resume)) =
-        state
-            .svc
-            .plan_store
-            .observe_handoff_session_start(tab_id, sid, epoch_ms())
+    if let Ok(Some(resume)) = svc
+        .plan_store
+        .observe_handoff_session_start(tab_id, sid, epoch_ms())
     {
-        state.svc.send_text_detached(&resume.tab_id, &resume.text);
-        let _ = state.svc.plan_store.mark_handoff_resume_sent(
+        svc.send_text_detached(&resume.tab_id, &resume.text);
+        let _ = svc.plan_store.mark_handoff_resume_sent(
             &resume.plan_id,
             &resume.handoff_id,
             epoch_ms(),
         );
-        let _ = state.svc.plan_store.ack_handoff_resume(
-            &resume.plan_id,
-            &resume.handoff_id,
-            epoch_ms(),
-        );
+        let _ = svc
+            .plan_store
+            .ack_handoff_resume(&resume.plan_id, &resume.handoff_id, epoch_ms());
         crate::api::events::emit_everywhere(
-            &state.svc.app_handle,
+            &svc.app_handle,
             "plan-changed",
             serde_json::json!({ "plan_id": resume.plan_id }),
         );
     }
-    state.svc.chat_registry.shutdown_tab(&tab_id);
-    state.svc.bind_planner_session(&tab_id);
-    state.svc.schedule_planner_replay(&tab_id);
-    let persist_svc = state.svc.clone();
+    svc.chat_registry.shutdown_tab(&tab_id);
+    svc.bind_planner_session(&tab_id);
+    svc.schedule_planner_replay(&tab_id);
+    let persist_svc = svc.clone();
     let bound_tab_id = tab_id.to_string();
     if let Ok(Err(error)) = tokio::task::spawn_blocking(move || {
         // The commit cleared this tab's runtime model and effort evidence for
@@ -862,24 +894,23 @@ pub(crate) async fn finish_session_binding(
     {
         log::warn!("[context-epoch] failed to persist reset boundary: {error}");
     }
-    state.svc.emit_state_changed();
+    svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
 }
 
 async fn durable_transcript_progress(
-    state: &AppState,
+    svc: &crate::service::ServiceContext,
     tab_id: &str,
     provider_id: &str,
     session_id: &str,
 ) -> bool {
-    let cwd = state
-        .svc
+    let cwd = svc
         .mux
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.cwd.clone())
         .unwrap_or_default();
-    let registry = state.svc.agent_registry.clone();
+    let registry = svc.agent_registry.clone();
     let provider_id = provider_id.to_string();
     let session_id = session_id.to_string();
     tokio::task::spawn_blocking(move || {

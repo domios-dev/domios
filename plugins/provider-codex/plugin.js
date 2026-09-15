@@ -101,6 +101,283 @@ function capitalizeToken(token) {
   return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
 }
 
+// plugins/provider-codex/src/sessions.ts
+var sessionStoreOverrides = {
+  root: "CODETERM_CODEX_SESSIONS_ROOT",
+  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
+  state: "CODETERM_CODEX_STATE_DB_PATH"
+};
+var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
+function foldSessionIndex(contents) {
+  const folded = /* @__PURE__ */ new Map();
+  const lines = String(contents || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
+    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
+    const current = folded.get(entry.id);
+    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
+      folded.set(entry.id, {
+        id: entry.id,
+        thread_name: entry.thread_name,
+        updated_at: entry.updated_at
+      });
+    }
+  }
+  return Array.from(folded.values());
+}
+function sessionFilePath(_cwd, sessionId) {
+  const path = trimmedField(threadRow(sessionId), "rollout_path");
+  return path && host.fs.fileExists(path) ? path : null;
+}
+function sessionExists(_cwd, sessionId) {
+  if (!sessionId) return false;
+  if (threadRow(sessionId) !== null) return true;
+  const store = codexSessionStore();
+  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+}
+function detectSessionId(cwd, exclude, maxAgeMs) {
+  if (!cwd || !host.fs.fileExists(cwd)) return null;
+  const store = codexSessionStore();
+  if (!store) return null;
+  const entries = readSessionIndex(store.indexPath);
+  if (entries.length === 0) return null;
+  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
+  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
+  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
+  const matching = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (excluded.has(entry.id)) continue;
+    const updatedMs = sessionTimestamp(entry.updated_at);
+    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
+    const project = readThreadCwd(entry.id);
+    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
+  }
+  return matching.length === 1 ? matching[0] : null;
+}
+function enumerateSessions() {
+  const store = codexSessionStore();
+  if (!store) return [];
+  const entries = readSessionIndex(store.indexPath);
+  return entries.map((entry) => ({
+    sessionId: entry.id,
+    provider: "codex",
+    projectPath: readThreadCwd(entry.id),
+    title: entry.thread_name || null,
+    summary: null,
+    filePath: store.indexPath,
+    createdTs: null,
+    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
+  }));
+}
+function findSession(sessionId) {
+  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row2) return null;
+  const store = codexSessionStore();
+  return {
+    sessionId,
+    provider: "codex",
+    projectPath: resolveThreadCwd(sessionId, row2),
+    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
+    summary: null,
+    filePath: store ? store.indexPath : codexStateDbPath() || "",
+    createdTs: unixSeconds(row2.created_at),
+    modifiedTs: unixSeconds(row2.updated_at)
+  };
+}
+function detectSessionModel(_cwd, sessionId) {
+  return trimmedField(threadRow(sessionId), "model");
+}
+function threadRow(sessionId) {
+  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+}
+function queryThreadRow(sessionId, sql) {
+  if (!sessionId) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  try {
+    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (_) {
+    return null;
+  }
+}
+function unixSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+function trimmedField(row2, field) {
+  const value = row2 ? row2[field] : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function codexStateDbPath() {
+  const override = host.envGet(sessionStoreOverrides.state);
+  if (override) return override;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  let entries;
+  try {
+    entries = host.fs.readDir(root);
+  } catch (_) {
+    return null;
+  }
+  let best = null;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.isFile) continue;
+    const match = STATE_DB_NAME.exec(entry.name);
+    if (!match) continue;
+    const version = parseInt(match[1], 10);
+    if (!best || version > best.version) best = { name: entry.name, version };
+  }
+  return best ? root + sep + best.name : null;
+}
+function extractSessionUuid(stem) {
+  if (typeof stem !== "string") return null;
+  const prefix = "rollout-";
+  if (stem.indexOf(prefix) !== 0) return null;
+  const rest = stem.substring(prefix.length);
+  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
+  return rest.substring(20);
+}
+function codexSessionStore() {
+  const indexOverride = host.envGet(sessionStoreOverrides.index);
+  if (indexOverride) return { indexPath: indexOverride };
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  return {
+    indexPath: indexOverride || root + sep + "session_index.jsonl"
+  };
+}
+function trimTrailingSeparators(path) {
+  let end = path.length;
+  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
+  return path.substring(0, end);
+}
+function codexSessionsRoot(sep) {
+  const override = host.envGet(sessionStoreOverrides.root);
+  if (override) return trimTrailingSeparators(override);
+  const home = host.homeDir();
+  return home ? home + sep + ".codex" : null;
+}
+function readSessionIndex(path) {
+  if (!host.fs.fileExists(path)) return [];
+  const contents = host.fs.readFile(path);
+  return typeof contents === "string" ? foldSessionIndex(contents) : [];
+}
+function sessionIndexEntry(path, sessionId) {
+  const entries = readSessionIndex(path);
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].id === sessionId) return entries[i];
+  }
+  return null;
+}
+var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
+function readThreadCwd(sessionId) {
+  return resolveThreadCwd(sessionId, threadRow(sessionId));
+}
+function resolveThreadCwd(sessionId, row2) {
+  if (!row2) {
+    logUnresolvedCwd(sessionId, "no_row");
+    return null;
+  }
+  const cwd = trimmedField(row2, "cwd");
+  if (!cwd) {
+    logUnresolvedCwd(sessionId, "no_cwd");
+    return null;
+  }
+  if (!host.fs.fileExists(cwd)) {
+    logUnresolvedCwd(sessionId, "cwd_absent");
+    return null;
+  }
+  return cwd;
+}
+function logUnresolvedCwd(sessionId, cause) {
+  const key = sessionId + "\0" + cause;
+  if (unresolvedCwdDiagnostics.has(key)) return;
+  unresolvedCwdDiagnostics.add(key);
+  host.log("warn", JSON.stringify({
+    provider: "codex",
+    event: "session_cwd_unresolved",
+    sessionId,
+    cause
+  }));
+}
+function sessionTimestamp(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// plugins/provider-codex/src/launchSession.ts
+var MARKER_PREFIX = "codeterm-launch-marker:";
+var MIN_MARKER_LENGTH = 16;
+var ROLLOUT_HEAD_BYTES = 262144;
+var EARLY_RECORDS = 24;
+var CANDIDATE_THREADS = 64;
+function withLaunchMarker(instructions, marker) {
+  if (!marker) return instructions;
+  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
+}
+function detectCodexLaunchSession(evidence) {
+  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
+  if (marker.length < MIN_MARKER_LENGTH) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
+  const rows = host.fs.sqliteQuery(
+    db,
+    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
+    [since]
+  );
+  const matches = [];
+  for (let i = 0; i < rows.length; i++) {
+    const id = typeof rows[i].id === "string" ? rows[i].id : "";
+    const path = typeof rows[i].rollout_path === "string" ? rows[i].rollout_path : "";
+    if (!id || !path || matches.indexOf(id) !== -1) continue;
+    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
+  }
+  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
+}
+function rolloutCarriesMarker(path, id, marker) {
+  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
+  if (typeof head !== "string") return false;
+  const lines = head.split("\n");
+  let records = 0;
+  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
+    if (!lines[i].trim()) continue;
+    records++;
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch (_) {
+      if (records === 1) return false;
+      continue;
+    }
+    const payload = entry && entry.payload;
+    if (records === 1) {
+      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
+      continue;
+    }
+    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
+    if (payload.role !== "developer" && payload.role !== "user") continue;
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    for (let j = 0; j < content.length; j++) {
+      const text5 = content[j] && content[j].text;
+      if (typeof text5 === "string" && text5.indexOf(marker) !== -1) return true;
+    }
+  }
+  return false;
+}
+
 // plugins/provider-codex/src/prompt.ts
 var DOWN = "G1tC";
 var UP = "G1tB";
@@ -158,6 +435,17 @@ function parseActiveTerminalChoice(screen) {
   }
   if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
   return { question: questionForMenu(lines, options[0].line), options };
+}
+function menuPreamble(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  let i = firstOptionLine - 1;
+  while (i >= 0 && !lines[i].trim()) i--;
+  const parts = [];
+  while (i >= 0 && lines[i].trim()) {
+    parts.unshift(lines[i].trim());
+    i--;
+  }
+  return parts.join(" ");
 }
 function parseCodexPromptShape(screen) {
   return parseCodexNumberedMenu(screen) || parseCodexLetteredPrompt(screen) || parseCodexNumberedQuestion(screen);
@@ -1333,202 +1621,6 @@ function scoreAuthPrompt(screen) {
   return score > 1 ? 1 : score;
 }
 
-// plugins/provider-codex/src/sessions.ts
-var sessionStoreOverrides = {
-  root: "CODETERM_CODEX_SESSIONS_ROOT",
-  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
-  state: "CODETERM_CODEX_STATE_DB_PATH"
-};
-var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
-function foldSessionIndex(contents) {
-  const folded = /* @__PURE__ */ new Map();
-  const lines = String(contents || "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch (_) {
-      continue;
-    }
-    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
-    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
-    const current = folded.get(entry.id);
-    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
-      folded.set(entry.id, {
-        id: entry.id,
-        thread_name: entry.thread_name,
-        updated_at: entry.updated_at
-      });
-    }
-  }
-  return Array.from(folded.values());
-}
-function sessionFilePath(_cwd, sessionId) {
-  const path = trimmedField(threadRow(sessionId), "rollout_path");
-  return path && host.fs.fileExists(path) ? path : null;
-}
-function sessionExists(_cwd, sessionId) {
-  if (!sessionId) return false;
-  const store = codexSessionStore();
-  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
-}
-function detectSessionId(cwd, exclude, maxAgeMs) {
-  if (!cwd || !host.fs.fileExists(cwd)) return null;
-  const store = codexSessionStore();
-  if (!store) return null;
-  const entries = readSessionIndex(store.indexPath);
-  if (entries.length === 0) return null;
-  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
-  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
-  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
-  const matching = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (excluded.has(entry.id)) continue;
-    const updatedMs = sessionTimestamp(entry.updated_at);
-    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readThreadCwd(entry.id);
-    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
-  }
-  return matching.length === 1 ? matching[0] : null;
-}
-function enumerateSessions() {
-  const store = codexSessionStore();
-  if (!store) return [];
-  const entries = readSessionIndex(store.indexPath);
-  return entries.map((entry) => ({
-    sessionId: entry.id,
-    provider: "codex",
-    projectPath: readThreadCwd(entry.id),
-    title: entry.thread_name || null,
-    summary: null,
-    filePath: store.indexPath,
-    createdTs: null,
-    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
-  }));
-}
-function detectSessionModel(_cwd, sessionId) {
-  return trimmedField(threadRow(sessionId), "model");
-}
-function threadRow(sessionId) {
-  if (!sessionId) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  try {
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1",
-      [sessionId]
-    );
-    return rows.length > 0 ? rows[0] : null;
-  } catch (_) {
-    return null;
-  }
-}
-function trimmedField(row2, field) {
-  const value = row2 ? row2[field] : null;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-function codexStateDbPath() {
-  const override = host.envGet(sessionStoreOverrides.state);
-  if (override) return override;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  let entries;
-  try {
-    entries = host.fs.readDir(root);
-  } catch (_) {
-    return null;
-  }
-  let best = null;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry || !entry.isFile) continue;
-    const match = STATE_DB_NAME.exec(entry.name);
-    if (!match) continue;
-    const version = parseInt(match[1], 10);
-    if (!best || version > best.version) best = { name: entry.name, version };
-  }
-  return best ? root + sep + best.name : null;
-}
-function extractSessionUuid(stem) {
-  if (typeof stem !== "string") return null;
-  const prefix = "rollout-";
-  if (stem.indexOf(prefix) !== 0) return null;
-  const rest = stem.substring(prefix.length);
-  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
-  return rest.substring(20);
-}
-function codexSessionStore() {
-  const indexOverride = host.envGet(sessionStoreOverrides.index);
-  if (indexOverride) return { indexPath: indexOverride };
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  return {
-    indexPath: indexOverride || root + sep + "session_index.jsonl"
-  };
-}
-function trimTrailingSeparators(path) {
-  let end = path.length;
-  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
-  return path.substring(0, end);
-}
-function codexSessionsRoot(sep) {
-  const override = host.envGet(sessionStoreOverrides.root);
-  if (override) return trimTrailingSeparators(override);
-  const home = host.homeDir();
-  return home ? home + sep + ".codex" : null;
-}
-function readSessionIndex(path) {
-  if (!host.fs.fileExists(path)) return [];
-  const contents = host.fs.readFile(path);
-  return typeof contents === "string" ? foldSessionIndex(contents) : [];
-}
-function sessionIndexEntry(path, sessionId) {
-  const entries = readSessionIndex(path);
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].id === sessionId) return entries[i];
-  }
-  return null;
-}
-var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
-function readThreadCwd(sessionId) {
-  const row2 = threadRow(sessionId);
-  if (!row2) {
-    logUnresolvedCwd(sessionId, "no_row");
-    return null;
-  }
-  const cwd = trimmedField(row2, "cwd");
-  if (!cwd) {
-    logUnresolvedCwd(sessionId, "no_cwd");
-    return null;
-  }
-  if (!host.fs.fileExists(cwd)) {
-    logUnresolvedCwd(sessionId, "cwd_absent");
-    return null;
-  }
-  return cwd;
-}
-function logUnresolvedCwd(sessionId, cause) {
-  const key = sessionId + "\0" + cause;
-  if (unresolvedCwdDiagnostics.has(key)) return;
-  unresolvedCwdDiagnostics.add(key);
-  host.log("warn", JSON.stringify({
-    provider: "codex",
-    event: "session_cwd_unresolved",
-    sessionId,
-    cause
-  }));
-}
-function sessionTimestamp(value) {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 // plugins/provider-codex/src/appServer.ts
 var APP_SERVER_EXIT_DEADLINE_MS = 2e4;
 var JSON_RPC_METHOD_NOT_FOUND = -32601;
@@ -1824,6 +1916,7 @@ function isOwnedCodexHook(hook) {
 var CODEX_HOOK_SCRIPT_CONTRACT = [
   CODETERM_CODEX_HOOK_MARKER,
   CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+  "$HookEvent",
   "CODETERM_TAB_ID",
   "CODETERM_API_URL",
   "CODETERM_API_TOKEN",
@@ -1844,6 +1937,7 @@ function isOwnedCodexHookScriptContent(text5) {
 function isCurrentCodexHookScriptContent(text5) {
   if (!isOwnedCodexHookScriptContent(text5)) return false;
   if (/:\d{2,5}/.test(text5)) return false;
+  if (text5.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text5)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
     if (text5.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
   }
@@ -2350,6 +2444,7 @@ var OUTPUT_FINGERPRINTS = [
   "codex>"
 ];
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
+var NO_TUI_ANIMATIONS = ["-c", "tui.animations=false"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
@@ -2419,14 +2514,14 @@ var plugin = {
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
   },
-  directoryTrustPromptResponse(prompt, screen) {
-    const question = String(prompt.question || "").toLowerCase();
-    const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[1] : first.label;
-    if (!question.includes("trust the contents of this directory") || !firstLabel || !/^yes\b/i.test(firstLabel)) {
-      return null;
-    }
-    return responseKeysForIndex(0, String(screen || ""));
+  directoryTrustPromptResponse(screen) {
+    const view = String(screen || "");
+    const choice = parseActiveTerminalChoice(view);
+    if (!choice) return null;
+    const preamble = menuPreamble(view, choice.options[0].line).toLowerCase();
+    if (preamble.indexOf("trust the contents of this directory") === -1) return null;
+    if (!/^yes\b/i.test(choice.options[0].label)) return [];
+    return responseKeysForIndex(0, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
@@ -2436,7 +2531,7 @@ var plugin = {
     const p = params || {};
     const parts = [];
     let prefix = "";
-    parts.push("codex");
+    parts.push("codex", ...NO_TUI_ANIMATIONS);
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -2445,7 +2540,8 @@ var plugin = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
-      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : void 0);
+      const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
@@ -2468,7 +2564,7 @@ var plugin = {
     return prefix + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["codex", "resume"];
+    const parts = ["codex", ...NO_TUI_ANIMATIONS, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -2482,6 +2578,9 @@ var plugin = {
   },
   sessionExists(cwd, sessionId) {
     return sessionExists(cwd, sessionId);
+  },
+  detectLaunchSession(evidence) {
+    return detectCodexLaunchSession(evidence);
   },
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
   sessionJsonlPath(cwd, sessionId) {
@@ -2719,6 +2818,9 @@ var plugin = {
   },
   enumerateSessions() {
     return enumerateSessions();
+  },
+  findSession(sessionId) {
+    return findSession(sessionId);
   },
   // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd, sessionId) {

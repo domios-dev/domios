@@ -113,6 +113,8 @@ impl ServiceContext {
             shell_nonce,
             tab_cwd,
             agent_session_id,
+            directory_trust_eligible,
+            directory_trust_skip,
         ) = {
             let mux = self.mux.read();
             let pid = mux.tab_id_for_pty(pty_id);
@@ -123,7 +125,19 @@ impl ServiceContext {
             let nonce = tab.and_then(|p| p.shell_integration_nonce.clone());
             let cwd = tab.and_then(|p| p.cwd.clone());
             let sid = tab.and_then(|p| p.agent_session_id.clone());
-            (pid, at, active_prompt, auto_approve, nonce, cwd, sid)
+            let trust = tab.is_some_and(super::directory_trust::directory_trust_check_applies);
+            let skip = tab.and_then(super::directory_trust::directory_trust_skip_reason);
+            (
+                pid,
+                at,
+                active_prompt,
+                auto_approve,
+                nonce,
+                cwd,
+                sid,
+                trust,
+                skip,
+            )
         };
 
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
@@ -194,6 +208,12 @@ impl ServiceContext {
 
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
             self.maybe_detect_agent_session(pid, at);
+            if directory_trust_eligible {
+                let screen = self.screen_state.lock().get_screen_text(pty_id);
+                self.respond_to_directory_trust(pid, screen.as_deref());
+            } else if let Some(reason) = directory_trust_skip {
+                self.note_directory_trust(pid, reason, None);
+            }
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
@@ -494,9 +514,8 @@ impl ServiceContext {
             } = event
             {
                 self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                // Claimed before the teardown below, which clears the launch a
-                // verdict names, and published after so the teardown still sees
-                // the boot stage it decides on.
+                // Claimed before the teardown clears the launch it names, published
+                // after so the teardown still sees the boot stage it decides on.
                 let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
                 // The shell finished its foreground command: if that command was
                 // a proven-up agent, the agent process is gone.
@@ -513,10 +532,10 @@ impl ServiceContext {
         }
     }
 
-    /// Post-launch detection is limited to hookless, file-backed providers.
-    /// Structured sessions require authoritative per-launch provider binding.
+    /// Heuristic detection is limited to hookless, file-backed providers. A
+    /// hooked provider that missed its launch deadline reads its own launch record.
     fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
-        let (cwd, set_at_elapsed, current_session) = {
+        let (cwd, set_at_elapsed, current_session, deadline_elapsed) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
@@ -524,25 +543,38 @@ impl ServiceContext {
             let cwd = tab.cwd.clone().unwrap_or_default();
             let elapsed = tab.agent_set_at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
             let sid = tab.agent_session_id.clone();
-            (cwd, elapsed, sid)
+            let deadline_elapsed = tab.boot_stage
+                == Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed)
+                || tab.agent_set_at.is_some_and(|set_at| {
+                    set_at.elapsed() >= crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+                });
+            (cwd, elapsed, sid, deadline_elapsed)
         };
         if !should_detect_unbound_session(current_session.as_deref()) {
             return;
         }
-        if cwd.is_empty() {
-            return;
-        }
-        let needs = self
+        let (heuristic, hooked) = self
             .agent_registry
             .with_provider(agent_type, |p| {
                 let inj = matches!(
                     p.session_id_injection(),
                     crate::agent::provider::SessionIdInjection::None
                 );
-                should_heuristically_detect_session(inj, p.has_hooks(), p.uses_structured_chat())
+                (
+                    should_heuristically_detect_session(
+                        inj,
+                        p.has_hooks(),
+                        p.uses_structured_chat(),
+                    ),
+                    p.has_hooks(),
+                )
             })
-            .unwrap_or(false);
-        if !needs {
+            .unwrap_or((false, false));
+        let launch_detection = !heuristic && hooked && deadline_elapsed;
+        if !heuristic && !launch_detection {
+            return;
+        }
+        if !launch_detection && cwd.is_empty() {
             return;
         }
         // Throttle: at most once per second per tab.
@@ -555,6 +587,10 @@ impl ServiceContext {
                 }
             }
             cd.insert(tab_id.to_string(), now);
+        }
+        if launch_detection {
+            self.detect_unbound_launch_session(tab_id);
+            return;
         }
 
         let exclude = self.mux.read().other_session_ids(tab_id);
@@ -617,7 +653,7 @@ impl ServiceContext {
             PromptDecision::None => {}
             PromptDecision::NewPrompt { tab_id, prompt }
             | PromptDecision::PromptUpdated { tab_id, prompt } => {
-                let (auto_approve, agent_type, pty_id, is_general_tab) = {
+                let (auto_approve, agent_type, pty_id, is_general_tab, session_authenticated) = {
                     let mux = self.mux.read();
                     let is_general_tab = mux
                         .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
@@ -629,42 +665,15 @@ impl ServiceContext {
                         tab.and_then(|p| p.agent_type.clone()),
                         tab.and_then(|p| p.pty_id.clone()),
                         is_general_tab,
+                        tab.is_some_and(|p| p.launch_session_authenticated()),
                     )
                 };
 
+                let trust = self.respond_to_directory_trust(tab_id, screen_text);
+                if trust.owns_prompt() {
+                    return;
+                }
                 if auto_approve {
-                    let directory_trust = agent_type.as_deref().and_then(|provider| {
-                        self.agent_registry
-                            .with_provider(provider, |provider| {
-                                provider.directory_trust_prompt_response(
-                                    prompt,
-                                    screen_text.unwrap_or(""),
-                                )
-                            })
-                            .flatten()
-                    });
-                    if let Some(response) = directory_trust {
-                        let exact_provenance = {
-                            let mux = self.mux.read();
-                            mux.get_tab(tab_id).is_some_and(|tab| {
-                                tab.provisioned_cwd.as_deref().is_some_and(|provisioned| {
-                                    tab.cwd.as_deref().is_some_and(|cwd| {
-                                        crate::service::ServiceContext::paths_equal(
-                                            cwd,
-                                            provisioned,
-                                        )
-                                    })
-                                })
-                            })
-                        };
-                        if exact_provenance {
-                            self.prompt_detector.lock().mark_responded(tab_id);
-                            if let Some(pty_id) = pty_id {
-                                write_prompt_steps(self.pty.clone(), pty_id, response.steps);
-                            }
-                        }
-                        return;
-                    }
                     if is_general_tab {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
@@ -702,7 +711,18 @@ impl ServiceContext {
                         }
                     }
 
-                    if let Some(response) = legacy_auto_approve_response(prompt) {
+                    let structured_prompt =
+                        crate::service::structured_prompt::pending_for_tab(tab_id)
+                            .is_some_and(|structured| &structured == prompt);
+                    let legacy_permitted = super::directory_trust::legacy_auto_approve_permitted(
+                        &trust,
+                        session_authenticated,
+                        structured_prompt,
+                    );
+                    if let Some(response) = legacy_permitted
+                        .then(|| legacy_auto_approve_response(prompt))
+                        .flatten()
+                    {
                         log::info!(
                             "[auto-approve] Auto-approving {} prompt for Tab {}",
                             response.kind,
@@ -719,6 +739,12 @@ impl ServiceContext {
                         "[auto-approve] Skipping non-approvable prompt for Tab {}",
                         tab_id
                     );
+                }
+                if self
+                    .try_permission_auto_confirm(tab_id, screen_text)
+                    .owns_prompt()
+                {
+                    return;
                 }
                 {
                     let mut mux = self.mux.write();
@@ -807,12 +833,12 @@ fn should_heuristically_detect_session(
     has_no_injection && !has_hooks && !uses_structured_chat
 }
 
-struct LegacyAutoApproveResponse {
+pub(super) struct LegacyAutoApproveResponse {
     kind: &'static str,
     bytes: Vec<u8>,
 }
 
-fn legacy_auto_approve_response(
+pub(super) fn legacy_auto_approve_response(
     prompt: &crate::multiplexer::types::PendingPrompt,
 ) -> Option<LegacyAutoApproveResponse> {
     let is_yes_no = prompt.options.iter().any(|o| {
@@ -851,8 +877,24 @@ fn default_prompt_response(option_index: usize) -> Vec<Vec<u8>> {
 }
 
 fn write_prompt_steps(pty: crate::PtyState, pty_id: String, steps: Vec<Vec<u8>>) {
+    write_bound_prompt_steps(pty, pty_id, steps, || true);
+}
+
+/// The prompt responder with a binding check run immediately before the first
+/// key; a refused binding writes nothing.
+pub(super) fn write_bound_prompt_steps<F>(
+    pty: crate::PtyState,
+    pty_id: String,
+    steps: Vec<Vec<u8>>,
+    still_bound: F,
+) where
+    F: FnOnce() -> bool + Send + 'static,
+{
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
+        if !still_bound() {
+            return;
+        }
         for step in steps {
             let _ = pty.lock().write(&pty_id, &step);
             std::thread::sleep(std::time::Duration::from_millis(100));

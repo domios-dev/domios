@@ -203,10 +203,17 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::WorkspaceAction::Current { .. } => unsupported(
                 "workspace current is caller-local — use workspace list on the peer",
             ),
-            crate::WorkspaceAction::Create { name, cwd } => {
+            crate::WorkspaceAction::Create {
+                name,
+                cwd,
+                provision,
+            } => {
                 let mut body = serde_json::json!({"name": name});
                 if let Some(cwd) = cwd {
                     body["cwd"] = serde_json::json!(cwd);
+                }
+                if *provision {
+                    body["provision"] = serde_json::json!(true);
                 }
                 ("POST".into(), "/api/workspaces".into(), Some(body.to_string()))
             }
@@ -384,6 +391,15 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     "POST".into(),
                     format!("/api/tabs/{}/prompt/respond", p),
                     Some(serde_json::json!({"value": option.to_string()}).to_string()),
+                )
+            }
+            crate::TabAction::AutoConfirm { mode, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                let (method, body) = mode.request();
+                (
+                    method.into(),
+                    format!("/api/tabs/{}/permission-auto-confirm", p),
+                    body.map(|value| value.to_string()),
                 )
             }
             crate::TabAction::Rebind { session_id, tab } => {
@@ -820,6 +836,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
+        Commands::Integration { action } => crate::cmd::integration::api_request(action),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,

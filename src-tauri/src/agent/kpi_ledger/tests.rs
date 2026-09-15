@@ -25,6 +25,8 @@ fn event(kind: KpiEventKind, plan_id: Option<&str>, tab_id: &str, bytes: u64) ->
         bytes,
         tokens: None,
         dedup_key: None,
+        workspace_id: None,
+        tab_kind: None,
     }
 }
 
@@ -409,13 +411,17 @@ fn thousand_mixed_synthetic_events_round_trip_and_aggregate() {
                 bytes,
                 tokens: None,
                 dedup_key: None,
+                workspace_id: None,
+                tab_kind: None,
             })
             .unwrap();
 
         *expected_kind_counts.entry(kind).or_insert(0) += 1;
         expected_kind_bytes.entry(kind).or_default().push(bytes);
-        *expected_plan_counts.entry(plan_id.clone()).or_insert(0) += 1;
-        *expected_plan_bytes.entry(plan_id).or_insert(0) += bytes;
+        if kind != KpiEventKind::TabCreated {
+            *expected_plan_counts.entry(plan_id.clone()).or_insert(0) += 1;
+            *expected_plan_bytes.entry(plan_id).or_insert(0) += bytes;
+        }
     }
 
     let all = ledger.list_all().unwrap();
@@ -489,7 +495,10 @@ fn kpi_policy_default_or_explicit_opt_in() {
     assert!(kpi_ledger_enabled(&default_config));
 
     let opted_out = AppConfig {
-        kpi: KpiConfig { enabled: false },
+        kpi: KpiConfig {
+            enabled: false,
+            ..Default::default()
+        },
         ..AppConfig::default()
     };
     assert!(
@@ -582,13 +591,20 @@ fn aggregate_by_plan_counts_only_message_payloads_as_bytes() {
         .unwrap();
     ledger
         .insert(&KpiEventInput {
-            tokens: Some(TokenCounts { input: 146_534, uncached_input: 3_430, output: 5 }),
+            tokens: Some(TokenCounts {
+                input: 146_534,
+                uncached_input: 3_430,
+                output: 5,
+            }),
             ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 146_539)
         })
         .unwrap();
 
     let agg = ledger.aggregate_by_plan().unwrap();
-    let pl1 = agg.iter().find(|a| a.plan_id.as_deref() == Some("pl_1")).unwrap();
+    let pl1 = agg
+        .iter()
+        .find(|a| a.plan_id.as_deref() == Some("pl_1"))
+        .unwrap();
     assert_eq!(pl1.count, 2);
     assert_eq!(pl1.turns, 1);
     assert_eq!(pl1.total_bytes, 40);

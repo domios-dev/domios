@@ -1343,7 +1343,7 @@ button,
   font-size: 13px;
   color: var(--ct-muted-fg);
 }
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .plan-task-segment__header,
   .plan-task-segment__note {
     padding-inline: 16px;
@@ -1461,7 +1461,7 @@ button,
     transform: translateX(100%);
   }
 }
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .plan-side-panel-layer {
     padding-left: 0;
   }

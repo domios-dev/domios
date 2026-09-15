@@ -61,6 +61,7 @@ impl ServiceContext {
             None
         };
 
+        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
             tab_id,
@@ -135,7 +136,8 @@ impl ServiceContext {
                 }
             }
         };
-        if let Some(orphan) = self.mux.write().link_pty(&tab_id, pty_id.clone()) {
+        let orphan = self.mux.write().link_pty(&tab_id, pty_id.clone());
+        if let Some(orphan) = orphan {
             self.kill_ptys(&[orphan]);
         }
         crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
@@ -162,6 +164,7 @@ impl ServiceContext {
             });
         });
 
+        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
             tab_id,

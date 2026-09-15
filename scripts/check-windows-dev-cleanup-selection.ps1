@@ -15,6 +15,11 @@ $processes = @(
   @{ ProcessId = 201; ParentProcessId = 200; Name = "child.exe"; ExecutablePath = "C:\fixture\child.exe"; CommandLine = "child-without-direct-ownership" },
   @{ ProcessId = 210; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--user-data-dir=$env:LOCALAPPDATA\com.codeterm.dev.provider.model.oracle\EBWebView" },
   @{ ProcessId = 220; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1560" },
+  @{ ProcessId = 225; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js build --watch" },
+  @{ ProcessId = 240; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "node node_modules/vite/bin/vite.js build --watch" },
+  @{ ProcessId = 241; ParentProcessId = 240; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "vite watcher child" },
+  @{ ProcessId = 250; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "node scripts/dev-static-server.mjs" },
+  @{ ProcessId = 251; ParentProcessId = 250; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "static server child" },
   @{ ProcessId = 230; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9363" },
   @{ ProcessId = 300; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --orphan-no-port" },
   @{ ProcessId = 310; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --wrong-api-port" },
@@ -55,13 +60,26 @@ try {
   if (($actual -join ",") -ne ($expected -join ",")) {
     throw "named cleanup selected [$($actual -join ',')], expected [$($expected -join ',')]"
   }
-  foreach ($defaultPid in @(100, 110, 120, 130, 300)) {
+  foreach ($defaultPid in @(100, 110, 120, 130, 225, 300)) {
     if ($actual -contains $defaultPid) {
       throw "named cleanup selected default/unowned pid $defaultPid"
     }
   }
   if (@($plan.victim_roots) -contains 300) {
     throw "shared executable/target path alone became kill ownership"
+  }
+
+  $ownedArgs = $cleanupArgs.Clone()
+  $ownedArgs.OwnedProcessIds = @(240, 250)
+  $ownedArgs.OwnedOnly = $true
+  $ownedPlan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @ownedArgs | ConvertFrom-Json
+  $ownedExpected = @(240, 241, 250, 251)
+  $ownedActual = @($ownedPlan.selected_processes | ForEach-Object { [int]$_ } | Sort-Object)
+  if (($ownedActual -join ",") -ne ($ownedExpected -join ",")) {
+    throw "owned cleanup selected [$($ownedActual -join ',')], expected [$($ownedExpected -join ',')]"
+  }
+  if (@($ownedPlan.selected_processes) -contains 225) {
+    throw "owned cleanup selected foreign watcher 225"
   }
 
   $defaultArgs = @{
@@ -81,7 +99,7 @@ try {
   if (($defaultActual -join ",") -ne ($defaultExpected -join ",")) {
     throw "default cleanup selected [$($defaultActual -join ',')], expected [$($defaultExpected -join ',')]"
   }
-  foreach ($wrongOwnerPid in @(200, 201, 210, 220, 230, 310, 320)) {
+  foreach ($wrongOwnerPid in @(200, 201, 210, 220, 225, 230, 240, 241, 250, 251, 310, 320)) {
     if ($defaultActual -contains $wrongOwnerPid) {
       throw "default cleanup selected named/wrong-port pid $wrongOwnerPid"
     }
@@ -94,7 +112,7 @@ try {
   if ($playwrightHelper -match 'Get-CimInstance Win32_Process|function Stop-Tree') {
     throw "Playwright cleanup still contains an inline process selector"
   }
-  Write-Host "PASS centralized cleanup preserves named/default ownership and rejects wrong-port processes"
+  Write-Host "PASS centralized cleanup preserves named/default ownership and stops only explicit watcher trees"
 } finally {
   Remove-Item -LiteralPath $fixturePath -Force -ErrorAction SilentlyContinue
 }

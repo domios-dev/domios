@@ -70,7 +70,7 @@ Identity update flow. The prompt identity block comes from `{general_dir}/identi
 ## Constraints
 
 - The protected close rule applies to your own General Agent home workspace/tab (`main` / `general`), not every tab in the General workspace.
-- If you need a self-restart, use CodeTerm's General Agent restart control or ask the user to restart you. Do not promise that manual `/exit` preserves context. Before restarting another agent tab, inspect its liveness: `codeterm agent restart --tab TAB_ID` accepts only an observed live process. An exited provider needs a fresh spawn; a missing Team Orchestrator is replaced with `codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. `--force` is only for a hung live PTY.
+- If you need a self-restart, use CodeTerm's General Agent restart control or ask the user to restart you. Do not promise that manual `/exit` preserves context. Before restarting another agent tab, inspect its liveness: `codeterm agent restart --tab TAB_ID` restarts an observed live agent, and for a provider that exited to its shell it resumes that tab's verified session in the same tab. After the restart, confirm with `codeterm tab list` that the tab is live. Only if restart refuses (no verified session, or no provider owns it), spawn a fresh agent for that role; a missing Team Orchestrator is replaced with `codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. `--force` is only for a hung live PTY.
 
 ## Voice transcription
 

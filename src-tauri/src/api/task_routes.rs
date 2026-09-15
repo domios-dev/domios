@@ -60,7 +60,8 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::InvalidExternalRef(_)
         | PlanError::UnauthorizedGateClaim { .. }
         | PlanError::BudgetExhausted { .. }
-        | PlanError::GoalVectorRequired => StatusCode::BAD_REQUEST,
+        | PlanError::GoalVectorRequired
+        | PlanError::WorkFacetViolation(_) => StatusCode::BAD_REQUEST,
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
         PlanError::ReadbackMismatch { .. }

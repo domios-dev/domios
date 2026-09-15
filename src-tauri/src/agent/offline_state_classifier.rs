@@ -128,10 +128,8 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
     let active_footer = active_turn_footer(input.screen_lines);
     let completed_status_repaint =
         completion_summary_immediately_precedes_status_repaint(input.screen_lines);
-    // A still-animating turn (fresh bytes, no completed-turn summary) is genuinely live:
-    // a long think repaints only the excluded status band, so semantic-idle keeps growing.
-    // Progress observed for THIS widget spans the quiet gap between repaints, and
-    // decays at the same deadline that already caps an evidence-free Working.
+    // A long think repaints only the excluded status band, so progress seen for THIS
+    // widget spans the quiet gaps and decays at the evidence-free Working deadline.
     let elapsed_progress_live = input.status_elapsed.advancing()
         || (input.status_elapsed.progressed
             && (input.byte_idle_ms < STUCK_WORKING_IDLE_MS

@@ -12,11 +12,11 @@ use tower_http::{
 
 use super::{
     agent_done_routes, agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes,
-    debug_routes, fs_routes, health_routes, logs_routes, mem_routes, mesh_inventory, mesh_routes,
-    network_routes, notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
-    services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
-    team_mission_control_routes, team_spend, theme_routes, updater_routes, usage_routes,
-    web_routes, webhook_routes, workspace_routes,
+    debug_routes, fs_routes, health_routes, inbound_webhook, logs_routes, mem_routes,
+    mesh_inventory, mesh_routes, network_routes, notification_routes, output_stream,
+    pasteboard_routes, plan_routes, pty_routes, services_routes, session_routes, tab_agent_routes,
+    tab_routes, task_routes, team_mission_control_routes, team_routes, team_spend, theme_routes,
+    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -806,10 +806,7 @@ pub fn create_router(state: AppState) -> Router {
             post(mem_routes::mem_check_duplicate),
         )
         .route("/api/mem/dream", post(mem_routes::mem_dream))
-        .route(
-            "/api/mem/dream/diary",
-            get(mem_routes::mem_dream_diary),
-        )
+        .route("/api/mem/dream/diary", get(mem_routes::mem_dream_diary))
         .route(
             "/api/mem/extract-pending",
             post(mem_routes::mem_extract_pending),
@@ -888,6 +885,12 @@ pub fn create_router(state: AppState) -> Router {
             post(web_routes::open_chat_backend_tab),
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
+        .route(
+            inbound_webhook::PEBBLE_WEBHOOK_PATH,
+            post(inbound_webhook::receive_pebble_webhook).layer(
+                axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_BODY_BYTES),
+            ),
+        )
         .route(
             "/api/attachments/temp-file",
             post(web_routes::save_temp_file),

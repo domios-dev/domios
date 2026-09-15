@@ -9,6 +9,8 @@ use crate::session::store::{
     AgentIdentitySnapshot, SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
 
+mod permission_auto_confirm;
+
 fn new_journal() -> (TabLifecycleJournal, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
@@ -38,6 +40,7 @@ fn commit_full_launch(journal: &TabLifecycleJournal, key: &LifecycleKey, session
             LifecycleTransition::SessionBound {
                 session_id: session_id.into(),
                 binding_nonce: "nonce-1".into(),
+                source: Default::default(),
             },
         )
         .unwrap();
@@ -75,6 +78,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         boot_stage: None,
         reasoning_effort: Default::default(),
         context_epochs: vec![],
+        prior_session_bindings: vec![],
         task_binding: None,
         roleless_tracked: false,
         lifecycle_epoch: epoch,
@@ -105,6 +109,7 @@ fn leaf(tab_id: &str) -> SplitNodeSnapshot {
         depth: 0,
         chat_view: None,
         auto_approve: false,
+        permission_auto_confirm: false,
         audience: crate::multiplexer::types::TabAudience::Automation,
         agent_session_model: None,
         agent_planned_model: None,
@@ -227,6 +232,7 @@ fn snapshot(leaves: Vec<SplitNodeSnapshot>) -> SessionSnapshot {
             name: "Main".into(),
             active_tab_id: None,
             cwd: None,
+            provisioned_cwd: None,
             protected: false,
             sort_order: 0,
             tabs: leaves
@@ -527,6 +533,7 @@ fn verified_identity_write_advances_checkpoint_and_survives_compaction() {
             LifecycleTransition::SessionBound {
                 session_id: "session-a".into(),
                 binding_nonce: "nonce-1".into(),
+                source: Default::default(),
             },
         )
         .unwrap();
@@ -615,6 +622,7 @@ fn unsealed_launch_never_becomes_a_checkpoint() {
             LifecycleTransition::SessionBound {
                 session_id: "session-a".into(),
                 binding_nonce: "nonce-1".into(),
+                source: Default::default(),
             },
         )
         .unwrap();
@@ -814,4 +822,68 @@ fn a_close_record_written_before_attribution_reads_as_unattributed() {
         },
         "an unattributed close must never be read back as a user close"
     );
+}
+
+fn at(seq: u64, key: &LifecycleKey, transition: LifecycleTransition) -> JournalRecord {
+    JournalRecord::Transition {
+        entry: LifecycleEntry {
+            seq,
+            key: key.clone(),
+            transition,
+            recorded_at: String::new(),
+        },
+    }
+}
+
+fn sealed_launch(first_seq: u64, key: &LifecycleKey, session_id: &str) -> Vec<JournalRecord> {
+    [
+        LifecycleTransition::EpochOpened,
+        LifecycleTransition::ProviderIdentityCommitted {
+            provider: "claude".into(),
+        },
+        LifecycleTransition::SessionBound {
+            session_id: session_id.into(),
+            binding_nonce: format!("nonce-{session_id}"),
+            source: Default::default(),
+        },
+        LifecycleTransition::LaunchReady,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(offset, transition)| at(first_seq + offset as u64, key, transition))
+    .collect()
+}
+
+#[test]
+fn restore_contract_awaiting_agent_restart_never_creates_or_alters_a_checkpoint() {
+    use super::reduce::{compact_records, sealed_checkpoints};
+
+    let first = key("tab-a", 1, "op-a");
+    let decision = LifecycleTransition::RestoreAwaitingAgentRestart {
+        session_id: "session-a".into(),
+    };
+    assert!(
+        sealed_checkpoints(&[at(
+            1,
+            &key("tab-a", 2, "restore-decision"),
+            decision.clone()
+        )])
+        .is_empty(),
+        "a diagnostic alone never seals"
+    );
+
+    let mut plain = sealed_launch(1, &first, "session-a");
+    let mut diagnosed = plain.clone();
+    diagnosed.push(at(10, &first, decision.clone()));
+    diagnosed.push(at(11, &key("tab-a", 2, "restore-decision"), decision));
+    assert!(!sealed_checkpoints(&plain).is_empty());
+    assert_eq!(sealed_checkpoints(&diagnosed), sealed_checkpoints(&plain));
+
+    let later = sealed_launch(20, &key("tab-a", 3, "op-c"), "session-c");
+    plain.extend(later.clone());
+    diagnosed.extend(later);
+    let expected = sealed_checkpoints(&plain);
+    assert_eq!(expected[0].authority.session_id, "session-c");
+    assert_eq!(sealed_checkpoints(&diagnosed), expected);
+    assert_eq!(sealed_checkpoints(&compact_records(&diagnosed)), expected);
 }

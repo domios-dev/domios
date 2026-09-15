@@ -22,8 +22,7 @@ const DELIVERY_DEADLINE: Duration = Duration::from_secs(30);
 /// Enough filler that one backfill page cannot start at byte 0.
 const FILLER_RECORDS: usize = 2100;
 
-const PLAIN: &str =
-    r#"{"type":"user","message":{"role":"user","content":"plain question"}}"#;
+const PLAIN: &str = r#"{"type":"user","message":{"role":"user","content":"plain question"}}"#;
 const SPLIT: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first part"},{"type":"text","text":"second part"}]}}"#;
 const UUID_ROW: &str = r#"{"type":"assistant","uuid":"u-identity","message":{"role":"assistant","content":[{"type":"text","text":"uuid answer"},{"type":"text","text":"uuid tail"}]}}"#;
 const TARGETS: [&str; 5] = [
@@ -61,12 +60,9 @@ fn js_registry(plugin_dir: &str, id: &str, sessions_root: &Path) -> Arc<AgentReg
     );
     let manifest: crate::plugin::js_runtime::PluginManifest =
         serde_json::from_str(&manifest_json).expect("parse synthetic manifest");
-    let vm = crate::plugin::js_runtime::PluginVm::from_source_with(
-        id,
-        plugin_js,
-        Some(manifest_json),
-    )
-    .expect("init provider VM");
+    let vm =
+        crate::plugin::js_runtime::PluginVm::from_source_with(id, plugin_js, Some(manifest_json))
+            .expect("init provider VM");
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(crate::plugin::js_runtime::JsProvider::new(
         manifest,
@@ -174,8 +170,8 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
         session_window::parse_window(&registry, "claude", &path, window_start, total);
     let window = rich_rows_to_chat_msgs(&window_rows, window_start);
 
-    let page = crate::commands::backfill_page(&registry, "claude", &path, total)
-        .expect("backfill page");
+    let page =
+        crate::commands::backfill_page(&registry, "claude", &path, total).expect("backfill page");
     assert!(
         page.start_offset > 0 && page.start_offset < window_start,
         "backfill page starts at its own aligned record, got {}",
@@ -251,8 +247,8 @@ fn tab_chat_identity_codex_ordinary_rows_share_one_id_across_reads() {
         .enumerate()
         .flat_map(|(i, row)| rich_to_chat_msgs_live(row, 900 + i))
         .collect();
-    let page = crate::commands::backfill_page(&registry, "codex", &path, total)
-        .expect("backfill page");
+    let page =
+        crate::commands::backfill_page(&registry, "codex", &path, total).expect("backfill page");
 
     let answer_id = |messages: &[ChatMsg]| {
         messages
@@ -303,7 +299,10 @@ fn tab_chat_identity_uuid_rows_keep_provider_ids_byte_for_byte() {
     );
     let expected = vec!["3f2a9c1e-uuid-0".to_string(), "3f2a9c1e-uuid-1".to_string()];
     assert_eq!(ids(&rich_to_chat_msgs(&anchored, 0)), expected);
-    assert_eq!(ids(&rich_to_chat_msgs_at(&anchored, RowOrigin::at(123, 9))), expected);
+    assert_eq!(
+        ids(&rich_to_chat_msgs_at(&anchored, RowOrigin::at(123, 9))),
+        expected
+    );
     assert_eq!(ids(&rich_to_chat_msgs_live(&anchored, 55)), expected);
 }
 
@@ -340,7 +339,10 @@ fn tab_chat_identity_record_anchor_names_every_derived_id() {
 #[test]
 fn tab_chat_identity_unanchored_rows_keep_their_batch_ids() {
     let unanchored = row("assistant", None, None, vec![text("legacy")]);
-    assert_eq!(ids(&rich_to_chat_msgs_at(&unanchored, RowOrigin::at(7, 3))), vec!["7-3-0"]);
+    assert_eq!(
+        ids(&rich_to_chat_msgs_at(&unanchored, RowOrigin::at(7, 3))),
+        vec!["7-3-0"]
+    );
     assert_eq!(ids(&rich_to_chat_msgs_live(&unanchored, 42)), vec!["42-0"]);
     assert_eq!(rich_to_chat_msgs_live(&unanchored, 42)[0].seq, 42);
 }

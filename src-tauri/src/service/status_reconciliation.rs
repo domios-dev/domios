@@ -42,7 +42,7 @@ pub(super) fn snapshot_with_reconciled_status(
     })
 }
 
-pub(super) fn try_snapshot_with_reconciled_status(
+pub(crate) fn try_snapshot_with_reconciled_status(
     mux: &MuxState,
     tracker: &AgentTrackerState,
     registry: &AgentRegistry,
@@ -78,11 +78,7 @@ impl ServiceContext {
     pub(crate) fn try_snapshot_with_reconciled_status(
         &self,
     ) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
-        try_snapshot_with_reconciled_status(
-            &self.mux,
-            &self.agent_tracker,
-            &self.agent_registry,
-        )
+        try_snapshot_with_reconciled_status(&self.mux, &self.agent_tracker, &self.agent_registry)
     }
 }
 
@@ -139,8 +135,10 @@ mod tests {
 
         let (state, _) = MultiplexerState::new();
         let mux: MuxState = Arc::new(TimedRwLock::new("authoritative-snapshot-test", state));
-        let tracker: AgentTrackerState =
-            Arc::new(TimedMutex::new("authoritative-snapshot-test", TabStatusTracker::new()));
+        let tracker: AgentTrackerState = Arc::new(TimedMutex::new(
+            "authoritative-snapshot-test",
+            TabStatusTracker::new(),
+        ));
         let registry = AgentRegistry::new();
         let _lifecycle_owner = mux.write();
         let (done_tx, done_rx) = mpsc::channel();
@@ -148,12 +146,10 @@ mod tests {
         let worker_tracker = tracker.clone();
         let worker = std::thread::spawn(move || {
             done_tx
-                .send(try_snapshot_with_reconciled_status(
-                    &worker_mux,
-                    &worker_tracker,
-                    &registry,
+                .send(
+                    try_snapshot_with_reconciled_status(&worker_mux, &worker_tracker, &registry)
+                        .is_none(),
                 )
-                .is_none())
                 .unwrap();
         });
 

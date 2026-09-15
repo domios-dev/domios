@@ -31,6 +31,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
+import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
@@ -151,6 +152,7 @@ export function TabSessionChat({
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
+  const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
 
@@ -266,7 +268,6 @@ export function TabSessionChat({
     },
     [pendingPrompt, tabId, showComposerError],
   );
-
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
     if (!currentPtyId) {
@@ -625,6 +626,7 @@ export function TabSessionChat({
     && !chatLoading
     && renderedEnrichedMessages.length === 0
     && outboundReports.length === 0
+    && autoConfirmations.length === 0
     && !inlinePrompt;
 
   return (
@@ -760,6 +762,7 @@ export function TabSessionChat({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
         />
+        <AutoConfirmedPromptRows records={autoConfirmations} />
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
         </div>
       </div>
@@ -794,8 +797,7 @@ export function TabSessionChat({
           onRebind={sessionBindingSurface.showRecoveryAction
             ? () => setBindingRecoveryOpen(true)
             : undefined}
-        />
-        {bindingRecoveryOpen && (
+        />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
             suggestedSessionId={sessionBindingSurface.rebindSessionId}

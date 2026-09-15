@@ -34,8 +34,8 @@ struct RecorderInner {
 pub struct KpiRecorder {
     inner: Option<Arc<RecorderInner>>,
     /// Set when the flag was on but the ledger would not open, so a not-recording
-    /// surface reports a failure instead of telling the owner to turn on a live setting.
-    open_failed: bool,
+    /// surface reports that failure instead of telling the owner to turn on a live setting.
+    open_error: Option<Arc<str>>,
 }
 
 impl KpiRecorder {
@@ -58,7 +58,7 @@ impl KpiRecorder {
                 log::warn!("[kpi] ledger open failed: {} — KPI collection disabled", e);
                 Self {
                     inner: None,
-                    open_failed: true,
+                    open_error: Some(Arc::from(e)),
                 }
             }
         }
@@ -66,7 +66,12 @@ impl KpiRecorder {
 
     /// True only for the configured-on-but-unopenable case; an opt-out reads false.
     pub fn open_failed(&self) -> bool {
-        self.open_failed
+        self.open_error.is_some()
+    }
+
+    /// The host's own text for why a configured ledger did not open.
+    pub fn open_error(&self) -> Option<&str> {
+        self.open_error.as_deref()
     }
 
     pub fn with_ledger(ledger: Arc<KpiLedger>) -> Self {
@@ -117,7 +122,7 @@ impl KpiRecorder {
                 on_commit,
                 ledger: reader,
             })),
-            open_failed: false,
+            open_error: None,
         }
     }
 
@@ -240,9 +245,8 @@ fn ingest_into_ledger(
     if batch.is_empty() && offset_before == Some(new_offset) {
         return;
     }
-    // The cursor commits past every byte this pass read, so anything consumed and
-    // not recorded is gone for good. Never silent: unreadable lines are real loss,
-    // and a stretch that simply carried no usage still says so.
+    // The cursor commits past every byte this pass read, so consumed but unrecorded
+    // usage is gone for good and must be logged, whether unreadable or merely empty.
     if batch.unreadable_lines > 0 {
         log::warn!(
             "[kpi] {}: {} unreadable lines in {} consumed bytes; their usage is unrecoverable",

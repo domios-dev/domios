@@ -1,4 +1,5 @@
 mod quality;
+mod work_facet;
 
 use std::path::Path;
 use std::process::Command;

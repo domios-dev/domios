@@ -780,7 +780,10 @@ mod notification_deep_link {
         let guard = store.lock();
         let record = guard.notification(&id).expect("the record is stored");
         assert_eq!(record.target_tab_id.as_deref(), Some("tab_target"));
-        assert_eq!(record.chat_message_id.as_deref(), Some("needs-you-message-1"));
+        assert_eq!(
+            record.chat_message_id.as_deref(),
+            Some("needs-you-message-1")
+        );
         assert_eq!(
             record.tab_id.as_deref(),
             Some("tab_asker"),
@@ -834,7 +837,12 @@ mod notification_deep_link {
     fn notification_deep_link_superseding_send_replaces_a_stale_target() {
         let store = Arc::new(Mutex::new(NotificationStore::new(10)));
         let emitted = Mutex::new(Vec::new());
-        let first = send(&store, "Approve step one?", origin_with(exact_target()), &emitted);
+        let first = send(
+            &store,
+            "Approve step one?",
+            origin_with(exact_target()),
+            &emitted,
+        );
         let second = send(
             &store,
             "Approve step two?",

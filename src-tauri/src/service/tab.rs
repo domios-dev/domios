@@ -121,6 +121,8 @@ impl ServiceContext {
         self.clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.prompt_detector.lock().remove_tab(tab_id);
+        self.forget_permission_auto_confirm(tab_id);
+        self.forget_directory_trust(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.remote_workers.forget_orchestrator(tab_id);
         pad_result
@@ -365,9 +367,29 @@ impl ServiceContext {
         tab_id: &str,
         cause: &str,
     ) -> bool {
-        // Every observed lifecycle exit funnels through here, whatever saw it,
-        // so this is where a launch still under observation learns its process
-        // is gone — claimed before the clear below retires the launch it names.
+        self.clear_tab_agent_identity_for_lifecycle_exit_during(
+            tab_id,
+            cause,
+            crate::crash::shutdown::active_shutdown(),
+        )
+    }
+
+    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_during(
+        &self,
+        tab_id: &str,
+        cause: &str,
+        shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
+    ) -> bool {
+        // An armed shutdown killed the provider itself; the snapshot saved at
+        // exit must still carry the identity the next boot resumes.
+        if let Some(reason) = shutdown {
+            log::info!(
+                "[agent-lifecycle] preserving Tab identity during shutdown ({reason:?}): tab={tab_id} cause={cause}"
+            );
+            return false;
+        }
+        // Every observed lifecycle exit funnels here, so the observed launch is
+        // claimed before the clear below retires it.
         let exited = self.claim_launch_exit(tab_id, None, None);
         let cleared = {
             let mut mux = self.mux.write();

@@ -36,6 +36,28 @@ After `plan doctor` is green, never wait silently. Give the Orchestrator a short
 plan summary and state explicitly that execution is waiting for user approval.
 The Orchestrator presents that approval request to the user.
 
+## Work facets on drafted tasks
+
+For a new task graph, declare `work` with the six values `frontend`, `backend`,
+`design`, `qa`, `infra`, and `docs`. Preserve any other facets when setting the
+declaration, for example:
+
+```sh
+codeterm plan facets set <plan> --facets "area:Area:settings;work:Work:frontend|backend|design|qa|infra|docs"
+```
+
+On a plan declaring `work`, each `plan task add` must include exactly one
+`--tag work:<value>` from that set. Missing, repeated (including identical),
+unsupported, empty, whitespace-padded, and nested values are rejected before
+the new task is persisted. Other tags and facets keep their existing behavior;
+a plain topic tag `work` does not count as a facet value. Choose the value from
+verified ownership or an explicit Orchestrator decision.
+
+`codeterm plan doctor <plan> --kind quality` reports each legacy task violating
+this contract, including its tags' defect and an explicit repair. It never
+backfills tasks. Plans without `work` are unaffected. Batch upsert cannot create
+an untagged task under this declaration; use task add with an explicit tag.
+
 ## Your toolset
 
 Plans are the source of truth (never a markdown file). Read narrowly — a full
@@ -218,4 +240,4 @@ task needs an explicit provider/model or named persona.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 20 -->
+<!-- revision: 21 -->

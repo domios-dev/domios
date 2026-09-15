@@ -95,6 +95,7 @@ fn snapshot_agent_panes(
                 role: role.clone(),
                 agent_type: agent_type.clone(),
                 agent_session_id: claude_session_id.clone(),
+                exited_session_id: None,
             }),
             SplitNodeSnapshot::Leaf { .. } => {}
             SplitNodeSnapshot::Split { children, .. } => {
@@ -345,6 +346,11 @@ pub(crate) fn init_states() -> AppStates {
     });
     // Nothing is observable yet — no PTY has materialized — so the wave is
     // armed here and settles on real launch transitions.
+    service::restore_exited_member::apply_restore_decisions(
+        crate::session::lifecycle::TabLifecycleJournal::shared(),
+        &mux_state_inner,
+        &mut agent_panes_at_shutdown,
+    );
     if !agent_panes_at_shutdown.is_empty() {
         let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
         crate::crash::restore_report::arm(agent_panes_at_shutdown, &restored_pane_ids);
@@ -409,6 +415,75 @@ pub(crate) fn init_states() -> AppStates {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restore_contract_startup_flags_an_exited_member_and_journals_its_decision_once() {
+        use crate::crash::restore_report::{build_restore_report, DropReason};
+        use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
+        use codeterm_types::pty::AgentLiveness;
+
+        let (mut state, _) = MultiplexerState::new();
+        let workspace = state.create_workspace("startup-exited".into(), None).id;
+        let tab_id = state.create_tab(&workspace).unwrap();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_session_id = Some("exited-session".into());
+        tab.session_binding_nonce = Some("exited-nonce".into());
+        tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+        assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+        let raw = serde_json::to_string(&state.to_session_snapshot()).unwrap();
+        let journal_dir = tempfile::tempdir().unwrap();
+        let journal = TabLifecycleJournal::for_dir(journal_dir.path().to_path_buf());
+
+        for boot in 1..=2 {
+            let snapshot: crate::session::store::SessionSnapshot =
+                serde_json::from_str(&raw).unwrap();
+            let mut panes = snapshot_agent_panes(&snapshot);
+            let restored = MultiplexerState::from_session_snapshot(&snapshot);
+            crate::service::restore_exited_member::apply_restore_decisions(
+                &journal, &restored, &mut panes,
+            );
+            let liveness: std::collections::BTreeMap<_, _> =
+                [(tab_id.clone(), AgentLiveness::Absent)]
+                    .into_iter()
+                    .collect();
+            let report =
+                build_restore_report(&panes, &restored_agent_pane_ids(&restored), &liveness);
+
+            let pane = report
+                .panes
+                .iter()
+                .find(|pane| pane.pane.tab_id == tab_id)
+                .expect("the exited member is a bound pane");
+            assert_eq!(
+                pane.drop_reason,
+                Some(DropReason::AgentExitedBeforeShutdown),
+                "boot {boot}"
+            );
+            assert_eq!(
+                pane.pane.exited_session_id.as_deref(),
+                Some("exited-session"),
+                "boot {boot}"
+            );
+            let decisions = journal
+                .load()
+                .records
+                .iter()
+                .filter(|record| record.tab_id() == tab_id)
+                .filter(|record| {
+                    matches!(
+                        record,
+                        JournalRecord::Transition { entry } if matches!(
+                            &entry.transition,
+                            LifecycleTransition::RestoreAwaitingAgentRestart { session_id }
+                                if session_id == "exited-session"
+                        )
+                    )
+                })
+                .count();
+            assert_eq!(decisions, 1, "boot {boot}");
+        }
+    }
 
     fn isolated_startup_env() -> codeterm_util::test_env::EnvGuard {
         let mut env = codeterm_util::test_env::EnvGuard::lock();

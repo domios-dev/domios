@@ -1,0 +1,34 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1200, "h": 1180, "title": "Analytics · desktop" },
+    { "file": "Phone.dc.html", "x": 1280, "y": 0, "w": 390, "h": 2200, "title": "Analytics · 390px" },
+    { "file": "PhoneFilters.dc.html", "x": 1750, "y": 0, "w": 390, "h": 844, "title": "Filters · 390px" },
+    { "file": "States.dc.html", "x": 2220, "y": 0, "w": 960, "h": 2300, "title": "Empty and unavailable states" },
+    { "file": "Contract.dc.html", "x": 3260, "y": 0, "w": 840, "h": 3300, "title": "Plugin boundary and data contract" },
+    { "file": "Titlebar.dc.html", "x": 0, "y": 1320, "w": 1200, "h": 1500, "title": "Titlebar entry" }
+  ],
+  "annotations": [
+    {
+      "id": "what",
+      "x": 0,
+      "y": -300,
+      "w": 560,
+      "text": "Global Analytics, 1.10.20. One machine-wide view opened from a new titlebar button beside Plugins.\n\nTop to bottom: scope and range, filters, five totals, a chart of the chosen measure over time, a breakdown by provider and model, workspace, team or plan, then tabs created and allowance per provider account. It ends with a link to the team Board. It is not a feed of plan events."
+    },
+    {
+      "id": "figures",
+      "x": 600,
+      "y": -300,
+      "w": 560,
+      "text": "Where the figures come from. Tokens, turns, providers, models and plans were read read-only from the dev KPI ledger (~/.codeterm-dev/kpi_ledger.db, 4,435 token_usage rows, Sep 11 17:50 to Sep 14, bucketed by UTC day). No production ledger exists on this machine. Allowance is the latest usage_snapshots row per provider on this machine, read 11:23.\n\nWorkspace and tabs created are recorded nowhere yet, so they are drawn in their not-recorded state. Bracketed amber text marks the only placeholders."
+    },
+    {
+      "id": "approval",
+      "x": 1280,
+      "y": -300,
+      "w": 420,
+      "text": "Needs the owner's approval before implementation. task_rli26s (host capability) and task_w1du4w (core plugin) wait on it. The Contract frame names two recording additions the host task must make: a workspace on each event, and a tab-created record."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,6 +1,6 @@
 //! `JsViewProvider` — adapts a JS plugin declaring `capabilities.view` to the
 //! core [`ViewProvider`](crate::view_host::ViewProvider) trait. Every bridge
-//! `ct.invoke(method, args)` from the iframe is forwarded to the plugin's single
+//! `ct.invoke(method, args)` from the iframe is forwarded to the plugin's
 //! `viewCall(method, args)` export via the synchronous `call_json`.
 
 use std::sync::Arc;
@@ -9,16 +9,30 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::vm::{call_json, PluginVm};
+use crate::js_runtime::WebhookReceiverKind;
 use crate::view_host::{ViewError, ViewProvider};
 
 pub struct JsViewProvider {
     vm: Arc<PluginVm>,
     id: String,
+    webhook_receiver_kind: Option<WebhookReceiverKind>,
 }
 
 impl JsViewProvider {
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
-        Self { vm, id: id.into() }
+        Self::with_webhook_receiver(vm, id, None)
+    }
+
+    pub fn with_webhook_receiver(
+        vm: Arc<PluginVm>,
+        id: impl Into<String>,
+        webhook_receiver_kind: Option<WebhookReceiverKind>,
+    ) -> Self {
+        Self {
+            vm,
+            id: id.into(),
+            webhook_receiver_kind,
+        }
     }
 }
 
@@ -26,6 +40,10 @@ impl JsViewProvider {
 impl ViewProvider for JsViewProvider {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn webhook_receiver_kind(&self) -> Option<WebhookReceiverKind> {
+        self.webhook_receiver_kind
     }
 
     async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError> {

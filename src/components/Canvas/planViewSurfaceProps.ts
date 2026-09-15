@@ -26,6 +26,8 @@ export interface PlanViewSurfaceProps {
   onOpenTab?: (tabId: string) => void;
   notifications?: Notification[];
   onSelectTab?: (workspaceId: string, tabId: string) => void | Promise<void>;
+  /** Removes notifications the Board shows as needing the owner. */
+  onClearNotifications?: (ids: string[]) => void;
   api?: ApiConfig;
   /** Host header element where a surface without its own switcher places its actions. */
   headerActionsSlot?: HTMLElement | null;

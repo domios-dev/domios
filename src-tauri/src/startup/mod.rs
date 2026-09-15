@@ -36,6 +36,8 @@ pub(crate) use rest_api::{
     RestApiControl, RestApiControlState, RestApiRecovery, RestApiRuntimePolicy, RestApiStatus,
 };
 pub(crate) use servers::start_servers;
+#[cfg(test)]
+pub(crate) use servers::FRONTEND_READINESS_DEADLINE_ELAPSED;
 pub(crate) use states::init_states;
 pub(crate) use user_path::run_user_path_repair_if_invoked;
 pub(crate) use window::{build_system_tray, setup_window_styling};

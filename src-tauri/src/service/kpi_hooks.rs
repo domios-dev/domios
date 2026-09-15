@@ -4,26 +4,27 @@
 //!
 //! Attribution target per kind: deliver/nudge/heartbeat charge the *recipient* tab
 //! (where the injected bytes land), report charges the *reporting* tab, spawn charges
-//! the *spawned* tab.
+//! the *spawned* tab, tab creation charges the *created* tab.
 
 use super::messenger::MessageKind;
 use super::ServiceContext;
 use crate::agent::kpi::{deliver_event_kind, KpiAttribution, UsageSource};
-use crate::agent::kpi_ledger::KpiEventKind;
+use crate::agent::kpi_ledger::{KpiEventKind, TabCreatedKind};
 
 impl ServiceContext {
     pub(crate) fn kpi_attribution(&self, tab_id: &str) -> KpiAttribution {
-        let (resolved, role, role_profile, provider) = {
+        let (resolved, role, role_profile, provider, workspace_id) = {
             let mux = self.mux.read();
             let resolved = mux
                 .resolve_tab_id(tab_id)
                 .unwrap_or_else(|| tab_id.to_string());
             let tab = mux.get_tab(&resolved);
             (
-                resolved,
+                resolved.clone(),
                 tab.and_then(|p| p.role),
                 tab.and_then(|p| p.role_profile.clone()),
                 tab.and_then(|p| p.agent_type.clone()),
+                mux.find_workspace_for_tab(&resolved),
             )
         };
         // Session-scoped provider evidence, or nothing: a tab the model poller has
@@ -35,6 +36,7 @@ impl ServiceContext {
             .role(role, role_profile.as_deref())
             .provider(provider)
             .model(model)
+            .workspace(workspace_id)
     }
 
     /// A task assignment carries both ids. Without one, a plan's owner and its
@@ -108,6 +110,16 @@ impl ServiceContext {
         }
         self.kpi
             .record(attribution.into_event(KpiEventKind::Spawn, brief_bytes as u64));
+    }
+
+    /// One row per tab a service path creates. Restores re-open recorded tabs through
+    /// the multiplexer and never reach this, so they are not counted as new tabs.
+    pub(crate) fn record_kpi_tab_created(&self, tab_id: &str, kind: TabCreatedKind) {
+        if !self.kpi.is_enabled() {
+            return;
+        }
+        let attribution = self.kpi_attribution(tab_id);
+        self.kpi.record(attribution.into_tab_created_event(kind));
     }
 
     /// Single writer for the bounce/accept review verdicts (`socket/server/plan_review.rs`).

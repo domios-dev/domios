@@ -138,7 +138,7 @@ describe("timeline markers", () => {
     expect(normalized[3]?.content).toBe("after");
   });
 
-  it("renders queued and changed-outside rows without moving neighboring messages", async () => {
+  it("renders queued input without a marker and changed-outside rows in order", async () => {
     const messages: NormalizedChatMessage[] = [
       { id: "one", type: "user", content: "one", seq: 0 },
       { id: "queued", type: "user", content: "queued input", seq: 1, timelineMarker: { kind: "queued" } },
@@ -148,10 +148,10 @@ describe("timeline markers", () => {
     const { host, root } = await mountMessages(messages);
     try {
       expect(host.textContent).toContain("one");
-      expect(host.textContent).toContain("queued");
+      expect(host.textContent).toContain("queued input");
       expect(host.textContent).toContain("changed outside: notes.md");
       expect(host.textContent).toContain("two");
-      expect(host.querySelector('[data-testid="chat-queued-marker"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="chat-queued-marker"]')).toBeNull();
       expect(host.querySelector('[data-testid="chat-external-edit-row"]')).not.toBeNull();
       const rendered = host.textContent ?? "";
       expect(rendered.indexOf("one")).toBeLessThan(rendered.indexOf("queued"));
@@ -219,9 +219,14 @@ describe("timeline markers", () => {
     const root = createRoot(host);
     try {
       await act(async () => {
+        root.render(<ChatSessionIntentLine intent={{ title: "First title" }} />);
+      });
+      expect(host.querySelector('[data-testid="chat-session-intent"]')).toBeNull();
+      await act(async () => {
         root.render(<ChatSessionIntentLine intent={sessionIntentFromMessages(messages)} />);
       });
-      expect(host.querySelector('[data-testid="chat-session-title"]')?.textContent).toContain("First title");
+      expect(host.querySelector('[data-testid="chat-session-title"]')).toBeNull();
+      expect(host.textContent).not.toContain("First title");
       expect(host.querySelector('[data-testid="chat-session-goal"]')?.textContent).toContain("Ship the feature");
       expect(host.textContent).not.toContain("arbitrary prose");
     } finally {

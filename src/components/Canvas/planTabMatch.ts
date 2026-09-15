@@ -124,6 +124,11 @@ export function findPlansForTab(
   });
 }
 
+/** A Team's active plan is decided by PlanStatus alone; a draft in planning mode still occupies the slot. */
+export function isTeamActivePlan(plan: Plan, teamId: string | null | undefined): boolean {
+  return plan.status === "active" && (!teamId || plan.team_id === teamId);
+}
+
 export function filterPlansForCanvas(
   plans: Plan[],
   mode: "workspace" | "focus",
@@ -131,7 +136,7 @@ export function filterPlansForCanvas(
 ): Plan[] {
   const active = plans.filter((p) => p.status === "active");
   if (mode === "workspace") {
-    if (opts.teamId) return active.filter((plan) => plan.team_id === opts.teamId);
+    if (opts.teamId) return plans.filter((plan) => isTeamActivePlan(plan, opts.teamId));
     // No workspace scope → no board, never every plan (the bug we removed).
     if (!opts.workspaceId) return [];
     return active.filter((p) => planBelongsToWorkspace(p, opts.workspaceId!, opts));

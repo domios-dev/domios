@@ -306,16 +306,31 @@ fn rich_flatten_preserves_command_outcome_facts_and_source_identity() {
         .enumerate()
         .flat_map(|(i, r)| rich_to_chat_msgs(r, i))
         .collect();
-    let call = msgs.iter().find(|message| message.kind == "tool_call").expect("command call lost");
-    let result = msgs.iter().find(|message| message.kind == "tool_result").expect("command result lost");
+    let call = msgs
+        .iter()
+        .find(|message| message.kind == "tool_call")
+        .expect("command call lost");
+    let result = msgs
+        .iter()
+        .find(|message| message.kind == "tool_result")
+        .expect("command result lost");
 
-    assert_eq!(call.tool_call_source_id.as_deref(), Some("assistant-command-facts"));
-    assert_eq!(result.tool_call_source_id.as_deref(), Some("assistant-command-facts"));
+    assert_eq!(
+        call.tool_call_source_id.as_deref(),
+        Some("assistant-command-facts")
+    );
+    assert_eq!(
+        result.tool_call_source_id.as_deref(),
+        Some("assistant-command-facts")
+    );
     assert_eq!(result.tool_pairing.as_deref(), Some("exact"));
     assert_eq!(result.tool_exit_code, Some(7));
     assert_eq!(result.tool_duration_ms, Some(1250));
     assert_eq!(result.tool_interrupted, Some(true));
-    assert_eq!(result.tool_background_task_id.as_deref(), Some("background-command-facts"));
+    assert_eq!(
+        result.tool_background_task_id.as_deref(),
+        Some("background-command-facts")
+    );
 }
 
 /// Eval: system entries, isMeta rows, and local-command echoes must

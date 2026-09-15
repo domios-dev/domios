@@ -112,13 +112,60 @@ Returns `200 {"ok": true}` on success or `503 Service Unavailable` (`Bridge not 
 
 Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
 
+#### Inbound webhooks (Pebble)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/plugins/pebble/webhook` | Multipart form or JSON, at most 1 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches the General Agent |
+
+**Authentication.** Only `Authorization: Bearer <secret>`, compared in constant time with the secret-store entry `pebble_webhook_secret` (see `codeterm docs SECRETS`). The route does not use the daemon API token, and no URL, path, or query token is accepted. Nothing reaches the plugin before authentication succeeds. Non-loopback callers additionally need mesh networking enabled.
+
+**Plugin contract.** The receiver's synchronous `webhookReceive({payload, receivedAt})` runs on a blocking thread and returns `{text, eventId?}`, `null`, or throws.
+
+**CoreApp format.** Pebble sends `multipart/form-data` containing `transcription`,
+`recordedAt` (Unix epoch milliseconds), and `client`; test events can add `test`.
+Select **Transcription only** in CoreApp and configure only the Authorization
+header. Let the app supply Content-Type and its boundary. The host passes text
+parts as a JSON object, skips file/binary parts without saving them, rejects
+duplicate names and invalid UTF-8, and limits forms to 16 parts and 64 KiB per
+text part. Audio-only events cannot supply a transcript to this receiver.
+Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-index-advanced-features-mcp-webhook).
+
+| Status | Body `status` / `error.code` | Meaning |
+|--------|------------------------------|---------|
+| `200` | `delivered` + `eventId` | The plugin returned a delivery and its text reached the General Agent |
+| `200` | `noop` | The plugin returned `null`, or this daemon already delivered that `eventId`; nothing is delivered |
+| `400` | `invalid_json` | Body is not valid JSON |
+| `400` | `invalid_multipart` / `invalid_form_fields` | Broken boundary/form, duplicate or invalid field names, or invalid UTF-8 |
+| `401` | `unauthorized` | Missing, malformed, or wrong bearer secret |
+| `404` | `webhook_receiver_not_found` | No plugin registers a `pebble` receiver |
+| `413` | `body_too_large` | Body exceeds 1 MiB |
+| `415` | `unsupported_media_type` | Missing or unsupported Content-Type; use multipart/form-data, application/json or application/*+json |
+| `500` | `webhook_internal_error` | The receiver task did not complete |
+| `502` | `webhook_receiver_failed` | The plugin threw, returned a malformed delivery, text over 64 KiB or empty after sanitizing, or an `eventId` over 256 bytes |
+| `502` | `delivery_failed` | Delivery to the General Agent failed |
+| `503` | `authentication_unavailable` | `pebble_webhook_secret` is missing, empty, or the vault is locked or logged out |
+| `503` | `webhook_receiver_ambiguous` | More than one plugin registers a `pebble` receiver |
+| `503` | `general_agent_unavailable` | No General Agent tab exists |
+
+Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by the receiver). Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Handler rejections, including 400/415, log status and code under `[pebble-webhook]` without the secret, headers, or payload.
+
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the General Agent as `-=-codeterm:pebble source=Pebble-=-` followed by the text on its own line, with no reply address. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
+
+```bash
+curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
+  -H "Authorization: Bearer $PEBBLE_SECRET" \
+  -F 'transcription=Focus mode enabled' -F 'recordedAt=1789412400000' -F 'client=ring'
+```
+
 #### Setup (Rules, Hooks)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/setup/rules` | — | Check if project rules are installed |
 | POST | `/api/setup/rules/install` | — | Install project rules |
-| GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status. Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete; Settings consumes this status and presents the explicit local repair action. |
-| POST | `/api/setup/hooks/install` | `?provider=<id>` | Returns `403`; global installation requires the review-and-consent action in local Settings |
+| GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status (`codeterm integration status --provider <id>`). Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete. |
+| POST | `/api/setup/hooks/install` | `?provider=<id>&precompact_memory_export=<bool>` | Authenticated install is consent: records `integration_consent_granted`, `integration_consent_recorded_at`, `integration_target` exactly like the Settings install, installs CodeTerm's own marked entries and grants their provider trust in the same step (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
+
+With consent recorded, daemon start and provider plugin reload reconcile a missing, stale, or untrusted (`untrusted_hash`) integration by reinstalling with the trust grant. Without recorded consent nothing is rewritten or trusted.
 | POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
 
 #### Cron Jobs
@@ -161,6 +208,13 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 - `cron-state-changed` — emitted on any cron CRUD operation
 - `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, tab_id, tab_id}`
 
+## Permission auto-confirm
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/tabs/{id}/permission-auto-confirm` | `{enabled}` | Opt the tab in/out of auto-confirming provider permission prompts the provider positively recognizes (`permissionPromptResponse`) and a hook PermissionRequest backs. Persisted in the session snapshot; journaled. Returns `{ok, tab_id, enabled}`. CLI: `codeterm tab auto-confirm on\|off`. |
+| GET | `/api/tabs/{id}/permission-auto-confirm` | — | `{tab_id, enabled, recent}` — `recent` holds the last auto-confirmations (`tool_name`, `option_label`, `rule`, `question`, `options`, `prompt_fingerprint`, `session_id`, `confirmed_at_ms`). CLI: `codeterm tab auto-confirm status`. |
+
 ## Related documents
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage used by bridge startup: `codeterm docs API-STATE`.
@@ -180,4 +234,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 6 -->
+<!-- revision: 11 -->

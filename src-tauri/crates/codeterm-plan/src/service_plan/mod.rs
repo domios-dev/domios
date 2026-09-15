@@ -74,6 +74,9 @@ pub mod worker_charter;
 pub mod worker_identity;
 
 #[cfg(test)]
+mod work_facet_tests;
+
+#[cfg(test)]
 mod attachment_tests;
 #[cfg(test)]
 mod body_file_tests;
@@ -123,9 +126,9 @@ pub use state::{
 };
 pub use store_watch::WatchOutcome;
 pub use task_dispatch::{
-    ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
-    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
-    ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
+    ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
+    LiveTabAttempt, ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED,
+    ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,

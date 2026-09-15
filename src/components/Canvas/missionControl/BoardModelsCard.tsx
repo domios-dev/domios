@@ -10,7 +10,7 @@ import {
   spendReading,
 } from "./missionControlBoardModel";
 import type { MissionControlSpend } from "./missionControlState";
-import { TEAM_SCOPE_CAPTION, teamModelRows, type TeamSpend } from "./teamSpend";
+import { TEAM_SCOPE_CAPTION, teamModelRows, teamSpendNote, type TeamSpend } from "./teamSpend";
 
 /** Models ranked by new input, the spend that costs; the long tail waits behind Show all. */
 export function ModelsCard({ spend, teamSpend = null }: { spend: MissionControlSpend; teamSpend?: TeamSpend | null }) {
@@ -23,7 +23,7 @@ export function ModelsCard({ spend, teamSpend = null }: { spend: MissionControlS
       <BoardPanelSection>
         {rows.length === 0 ? (
           <p data-testid="mc-board-models-empty" className="mc-board-note">
-            {teamSpend ? "no data" : spendReading(spend).note ?? "no data"}
+            {teamSpend ? teamSpendNote(teamSpend) ?? "no data" : spendReading(spend).note ?? "no data"}
           </p>
         ) : (
           <>

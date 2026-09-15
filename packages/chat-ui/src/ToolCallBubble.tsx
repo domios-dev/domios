@@ -30,6 +30,8 @@ interface ToolCallBubbleProps {
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: PlanFocusKind) => ResolvedChatPlanRef | null;
   fontScale?: number;
+  /** A selected stream member opens its hunks at once; a standalone diff card starts collapsed. */
+  openDiffs?: boolean;
 }
 
 export function ToolCallBubble({
@@ -43,18 +45,19 @@ export function ToolCallBubble({
   onOpenPlan,
   resolvePlanRef,
   fontScale,
+  openDiffs = false,
 }: ToolCallBubbleProps) {
   const event = suppliedEvent ?? (message ? materializeToolEvent(message) : null);
   if (!event) return null;
   const codetermProps = { resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale };
   const renderAction: RenderStreamAction = (member, memberExpanded, onMemberToggle) => (
-    <ToolCallBubble event={member} expanded={memberExpanded} onToggle={onMemberToggle} {...codetermProps} />
+    <ToolCallBubble event={member} expanded={memberExpanded} onToggle={onMemberToggle} openDiffs={memberExpanded} {...codetermProps} />
   );
   if (event.agents) return <AgentActivityCard event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
   if (event.stream) return <ToolActivityStream event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
 
   // A structured source diff is the truthful record of the edit, so it replaces the old/new-string card.
-  if (event.fileDiffs?.length) return <FileDiffCards event={event} />;
+  if (event.fileDiffs?.length) return <FileDiffCards event={event} initiallyExpanded={openDiffs} />;
 
   const shape = event.kind === "command" || event.kind === "codeterm" ? toolCommandShape(event) : null;
   if (shape?.kind === "group") {

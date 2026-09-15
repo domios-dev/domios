@@ -7,6 +7,7 @@ export type BusyLabelKey =
   | "chatPending"
   | "planLoad"
   | "planReconnect"
+  | "eventLogLoad"
   | "memPending"
   | "meshPending"
   | "settingsPending"
@@ -21,6 +22,7 @@ const en: BusyLabelMap = {
   chatPending: "Thinking",
   planLoad: "Loading plan",
   planReconnect: "Reconnecting",
+  eventLogLoad: "Loading events",
   memPending: "Loading memory",
   meshPending: "Contacting peer",
   settingsPending: "Loading",

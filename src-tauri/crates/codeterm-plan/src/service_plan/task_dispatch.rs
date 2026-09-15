@@ -1,9 +1,11 @@
+mod rollback;
 mod worker_ack_subject;
 
 use super::lane_metadata::normalize_lane_metadata;
 use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
+pub use rollback::DispatchRollback;
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
     ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
@@ -980,43 +982,5 @@ impl PlanStore {
             Ok(())
         })();
         pending_after_verified(write, verified, Some(task_id.to_string()))
-    }
-
-    pub fn restore_task_dispatch_snapshot(
-        &self,
-        plan_id: &str,
-        snapshot: &crate::plan::Task,
-        plan_mode: crate::plan::PlanMode,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        let snapshot = snapshot.clone();
-        let task_id = snapshot.id.clone();
-        let expected = snapshot.clone();
-        let expected_mode = plan_mode.clone();
-        let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            *task = snapshot;
-            plan.mode = plan_mode;
-            Ok(())
-        });
-        let verified = self
-            .committed_plan_for(plan_id)
-            .ok_or(PlanError::NotFound)
-            .and_then(|plan| {
-                let mode_matches = plan.mode == expected_mode;
-                let task = crate::plan::task_key::find_task(&plan.tasks, &task_id)
-                    .cloned()
-                    .ok_or(PlanError::TaskNotFound)?;
-                if task == expected && mode_matches {
-                    Ok(())
-                } else {
-                    Err(Self::task_readback_error(
-                        "task_dispatch_restore",
-                        format!("task snapshot did not match for {task_id}"),
-                    ))
-                }
-            });
-        pending_after_verified(write, verified, Some(task_id))
     }
 }

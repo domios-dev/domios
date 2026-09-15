@@ -134,7 +134,10 @@ fn build_resume_command_shape() {
     let j = codex();
     // Resume accepts a rollout filename stem and extracts the trailing uuid.
     let cmd = j.build_resume_command(CODEX_STEM, true).unwrap();
-    assert!(cmd.starts_with("codex resume"), "resume subcommand: {cmd}");
+    assert!(
+        cmd.starts_with("codex -c tui.animations=false resume"),
+        "resume subcommand without TUI animations: {cmd}"
+    );
     assert!(cmd.contains(CODEX_UUID), "must carry the uuid: {cmd}");
     assert!(
         cmd.contains("--dangerously-bypass-approvals-and-sandbox"),
@@ -179,38 +182,43 @@ fn resume_with_context_keeps_the_conservative_default() {
 }
 
 #[test]
-fn directory_trust_prompt_response_is_provider_declared() {
+fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
     if require_plugins().is_none() {
         return;
     }
-    use codeterm_types::pty::{PendingPrompt, PromptOption};
-    let prompt = PendingPrompt {
-        question: "Do you trust the contents of this directory?".into(),
-        options: vec![
-            PromptOption {
-                label: "Yes, continue".into(),
-                value: "1".into(),
-            },
-            PromptOption {
-                label: "No, quit".into(),
-                value: "2".into(),
-            },
-        ],
-        sections: None,
-        multi_select: None,
-        submit_available: None,
-        selected_values: None,
-    };
-    assert!(codex()
-        .directory_trust_prompt_response(&prompt, "1. Yes, continue")
-        .is_some());
-    let foreign_prompt = PendingPrompt {
-        question: "Approve this command?".into(),
-        ..prompt
-    };
-    assert!(codex()
-        .directory_trust_prompt_response(&foreign_prompt, "1. Yes, continue")
-        .is_none());
+    use crate::provider::DirectoryTrustPromptResponse;
+    let dir = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust");
+    let cases: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).expect("cases.json"))
+            .expect("cases.json parses");
+    let cases = cases.as_array().expect("case list");
+    assert!(cases.len() >= 5, "every declared fixture is exercised");
+    for case in cases {
+        let file = case["file"].as_str().expect("file");
+        let screen = std::fs::read_to_string(dir.join(file)).expect("fixture");
+        let answer = |step: &[u8]| {
+            Some(DirectoryTrustPromptResponse::Answer {
+                step: step.to_vec(),
+            })
+        };
+        let want = match case["expect"].as_str().expect("expect") {
+            "enter" => answer(b"\r"),
+            "move-up" => answer(b"\x1b[A"),
+            "move-down" => answer(b"\x1b[B"),
+            "hold" => Some(DirectoryTrustPromptResponse::Hold),
+            "none" => None,
+            other => panic!("unknown directory-trust expectation {other}"),
+        };
+        assert_eq!(
+            codex().directory_trust_prompt_response(&screen),
+            want,
+            "{file}"
+        );
+    }
 }
 
 #[test]
@@ -468,10 +476,22 @@ fn parse_session_delta_normalizes_reasoning_and_agent_activity() {
     std::fs::write(tmp.path(), jsonl).unwrap();
 
     let delta = codex().parse_session_delta(tmp.path(), 0);
-    let blocks: Vec<_> = delta.messages.iter().flat_map(|m| m.blocks.iter()).collect();
+    let blocks: Vec<_> = delta
+        .messages
+        .iter()
+        .flat_map(|m| m.blocks.iter())
+        .collect();
     let kinds: Vec<&str> = blocks.iter().map(|b| b.kind.as_str()).collect();
-    assert_eq!(kinds, vec!["thinking", "tool_use", "tool_use"], "{:#?}", delta.messages);
-    assert_eq!(blocks[0].data, serde_json::json!({ "text": "**Inspect sources**" }));
+    assert_eq!(
+        kinds,
+        vec!["thinking", "tool_use", "tool_use"],
+        "{:#?}",
+        delta.messages
+    );
+    assert_eq!(
+        blocks[0].data,
+        serde_json::json!({ "text": "**Inspect sources**" })
+    );
     assert_eq!(blocks[1].data["tool_kind"], "agent");
     assert_eq!(
         blocks[1].data["input"],
@@ -487,4 +507,13 @@ fn parse_session_delta_normalizes_reasoning_and_agent_activity() {
         !format!("{:?}", delta.messages).contains("opaque"),
         "encrypted, raw, and message content never crosses"
     );
+}
+
+#[test]
+fn codex_declares_no_permission_auto_confirm() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert!(!codex().supports_permission_auto_confirm());
+    assert!(!codex().describe().supports_permission_auto_confirm);
 }

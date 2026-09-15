@@ -117,10 +117,7 @@ impl PlanStore {
                 }
             }
             for (job_id, outcome) in schedule_outcomes {
-                if let Some(schedule) = operation
-                    .schedules
-                    .iter_mut()
-                    .find(|s| &s.job_id == job_id)
+                if let Some(schedule) = operation.schedules.iter_mut().find(|s| &s.job_id == job_id)
                 {
                     schedule.pause_outcome = outcome.clone();
                 }
@@ -190,10 +187,7 @@ impl PlanStore {
                 }
             }
             for (job_id, outcome) in schedule_outcomes {
-                if let Some(schedule) = operation
-                    .schedules
-                    .iter_mut()
-                    .find(|s| &s.job_id == job_id)
+                if let Some(schedule) = operation.schedules.iter_mut().find(|s| &s.job_id == job_id)
                 {
                     schedule.resume_outcome = Some(outcome.clone());
                 }

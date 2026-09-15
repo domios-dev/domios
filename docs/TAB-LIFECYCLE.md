@@ -4,48 +4,60 @@ CodeTerm keeps one append-only journal of every authoritative tab lifecycle
 transition. The journal is **telemetry**: a forensic record of what each launch
 committed and when. Normal session restore does not use it as authority.
 
-**Tab restore is unconditional.** Whatever tabs were open at shutdown come
-back. A claimed PTY session re-establishes its provider only from its own
-provider session record; without unique ownership the restored tab remains a
-shell. Journal state — missing, mismatched, truncated, or absent — does not
-change that decision.
+**Tab restore is unconditional.** Whatever tabs were open at shutdown come back. A claimed PTY
+session re-establishes its provider only from its own provider session record; without unique
+ownership the restored tab remains a shell. Journal state — missing, mismatched, truncated, or
+absent — does not change that decision.
 
 ## The restore contract
 
 1. `sessions/last.json` is loaded and every tab it holds is rebuilt with its
    persisted `agent_session_id`, binding nonces, `role`,
    `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model
-   provenance, and chatBackend binding intact.
-2. A PTY agent tab resolves the unique provider whose store owns that tab's
-   claimed session id, then relaunches that provider with the session
-   (`--resume`-style continuation; `commands::pty::spawn_pty` owns the choice).
-   A missing provider label does not bypass that lookup: a unique owner repairs
-   the label before either visible or lazy restoration claims the launch. The
-   repair preserves the session and checks the tab's identity again before
-   committing; it never replays a historical task. Missing or ambiguous ownership
-   retains the saved session and refuses agent materialization.
-3. If a claimed session has no unique provider record, the tab comes back as a
-   shell with a null provider label. A snapshot with no claimed session may
-   still fresh-launch its explicitly persisted provider. Restore never chooses
-   a claimed session's provider from another tab, the newest session for a cwd,
-   or the journal.
+   provenance, and chatBackend binding intact. Prior binding lineage is restored
+   for every restored tab, whether or not it claims a session.
+2. A PTY agent tab resolves the unique provider whose store owns that tab's claimed session id, then
+   relaunches that provider with the session (`--resume`-style continuation;
+   `commands::pty::spawn_pty` owns the choice). A missing provider label does not bypass that
+   lookup: a unique owner repairs the label before either visible or lazy restoration claims the
+   launch. The repair preserves the session and checks the tab's identity again before committing;
+   it never replays a historical task. Missing or ambiguous ownership retains the saved session and
+   refuses agent materialization. A provider proves ownership from its authoritative per-session
+   record, which exists from the session's first turn, never only from a secondary index the
+   provider writes later: a session that has not reached that index yet still resumes.
+3. If a claimed session has no unique provider record, the tab comes back as a shell with a null
+   provider label. A snapshot with no claimed session may still fresh-launch its explicitly
+   persisted provider. Restore never chooses a claimed session's provider from another tab, the
+   newest session for a cwd, or the journal.
 4. Pre-journal snapshots restore like everything else. Lineage fields are
    optional telemetry, not an admission ticket.
-5. A rebuilt record is not a restored agent. `crash/restore_report.rs` counts a
-   pane as restored only once an agent process is observed live behind it, and
-   the "all N restored" summary is emitted only when every pane is. A pane that
-   came back as a bare shell is named with its role and reason
-   (`agent_not_live`), and one whose liveness is not yet observable is reported
-   as `agent_liveness_unobserved` rather than assumed either way.
+5. A rebuilt record is not a restored agent. `crash/restore_report.rs` counts a pane as restored
+   only once an agent process is observed live behind it, and the "all N restored" summary is
+   emitted only when every pane is. A pane that came back as a bare shell is named with its role and
+   reason (`agent_not_live`), and one whose liveness is not yet observable is reported as
+   `agent_liveness_unobserved` rather than assumed either way.
+6. A provider exit observed while a graceful shutdown is armed (update, quit,
+   restart, signal) keeps the tab's provider, session and nonces. The shutdown
+   killed that process, so the snapshot written at exit still names the session
+   the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place.
+7. A team member whose provider exited to its shell before shutdown restores as
+   that shell and is not relaunched. The report names it `agent_exited_before_shutdown`
+   with `exited_session_id`; `agent restart` recovers it (`docs/contributing/agent-restart-testing.md`).
 
 ## Restore reporting and observed liveness
 
-`state/recovery/last_restore_report.json` is written twice or more per boot: once
-when the wave is armed (records back, nothing observed yet) and again whenever an
-observation changes, until no pane is unobserved. It also records
-`previous_epoch_end` — `clean_shutdown:<reason>` or `crash:<classification>` —
-so a restore that lost every agent to a planned update reads as that, and an
-unexplained one cannot hide behind a plausible story.
+`state/recovery/last_restore_report.json` is written twice or more per boot: once when the wave is
+armed (records back, nothing observed yet) and again whenever an observation changes, until no pane
+is unobserved. It also records `previous_epoch_end` — `clean_shutdown:<reason>` or
+`crash:<classification>` — so a restore that lost every agent to a planned update reads as that, and
+an unexplained one cannot hide behind a plausible story.
+
+Restored agent PTYs are materialized by the backend once the frontend reports ready, and still when
+it misses its readiness deadline: the deadline is never a reason to abandon relaunch. The visible
+and backend paths take the same per-tab PTY claim, so a late frontend reuses the live PTY. A wave
+materialized without the frontend records `backend_materialization:
+"frontend_readiness_deadline_elapsed"`, so panes still unobserved name what the restore was waiting
+on.
 
 Liveness itself is one observation, `codeterm_types::pty::agent_liveness`. Its
 inputs are facts: a live PtyManager session, a boot stage emitted at a real
@@ -56,6 +68,7 @@ time is never an input.
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown,
 so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or
 model label, and the existing guarded-input refusal arms with it.
+In-tab provider relaunch, exit recovery and routed-slash behaviour: `docs/contributing/agent-restart-testing.md`.
 
 Role strings still pass through the literal legacy migration
 (`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a
@@ -84,7 +97,7 @@ One JSON object per line, in journal order. Two record kinds:
 {"record":"transition","entry":{
   "seq":41,
   "key":{"tab_id":"db79d2da","epoch":3,"operation_id":"6f1c…"},
-  "transition":{"transition":"session_bound","session_id":"…","binding_nonce":"…"},
+  "transition":{"transition":"session_bound","session_id":"…","binding_nonce":"…","source":"hook"},
   "recorded_at":"2026-08-04T11:20:31Z"
 }}
 
@@ -134,13 +147,15 @@ affects only what the journal itself can report — it has no effect on restore.
 | `epoch_opened` | A launch operation begins. |
 | `provider_identity_committed` | Provider accepted for this operation. |
 | `agent_type_write` | Provider-label write audit: origin, previous/new/attempted provider, caller tab, claimed session, nonce verification, and whether it applied. Parser writes are diagnostic only. |
-| `session_bound` | Provider session bound and proven by the echoed launch nonce. |
+| `session_bound` | Provider session bound for the tab's current launch nonce. `source` is `hook` (the provider echoed the nonce), `pid_registry` (the provider's per-process record for a process in the tab's own PTY tree, start time matched), or `launch_marker` (the provider's session record carries the marker this launch wrote). The two detected sources run only after the hook missed its launch deadline; records without `source` read as `hook`. |
 | `role_binding` | Role/profile/`can_spawn`/`depth` as committed. `role` absent means a role deliberately cleared. |
 | `team_binding` | Team and parent as committed. `team_id` absent means unbound. |
 | `launch_ready` | **Seals** the operation. |
 | `restart_requested` | A restart was accepted; the relaunch opens a new epoch. |
+| `restore_awaiting_agent_restart` | Diagnostic: restore did not relaunch a member that exited before shutdown. Never authority. |
 | `rolled_back` | Authority withdrawn. The operation can never seal afterwards. |
 | `closed` | Tab gone. |
+| `permission_auto_confirm` | Diagnostic audit of opt-in permission auto-confirm: `decision` is `enabled`, `disabled`, `confirmed` (with `tool_name`, `option_label`, `rule`, `question`, `prompt_fingerprint`, `session_id`) or `refused` (with `reason`). Never authority; compaction keeps the newest 20 per tab. |
 
 Each transition is written by the code that commits the mutation, in the same
 operation that performs it. Nothing observes tab state afterwards and infers a
@@ -177,22 +192,13 @@ Ordinary filesystem tools are the intended interface.
 
 ```bash
 JOURNAL=~/.codeterm-dev/sessions/tab-lifecycle.jsonl
-
 # everything that ever happened to one tab, in order
 grep '"tab_id":"db79d2da"' "$JOURNAL"
-
 # just the transition names and when they landed
 grep '"tab_id":"db79d2da"' "$JOURNAL" \
   | jq -r '.entry | "\(.seq)  \(.recorded_at)  \(.transition.transition)"'
-
 # does this tab have a committed checkpoint at all?
 jq -c 'select(.record=="checkpoint" and .checkpoint.key.tab_id=="db79d2da")' "$JOURNAL"
-
-# which tabs reached launch_ready without ever binding a session
-jq -r 'select(.record=="transition") | .entry
-       | "\(.key.tab_id) \(.transition.transition)"' "$JOURNAL" \
-  | sort -u
-
 # what the snapshot persisted, next to what the journal recorded
 jq -r '.workspaces[].tabs[].split_tree
        | select(.agent_type != null or .role != null)
@@ -201,7 +207,6 @@ jq -r '.workspaces[].tabs[].split_tree
 ```
 
 Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way.
-
 For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a
 read-only `lifecycle` object with live lineage, ordered transitions, surviving
 checkpoint, and journal-tail health. Default inspect output and `tab list`
@@ -230,5 +235,4 @@ transaction, so the intermediate state is never observable.
   checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
-
-<!-- revision: 16 -->
+<!-- revision: 24 -->

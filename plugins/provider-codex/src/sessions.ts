@@ -8,6 +8,7 @@ declare const host: {
   fs: {
     fileExists(path: string): boolean;
     readFile(path: string): string | null;
+    readFileHead(path: string, maxBytes: number): string | null;
     readDir(path: string): { name: string; isFile: boolean }[];
     sqliteQuery<T>(db: string, sql: string, params: unknown[]): T[];
   };
@@ -65,6 +66,7 @@ export function sessionFilePath(_cwd: string, sessionId: string): string | null 
 
 export function sessionExists(_cwd: string, sessionId: string): boolean {
   if (!sessionId) return false;
+  if (threadRow(sessionId) !== null) return true;
   const store = codexSessionStore();
   return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
 }
@@ -109,6 +111,23 @@ export function enumerateSessions(): unknown[] {
   }));
 }
 
+export function findSession(sessionId: string): unknown | null {
+  // Whole row, so a Codex schema without the newer columns still resolves the thread.
+  const row = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row) return null;
+  const store = codexSessionStore();
+  return {
+    sessionId,
+    provider: "codex",
+    projectPath: resolveThreadCwd(sessionId, row),
+    title: trimmedField(row, "name") || trimmedField(row, "title"),
+    summary: null,
+    filePath: store ? store.indexPath : (codexStateDbPath() || ""),
+    createdTs: unixSeconds(row.created_at),
+    modifiedTs: unixSeconds(row.updated_at),
+  };
+}
+
 export function detectSessionModel(_cwd: string, sessionId: string): string | null {
   return trimmedField(threadRow(sessionId), "model");
 }
@@ -117,33 +136,41 @@ interface CodexThreadRow {
   model?: unknown;
   rollout_path?: unknown;
   cwd?: unknown;
+  name?: unknown;
+  title?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
 }
 
 function threadRow(sessionId: string): CodexThreadRow | null {
+  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+}
+
+function queryThreadRow(sessionId: string, sql: string): CodexThreadRow | null {
   if (!sessionId) return null;
   const db = codexStateDbPath();
   if (!db || !host.fs.fileExists(db)) return null;
   try {
-    const rows = host.fs.sqliteQuery<CodexThreadRow>(
-      db,
-      "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1",
-      [sessionId],
-    );
+    const rows = host.fs.sqliteQuery<CodexThreadRow>(db, sql, [sessionId]);
     return rows.length > 0 ? rows[0] : null;
   } catch (_) {
     return null;
   }
 }
 
+function unixSeconds(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+
 function trimmedField(
   row: CodexThreadRow | null,
-  field: "model" | "rollout_path" | "cwd",
+  field: "model" | "rollout_path" | "cwd" | "name" | "title",
 ): string | null {
   const value = row ? row[field] : null;
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function codexStateDbPath(): string | null {
+export function codexStateDbPath(): string | null {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";
@@ -217,7 +244,10 @@ function sessionIndexEntry(path: string, sessionId: string): CodexSessionIndexEn
 const unresolvedCwdDiagnostics = new Set<string>();
 
 function readThreadCwd(sessionId: string): string | null {
-  const row = threadRow(sessionId);
+  return resolveThreadCwd(sessionId, threadRow(sessionId));
+}
+
+function resolveThreadCwd(sessionId: string, row: CodexThreadRow | null): string | null {
   if (!row) {
     logUnresolvedCwd(sessionId, "no_row");
     return null;
