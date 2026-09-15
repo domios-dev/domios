@@ -281,7 +281,7 @@ function TabItemInner({
         ${touchMode ? "sidebar-tab-touch" : ""}
         ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
         ${animClass}
-        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+        ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
       {isActive && <ActiveTabPill />}
@@ -306,7 +306,7 @@ function TabItemInner({
                 setEditing(false);
               }
             }}
-            className={`${tabText} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none`}
+            className={`${tabText} ct-input ct-input--compact bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none`}
           />
         </div>
       )}
