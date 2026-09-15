@@ -8,11 +8,11 @@ use crate::prompts::{
     TEAM_CREATION_CONTRACT, TESTING_DISCIPLINE, TEST_AUTHOR_GUIDANCE, WORKER_CODETERM_CONTEXT,
     WORKER_SUFFIX,
 };
-use crate::service::role_onboarding_task;
 use crate::service::plan::worker_charter::render_worker_charter;
 use crate::service::plan::worker_identity::{
     attach_worker_identity, compose_worker_identity_contract, WORKER_IDENTITY_END,
 };
+use crate::service::role_onboarding_task;
 
 const WORKER_NAME_TOKEN: &str = "Quillfeather";
 const WORKER_ROLE_TOKEN: &str = "opaque-executor-role-5e2d9";
