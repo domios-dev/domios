@@ -1,7 +1,8 @@
 mod agent_access;
 mod dropped_keys;
 mod kpi_default;
-pub mod lane;
+#[cfg(test)]
+pub(crate) mod lane;
 pub mod schema;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};

@@ -1,12 +1,13 @@
+#[cfg(test)]
 use std::path::Path;
+#[cfg(test)]
 use std::process::Command;
 
+#[cfg(test)]
 use crate::config::lane::{load_repo_lane_config, RepoLaneConfig};
+#[cfg(test)]
 use crate::process_util;
 
-/// What lane bootstrap actually did: created links, skip/refusal warnings, and
-/// the setup command to queue as the lane's first shell command. Recorded in
-/// the lane-dispatch record; bootstrap problems never fail the dispatch.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct LaneBootstrap {
     pub(crate) links: Vec<String>,
@@ -14,8 +15,10 @@ pub(crate) struct LaneBootstrap {
     pub(crate) setup_command: Option<String>,
 }
 
+#[cfg(test)]
 type Linker = fn(&Path, &Path) -> Result<&'static str, String>;
 
+#[cfg(test)]
 pub(crate) fn bootstrap_lane(canonical_cwd: &str, lane_cwd: &str) -> LaneBootstrap {
     let config = load_repo_lane_config(Path::new(canonical_cwd));
     if config.is_empty() {
@@ -24,6 +27,7 @@ pub(crate) fn bootstrap_lane(canonical_cwd: &str, lane_cwd: &str) -> LaneBootstr
     bootstrap_lane_with(canonical_cwd, lane_cwd, config, create_directory_link)
 }
 
+#[cfg(test)]
 fn bootstrap_lane_with(
     canonical_cwd: &str,
     lane_cwd: &str,
@@ -44,6 +48,7 @@ fn bootstrap_lane_with(
     bootstrap
 }
 
+#[cfg(test)]
 /// Link one declared directory into the lane. `Ok(None)` means nothing to
 /// share (absent in the primary); `Err` is a recorded warning, never fatal.
 fn share_directory(
@@ -90,6 +95,7 @@ fn share_directory(
     Ok(Some(kind))
 }
 
+#[cfg(test)]
 fn git_ignores(lane_cwd: &str, name: &str) -> bool {
     let mut command = Command::new("git");
     process_util::no_window_std(&mut command);
@@ -100,6 +106,7 @@ fn git_ignores(lane_cwd: &str, name: &str) -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
+#[cfg(test)]
 /// True unless git provably reports nothing for the path — invisibility must be
 /// proven, not assumed.
 fn git_status_sees(lane_cwd: &str, name: &str) -> bool {
@@ -117,6 +124,7 @@ fn git_status_sees(lane_cwd: &str, name: &str) -> bool {
     }
 }
 
+#[cfg(test)]
 fn remove_link(link: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
@@ -128,14 +136,14 @@ fn remove_link(link: &Path) -> std::io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(test, not(windows)))]
 fn create_directory_link(link: &Path, target: &Path) -> Result<&'static str, String> {
     std::os::unix::fs::symlink(target, link)
         .map(|_| "symlink")
         .map_err(|error| format!("symlink failed: {error}"))
 }
 
-#[cfg(windows)]
+#[cfg(all(test, windows))]
 fn create_directory_link(link: &Path, target: &Path) -> Result<&'static str, String> {
     let symlink_error = match std::os::windows::fs::symlink_dir(target, link) {
         Ok(()) => return Ok("symlink"),
@@ -157,19 +165,6 @@ fn create_directory_link(link: &Path, target: &Path) -> Result<&'static str, Str
         Err(junction_error) => Err(format!(
             "symlink failed: {symlink_error}; junction failed: {junction_error}"
         )),
-    }
-}
-
-/// The setup command is simply first in the lane's shell command sequence.
-/// `;` (valid in bash and PowerShell) keeps the agent launch unconditional, so
-/// a failed setup stays visible as an ordinary failed first command.
-pub(crate) fn compose_launch_with_setup(setup_command: Option<&str>, launch_cmd: String) -> String {
-    match setup_command
-        .map(str::trim)
-        .filter(|setup| !setup.is_empty())
-    {
-        Some(setup) => format!("{setup} ; {launch_cmd}"),
-        None => launch_cmd,
     }
 }
 
@@ -241,9 +236,10 @@ mod tests {
         let (_root, project) = fixture_repo(Some(NODE_MODULES_CONFIG), Some("node_modules\n"));
         shared_node_modules(&project);
         let lane = provision_lane_for_test(project.to_str().unwrap(), "bootstrap").unwrap();
-        assert_eq!(lane.bootstrap.links.len(), 1, "{:?}", lane.bootstrap);
-        assert!(lane.bootstrap.links[0].starts_with("node_modules ("));
-        assert!(lane.bootstrap.warnings.is_empty(), "{:?}", lane.bootstrap);
+        let bootstrap = bootstrap_lane(project.to_str().unwrap(), &lane.cwd);
+        assert_eq!(bootstrap.links.len(), 1, "{bootstrap:?}");
+        assert!(bootstrap.links[0].starts_with("node_modules ("));
+        assert!(bootstrap.warnings.is_empty(), "{bootstrap:?}");
         let through_link = PathBuf::from(&lane.cwd)
             .join("node_modules")
             .join("marker.txt");
@@ -256,7 +252,8 @@ mod tests {
         let (_root, project) = fixture_repo(Some(NODE_MODULES_CONFIG), Some("node_modules\n"));
         shared_node_modules(&project);
         let lane = provision_lane_for_test(project.to_str().unwrap(), "invisible").unwrap();
-        assert_eq!(lane.bootstrap.links.len(), 1, "{:?}", lane.bootstrap);
+        let bootstrap = bootstrap_lane(project.to_str().unwrap(), &lane.cwd);
+        assert_eq!(bootstrap.links.len(), 1, "{bootstrap:?}");
         let status = git_stdout(Path::new(&lane.cwd), &["status", "--porcelain"]);
         assert!(
             status.trim().is_empty(),
@@ -270,9 +267,10 @@ mod tests {
         let (_root, project) = fixture_repo(Some(NODE_MODULES_CONFIG), None);
         shared_node_modules(&project);
         let lane = provision_lane_for_test(project.to_str().unwrap(), "refused").unwrap();
-        assert!(lane.bootstrap.links.is_empty(), "{:?}", lane.bootstrap);
-        assert_eq!(lane.bootstrap.warnings.len(), 1);
-        assert!(lane.bootstrap.warnings[0].contains("not gitignored"));
+        let bootstrap = bootstrap_lane(project.to_str().unwrap(), &lane.cwd);
+        assert!(bootstrap.links.is_empty(), "{bootstrap:?}");
+        assert_eq!(bootstrap.warnings.len(), 1);
+        assert!(bootstrap.warnings[0].contains("not gitignored"));
         assert!(!PathBuf::from(&lane.cwd).join("node_modules").exists());
         let status = git_stdout(Path::new(&lane.cwd), &["status", "--porcelain"]);
         assert!(status.trim().is_empty(), "{status:?}");
@@ -284,7 +282,10 @@ mod tests {
         let hostile = "[lane]\nshared_directories = [\"../up\", \"/abs\", \"C:/x\", \".git\"]\n";
         let (_root, project) = fixture_repo(Some(hostile), Some("node_modules\n"));
         let lane = provision_lane_for_test(project.to_str().unwrap(), "hostile").unwrap();
-        assert_eq!(lane.bootstrap, LaneBootstrap::default());
+        assert_eq!(
+            bootstrap_lane(project.to_str().unwrap(), &lane.cwd),
+            LaneBootstrap::default()
+        );
         assert!(PathBuf::from(&lane.cwd).is_dir());
         lane.cleanup().unwrap();
     }
@@ -327,31 +328,44 @@ mod tests {
     fn lane_bootstrap_setup_command_is_carried_from_config() {
         let (_root, project) = fixture_repo(Some(NODE_MODULES_CONFIG), Some("node_modules\n"));
         let lane = provision_lane_for_test(project.to_str().unwrap(), "setup").unwrap();
-        assert_eq!(lane.bootstrap.setup_command.as_deref(), Some("npm install"));
+        assert_eq!(
+            bootstrap_lane(project.to_str().unwrap(), &lane.cwd)
+                .setup_command
+                .as_deref(),
+            Some("npm install")
+        );
         lane.cleanup().unwrap();
     }
 
     #[test]
-    fn lane_bootstrap_setup_command_composes_as_first_shell_command() {
-        assert_eq!(
-            compose_launch_with_setup(Some("npm install"), "claude --task x".into()),
-            "npm install ; claude --task x"
+    fn lane_provisioning_source_only_skips_repo_bootstrap_and_junction() {
+        let (_root, project) = fixture_repo(Some(NODE_MODULES_CONFIG), Some("node_modules\n"));
+        shared_node_modules(&project);
+        let canonical_marker = project.join("node_modules").join("marker.txt");
+        let canonical_before = std::fs::read_to_string(&canonical_marker).unwrap();
+        let lane = provision_lane_for_test(project.to_str().unwrap(), "source-only").unwrap();
+
+        assert_eq!(lane.bootstrap, LaneBootstrap::default());
+        assert!(
+            std::fs::symlink_metadata(Path::new(&lane.cwd).join("node_modules")).is_err(),
+            "source-only provisioning must not create a junction or symlink"
         );
-        assert_eq!(compose_launch_with_setup(None, "claude".into()), "claude");
         assert_eq!(
-            compose_launch_with_setup(Some("   "), "claude".into()),
-            "claude"
+            std::fs::read_to_string(canonical_marker).unwrap(),
+            canonical_before
         );
+        lane.cleanup().unwrap();
     }
 
     #[cfg(windows)]
     #[test]
-    fn lane_bootstrap_windows_link_falls_back_to_junction_when_needed() {
+    fn lane_provisioning_windows_junction_is_only_test_fixture_behavior() {
         let (_root, project) = fixture_repo(Some(NODE_MODULES_CONFIG), Some("node_modules\n"));
         shared_node_modules(&project);
         let lane = provision_lane_for_test(project.to_str().unwrap(), "winlink").unwrap();
-        assert_eq!(lane.bootstrap.links.len(), 1, "{:?}", lane.bootstrap);
-        let kind = &lane.bootstrap.links[0];
+        let bootstrap = bootstrap_lane(project.to_str().unwrap(), &lane.cwd);
+        assert_eq!(bootstrap.links.len(), 1, "{bootstrap:?}");
+        let kind = &bootstrap.links[0];
         assert!(
             kind.ends_with("(symlink)") || kind.ends_with("(junction)"),
             "{kind}"

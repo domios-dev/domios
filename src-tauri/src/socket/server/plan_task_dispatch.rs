@@ -66,9 +66,6 @@ fn dispatch_reasoning_effort(p: Option<&Value>) -> (Option<String>, Option<Strin
 }
 
 const DISPATCH_READY_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
-/// A queued `lane.setup_command` runs before the agent boots, so the ready
-/// deadline must leave room for it. Failure bound only, never a readiness signal.
-const LANE_SETUP_READY_ALLOWANCE: Duration = Duration::from_secs(540);
 
 fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
     JsonRpcError {
@@ -322,21 +319,8 @@ pub(super) struct DispatchStartup {
 }
 
 impl DispatchStartup {
-    fn lane_setup_allowance(&self) -> Duration {
-        let setup_command_queued = self
-            .provisioned_lane
-            .as_ref()
-            .is_some_and(|lane| lane.bootstrap.setup_command.is_some());
-        if setup_command_queued {
-            LANE_SETUP_READY_ALLOWANCE
-        } else {
-            Duration::ZERO
-        }
-    }
-
     pub(super) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
-        let startup_allowance = self.lane_setup_allowance();
-        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT + startup_allowance;
+        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
         let provisioned_lane = self.provisioned_lane;
         let outcome = complete_dispatch_transaction(
             deadline,
