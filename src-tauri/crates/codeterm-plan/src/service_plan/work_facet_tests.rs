@@ -64,6 +64,8 @@ fn work_facet_add_persists_each_allowed_value_and_unrelated_tags() {
 fn work_facet_add_rejects_invalid_drafts_before_persistence() {
     let (_dir, store, id) = setup(vec![facet("work")]);
     store.add_task(&id, new_task(&["work:docs"]), 2).unwrap();
+    // Reload first: the reloaded plan carries the canonical project path, so later reloads compare like for like.
+    store.reload_from_disk(&id).unwrap();
     let writes = Arc::new(AtomicUsize::new(0));
     let observed = writes.clone();
     store.set_persistence_hook_for_test(Some(Arc::new(move |_| {
@@ -87,13 +89,15 @@ fn work_facet_add_rejects_invalid_drafts_before_persistence() {
     ];
     for tags in cases {
         let before = serde_json::to_value(store.get(&id).unwrap()).unwrap();
+        // Only the rejected add is measured; reload_from_disk below may persist its own normalization.
+        let writes_before = writes.load(Ordering::SeqCst);
         let error = store.add_task(&id, new_task(&tags), 3).unwrap_err();
         assert!(
             matches!(error, PlanError::WorkFacetViolation(_)),
             "{tags:?}: {error}"
         );
         assert_eq!(error.to_json()["type"], "work_facet_violation");
-        assert_eq!(writes.load(Ordering::SeqCst), 0, "{tags:?}");
+        assert_eq!(writes.load(Ordering::SeqCst), writes_before, "{tags:?}");
         assert_eq!(
             serde_json::to_value(store.get(&id).unwrap()).unwrap(),
             before
@@ -136,6 +140,7 @@ fn work_facet_declaration_does_not_backfill_or_block_legacy_tasks() {
 #[test]
 fn work_facet_batch_cannot_bypass_task_add_contract() {
     let (_dir, store, id) = setup(vec![facet("work")]);
+    store.reload_from_disk(&id).unwrap();
     let before = serde_json::to_value(store.get(&id).unwrap()).unwrap();
     let error = store
         .apply_batch(
