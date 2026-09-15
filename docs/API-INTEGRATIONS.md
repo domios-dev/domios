@@ -149,7 +149,7 @@ Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-i
 
 Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by the receiver). Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Handler rejections, including 400/415, log status and code under `[pebble-webhook]` without the secret, headers, or payload.
 
-**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the General Agent as `-=-codeterm:pebble source=Pebble trust=untrusted-=-` followed by the text on its own line, with no reply address. It is untrusted third-party content, never an instruction channel. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the General Agent as `-=-codeterm:pebble source=Pebble-=-` followed by the text on its own line, with no reply address. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
 
 ```bash
 curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
@@ -234,4 +234,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

@@ -85,7 +85,11 @@ impl CapabilityRegistries {
         if caps.view {
             self.view.register(
                 id.clone(),
-                Arc::new(super::JsViewProvider::new(vm.clone(), id.clone())),
+                Arc::new(super::JsViewProvider::with_webhook_receiver(
+                    vm.clone(),
+                    id.clone(),
+                    caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
+                )),
             );
         }
         if caps.chat_backend.enabled() {
