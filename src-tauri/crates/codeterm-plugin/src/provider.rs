@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -487,11 +487,7 @@ pub trait AgentProvider: Send + Sync {
 
     /// Further usage logs owned by this exact session, found beside `session_file`
     /// (e.g. sub-agent transcripts). Never another session's; empty when none.
-    fn additional_usage_sources(
-        &self,
-        _session_file: &std::path::Path,
-        _session_id: &str,
-    ) -> Vec<PathBuf> {
+    fn additional_usage_sources(&self, _session_file: &Path, _session_id: &str) -> Vec<PathBuf> {
         Vec::new()
     }
 
