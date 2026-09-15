@@ -1,9 +1,7 @@
 //! Relayed `tab list` rendering. The peer answers `GET /api/tabs` with a bare
 //! array; the local CLI decides the shape so `--mesh` prints what local prints.
 
-use crate::cmd::print::{
-    print_json, tab_list_json_envelope, tab_list_json_envelope_with_request,
-};
+use crate::cmd::print::{print_json, tab_list_json_envelope, tab_list_json_envelope_with_request};
 use crate::{Cli, Commands, TabAction};
 
 /// Which local formatter a relayed tab list is handed to. The peer's bare array

@@ -76,7 +76,10 @@ fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
 #[test]
 fn tab_list_explicit_workspace_scope() {
     let params = tab_list_params(Some("ws_one".into()), false, false);
-    assert_eq!(ordinary_tab_list_path(&params), "/api/tabs?workspace_id=ws_one");
+    assert_eq!(
+        ordinary_tab_list_path(&params),
+        "/api/tabs?workspace_id=ws_one"
+    );
 
     let tabs = vec![json!({
         "id": "tab_one",

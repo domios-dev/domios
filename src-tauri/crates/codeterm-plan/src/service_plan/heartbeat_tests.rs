@@ -536,7 +536,11 @@ fn is_plan_complete_rejects_paused_and_blocked_tasks() {
         .unwrap();
     store
         .with_plan(&plan.id, 4, |plan| {
-            let task = plan.tasks.iter_mut().find(|task| task.id == paused_id).unwrap();
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == paused_id)
+                .unwrap();
             task.status = TaskStatus::Paused;
             task.pause_reason = Some("waiting for quota reset".into());
             Ok(())

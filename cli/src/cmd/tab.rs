@@ -3,8 +3,7 @@ use crate::client::{RpcClient, SocketClient};
 use crate::cmd::agent::normalize_tab_description;
 use crate::cmd::print::{
     exit_with_cli_error, handle_cli_result, handle_result, print_json,
-    tab_list_json_envelope_with_request,
-    CliError,
+    tab_list_json_envelope_with_request, CliError,
 };
 use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
@@ -29,7 +28,9 @@ use remote_target::{
 };
 #[cfg(test)]
 use render::format_tab_row;
-pub use render::{render_tab_tree, render_tab_tree_with_current, render_tab_tree_with_scope};
+pub use render::render_tab_tree_with_scope;
+#[cfg(test)]
+use render::{render_tab_tree, render_tab_tree_with_current};
 use repair::handle_tab_repair;
 pub use search::print_tab_find_results;
 #[cfg(test)]

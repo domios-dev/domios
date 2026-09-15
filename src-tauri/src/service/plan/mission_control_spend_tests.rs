@@ -368,7 +368,11 @@ fn mission_control_spend_charges_the_owner_of_a_fully_paused_plan() {
         .service
         .plan_store
         .with_plan(&plan.id, 3, |plan| {
-            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
             task.status = TaskStatus::Paused;
             task.pause_reason = Some("waiting on a decision".into());
             Ok(())

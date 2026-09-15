@@ -21,7 +21,10 @@ pub(super) fn preflight_dispatch_task_status(
     }
     Err(JsonRpcError {
         code: -32602,
-        message: format!("task '{}' is held by the system and cannot be dispatched", task.id),
+        message: format!(
+            "task '{}' is held by the system and cannot be dispatched",
+            task.id
+        ),
         data: Some(json!({
             "type": "invalid_task_dispatch",
             "stage": "task_status",

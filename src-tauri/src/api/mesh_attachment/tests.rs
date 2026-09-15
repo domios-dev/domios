@@ -78,14 +78,22 @@ fn mesh_attachment_transfer_refuses_malformed_payloads() {
     mismatched.size = 9;
     for request in [not_base64, empty, mismatched] {
         let refusal = decode_ingest(&request).unwrap_err();
-        assert!(matches!(refusal, IngestRefusal::Malformed(_)), "{refusal:?}");
+        assert!(
+            matches!(refusal, IngestRefusal::Malformed(_)),
+            "{refusal:?}"
+        );
         assert_eq!(refusal.status(), StatusCode::BAD_REQUEST);
     }
 }
 
 #[test]
 fn mesh_attachment_transfer_strips_unsafe_names() {
-    for hostile in ["../../etc/passwd", "..\\..\\evil.png", "/abs/path.png", "C:\\x.png"] {
+    for hostile in [
+        "../../etc/passwd",
+        "..\\..\\evil.png",
+        "/abs/path.png",
+        "C:\\x.png",
+    ] {
         let (name, _) = decode_ingest(&payload(AttachmentKind::File, hostile, b"x")).unwrap();
         assert!(!name.contains('/') && !name.contains('\\'), "{name}");
         assert!(!name.starts_with('.'), "{name}");
@@ -116,7 +124,10 @@ async fn mesh_attachment_transfer_voice_and_image_land_in_target_upload_dir() {
             .unwrap();
         assert!(path.starts_with(&target), "{}", path.display());
         assert_ne!(&path, source);
-        assert_eq!(std::fs::read(&path).unwrap(), std::fs::read(source).unwrap());
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            std::fs::read(source).unwrap()
+        );
         stored.push(path.to_string_lossy().to_string());
     }
     assert_ne!(stored[0], stored[1]);
@@ -215,7 +226,11 @@ fn mesh_attachment_path_guard_rejects_unrewritten_source_paths() {
         format!("see {}", image.replace('\\', "/")),
     ];
     for text in &texts {
-        for path in ["/api/tabs/t1/chat-send", "/api/tabs/t1/send", "/api/tabs/t1/delayed-messages"] {
+        for path in [
+            "/api/tabs/t1/chat-send",
+            "/api/tabs/t1/send",
+            "/api/tabs/t1/delayed-messages",
+        ] {
             assert_eq!(
                 guard_remote_send("POST", path, &send_body(text), &roots, &host_is_file),
                 Err(SOURCE_PATH_REFUSAL.to_string()),
@@ -223,7 +238,8 @@ fn mesh_attachment_path_guard_rejects_unrewritten_source_paths() {
             );
         }
     }
-    let batch = serde_json::json!({ "batch": [{ "text": "hi" }, { "text": format!("x {image}") }] });
+    let batch =
+        serde_json::json!({ "batch": [{ "text": "hi" }, { "text": format!("x {image}") }] });
     assert!(guard_remote_send("POST", "/api/tabs/t1/send", &batch, &roots, &host_is_file).is_err());
 
     let _ = std::fs::remove_dir_all(root);
@@ -255,11 +271,18 @@ fn mesh_attachment_path_guard_allows_rewritten_references() {
         &host_is_file
     )
     .is_ok());
-    for (method, path) in [("GET", "/api/tabs/t1/output"), ("POST", "/api/tabs/t1/rename")] {
-        assert!(
-            guard_remote_send(method, path, &send_body(&source_text), &roots, &host_is_file)
-                .is_ok()
-        );
+    for (method, path) in [
+        ("GET", "/api/tabs/t1/output"),
+        ("POST", "/api/tabs/t1/rename"),
+    ] {
+        assert!(guard_remote_send(
+            method,
+            path,
+            &send_body(&source_text),
+            &roots,
+            &host_is_file
+        )
+        .is_ok());
     }
 
     let _ = std::fs::remove_dir_all(root);
@@ -291,14 +314,16 @@ fn mesh_relay_attachment_route_is_owner_checked() {
     assert!(is_attachment_ingest(&command.method, &command.path));
 
     for (peer, connected) in [("blackstar", true), ("air", false)] {
-        assert!(crate::api::mesh_routes::remote_tabs::route_remote_tab_action(
-            "mesh:air/tab-7",
-            peer,
-            connected,
-            "POST",
-            MESH_ATTACHMENT_SUFFIX,
-        )
-        .is_err());
+        assert!(
+            crate::api::mesh_routes::remote_tabs::route_remote_tab_action(
+                "mesh:air/tab-7",
+                peer,
+                connected,
+                "POST",
+                MESH_ATTACHMENT_SUFFIX,
+            )
+            .is_err()
+        );
     }
 }
 
@@ -332,7 +357,11 @@ fn mesh_relay_attachment_requires_authenticated_peer_access() {
     }
     let ingest = "/api/tabs/t1/attachments";
     assert!(check_access(&AccessLevel::Full, &Method::POST, ingest));
-    assert!(check_access(&AccessLevel::AgentIsolated, &Method::POST, ingest));
+    assert!(check_access(
+        &AccessLevel::AgentIsolated,
+        &Method::POST,
+        ingest
+    ));
     assert!(!check_access(&AccessLevel::ReadOnly, &Method::POST, ingest));
     assert!(check_access(
         &AccessLevel::Custom(vec![Permission::SendInput]),
