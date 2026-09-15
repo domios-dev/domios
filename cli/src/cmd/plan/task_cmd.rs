@@ -701,6 +701,7 @@ pub(super) fn run_task(
             task_id,
             agent,
             authorized_gates,
+            canonical_writer,
             model,
             reasoning_effort,
             parent,
@@ -718,6 +719,9 @@ pub(super) fn run_task(
             });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
+            }
+            if canonical_writer {
+                params["placement"] = json!("canonical_writer");
             }
             if let Some(agent) = agent {
                 params["agent"] = json!(agent);
