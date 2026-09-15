@@ -97,6 +97,25 @@ codeterm bridge send --to USER_ID --type photo --file /path/to/image.jpg
 
 CodeTerm has no screenshot CLI. If the user asks for a screen capture, ask them to paste an image or provide a file path.
 
+## Per-tab topic threads
+
+With topics enabled for the bot in BotFather, each tab talks to the owner in its own topic of the owner's private chat:
+
+- The first notification or `bridge send` from a tab creates one topic named exactly after the tab title. Only while another live tab shares that title does it get a short `#xxxx` suffix from the tab id. Later sends reuse the binding, stored in `~/.codeterm/bridge/telegram-threads.json` (ids and topic names only).
+- Every tab post and its main-chat pointer start with the sender header `title · role · workspace · machine`, where role is `orchestrator`, `worker`, `planner` or `general`. The pointer links into the topic; `--choice` buttons ride the topic post.
+- The main chat (no thread, or the general topic) stays the General Agent conversation, and the General Agent's own sends stay there with its header.
+- A message in a bound topic reaches that tab with `thread=<id>` in its Telegram marker. A reply to a tab's message reaches that tab even without topics. Everything else reaches the General Agent; `origin=closed_thread|closed_tab|unbound_thread` says when it came from a retired or unknown thread.
+- With topics off, sends fall back to the main chat with the header and the owner is told once to enable topics in BotFather. Creation is not retried per message; a bridge restart probes again.
+- Closing a tab deletes its topic (history loss is intended) and removes the binding, so a later tab with the same title gets a fresh topic. If deletion fails, the topic gets a closing note and a `[closed]` name, and later messages there reach the General Agent.
+
+Open or reuse a topic and print its link:
+
+```bash
+codeterm bridge thread open [--tab ID] [--service telegram]
+```
+
+Without `--tab` it opens the caller's own topic. Only the General Agent may name another tab: the topic belongs to the target, carries its header, and routes replies to it. Any other caller naming a foreign tab is refused (socket `bridge.thread.open`, code `-32003`) before any Bot API call. The first open posts `you can talk to <tab> here`; repeated opens create nothing. The tab menu's **Open Telegram thread** and **Close Telegram thread** run the same operations.
+
 ## Cross-machine bridge migration
 
 To move the active poller to a paired peer without downtime:
@@ -106,4 +125,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

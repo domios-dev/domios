@@ -5,6 +5,8 @@ import { BusySpinner } from "../shared/BusyState";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { copyTabSessionId, TAB_SESSION_LABELS } from "./tabSessionActions";
+import { TelegramThreadMenuGroup } from "./TelegramThreadMenuGroup";
+import type { TelegramThreadMenuState } from "./telegramThreadActions";
 
 const MENU_WIDTH = 240;
 const MENU_ITEMS = '[role="menuitem"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
@@ -21,6 +23,11 @@ interface TabActionsMenuProps {
   /** Persisted auto-confirm opt-in; `null` hides the item for providers that cannot recognize prompts. */
   permissionAutoConfirm?: boolean | null;
   onTogglePermissionAutoConfirm?: (enabled: boolean) => void;
+  /** Telegram thread items; `null` or absent hides the group. */
+  telegramThread?: TelegramThreadMenuState | null;
+  onMenuOpen?: () => void;
+  onOpenTelegramThread?: () => void;
+  onCloseTelegramThread?: () => void;
 }
 
 export function TabActionsMenu({
@@ -34,6 +41,10 @@ export function TabActionsMenu({
   onError,
   permissionAutoConfirm = null,
   onTogglePermissionAutoConfirm,
+  telegramThread = null,
+  onMenuOpen,
+  onOpenTelegramThread,
+  onCloseTelegramThread,
 }: TabActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
@@ -57,6 +68,10 @@ export function TabActionsMenu({
   }, [showAutoConfirm]);
 
   const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (open) onMenuOpen?.();
+  }, [open, onMenuOpen]);
 
   const toggle = useCallback(() => {
     setOpen((current) => {
@@ -191,6 +206,13 @@ export function TabActionsMenu({
                 onToggle={() => onTogglePermissionAutoConfirm?.(permissionAutoConfirm !== true)}
               />
             </>
+          )}
+          {telegramThread && onOpenTelegramThread && onCloseTelegramThread && (
+            <TelegramThreadMenuGroup
+              state={telegramThread}
+              onOpen={() => choose(onOpenTelegramThread)}
+              onClose={() => choose(onCloseTelegramThread)}
+            />
           )}
         </div>,
         document.body,

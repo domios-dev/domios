@@ -108,6 +108,7 @@ export function TabContent({
           canRestartSession={sessionActions.canRestart}
           sessionId={sessionActions.sessionId}
           permissionAutoConfirm={permissionAutoConfirm}
+          telegramThreadMenu={!tab.remote_peer_id}
           isActive={isVisible}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>

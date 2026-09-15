@@ -8,6 +8,12 @@ import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
 import { matchesBinding } from "../../lib/keybindings";
 import { reconnectTabSession, restartTabSession, setTabPermissionAutoConfirm } from "./tabSessionActions";
+import {
+  closeTelegramThread,
+  fetchTelegramThreadState,
+  openTelegramThread,
+  type TelegramThreadMenuState,
+} from "./telegramThreadActions";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
@@ -30,6 +36,8 @@ interface TabTopBarProps {
   isActive?: boolean;
   /** Persisted auto-confirm opt-in; `null` when the provider cannot recognize permission prompts. */
   permissionAutoConfirm?: boolean | null;
+  /** Offer the Telegram thread items for this tab. */
+  telegramThreadMenu?: boolean;
 }
 
 /**
@@ -50,10 +58,26 @@ export function TabTopBar({
   sessionId = null,
   isActive = false,
   permissionAutoConfirm = null,
+  telegramThreadMenu = false,
 }: TabTopBarProps) {
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
+  const [telegramThread, setTelegramThread] = useState<TelegramThreadMenuState | null>(null);
+
+  const refreshTelegramThread = useCallback(() => {
+    if (!telegramThreadMenu) return;
+    fetchTelegramThreadState(tabId).then(setTelegramThread, () => setTelegramThread(null));
+  }, [tabId, telegramThreadMenu]);
+
+  const runTelegramThreadAction = useCallback(async (action: (tabId: string) => Promise<unknown>) => {
+    setReconnectError(null);
+    try {
+      await action(tabId);
+    } catch (error) {
+      setReconnectError(error instanceof Error ? error.message : String(error));
+    }
+  }, [tabId]);
 
   const reconnect = useCallback(async () => {
     if (reconnecting) return;
@@ -136,7 +160,7 @@ export function TabTopBar({
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
-        {(canReconnect || canRestartSession || sessionId || permissionAutoConfirm !== null) && (
+        {(canReconnect || canRestartSession || sessionId || permissionAutoConfirm !== null || telegramThreadMenu) && (
           <TabActionsMenu
             sessionId={sessionId}
             canReconnect={canReconnect}
@@ -148,6 +172,10 @@ export function TabTopBar({
             onError={setReconnectError}
             permissionAutoConfirm={permissionAutoConfirm}
             onTogglePermissionAutoConfirm={(enabled) => void togglePermissionAutoConfirm(enabled)}
+            telegramThread={telegramThreadMenu ? telegramThread : null}
+            onMenuOpen={refreshTelegramThread}
+            onOpenTelegramThread={() => void runTelegramThreadAction(openTelegramThread)}
+            onCloseTelegramThread={() => void runTelegramThreadAction(closeTelegramThread)}
           />
         )}
       </div>

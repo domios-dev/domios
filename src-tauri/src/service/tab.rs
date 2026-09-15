@@ -226,6 +226,7 @@ impl ServiceContext {
             // card, never as buttons that would quietly do nothing.
             notif.forget_answer_tab(tab_id);
         }
+        self.release_bridge_threads(tab_id);
         session_persist::persist_session_after_close(self);
         self.emit_state_changed();
         if pre_focus != post_focus {
