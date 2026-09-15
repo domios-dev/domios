@@ -571,6 +571,12 @@ pub async fn mesh_remote_tab_action(
     } else {
         command.body = body.unwrap_or(serde_json::Value::Null);
     }
+    crate::api::mesh_attachment::guard_remote_send_on_host(
+        &command.method,
+        &command.path,
+        &command.body,
+    )
+    .await?;
     let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
     let response = client.send_relay(&command).await?;
     if !response.ok {
@@ -579,6 +585,24 @@ pub async fn mesh_remote_tab_action(
             .unwrap_or_else(|| "remote tab unavailable".into()));
     }
     Ok(response.data.unwrap_or(serde_json::Value::Null))
+}
+
+#[tauri::command]
+pub async fn mesh_transfer_attachment(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    ordinary_tab_id: String,
+    peer_id: String,
+    path: String,
+    kind: crate::api::mesh_attachment::AttachmentKind,
+) -> Result<crate::api::mesh_attachment::IngestedAttachment, String> {
+    crate::api::mesh_attachment::transfer_to_peer(
+        mesh.inner(),
+        &ordinary_tab_id,
+        &peer_id,
+        path,
+        kind,
+    )
+    .await
 }
 
 /// Shared implementation behind the Tauri command and the web-mirror HTTP

@@ -16,6 +16,12 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             "/api/tabs/{id}/chat-send",
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
         )
+        .route(
+            "/api/tabs/{id}/attachments",
+            post(super::mesh_attachment::ingest).layer(axum::extract::DefaultBodyLimit::max(
+                super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,
+            )),
+        )
         .route("/api/tabs/{id}/stop", post(tab_routes::stop_tab))
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
         .route("/api/tabs/{id}/close", post(tab_routes::close_tab))

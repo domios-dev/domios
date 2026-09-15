@@ -372,6 +372,7 @@ pub fn run() {
             commands_mesh::ordinary_tabs_list,
             commands_mesh::mesh_peer_tabs_list,
             commands_mesh::mesh_remote_tab_action,
+            commands_mesh::mesh_transfer_attachment,
             commands_mesh::mesh_peer_service_delete,
             commands_mesh::mesh_peer_cron_action,
             commands_mesh::mesh_peer_cron_update,
