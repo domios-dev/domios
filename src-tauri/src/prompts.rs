@@ -235,7 +235,7 @@ pub fn planner_onboarding_task(
 ) -> String {
     format!(
         "You are the Planner specialist for the active Team Plan {plan_id}, working with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). If no planning request has been delegated yet, reply that you are ready and WAIT."
+First read `codeterm docs PLANNER` for your role. The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. If no planning request has been delegated yet, reply that you are ready and wait."
     )
 }
 
@@ -247,7 +247,7 @@ pub fn planner_onboarding_task_no_plan(
 ) -> String {
     format!(
         "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). The Team may not have a Plan yet; the Orchestrator creates it and Team membership makes it visible to you automatically. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. Planning is delegated to you by default: refine the active Team Plan with the normal plan editing commands once the Orchestrator states the goal. If no planning request has been delegated yet, reply that you are ready and WAIT."
+First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. Planning is delegated to you by default: refine the active Team Plan with the normal plan editing commands once the Orchestrator states the goal. If no planning request has been delegated yet, reply that you are ready and wait."
     )
 }
 
