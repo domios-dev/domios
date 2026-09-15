@@ -122,6 +122,7 @@ export function Titlebar({
           <span
             className="rounded bg-[var(--ct-accent)] px-1.5 py-0.5 font-mono text-[8px] font-bold leading-none tracking-wide text-[var(--ct-bg)]"
             aria-label={`Development build, version ${__APP_VERSION__}`}
+            data-tauri-drag-region
           >
             {buildLabel}
           </span>
