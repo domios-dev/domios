@@ -91,9 +91,8 @@ export function TimelineMarkerRow({ message }: { message: ChatMessage }): ReactN
 }
 
 export function ChatSessionIntentLine({ intent }: { intent: ChatSessionIntent | null }): ReactNode {
-  const title = cleanIntentText(intent?.title);
   const goal = cleanIntentText(intent?.goal);
-  if (!title && !goal) return null;
+  if (!goal) return null;
   return (
     <div
       data-testid="chat-session-intent"
@@ -107,18 +106,10 @@ export function ChatSessionIntentLine({ intent }: { intent: ChatSessionIntent | 
       }}
     >
       <div className="mx-auto flex w-full max-w-4xl flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px]">
-        {title && (
-          <span data-testid="chat-session-title" className="min-w-0">
-            <span className="mr-1 font-mono" style={{ color: "var(--ct-accent)" }}>title</span>
-            <span style={{ color: "var(--ct-fg)" }}>{title}</span>
-          </span>
-        )}
-        {goal && (
-          <span data-testid="chat-session-goal" className="min-w-0">
-            <span className="mr-1 font-mono" style={{ color: "var(--ct-accent)" }}>goal</span>
-            <span style={{ color: "var(--ct-fg)" }}>{goal}</span>
-          </span>
-        )}
+        <span data-testid="chat-session-goal" className="min-w-0">
+          <span className="mr-1 font-mono" style={{ color: "var(--ct-accent)" }}>goal</span>
+          <span style={{ color: "var(--ct-fg)" }}>{goal}</span>
+        </span>
       </div>
     </div>
   );
