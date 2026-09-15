@@ -120,12 +120,8 @@ pub async fn install_update(
         let manifest_url = q.manifest_url.clone();
         let continue_tab = q.continue_tab.clone();
         let update_state = state.update_state.clone();
+        crate::update::apply::begin_apply(&update_state);
         if install_method == InstallMethod::Deb {
-            {
-                let mut us = update_state.lock();
-                us.set_phase(UpdatePhase::Checking);
-                us.clear_error();
-            }
             let opts = ApplyOptions {
                 channel,
                 manifest_url,
@@ -236,11 +232,6 @@ pub async fn install_update(
                 "status": "updating",
                 "message": "Verified Debian package staged. Authorized installer is applying it."
             })));
-        }
-        {
-            let mut us = update_state.lock();
-            us.set_phase(UpdatePhase::Checking);
-            us.clear_error();
         }
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread()
