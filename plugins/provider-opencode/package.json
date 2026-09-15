@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/provider-opencode",
-  "version": "1.10.18",
+  "version": "1.10.19",
   "private": true,
   "type": "module",
   "description": "CodeTerm provider plugin for sst/opencode CLI.",
