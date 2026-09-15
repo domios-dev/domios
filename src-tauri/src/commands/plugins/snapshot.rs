@@ -384,8 +384,14 @@ fn channel_plugin_manifest(
 
 // Icons never gate enrichment: a manifest the strict loader rejects still gets its description and capabilities.
 fn manifest_icon_svg(dir: &std::path::Path, manifest: &Value) -> Option<String> {
-    let relative = manifest.get("icon")?.as_str()?;
-    codeterm_plugin::plugin_icon::load_plugin_icon(dir, relative)
+    if let Some(relative) = manifest.get("icon").and_then(Value::as_str) {
+        if let Some(svg) = codeterm_plugin::plugin_icon::load_plugin_icon(dir, relative) {
+            return Some(svg);
+        }
+    }
+    // Channel plugins published before icon.svg still inline their icon; it passes the same sanitizer.
+    let inline = manifest.get("iconSvg")?.as_str()?;
+    codeterm_plugin::plugin_icon::sanitize_plugin_icon_svg(inline.as_bytes())
 }
 
 #[cfg(test)]
