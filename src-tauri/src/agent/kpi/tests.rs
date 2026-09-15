@@ -275,7 +275,11 @@ fn sidechain_usage_is_ingested_once_beside_the_main_session() {
     }
 
     let rows = ledger.list_all().unwrap();
-    assert_eq!(rows.len(), 1 + 7, "one parent turn plus seven sidechain turns");
+    assert_eq!(
+        rows.len(),
+        1 + 7,
+        "one parent turn plus seven sidechain turns"
+    );
     let tokens: Vec<_> = rows.iter().filter_map(|r| r.tokens).collect();
     let totals = (
         tokens.iter().map(|t| t.input).sum::<u64>(),
