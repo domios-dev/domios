@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Plan } from "../types";
+import { PLANNING_STATE_LABEL, planDraftState } from "../planView/boardModel";
 import {
   formatCount,
   formatPlanDate,
@@ -339,6 +340,7 @@ export function PlanCard({
   const bounced = bounces.tasks_on_second_attempt;
   const heading = plan.title;
   const goal = planGoal(plan);
+  const draft = planDraftState(plan);
   const taskCount = (
     <>
       <span data-testid="mc-board-tasks-amount" className="mc-board-num">
@@ -380,6 +382,13 @@ export function PlanCard({
         ) : (
           <p data-testid="mc-board-plan-heading" className="mc-board-plan-heading" title={heading}>
             {heading}
+          </p>
+        )}
+        {draft && (
+          <p className="mc-board-chips">
+            <span data-testid="mc-board-plan-draft" data-planning-state={draft} className="mc-board-chip">
+              {`Draft · ${PLANNING_STATE_LABEL[draft]}`}
+            </span>
           </p>
         )}
         {goal && (

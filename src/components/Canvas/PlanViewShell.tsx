@@ -14,6 +14,7 @@ import { PlanListView } from "./planView/PlanListView";
 import { PlanPlanView, PlanSpecView } from "./planView/PlanDocumentView";
 import { TaskSegmentPanel } from "./planView/TaskSegmentPanel";
 import { findTaskByReference, taskSegmentLabel } from "./taskDisplayKey";
+import { isTeamActivePlan } from "./planTabMatch";
 import type { Plan } from "./types";
 
 const BoardSurface = memo(MissionControlPlanSurface);
@@ -86,7 +87,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [storedMode, setViewMode] = usePersistedPlanViewMode();
   const [segment, setSegment] = useTaskSegment(props.workspaceTarget, setViewMode);
   const hasActivePlan = useMemo(
-    () => props.plans.some((plan) => plan.status === "active" && (!props.teamId || plan.team_id === props.teamId)),
+    () => props.plans.some((plan) => isTeamActivePlan(plan, props.teamId)),
     [props.plans, props.teamId],
   );
   // The plan views need a plan; the stored choice returns once a plan is active again.
