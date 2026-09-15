@@ -102,6 +102,9 @@ pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning
 /// agent, shell, or schedule. One source so neither can drift into a loose one.
 pub const TEAM_CREATION_CONTRACT: &str = include_str!("../prompts/team_creation_contract.md");
 
+/// How the Orchestrator sequences work: actionability, group retrospectives, and rare plan pause.
+pub const TASK_SEQUENCING_CONTRACT: &str = include_str!("../prompts/task_sequencing_contract.md");
+
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
 
@@ -268,6 +271,10 @@ pub fn orchestrator_suffix() -> String {
         .replace(
             "{empty_role_guidance_rejection}",
             ORCH_EMPTY_ROLE_GUIDANCE_REJECTION,
+        )
+        .replace(
+            "{task_sequencing_contract}",
+            TASK_SEQUENCING_CONTRACT.trim(),
         )
         .replace(
             "{planning_compaction_contract}",

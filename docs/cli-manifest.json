@@ -6903,7 +6903,7 @@
           "subcommands": [
             {
               "name": "close",
-              "about": "Explicitly close a declared group's reflection window, even before every task in it reaches `done`",
+              "about": "Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate",
               "aliases": [],
               "args": [
                 {
@@ -10601,44 +10601,6 @@
               "subcommands": []
             },
             {
-              "name": "pause",
-              "about": "Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "plan_id",
-                  "positional": true,
-                  "required": true,
-                  "value_name": "PLAN_ID",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "reason",
-                  "positional": false,
-                  "required": true,
-                  "value_name": "REASON",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "task_id",
-                  "positional": true,
-                  "required": false,
-                  "value_name": "TASK_ID",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
               "name": "relink",
               "about": "Preview or apply automatic section links for unlinked tasks (--apply)",
               "aliases": [],
@@ -10746,34 +10708,6 @@
                   "positional": false,
                   "required": false,
                   "value_name": "WORKSPACE",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
-              "name": "resume",
-              "about": "Resume a paused task (returns it to dependency-waiting pending)",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "plan_id",
-                  "positional": true,
-                  "required": true,
-                  "value_name": "PLAN_ID",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "task_id",
-                  "positional": true,
-                  "required": false,
-                  "value_name": "TASK_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,

@@ -116,6 +116,9 @@ git merge-base --is-ancestor <lane-tip> <integration-tip>
 
 At every group close:
 
+- record the group regression run and the group retrospective
+  (`codeterm plan groups close <plan> <group> --note "<retrospective>"`); no
+  further task dispatches until both exist;
 - close completed Worker tabs;
 - remove merged worktrees and branches;
 - stop lane-specific dev processes;
@@ -132,8 +135,9 @@ Heartbeat preserves the control loop across idle time and compaction. The
 daemon derives it from plan state, live assignments, gates, and durable
 learnings. Orchestrators do not edit heartbeat fields.
 
-A reminder is handled only when plan state changes: dispatch, pause, verdict,
-bounce, replan, escalation, or recorded decision.
+A reminder names the actionable task ids and is handled only when plan state
+changes: dispatch, verdict, bounce, unblock, replan, escalation, or recorded
+decision. Dependency-waiting and machine-paused tasks need nothing.
 
 Do not create self-send polling reminders. The plan already wakes the
 Orchestrator for open work and Worker reports.
@@ -166,8 +170,8 @@ generally reusable recipe only during retrospective.
 
 An effort is complete only when:
 
-- every task is done, cancelled, or paused with an explicit reason;
-- required group/release gates are recorded;
+- every task is done or cancelled;
+- required group regression runs, group retrospectives, and release gates are recorded;
 - every spawned Worker and Planner tab is closed;
 - every accepted lane is ancestry-merged and removed;
 - lane processes are stopped;
@@ -175,4 +179,4 @@ An effort is complete only when:
 - the final handoff or retrospective is recorded;
 - the plan is archived.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

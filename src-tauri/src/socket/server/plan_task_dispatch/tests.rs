@@ -146,12 +146,18 @@ fn regression_block_error_names_every_gate_in_message_and_data() {
             label: "Web UI serve discovery".into(),
         },
     ];
-    let err = regression_blocked_error(gates);
+    let retrospectives = vec![RegressionGate {
+        key: "phase-2".into(),
+        label: "Phase 2".into(),
+    }];
+    let err = regression_blocked_error(gates, retrospectives);
     assert_eq!(err.code, -32010);
     assert!(err.message.contains("phase-1"));
     assert!(err.message.contains("web-ui-serve-discovery"));
+    assert!(err.message.contains("phase-2"));
     let data = err.data.expect("structured block data");
     assert_eq!(data["type"], "regression_gate_blocked");
+    assert_eq!(data["pending_retrospectives"][0]["key"], "phase-2");
     let keys: Vec<&str> = data["blocking_gates"]
         .as_array()
         .unwrap()

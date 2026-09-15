@@ -36,7 +36,7 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -76,8 +76,8 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
    lane-specific dev daemons, and record cleanup status. Deletion-only branch
    pushes must not run build gates.
 9. Before every milestone or release close, run a stale-lane sweep: every branch
-   and worktree gets one verdict: merged and cleaned, bounced, intentionally
-   paused with a reason, or abandoned with rationale.
+   and worktree gets one verdict: merged and cleaned, bounced, deferred
+   with a recorded reason, or abandoned with rationale.
 
 Mechanism ownership:
 

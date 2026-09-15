@@ -134,6 +134,33 @@ fn warns_when_completed_group_has_no_regression_and_silent_after_record() {
 }
 
 #[test]
+fn warns_when_completed_group_has_no_retrospective_and_rearms_on_reclose() {
+    let mut plan = json!({
+        "id": "pl_1", "title": "Plan", "status": "active", "sections": [],
+        "tasks": [
+            {"id": "t1", "name": "A", "status": "done", "group": "phase-1", "status_changed_at": 10},
+            {"id": "t2", "name": "B", "status": "done", "group": "phase-1", "status_changed_at": 20}
+        ],
+        "strides": [{"id": "ms_r", "kind": "regression", "ts": 30, "links": ["group:phase-1"]}]
+    });
+    let flagged = |plan: &Value| {
+        inspect_plan(Path::new("pl_1.json"), plan, "structure")
+            .iter()
+            .any(|f| f.kind == "group_missing_retrospective" && f.detail.contains("phase-1"))
+    };
+    assert!(flagged(&plan));
+
+    plan["strides"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id": "ms_c", "kind": "group_close", "ts": 40, "links": ["group:phase-1"]}));
+    assert!(!flagged(&plan));
+
+    plan["tasks"][1]["status_changed_at"] = json!(50);
+    assert!(flagged(&plan));
+}
+
+#[test]
 fn incomplete_or_all_cancelled_group_is_not_flagged() {
     let incomplete = json!({
         "id": "pl_1", "title": "Plan", "status": "active", "sections": [],
