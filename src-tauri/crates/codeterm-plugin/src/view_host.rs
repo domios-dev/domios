@@ -47,7 +47,7 @@ pub type ViewRegistryHandle = Arc<ViewRegistry>;
 /// Resolve a plugin's on-disk directory by id, scanning the same roots the
 /// snapshot uses. The iframe asset route serves `<dir>/ui/*` from here.
 pub fn plugin_ui_dir(plugin_id: &str) -> Option<std::path::PathBuf> {
-    let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+    let workspace = workspace_root();
     for root in crate::js_runtime::default_roots(Some(workspace.as_path())) {
         let dir = root.join(plugin_id);
         if dir.join("ui").join("index.html").exists() {
@@ -55,4 +55,22 @@ pub fn plugin_ui_dir(plugin_id: &str) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+// This crate sits at src-tauri/crates/codeterm-plugin; the repository root owns `plugins/`.
+fn workspace_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn workspace_root_resolves_the_in_repo_view_plugin_ui() {
+        let ui = super::workspace_root()
+            .join("plugins")
+            .join("analytics")
+            .join("ui")
+            .join("index.html");
+        assert!(ui.exists(), "missing {}", ui.display());
+    }
 }
