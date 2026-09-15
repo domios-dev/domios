@@ -29,6 +29,7 @@ Object.defineProperty(globalThis, "cancelAnimationFrame", {
 
 type Tab = import("../../lib/types").Tab;
 type PluginTabMenuItem = import("../../lib/pluginTabMenu").PluginTabMenuItem;
+type PluginTabMenuState = import("../../lib/pluginTabMenu").PluginTabMenuState;
 
 async function main() {
   const [{ act }, { createRoot }, { TabItem }, menuStore] = await Promise.all([
@@ -49,11 +50,39 @@ async function main() {
     action: "receiverTarget",
   };
   const ITEM_TEST_ID = `tab-menu-plugin-${ITEM.pluginId}-${ITEM.itemId}`;
-  const runs: Array<{ pluginId: string; itemId: string; tabId: string }> = [];
 
-  menuStore.__setPluginTabMenuForTest({ items: [ITEM], receiverTargets: {} }, async (item, tabId) => {
-    runs.push({ pluginId: item.pluginId, itemId: item.itemId, tabId });
-    return { items: [ITEM], receiverTargets: { [item.pluginId]: tabId } };
+  const bridge = {
+    available: false,
+    bindings: {} as Record<string, string>,
+    runs: [] as Array<{ pluginId: string; itemId: string; tabId: string }>,
+    loads: 0,
+    watches: 0,
+    releases: 0,
+    onChange: null as (() => void) | null,
+  };
+  // Read counters through a call so an earlier assertion does not narrow later comparisons.
+  const counts = () => ({ loads: bridge.loads, watches: bridge.watches, releases: bridge.releases });
+  const current = (): PluginTabMenuState => ({ items: [ITEM], receiverTargets: { ...bridge.bindings } });
+
+  menuStore.__setPluginTabMenuForTest(current(), {
+    available: () => bridge.available,
+    load: async () => {
+      bridge.loads += 1;
+      return current();
+    },
+    run: async (item, tabId) => {
+      bridge.runs.push({ pluginId: item.pluginId, itemId: item.itemId, tabId });
+      bridge.bindings[item.pluginId] = tabId;
+      return current();
+    },
+    watch: async (onChange) => {
+      bridge.watches += 1;
+      bridge.onChange = onChange;
+      return () => {
+        bridge.releases += 1;
+        bridge.onChange = null;
+      };
+    },
   });
 
   function plainTab(overrides: Partial<Tab> = {}): Tab {
@@ -66,6 +95,12 @@ async function main() {
       protected: false,
       ...overrides,
     };
+  }
+
+  async function flush() {
+    await act(async () => {
+      await Promise.resolve();
+    });
   }
 
   async function mount(tab: Tab) {
@@ -104,11 +139,14 @@ async function main() {
         new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event,
       );
     });
-    const menu = document.querySelector('[role="menu"][aria-label="Tab actions"]');
+    // Portals append in order, so the newest open menu is the last match.
+    const menus = document.querySelectorAll('[role="menu"][aria-label="Tab actions"]');
+    const menu = menus[menus.length - 1];
     assert(menu, "menu did not open from the keyboard");
     return menu;
   }
 
+  // Without a host bridge the menu still renders, and nothing is fetched or listened to.
   const local = await mount(plainTab());
   let menu = await openMenu(local.host);
   let item = menu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`);
@@ -120,9 +158,9 @@ async function main() {
   await act(async () => {
     (item as unknown as { click: () => void }).click();
   });
-  assert(runs.length === 1, "one click runs the item once");
+  assert(bridge.runs.length === 1, "one click runs the item once");
   assert(
-    runs[0].pluginId === ITEM.pluginId && runs[0].itemId === ITEM.itemId && runs[0].tabId === "tab-plain",
+    bridge.runs[0].pluginId === ITEM.pluginId && bridge.runs[0].itemId === ITEM.itemId && bridge.runs[0].tabId === "tab-plain",
     "the click carries the plugin, item and clicked tab id",
   );
 
@@ -130,19 +168,48 @@ async function main() {
   item = menu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`);
   assert(item?.getAttribute("aria-checked") === "true", "the bound tab renders checked");
   await local.dispose();
+  assert(counts().loads === 0 && counts().watches === 0, "no host bridge means no fetch and no listener");
+  assert(!menuStore.__pluginTabMenuSyncForTest().listening, "no host bridge leaves nothing listening");
 
+  // With a host bridge every mounted row shares one listener, released by the last unmount.
+  bridge.available = true;
   const other = await mount(plainTab({ id: "tab-other", pty_id: "pty-other" }));
+  const remote = await mount(plainTab({ id: "tab-remote", remote_peer_id: "peer-1" }));
+  await flush();
+  assert(counts().watches === 1, "mounted rows share one contributions listener");
+  assert(counts().loads >= 1, "the first subscriber loads the menu state");
+
   const otherMenu = await openMenu(other.host);
   assert(
     otherMenu.querySelector(`[data-testid="${ITEM_TEST_ID}"]`)?.getAttribute("aria-checked") === "false",
     "only the one bound tab is checked",
   );
-  await other.dispose();
-
-  const remote = await mount(plainTab({ id: "tab-remote", remote_peer_id: "peer-1" }));
   const remoteMenu = await openMenu(remote.host);
   assert(!remoteMenu.querySelector('[role="menuitemcheckbox"]'), "a peer's tab offers no local receiver action");
+
+  bridge.bindings[ITEM.pluginId] = "tab-other";
+  const loadsBefore = counts().loads;
+  bridge.onChange?.();
+  await flush();
+  assert(counts().loads === loadsBefore + 1, "a contributions event reloads the menu state");
+  const reloaded = await openMenu(other.host);
+  assert(
+    reloaded.querySelector(`[data-testid="${ITEM_TEST_ID}"]`)?.getAttribute("aria-checked") === "true",
+    "the reloaded binding checks its tab",
+  );
+
+  await other.dispose();
+  assert(counts().releases === 0, "the listener stays while a row is still mounted");
   await remote.dispose();
+  assert(counts().releases === 1, "the last unmount releases the listener");
+  assert(bridge.onChange === null, "no event handler outlives the last row");
+  const sync = menuStore.__pluginTabMenuSyncForTest();
+  assert(sync.subscribers === 0 && !sync.listening, "mount and unmount leave no pending listener");
+
+  const again = await mount(plainTab({ id: "tab-again", pty_id: "pty-again" }));
+  await flush();
+  await again.dispose();
+  assert(counts().watches === 2 && counts().releases === 2, "a remount listens again and releases again");
 
   console.log("TabItem plugin menu: ok");
 }
