@@ -344,10 +344,7 @@ impl MessageGateway {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_delivery_observer_for_test(
-        &self,
-        observer: std::sync::mpsc::Sender<String>,
-    ) {
+    pub(crate) fn set_delivery_observer_for_test(&self, observer: std::sync::mpsc::Sender<String>) {
         *self.delivery_observer.lock() = Some(observer);
     }
 
