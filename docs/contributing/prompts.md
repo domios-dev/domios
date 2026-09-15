@@ -29,12 +29,10 @@ skills/codeterm/
     telegram.md                  Bridge setup, formatting, migration
     themes.md                    Theme TOML format
 
-docs/                            Built-in docs (loaded on demand via `codeterm docs <NAME>`)
-  CONFIG.md, API.md, MESH.md, MEMORY.md, BUILD.md, PROMPTS.md, SKILLS.md, TESTING.md
-  TELEGRAM-SETUP.md              Operational playbook — wiring a new Telegram bot
-  SECRETS.md                     Operational playbook — `mem secret` CLI ladder
-  TEXT-HOOKS.md                  Operational playbook — inbound message hook daemon
+docs/                            Embedded docs, read on demand via `codeterm docs <NAME>`
 ```
+
+The layout is an excerpt; the complete prompt inventory is the table in `docs/PROMPTS.md`.
 
 ## Compile and substitution flow
 
@@ -115,16 +113,20 @@ When you're about to add or move a piece of prompt content, ask:
 
 ## Adding a new on-demand playbook to `codeterm docs`
 
-1. Write the playbook as `docs/<TOPIC>.md`. Use a short, ALL-CAPS slug for the doc name (`TELEGRAM-SETUP`, not `telegram-setup`).
-2. Register it in `cli/src/cmd/docs.rs`:
+1. Write the playbook as `docs/<TOPIC>.md`. Use a short, ALL-CAPS slug for the doc name (`TELEGRAM-SETUP`, not `telegram-setup`). It needs exactly one H1 and must fit 240 lines and 24 KiB.
+2. Register it in `cli/src/cmd/docs.rs` with a one-line purpose:
    ```rust
-   const DOCS: &[(&str, &str)] = &[
-       // ...
-       ("TOPIC", include_str!("../../../docs/TOPIC.md")),
-   ];
+   doc!("TOPIC", "What the playbook is for", "../../../docs/TOPIC.md"),
    ```
+   A top-level doc that must not be embedded goes on the exclusion list in `cli/src/cmd/manifest.rs` with a reason instead.
 3. Mention it in `general_agent.md` under the **Operational playbooks** section so the GA knows it exists. One line — name + when to use it.
 4. Bump `<!-- revision: N -->` at the end of the playbook on every meaningful edit.
+
+## Adding a new prompt file
+
+1. Put it in `src-tauri/prompts/` and load it with `include_str!()` in the owning loader.
+2. Add its filename to the list in `every_prompt_md_has_a_loader` (`src-tauri/src/prompts/tests.rs`); an unlisted file fails as an orphan.
+3. Add its row to the prompt table in `docs/PROMPTS.md`; `scripts/check-prompts-doc.sh` rejects a prompt file missing from it.
 
 ## Adding a new mem worker prompt
 
@@ -136,4 +138,4 @@ Files that ship as content (skills, docs, bundled prompts) carry a `<!-- revisio
 
 GA prompt and codeterm_cli.md don't carry revision tags — they're not user-facing and get rebuilt on every binary release.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
