@@ -229,6 +229,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "Focused test authoring rules",
         "../../../prod-docs/TEST-AUTHORING.md"
     ),
+    doc!(
+        "ESSENCE-MAP",
+        "Source-backed essence map generation and validation",
+        "../../../prod-docs/ESSENCE-MAP.md"
+    ),
 ];
 
 pub fn handle(name: Option<String>) {

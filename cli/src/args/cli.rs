@@ -14,6 +14,7 @@ use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
 use super::effort::EffortAction;
+use super::essence_map::EssenceMapAction;
 use super::inbox::InboxAction;
 use super::integration::IntegrationAction;
 use super::lane::LaneAction;
@@ -325,6 +326,13 @@ pub enum Commands {
     Effort {
         #[command(subcommand)]
         action: EffortAction,
+    },
+
+    /// Generate and validate the source-backed essence map
+    #[command(name = "essence-map")]
+    EssenceMap {
+        #[command(subcommand)]
+        action: EssenceMapAction,
     },
 
     /// Plan-backed tasks across active plans
