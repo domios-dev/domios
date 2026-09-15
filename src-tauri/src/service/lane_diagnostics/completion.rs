@@ -80,13 +80,15 @@ impl crate::service::ServiceContext {
         );
         for target in diagnostics_followup_targets(owner.as_deref(), &request.reporter_tab_id) {
             if owner.as_deref() == Some(target.as_str()) {
-                if let Err(error) = crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-                    self,
-                    &request.plan_id,
-                    &target,
-                    "lane-diagnostics",
-                    &text,
-                ) {
+                if let Err(error) =
+                    crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
+                        self,
+                        &request.plan_id,
+                        &target,
+                        "lane-diagnostics",
+                        &text,
+                    )
+                {
                     log::warn!(
                         "[lane-diagnostics] orchestrator follow-up target={target}: {error}"
                     );
