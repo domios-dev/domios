@@ -1,5 +1,5 @@
-import { classifyTabTarget } from "../../lib/remoteTabTransport";
-import type { ComposerAttachmentPlan } from "./composerAttachmentPlan";
+import { classifyTabTarget, type TabTarget } from "../../lib/remoteTabTransport";
+import { planComposerAttachments, type ComposerAttachmentPlan } from "./composerAttachmentPlan";
 
 export type MeshAttachmentKind = "voice" | "file";
 
@@ -18,6 +18,8 @@ export interface TransferredAttachment {
 }
 
 export interface AttachmentHandoffDeps {
+  /** Peer the web mirror relays tab traffic to; its tab ids are peer-local. */
+  relayPeerId: () => string | null;
   transfer: (request: MeshAttachmentTransferRequest) => Promise<TransferredAttachment>;
   transcribeLocal: (path: string) => Promise<string>;
   quote: (path: string) => string;
@@ -35,6 +37,11 @@ export interface AttachmentParts {
   transcribeFailed: boolean;
 }
 
+export interface AttachmentDraft {
+  composed: string;
+  transcribeFailed: boolean;
+}
+
 function attachmentName(path: string): string {
   return path.split(/[\\/]/).pop() || "attachment";
 }
@@ -43,21 +50,49 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The host that owns a tab: a composite mesh id names its peer, and a relayed
+ * web mirror addresses the relay peer's own tabs. Bytes stay on this host. */
+export function attachmentHostTarget(tabId: string, relayPeerId: string | null): TabTarget {
+  const target = classifyTabTarget(tabId);
+  if (target.kind !== "local" || !relayPeerId) return target;
+  return classifyTabTarget(`mesh:${relayPeerId}/${tabId}`);
+}
+
 /** An attachment belongs to the target tab's host: a remote target gets a
  * target-local reference or the send is refused before delivery. */
 export async function resolveAttachmentParts(
-  tabId: string,
+  target: TabTarget,
   plans: ComposerAttachmentPlan[],
   deps: AttachmentHandoffDeps,
 ): Promise<AttachmentParts> {
-  const target = classifyTabTarget(tabId);
   if (target.kind === "invalid-remote") {
     throw new AttachmentTransferError(`Invalid remote tab id "${target.value}"; attachments were not sent`);
   }
   if (target.kind === "local") return resolveLocalParts(plans, deps);
   const parts = await Promise.all(plans.map((plan) => transferPart(target, plan, deps)));
-  assertNoSourceAttachmentPaths(tabId, parts.join(" "), plans.map((plan) => plan.path), deps.quote);
+  assertNoSourceAttachmentPaths(target, parts.join(" "), plans.map((plan) => plan.path), deps.quote);
   return { parts, transcribeFailed: false };
+}
+
+/** Message text for a composer draft; the only change a remote target sees is
+ * each attachment reference rewritten to its target-local copy. */
+export async function composeAttachmentDraft(
+  tabId: string,
+  text: string,
+  attachments: string[],
+  recordedVoiceAttachments: string[],
+  deps: AttachmentHandoffDeps,
+): Promise<AttachmentDraft> {
+  const target = attachmentHostTarget(tabId, deps.relayPeerId());
+  const { parts, transcribeFailed } = await resolveAttachmentParts(
+    target,
+    planComposerAttachments(attachments, recordedVoiceAttachments),
+    deps,
+  );
+  const pathLines = parts.join(" ");
+  const composed = text && pathLines ? `${text} ${pathLines}` : text || pathLines;
+  assertNoSourceAttachmentPaths(target, composed, attachments, deps.quote);
+  return { composed, transcribeFailed };
 }
 
 async function resolveLocalParts(
@@ -104,12 +139,12 @@ async function transferPart(
 }
 
 export function assertNoSourceAttachmentPaths(
-  tabId: string,
+  target: TabTarget,
   text: string,
   sourcePaths: string[],
   quote: (path: string) => string,
 ): void {
-  if (classifyTabTarget(tabId).kind === "local") return;
+  if (target.kind === "local") return;
   for (const source of sourcePaths) {
     if (!source) continue;
     if (text.includes(source) || text.includes(quote(source))) {

@@ -3,7 +3,6 @@ import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
-import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { formatModelSwitch } from "../../lib/modelSwitch";
 import { isModelSelectable, modelAvailability } from "../../lib/modelAvailability";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -34,21 +33,11 @@ import {
   isImeKeyEvent,
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
-import { planComposerAttachments } from "./composerAttachmentPlan";
-import {
-  assertNoSourceAttachmentPaths,
-  resolveAttachmentParts,
-  type AttachmentHandoffDeps,
-  type TransferredAttachment,
-} from "./meshAttachmentHandoff";
+import { composeAttachmentDraft } from "./meshAttachmentHandoff";
+import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
-const attachmentHandoff: AttachmentHandoffDeps = {
-  transfer: (request) => invoke<TransferredAttachment>("mesh_transfer_attachment", request),
-  transcribeLocal: (path) => invoke<string>("transcribe_voice_attachment", { path }),
-  quote: quotePathForPaste,
-};
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -553,17 +542,13 @@ function ChatComposerImpl({
     allAttachments: string[],
     recordedVoiceAttachments: string[],
   ) {
-    const { parts, transcribeFailed } = await resolveAttachmentParts(
+    return composeAttachmentDraft(
       tabId,
-      planComposerAttachments(allAttachments, recordedVoiceAttachments),
-      attachmentHandoff,
+      text,
+      allAttachments,
+      recordedVoiceAttachments,
+      composerAttachmentHandoff,
     );
-    const pathLines = parts.join(" ");
-    const composed = text && pathLines
-      ? `${text} ${pathLines}`
-      : text || pathLines;
-    assertNoSourceAttachmentPaths(tabId, composed, allAttachments, quotePathForPaste);
-    return { composed, transcribeFailed };
   }
 
   async function send(extraAttachments: string[] = []) {
