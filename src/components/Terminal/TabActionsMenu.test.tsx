@@ -237,7 +237,7 @@ test("auto-confirm and Telegram go through their bridge commands", async () => {
   __setInvokeForTest((async (command: string, args?: unknown) => {
     calls.push([command, args]);
     if (command === "bridge_thread_state") return { bridge_active: true, topics: "unavailable", bound: false, link: null };
-    if (command === "bridge_thread_open") return { link: "https://t.me/example_bot/7" };
+    if (command === "bridge_thread_open") return { link: "https://t.me/c/1234567890/7" };
     return true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
@@ -245,7 +245,7 @@ test("auto-confirm and Telegram go through their bridge commands", async () => {
     await setTabPermissionAutoConfirm("tab-7", true);
     const state = await fetchTelegramThreadState("tab-7");
     assert(JSON.stringify(state) === JSON.stringify({ bridgeActive: true, topics: "unavailable", bound: false, link: null }), "thread state maps from the wire");
-    assert(await openTelegramThread("tab-7") === "https://t.me/example_bot/7", "open returns the topic link");
+    assert(await openTelegramThread("tab-7") === "https://t.me/c/1234567890/7", "open returns the topic link");
     await closeTelegramThread("tab-7");
   } finally {
     __setInvokeForTest(null);

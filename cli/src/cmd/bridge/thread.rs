@@ -15,16 +15,15 @@ pub(crate) fn open_params(service: &str, tab: Option<&str>, caller_tab_id: &str)
     params
 }
 
+/// One sentence a General Agent can relay verbatim. Without a link the topic title is the pointer.
 pub(crate) fn render_opened(value: &Value) -> String {
+    let topic = value
+        .get("topic_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     match value.get("link").and_then(Value::as_str) {
-        Some(link) => link.to_string(),
-        None => format!(
-            "thread {} opened; no link because the bot username is unknown",
-            value
-                .get("thread_id")
-                .and_then(Value::as_i64)
-                .unwrap_or_default()
-        ),
+        Some(link) => format!("Telegram topic \"{topic}\" is ready: {link}"),
+        None => format!("Telegram topic \"{topic}\" is ready in the bot chat's topic list."),
     }
 }
 
@@ -56,7 +55,7 @@ mod tests {
     }
 
     #[test]
-    fn telegram_thread_open_params_default_to_the_caller_tab() {
+    fn telegram_topic_attach_params_default_to_the_caller_tab() {
         assert_eq!(
             open_params("telegram", None, "tab_self"),
             json!({ "service": "telegram", "caller_tab_id": "tab_self" })
@@ -69,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn telegram_thread_open_params_carry_an_explicit_target_beside_the_caller() {
+    fn telegram_topic_attach_params_carry_an_explicit_target_beside_the_caller() {
         assert_eq!(
             open_params("telegram", Some("tab_target"), "tab_general"),
             json!({
@@ -81,7 +80,7 @@ mod tests {
     }
 
     #[test]
-    fn telegram_thread_open_parses_tab_and_service() {
+    fn telegram_topic_attach_parses_tab_and_service() {
         let parsed = BridgeOnly::try_parse_from(["bridge", "thread", "open", "--tab", "abc123"])
             .expect("thread open parses");
         match parsed.action {
@@ -105,12 +104,26 @@ mod tests {
     }
 
     #[test]
-    fn telegram_thread_render_prints_the_link_alone() {
-        let link = "https://t.me/example_bot/42";
-        assert_eq!(
-            render_opened(&json!({ "link": link, "thread_id": 42 })),
-            link
-        );
-        assert!(render_opened(&json!({ "link": null, "thread_id": 42 })).contains("42"));
+    fn telegram_topic_attach_render_is_one_line_carrying_the_link_when_present() {
+        let link = "https://t.me/c/1234567890/42";
+        let rendered = render_opened(&json!({
+            "topic_name": "topic_fixture_a",
+            "link": link,
+            "thread_id": 42,
+        }));
+        assert!(rendered.contains(link) && rendered.contains("topic_fixture_a"));
+        assert!(!rendered.contains('\n'));
+    }
+
+    #[test]
+    fn telegram_topic_attach_render_without_a_link_names_the_topic_and_no_url() {
+        let rendered = render_opened(&json!({
+            "topic_name": "topic_fixture_b",
+            "link": null,
+            "thread_id": 42,
+        }));
+        assert!(rendered.contains("topic_fixture_b"));
+        assert!(!rendered.contains("t.me") && !rendered.contains("://"));
+        assert!(!rendered.contains("42") && !rendered.contains('\n'));
     }
 }
