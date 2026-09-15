@@ -95,7 +95,7 @@ export function AgentStateIndicator({
         size="small"
         tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
         rhythm={phase}
-        idle={!isWorking}
+        active={isWorking}
       />
       <span
         className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"

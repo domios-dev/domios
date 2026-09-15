@@ -88,13 +88,13 @@ function GroupCollapseChevron({
   );
 }
 
-function TabWorkingActivity() {
+function TabWorkingActivity({ active }: { active: boolean }) {
   return (
     <span
       data-testid="tab-working-activity"
       className="inline-flex items-center shrink-0"
     >
-      <ActivityDots size="small" tone="muted" />
+      <ActivityDots size="small" tone="muted" active={active} />
     </span>
   );
 }
@@ -354,7 +354,9 @@ function TabItemInner({
               >
                 {displayTitle}
               </span>
-              {status === "Working" && <TabWorkingActivity />}
+              {hasAgent && (status === "Working" || status === "Idle") && (
+                <TabWorkingActivity active={status === "Working"} />
+              )}
             </span>
             {collapsed && groupCollapsible && collapsedSummary ? (
               <span
