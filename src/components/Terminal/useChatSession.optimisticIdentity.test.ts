@@ -1,5 +1,5 @@
 // Run: npx tsx src/components/Terminal/useChatSession.optimisticIdentity.test.ts
-// addOptimistic reaches memoized rows: identity survives streaming, ordinal stays live.
+// addOptimistic reaches memoized rows: identity survives streaming, the send key is captured once.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { act, createElement } from "react";
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
             id: "chip-echo",
             type: "user",
             content: "◆ task_x — enriched chip label ◆",
-            timestamp: "1700000000500",
+            timestamp: String(Date.now()),
           }],
         },
       });
@@ -156,8 +156,8 @@ async function main(): Promise<void> {
     firstId = v().addOptimistic("first");
   });
   await flush();
-  const firstOrder = v().allMessages.find((row) => row.id === firstId)?.clientOrder;
-  assert(typeof firstOrder === "number", "optimistic row carries an arrival ordinal");
+  const firstKey = v().allMessages.find((row) => row.id === firstId)?.timestamp;
+  assert(typeof firstKey === "string", "a pending send projects with its captured send key");
 
   await act(async () => {
     for (const handler of listeners.get("tab-chat-msg-tab") ?? []) {
@@ -181,17 +181,26 @@ async function main(): Promise<void> {
     v().addOptimistic === mountedIdentity,
     "addOptimistic keeps identity across streamed transcript updates",
   );
+  assert(
+    v().allMessages.find((row) => row.id === firstId)?.timestamp === firstKey,
+    "streamed output never rewrites a pending send's key",
+  );
 
   let secondId = "";
   await act(async () => {
     secondId = v().addOptimistic("second");
   });
   await flush();
-  const secondOrder = v().allMessages.find((row) => row.id === secondId)?.clientOrder;
-  assert(typeof secondOrder === "number", "second optimistic row carries an ordinal");
+  const rows = v().allMessages;
+  const secondKey = rows.find((row) => row.id === secondId)?.timestamp;
+  assert(typeof secondKey === "string", "the second send projects with its own key");
   assert(
-    secondOrder > firstOrder,
-    `the ordinal reads the live transcript, not one captured at creation (${firstOrder} -> ${secondOrder})`,
+    Number(secondKey) >= Number(firstKey),
+    `a later send never takes an earlier key (${firstKey} -> ${secondKey})`,
+  );
+  assert(
+    rows.findIndex((row) => row.id === firstId) < rows.findIndex((row) => row.id === secondId),
+    "two pending sends project in send order",
   );
 
   await act(async () => root.unmount());

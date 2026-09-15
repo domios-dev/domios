@@ -30,44 +30,31 @@ function echo(id: string, content: string, sentAtMs: number): OptimisticEcho {
   return { id, content, sentAtMs };
 }
 
-function orderedEcho(id: string, content: string, sentAtMs: number, clientOrder: number): OptimisticEcho {
-  return { id, content, sentAtMs, clientOrder };
-}
-
 const T0 = 1_700_000_000_000;
 
 {
-  const staleProviderTimestamp = T0 - 30_000;
-  const parsed = user("curie-echo", "круто", staleProviderTimestamp);
-  parsed.clientOrder = 12;
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [orderedEcho("opt-curie", "круто", T0, 11)],
-    [parsed],
+  const { claims } = matchedOptimisticEchoes(
+    [echo("opt-1", "send many at once", T0), echo("opt-2", "and check it", T0 + 100), echo("opt-3", "yes", T0 + 200)],
+    [user("a-0", "yes", T0 + 300), user("a-1", "send many at once and check it", T0 + 500)],
   );
-  eq(matchedIds, ["opt-curie"], "newer client order reconciles a stale-timestamp echo after chat reattach");
-  eq(pendingIds, [], "reattached short echo leaves no duplicate optimistic bubble");
+  eq(
+    claims,
+    [
+      { echoId: "opt-3", parsedIndex: 0 },
+      { echoId: "opt-1", parsedIndex: 1 },
+      { echoId: "opt-2", parsedIndex: 1 },
+    ],
+    "every match names the parsed row it claimed, including a combined turn",
+  );
 }
 
 {
   const text = "как то знаешь не нравятся мне они что то с ними не так везде есть свои имперфекционы";
-  const parsed = user("long-echo", text.replaceAll(" ", "\n"), T0 - 45_000);
-  parsed.clientOrder = 22;
   const { matchedIds } = matchedOptimisticEchoes(
-    [orderedEcho("opt-long", text, T0, 21)],
-    [parsed],
+    [echo("opt-long", text, T0)],
+    [user("long-echo", text.replaceAll(" ", "\n"), T0 + 400)],
   );
-  eq(matchedIds, ["opt-long"], "newer client order reconciles a reflowed long echo after chat reattach");
-}
-
-{
-  const old = user("old", "круто", T0 - 60_000);
-  old.clientOrder = 10;
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [orderedEcho("opt-new", "круто", T0, 11)],
-    [old],
-  );
-  eq(matchedIds, [], "older client order cannot consume a newly repeated message");
-  eq(pendingIds, ["opt-new"], "intentional repeat stays visible until its own echo arrives");
+  eq(matchedIds, ["opt-long"], "a reflowed long echo stamped after its send reconciles");
 }
 
 //    the provider transcript proves the message landed.

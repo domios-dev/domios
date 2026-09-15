@@ -34,13 +34,13 @@ export {
   normalizeChatText,
   type FingerprintableChatMessage,
 } from "./normalize";
-export { matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
-export { mergeTimelineMessages } from "./timeline";
+export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeById } from "./merge";
+export { timestampMs } from "./time";
+export { type ChatSend, type SendEcho } from "./sendOrder";
 export {
   TRANSCRIPT_RETENTION_LIMIT,
   createTranscriptState,
-  nextOptimisticOrder,
   projectTranscript,
   reduceTranscript,
   transcriptBackfillCursor,
