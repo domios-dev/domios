@@ -68,16 +68,89 @@ mod platform {
     pub fn enable() -> Result<(), String> {
         let app = std::env::current_exe().map_err(|error| error.to_string())?;
         let supervisor = super::cli_path()?;
-        let command = format!(
-            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Start-Process -WindowStyle Hidden -FilePath '{}' -ArgumentList @('system','supervise','--binary','{}')\"",
-            supervisor.to_string_lossy().replace('\'', "''"),
-            app.to_string_lossy().replace('\'', "''")
-        );
+        let username = std::env::var("USERNAME").map_err(|error| error.to_string())?;
+        let user = match std::env::var("USERDOMAIN") {
+            Ok(domain) if !domain.is_empty() => format!("{domain}\\{username}"),
+            _ => username,
+        };
+        let xml = task_xml(&user, &supervisor.to_string_lossy(), &app.to_string_lossy());
+        let path = std::env::temp_dir().join(format!("{TASK_NAME}-{}.xml", std::process::id()));
+        std::fs::write(&path, utf16le_with_bom(&xml)).map_err(|error| error.to_string())?;
         let _ = run(&["/Delete", "/TN", TASK_NAME, "/F"]);
-        checked(&[
-            "/Create", "/TN", TASK_NAME, "/TR", &command, "/SC", "ONLOGON", "/F", "/RL", "LIMITED",
-        ])?;
+        let created = checked(&[
+            "/Create",
+            "/TN",
+            TASK_NAME,
+            "/XML",
+            &path.to_string_lossy(),
+            "/F",
+        ]);
+        let _ = std::fs::remove_file(&path);
+        created?;
         checked(&["/Run", "/TN", TASK_NAME])
+    }
+
+    // schtasks /TR rejects commands over 261 characters; task XML has no such limit.
+    fn task_xml(user: &str, supervisor: &str, app: &str) -> String {
+        let arguments = format!(
+            "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Start-Process -WindowStyle Hidden -FilePath '{}' -ArgumentList @('system','supervise','--binary','{}')\"",
+            supervisor.replace('\'', "''"),
+            app.replace('\'', "''")
+        );
+        let user = xml_escape(user);
+        let arguments = xml_escape(&arguments);
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n<Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>\n<Principals><Principal id=\"Author\"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Enabled>true</Enabled></Settings>\n<Actions Context=\"Author\"><Exec><Command>powershell.exe</Command><Arguments>{arguments}</Arguments></Exec></Actions>\n</Task>\n"
+        )
+    }
+
+    fn xml_escape(value: &str) -> String {
+        value
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    }
+
+    fn utf16le_with_bom(text: &str) -> Vec<u8> {
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in text.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn long_install_paths_stay_in_task_xml_arguments() {
+            let long_dir = format!("C:\\Users\\{}\\AppData\\Local", "a".repeat(200));
+            let supervisor = format!("{long_dir}\\bin\\codeterm & co.exe");
+            let app = format!("{long_dir}\\codeterm\\codeterm.exe");
+            let xml = task_xml("DOMAIN\\user", &supervisor, &app);
+
+            let start = xml.find("<Arguments>").unwrap() + "<Arguments>".len();
+            let end = xml.find("</Arguments>").unwrap();
+            let arguments = xml[start..end]
+                .replace("&quot;", "\"")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&");
+            assert!(arguments.len() > 261);
+            assert!(arguments.contains(&supervisor));
+            assert!(arguments.contains(&app));
+            assert!(xml.contains("<UserId>DOMAIN\\user</UserId>"));
+        }
+
+        #[test]
+        fn task_xml_is_written_as_utf16le_with_bom() {
+            let bytes = utf16le_with_bom("<T/>");
+            assert_eq!(&bytes[..2], &[0xFF, 0xFE]);
+            assert_eq!(bytes.len(), 2 + 4 * 2);
+            assert_eq!(&bytes[2..4], &[b'<', 0]);
+        }
     }
 
     pub fn disable() -> Result<(), String> {

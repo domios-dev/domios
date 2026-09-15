@@ -1,22 +1,66 @@
-//! A team member whose provider exited before shutdown restores as its shell;
-//! `agent restart` resumes its lineage session through exit recovery.
+//! A tab whose provider exited before shutdown restores as its shell; once that
+//! shell is ready, exit recovery resumes its lineage session automatically.
+
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
+use parking_lot::Mutex;
 
 use crate::crash::restore_report::RestorePane;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{latest_prior_session, Tab};
+use crate::service::ServiceContext;
 use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
 
-/// The lineage session `agent restart` recovers for a restored member with no agent.
+static AUTO_RECOVERY_CLAIMS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// The lineage session exit recovery resumes for a restored tab with no agent.
 pub(crate) fn exited_member_session(tab: &Tab) -> Option<&str> {
     if !tab.restored_from_snapshot
         || tab.protected
-        || tab.role.is_none()
         || tab.agent_type.is_some()
         || tab.agent_session_id.is_some()
     {
         return None;
     }
     latest_prior_session(&tab.prior_session_binding_nonces)
+}
+
+fn claim_auto_recovery(claims: &Mutex<HashSet<String>>, tab_id: &str) -> bool {
+    claims.lock().insert(tab_id.to_string())
+}
+
+impl ServiceContext {
+    /// Resumes a restored exited tab once per process, off the boot-stage caller.
+    pub(crate) fn resume_exited_member_on_shell_ready(&self, tab_id: &str) {
+        let eligible = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(exited_member_session)
+            .is_some();
+        if !eligible || !claim_auto_recovery(&AUTO_RECOVERY_CLAIMS, tab_id) {
+            return;
+        }
+        let svc = self.clone();
+        let tab_id = tab_id.to_string();
+        let spawned = std::thread::Builder::new()
+            .name("restore-exit-recovery".into())
+            .spawn(move || match svc.agent_restart(&tab_id, false, 1) {
+                Ok(outcome) => log::info!(
+                    "[restore] resumed exited Tab {tab_id}: {} {:?}",
+                    outcome.session_action(),
+                    outcome.session_id
+                ),
+                Err(error) => {
+                    log::warn!("[restore] could not resume exited Tab {tab_id}: {error:?}")
+                }
+            });
+        if let Err(error) = spawned {
+            log::warn!("[restore] exit recovery thread failed to start: {error}");
+        }
+    }
 }
 
 pub(crate) fn exited_members(mux: &MultiplexerState) -> Vec<(String, String)> {

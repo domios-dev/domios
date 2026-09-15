@@ -12,7 +12,7 @@ export function ThoughtLine({ text, expanded, onToggle }: {
   expanded?: boolean;
   onToggle?: (next: boolean) => void;
 }) {
-  const [localExpanded, setLocalExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(true);
   const regionId = useId();
   const open = expanded ?? localExpanded;
   const toggle = onToggle ?? setLocalExpanded;
@@ -30,7 +30,7 @@ export function ThoughtLine({ text, expanded, onToggle }: {
         style={{ color: "var(--ct-muted-fg)" }}
       >
         <span className="shrink-0">Thinking</span>
-        <span data-testid="chat-thought-line" className="min-w-0 flex-1 truncate italic">{headline}</span>
+        <span data-testid="chat-thought-line" className="min-w-0 flex-1 truncate italic">{open ? "" : headline}</span>
         <ChevronRight
           aria-hidden="true"
           size={12}
@@ -41,7 +41,7 @@ export function ThoughtLine({ text, expanded, onToggle }: {
         {open && (
           <p
             data-testid="chat-thought-text"
-            className="m-0 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[11px] italic"
+            className="m-0 whitespace-pre-wrap break-words text-xs"
             style={{ color: "var(--ct-muted-fg)" }}
           >
             {text}

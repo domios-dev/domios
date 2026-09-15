@@ -419,7 +419,7 @@ describe("chained commands inside a stream", () => {
     expect(treeLeads(members[0])).toEqual(["spec section update", "plan task update"]);
     expect(treeLeads(members[1])).toEqual(["plan doctor", "plan decision list", "task show"]);
     expect(members[1].querySelector('[data-testid="chat-command-tree-more"]')?.textContent).toContain("+1 more");
-    expect([...members[1].querySelectorAll<HTMLElement>('[data-testid="chat-command-tree-operator"]')].map((node) => node.dataset.operator)).toEqual(["then", "then"]);
+    expect(members[1].querySelectorAll('[data-testid="chat-command-tree-operator"]')).toHaveLength(0);
   });
 
   it("opens the clicked segment inside the member's group with the raw command still collapsed", async () => {

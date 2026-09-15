@@ -51,7 +51,7 @@ fn restore_contract_exited_member_lineage_survives_snapshot_restore() {
 }
 
 #[test]
-fn restore_contract_exited_member_is_flagged_and_never_relaunched() {
+fn restore_contract_exited_member_is_not_booted_from_its_cleared_record() {
     let (restored, tab_id) = restored_exited_worker(true);
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-exited-member", restored));
 
@@ -80,6 +80,13 @@ fn restore_contract_only_restored_members_with_a_bound_exited_session_are_flagge
     let flagged = restored.get_tab(&tab_id).unwrap().clone();
     let mut roleless = flagged.clone();
     roleless.role = None;
+    assert_eq!(
+        exited_member_session(&roleless),
+        Some("exited-session"),
+        "a plain agent tab resumes like a team member"
+    );
+    let mut protected = flagged.clone();
+    protected.protected = true;
     let mut declared = flagged.clone();
     declared.agent_type = Some("fixture-provider".into());
     let mut claimed = flagged.clone();
@@ -87,8 +94,16 @@ fn restore_contract_only_restored_members_with_a_bound_exited_session_are_flagge
     let mut live_record = flagged.clone();
     live_record.restored_from_snapshot = false;
 
-    for tab in [roleless, declared, claimed, live_record] {
+    for tab in [protected, declared, claimed, live_record] {
         assert_eq!(exited_member_session(&tab), None, "{:?}", tab.id);
     }
     assert_eq!(exited_member_session(&flagged), Some("exited-session"));
+}
+
+#[test]
+fn restore_contract_exited_tab_is_claimed_for_auto_recovery_once() {
+    let claims = Mutex::new(HashSet::new());
+    assert!(claim_auto_recovery(&claims, "tab-a"));
+    assert!(!claim_auto_recovery(&claims, "tab-a"));
+    assert!(claim_auto_recovery(&claims, "tab-b"));
 }
