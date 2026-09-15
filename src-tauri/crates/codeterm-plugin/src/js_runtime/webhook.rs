@@ -14,16 +14,17 @@ pub struct JsWebhookReceiver {
     id: String,
     kind: WebhookReceiverKind,
     icon_svg: Option<String>,
+    accepts_audio: bool,
 }
 
 impl JsWebhookReceiver {
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>, kind: WebhookReceiverKind) -> Self {
-        Self {
-            vm,
-            id: id.into(),
-            kind,
-            icon_svg: None,
-        }
+        Self::with_icon(vm, id, kind, None)
+    }
+
+    pub fn accepting_audio(mut self, accepts_audio: bool) -> Self {
+        self.accepts_audio = accepts_audio;
+        self
     }
 
     pub fn with_icon(
@@ -37,6 +38,7 @@ impl JsWebhookReceiver {
             id: id.into(),
             kind,
             icon_svg,
+            accepts_audio: false,
         }
     }
 }
@@ -52,6 +54,10 @@ impl WebhookReceiver for JsWebhookReceiver {
 
     fn icon_svg(&self) -> Option<&str> {
         self.icon_svg.as_deref()
+    }
+
+    fn accepts_audio(&self) -> bool {
+        self.accepts_audio
     }
 
     fn receive(
@@ -76,7 +82,50 @@ mod tests {
         WebhookReceiveContext {
             payload: json!({"event_id": "evt-1", "transcript": "Focus mode enabled"}),
             received_at: "2026-09-11T07:00:00Z".into(),
+            audio: None,
         }
+    }
+
+    #[test]
+    fn pebble_audio_receiver_context_carries_audio_metadata_and_delivery_carries_transcript() {
+        let receiver = receiver(
+            r#"module.exports.default = {
+                webhookReceive(ctx) {
+                    return { text: ctx.audio.mediaType + ":" + ctx.audio.size, transcript: ctx.payload.transcript };
+                }
+            };"#,
+        )
+        .accepting_audio(true);
+        assert!(receiver.accepts_audio());
+        let mut ctx = context();
+        ctx.audio = Some(crate::webhook::WebhookAudio {
+            media_type: "audio/mp4".into(),
+            size: 3,
+        });
+        let delivery = receiver.receive(ctx).expect("delivery").expect("message");
+        assert_eq!(delivery.text, "audio/mp4:3");
+        assert_eq!(delivery.transcript.as_deref(), Some("Focus mode enabled"));
+    }
+
+    #[test]
+    fn pebble_audio_receiver_is_not_audio_capable_by_default_and_context_omits_absent_audio() {
+        let receiver = receiver(
+            r#"module.exports.default = { webhookReceive(ctx) { return { text: String("audio" in ctx) }; } };"#,
+        );
+        assert!(!receiver.accepts_audio());
+        let delivery = receiver
+            .receive(context())
+            .expect("delivery")
+            .expect("message");
+        assert_eq!(delivery.text, "false");
+    }
+
+    #[test]
+    fn pebble_audio_receiver_non_string_transcript_is_rejected() {
+        let receiver = receiver(
+            r#"module.exports.default = { webhookReceive() { return { text: "ok", transcript: 7 }; } };"#,
+        );
+        assert!(receiver.receive(context()).is_err());
     }
 
     fn receiver(source: &str) -> JsWebhookReceiver {

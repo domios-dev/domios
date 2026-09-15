@@ -233,6 +233,17 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 `ctx` for bubble/glance carries the Tab's `cwd`. `action: "openTabl:view:<id>"` opens
 the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 
+### Webhook receivers (`webhookReceiver`)
+
+`"webhookReceiver": { "kind": "pebble", "audio": true }` registers the plugin for
+the authenticated inbound webhook of that kind. `webhookReceive({payload,
+receivedAt, audio?})` returns `{text, eventId?, transcript?}` or `null`. `audio`
+is optional and defaults to `false`; when `true`, the host accepts one bounded
+audio part, gives the plugin only `{mediaType, size}`, transcribes the stored file
+with the installed Transcriber, and renders its transcript beside the plugin's
+`transcript`. Limits, labels and the transcript preference rule are in
+`docs/API-INTEGRATIONS.md` (*Inbound webhooks*).
+
 ### Tab menu contributions (`tabMenu`)
 
 A plugin may add at most four items to the ⋮ menu of every local tab. The click
@@ -847,4 +858,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

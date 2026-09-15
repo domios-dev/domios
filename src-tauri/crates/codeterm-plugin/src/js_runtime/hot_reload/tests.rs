@@ -208,6 +208,7 @@ fn webhook_receiver_registers_reloads_and_deregisters_without_agent_provider() {
         receiver.kind(),
         crate::js_runtime::WebhookReceiverKind::Pebble
     );
+    assert!(!receiver.accepts_audio());
     assert_eq!(
         registrar.provider_count(),
         0,
@@ -217,6 +218,7 @@ fn webhook_receiver_registers_reloads_and_deregisters_without_agent_provider() {
         .receive(WebhookReceiveContext {
             payload: serde_json::json!({"value": "one"}),
             received_at: "2026-09-11T07:00:00Z".into(),
+            audio: None,
         })
         .expect("first delivery")
         .expect("first message");
@@ -239,6 +241,7 @@ fn webhook_receiver_registers_reloads_and_deregisters_without_agent_provider() {
         .receive(WebhookReceiveContext {
             payload: serde_json::json!({"value": "two"}),
             received_at: "2026-09-11T07:01:00Z".into(),
+            audio: None,
         })
         .expect("reloaded delivery")
         .expect("reloaded message");
@@ -251,6 +254,38 @@ fn webhook_receiver_registers_reloads_and_deregisters_without_agent_provider() {
         "removed plugin must leave no stale receiver"
     );
     assert_eq!(registrar.provider_count(), 0);
+}
+
+#[test]
+fn pebble_audio_receiver_manifest_audio_flag_reaches_the_registered_receiver() {
+    use crate::js_runtime::host_api::HOST_API_VERSION;
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        caps.clone(),
+    );
+    let dir = root.path().join("pebble");
+    write(
+        &dir.join("plugin.json"),
+        &format!(
+            r#"{{"id":"pebble","version":"0","displayName":"pebble","hostApi":{HOST_API_VERSION},
+            "capabilities":{{"webhookReceiver":{{"kind":"pebble","audio":true}}}},"entry":"plugin.js"}}"#
+        ),
+    );
+    write(
+        &dir.join("plugin.js"),
+        r#"module.exports.default = { webhookReceive() { return null; } };"#,
+    );
+
+    watcher.tick();
+
+    let receiver = caps
+        .webhook_receiver
+        .get("pebble")
+        .expect("audio receiver registers");
+    assert!(receiver.accepts_audio());
 }
 
 #[test]

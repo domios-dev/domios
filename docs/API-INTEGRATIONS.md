@@ -116,20 +116,52 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 #### Inbound webhooks (Pebble)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/plugins/pebble/webhook` | Multipart form or JSON, at most 1 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches that receiver's live bound tab, otherwise the General Agent |
+| POST | `/api/plugins/pebble/webhook` | Multipart form or JSON, at most 1 MiB; an audio-capable receiver also accepts one audio part of at most 8 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches that receiver's live bound tab, otherwise the General Agent |
 
 **Authentication.** Only `Authorization: Bearer <secret>`, compared in constant time with the secret-store entry `pebble_webhook_secret` (see `codeterm docs SECRETS`). The route does not use the daemon API token, and no URL, path, or query token is accepted. Nothing reaches the plugin before authentication succeeds. Non-loopback callers additionally need mesh networking enabled.
 
-**Plugin contract.** The receiver's synchronous `webhookReceive({payload, receivedAt})` runs on a blocking thread and returns `{text, eventId?}`, `null`, or throws.
+**Plugin contract.** The receiver's synchronous `webhookReceive({payload, receivedAt, audio?})` runs on a blocking thread and returns `{text, eventId?, transcript?}`, `null`, or throws. `audio` is `{mediaType, size}` metadata only; the bytes never enter the plugin. `transcript` is the sender's own transcript, which the host renders labelled (see *Audio*).
 
 **CoreApp format.** Pebble sends `multipart/form-data` containing `transcription`,
-`recordedAt` (Unix epoch milliseconds), and `client`; test events can add `test`.
-Select **Transcription only** in CoreApp and configure only the Authorization
-header. Let the app supply Content-Type and its boundary. The host passes text
-parts as a JSON object, skips file/binary parts without saving them, rejects
-duplicate names and invalid UTF-8, and limits forms to 16 parts and 64 KiB per
-text part. Audio-only events cannot supply a transcript to this receiver.
+`recordedAt` (Unix epoch milliseconds), and `client`; test events can add `test`,
+and a recording arrives as an `audio` file part (`audio/mp4`). Choose what CoreApp
+sends: with an audio-capable receiver, send the recording together with the
+transcription (CoreApp labels this contents `recording + transcription`); with a
+text-only receiver, send the transcription only. Configure only the Authorization
+header and let the app supply Content-Type and its boundary. The host passes text
+parts as a JSON object, rejects duplicate names and invalid UTF-8, and limits
+forms to 16 parts and 64 KiB per text part. File parts that are not the accepted
+audio part are skipped without being saved.
 Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-index-advanced-features-mcp-webhook).
+
+**Audio.** A receiver opts in with `capabilities.webhookReceiver.audio: true`;
+the host branches only on that normalized flag. The route authenticates from the
+headers before it reads the body, then reads at most 1 MiB, or 9 MiB for an
+audio-capable receiver. Within that, the form accepts one `audio/*` file part of
+at most 8 MiB; everything else in the form still counts against the 1 MiB text
+limit, JSON bodies never get the audio allowance, and a second audio part is
+`invalid_form_fields`. A text-only receiver skips audio parts as before. The
+receiver runs first; only when it returns a delivery is the audio stored with
+the ordinary upload rules (sanitized file name, the uploads directory's 7-day
+and 512 MiB cleanup) and passed to the same voice stage as bridge voice notes,
+using the active installed Transcriber. The delivered text is the receiver's
+text followed by labelled lines:
+
+| Situation | Lines after the receiver text |
+|-----------|-------------------------------|
+| No audio | `Transcript (sender): …` when the receiver returned a transcript |
+| Host transcript preferred | `Transcript (CodeTerm): …`, then `For comparison, sender transcript: …` |
+| Sender transcript preferred | `Transcript (sender): …`, then `For comparison, CodeTerm transcript: …` |
+| No Transcriber, transcription error, or audio not storable | `Transcript (sender): …` when present, then `CodeTerm transcription failed: <reason>` |
+
+Every audio case ends with `Audio file: <stored path>` once the file is stored.
+The preference is mechanical, never model-judged: a transcript is degraded when
+it has no words, contains a recognizer failure marker (`<unk>`, `[blank_audio]`,
+`[inaudible]`, `(inaudible)`, `[silence]`, `(silence)`, `[music]`, `[no speech]`,
+case-insensitive), or has fewer than a quarter of the other transcript's words
+when the other has at least eight. The host transcript is primary unless it is
+degraded and the sender transcript is not. Both transcripts are sanitized like
+the event text; the host transcript is clipped to 64 KiB.
 
 | Status | Body `status` / `error.code` | Meaning |
 |--------|------------------------------|---------|
@@ -139,10 +171,10 @@ Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-i
 | `400` | `invalid_multipart` / `invalid_form_fields` | Broken boundary/form, duplicate or invalid field names, or invalid UTF-8 |
 | `401` | `unauthorized` | Missing, malformed, or wrong bearer secret |
 | `404` | `webhook_receiver_not_found` | No plugin registers a `pebble` receiver |
-| `413` | `body_too_large` | Body exceeds 1 MiB |
+| `413` | `body_too_large` | Body exceeds 1 MiB (9 MiB for an audio-capable receiver), the audio part exceeds 8 MiB, or the non-audio form exceeds 1 MiB |
 | `415` | `unsupported_media_type` | Missing or unsupported Content-Type; use multipart/form-data, application/json or application/*+json |
 | `500` | `webhook_internal_error` | The receiver task did not complete |
-| `502` | `webhook_receiver_failed` | The plugin threw, returned a malformed delivery, text over 64 KiB or empty after sanitizing, or an `eventId` over 256 bytes |
+| `502` | `webhook_receiver_failed` | The plugin threw, returned a malformed delivery, text or transcript over 64 KiB, text empty after sanitizing, or an `eventId` over 256 bytes |
 | `502` | `delivery_failed` | Delivery to the bound tab or the General Agent failed; it is never retried into another tab |
 | `503` | `authentication_unavailable` | `pebble_webhook_secret` is missing, empty, or the vault is locked or logged out |
 | `503` | `webhook_receiver_ambiguous` | More than one plugin registers a `pebble` receiver |
@@ -235,4 +267,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

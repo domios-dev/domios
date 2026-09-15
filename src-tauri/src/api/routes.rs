@@ -908,7 +908,7 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             inbound_webhook::PEBBLE_WEBHOOK_PATH,
             post(inbound_webhook::receive_pebble_webhook).layer(
-                axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_BODY_BYTES),
+                axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_REQUEST_BYTES),
             ),
         )
         .route(

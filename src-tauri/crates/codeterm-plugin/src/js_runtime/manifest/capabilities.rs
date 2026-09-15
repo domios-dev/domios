@@ -276,6 +276,9 @@ pub enum WebhookReceiverKind {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct WebhookReceiverCap {
     pub kind: WebhookReceiverKind,
+    /// The receiver accepts one bounded audio part, which the host transcribes itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub audio: bool,
 }
 
 /// The core capability traits a plugin can implement. Drives which adapters the
