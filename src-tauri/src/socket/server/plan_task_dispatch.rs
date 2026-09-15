@@ -362,8 +362,6 @@ impl DispatchStartup {
                             metadata.branch = None;
                             metadata.base = None;
                             metadata.cleanup_status = None;
-                            metadata.bootstrap_links = Vec::new();
-                            metadata.bootstrap_warnings = Vec::new();
                             metadata
                         }),
                 );
@@ -941,14 +939,6 @@ pub(super) fn dispatch(
         lane_for_commit.workspace_id.get_or_insert(workspace_id);
         lane_for_commit.workspace_name.get_or_insert(workspace_name);
     }
-    // A freshly provisioned lane owns the bootstrap record; stale entries from
-    // a prior attempt must not survive into this dispatch's record.
-    if let Some(lane) = provisioned_lane.as_ref() {
-        lane_for_commit.bootstrap_links = lane.bootstrap.links.clone();
-        lane_for_commit.bootstrap_warnings = lane.bootstrap.warnings.clone();
-    }
-    let bootstrap_links = lane_for_commit.bootstrap_links.clone();
-    let bootstrap_warnings = lane_for_commit.bootstrap_warnings.clone();
     let starting_lane = initial_provenance
         .as_ref()
         .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance, &canonical_cwd))
@@ -958,8 +948,6 @@ pub(super) fn dispatch(
             lane.branch = None;
             lane.base = None;
             lane.cleanup_status = None;
-            lane.bootstrap_links = Vec::new();
-            lane.bootstrap_warnings = Vec::new();
             lane
         });
     // Team identity rides the same committed value as the isolated lane, so no
@@ -1091,12 +1079,6 @@ pub(super) fn dispatch(
     });
     if let Some(provenance) = initial_provenance.as_ref() {
         result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &detail.task.lane);
-        if !bootstrap_links.is_empty() {
-            result["lane"]["bootstrap_links"] = json!(bootstrap_links);
-        }
-        if !bootstrap_warnings.is_empty() {
-            result["lane"]["bootstrap_warnings"] = json!(bootstrap_warnings);
-        }
     }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {

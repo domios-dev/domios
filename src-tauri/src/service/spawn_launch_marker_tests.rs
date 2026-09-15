@@ -2,17 +2,15 @@ use super::*;
 use crate::service::SpawnAgentParams;
 
 #[test]
-fn lane_provisioning_visible_launch_is_independent_of_setup_input() {
+fn lane_provisioning_visible_launch_contains_only_agent_command() {
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
         "visible-marked",
     )));
-    let mut params = SpawnAgentParams {
+    let params = SpawnAgentParams {
         agent: Some("visible-marked".into()),
         ..Default::default()
     };
-    params.lane_setup_command = Some("package-manager install".into());
-
     let command = visible_agent_launch_command(
         "tab-visible-marked",
         "visible-marked",

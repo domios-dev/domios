@@ -118,8 +118,6 @@ pub struct AgentSpawnSpec {
     pub extra_args: Vec<String>,
     #[serde(default, skip_deserializing)]
     pub provisioned_cwd: Option<String>,
-    #[serde(default, skip_deserializing)]
-    pub(crate) lane_setup_command: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
