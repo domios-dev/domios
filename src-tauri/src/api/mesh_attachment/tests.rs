@@ -348,7 +348,10 @@ fn mesh_relay_attachment_ingest_outlives_transcription() {
 
 #[test]
 fn mesh_attachment_consumer_transfer_body_matches_web_bridge() {
-    for (kind, expected) in [("voice", AttachmentKind::Voice), ("file", AttachmentKind::File)] {
+    for (kind, expected) in [
+        ("voice", AttachmentKind::Voice),
+        ("file", AttachmentKind::File),
+    ] {
         let body: TransferBody = serde_json::from_value(serde_json::json!({
             "ordinary_tab_id": "mesh:air/tab-7",
             "peer_id": "air",
@@ -378,7 +381,10 @@ fn mesh_attachment_consumer_refuses_oversized_source_before_relay() {
         .set_len(MESH_ATTACHMENT_MAX_BYTES + 1)
         .unwrap();
     let error = build_ingest_request(&source, AttachmentKind::Voice).unwrap_err();
-    assert!(error.contains(&MESH_ATTACHMENT_MAX_BYTES.to_string()), "{error}");
+    assert!(
+        error.contains(&MESH_ATTACHMENT_MAX_BYTES.to_string()),
+        "{error}"
+    );
     let _ = std::fs::remove_dir_all(origin);
 }
 
