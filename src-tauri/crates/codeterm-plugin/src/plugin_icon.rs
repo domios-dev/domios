@@ -159,9 +159,10 @@ fn allowed_attribute(element: &str, attribute: &str) -> bool {
         "fill" | "stroke" | "stroke-width" | "stroke-linecap" | "stroke-linejoin" => true,
         "viewBox" | "xmlns" => element == "svg",
         "d" => element == "path",
-        "cx" | "cy" | "r" => element == "circle",
-        "cx" | "cy" | "rx" | "ry" if element == "ellipse" => true,
-        "x" | "y" | "width" | "height" | "rx" | "ry" => element == "rect",
+        "cx" | "cy" => matches!(element, "circle" | "ellipse"),
+        "r" => element == "circle",
+        "rx" | "ry" => matches!(element, "rect" | "ellipse"),
+        "x" | "y" | "width" | "height" => element == "rect",
         "x1" | "y1" | "x2" | "y2" => element == "line",
         "points" => matches!(element, "polyline" | "polygon"),
         _ => false,
@@ -238,7 +239,7 @@ mod tests {
             br#"<svg><path xlink:href="https://example.test/icon" d="M0 0"/></svg>"#.as_slice(),
             br#"<svg><style>*{fill:red}</style></svg>"#.as_slice(),
             br#"<svg><path fill="url(#paint)" d="M0 0"/></svg>"#.as_slice(),
-            br#"<svg><rect width="1"/></svg>"#.as_slice(),
+            br#"<svg><rect transform="scale(2)" width="1"/></svg>"#.as_slice(),
         ] {
             assert!(
                 sanitize_plugin_icon_svg(source).is_none(),
