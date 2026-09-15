@@ -489,6 +489,7 @@ fn selected_instruction_references_name_whole_documents() {
                     "MEMORY",
                     "SECRETS",
                     "API-CLI",
+                    "API-PLAN",
                 ]
                 .contains(&document),
                 "instruction reference names an unknown document: {command}"
