@@ -114,7 +114,6 @@ const UNASSIGNED_KEY = "unassigned";
 
 const NEW_INPUT_SERIES: SpendChartSeries = { key: "new-input", label: "new input", tone: 0 };
 
-const WEEKLY_POINTS_SERIES: SpendChartSeries = { key: "weekly-points", label: "weekly points", tone: 0 };
 
 export async function fetchTeamSpend(
   api: ApiConfig,
@@ -284,40 +283,6 @@ export function teamTokensChart(spend: TeamSpend, byModel: boolean): SpendChartD
     return chartDay(key, segments, todayKey);
   });
   return { days, legend: byModel ? models : [] };
-}
-
-/** Weekly allowance points used per day, summed over the provider accounts the route read. */
-export function teamWeeklyChart(weekly: TeamSpend): SpendChartData {
-  const todayKey = localDayKey(startOfToday());
-  const days = rangeDayKeys(weekly).map((key) => {
-    const used = weekly.weekly_limit_days
-      .filter((day) => day.day === key)
-      .reduce((sum, day) => sum + day.points_used, 0);
-    return chartDay(key, used > 0 ? [{ ...WEEKLY_POINTS_SERIES, value: used }] : [], todayKey);
-  });
-  return { days, legend: [] };
-}
-
-export interface WeeklyUsed {
-  key: string;
-  label: string;
-  pct: number;
-}
-
-/** The latest weekly allowance used per provider account; an account id only names it when a provider has several. */
-export function teamWeeklyUsed(weekly: TeamSpend): WeeklyUsed[] {
-  const perProvider = new Map<string, number>();
-  for (const point of weekly.weekly_limit_points) {
-    perProvider.set(point.provider, (perProvider.get(point.provider) ?? 0) + 1);
-  }
-  return weekly.weekly_limit_points.map((point) => ({
-    key: `${point.provider}-${point.account_id ?? point.scope.kind}`,
-    label:
-      (perProvider.get(point.provider) ?? 0) > 1 && point.account_id
-        ? `${point.provider} ${point.account_id}`
-        : point.provider,
-    pct: point.weekly_limit_points,
-  }));
 }
 
 /** Reads one team spend metric for the last week; null until read, or when the team has no reading. */

@@ -24,7 +24,6 @@ const NO_PLAN_LOG: EventLog = { recorded_events: 0, truncated: false, entries: [
 export interface MissionControlTeamBoardProps {
   team: TeamMissionControlView;
   teamSpend?: TeamSpend | null;
-  teamWeekly?: TeamSpend | null;
   deepLinks?: NeedsYouDeepLinks;
   onOpenPlan?: (planId: string) => void;
 }
@@ -33,7 +32,6 @@ export interface MissionControlTeamBoardProps {
 export function MissionControlTeamBoard({
   team,
   teamSpend = null,
-  teamWeekly = null,
   deepLinks,
   onOpenPlan,
 }: MissionControlTeamBoardProps) {
@@ -54,7 +52,7 @@ export function MissionControlTeamBoard({
         className="mc-board-row"
         style={{ gridTemplateColumns: BOARD_ROW_COLUMNS[layout] }}
       >
-        <SpendCard teamSpend={teamSpend} teamWeekly={teamWeekly} />
+        <SpendCard teamSpend={teamSpend} />
         <ModelsCard spend={NO_MACHINE_SPEND} teamSpend={teamSpend} />
         <NoActivePlanCard previousPlans={team.archivedPlans} onOpenPlan={onOpenPlan} />
       </div>
