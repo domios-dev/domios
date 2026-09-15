@@ -36,11 +36,13 @@ docker/Dockerfile.linux-arm64   baked aarch64 Linux env (webkit/gtk + rust 1.95 
 docker/Dockerfile.linux-x64     ORPHANED — x86_64 Linux now builds natively on the ROG/WSL runner
                                 (release-linux.yml), not cross-compiled here. Kept for ad-hoc use.
 scripts/build-linux.sh          thin in-container step: clone tag → pnpm install → tauri build → collect
-scripts/build-all.sh            orchestrator: 2 waves × 2 engines (mac + arm64-Linux Docker), signs
+scripts/build-all.sh            orchestrator: Mac overlap + optional arm64-Linux Docker, signs
+scripts/mac-overlap.sh           Mac arm64 notarization overlaps the x86_64 build
 ```
 Windows + x86_64-Linux release builds run on the ROG self-hosted runners
 (`release-windows.yml` / `release-linux.yml`); there is no Mac-driven SSH/QEMU path anymore.
-macOS build/notarize/pack is reused from `../skills/github-release/scripts/` (`mac-bundle.sh`).
+macOS build/notarize/pack is reused from `../skills/github-release/scripts/` (`mac-bundle.sh`);
+the overlap coordinator is `scripts/mac-overlap.sh`.
 
 ## One-time setup
 
@@ -84,6 +86,21 @@ secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac
 - **Cross builds need embed/cli stubs pre-created** or `tauri-build` glob validation fails
   (`resource path bundled-embed/codeterm-embed-<triple> doesn't exist`). Handled in the scripts and
   in `release-windows.yml` (the aarch64 cross build pre-creates the target-triple sidecar stubs).
+- **Release compilation uses one target contract.** Each lane sets `CARGO_TARGET_DIR` to the
+  checkout's `src-tauri/target`; cross-target lanes carry their target in `CARGO_BUILD_TARGET`,
+  and all lanes pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds both application bins
+  before Tauri bundles them, so the dependency graph is not compiled a second time. The three
+  workflows intentionally have no Rust target-cache action or target upload.
+- **Mac notarization overlaps architectures.** `mac-overlap.sh` completes and verifies the arm64
+  app, starts the existing `notarize-dmg.sh` (including stapler and spctl), then runs the complete
+  x86_64 pipeline. The arm64 updater bundle is packed only after its notarization succeeds.
+- **Completion signals use hosted metadata runners.** Mac and Windows completion jobs only query
+  and upload GitHub release metadata, so they run on `ubuntu-latest` and do not wait for `linux-build`.
+- **Timing ledger.** The 1.10.22 baseline was Mac 418s arm64 + 427s x86_64 sequential, Windows
+  release-input/Tauri 7m04s/5m30s (arm64) and 8m01s/5m15s (x86_64), and Linux 18m45s/16m05s;
+  target-cache saves added 42s, 43s, and 1m33s. Record the next real release's corresponding
+  before/after step durations and tag-to-publish time with `gh api .../actions/runs/<id>/jobs`.
+  No after-release timing is claimed until that release runs.
 - **Updater signing is per-runner via a secret.** `TAURI_SIGNING_PRIVATE_KEY` signs the `.sig`
   files: the ROG Windows/Linux runners sign directly; the Mac currently signs AppImage with the
   local `~/.tauri/codeterm.key` (could use the same secret). Only **Apple notarization** is
@@ -146,3 +163,5 @@ Three self-hosted GitHub Actions runners, each scoped to its workflow by label:
 
 No SSH between machines; each runner signs and publishes itself. Keep the repo private / gate fork
 PRs — self-hosted runners execute repo workflow code.
+
+<!-- revision: 1 -->

@@ -57,9 +57,13 @@ The Mac builds the macOS artifacts directly and is the only place the signing ke
 (The Developer ID cert is **not** in the vault — it lives only in the login keychain. Back it up
 via Keychain Access → export `.p12`.)
 
-**Build:** `.agents/skills/github-release/scripts/mac-bundle.sh <ver> {arm64|x86_64} <workdir>`
-— builds, verifies Developer-ID + hardened-runtime + arch, notarizes + staples the DMG, packs the
-`.app.tar.gz` updater bundle, minisign-signs it, echoes the signature for `latest.json`.
+**Build:** `.codeterm/build-machine/scripts/build-all.sh vX.Y.Z` runs the Mac arm64 build, starts
+its unchanged notarize/staple/spctl verification in the background, and compiles the x86_64 Mac
+build while Apple processes the first DMG. Both architectures use `src-tauri/target`,
+`CARGO_INCREMENTAL=0`, and the `embeddings` feature set; `release-inputs` prepares both the app
+and embed bins in one Cargo invocation before Tauri bundles the already-built graph. Each
+architecture still verifies Developer-ID + hardened-runtime + arch, notarizes + staples the DMG,
+packs the `.app.tar.gz` updater bundle, and minisign-signs it.
 x86_64 goes through `scripts/release-macos-x86_64.sh` (ONNX Runtime 1.23.2 Intel dylib + `CARGO_BUILD_TARGET`
 plumbing — see the `macos-x86_64-release` skill).
 The x86_64 embedder also bundles LLVM `libc++.1.dylib` from
@@ -182,4 +186,4 @@ engines must each be self-starting:
    provision those separately per `.codeterm/build-machine/README.md` — nothing to do on the Mac.
 6. Push a `release-0.0.0`-style test tag to validate plumbing, then a real `release-X.Y.Z`.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
