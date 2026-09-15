@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { shortModelName } from "../../../lib/agentModelName";
+import { listen, type UnlistenFn } from "../../../lib/bridge";
+import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
+import { createRefreshGate, type RefreshGate } from "../../../lib/refreshGate";
 import type { ApiConfig } from "../../../lib/types";
 import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
 import type { PlanStatus } from "../types";
@@ -285,7 +288,7 @@ export function teamTokensChart(spend: TeamSpend, byModel: boolean): SpendChartD
   return { days, legend: byModel ? models : [] };
 }
 
-/** Reads one team spend metric for the last week; null until read, or when the team has no reading. */
+/** Reads one team spend metric for the last week and re-reads on KPI commits; null until read, or when the team has no reading. */
 export function useTeamSpend(
   api: ApiConfig | undefined,
   teamId: string | null | undefined,
@@ -293,6 +296,29 @@ export function useTeamSpend(
   metric: TeamSpendMetric = "tokens",
 ): TeamSpend | null {
   const [spend, setSpend] = useState<TeamSpend | null>(null);
+  const [commits, setCommits] = useState(0);
+  const gate = useRef<RefreshGate | null>(null);
+
+  useEffect(() => {
+    if (!api || !teamId) return;
+    const freshness = createRefreshGate(() => setCommits((value) => value + 1));
+    gate.current = freshness;
+    let alive = true;
+    let unlisten: UnlistenFn | undefined;
+    listen(KPI_RECORDED_EVENT, () => freshness.request())
+      .then((fn) => {
+        if (alive) unlisten = fn;
+        else fn();
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+      unlisten?.();
+      freshness.cancel();
+      if (gate.current === freshness) gate.current = null;
+    };
+  }, [api, teamId]);
+
   useEffect(() => {
     if (!api || !teamId) {
       setSpend(null);
@@ -303,8 +329,11 @@ export function useTeamSpend(
       .then(setSpend)
       .catch(() => {
         if (!controller.signal.aborted) setSpend(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) gate.current?.settled();
       });
     return () => controller.abort();
-  }, [api, teamId, revision, metric]);
+  }, [api, teamId, revision, metric, commits]);
   return spend;
 }

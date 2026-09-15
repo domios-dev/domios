@@ -32,5 +32,9 @@
   "src/components/Titlebar/AnalyticsTray.test.tsx",
   "plugins/analytics/tests/plugin.test.ts",
   "plugins/analytics/ui/src/model/model.test.ts",
-  "plugins/analytics/ui/src/Dashboard.test.tsx"
+  "plugins/analytics/ui/src/Dashboard.test.tsx",
+  "plugins/analytics/ui/src/Dashboard.freshness.test.tsx",
+  "src/lib/refreshGate.test.ts",
+  "src/components/Canvas/missionControl/AnimatedNumber.test.tsx",
+  "src/components/Canvas/missionControl/teamSpendLiveRefresh.test.tsx"
 ]
