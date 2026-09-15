@@ -128,7 +128,7 @@ export function Titlebar({
 
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
-      <div className="flex min-w-0 flex-1 items-center justify-end h-full overflow-hidden">
+      <div className="flex min-w-0 flex-1 items-center justify-end h-full overflow-hidden" data-tauri-drag-region>
         {onDismissToast && (
           <NotificationToastContainer
             toasts={toasts}
