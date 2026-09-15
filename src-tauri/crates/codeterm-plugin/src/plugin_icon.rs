@@ -105,10 +105,7 @@ pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
                     .then(|| String::from_utf8(output).ok())
                     .flatten();
             }
-            Event::CData(_)
-            | Event::Comment(_)
-            | Event::DocType(_)
-            | Event::PI(_) => return None,
+            Event::CData(_) | Event::Comment(_) | Event::DocType(_) | Event::PI(_) => return None,
         }
         buffer.clear();
     }
@@ -123,13 +120,17 @@ fn valid_relative_svg_path(path: &str) -> bool {
         && !path.contains(':')
         && !path.contains("://")
         && !path.to_ascii_lowercase().starts_with("data:")
-        && Path::new(path).components().all(|component| {
-            matches!(component, Component::Normal(_) | Component::CurDir)
-        })
+        && Path::new(path)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
 }
 
 fn element_name(element: &BytesStart<'_>) -> Option<String> {
-    Some(std::str::from_utf8(element.name().as_ref()).ok()?.to_string())
+    Some(
+        std::str::from_utf8(element.name().as_ref())
+            .ok()?
+            .to_string(),
+    )
 }
 
 fn allowed_element(name: &str) -> bool {
@@ -140,7 +141,9 @@ fn sanitized_element(element: &BytesStart<'_>, name: &str) -> Option<BytesStart<
     let mut output = BytesStart::new(name.to_string());
     for attribute in element.attributes().with_checks(true) {
         let attribute = attribute.ok()?;
-        let key = std::str::from_utf8(attribute.key.as_ref()).ok()?.to_string();
+        let key = std::str::from_utf8(attribute.key.as_ref())
+            .ok()?
+            .to_string();
         let value = attribute.unescape_value().ok()?.into_owned();
         if !allowed_attribute(name, &key) || !allowed_attribute_value(&key, &value) {
             return None;
@@ -191,7 +194,10 @@ fn finite_number(value: &str) -> bool {
 }
 
 fn nonnegative_number(value: &str) -> bool {
-    value.parse::<f64>().ok().is_some_and(|v| v.is_finite() && v >= 0.0)
+    value
+        .parse::<f64>()
+        .ok()
+        .is_some_and(|v| v.is_finite() && v >= 0.0)
 }
 
 #[cfg(test)]
@@ -221,7 +227,10 @@ mod tests {
             br#"<svg><path fill="url(#paint)" d="M0 0"/></svg>"#.as_slice(),
             br#"<svg><rect width="1"/></svg>"#.as_slice(),
         ] {
-            assert!(sanitize_plugin_icon_svg(source).is_none(), "accepted {source:?}");
+            assert!(
+                sanitize_plugin_icon_svg(source).is_none(),
+                "accepted {source:?}"
+            );
         }
     }
 

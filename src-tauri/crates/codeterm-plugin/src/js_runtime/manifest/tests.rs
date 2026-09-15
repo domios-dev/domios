@@ -45,7 +45,8 @@ fn plugin_icon_svg_load_falls_back_from_item_to_plugin_asset() {
     let root = std::env::temp_dir().join(format!("ct-manifest-icon-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("icons")).unwrap();
-    let icon = r#"<svg viewBox="0 0 1 1" fill="currentColor"><circle cx="0.5" cy="0.5" r="0.5"/></svg>"#;
+    let icon =
+        r#"<svg viewBox="0 0 1 1" fill="currentColor"><circle cx="0.5" cy="0.5" r="0.5"/></svg>"#;
     let item_icon = r#"<svg viewBox="0 0 1 1" fill="currentColor"><path d="M0 0"/></svg>"#;
     std::fs::write(root.join("icon.svg"), icon).unwrap();
     std::fs::write(root.join("icons/item.svg"), item_icon).unwrap();
@@ -72,11 +73,20 @@ fn plugin_icon_svg_load_falls_back_from_item_to_plugin_asset() {
 
     let manifest = PluginManifest::load(&root.join("plugin.json")).unwrap();
     assert_eq!(manifest.icon_svg.as_deref(), Some(icon));
-    assert_eq!(manifest.capabilities.tab_menu[0].icon_svg.as_deref(), Some(item_icon));
-    assert_eq!(manifest.capabilities.tab_menu[0].icon.as_deref(), Some("icons/item.svg"));
+    assert_eq!(
+        manifest.capabilities.tab_menu[0].icon_svg.as_deref(),
+        Some(item_icon)
+    );
+    assert_eq!(
+        manifest.capabilities.tab_menu[0].icon.as_deref(),
+        Some("icons/item.svg")
+    );
     std::fs::remove_file(root.join("icons/item.svg")).unwrap();
     let fallback = PluginManifest::load(&root.join("plugin.json")).unwrap();
-    assert_eq!(fallback.capabilities.tab_menu[0].icon_svg.as_deref(), Some(icon));
+    assert_eq!(
+        fallback.capabilities.tab_menu[0].icon_svg.as_deref(),
+        Some(icon)
+    );
     std::fs::remove_file(root.join("icon.svg")).unwrap();
     let missing = PluginManifest::load(&root.join("plugin.json")).unwrap();
     assert!(missing.icon_svg.is_none());
