@@ -12,6 +12,7 @@ pub mod hints;
 pub mod identify;
 pub mod install;
 pub mod integration;
+pub mod lane;
 pub mod local_io;
 pub mod manifest;
 pub mod mem;

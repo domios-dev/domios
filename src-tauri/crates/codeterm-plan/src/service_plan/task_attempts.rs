@@ -108,6 +108,7 @@ pub struct BoundWorkerReport {
     pub test_cmd: Option<String>,
     pub test_result: Option<String>,
     pub skipped: Option<String>,
+    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
     pub authority: Option<super::interruption::TaskMutationAuthority>,
 }
 
@@ -1130,6 +1131,7 @@ impl PlanStore {
                     test_cmd: report.test_cmd,
                     test_result: report.test_result,
                     skipped: report.skipped,
+                    diagnostics: report.diagnostics,
                     attachments: vec![],
                     plan_skill_manifest: attempt.plan_skill_manifest.clone(),
                     loaded_plan_skills: attempt.loaded_plan_skills.clone(),
