@@ -326,6 +326,25 @@ export interface HostAnalytics {
   query(query: AnalyticsQuery): AnalyticsSnapshot | AnalyticsRefusal | null;
 }
 
+// The calling plugin's own receiver binding. Only host chrome (tab menu, API, CLI) assigns a tab.
+export interface ReceiverTargetView {
+  pluginId: string;
+  // null means events take the General Agent path.
+  tabId: string | null;
+  // false when the bound tab is absent or not live; events then take the General Agent path.
+  live: boolean;
+}
+
+export interface ReceiverTargetRefusal {
+  error: "receiver_not_found" | "persist_failed" | "receiver_target_unavailable" | string;
+  message?: string;
+}
+
+export interface HostReceiverTarget {
+  get(): ReceiverTargetView | ReceiverTargetRefusal | null;
+  clear(): ReceiverTargetView | ReceiverTargetRefusal | null;
+}
+
 export interface HostProgressOpts {
   label: string;
   percent?: number;
@@ -397,6 +416,9 @@ export interface Host {
   mem: HostMem;
   analyticsQuery(queryJson: string): string;
   analytics: HostAnalytics;
+  receiverTargetGet(): string;
+  receiverTargetClear(): string;
+  receiverTarget: HostReceiverTarget;
 }
 
 declare global {

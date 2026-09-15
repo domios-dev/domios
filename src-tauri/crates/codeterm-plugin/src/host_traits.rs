@@ -52,7 +52,19 @@ pub trait PluginHostCtx: Send + Sync {
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String>;
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool;
+
+    // ── Receiver target ─────────────────────────────────────────────────
+    /// The host-owned tab bound to this plugin's own webhook receiver.
+    fn receiver_target_json(&self, _plugin_id: &str) -> String {
+        RECEIVER_TARGET_UNAVAILABLE.to_string()
+    }
+    /// Drops this plugin's own binding so its events return to the General Agent.
+    fn receiver_target_clear_json(&self, _plugin_id: &str) -> String {
+        RECEIVER_TARGET_UNAVAILABLE.to_string()
+    }
 }
+
+const RECEIVER_TARGET_UNAVAILABLE: &str = r#"{"error":"receiver_target_unavailable"}"#;
 
 /// Trait for the app's agent registry, used by `PluginManager` to register
 /// providers contributed by native plugins on activation.

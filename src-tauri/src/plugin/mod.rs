@@ -21,6 +21,7 @@ pub use codeterm_plugin::provider;
 pub use codeterm_plugin::rich_to_chat;
 pub use codeterm_plugin::structured_prompt;
 pub use codeterm_plugin::system_plugins;
+pub use codeterm_plugin::tab_menu;
 pub use codeterm_plugin::tab_state;
 pub use codeterm_plugin::transcribe;
 pub use codeterm_plugin::usage_parser;

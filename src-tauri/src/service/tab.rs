@@ -125,6 +125,7 @@ impl ServiceContext {
         self.forget_directory_trust(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.remote_workers.forget_orchestrator(tab_id);
+        self.forget_receiver_targets_for_tab(tab_id);
         pad_result
     }
 

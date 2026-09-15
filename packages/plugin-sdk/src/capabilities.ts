@@ -539,6 +539,19 @@ export interface WebhookReceiver {
   webhookReceive(ctx: WebhookReceiveContext): WebhookDelivery | null;
 }
 
+// ── tabMenu (plugin.json `capabilities.tabMenu`; no export runs on click) ──
+
+// Closed set of host-owned actions. `receiverTarget` requires `webhookReceiver`.
+export type TabMenuAction = "receiverTarget";
+
+export interface TabMenuContribution {
+  // 1-32 lowercase letters, digits or '-', unique within the plugin.
+  id: string;
+  // 1-48 trimmed characters; the item's accessible name.
+  label: string;
+  action: TabMenuAction;
+}
+
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {

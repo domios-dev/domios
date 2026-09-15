@@ -230,6 +230,57 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 `ctx` for bubble/glance carries the Tab's `cwd`. `action: "openTabl:view:<id>"` opens
 the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 
+### Tab menu contributions (`tabMenu`)
+
+A plugin may add at most four items to the ⋮ menu of every local tab. The click
+runs no plugin code: the host looks the item up in the manifest it registered
+and applies the item's host-owned action to the clicked tab id.
+
+```json
+"capabilities": {
+  "webhookReceiver": { "kind": "pebble" },
+  "tabMenu": [
+    { "id": "receiver-target", "label": "Receive Pebble events here", "action": "receiverTarget" }
+  ]
+}
+```
+
+- `id`: 1-32 lowercase letters, digits or `-`, unique within the plugin.
+- `label`: 1-48 trimmed characters without control characters; it is the item's accessible name.
+- `action`: one verb from a closed, host-owned set.
+
+| `action` | Requires | Rendered as | Effect |
+|----------|----------|-------------|--------|
+| `receiverTarget` | `webhookReceiver` | `menuitemcheckbox`, checked on the bound tab | Binds the clicked tab as this plugin's receiver target, or clears the binding when that tab is already bound |
+
+An unknown action or field, an invalid id or label, a duplicate id, a fifth item,
+or an action whose required capability is not declared fails the manifest load;
+`codeterm plugin validate` names the rule. Items never appear on a peer's tab.
+
+#### Receiver targets
+
+The host owns exactly one binding per webhook-receiving plugin, from plugin id
+to one local tab id, stored in `receiver-targets.json` in the CodeTerm data
+directory and restored on restart.
+
+- **Set:** the tab menu item, `PUT /api/plugins/{id}/receiver-target`, or
+  `codeterm plugin receiver-target <id> --set <tab>`. Binding another tab replaces the previous one.
+- **Clear:** toggling the item off, `DELETE /api/plugins/{id}/receiver-target`,
+  `codeterm plugin receiver-target <id> --clear`, `host.receiverTarget.clear()`,
+  or closing the bound tab.
+- **Routing:** the receiver's events go to the bound tab while it exists and its
+  PTY or chat-backend session is live. An unbound, absent, or not-live target
+  takes the unchanged General Agent path. The receiver's marker and
+  metadata are kept, and a failed delivery is never retried into another tab.
+
+**Sandbox boundary.** Choosing where external input lands is a user decision, so
+only host chrome can assign a tab. A plugin reads and clears its own binding:
+`host.receiverTarget.get()` returns only `{pluginId, tabId, live}` for the
+calling plugin's receiver, and `clear()` can only send events back to the General
+Agent. Neither function needs a permission grant. Neither can reach another
+plugin's binding, tab titles or cwd, other tabs, secrets, or the webhook URL. A
+plugin without a `webhookReceiver` gets `{error: "receiver_not_found"}`.
+
 ### Host API (`host.*`, synchronous, inside QuickJS)
 
 - `host.exec(json)` → run an allow-listed subprocess (`{bin, args}`) → `{stdout, stderr, code}`.
@@ -256,6 +307,9 @@ the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
   cached ledger aggregate; the plugin never opens the ledger or receives its path. A
   disabled, unavailable or unrecorded figure is `null`, never `0`, and a workspace,
   team or plan id this machine never held is refused as `foreign_scope`.
+- `host.receiverTarget.get()` / `host.receiverTarget.clear()` → this plugin's own
+  receiver binding as `{pluginId, tabId, live}`, or `{error}`; there is no setter
+  (see [Receiver targets](#receiver-targets)).
 - `host.settingsJson()` → the plugin's settings bag (`config.plugins.<id>`).
 - `host.platform()`, `host.homeDir()`, `host.expandHome(path)`.
 - `host.shell.quote(s)` / `host.shell.quoteFor(s, platform)`.
@@ -780,4 +834,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

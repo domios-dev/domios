@@ -9,10 +9,17 @@ impl PluginManifest {
     pub fn load(path: &Path) -> Result<Self, String> {
         let text =
             std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-        let mut m: PluginManifest =
-            serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
+        let mut m =
+            Self::from_json_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
         m.source_path = Some(path.to_path_buf());
         Ok(m)
+    }
+
+    /// Strict parse plus the cross-field capability rules every load path enforces.
+    pub fn from_json_str(text: &str) -> Result<Self, String> {
+        let manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        manifest.capabilities.validate_tab_menu()?;
+        Ok(manifest)
     }
 
     /// Directory the manifest lives in — `plugin.js` resolves relative

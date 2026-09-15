@@ -4,6 +4,7 @@
 //! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
 //! which routes over the daemon socket.
 
+mod receiver_target;
 mod validate;
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
@@ -31,6 +32,9 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
                 codeterm_plugins::audit_failure(ctx, &Action::Pass(parts), e);
             }
             r
+        }
+        PluginAction::ReceiverTarget { id, set, clear } => {
+            receiver_target::run_over_socket(&id, set.as_deref(), clear)
         }
         other => codeterm_plugins::run(ctx, convert_action(other)),
     };
@@ -91,8 +95,10 @@ fn convert_action(action: PluginAction) -> Action {
             revoke,
         },
         PluginAction::Pass(parts) => Action::Pass(parts),
-        // Handled locally in handle_plugin — no codeterm-plugins counterpart.
-        PluginAction::Validate { .. } => unreachable!("validate never reaches the plugins crate"),
+        // Handled in handle_plugin — no codeterm-plugins counterpart.
+        PluginAction::Validate { .. } | PluginAction::ReceiverTarget { .. } => {
+            unreachable!("validate and receiver-target never reach the plugins crate")
+        }
     }
 }
 
@@ -134,6 +140,10 @@ fn print_human(value: &serde_json::Value) {
             let url = c.get("url").and_then(|v| v.as_str()).unwrap_or("");
             println!("{name}\t{url}");
         }
+        return;
+    }
+    if let Some(line) = receiver_target::render(value) {
+        println!("{line}");
         return;
     }
     if let Some(msg) = value.get("message").and_then(|v| v.as_str()) {

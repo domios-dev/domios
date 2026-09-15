@@ -42,6 +42,7 @@ pub struct CapabilityRegistries {
     pub chat_preprocessor: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
     pub agent_command: crate::agent_commands::AgentCommandRegistryHandle,
     pub webhook_receiver: crate::webhook::WebhookRegistryHandle,
+    pub tab_menu: crate::tab_menu::TabMenuRegistryHandle,
     pub secret: Option<Arc<dyn SecretBackendRegistrar>>,
 }
 
@@ -114,6 +115,10 @@ impl CapabilityRegistries {
                 )),
             );
         }
+        if !caps.tab_menu.is_empty() {
+            self.tab_menu
+                .register(id.clone(), Arc::new(caps.tab_menu.clone()));
+        }
         if vm.agent_commands_allowed() {
             self.agent_command.register(
                 id.clone(),
@@ -153,6 +158,7 @@ impl CapabilityRegistries {
         self.chat_preprocessor.unregister(id);
         self.agent_command.unregister(id);
         self.webhook_receiver.unregister(id);
+        self.tab_menu.unregister(id);
     }
 }
 
@@ -321,6 +327,13 @@ impl HotReloadRegistry {
         }
     }
 
+    fn emit_tab_menu_changed(&self) {
+        let svc = self.service.lock().clone().and_then(|w| w.upgrade());
+        if let Some(svc) = svc {
+            svc.contributions_changed(crate::tab_menu::TAB_MENU_CONTRIBUTION_KIND);
+        }
+    }
+
     fn emit_agent_provider_changed(&self) {
         #[cfg(test)]
         self.contribution_event_count
@@ -367,10 +380,12 @@ impl HotReloadRegistry {
             removed
         };
         let mut provider_changed = false;
+        let mut tab_menu_changed = false;
         for id in removed {
             self.vms.lock().remove(&id);
             provider_changed |= self.registrar.unregister_provider(&id);
             provider_changed |= self.caps.chatbackend.contains(&id);
+            tab_menu_changed |= self.caps.tab_menu.contains(&id);
             self.caps.deregister_plugin(&id);
             self.pending_reload.lock().remove(&id);
             self.activated_startup.lock().remove(&id);
@@ -378,6 +393,9 @@ impl HotReloadRegistry {
         }
         if provider_changed {
             self.emit_agent_provider_changed();
+        }
+        if tab_menu_changed {
+            self.emit_tab_menu_changed();
         }
         self.failed.lock().retain(|path, _| path.exists());
     }
@@ -534,8 +552,12 @@ impl HotReloadRegistry {
                 if let Some(api_port) = runtime_api_port() {
                     provider.ensure_integration_on_startup(api_port);
                 }
+                let had_tab_menu = self.caps.tab_menu.contains(&id);
                 self.caps
                     .register_plugin(provider.manifest(), provider.vm());
+                if had_tab_menu || self.caps.tab_menu.contains(&id) {
+                    self.emit_tab_menu_changed();
+                }
                 if provider.manifest().capabilities.view {
                     self.emit_plugin_view_reloaded(&id);
                 }
