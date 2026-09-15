@@ -16,7 +16,7 @@ import {
   listen as tauriListen,
   type UnlistenFn as TauriUnlistenFn,
 } from "@tauri-apps/api/event";
-import { currentToken, IS_WEB, WebApiError, webFetch, webJson } from "./webApi";
+import { currentToken, IS_WEB, localJson, WebApiError, webFetch, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
@@ -433,8 +433,9 @@ const HTTP_MAP: Record<string, Mapper> = {
       return relay.data;
     });
   },
+  // The serving daemon holds the uploaded bytes, so the handoff never rides a relay target.
   mesh_transfer_attachment: (a) =>
-    webJson("POST", "/api/mesh/attachments/transfer", {
+    localJson("POST", "/api/mesh/attachments/transfer", {
       ordinary_tab_id: s(a, "ordinaryTabId"),
       peer_id: s(a, "peerId"),
       path: s(a, "path"),
