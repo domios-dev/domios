@@ -139,6 +139,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Plan { .. } => socket_rpc_relayed(
             "plan management is local-only — run it on the target machine",
         ),
+        Commands::Lane { .. } => socket_rpc_relayed(
+            "lane diagnostics are local-only — run it on the target machine",
+        ),
         Commands::Spec { .. } => socket_rpc_relayed(
             "spec management is local-only — run it on the target machine",
         ),

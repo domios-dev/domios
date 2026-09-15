@@ -285,6 +285,35 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
             }
         }
     }
+    if let Some(diagnostics) = val.get("diagnostics") {
+        let errors = diagnostics
+            .get("error_count")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        let warnings = diagnostics
+            .get("warning_count")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        eprintln!("diagnostics: {errors} errors, {warnings} warnings");
+        if let Some(findings) = diagnostics.get("findings").and_then(|value| value.as_array()) {
+            for finding in findings.iter().take(3) {
+                let file = finding
+                    .get("file")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("<repo>");
+                let line = finding
+                    .get("line")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| format!(":{value}"))
+                    .unwrap_or_default();
+                let message = finding
+                    .get("message")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                eprintln!("diagnostic: {file}{line}: {message}");
+            }
+        }
+    }
 }
 
 /// The same three-state answer the picker renders, so a reader of either
@@ -642,6 +671,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
                 body["session_binding_nonce"] = serde_json::json!(nonce);
             }
+            if let Ok(attempt_id) = std::env::var("CODETERM_ATTEMPT_ID") {
+                body["attempt_id"] = serde_json::json!(attempt_id);
+            }
             if let Some(k) = kind {
                 body["kind"] = serde_json::json!(k);
             }
@@ -681,6 +713,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             } else {
                 None
             };
+            let base_for_report = base
+                .clone()
+                .or_else(|| std::env::var("CODETERM_LANE_BASE").ok());
             let report_base = crate::cmd::report_attribution::ReportBase::classify(
                 base,
                 std::env::var("CODETERM_LANE_BASE").ok(),
@@ -727,6 +762,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(s) = sha {
                 body["sha"] = serde_json::json!(s);
+            }
+            if let Some(b) = base_for_report {
+                body["base"] = serde_json::json!(b);
             }
             if let Some(cf) = changed_files {
                 body["changed_files"] = serde_json::json!(cf);
