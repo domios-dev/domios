@@ -1,7 +1,7 @@
 use crate::client::RpcClient;
 
 const WORKSPACES_PATH: &str = "/api/workspaces";
-const ALL_LOCAL_TABS_PATH: &str = "/api/tabs?all_workspaces=true&local_only=true";
+const ALL_LOCAL_TABS_PATH: &str = "/api/tabs?local_only=true";
 
 pub(super) fn should_render(command: &crate::Commands, json: bool) -> bool {
     !json

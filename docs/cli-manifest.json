@@ -13513,7 +13513,7 @@
         },
         {
           "name": "list",
-          "about": "List compact tab summaries in the current workspace. Use `tab inspect` for full tab details",
+          "about": "List compact tab summaries across every workspace. Use `--workspace` for one workspace and `tab inspect` for full tab details",
           "aliases": [],
           "args": [
             {
@@ -13533,7 +13533,7 @@
               "value_name": "ALL_WORKSPACES",
               "possible_values": [],
               "default": null,
-              "help": "Include every workspace instead of the current one",
+              "help": "Include every workspace explicitly (the default when --workspace is absent)",
               "aliases": []
             },
             {
@@ -13543,7 +13543,7 @@
               "value_name": "WORKSPACE_ID",
               "possible_values": [],
               "default": null,
-              "help": "Workspace id to list. Defaults to this tab's workspace, then the focused workspace",
+              "help": "Workspace id to list. Without this selector every workspace is listed",
               "aliases": []
             }
           ],

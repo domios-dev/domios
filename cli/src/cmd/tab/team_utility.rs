@@ -30,7 +30,7 @@ fn fetch_live_tabs() -> Result<Vec<serde_json::Value>, String> {
     let (base, _) = read_api_config();
     let api = build_local_api().map_err(|error| error.to_string())?;
     let response = api
-        .get(format!("{base}/api/tabs?all_workspaces=true"))
+        .get(format!("{base}/api/tabs"))
         .send()
         .map_err(|error| error.to_string())?;
     let status = response.status();

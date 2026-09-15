@@ -638,6 +638,15 @@ fn explicit_address_scope_mesh_all_workspaces_reaches_every_peer_workspace() {
 }
 
 #[test]
+fn tab_list_defaults_to_all_workspaces_over_mesh() {
+    let (method, path, body) = cli_command_to_api(&tab_list_command());
+
+    assert_eq!(method, "GET");
+    assert_eq!(path, "/api/tabs?agents=false");
+    assert!(body.is_none());
+}
+
+#[test]
 fn tab_respond_maps_to_provider_prompt_route() {
     let command = Commands::Tab {
         action: TabAction::Respond {

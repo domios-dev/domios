@@ -14,7 +14,7 @@ new_session_id() { node -e 'process.stdout.write(require("node:crypto").randomUU
 # A refused snapshot is reported as such, never as a state mismatch.
 cli_tabs() {
   local output
-  if ! output="$(dc --json tab list --all-workspaces 2>&1)"; then
+  if ! output="$(dc --json tab list 2>&1)"; then
     case "$output" in
       *"HTTP 503"*) fail "$1: CLI tab list refused by snapshot back-pressure after the waiter proved state: $output" ;;
       *) fail "$1: CLI tab list failed: $output" ;;
@@ -26,7 +26,7 @@ cli_tabs() {
 HEALTH="$(dev_get /api/health)"
 EXPECTED_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 [ "$(json_field "$HEALTH" '.build_sha')" = "$EXPECTED_SHA" ] || fail "build SHA mismatch"
-CONTROL_TABS="$(dev_get '/api/tabs?all_workspaces=true')"
+CONTROL_TABS="$(dev_get '/api/tabs')"
 CONTROL_TAB="$(node "$JSON_STATE" general-agent <<<"$CONTROL_TABS")"
 [ -n "$CONTROL_TAB" ] || fail "external cleanup caller"
 

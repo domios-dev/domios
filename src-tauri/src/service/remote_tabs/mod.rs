@@ -173,7 +173,7 @@ pub async fn ordinary_tab_projection(
             if let Some(client) = client {
                 let command = crate::mesh::types::RelayCommand {
                     method: "GET".into(),
-                    path: "/api/tabs?all_workspaces=true&local_only=true".into(),
+                    path: "/api/tabs?local_only=true".into(),
                     body: serde_json::Value::Null,
                     delivery_id: None,
                 };
