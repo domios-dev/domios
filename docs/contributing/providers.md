@@ -185,6 +185,7 @@ Provider-relevant subset (full contract in [PLUGINS.md](../PLUGINS.md)):
 | `agent_commands` (alias `agentCommands`) | bool | Spawned agents may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand`. |
 | `manage_workspaces` (alias `manageWorkspaces`) | bool | May create/manage workspaces via `host.workspace*`. |
 | `spawn_agents` (alias `spawnAgents`) | bool | May spawn/drive agents via `host.agent*`. |
+| `analytics` | bool | May read machine-wide KPI aggregates via `host.analytics`. |
 
 ## JS exports the bridge calls
 
@@ -348,4 +349,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

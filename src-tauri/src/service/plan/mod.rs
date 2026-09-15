@@ -11,7 +11,7 @@ mod task_key_contract_tests;
 pub mod task_key_port_impl;
 
 // ServiceContext extensions implemented in the app crate
-mod mission_control_ext;
+pub(crate) mod mission_control_ext;
 #[cfg(test)]
 mod mission_control_spend_tests;
 #[cfg(test)]
