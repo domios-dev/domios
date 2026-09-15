@@ -6,6 +6,7 @@
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",
+  "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
   "spawn": {
     "readinessStrategy": {

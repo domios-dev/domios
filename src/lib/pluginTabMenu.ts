@@ -11,6 +11,7 @@ export interface PluginTabMenuItem {
   label: string;
   action: PluginTabMenuAction;
   iconSvg?: string | null;
+  iconColor?: string | null;
 }
 
 export interface PluginTabMenuState {

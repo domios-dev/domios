@@ -36,6 +36,9 @@ pub struct TabMenuItem {
     /// Effective sanitized icon, populated by `PluginManifest::load`.
     #[serde(skip)]
     pub icon_svg: Option<String>,
+    /// The plugin's validated icon color, populated by `PluginManifest::load`.
+    #[serde(skip)]
+    pub icon_color: Option<String>,
 }
 
 fn valid_item_id(id: &str) -> bool {
@@ -128,6 +131,7 @@ mod tests {
                 action: TabMenuAction::ReceiverTarget,
                 icon: None,
                 icon_svg: None,
+                icon_color: None,
             }]
         );
         let round_trip = serde_json::to_value(&parsed.capabilities).expect("serialize");

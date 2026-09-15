@@ -378,7 +378,7 @@ function TabItemInner({
       for (const entry of pluginTabMenuEntries(pluginTabMenu, tab.id)) {
         items.push({
           label: entry.label,
-          icon: <PluginIcon plugin={{ icon_svg: entry.iconSvg }} size={11} />,
+          icon: <PluginIcon plugin={{ icon_svg: entry.iconSvg, icon_color: entry.iconColor }} size={11} />,
           checked: entry.checked,
           onClick: () => {
             void runPluginTabMenuItem(entry, tab.id)

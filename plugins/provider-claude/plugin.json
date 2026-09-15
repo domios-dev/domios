@@ -6,6 +6,7 @@
   "displayName": "Claude Code",
   "binaryName": "claude",
   "cliBinary": "claude",
+  "iconColor": "#d97757",
   "entry": "plugin.js",
   "spawn": {
     "readinessStrategy": {

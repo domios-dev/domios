@@ -2,6 +2,7 @@ export interface PluginProviderMeta {
   id: string;
   displayName: string;
   iconSvg?: string | null;
+  iconColor?: string | null;
 }
 
 /** Subset of a `plugin_manager_snapshot` entry the resolver cares about. */
@@ -9,6 +10,7 @@ interface SnapshotPluginEntry {
   id?: string | null;
   display_name?: string | null;
   icon_svg?: string | null;
+  icon_color?: string | null;
 }
 
 export interface PluginSnapshotLike {
@@ -25,6 +27,7 @@ export function pluginProviderMetaFromSnapshot(
       id: p.id,
       displayName: p.display_name || p.id,
       iconSvg: p.icon_svg ?? null,
+      iconColor: p.icon_color ?? null,
     });
   }
   return out;

@@ -24,9 +24,16 @@ impl PluginManifest {
                         crate::plugin_icon::sanitize_plugin_icon_svg(inline.as_bytes())
                     })
             });
+        m.icon_color = m
+            .raw_icon_color
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .and_then(crate::plugin_icon::sanitize_plugin_icon_color);
         let plugin_icon = m.icon_svg.clone();
+        let plugin_icon_color = m.icon_color.clone();
         let bundle_dir = path.parent();
         for item in &mut m.capabilities.tab_menu {
+            item.icon_color = plugin_icon_color.clone();
             item.icon_svg = item
                 .icon
                 .as_deref()

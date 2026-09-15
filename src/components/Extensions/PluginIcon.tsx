@@ -2,6 +2,7 @@ import { Puzzle } from "lucide-react";
 
 export interface PluginIconData {
   icon_svg?: string | null;
+  icon_color?: string | null;
 }
 
 /** Force the inline SVG to a fixed pixel box (manifests omit width/height). */
@@ -17,7 +18,7 @@ export function PluginIcon({ plugin, size = 18 }: { plugin: PluginIconData; size
     return (
       <span
         aria-hidden="true"
-        style={{ width: size, height: size, color: "currentColor", display: "inline-flex" }}
+        style={{ width: size, height: size, color: plugin.icon_color ?? "currentColor", display: "inline-flex" }}
         dangerouslySetInnerHTML={{ __html: sizeSvg(plugin.icon_svg, size) }}
       />
     );

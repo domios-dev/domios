@@ -148,6 +148,13 @@ fn enrich_from_manifest_with_icon(
         if let Some(icon_svg) = icon_svg {
             obj.insert("icon_svg".into(), serde_json::json!(icon_svg));
         }
+        if let Some(color) = m
+            .get("iconColor")
+            .and_then(Value::as_str)
+            .and_then(codeterm_plugin::plugin_icon::sanitize_plugin_icon_color)
+        {
+            obj.insert("icon_color".into(), serde_json::json!(color));
+        }
         if obj.get("display_name").map(|v| v.is_null()).unwrap_or(true) {
             if let Some(dn) = m.get("displayName") {
                 obj.insert("display_name".into(), dn.clone());
@@ -478,6 +485,20 @@ mod tests {
         assert!(entry.get("iconSvg").is_none());
         assert!(entry.get("icon_color").is_none());
         assert!(entry.get("icon_hint").is_none());
+        enrich_from_manifest_with_icon(
+            &mut entry,
+            &root,
+            &serde_json::json!({ "iconColor": "#d97757" }),
+            None,
+        );
+        assert_eq!(entry["icon_color"], serde_json::json!("#d97757"));
+        enrich_from_manifest_with_icon(
+            &mut entry,
+            &root,
+            &serde_json::json!({ "iconColor": "red; background: url(x)" }),
+            None,
+        );
+        assert!(entry.get("icon_color").is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 
