@@ -237,17 +237,12 @@ fn plan_pause_parses_without_park_alias() {
 #[test]
 fn task_pause_cli_removed() {
     assert!(parse_plan_cli_result([
-        "codeterm",
-        "plan",
-        "task",
-        "pause",
-        "pl_1",
-        "task_1",
-        "--reason",
-        "hold"
+        "codeterm", "plan", "task", "pause", "pl_1", "task_1", "--reason", "hold"
     ])
     .is_err());
-    assert!(parse_plan_cli_result(["codeterm", "plan", "task", "resume", "pl_1", "task_1"]).is_err());
+    assert!(
+        parse_plan_cli_result(["codeterm", "plan", "task", "resume", "pl_1", "task_1"]).is_err()
+    );
 
     let plan_pause =
         parse_plan_cli_result(["codeterm", "plan", "pause", "pl_1", "--reason", "hold"])

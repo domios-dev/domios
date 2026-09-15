@@ -557,19 +557,18 @@ fn tab_list_defaults_to_all_workspaces() {
     let second_workspace = state.create_workspace("second".into(), None);
     let second_tab = state.create_tab(&second_workspace.id).unwrap();
 
-    let summaries = build_tab_summary_json(
-        &state.snapshot(),
-        None,
-        Some(&first_tab),
-        false,
-        false,
-    );
+    let summaries = build_tab_summary_json(&state.snapshot(), None, Some(&first_tab), false, false);
     let ids = summaries
         .iter()
         .filter_map(|tab| tab["id"].as_str())
         .collect::<std::collections::HashSet<_>>();
 
-    assert_eq!(ids, [first_tab.as_str(), second_tab.as_str()].into_iter().collect());
+    assert_eq!(
+        ids,
+        [first_tab.as_str(), second_tab.as_str()]
+            .into_iter()
+            .collect()
+    );
     assert!(summaries.iter().all(|tab| tab["scope"] == "all_workspaces"));
 }
 

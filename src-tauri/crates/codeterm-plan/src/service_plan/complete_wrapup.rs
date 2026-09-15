@@ -92,7 +92,11 @@ mod tests {
             .unwrap();
         store
             .with_plan(&plan.id, 4, |plan| {
-                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
                 task.status = TaskStatus::Paused;
                 task.pause_reason = Some("provider quota exhausted".into());
                 Ok(())

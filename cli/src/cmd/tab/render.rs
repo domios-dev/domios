@@ -48,13 +48,11 @@ pub fn render_tab_tree_with_scope(
     current_tab_id: Option<&str>,
     requested_workspace: Option<&str>,
 ) -> String {
-    let scope = requested_workspace
-        .map(|_| "workspace")
-        .or_else(|| {
-            tabs.first()
-                .and_then(|tab| tab.get("scope"))
-                .and_then(serde_json::Value::as_str)
-        });
+    let scope = requested_workspace.map(|_| "workspace").or_else(|| {
+        tabs.first()
+            .and_then(|tab| tab.get("scope"))
+            .and_then(serde_json::Value::as_str)
+    });
     let Some("workspace") = scope else {
         return if tabs.is_empty() {
             "(no tabs)\n".to_string()
@@ -92,10 +90,7 @@ pub fn render_tab_tree_with_scope(
     };
     format!(
         "scope: workspace {} ({}) — {} tabs in other workspaces\n\n{}",
-        workspace_name,
-        workspace_id,
-        other_workspace_tab_count,
-        tree,
+        workspace_name, workspace_id, other_workspace_tab_count, tree,
     )
 }
 

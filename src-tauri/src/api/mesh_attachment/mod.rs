@@ -153,8 +153,8 @@ pub fn build_ingest_request(
     if meta.len() > MESH_ATTACHMENT_MAX_BYTES {
         return Err(too_large(meta.len()));
     }
-    let bytes =
-        std::fs::read(source).map_err(|e| format!("attachment is not readable on this host: {e}"))?;
+    let bytes = std::fs::read(source)
+        .map_err(|e| format!("attachment is not readable on this host: {e}"))?;
     if bytes.is_empty() {
         return Err("attachment is empty".into());
     }
@@ -284,7 +284,11 @@ fn is_remote_send(method: &str, path: &str) -> bool {
 }
 
 fn outbound_texts(body: &serde_json::Value) -> Vec<&str> {
-    let mut texts: Vec<&str> = body.get("text").and_then(|v| v.as_str()).into_iter().collect();
+    let mut texts: Vec<&str> = body
+        .get("text")
+        .and_then(|v| v.as_str())
+        .into_iter()
+        .collect();
     if let Some(batch) = body.get("batch").and_then(|v| v.as_array()) {
         texts.extend(batch.iter().filter_map(|item| item.get("text")?.as_str()));
     }
@@ -336,7 +340,11 @@ fn existing_path_at(
         .char_indices()
         .filter(|&(i, c)| i > root_len && (c.is_whitespace() || matches!(c, '"' | '\'' | '`')))
         .map(|(i, _)| i)
-        .chain(tail.match_indices("-=-").map(|(i, _)| i).filter(|&i| i > root_len))
+        .chain(
+            tail.match_indices("-=-")
+                .map(|(i, _)| i)
+                .filter(|&i| i > root_len),
+        )
         .collect();
     ends.sort_unstable();
     ends.dedup();

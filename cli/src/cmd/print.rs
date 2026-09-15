@@ -130,14 +130,12 @@ pub fn tab_list_json_envelope_with_request(
         })
         .unwrap_or("all_workspaces")
         .to_string();
-    let workspace_id = requested_workspace
-        .map(str::to_string)
-        .or_else(|| {
-            first
-                .and_then(|tab| tab.get("scope_workspace_id"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        });
+    let workspace_id = requested_workspace.map(str::to_string).or_else(|| {
+        first
+            .and_then(|tab| tab.get("scope_workspace_id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    });
     let workspace_name = first
         .and_then(|tab| tab.get("scope_workspace_name"))
         .and_then(serde_json::Value::as_str)

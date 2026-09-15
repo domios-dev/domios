@@ -145,14 +145,7 @@ fn task_pause_status_preservation_provider_hold() {
         .unwrap();
     let sealed = checkpoint(&task_id, &attempt_id);
     store
-        .finish_provider_exhaustion_pause(
-            &plan_id,
-            &task_id,
-            &attempt_id,
-            1,
-            sealed.clone(),
-            6,
-        )
+        .finish_provider_exhaustion_pause(&plan_id, &task_id, &attempt_id, 1, sealed.clone(), 6)
         .unwrap();
 
     let held = store.show_task(&task_id).unwrap().task;
@@ -167,14 +160,7 @@ fn task_pause_status_preservation_provider_hold() {
     assert!(held.execution_attempts[0].closed_at.is_none());
 
     store
-        .resume_from_provider_exhaustion(
-            &plan_id,
-            &task_id,
-            "old-tab",
-            "old-session",
-            1,
-            7,
-        )
+        .resume_from_provider_exhaustion(&plan_id, &task_id, "old-tab", "old-session", 1, 7)
         .unwrap();
     let resumed = store.show_task(&task_id).unwrap().task;
     assert_eq!(resumed.status, TaskStatus::InProgress);
