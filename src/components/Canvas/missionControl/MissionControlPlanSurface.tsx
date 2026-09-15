@@ -52,6 +52,7 @@ export function MissionControlPlanSurface({
   teams,
   notifications,
   onSelectTab,
+  onClearNotifications,
   api,
   headerActionsSlot = null,
   onOpenView,
@@ -65,9 +66,10 @@ export function MissionControlPlanSurface({
           workspaces: workspaces ?? [],
           scope: { teamId: teamId ?? null, workspaceId: workspaceId ?? null },
           onSelectTab,
+          onClear: onClearNotifications,
         }
       : undefined),
-    [notifications, onSelectTab, tabs, workspaces, teamId, workspaceId],
+    [notifications, onSelectTab, onClearNotifications, tabs, workspaces, teamId, workspaceId],
   );
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 

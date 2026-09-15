@@ -5,7 +5,7 @@ import { BoardEventLog } from "./BoardEventLog";
 import { boardRefs } from "./BoardRefText";
 import { useMeasuredLayout } from "./MissionControlBoard";
 import { BOARD_ROW_COLUMNS } from "./missionControlBoardModel";
-import type { EventLog, HeldForDecision, MissionControlSpend } from "./missionControlState";
+import type { EventLog, MissionControlSpend } from "./missionControlState";
 import type { TeamSpend } from "./teamSpend";
 import type { TeamMissionControlView } from "./useTeamMissionControl";
 
@@ -17,13 +17,6 @@ const NO_MACHINE_SPEND: MissionControlSpend = {
   measured_tokens: 0,
   turns: 0,
   providers: [],
-};
-
-const NOTHING_HELD: HeldForDecision = {
-  held_reviews: [],
-  open_gates: [],
-  oldest_hold_age_ms: null,
-  verdicts_on_held: 0,
 };
 
 const NO_PLAN_LOG: EventLog = { recorded_events: 0, truncated: false, entries: [] };
@@ -65,7 +58,7 @@ export function MissionControlTeamBoard({
         <ModelsCard spend={NO_MACHINE_SPEND} teamSpend={teamSpend} />
         <NoActivePlanCard previousPlans={team.archivedPlans} onOpenPlan={onOpenPlan} />
       </div>
-      <NeedsYouPanel held={NOTHING_HELD} refs={refs} deepLinks={deepLinks} />
+      <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
       <BoardEventLog log={NO_PLAN_LOG} milestoneKinds={[]} refs={refs} pager={team.events} />
     </div>
   );

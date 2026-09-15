@@ -1,25 +1,21 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Plan } from "../types";
-import { DEEP_LINK_UNAVAILABLE_COPY } from "../../../lib/notificationDeepLink";
 import {
-  GATE_NO_TAB_COPY,
   formatCount,
   formatPlanDate,
-  needsYouItems,
   planGoal,
   progressReading,
-  type NeedsYouItem,
 } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
-import { BoardPanel, BoardPanelSection, Facts, ShowAll } from "./BoardPanel";
-import { RefLabel, RefText, type BoardRefs } from "./BoardRefText";
+import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
+import type { BoardRefs } from "./BoardRefText";
 import {
   NeedsYouNotificationRow,
   useNeedsYouNotificationItems,
   type NeedsYouDeepLinks,
 } from "../../Notifications/NeedsYouNotificationRow";
-import type { BounceSummary, HeldForDecision, PlanTaskCounts } from "./missionControlState";
+import type { BounceSummary, PlanTaskCounts } from "./missionControlState";
 
 export { ModelsCard } from "./BoardModelsCard";
 export { SpendCard } from "./BoardSpendCard";
@@ -28,33 +24,43 @@ const WARN_STATUSES = new Set(["blocked", "paused"]);
 
 const NEEDS_YOU_PREVIEW = 3;
 
+/** The team's unanswered questions to the owner; empty once every one is answered or cleared. */
 export function NeedsYouPanel({
-  held,
   refs = new Map(),
   deepLinks,
 }: {
-  held: HeldForDecision;
   refs?: BoardRefs;
   deepLinks?: NeedsYouDeepLinks;
 }) {
-  const items = needsYouItems(held);
   const notificationItems = useNeedsYouNotificationItems(deepLinks);
   const [showAll, setShowAll] = useState(false);
   const listId = useId();
-  const total = notificationItems.length + items.length;
-  if (total === 0) return null;
-  const limit = showAll ? total : NEEDS_YOU_PREVIEW;
-  const visibleNotifications = notificationItems.slice(0, limit);
-  const visible = items.slice(0, Math.max(0, limit - visibleNotifications.length));
+  const total = notificationItems.length;
+  if (total === 0 || !deepLinks) return null;
+  const visibleNotifications = showAll ? notificationItems : notificationItems.slice(0, NEEDS_YOU_PREVIEW);
+  const onClear = deepLinks.onClear;
   return (
-    <BoardPanel testId="mc-board-needs-you" title="Needs you">
+    <BoardPanel
+      testId="mc-board-needs-you"
+      title="Needs you"
+      meta={onClear ? (
+        <button
+          type="button"
+          data-testid="mc-board-needs-you-clear"
+          className="mc-board-segment mc-board-segment-solo"
+          onClick={() => onClear(notificationItems.map((item) => item.id))}
+        >
+          clear
+        </button>
+      ) : undefined}
+    >
       <div className="mc-board-needs">
         <span data-testid="mc-board-needs-you-count" className="mc-board-figure mc-board-warn">
           <AnimatedNumber value={total} format={formatCount} />
         </span>
         <div className="mc-board-needs-body">
           <ul id={listId} className="mc-board-needs-list">
-            {deepLinks && visibleNotifications.map((item) => (
+            {visibleNotifications.map((item) => (
               <NeedsYouNotificationRow
                 key={item.key}
                 item={item}
@@ -63,15 +69,6 @@ export function NeedsYouPanel({
                 onSelectTab={deepLinks.onSelectTab}
               />
             ))}
-            {visible.map((item) =>
-              item.kind === "gate" && deepLinks ? (
-                <NeedsYouGateRow key={item.key} item={item} refs={refs} deepLinks={deepLinks} />
-              ) : (
-                <li key={item.key} data-testid="mc-board-needs-you-item" data-kind={item.kind}>
-                  <NeedsYouItemBody item={item} refs={refs} />
-                </li>
-              ),
-            )}
           </ul>
           <ShowAll
             total={total}
@@ -84,69 +81,6 @@ export function NeedsYouPanel({
         </div>
       </div>
     </BoardPanel>
-  );
-}
-
-function NeedsYouItemBody({ item, refs }: { item: NeedsYouItem; refs: BoardRefs }) {
-  return (
-    <>
-      <p className="mc-board-needs-title">
-        {item.taskId ? (
-          <RefLabel id={item.taskId} refs={refs} fallback={item.title} />
-        ) : (
-          <RefText text={item.title} refs={refs} />
-        )}
-      </p>
-      <Facts items={item.facts.map((fact, index) => ({ key: String(index), node: fact }))} />
-    </>
-  );
-}
-
-/** The whole gate row jumps to the tab that answers the gate; plan and task names inside keep their own links. */
-function NeedsYouGateRow({
-  item,
-  refs,
-  deepLinks,
-}: {
-  item: NeedsYouItem;
-  refs: BoardRefs;
-  deepLinks: NeedsYouDeepLinks;
-}) {
-  const tab = item.tabId ? deepLinks.tabs[item.tabId] : undefined;
-  const workspaceId = tab?.workspace_id;
-  if (!tab || !workspaceId) {
-    return (
-      <li data-testid="mc-board-needs-you-item" data-kind="gate" data-gate-link="unavailable">
-        <NeedsYouItemBody item={item} refs={refs} />
-        <span data-testid="mc-board-gate-unavailable" className="sr-only">
-          {item.tabId ? DEEP_LINK_UNAVAILABLE_COPY.tab_gone : GATE_NO_TAB_COPY}
-        </span>
-      </li>
-    );
-  }
-  const jump = () => {
-    void deepLinks.onSelectTab(workspaceId, tab.id);
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    jump();
-  };
-  return (
-    <li data-testid="mc-board-needs-you-item" data-kind="gate" data-gate-link="available">
-      <div
-        role="link"
-        tabIndex={0}
-        data-testid="mc-board-gate-link"
-        data-tab-id={tab.id}
-        className="mc-board-needs-link"
-        onClick={jump}
-        onKeyDown={onKeyDown}
-      >
-        <NeedsYouItemBody item={item} refs={refs} />
-      </div>
-    </li>
   );
 }
 
