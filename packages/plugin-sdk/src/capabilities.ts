@@ -396,7 +396,9 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble";
+  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble" | "plugin";
+  fromPlugin?: string;
+  pluginIconSvg?: string | null;
   timelineMarker?: ChatTimelineMarker;
   sessionIntent?: ChatSessionIntent;
   /** Provider-neutral canonical tool metadata, available on any chat transport. */
@@ -550,6 +552,8 @@ export interface TabMenuContribution {
   // 1-48 trimmed characters; the item's accessible name.
   label: string;
   action: TabMenuAction;
+  /** Optional relative path to an SVG shipped inside the plugin bundle. */
+  icon?: string;
 }
 
 // ── onAgentCommand (the inverse seam) ──

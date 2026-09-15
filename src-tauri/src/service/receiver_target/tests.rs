@@ -170,6 +170,8 @@ pub(super) fn scene() -> Scene {
             id: ITEM.into(),
             label: LABEL.into(),
             action: TabMenuAction::ReceiverTarget,
+            icon: None,
+            icon_svg: Some("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into()),
         }]),
     );
     let workspace = service
@@ -222,9 +224,16 @@ fn pebble_receiver_target_service_refuses_foreign_plugins_tabs_and_items() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn pebble_receiver_target_menu_action_toggles_one_binding() {
+fn plugin_icon_svg_tab_menu_payload_and_target_action_toggles_one_binding() {
     let scene = scene();
     let service = &scene.fixture.service;
+
+    let payload = serde_json::to_value(service.tab_menu_state()).unwrap();
+    assert_eq!(
+        payload["items"][0]["iconSvg"],
+        serde_json::json!("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>"),
+        "the same state feeds the REST and Tauri tab-menu payloads",
+    );
 
     let bound = service
         .run_tab_menu_item(RECEIVER, ITEM, &scene.tab)
@@ -236,6 +245,7 @@ fn pebble_receiver_target_menu_action_toggles_one_binding() {
             item_id: ITEM.into(),
             label: LABEL.into(),
             action: TabMenuAction::ReceiverTarget,
+            icon_svg: Some("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into()),
         }]
     );
     assert_eq!(bound.receiver_targets.get(RECEIVER), Some(&scene.tab));

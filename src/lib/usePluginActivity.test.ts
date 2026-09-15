@@ -79,7 +79,7 @@ assert("web error payload removes the active plugin", !activities.has("lmstudio"
 assert("malformed payload is ignored", normalizePluginActivityEvent({ event: "plugin_activity", pluginId: "bad" }) === null);
 
 const displayMap: PluginActivityDisplayMap = new Map([
-  ["transcriber", { displayName: "Transcriber", iconSvg: "<svg />", iconColor: "#35a", iconHint: null }],
+  ["transcriber", { displayName: "Transcriber", iconSvg: "<svg />" }],
 ]);
 assert(
   "known plugin id resolves to plugin display name",

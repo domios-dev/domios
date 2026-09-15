@@ -30,6 +30,12 @@ pub struct TabMenuItem {
     pub id: String,
     pub label: String,
     pub action: TabMenuAction,
+    /// Optional relative SVG path; the host sanitizes it before registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Effective sanitized icon, populated by `PluginManifest::load`.
+    #[serde(skip)]
+    pub icon_svg: Option<String>,
 }
 
 fn valid_item_id(id: &str) -> bool {
@@ -120,6 +126,8 @@ mod tests {
                 id: "receiver-target".into(),
                 label: "Receive events here".into(),
                 action: TabMenuAction::ReceiverTarget,
+                icon: None,
+                icon_svg: None,
             }]
         );
         let round_trip = serde_json::to_value(&parsed.capabilities).expect("serialize");

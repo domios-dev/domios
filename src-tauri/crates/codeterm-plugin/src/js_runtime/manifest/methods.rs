@@ -12,6 +12,21 @@ impl PluginManifest {
         let mut m =
             Self::from_json_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
         m.source_path = Some(path.to_path_buf());
+        m.icon_svg = m
+            .icon
+            .as_deref()
+            .and_then(|relative| crate::plugin_icon::load_plugin_icon(path.parent()?, relative));
+        let plugin_icon = m.icon_svg.clone();
+        let bundle_dir = path.parent();
+        for item in &mut m.capabilities.tab_menu {
+            item.icon_svg = item
+                .icon
+                .as_deref()
+                .and_then(|relative| {
+                    bundle_dir.and_then(|dir| crate::plugin_icon::load_plugin_icon(dir, relative))
+                })
+                .or_else(|| plugin_icon.clone());
+        }
         Ok(m)
     }
 

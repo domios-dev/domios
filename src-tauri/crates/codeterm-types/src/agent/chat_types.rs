@@ -295,6 +295,10 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_mesh: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_plugin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub plugin_icon_svg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub inbound_kind: Option<String>,
     /// XML tag name for local-command entries.
     #[serde(skip_serializing_if = "Option::is_none", default)]

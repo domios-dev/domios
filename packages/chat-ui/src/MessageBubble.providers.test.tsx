@@ -180,6 +180,36 @@ test("Claude system-shaped user rows render neutral after normalization", async 
   }
 });
 
+test("plugin origin badge uses the supplied currentColor icon and keeps its text name", async () => {
+  const icon = (
+    <span aria-hidden="true" data-testid="plugin-origin-icon">
+      <svg aria-hidden="true" viewBox="0 0 1 1" fill="currentColor"><path d="M0 0" /></svg>
+    </span>
+  );
+  const { host, root } = await renderMessages(
+    [{
+      id: "plugin-inbound",
+      type: "user",
+      content: "Focus mode enabled",
+      inboundKind: "plugin",
+      fromPlugin: "pebble",
+      fromLabel: "Pebble",
+    }],
+    undefined,
+    { origin: { kind: "plugin", pluginId: "pebble", name: "Pebble" }, originAvatar: icon },
+  );
+  try {
+    const iconElement = host.querySelector('[data-testid="plugin-origin-icon"] svg');
+    assert(iconElement?.getAttribute("aria-hidden") === "true", "plugin origin icon is aria-hidden");
+    assert(iconElement?.getAttribute("fill") === "currentColor", "plugin origin icon inherits currentColor");
+    const header = host.querySelector("button");
+    assert(header?.textContent?.includes("Pebble"), "plugin origin text remains the accessible name");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("Codex injected transcript rows render as collapsed neutral artifacts", async () => {
   const agentInstructions = [
     "# AGENTS.md instructions for /Users/user/Developer/codeterm-alpha",

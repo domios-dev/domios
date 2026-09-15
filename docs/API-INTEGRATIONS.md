@@ -150,7 +150,7 @@ Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-i
 
 Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by the receiver). Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Handler rejections, including 400/415, log status and code under `[pebble-webhook]` without the secret, headers, or payload.
 
-**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `-=-codeterm:pebble source=Pebble-=-` followed by the text on its own line, with no reply address. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `-=-codeterm:pebble source=Pebble plugin=<plugin-id>-=-` followed by the text on its own line, with no reply address. The stored chat-origin metadata carries the receiver id and its host-sanitized plugin SVG; the marker carries identity only. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
 
 ```bash
 curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
@@ -160,7 +160,7 @@ curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
 
 #### Receiver targets and plugin tab menus
 
-`GET /api/plugins/tab-menu` returns `{items: [{pluginId, itemId, label, action}], receiverTargets: {<pluginId>: <tabId>}}` for every manifest `tabMenu` item; `POST /api/plugins/tab-menu/action` `{pluginId, itemId, tabId}` runs the declared host-owned action on a local tab (`receiverTarget` binds the tab, or clears it when that tab is already bound). `GET|PUT {tabId}|DELETE /api/plugins/{id}/receiver-target` reads, binds (id or alias, replacing any previous binding) or clears one tab and returns `{pluginId, tabId, live}`; `tabId: null` or `live: false` means events take the General Agent path.
+`GET /api/plugins/tab-menu` returns `{items: [{pluginId, itemId, label, action, iconSvg?}], receiverTargets: {<pluginId>: <tabId>}}` for every manifest `tabMenu` item; `iconSvg` is the host-sanitized SVG from the plugin bundle, or absent when the item and plugin have no accepted asset. `POST /api/plugins/tab-menu/action` `{pluginId, itemId, tabId}` runs the declared host-owned action on a local tab (`receiverTarget` binds the tab, or clears it when that tab is already bound). `GET|PUT {tabId}|DELETE /api/plugins/{id}/receiver-target` reads, binds (id or alias, replacing any previous binding) or clears one tab and returns `{pluginId, tabId, live}`; `tabId: null` or `live: false` means events take the General Agent path.
 
 The host owns one binding per receiver plugin id, persisted in the data directory and restored on restart. Closing the bound tab clears it. `live` is true only while the tab exists and its PTY or chat-backend session is open; the webhook route reads the same observation. Set and get require a plugin with an active `webhookReceiver`; clear does not. Errors are `{"ok": false, "error": {"code", "message"}}`: `404` `receiver_not_found`, `tab_not_found` (including a peer's tab), or `menu_item_not_found`; `500` `persist_failed` (nothing changed). Changes publish `contributions-changed` with kind `receiver_target`; plugin loads that add or remove `tabMenu` items publish kind `tab_menu`. Socket: `plugin.receiver_target.get|set|clear` with `{plugin_id, tab_id?}` returns the same view; refusals carry `data.code`. CLI: `codeterm plugin receiver-target <id> [--set <tab> | --clear]`. Plugins read or clear only their own binding through `host.receiverTarget` (see `docs/PLUGINS.md`).
 
@@ -235,4 +235,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

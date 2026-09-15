@@ -1,7 +1,7 @@
 //! Recognises codeterm's own message-injection prefixes and claude's
 //! slash-command XML wrappers inside user chat content. Lets the UI
-//! render them as typed bubbles (cross-tab / Telegram / Pebble / mesh / slash-
-//! command) instead of raw text.
+//! render them as typed bubbles (cross-tab / Telegram / plugin / Pebble / mesh
+//! / slash-command) instead of raw text.
 
 export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
 import type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
@@ -65,6 +65,16 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
     }
   }
   if (marker.kind === "pebble") {
+    if (marker.attrs.plugin) {
+      return {
+        origin: {
+          kind: "plugin",
+          pluginId: marker.attrs.plugin,
+          name: marker.attrs.source,
+        },
+        body,
+      };
+    }
     return { origin: { kind: "pebble" }, body };
   }
   if (marker.kind === "mesh") {
@@ -243,6 +253,8 @@ export function labelFor(origin: ChatOrigin): string {
       return `Telegram · ${origin.userId.slice(0, 12)}`;
     case "pebble":
       return "Pebble";
+    case "plugin":
+      return origin.name || origin.pluginId;
     case "mesh":
       return `Mesh · ${origin.peerId.slice(0, 10)}`;
     case "service":
