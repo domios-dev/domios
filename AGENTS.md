@@ -14,6 +14,18 @@
 
 **OS for AI agents.** Cross-platform terminal multiplexer where AI agents live, work, and coordinate. Tauri v2 (Rust) + React/TypeScript + xterm.js. Full vision: `VISION.md`.
 
+## How CodeTerm holds together
+
+Read this first; it is why the project stays whole while agents write almost all of the code.
+
+- **The owner works with a black box.** Andrey does not read the code. He sees inputs (a message to an agent, a ring or Telegram event) and outputs (plans, tabs, reports, deliveries) and expects the outputs he knows. That space is huge and dynamic, so no UI suite covers it. What protects it is agents verifying the observable behaviour of whatever they touched.
+- **Essences are the stable foundation; code is volatile.** The product's essences (its vectors and capabilities, each with invariants and a status) change rarely and evolve gradually, while code is rebuilt in pieces. They are the expected inputs and outputs every change must keep and the checklist that scopes verification. Map: `docs/CAPABILITIES.md`; why the vectors exist: `VISION.md`; when and how to edit docs: `docs/BEGIN_HERE.md`.
+- **The map is an indirect beacon.** Work is done with an eye on the essences, but real architecture is more complex and is never bent to mirror the map.
+- **Meta-teams do the work.** The Orchestrator coordinates and verifies at speed. The Planner designs each task and gives its Worker a fitted personality: executor role, role guidance, a one-word name, and the model that fits the work. Workers stay source-only in isolated lanes. Lanes land through real merges, and executable proof runs in canonical.
+- **Verification stays proportional.** Each change is proven by the smallest focused oracle of what it touched, and one broad gate runs before a release. Every pinned expectation costs test time, so we balance coverage against speed rather than testing everything.
+- **Continuity lives in durable surfaces, not in one conversation.** Owner rules and vision go in `codeterm mem`, decisions and evidence in plan strides, lessons in `codeterm orchestrator learn`, and product essences in the capability map. A resumed agent starts from these, and every agent writes the non-obvious *why* back into them as it works.
+- **Two documentation areas.** Internal material for building CodeTerm never ships to production agents. Only docs embedded in the binary (`codeterm docs <NAME>`, registry `cli/src/cmd/docs.rs`) reach them. Step-by-step procedures live as project skills in `.agents/skills/`.
+
 ## Hard rules
 
 - **English only** in code, comments, commit messages.
