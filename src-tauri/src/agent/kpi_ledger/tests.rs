@@ -188,27 +188,43 @@ fn usage_cursor_round_trips_through_insert_usage_batch() {
         "a never-ingested source has no watermark"
     );
 
+    let first = UsageCursorState {
+        offset: 4_096,
+        cumulative: None,
+    };
     ledger
         .insert_usage_batch(
-            &[event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 10)],
+            &[KpiEventInput {
+                dedup_key: Some("usage:response:msg_a:req_a".into()),
+                ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 10)
+            }],
             "/sessions/a.jsonl",
-            4_096,
+            first,
         )
         .unwrap();
 
     assert_eq!(
         ledger.load_usage_cursor("/sessions/a.jsonl").unwrap(),
-        Some(4_096)
+        Some(first)
     );
     assert_eq!(ledger.list_all().unwrap().len(), 1);
 
     // A later pass over the same source updates the watermark in place, not a new row.
+    let second = UsageCursorState {
+        offset: 8_192,
+        cumulative: Some(CumulativeUsage {
+            input: 300,
+            cached_input: 200,
+            output: 20,
+            total: 320,
+        }),
+    };
     ledger
-        .insert_usage_batch(&[], "/sessions/a.jsonl", 8_192)
+        .insert_usage_batch(&[], "/sessions/a.jsonl", second)
         .unwrap();
     assert_eq!(
         ledger.load_usage_cursor("/sessions/a.jsonl").unwrap(),
-        Some(8_192)
+        Some(second)
     );
 
     cleanup(&db);
@@ -250,6 +266,7 @@ fn v1_ledger_migrates_to_v2_keeping_existing_rows() {
                 uncached_input: 250,
                 output: 40,
             }),
+            dedup_key: Some("usage:response:msg_v2:req_v2".into()),
             ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 1040)
         })
         .unwrap();
@@ -596,6 +613,7 @@ fn aggregate_by_plan_counts_only_message_payloads_as_bytes() {
                 uncached_input: 3_430,
                 output: 5,
             }),
+            dedup_key: Some("usage:response:msg_bytes:req_bytes".into()),
             ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 146_539)
         })
         .unwrap();

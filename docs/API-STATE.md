@@ -96,6 +96,9 @@ Per-provider usage snapshots come from each provider plugin's quota-free `fetchU
 | GET | `/api/usage/rollup/daily` | `?provider=…&since=<ms>&account_id=…` | Per-day max-used aggregates for the history chart. |
 | GET | `/api/usage/projection` | `?provider=…&account_id=…` | Median-baseline projection: per-DOW shape + scale + overspend ETA. |
 | POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe immediately. Returns `{queued, probe_id}`; `503` if the poller is not running. |
+| POST | `/api/usage/ledger/rebuild` | — | Re-derive KPI `token_usage` rows from the transcript behind every recorded usage cursor: one row per provider response, charged to the tab and plan of the rows it replaces. Idempotent. Returns `{sources, missing_sources, responses, legacy_rows_removed, unattributed_responses}`; `503` when the KPI ledger is not recording. CLI: `codeterm usage rebuild-ledger`. |
+
+**KPI token identity.** Each `token_usage` row is keyed by the provider response it counts (`dedup_key`, required by the schema): `message.id` plus `requestId` for streamed transcripts, advancing cumulative totals for logs that re-emit running totals, the message row id for sqlite stores, and the source position otherwise. Re-reading a range merges into existing rows, keeping the largest figure per field.
 
 **Adaptive polling.** A single background scheduler ticks every 30 s and decides which provider/account is due. The cadence steps through `[600 s, 1200 s, 1800 s, 2400 s, 3000 s]` with ±10% jitter. A tab is active when `TabActivity::mark` records a recent keypress, send, or focus. Providers without a quota-free `fetchUsage` capability are not scheduled.
 
@@ -237,4 +240,4 @@ The 8-way bound on concurrent `GET /api/mux/state` snapshots, its 503 answer, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

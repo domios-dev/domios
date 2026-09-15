@@ -339,7 +339,7 @@ fn ledger_event(plan_id: &str, kind: KpiEventKind, tokens: Option<TokenCounts>) 
         kind,
         bytes: 120,
         tokens,
-        dedup_key: None,
+        dedup_key: Some(ulid::Ulid::new().to_string()),
         workspace_id: None,
         tab_kind: None,
     }

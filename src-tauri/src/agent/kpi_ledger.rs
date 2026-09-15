@@ -4,14 +4,35 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 pub use codeterm_plan::service_plan::state::analytics::TabCreatedKind;
 
 mod analytics;
+mod usage_rows;
 
-const CURRENT_KPI_SCHEMA_VERSION: u32 = 4;
+pub use usage_rows::{CumulativeUsage, RebuiltResponse, UsageCursorState, UsageRebuildOutcome};
+
+const CURRENT_KPI_SCHEMA_VERSION: u32 = 5;
+
+const EVENT_COLUMNS: &str = r#"
+    schema_version, plan_id, task_id, tab_id, role, provider, model,
+    ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens,
+    dedup_key, workspace_id, tab_kind
+"#;
+
+/// Streamed lines of one response report growing usage, so a repeat keeps the largest
+/// figure per field instead of adding a second row.
+const TOKEN_USAGE_CONFLICT: &str = r#"
+    ON CONFLICT(dedup_key) WHERE dedup_key IS NOT NULL DO UPDATE SET
+        input_tokens = MAX(COALESCE(input_tokens, 0), COALESCE(excluded.input_tokens, 0)),
+        uncached_input_tokens =
+            MAX(COALESCE(uncached_input_tokens, 0), COALESCE(excluded.uncached_input_tokens, 0)),
+        output_tokens = MAX(COALESCE(output_tokens, 0), COALESCE(excluded.output_tokens, 0)),
+        bytes = MAX(COALESCE(input_tokens, 0), COALESCE(excluded.input_tokens, 0))
+              + MAX(COALESCE(output_tokens, 0), COALESCE(excluded.output_tokens, 0))
+"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,6 +112,14 @@ pub struct TokenCounts {
 impl TokenCounts {
     pub fn total(&self) -> u64 {
         self.input.saturating_add(self.output)
+    }
+
+    pub fn max_each(self, other: TokenCounts) -> TokenCounts {
+        TokenCounts {
+            input: self.input.max(other.input),
+            uncached_input: self.uncached_input.max(other.uncached_input),
+            output: self.output.max(other.output),
+        }
     }
 }
 
@@ -239,6 +268,10 @@ impl KpiLedger {
                     Self::add_v4_workspace_and_tab_created(conn)?;
                     version = 4;
                 }
+                4 => {
+                    Self::add_v5_response_identity(conn)?;
+                    version = 5;
+                }
                 CURRENT_KPI_SCHEMA_VERSION => return Ok(()),
                 _ if version > CURRENT_KPI_SCHEMA_VERSION => {
                     return Err(rusqlite::Error::InvalidQuery);
@@ -329,6 +362,28 @@ impl KpiLedger {
         conn.execute_batch("PRAGMA user_version = 4;")
     }
 
+    /// A token row must name the provider response it counts, so re-reading a range can
+    /// only merge into rows it already made. Rows written before this stay until a rebuild.
+    fn add_v5_response_identity(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE kpi_usage_cursors ADD COLUMN cumulative_input INTEGER;
+            ALTER TABLE kpi_usage_cursors ADD COLUMN cumulative_cached INTEGER;
+            ALTER TABLE kpi_usage_cursors ADD COLUMN cumulative_output INTEGER;
+            ALTER TABLE kpi_usage_cursors ADD COLUMN cumulative_total INTEGER;
+
+            CREATE TRIGGER IF NOT EXISTS kpi_token_usage_requires_identity
+            BEFORE INSERT ON kpi_events
+            WHEN NEW.kind = 'token_usage' AND NEW.dedup_key IS NULL
+            BEGIN
+                SELECT RAISE(ABORT, 'token_usage rows require a dedup_key');
+            END;
+
+            PRAGMA user_version = 5;
+            "#,
+        )
+    }
+
     fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
         conn.query_row("PRAGMA user_version", [], |r| {
             let version = r.get::<_, i64>(0)?;
@@ -348,19 +403,18 @@ impl KpiLedger {
         Ok(())
     }
 
-    /// `OR IGNORE` only ever fires for rows that set `dedup_key` and collide with one
-    /// already committed — a retried choke-point call becomes a silent no-op instead
-    /// of a second row. Kinds that leave `dedup_key` `None` insert unconditionally,
-    /// same as before this column existed.
+    /// A colliding `dedup_key` is a retry: coordination kinds ignore it and token usage
+    /// merges into its row. Kinds that leave `dedup_key` `None` insert unconditionally.
     fn insert_with(conn: &Connection, event: &KpiEventInput) -> Result<(), String> {
+        let values =
+            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)";
+        let sql = if event.kind == KpiEventKind::TokenUsage {
+            format!("INSERT INTO kpi_events ({EVENT_COLUMNS}) {values} {TOKEN_USAGE_CONFLICT}")
+        } else {
+            format!("INSERT OR IGNORE INTO kpi_events ({EVENT_COLUMNS}) {values}")
+        };
         conn.execute(
-            r#"
-            INSERT OR IGNORE INTO kpi_events (
-                schema_version, plan_id, task_id, tab_id, role, provider, model,
-                ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens,
-                dedup_key, workspace_id, tab_kind
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-            "#,
+            &sql,
             params![
                 CURRENT_KPI_SCHEMA_VERSION,
                 event.plan_id,
@@ -401,51 +455,6 @@ impl KpiLedger {
             .map_err(|e| format!("kpi ledger commit: {}", e))?;
         self.committed();
         Ok(())
-    }
-
-    /// Usage/compaction ingestion's crash-safe counterpart to `insert_many`: the batch
-    /// and the advanced read cursor commit in the same transaction, so a crash between
-    /// the two is impossible — either both land or neither does, and a restart can
-    /// never re-read already-recorded bytes/rows.
-    pub fn insert_usage_batch(
-        &self,
-        events: &[KpiEventInput],
-        source_path: &str,
-        cursor_offset: u64,
-    ) -> Result<(), String> {
-        let mut conn = self.conn.lock();
-        let tx = conn
-            .transaction()
-            .map_err(|e| format!("kpi ledger usage transaction: {}", e))?;
-        for event in events {
-            Self::insert_with(&tx, event)?;
-        }
-        tx.execute(
-            r#"
-            INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, ?2)
-            ON CONFLICT(source_path) DO UPDATE SET cursor_offset = excluded.cursor_offset
-            "#,
-            params![source_path, cursor_offset as i64],
-        )
-        .map_err(|e| format!("kpi ledger cursor upsert: {}", e))?;
-        tx.commit()
-            .map_err(|e| format!("kpi ledger usage commit: {}", e))?;
-        self.committed();
-        Ok(())
-    }
-
-    /// The persisted forward-only read position for a usage source, or `None` if this
-    /// source has never been ingested (a fresh forward-from-zero read).
-    pub fn load_usage_cursor(&self, source_path: &str) -> Result<Option<u64>, String> {
-        let conn = self.conn.lock();
-        conn.query_row(
-            "SELECT cursor_offset FROM kpi_usage_cursors WHERE source_path = ?1",
-            params![source_path],
-            |r| r.get::<_, i64>(0),
-        )
-        .optional()
-        .map_err(|e| format!("kpi ledger cursor load: {}", e))
-        .map(|v| v.map(|offset| offset as u64))
     }
 
     /// No pagination — small-scale inspection and tests only.
@@ -657,5 +666,7 @@ pub fn kpi_ledger_enabled(config: &crate::config::schema::AppConfig) -> bool {
     config.kpi.enabled
 }
 
+#[cfg(test)]
+mod rebuild_tests;
 #[cfg(test)]
 mod tests;
