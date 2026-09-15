@@ -1,11 +1,17 @@
 //! `insert` does not check the feature flag itself; callers must consult
 //! [`kpi_ledger_enabled`] first.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-const CURRENT_KPI_SCHEMA_VERSION: u32 = 3;
+pub use codeterm_plan::service_plan::state::analytics::TabCreatedKind;
+
+mod analytics;
+
+const CURRENT_KPI_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,6 +26,7 @@ pub enum KpiEventKind {
     Accept,
     TokenUsage,
     Compaction,
+    TabCreated,
 }
 
 impl KpiEventKind {
@@ -35,6 +42,7 @@ impl KpiEventKind {
             KpiEventKind::Accept => "accept",
             KpiEventKind::TokenUsage => "token_usage",
             KpiEventKind::Compaction => "compaction",
+            KpiEventKind::TabCreated => "tab_created",
         }
     }
 
@@ -50,12 +58,13 @@ impl KpiEventKind {
             "accept" => Some(KpiEventKind::Accept),
             "token_usage" => Some(KpiEventKind::TokenUsage),
             "compaction" => Some(KpiEventKind::Compaction),
+            "tab_created" => Some(KpiEventKind::TabCreated),
             _ => None,
         }
     }
 
     /// Drives per-kind aggregation without a `SELECT DISTINCT kind` round trip.
-    pub const ALL: [KpiEventKind; 10] = [
+    pub const ALL: [KpiEventKind; 11] = [
         KpiEventKind::Send,
         KpiEventKind::Report,
         KpiEventKind::Spawn,
@@ -66,6 +75,7 @@ impl KpiEventKind {
         KpiEventKind::Accept,
         KpiEventKind::TokenUsage,
         KpiEventKind::Compaction,
+        KpiEventKind::TabCreated,
     ];
 }
 
@@ -102,6 +112,10 @@ pub struct KpiEventInput {
     /// makes a retried choke-point call a no-op instead of a second row. `None` for
     /// kinds with no natural retry-safe identity yet.
     pub dedup_key: Option<String>,
+    /// The workspace the tab belonged to when the event was written; never back-filled.
+    pub workspace_id: Option<String>,
+    /// Only `TabCreated` events carry this.
+    pub tab_kind: Option<TabCreatedKind>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,6 +133,8 @@ pub struct KpiEventRecord {
     pub bytes: u64,
     pub tokens: Option<TokenCounts>,
     pub dedup_key: Option<String>,
+    pub workspace_id: Option<String>,
+    pub tab_kind: Option<TabCreatedKind>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -164,6 +180,9 @@ impl ProviderModelUsage {
 
 pub struct KpiLedger {
     conn: Mutex<Connection>,
+    /// Bumped on every commit so a cached analytics read knows it is stale.
+    generation: AtomicU64,
+    analytics_cache: Mutex<analytics::AggregateCache>,
 }
 
 impl KpiLedger {
@@ -183,6 +202,8 @@ impl KpiLedger {
         Self::init_schema(&conn).map_err(|e| format!("init kpi ledger schema: {}", e))?;
         Ok(Self {
             conn: Mutex::new(conn),
+            generation: AtomicU64::new(0),
+            analytics_cache: Mutex::default(),
         })
     }
 
@@ -213,6 +234,10 @@ impl KpiLedger {
                 2 => {
                     Self::add_v3_dedup_and_cursors(conn)?;
                     version = 3;
+                }
+                3 => {
+                    Self::add_v4_workspace_and_tab_created(conn)?;
+                    version = 4;
                 }
                 CURRENT_KPI_SCHEMA_VERSION => return Ok(()),
                 _ if version > CURRENT_KPI_SCHEMA_VERSION => {
@@ -284,6 +309,26 @@ impl KpiLedger {
         )
     }
 
+    /// Earlier rows keep a null workspace and no tab-created events; the marks date
+    /// where each figure starts, so analytics reads that history as not recorded.
+    fn add_v4_workspace_and_tab_created(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE kpi_events ADD COLUMN workspace_id TEXT;
+            ALTER TABLE kpi_events ADD COLUMN tab_kind TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_kpi_events_kind_ts ON kpi_events(kind, ts);
+
+            CREATE TABLE IF NOT EXISTS kpi_ledger_marks (
+                mark     TEXT PRIMARY KEY,
+                since_ts INTEGER NOT NULL
+            );
+            "#,
+        )?;
+        analytics::stamp_ledger_marks(conn)?;
+        conn.execute_batch("PRAGMA user_version = 4;")
+    }
+
     fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
         conn.query_row("PRAGMA user_version", [], |r| {
             let version = r.get::<_, i64>(0)?;
@@ -291,10 +336,16 @@ impl KpiLedger {
         })
     }
 
+    fn committed(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// Write-once: always appends, unlike OrchestrationLedger's UPSERT-on-report.
     pub fn insert(&self, event: &KpiEventInput) -> Result<(), String> {
         let conn = self.conn.lock();
-        Self::insert_with(&conn, event)
+        Self::insert_with(&conn, event)?;
+        self.committed();
+        Ok(())
     }
 
     /// `OR IGNORE` only ever fires for rows that set `dedup_key` and collide with one
@@ -307,8 +358,8 @@ impl KpiLedger {
             INSERT OR IGNORE INTO kpi_events (
                 schema_version, plan_id, task_id, tab_id, role, provider, model,
                 ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens,
-                dedup_key
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                dedup_key, workspace_id, tab_kind
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
             "#,
             params![
                 CURRENT_KPI_SCHEMA_VERSION,
@@ -325,6 +376,8 @@ impl KpiLedger {
                 event.tokens.map(|t| t.uncached_input as i64),
                 event.tokens.map(|t| t.output as i64),
                 event.dedup_key,
+                event.workspace_id,
+                event.tab_kind.map(TabCreatedKind::label),
             ],
         )
         .map_err(|e| format!("kpi ledger insert: {}", e))?;
@@ -346,6 +399,7 @@ impl KpiLedger {
         }
         tx.commit()
             .map_err(|e| format!("kpi ledger commit: {}", e))?;
+        self.committed();
         Ok(())
     }
 
@@ -376,6 +430,7 @@ impl KpiLedger {
         .map_err(|e| format!("kpi ledger cursor upsert: {}", e))?;
         tx.commit()
             .map_err(|e| format!("kpi ledger usage commit: {}", e))?;
+        self.committed();
         Ok(())
     }
 
@@ -411,7 +466,8 @@ impl KpiLedger {
         let sql = format!(
             r#"
             SELECT id, schema_version, plan_id, task_id, tab_id, role, provider, model,
-                   ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens, dedup_key
+                   ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens, dedup_key,
+                   workspace_id, tab_kind
             FROM kpi_events
             WHERE {}
             ORDER BY ts ASC, id ASC
@@ -456,6 +512,11 @@ impl KpiLedger {
             bytes: r.get::<_, i64>(10)? as u64,
             tokens,
             dedup_key: r.get(14)?,
+            workspace_id: r.get(15)?,
+            tab_kind: r
+                .get::<_, Option<String>>(16)?
+                .as_deref()
+                .and_then(TabCreatedKind::parse),
         })
     }
 
@@ -547,6 +608,7 @@ impl KpiLedger {
         Ok(rows)
     }
 
+    /// Tab creation is not plan activity, so it never enters a plan bucket.
     pub fn aggregate_by_plan(&self) -> Result<Vec<PlanAggregate>, String> {
         let conn = self.conn.lock();
         let mut stmt = conn
@@ -558,11 +620,11 @@ impl KpiLedger {
                           COALESCE(SUM(input_tokens), 0),
                           COALESCE(SUM(uncached_input_tokens), 0),
                           COALESCE(SUM(output_tokens), 0)
-                   FROM kpi_events GROUP BY plan_id"#,
+                   FROM kpi_events WHERE kind != ?1 GROUP BY plan_id"#,
             )
             .map_err(|e| format!("kpi ledger plan aggregate prepare: {}", e))?;
         let rows = stmt
-            .query_map([], |r| {
+            .query_map(params![KpiEventKind::TabCreated.label()], |r| {
                 Ok(PlanAggregate {
                     plan_id: r.get(0)?,
                     count: r.get::<_, i64>(1)? as u64,

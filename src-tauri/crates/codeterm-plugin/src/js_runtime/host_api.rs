@@ -79,6 +79,8 @@ pub(super) struct PluginSandbox {
     manage_workspaces_allowed: bool,
     /// Whether `host.agent*` is permitted (`spawn_agents` grant).
     spawn_agents_allowed: bool,
+    /// Whether `host.analytics` is permitted (`analytics` grant).
+    analytics_allowed: bool,
     /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
     /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
     settings_json: parking_lot::Mutex<String>,
@@ -104,6 +106,7 @@ impl PluginSandbox {
             agent_commands_allowed: true,
             manage_workspaces_allowed: true,
             spawn_agents_allowed: true,
+            analytics_allowed: true,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -125,6 +128,7 @@ impl PluginSandbox {
             agent_commands_allowed: false,
             manage_workspaces_allowed: false,
             spawn_agents_allowed: false,
+            analytics_allowed: false,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -144,6 +148,7 @@ impl PluginSandbox {
         self.agent_commands_allowed = self.unrestricted || perms.agent_commands;
         self.manage_workspaces_allowed = self.unrestricted || perms.manage_workspaces;
         self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
+        self.analytics_allowed = self.unrestricted || perms.analytics;
         self
     }
 
@@ -239,6 +244,11 @@ impl PluginSandbox {
     /// Whether the plugin may spawn/drive agents (`host.agent*`).
     pub(super) fn spawn_agents_allowed(&self) -> bool {
         self.spawn_agents_allowed
+    }
+
+    /// Whether the plugin may read machine-wide KPI aggregates (`host.analytics`).
+    pub(super) fn analytics_allowed(&self) -> bool {
+        self.analytics_allowed
     }
 
     /// Attach the plugin's settings blob (`config.yaml` → JSON) at load.

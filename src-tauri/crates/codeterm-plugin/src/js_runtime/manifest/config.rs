@@ -566,4 +566,7 @@ pub struct PermissionsConfig {
     /// Whether the plugin may spawn/drive our agents via `host.agent*`.
     #[serde(default, rename = "spawn_agents", alias = "spawnAgents")]
     pub spawn_agents: bool,
+    /// Whether the plugin may read machine-wide KPI aggregates via `host.analytics`.
+    #[serde(default)]
+    pub analytics: bool,
 }

@@ -244,6 +244,12 @@ the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 - `host.fetchStream(json)` → `{jobId}`; `host.fetchStreamPoll(jobId)` → `{chunks, done, status?, error?}`; `host.fetchStreamClose(jobId)` — chunked streaming GET/POST (token streaming for shells). Same network allowlist as `host.fetch`.
 - `host.fs.{fileExists, readFile, readJson, writeFile, writeJson}`, `host.makeDirs`.
 - `host.secretGet(key)` / `host.secretSet(key, value)` (needs `permissions.secrets`).
+- `host.analytics.query(query)` → this machine's KPI aggregates as an `AnalyticsSnapshot`
+  (`@codeterm/plugin-sdk`), or `{error, message}` for a refused query (needs
+  `permissions.analytics`; trusted system plugins hold it). The host reads a bounded,
+  cached ledger aggregate; the plugin never opens the ledger or receives its path. A
+  disabled, unavailable or unrecorded figure is `null`, never `0`, and a workspace,
+  team or plan id this machine never held is refused as `foreign_scope`.
 - `host.settingsJson()` → the plugin's settings bag (`config.plugins.<id>`).
 - `host.platform()`, `host.homeDir()`, `host.expandHome(path)`.
 - `host.shell.quote(s)` / `host.shell.quoteFor(s, platform)`.
@@ -768,4 +774,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
