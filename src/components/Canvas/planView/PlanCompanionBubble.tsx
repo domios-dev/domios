@@ -187,6 +187,7 @@ export function PlanCompanionBubble({
             data-live="true"
             size="micro"
             tone="muted"
+            active
             className="plan-companion-presence"
             style={{ color }}
           />

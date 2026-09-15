@@ -32,8 +32,8 @@ async function run() {
   assert(dots.classList.contains("activity-dots--thinking"));
   assert(dots.classList.contains("activity-dots--streaming"));
 
-  await act(async () => root.render(<ActivityDots idle />));
-  assert(host.querySelector(".activity-dots--idle"), "idle state is static");
+  await act(async () => root.render(<ActivityDots active={false} />));
+  assert(host.querySelector(".activity-dots--cooling"), "active to inactive starts the shared cooldown");
 
   await act(async () => root.render(<ActivityDots size="micro" />));
   assert.equal(host.querySelector(".activity-dots--micro")?.children.length, 1, "micro renders one breathing dot");
@@ -88,7 +88,7 @@ async function run() {
   const workspaceCardSource = readFileSync(new URL("../Sidebar/WorkspaceCardGrid.tsx", import.meta.url), "utf8");
   assert.match(
     workspaceCardSource,
-    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="on-accent" variant="workspace-badge" \/>/,
+    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="on-accent" variant="workspace-badge" active \/>/,
     "workspace-card badge selects the shared two-dot on-accent variant",
   );
   assert.match(css, /\.activity-dots--on-accent\s*\{\s*color:\s*var\(--ct-on-accent\);\s*\}/);

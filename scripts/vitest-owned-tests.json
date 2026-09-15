@@ -14,6 +14,7 @@
   "src/components/Canvas/missionControl/missionControlLiveRefresh.test.tsx",
   "src/components/Canvas/missionControl/missionControlBoardLinks.test.tsx",
   "src/components/Canvas/missionControl/missionControlDraftPlan.test.tsx",
+  "src/components/shared/working_indicator.test.tsx",
   "src/components/Notifications/notificationDeepLink.test.tsx",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
