@@ -179,7 +179,7 @@ impl PlanStore {
         })
     }
 
-    pub(crate) fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
+    pub fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
