@@ -2,6 +2,8 @@
 
 What CodeTerm fundamentally does, grouped by the few vectors that give the system its shape. Each row names a capability, what it makes possible, where it is reached (UI surface, CLI command group, API area), the rules that must not break, and its status. Why these vectors exist is stated once, in VISION at the repository root; how to maintain this map is stated in BEGIN_HERE.
 
+Code is volatile and gets rebuilt in pieces; these essences are the product's stable vectors. They rarely change, and when they do they evolve gradually instead of being restructured, which is what lets them serve as the expected inputs and outputs a change must keep.
+
 Status: **stable** is in the latest release; **in rollout** is merged for the next release and not yet shipped; **planned** is an agreed direction with no shipped surface; **roadmap** is where the product is heading, with its exact shape still open. Detail names an embedded document (read it with `codeterm docs <NAME>`) or a repository document.
 
 ## Invariants that bind every vector
@@ -102,9 +104,10 @@ Detail: API-STATE, TAB-LIFECYCLE; repository docs RESILIENCE and RELEASE.
 
 | Capability | What it enables | Entry points | Invariants | Status |
 |---|---|---|---|---|
+| Essence-anchored code map | Code points back to the essences it serves, so agents can derive the project's foundation in reverse: what is core, what is peripheral, which file belongs to which capability, and which expectations a change must re-verify | Planned for agents rather than people; mechanism not chosen | Essences stay the stable anchor and code follows them, never the reverse; the map is derived, not hand-maintained | roadmap |
 | Usage tracking | Provider quota percentages with end-of-day and end-of-cycle projections | CLI `usage latest`, `usage projection`, `usage refresh` | Refresh reads the provider's quota-free source and never spends quota | stable |
 | KPI ledger and Analytics | Token usage per tab and plan, aggregated in the Analytics view | Analytics titlebar view; CLI `usage rebuild-ledger`; usage API | Each provider response counts once; a rebuild is idempotent | stable; ledger rebuild in rollout |
 | Health and diagnostics | Liveness, running build identity, orchestration and plan consistency | Health API; CLI `identify`, `tab inspect`, `orchestrator status`, `plan doctor` | Debugging starts by confirming the running build matches the source | stable |
 | Updates | Signed updates checked, installed and relaunched | Update UI; CLI `update check`, `update install` | A client is offered only an artifact for its own platform; manifests are signature-verified; channel switching is disabled | stable |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
