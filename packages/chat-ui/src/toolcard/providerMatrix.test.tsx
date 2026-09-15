@@ -59,7 +59,7 @@ for (const detail of ["runner opaque-input\n\ncodeterm agent spawn --help", "cod
   if (groups.length !== 1 || groups[0].querySelectorAll('[data-testid="chat-command-tree-line"]').length !== 2) {
     throw new Error("mixed command batch was not split into one grouped box");
   }
-  if (host.querySelectorAll('[data-testid="chat-command-tree-operator"]').length !== 1) throw new Error("batch lines lost their inline operator");
+  if (host.querySelectorAll('[data-testid="chat-command-tree-operator"]').length !== 0) throw new Error("batch lines still render operator glyphs");
 }
 
 console.log("provider-neutral CodeTerm action matrix passed");
