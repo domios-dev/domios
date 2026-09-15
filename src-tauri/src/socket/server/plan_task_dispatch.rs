@@ -17,6 +17,7 @@ use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
 use super::JsonRpcError;
 
+mod attempt_rollback;
 mod brief;
 mod dispatch_failure;
 mod gates;
@@ -29,6 +30,7 @@ mod workspace_admission;
 
 use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
 use crate::multiplexer::types::TabCloseReason;
+use attempt_rollback::roll_back_dispatch_attempt;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
@@ -396,20 +398,16 @@ impl DispatchStartup {
                     .map_err(|error| error.to_string())
             },
             || {
-                rollback_failed_dispatch(
+                roll_back_dispatch_attempt(
+                    &self.svc.plan_store,
+                    &self.plan_id,
+                    &self.original_task,
+                    &self.original_plan_mode,
+                    &self.tab_id,
+                    &self.attempt_id,
                     provisioned_lane,
-                    || {
-                        self.svc
-                            .plan_store
-                            .restore_task_dispatch_snapshot(
-                                &self.plan_id,
-                                &self.original_task,
-                                self.original_plan_mode,
-                                epoch_ms(),
-                            )
-                            .map_err(|error| error.to_string())
-                    },
                     || close_tab_if_present(&self.svc, &self.tab_id),
+                    epoch_ms(),
                 )
             },
         );
@@ -1037,19 +1035,16 @@ pub(super) fn dispatch(
         ));
     }
     if let Err(error) = verify_dispatched_task_binding(store, &plan_id, &task_id, &tab_id) {
-        let cleanup = rollback_failed_dispatch(
+        let cleanup = roll_back_dispatch_attempt(
+            store,
+            &plan_id,
+            &original_task,
+            &original_plan_mode,
+            &tab_id,
+            &attempt_id,
             provisioned_lane,
-            || {
-                store
-                    .restore_task_dispatch_snapshot(
-                        &plan_id,
-                        &original_task,
-                        original_plan_mode.clone(),
-                        now,
-                    )
-                    .map_err(|error| error.to_string())
-            },
             || close_tab_if_present(svc, &tab_id),
+            now,
         );
         emit_plan_changed(app, &plan_id);
         return Err(dispatch_failed(
