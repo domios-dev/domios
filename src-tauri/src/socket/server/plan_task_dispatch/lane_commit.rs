@@ -35,8 +35,6 @@ pub(super) fn lane_metadata_for_dispatch(
         lane.branch = None;
         lane.base = None;
         lane.cleanup_status = None;
-        lane.bootstrap_links = Vec::new();
-        lane.bootstrap_warnings = Vec::new();
         return lane;
     }
     lane.worktree_path = Some(provenance.worktree_path.clone());

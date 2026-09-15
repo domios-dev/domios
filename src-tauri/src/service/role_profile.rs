@@ -15,7 +15,6 @@ impl SpawnAgentParams {
             }),
             cwd: json_str(params, "cwd"),
             provisioned_cwd: None,
-            lane_setup_command: None,
             title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
             title_provenance: json_str(params, "title_provenance")
                 .as_deref()
