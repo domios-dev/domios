@@ -48,11 +48,6 @@ The Orchestrator may implement a genuinely small local change when delegation
 would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
 When Team-bound, utility shells and cron jobs inherit the same Team for cleanup. Use `--no-team` only when a resource must deliberately outlive it.
 
-Plan-owned work is dispatched atomically with `codeterm plan task dispatch` (spawn,
-assign, brief in one call). When a dispatch is blocked, clear the blocker or record
-the task as blocked. Never substitute a loose roleless agent: it owns no task,
-appears in no plan state, reports to nobody, and escapes every gate.
-
 Lane safety has two hard stops and otherwise only nudges; see the lanes playbook.
 
 ### Recovering a tab-gone task
@@ -73,19 +68,20 @@ Run this loop after every report, reminder, task close, tab death, or gate:
    messages. Accept or bounce them without polling an inbox.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
-4. **Give every actionable task an exit:** dispatch, judge, unblock, replan
-   through the Planner, or escalate. Dependency-waiting and machine-paused tasks
-   need nothing; plan reminders name only the actionable task ids.
+4. **Give every actionable task an exit** under the task sequencing contract;
+   plan reminders name only the actionable task ids.
 5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
    independent actionable work exists. Clear dispatch, dependency, review, and
    cleanup blockers first, then reuse a matching Worker or dispatch the next
    bounded task without duplicating ownership.
 6. **Keep source writers parallel.** Implementation Workers use isolated,
    source-only lanes based on concurrency and file ownership.
-7. **Own canonical verification.** Real-merge accepted ancestry first, then run
-   every build, test, dev check, and gate in the canonical checkout.
+7. **Own canonical verification.** Real-merge accepted ancestry first (never
+   cherry-pick, squash, replay, or patch-copy), then run every build, test, dev
+   check, and gate in the canonical checkout.
 8. **Let heartbeat follow state.** Heartbeat is derived automatically from
-   plan and task state; never maintain focus or lane fields manually.
+   plan and task state; answer reminders by changing task or plan state, never
+   heartbeat, focus, or lane fields.
 9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
    worktree and branch, stop its dev process, and record cleanup.
 
@@ -98,17 +94,10 @@ goal.
 When a Planner is present:
 
 - the active Plan belongs to the Team and is visible through Team membership;
-- the Orchestrator owns the Plan and states its GOAL (it holds the user's intent);
-  the Planner refines the vector, constraints, and postulates and drafts the Spec,
-  Plan sections, and tasks — hand the goal over and wait; do not cut tasks in its place;
-- drafting structure directly is the exception: a formal Planner waiver
-  (`codeterm plan update --planner none --note <reason>`) or a narrow edit (see Related documents);
-- never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
 - run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
   approve <plan>` action to approve the structure and activate its tasks;
-- while accepting, revising, or rejecting the draft, reject any task whose
-  required worker guidance is empty or says nothing; duplicate guidance is a
-  doctor warning to judge, never an approval block by itself;
+- duplicate worker guidance across tasks is a doctor warning to judge, never an
+  approval block by itself;
 - after a green doctor, summarize the proposed plan to the user and explicitly
   ask for approval; never stop silently at a completed draft;
 - do not dispatch until approval is durably recorded. After UI approval, verify
@@ -118,15 +107,8 @@ When a Planner is present:
 - draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
 
-Judge structure before dispatch against the task-shape contract: 4-6 cohesive
-vertical tasks, each delivering a reviewable capability, with ordinary
-discovery, tests, docs, and review inside the slice that implements them.
-Standalone discovery, test-author, or review tasks need a concrete independent
-boundary — a distinct security or authority owner, or independently owned
-per-platform rollout — and every task beyond five needs a justification naming
-that boundary. The Planner contract is linked in Related documents above.
-
-If the Planner is intentionally waived, record that explicitly on the plan.
+Judge structure before dispatch against the plan-shape contract in your role
+brief. If the Planner is intentionally waived, record that explicitly on the plan.
 
 ## Task lifecycle
 
@@ -150,45 +132,32 @@ any open state → cancelled
 - `paused` is a system hold, never an agent verb: a decision gate (`gate:<id>:`
   reason) or provider exhaustion with a resumable checkpoint. It is excluded
   from open work and resumes when the gate is answered or the provider recovers.
-- Sequence with `depends_on` and task groups. A `pending` task waiting on an
-  unfinished dependency needs nothing; a dependency on a missing task needs a
-  replan.
-
-Never leave an actionable task unstaffed or an `in_review` task unjudged.
 
 ## Group milestones
 
 Group tasks with `--group` and declare the groups with `codeterm plan groups
-set`. When every task in a group is terminal and at least one is done, no
-further task dispatches until both group records exist:
+set`. The group close the task sequencing contract requires has two records,
+and dispatch waits for both once every task in the group is terminal and at
+least one is done:
 
 1. the regression run: `codeterm plan qa next <plan> --group <group> --note "<evidence>"`;
 2. the retrospective: `codeterm plan groups close <plan> <group> --note "<what worked, what failed, what changes next>"`.
 
-Reopening and re-closing a member re-arms both. An authorized
-`codeterm plan qa override` waives only the regression run, never the
-retrospective. Tasks tagged `regression-gate` or `release-blocking` still
-dispatch.
-
-## Pausing the plan
-
-`codeterm plan pause <plan> --reason "<what the owner must decide>"` is the only
-pause an agent issues, and it is rare: use it only when no task can advance
-until the owner decides. A paused plan receives no heartbeat or reminder; the
-owner's next message is the answer, and the Orchestrator runs
-`codeterm plan resume <plan>`.
+An authorized `codeterm plan qa override` waives only the regression run, never
+the retrospective. Tasks tagged `regression-gate` or `release-blocking` still
+dispatch. Plan pause and resume are part of the same contract.
 
 ## Dispatch contract
 
 Before a wave:
 
-1. Check provider headroom.
+1. Check provider headroom; near 95%, reuse live Workers instead of spawning
+   cold duplicates.
 2. Define a disjoint lane map: task, files, branch/worktree, expected output,
    focused oracle, and central gates requested.
 3. Run plan doctor.
 4. Dispatch through `codeterm plan task dispatch`.
-5. Wait for pushed `dispatch_ready`, then pushed `worker_ack`; only the ACK
-   moves the task to `in_progress`. Never poll.
+5. Wait for the pushed `worker_ack` described in Task lifecycle.
 6. If dispatch fails, alert the user immediately and verify rollback. Never
    blind-retry a write.
 
@@ -228,4 +197,4 @@ the assignment and lane intact, and every verdict requires `--note`, never
 `--reason`. Review credit repair, task-less evidence reporters, and Planner parent
 resolution are plan surface contracts (API-PLAN).
 
-<!-- revision: 80 -->
+<!-- revision: 81 -->
