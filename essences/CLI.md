@@ -454,6 +454,26 @@ Show the full effort bundle (linked spec(s) + plan + tasks) for one plan_id
 
 - `<plan_id>`
 
+#### `codeterm essence-map`
+
+Generate and validate the source-backed essence map
+
+#### `codeterm essence-map generate`
+
+Generate essences/map.jsonl from the capability and core essences
+
+- `--decisions` — Decisions JSONL path, relative to --root unless absolute
+- `--map` — Map JSONL path, relative to --root unless absolute
+- `--root` — Repository root containing the essences directory
+
+#### `codeterm essence-map validate`
+
+Validate a generated essence map and its append-only decisions log
+
+- `--decisions` — Decisions JSONL path, relative to --root unless absolute
+- `--map` — Map JSONL path, relative to --root unless absolute
+- `--root` — Repository root containing the essences directory
+
 #### `codeterm identify`
 
 Show CodeTerm version and system info
