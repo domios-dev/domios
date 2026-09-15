@@ -231,17 +231,38 @@ test("fullscreen Mermaid fits its viewport and exposes accessible view controls"
   await act(async () => resize?.([], {} as ResizeObserver));
   assert(canvas.style.transform.includes("scale(1.17)"), "fitted diagram responds to viewport resize");
 
+  const realFrame = window.requestAnimationFrame;
+  window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  };
+  const wheel = (init: WheelEventInit, ctrlKey = false) => {
+    const event = new window.WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 250, clientY: 150, ...init });
+    // The test DOM drops modifier keys and deltas from WheelEventInit, the way pointer ids are defined below.
+    Object.defineProperty(event, "ctrlKey", { value: ctrlKey });
+    Object.defineProperty(event, "deltaX", { value: init.deltaX ?? 0 });
+    Object.defineProperty(event, "deltaY", { value: init.deltaY ?? 0 });
+    Object.defineProperty(event, "deltaMode", { value: 0 });
+    Object.defineProperty(event, "clientX", { value: init.clientX ?? 250 });
+    Object.defineProperty(event, "clientY", { value: init.clientY ?? 150 });
+    return event;
+  };
+  let zoom!: WheelEvent;
   await act(async () => {
-    viewport.dispatchEvent(new window.WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      clientX: 250,
-      clientY: 150,
-      deltaY: -100,
-    }));
+    zoom = wheel({ deltaY: -100 }, true);
+    viewport.dispatchEvent(zoom);
   });
-  assert(fit.getAttribute("aria-pressed") === "false", "wheel zoom enters a custom view");
-  assert(!canvas.style.transform.includes("scale(1.17)"), "wheel zoom changes the fitted scale");
+  assert(zoom.defaultPrevented, "wheel over the diagram never scrolls the chat underneath");
+  assert(fit.getAttribute("aria-pressed") === "false", "pinch zoom enters a custom view");
+  assert(!canvas.style.transform.includes("scale(1.17)"), "pinch zoom changes the fitted scale");
+
+  const zoomedScale = /scale\(([^)]+)\)/.exec(canvas.style.transform)?.[1];
+  const zoomedTranslate = /translate\(([^)]+)\)/.exec(canvas.style.transform)?.[1];
+  await act(async () => viewport.dispatchEvent(wheel({ deltaX: 30, deltaY: 20 })));
+  assert(/scale\(([^)]+)\)/.exec(canvas.style.transform)?.[1] === zoomedScale, "a two-finger swipe pans without zooming");
+  assert(!canvas.style.transform.includes("NaN"), "zooming never produces a non-finite pan");
+  assert(/translate\(([^)]+)\)/.exec(canvas.style.transform)?.[1] !== zoomedTranslate, "a two-finger swipe moves the diagram");
+  window.requestAnimationFrame = realFrame;
 
   const pointer = (type: string, pointerId: number, clientX: number, clientY: number) => {
     const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
