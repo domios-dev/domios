@@ -1,4 +1,5 @@
 import type { AnalyticsQuery } from "@codeterm/plugin-sdk";
+import { KPI_CHANGE_NOTICE } from "../../../../src/lib/kpiChanges";
 import type { QueryOutcome } from "../../src/plugin";
 
 interface CtBridge {
@@ -31,11 +32,16 @@ export function closeView(): void {
   bridge()?.close();
 }
 
-/** The host tells a kept-mounted view when it is shown again. */
-export function onViewShown(callback: () => void): () => void {
+export type HostNotice = "shown" | "hidden" | "kpi_changed";
+
+/** Visibility and KPI change notices the host posts to this kept-mounted view. */
+export function onHostNotice(callback: (notice: HostNotice) => void): () => void {
   const onMessage = (event: MessageEvent) => {
     if (event.source !== window.parent) return;
-    if ((event.data as { __ctActive?: unknown } | null)?.__ctActive === true) callback();
+    const data = event.data as Record<string, unknown> | null;
+    if (data?.__ctActive === true) callback("shown");
+    else if (data?.__ctActive === false) callback("hidden");
+    else if (data?.[KPI_CHANGE_NOTICE] === true) callback("kpi_changed");
   };
   window.addEventListener("message", onMessage);
   return () => window.removeEventListener("message", onMessage);

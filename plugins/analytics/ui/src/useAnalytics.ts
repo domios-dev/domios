@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AnalyticsGroupBy } from "@codeterm/plugin-sdk";
+import { createRefreshGate, type RefreshGate } from "../../../../src/lib/refreshGate";
 import type { QueryOutcome } from "../../src/plugin";
-import { onViewShown, queryAnalytics } from "./bridge";
+import { onHostNotice, queryAnalytics } from "./bridge";
 import type { Catalog } from "./model/options";
 import { activeFilterCount, buildQuery, GROUP_BY_OPTIONS, NO_FILTERS, type FilterState } from "./model/query";
 import { localTimeZone, rangeFor, type LocalRange, type RangePreset } from "./model/range";
@@ -42,6 +43,7 @@ export function useAnalytics({ preset, groupBy, filters }: AnalyticsRequest): An
     range: rangeFor(preset, new Date()),
   }));
   const sequence = useRef(0);
+  const gate = useRef<RefreshGate | null>(null);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const filtersKey = JSON.stringify(filters);
@@ -66,11 +68,37 @@ export function useAnalytics({ preset, groupBy, filters }: AnalyticsRequest): An
       });
       setLoaded({ outcome: filtered ?? unfiltered[groupBys.indexOf(groupBy)] ?? null, catalog, nowMs: now.getTime(), range });
       setRefreshing(false);
+      gate.current?.settled();
     });
   }, [preset, groupBy, filtersKey, nonce]);
 
   const refresh = useCallback(() => setNonce((value) => value + 1), []);
-  useEffect(() => onViewShown(refresh), [refresh]);
+
+  // KPI notices re-read only while shown; being shown again after a hide is the single catch-up read.
+  useEffect(() => {
+    const freshness = createRefreshGate(refresh);
+    gate.current = freshness;
+    let shown = true;
+    const stop = onHostNotice((notice) => {
+      if (notice === "hidden") {
+        shown = false;
+        freshness.cancel();
+        return;
+      }
+      if (notice === "shown") {
+        if (shown) return;
+        shown = true;
+      } else if (!shown) {
+        return;
+      }
+      freshness.request();
+    });
+    return () => {
+      stop();
+      freshness.cancel();
+      if (gate.current === freshness) gate.current = null;
+    };
+  }, [refresh]);
 
   return { ...loaded, refreshing, refresh };
 }
