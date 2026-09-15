@@ -41,6 +41,13 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
         }
     }
 
+    svc.bridge_threads.attach(
+        std::sync::Arc::new(
+            codeterm_bridge::bridge::threads::TelegramTopicTransport::new(token.clone()),
+        ),
+        codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token),
+    );
+
     let cfg = config::load_config();
     let telegram = bridge::telegram::TelegramService::new(
         token,

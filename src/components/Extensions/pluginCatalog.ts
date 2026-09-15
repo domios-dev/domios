@@ -38,8 +38,6 @@ export interface CatalogEntry {
   homepage?: string | null;
   readmeMarkdown?: string | null;
   iconSvg?: string | null;
-  iconColor?: string | null;
-  iconHint?: string | null;
   source?: InstalledPlugin["source"] | null;
 }
 
@@ -107,8 +105,6 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     homepage: p.homepage ?? null,
     readmeMarkdown: p.readme_markdown ?? null,
     iconSvg: p.icon_svg ?? null,
-    iconColor: p.icon_color ?? null,
-    iconHint: p.icon_hint ?? null,
     source: p.source ?? null,
   };
 }
@@ -144,8 +140,6 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     homepage: base?.homepage ?? m.homepage ?? null,
     readmeMarkdown: base?.readmeMarkdown ?? m.readme_markdown ?? null,
     iconSvg: base?.iconSvg ?? m.icon_svg ?? null,
-    iconColor: base?.iconColor ?? m.icon_color ?? null,
-    iconHint: base?.iconHint ?? m.icon_hint ?? null,
     source: base?.source ?? null,
   };
   return entry;
@@ -196,7 +190,7 @@ function matchesFilter(entry: CatalogEntry, filter: CatalogFilter): boolean {
   }
 }
 
-/** Filter + search, sorted: pinned-agnostic deterministic order (installed
+/** Filter + search, sorted by deterministic order (installed
  * first, then by display name) so the list is stable across refreshes. */
 export function filterCatalog(
   entries: CatalogEntry[],

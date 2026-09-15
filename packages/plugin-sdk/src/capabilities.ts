@@ -202,6 +202,8 @@ export interface AgentProvider {
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
+  /** Further usage logs owned by this exact session file (e.g. sub-agent transcripts beside it). */
+  sessionUsageSources?(sessionFilePath: string, sessionId: string): string[];
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
@@ -394,7 +396,9 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble";
+  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble" | "plugin";
+  fromPlugin?: string;
+  pluginIconSvg?: string | null;
   timelineMarker?: ChatTimelineMarker;
   sessionIntent?: ChatSessionIntent;
   /** Provider-neutral canonical tool metadata, available on any chat transport. */
@@ -535,6 +539,21 @@ export interface WebhookDelivery {
 
 export interface WebhookReceiver {
   webhookReceive(ctx: WebhookReceiveContext): WebhookDelivery | null;
+}
+
+// ── tabMenu (plugin.json `capabilities.tabMenu`; no export runs on click) ──
+
+// Closed set of host-owned actions. `receiverTarget` requires `webhookReceiver`.
+export type TabMenuAction = "receiverTarget";
+
+export interface TabMenuContribution {
+  // 1-32 lowercase letters, digits or '-', unique within the plugin.
+  id: string;
+  // 1-48 trimmed characters; the item's accessible name.
+  label: string;
+  action: TabMenuAction;
+  /** Optional relative path to an SVG shipped inside the plugin bundle. */
+  icon?: string;
 }
 
 // ── onAgentCommand (the inverse seam) ──

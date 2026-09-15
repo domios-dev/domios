@@ -118,6 +118,12 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         }
     }
 
+    // ── Analytics ────────────────────────────────────────────────────────
+
+    fn analytics_query_json(&self, query_json: &str) -> String {
+        self.analytics_snapshot_json(query_json)
+    }
+
     // ── Workspace / tab ─────────────────────────────────────────────────
 
     fn workspace_ensure_json(&self, opts_json: &str) -> String {
@@ -377,6 +383,20 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool {
         secret_bucket(plugin_id).delete(name).is_ok()
+    }
+
+    // ── Receiver target ──────────────────────────────────────────────────
+
+    fn receiver_target_json(&self, plugin_id: &str) -> String {
+        crate::service::receiver_target::host_json(self.receiver_target(plugin_id))
+    }
+
+    fn receiver_target_clear_json(&self, plugin_id: &str) -> String {
+        use crate::service::receiver_target::{host_json, ReceiverTargetError};
+        if !self.webhook_registry.contains(plugin_id) {
+            return host_json(Err(ReceiverTargetError::ReceiverNotFound));
+        }
+        host_json(self.clear_receiver_target(plugin_id))
     }
 }
 

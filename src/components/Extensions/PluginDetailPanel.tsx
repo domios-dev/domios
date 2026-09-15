@@ -13,6 +13,7 @@ import { ChatPreprocessorPresetManager } from "./ChatPreprocessorPresetManager";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { AgentProviderScreen } from "../Settings/AgentsTab";
 import { SecretBackendDetail } from "./SecretBackendDetail";
+import { PluginView } from "./PluginView";
 import { MarkdownDescription } from "./MarkdownDescription";
 import { PluginIcon } from "./PluginIcon";
 import { GroupLabel, iconOf, type AppConfigShape } from "./shared";
@@ -241,6 +242,13 @@ export function PluginDetailPanel({
           >
             Open chat
           </button>
+        </div>
+      )}
+
+      {entry.capabilities?.view && entry.installed && !entry.pendingReload && config && (
+        <div style={{ marginBottom: 18 }} data-testid="extensions-plugin-view" data-plugin-id={entry.id}>
+          <GroupLabel>{entry.displayName}</GroupLabel>
+          <PluginView pluginId={entry.id} api={config.api} embedded />
         </div>
       )}
 

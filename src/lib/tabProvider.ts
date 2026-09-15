@@ -36,8 +36,6 @@ export function resolveTabProvider(tab: Tab | null | undefined): ResolvedTabProv
       id: backing.plugin_id,
       displayName: meta?.displayName ?? backing.plugin_id,
       iconSvg: meta?.iconSvg,
-      iconColor: meta?.iconColor,
-      iconHint: meta?.iconHint,
       kind: "shell",
     };
   }

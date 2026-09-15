@@ -125,6 +125,7 @@ impl ServiceContext {
         self.forget_directory_trust(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.remote_workers.forget_orchestrator(tab_id);
+        self.forget_receiver_targets_for_tab(tab_id);
         pad_result
     }
 
@@ -225,6 +226,7 @@ impl ServiceContext {
             // card, never as buttons that would quietly do nothing.
             notif.forget_answer_tab(tab_id);
         }
+        self.release_bridge_threads(tab_id);
         session_persist::persist_session_after_close(self);
         self.emit_state_changed();
         if pre_focus != post_focus {

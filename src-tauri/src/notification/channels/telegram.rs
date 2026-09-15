@@ -4,7 +4,9 @@
 //! config entry holds its audience, what makes its control offerable, and how a
 //! rendered push becomes an outbound bridge message.
 
-use codeterm_bridge::bridge::manager::{OutboundEdit, OutboundMessage, PlacementReceipt};
+use codeterm_bridge::bridge::manager::{
+    OutboundEdit, OutboundMessage, OutboundRoute, PlacementReceipt,
+};
 use codeterm_bridge::bridge::telegram as transport;
 use codeterm_bridge::bridge::traits::{InlineButton, InlineKeyboard, OutboundContent};
 use codeterm_types::config::schema::AppConfig;
@@ -135,6 +137,11 @@ impl PushChannel for TelegramChannel {
                         buttons: buttons.clone(),
                         edit: None,
                         receipt: receipt.clone(),
+                        route: message
+                            .origin_tab
+                            .clone()
+                            .map(|tab_id| OutboundRoute::Tab { tab_id })
+                            .unwrap_or_default(),
                     },
                 )
                 .is_err()
@@ -173,6 +180,7 @@ impl PushChannel for TelegramChannel {
                 buttons: Some(keyboard(message).unwrap_or_default()),
                 edit: Some(OutboundEdit { message_id }),
                 receipt: None,
+                route: OutboundRoute::Chat,
             },
         )
     }

@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
+import { pluginTabMenuEntries, runPluginTabMenuItem, usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { switchTabModel, tabModelEntryLabel, tabModelMenuView } from "./tabModelMenu";
@@ -10,6 +11,7 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
+import { PluginIcon } from "../Extensions/PluginIcon";
 import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isPlanner, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -245,6 +247,8 @@ function TabItemInner({
     }
   }, [isClosing, closePhase]);
 
+  const pluginTabMenu = usePluginTabMenu();
+
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [];
     // Main (the protected GA tab) is the anchor — no rename.
@@ -368,6 +372,21 @@ function TabItemInner({
         "data-testid": "tab-menu-restart-session",
       });
     }
+    // Plugin contributions: host-owned actions on local tabs only; a peer's tab has no local binding.
+    if (tab && !tab.remote_peer_id) {
+      for (const entry of pluginTabMenuEntries(pluginTabMenu, tab.id)) {
+        items.push({
+          label: entry.label,
+          icon: <PluginIcon plugin={{ icon_svg: entry.iconSvg }} size={11} />,
+          checked: entry.checked,
+          onClick: () => {
+            void runPluginTabMenuItem(entry, tab.id)
+              .catch((error) => console.warn("Plugin tab action failed:", error));
+          },
+          "data-testid": `tab-menu-plugin-${entry.pluginId}-${entry.itemId}`,
+        });
+      }
+    }
     if (canClose && !tab?.protected) {
       items.push({
         label: hasAgent ? "Close Session" : "Close Tab",
@@ -378,7 +397,7 @@ function TabItemInner({
       });
     }
     return items;
-  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, orchestrators, providerName, status]);
+  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, orchestrators, pluginTabMenu, providerName, status]);
 
   const sessionActions = tab ? tabSessionActionView(tab) : null;
   const sessionId = sessionActions?.sessionId ?? null;

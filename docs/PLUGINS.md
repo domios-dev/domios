@@ -35,7 +35,13 @@ Three moving parts, two channels, one published SDK:
 - **`codeterm-alpha` (this repo) → the `codeterm-core` channel.** The *intrinsic*
   provider plugins (`plugins/provider-claude|codex|opencode`), bundled into the
   binary (`build.rs` → `embedded`). They ship and update **with the app**; their
-  versions **mirror the app version**.
+  versions **mirror the app version**. The core **Analytics** view plugin
+  (`plugins/analytics`, `CORE_PLUGIN_DIRS` in both `build.rs` files) ships the
+  same way: embedded, System-trusted and present by default. Its iframe UI
+  bundles the shared Board components (`SpendChart`, `BoardPanel`, `Segmented`)
+  and `src/styles/primitives.css`, and reads data only through `host.analytics`
+  from its `viewCall`. The titlebar entry beside Plugins appears while it is
+  installed with its `view` capability.
 - **`codeterm-plugins` (separate repo, `rollacode/codeterm-plugins`) → the
   `codeterm-plugins` marketplace channel.** Non-provider capability plugins
   (`git`, `transcriber`, `bitwarden`, `lmstudio`, `chat-preprocessor`), authored in
@@ -77,6 +83,10 @@ has it. Shipping such a plugin update therefore means releasing the **app** (whi
 carries the host change) AND publishing the plugin — a plugin alone cannot unlock a
 host API the installed app lacks. (This is the trap behind "I updated the plugin but
 the new behaviour isn't there".)
+
+Installed plugins are opened from the Extensions list or the titlebar Plugins
+button. View-capable plugins render their embedded page from the plugin detail;
+status bubbles remain the quick-glance surface for plugins that provide one.
 
 ## Anatomy of a plugin
 
@@ -129,9 +139,7 @@ audited channel to the host, and a separately-sandboxed UI.
   "configHelp": "Agent-facing: what this plugin does, how to use it, and which `codeterm plugin config <id> --set key=value` knobs exist. REQUIRED — see \"Self-setup & Configure with AI\".",
   "homepage": "https://…",     // optional project/docs link
   "readme": "README.md",       // optional relative markdown path; loaded into the snapshot (bounded) and rendered safely (no raw HTML, remote images not fetched)
-  "iconColor": "#f05133",
-  "iconHint": "✳",             // text fallback when no svg
-  "iconSvg": "<svg …>",        // inline icon shown in the Extensions UI + bubbles
+  "icon": "icon.svg",          // optional relative SVG shipped in this plugin bundle
   "entry": "plugin.js",
   "capabilities": {
     "agentProvider": false,
@@ -224,6 +232,67 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 `ctx` for bubble/glance carries the Tab's `cwd`. `action: "openTabl:view:<id>"` opens
 the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 
+### Tab menu contributions (`tabMenu`)
+
+A plugin may add at most four items to the ⋮ menu of every local tab. The click
+runs no plugin code: the host looks the item up in the manifest it registered
+and applies the item's host-owned action to the clicked tab id.
+
+```json
+"capabilities": {
+  "webhookReceiver": { "kind": "pebble" },
+  "tabMenu": [
+    { "id": "receiver-target", "label": "Receive Pebble events here", "action": "receiverTarget", "icon": "icon.svg" }
+  ]
+}
+```
+
+- `id`: 1-32 lowercase letters, digits or `-`, unique within the plugin.
+- `label`: 1-48 trimmed characters without control characters; it is the item's accessible name.
+- `action`: one verb from a closed, host-owned set.
+- `icon`: optional relative path to an SVG shipped in the plugin folder. The host loads it once,
+  caps it at 8 KiB, and exposes only its sanitized allowlisted SVG with `currentColor`; a missing
+  or rejected asset uses the generic plugin icon. An item without `icon` uses the plugin icon.
+
+The sanitizer permits only `svg`, `g`, `path`, `circle`, `ellipse`, `rect`, `line`, `polyline`,
+and `polygon`, with `viewBox`, `d`, `cx`, `cy`, `r`, `fill`, `stroke`, `stroke-width`,
+`stroke-linecap`, and `stroke-linejoin`. `fill` and `stroke` may only be `currentColor` or
+`none`; scripts, `foreignObject`, `style`, `href`/`xlink`, event attributes, and external
+references are rejected. The host carries the sanitized SVG through plugin snapshots, tab-menu
+payloads, and plugin-origin chat metadata; it never accepts an inline SVG or plugin URL.
+
+| `action` | Requires | Rendered as | Effect |
+|----------|----------|-------------|--------|
+| `receiverTarget` | `webhookReceiver` | `menuitemcheckbox`, checked on the bound tab | Binds the clicked tab as this plugin's receiver target, or clears the binding when that tab is already bound |
+
+An unknown action or field, an invalid id or label, a duplicate id, a fifth item,
+or an action whose required capability is not declared fails the manifest load;
+`codeterm plugin validate` names the rule. Items never appear on a peer's tab.
+
+#### Receiver targets
+
+The host owns exactly one binding per webhook-receiving plugin, from plugin id
+to one local tab id, stored in `receiver-targets.json` in the CodeTerm data
+directory and restored on restart.
+
+- **Set:** the tab menu item, `PUT /api/plugins/{id}/receiver-target`, or
+  `codeterm plugin receiver-target <id> --set <tab>`. Binding another tab replaces the previous one.
+- **Clear:** toggling the item off, `DELETE /api/plugins/{id}/receiver-target`,
+  `codeterm plugin receiver-target <id> --clear`, `host.receiverTarget.clear()`,
+  or closing the bound tab.
+- **Routing:** the receiver's events go to the bound tab while it exists and its
+  PTY or chat-backend session is live. An unbound, absent, or not-live target
+  takes the unchanged General Agent path. The receiver's marker and
+  metadata are kept, and a failed delivery is never retried into another tab.
+
+**Sandbox boundary.** Choosing where external input lands is a user decision, so
+only host chrome can assign a tab. A plugin reads and clears its own binding:
+`host.receiverTarget.get()` returns only `{pluginId, tabId, live}` for the
+calling plugin's receiver, and `clear()` can only send events back to the General
+Agent. Neither function needs a permission grant. Neither can reach another
+plugin's binding, tab titles or cwd, other tabs, secrets, or the webhook URL. A
+plugin without a `webhookReceiver` gets `{error: "receiver_not_found"}`.
+
 ### Host API (`host.*`, synchronous, inside QuickJS)
 
 - `host.exec(json)` → run an allow-listed subprocess (`{bin, args}`) → `{stdout, stderr, code}`.
@@ -244,6 +313,15 @@ the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 - `host.fetchStream(json)` → `{jobId}`; `host.fetchStreamPoll(jobId)` → `{chunks, done, status?, error?}`; `host.fetchStreamClose(jobId)` — chunked streaming GET/POST (token streaming for shells). Same network allowlist as `host.fetch`.
 - `host.fs.{fileExists, readFile, readJson, writeFile, writeJson}`, `host.makeDirs`.
 - `host.secretGet(key)` / `host.secretSet(key, value)` (needs `permissions.secrets`).
+- `host.analytics.query(query)` → this machine's KPI aggregates as an `AnalyticsSnapshot`
+  (`@codeterm/plugin-sdk`), or `{error, message}` for a refused query (needs
+  `permissions.analytics`; trusted system plugins hold it). The host reads a bounded,
+  cached ledger aggregate; the plugin never opens the ledger or receives its path. A
+  disabled, unavailable or unrecorded figure is `null`, never `0`, and a workspace,
+  team or plan id this machine never held is refused as `foreign_scope`.
+- `host.receiverTarget.get()` / `host.receiverTarget.clear()` → this plugin's own
+  receiver binding as `{pluginId, tabId, live}`, or `{error}`; there is no setter
+  (see [Receiver targets](#receiver-targets)).
 - `host.settingsJson()` → the plugin's settings bag (`config.plugins.<id>`).
 - `host.platform()`, `host.homeDir()`, `host.expandHome(path)`.
 - `host.shell.quote(s)` / `host.shell.quoteFor(s, platform)`.
@@ -768,4 +846,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 30 -->
+<!-- revision: 34 -->

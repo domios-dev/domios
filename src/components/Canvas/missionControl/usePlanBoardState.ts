@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../../lib/bridge";
+import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
 import type { ApiConfig } from "../../../lib/types";
 import { fetchPlanBoardState, type PlanBoardState } from "./missionControlState";
 
@@ -18,7 +19,7 @@ const PLAN_BOARD_EVENTS = [
   "cron-run-finished",
   "config-changed",
   "plan-changed",
-  "kpi-recorded",
+  KPI_RECORDED_EVENT,
 ] as const;
 
 function planIdFromPayload(payload: unknown): string | null {

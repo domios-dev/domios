@@ -37,8 +37,6 @@ function seed() {
       id: "lmstudio",
       displayName: "LM Studio",
       iconSvg: "<svg id='lmstudio'/>",
-      iconColor: "#ff6600",
-      iconHint: "LM",
     },
   ]);
 }
@@ -77,7 +75,6 @@ test("resolves a shell Tab from the plugin snapshot cache", () => {
   assert(r.id === "lmstudio", `expected id lmstudio, got ${r.id}`);
   assert(r.displayName === "LM Studio", `expected LM Studio, got ${r.displayName}`);
   assert(r.iconSvg === "<svg id='lmstudio'/>", "shell icon svg from plugin snapshot");
-  assert(r.iconColor === "#ff6600", "shell icon color from plugin snapshot");
 });
 
 test("shell Tab still resolves as shell before its meta is cached", () => {

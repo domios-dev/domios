@@ -12,6 +12,7 @@
 mod capabilities;
 mod config;
 mod methods;
+mod tab_menu;
 
 use std::path::PathBuf;
 
@@ -31,6 +32,7 @@ pub use config::{
     LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
 pub use methods::manifest_settings_sections;
+pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
 
 /// Top-level `plugin.json` document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,12 +68,9 @@ pub struct PluginManifest {
     #[serde(default)]
     pub agent_doc: Option<String>,
 
+    /// Relative path to the plugin's host-rendered SVG icon.
     #[serde(default)]
-    pub icon_hint: Option<String>,
-    #[serde(default)]
-    pub icon_color: Option<String>,
-    #[serde(default)]
-    pub icon_svg: Option<String>,
+    pub icon: Option<String>,
     #[serde(default)]
     pub binary_name: Option<String>,
     #[serde(default)]
@@ -159,6 +158,10 @@ pub struct PluginManifest {
     /// not present in JSON.
     #[serde(skip)]
     pub source_path: Option<PathBuf>,
+
+    /// Sanitized host-owned SVG loaded from `icon` at plugin load time.
+    #[serde(skip)]
+    pub icon_svg: Option<String>,
 }
 
 fn default_entry() -> String {
@@ -178,6 +181,7 @@ fn default_capabilities() -> Capabilities {
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
+        tab_menu: Vec::new(),
     }
 }
 

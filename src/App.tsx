@@ -13,6 +13,8 @@ import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/M
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
 import { PluginView } from "./components/Extensions/PluginView";
+import { ANALYTICS_PLUGIN_ID, isAnalyticsAvailable } from "./components/Titlebar/analyticsTrayLogic";
+import { usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
 import { pluginViewBelongsToActiveTab, pluginViewScope, type PluginViewScope } from "./components/Extensions/pluginViewScope";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
@@ -105,7 +107,7 @@ function AppInner() {
       : "opacity 200ms ease, visibility 0ms linear 200ms",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
@@ -116,12 +118,26 @@ function AppInner() {
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
+  const [mountedAnalytics, setMountedAnalytics] = useState(false);
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
     if (mainView === "extensions") setMountedExtensions(true);
+    if (mainView === "analytics") setMountedAnalytics(true);
   }, [mainView]);
+  const analyticsButtonRef = useRef<HTMLButtonElement>(null);
+  const { snapshot: pluginSnapshot, hasLoaded: pluginSnapshotLoaded } = usePluginSnapshotStore();
+  const analyticsAvailable = isAnalyticsAvailable(pluginSnapshot.plugins);
+  useEffect(() => {
+    if (pluginSnapshotLoaded && !analyticsAvailable) {
+      setMainView((cur) => (cur === "analytics" ? "workspace" : cur));
+    }
+  }, [analyticsAvailable, pluginSnapshotLoaded]);
+  const closeAnalytics = useCallback(() => {
+    setMainView((cur) => (cur === "analytics" ? "workspace" : cur));
+    analyticsButtonRef.current?.focus();
+  }, []);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "settings";
@@ -312,6 +328,10 @@ function AppInner() {
       closePluginView();
     }
   }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
+  const toggleAnalytics = useCallback(() => {
+    closePluginView();
+    setMainView((cur) => (cur === "analytics" ? "workspace" : "analytics"));
+  }, [closePluginView]);
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
     const tab = current.tabs[tabId];
@@ -517,6 +537,9 @@ function AppInner() {
         theme={stableTheme}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
+        analyticsOpen={mainView === "analytics"}
+        onToggleAnalytics={toggleAnalytics}
+        analyticsButtonRef={analyticsButtonRef}
         notifications={state.notifications}
         showBell={config.notifications?.show_bell !== false}
         toasts={state.toasts}
@@ -633,6 +656,24 @@ function AppInner() {
                 visible={mainView === "extensions"}
                 pluginActivities={pluginActivities}
                 pluginActivityDisplayMap={pluginActivityDisplayMap}
+              />
+            </div>
+          )}
+          {mountedAnalytics && analyticsAvailable && (
+            <div
+              data-testid="analytics-view"
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "analytics")}
+              aria-hidden={mainView !== "analytics"}
+              inert={mainView !== "analytics" || undefined}
+            >
+              <PluginView
+                pluginId={ANALYTICS_PLUGIN_ID}
+                api={stableApiConfig}
+                active={mainView === "analytics"}
+                focusOnActive
+                kpiNotices
+                onClose={closeAnalytics}
               />
             </div>
           )}

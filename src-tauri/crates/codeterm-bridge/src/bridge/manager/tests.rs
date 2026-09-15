@@ -27,7 +27,11 @@ fn text_msg() -> InboundMessage {
         attachments: vec![],
         message_id: Some(12345),
         callback_data: None,
-        reply_ctx: ReplyContext::Telegram { chat_id: 100000001 },
+        reply_ctx: ReplyContext::Telegram {
+            chat_id: 100000001,
+            thread_id: None,
+            reply_to_message_id: None,
+        },
     }
 }
 
@@ -226,7 +230,11 @@ fn voice_msg(path: &str) -> InboundMessage {
         }],
         message_id: Some(7),
         callback_data: None,
-        reply_ctx: ReplyContext::Telegram { chat_id: 99 },
+        reply_ctx: ReplyContext::Telegram {
+            chat_id: 99,
+            thread_id: None,
+            reply_to_message_id: None,
+        },
     }
 }
 
@@ -244,7 +252,11 @@ fn photo_msg(path: &str) -> InboundMessage {
         }],
         message_id: None,
         callback_data: None,
-        reply_ctx: ReplyContext::Telegram { chat_id: 99 },
+        reply_ctx: ReplyContext::Telegram {
+            chat_id: 99,
+            thread_id: None,
+            reply_to_message_id: None,
+        },
     }
 }
 

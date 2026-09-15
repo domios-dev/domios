@@ -21,7 +21,17 @@ pub struct OrphanedRestoreInfo {
 pub(crate) async fn mux_get_state_from_service(
     svc: ServiceState,
 ) -> Result<MultiplexerSnapshot, String> {
-    refuse_busy_snapshot_off_runtime(move || svc.try_snapshot_with_reconciled_status()).await
+    let reader = svc.clone();
+    let snapshot =
+        refuse_busy_snapshot_off_runtime(move || reader.try_snapshot_with_reconciled_status())
+            .await;
+    if snapshot
+        .as_ref()
+        .is_err_and(|error| error.as_str() == crate::service::SNAPSHOT_BUSY_ERROR)
+    {
+        svc.emit_state_changed_when_snapshot_readable();
+    }
+    snapshot
 }
 
 async fn refuse_busy_snapshot_off_runtime(

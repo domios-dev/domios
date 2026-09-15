@@ -1,0 +1,10 @@
+{
+  "name": "@codeterm/plugin-analytics",
+  "version": "1.10.20",
+  "private": true,
+  "type": "module",
+  "description": "CodeTerm core Analytics plugin: the machine-wide KPI dashboard view.",
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
+  }
+}

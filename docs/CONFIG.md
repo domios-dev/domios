@@ -121,6 +121,12 @@ Either way the change takes effect on the
 next CodeTerm start, and while it is off the Board shows an explicit not-recording
 state naming this key rather than a zero.
 
+## Plugin settings
+
+Plugin-defined settings live under `config.plugins.<id>` and are preserved as a
+plugin-specific settings bag. The Extensions list and titlebar Plugins button
+open installed plugin pages; view plugins render their embedded page there.
+
 The API listens only on loopback by default. A non-loopback `host` requires a
 non-empty Bearer token. The existing Mesh switch is the only network-access
 control: Mesh off rejects every remote request while localhost remains available;
@@ -205,4 +211,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->

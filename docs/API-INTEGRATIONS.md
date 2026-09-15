@@ -10,6 +10,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | POST | `/api/bridge/stop` | `{service?, timeout_ms?}` | Stop the messaging supervisor and persist `telegram_enabled=false` |
 | POST | `/api/bridge/announce` | `{service?, chat_id, text}` | One-shot outbound text via the running bridge (used by `bridge migrate --announce`) |
 | POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
+| socket | `bridge.thread.open` | `{caller_tab_id, tab_id?, service?, chat_id?}` | Open or reuse a tab's Telegram topic; returns `{tab_id, chat_id, thread_id, topic_name, link, created}`. A foreign target from a non-General caller fails with `-32003`. Socket `bridge.send` with `caller_tab_id` routes through that tab's topic. Contract: `TELEGRAM-SETUP` |
 
 **Concurrency contract.** `bridge_start`, `bridge_stop`, and the boot-time spawn all acquire the same `BridgeSupervisor::op_guard()` (tokio Mutex), so start/stop operations on the same daemon are serialized — no two of them ever race.
 
@@ -115,7 +116,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 #### Inbound webhooks (Pebble)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/plugins/pebble/webhook` | Multipart form or JSON, at most 1 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches the General Agent |
+| POST | `/api/plugins/pebble/webhook` | Multipart form or JSON, at most 1 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches that receiver's live bound tab, otherwise the General Agent |
 
 **Authentication.** Only `Authorization: Bearer <secret>`, compared in constant time with the secret-store entry `pebble_webhook_secret` (see `codeterm docs SECRETS`). The route does not use the daemon API token, and no URL, path, or query token is accepted. Nothing reaches the plugin before authentication succeeds. Non-loopback callers additionally need mesh networking enabled.
 
@@ -132,7 +133,7 @@ Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-i
 
 | Status | Body `status` / `error.code` | Meaning |
 |--------|------------------------------|---------|
-| `200` | `delivered` + `eventId` | The plugin returned a delivery and its text reached the General Agent |
+| `200` | `delivered` + `eventId` | The plugin returned a delivery and its text reached the bound tab or the General Agent |
 | `200` | `noop` | The plugin returned `null`, or this daemon already delivered that `eventId`; nothing is delivered |
 | `400` | `invalid_json` | Body is not valid JSON |
 | `400` | `invalid_multipart` / `invalid_form_fields` | Broken boundary/form, duplicate or invalid field names, or invalid UTF-8 |
@@ -142,20 +143,26 @@ Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-i
 | `415` | `unsupported_media_type` | Missing or unsupported Content-Type; use multipart/form-data, application/json or application/*+json |
 | `500` | `webhook_internal_error` | The receiver task did not complete |
 | `502` | `webhook_receiver_failed` | The plugin threw, returned a malformed delivery, text over 64 KiB or empty after sanitizing, or an `eventId` over 256 bytes |
-| `502` | `delivery_failed` | Delivery to the General Agent failed |
+| `502` | `delivery_failed` | Delivery to the bound tab or the General Agent failed; it is never retried into another tab |
 | `503` | `authentication_unavailable` | `pebble_webhook_secret` is missing, empty, or the vault is locked or logged out |
 | `503` | `webhook_receiver_ambiguous` | More than one plugin registers a `pebble` receiver |
-| `503` | `general_agent_unavailable` | No General Agent tab exists |
+| `503` | `general_agent_unavailable` | The receiver has no live bound tab and no General Agent tab exists |
 
 Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by the receiver). Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Handler rejections, including 400/415, log status and code under `[pebble-webhook]` without the secret, headers, or payload.
 
-**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the General Agent as `-=-codeterm:pebble source=Pebble-=-` followed by the text on its own line, with no reply address. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `-=-codeterm:pebble source=Pebble plugin=<plugin-id>-=-` followed by the text on its own line, with no reply address. The stored chat-origin metadata carries the receiver id and its host-sanitized plugin SVG; the marker carries identity only. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
 
 ```bash
 curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
   -H "Authorization: Bearer $PEBBLE_SECRET" \
   -F 'transcription=Focus mode enabled' -F 'recordedAt=1789412400000' -F 'client=ring'
 ```
+
+#### Receiver targets and plugin tab menus
+
+`GET /api/plugins/tab-menu` returns `{items: [{pluginId, itemId, label, action, iconSvg?}], receiverTargets: {<pluginId>: <tabId>}}` for every manifest `tabMenu` item; `iconSvg` is the host-sanitized SVG from the plugin bundle, or absent when the item and plugin have no accepted asset. `POST /api/plugins/tab-menu/action` `{pluginId, itemId, tabId}` runs the declared host-owned action on a local tab (`receiverTarget` binds the tab, or clears it when that tab is already bound). `GET|PUT {tabId}|DELETE /api/plugins/{id}/receiver-target` reads, binds (id or alias, replacing any previous binding) or clears one tab and returns `{pluginId, tabId, live}`; `tabId: null` or `live: false` means events take the General Agent path.
+
+The host owns one binding per receiver plugin id, persisted in the data directory and restored on restart. Closing the bound tab clears it. `live` is true only while the tab exists and its PTY or chat-backend session is open; the webhook route reads the same observation. Set and get require a plugin with an active `webhookReceiver`; clear does not. Errors are `{"ok": false, "error": {"code", "message"}}`: `404` `receiver_not_found`, `tab_not_found` (including a peer's tab), or `menu_item_not_found`; `500` `persist_failed` (nothing changed). Changes publish `contributions-changed` with kind `receiver_target`; plugin loads that add or remove `tabMenu` items publish kind `tab_menu`. Socket: `plugin.receiver_target.get|set|clear` with `{plugin_id, tab_id?}` returns the same view; refusals carry `data.code`. CLI: `codeterm plugin receiver-target <id> [--set <tab> | --clear]`. Plugins read or clear only their own binding through `host.receiverTarget` (see `docs/PLUGINS.md`).
 
 #### Setup (Rules, Hooks)
 | Method | Path | Body | Description |
@@ -198,15 +205,9 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab** (no UI surface); observe progress via the cron tabl / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
 
-**Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`.
+**Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
-**Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID.
-
-**Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
-
-**Tauri events:**
-- `cron-state-changed` — emitted on any cron CRUD operation
-- `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, tab_id, tab_id}`
+**Tauri events:** `cron-state-changed` on any cron CRUD operation; `cron-fired` when a cron fires, payload `{cron_id, run_id, tab_id, tab_id}`.
 
 ## Permission auto-confirm
 
@@ -234,4 +235,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 11 -->
+<!-- revision: 14 -->

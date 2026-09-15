@@ -100,7 +100,7 @@ pub(crate) fn machine_spend(svc: &ServiceContext) -> MissionControlSpend {
 
 /// The latest usage snapshot per provider that reports one, keyed by provider id —
 /// the same id the ledger records in its `provider` column.
-fn provider_allowances(svc: &ServiceContext) -> BTreeMap<String, ProviderAllowance> {
+pub(crate) fn provider_allowances(svc: &ServiceContext) -> BTreeMap<String, ProviderAllowance> {
     let mut out: BTreeMap<String, ProviderAllowance> = BTreeMap::new();
     for provider in svc.agent_registry.provider_ids() {
         let reports_usage = svc

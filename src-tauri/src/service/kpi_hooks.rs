@@ -4,26 +4,27 @@
 //!
 //! Attribution target per kind: deliver/nudge/heartbeat charge the *recipient* tab
 //! (where the injected bytes land), report charges the *reporting* tab, spawn charges
-//! the *spawned* tab.
+//! the *spawned* tab, tab creation charges the *created* tab.
 
 use super::messenger::MessageKind;
 use super::ServiceContext;
 use crate::agent::kpi::{deliver_event_kind, KpiAttribution, UsageSource};
-use crate::agent::kpi_ledger::KpiEventKind;
+use crate::agent::kpi_ledger::{KpiEventKind, TabCreatedKind};
 
 impl ServiceContext {
     pub(crate) fn kpi_attribution(&self, tab_id: &str) -> KpiAttribution {
-        let (resolved, role, role_profile, provider) = {
+        let (resolved, role, role_profile, provider, workspace_id) = {
             let mux = self.mux.read();
             let resolved = mux
                 .resolve_tab_id(tab_id)
                 .unwrap_or_else(|| tab_id.to_string());
             let tab = mux.get_tab(&resolved);
             (
-                resolved,
+                resolved.clone(),
                 tab.and_then(|p| p.role),
                 tab.and_then(|p| p.role_profile.clone()),
                 tab.and_then(|p| p.agent_type.clone()),
+                mux.find_workspace_for_tab(&resolved),
             )
         };
         // Session-scoped provider evidence, or nothing: a tab the model poller has
@@ -35,6 +36,7 @@ impl ServiceContext {
             .role(role, role_profile.as_deref())
             .provider(provider)
             .model(model)
+            .workspace(workspace_id)
     }
 
     /// A task assignment carries both ids. Without one, a plan's owner and its
@@ -110,6 +112,16 @@ impl ServiceContext {
             .record(attribution.into_event(KpiEventKind::Spawn, brief_bytes as u64));
     }
 
+    /// One row per tab a service path creates. Restores re-open recorded tabs through
+    /// the multiplexer and never reach this, so they are not counted as new tabs.
+    pub(crate) fn record_kpi_tab_created(&self, tab_id: &str, kind: TabCreatedKind) {
+        if !self.kpi.is_enabled() {
+            return;
+        }
+        let attribution = self.kpi_attribution(tab_id);
+        self.kpi.record(attribution.into_tab_created_event(kind));
+    }
+
     /// Single writer for the bounce/accept review verdicts (`socket/server/plan_review.rs`).
     /// `review_round` is fixed for the duration of a round (bounce is what bumps it), so
     /// `task_id:round:verdict` is already the system's own stable identity for "this
@@ -149,23 +161,25 @@ impl ServiceContext {
         self.request_kpi_usage_ingest(tab_id);
     }
 
-    /// Queues a forward-only pass over the tab's provider session log. The path comes
-    /// from the provider capability, so core never encodes a per-provider layout.
+    /// Queues a forward-only pass over each of the tab's provider session logs, every one
+    /// on its own cursor. Paths come from provider capabilities, never a per-provider layout.
     pub(crate) fn request_kpi_usage_ingest(&self, tab_id: &str) {
         if !self.kpi.is_enabled() {
             return;
         }
-        let Some(source) = self.tab_usage_source(tab_id) else {
+        let Some(sources) = self.tab_usage_sources(tab_id) else {
             return;
         };
         let attribution = self.kpi_attribution(tab_id);
-        self.kpi.request_ingest(source, attribution);
+        for source in sources {
+            self.kpi.request_ingest(source, attribution.clone());
+        }
     }
 
     /// An unresolvable source used to return `None` without a trace, so a tab whose
     /// session was never bound recorded nothing and said nothing. Name the missing
     /// input instead: silence here reads exactly like a tab that spent nothing.
-    fn tab_usage_source(&self, tab_id: &str) -> Option<UsageSource> {
+    fn tab_usage_sources(&self, tab_id: &str) -> Option<Vec<UsageSource>> {
         let (agent_type, cwd, session_id) = {
             let mux = self.mux.read();
             let resolved = mux.resolve_tab_id(tab_id)?;
@@ -187,17 +201,20 @@ impl ServiceContext {
             return None;
         }
         let (agent_type, cwd, session_id) = (agent_type?, cwd?, session_id?);
-        let path = self
+        // Additional sources are keyed off the tab's own session file and id only.
+        let paths = self
             .agent_registry
             .with_provider(&agent_type, |provider| {
-                provider.session_file_path(&cwd, &session_id)
+                let main = provider.session_file_path(&cwd, &session_id)?;
+                let extra = provider.additional_usage_sources(&main, &session_id);
+                Some(std::iter::once(main).chain(extra).collect::<Vec<_>>())
             })
             .flatten();
-        if path.is_none() {
+        if paths.is_none() {
             log::debug!(
                 "[kpi] tab {tab_id}: provider {agent_type} names no session file for {session_id}"
             );
         }
-        path.map(UsageSource::new)
+        paths.map(|paths| paths.into_iter().map(UsageSource::new).collect())
     }
 }

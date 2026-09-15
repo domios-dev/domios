@@ -6,7 +6,7 @@ import { PluginIcon } from "./PluginIcon";
 import { iconOf } from "./shared";
 import type { ChannelRecord } from "./types";
 import { DropdownMenu } from "../shared/DropdownMenu";
-import { ChevronRight, Ellipsis, Pin, Trash2 } from "lucide-react";
+import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
 import type { PluginActivity } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { PluginActivityInline } from "./PluginActivityInline";
@@ -32,8 +32,6 @@ export function PluginList({
   filter,
   onFilter,
   updateCount,
-  pinned,
-  onTogglePin,
   onRemoveChannel,
   activities,
   activityDisplayMap,
@@ -50,8 +48,6 @@ export function PluginList({
   filter: CatalogFilter;
   onFilter: (f: CatalogFilter) => void;
   updateCount: number;
-  pinned: Set<string>;
-  onTogglePin: (id: string) => void;
   onRemoveChannel: (channel: string, installedCount: number) => void;
   activities: Map<string, PluginActivity>;
   activityDisplayMap: PluginActivityDisplayMap;
@@ -198,11 +194,9 @@ export function PluginList({
                         key={e.id}
                         entry={e}
                         selected={e.id === selectedId}
-                        pinned={pinned.has(e.id)}
                         activity={activities.get(e.id)}
                         display={resolvePluginActivityDisplay(e.id, activityDisplayMap)}
                         onSelect={() => onSelect(e.id)}
-                        onTogglePin={() => onTogglePin(e.id)}
                       />
                     ))}
                   </div>
@@ -335,19 +329,15 @@ function channelLabel(channel: string): string {
 function PluginRow({
   entry,
   selected,
-  pinned,
   onSelect,
-  onTogglePin,
   activity,
   display,
 }: {
   entry: CatalogEntry;
   selected: boolean;
-  pinned: boolean;
   activity?: PluginActivity;
   display: ReturnType<typeof resolvePluginActivityDisplay>;
   onSelect: () => void;
-  onTogglePin: () => void;
 }) {
   return (
     <div
@@ -401,20 +391,6 @@ function PluginRow({
         </div>
         <PluginActivityInline activity={activity} display={display} compact />
       </div>
-      {entry.installed && (
-        <button
-          data-testid="extensions-plugin-pin"
-          data-plugin-id={entry.id}
-          onClick={(ev) => {
-            ev.stopPropagation();
-            onTogglePin();
-          }}
-          title={pinned ? "Unpin from titlebar" : "Pin to titlebar"}
-          style={{ background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", color: pinned ? "var(--ct-accent, #6366f1)" : "var(--ct-muted)", padding: 3 }}
-        >
-          <Pin size={13} fill={pinned ? "currentColor" : "none"} />
-        </button>
-      )}
     </div>
   );
 }

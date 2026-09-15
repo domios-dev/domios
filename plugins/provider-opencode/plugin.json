@@ -1,14 +1,11 @@
 {
   "id": "opencode",
-  "version": "1.10.20",
-  "minCodeterm": "1.10.20",
+  "version": "1.10.21",
+  "minCodeterm": "1.10.21",
   "hostApi": 2,
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",
-  "iconHint": "◇",
-  "iconColor": "var(--ct-fg)",
-  "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\" fill-rule=\"evenodd\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M5 3 H19 V21 H5 Z M9 7 H15 V17 H9 Z\"/></svg>",
   "entry": "plugin.js",
   "spawn": {
     "readinessStrategy": {
@@ -101,5 +98,6 @@
       "-m",
       "{model}"
     ]
-  }
+  },
+  "icon": "icon.svg"
 }

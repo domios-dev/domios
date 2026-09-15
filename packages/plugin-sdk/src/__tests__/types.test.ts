@@ -11,6 +11,7 @@ import type {
   ModelInfo,
   NormalizedChatMessage,
   PluginModule,
+  TabMenuContribution,
   WebhookDelivery,
   WebhookReceiveContext,
   WebhookReceiver,
@@ -58,6 +59,15 @@ void brokenBackend;
 
 const msg: NormalizedChatMessage = { id: "1", type: "assistant", content: "hi" };
 void msg;
+const pluginInbound: NormalizedChatMessage = {
+  id: "plugin-1",
+  type: "user",
+  content: "hello",
+  inboundKind: "plugin",
+  fromPlugin: "pebble",
+  pluginIconSvg: "<svg />",
+};
+void pluginInbound;
 const polled: NormalizedChatMessage[] = backend.poll("s").messages;
 void polled;
 
@@ -194,5 +204,27 @@ async function exercise() {
     void execPoll.error;
     host.exec.close(exec.jobId);
   }
+
+  // receiverTarget: the plugin reads or clears its own binding; assigning a tab is host chrome.
+  const target = host.receiverTarget.get();
+  if (target && "tabId" in target) {
+    const tabId: string | null = target.tabId;
+    void tabId;
+    void target.live;
+  }
+  void host.receiverTarget.clear();
+  // @ts-expect-error a plugin cannot assign a receiver tab
+  host.receiverTarget.set("tab-1");
 }
 void exercise;
+
+const receiverMenu: TabMenuContribution = {
+  id: "receiver-target",
+  label: "Receive events here",
+  action: "receiverTarget",
+  icon: "icon.svg",
+};
+void receiverMenu;
+// @ts-expect-error tab menu actions are a closed host-owned set
+const unknownAction: TabMenuContribution = { id: "close", label: "Close", action: "closeTab" };
+void unknownAction;

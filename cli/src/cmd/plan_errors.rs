@@ -87,6 +87,12 @@ presence is the contract; no vocabulary is enforced, so name the specialization 
 that scopes the surface they own, e.g. rust-backend-dev",
             task_id.unwrap_or("<task_id>")
         )),
+        "work_facet_violation" => Some(format!(
+            "✗ {}
+fix: codeterm plan task update {plan_id} {} --tag work:<frontend|backend|design|qa|infra|docs>",
+            data.get("message").and_then(|v| v.as_str()).unwrap_or("invalid work tag"),
+            task_id.unwrap_or("<task_id>")
+        )),
         "not_found" => Some(render_not_found(plan_id, loop_id, params)),
         "task_not_found" => Some(with_cross_daemon_hint(format!(
             "✗ no task '{}' was found in plan '{plan_id}'.\nfix: codeterm plan list --active",

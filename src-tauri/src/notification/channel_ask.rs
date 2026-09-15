@@ -33,6 +33,9 @@ pub struct PushMessage {
     /// placement that comes back names the question it belongs to; the channel
     /// echoes it and never reads it.
     pub record: String,
+    /// The live tab this push speaks for. A channel may carry it in that tab's
+    /// thread; it is attribution, never authority.
+    pub origin_tab: Option<String>,
 }
 
 impl PushMessage {
@@ -41,6 +44,7 @@ impl PushMessage {
             text: text.into(),
             choices: Vec::new(),
             record: String::new(),
+            origin_tab: None,
         }
     }
 

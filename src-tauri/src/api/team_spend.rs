@@ -726,6 +726,8 @@ mod tests {
                 output,
             }),
             dedup_key: None,
+            workspace_id: None,
+            tab_kind: None,
         }
     }
 

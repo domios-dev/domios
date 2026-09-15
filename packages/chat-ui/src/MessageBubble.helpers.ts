@@ -13,6 +13,7 @@ export const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
   mesh: "mesh",
   telegram: "telegram",
   pebble: "pebble",
+  plugin: "plugin",
 };
 
 export interface StructuredInbound {
@@ -25,6 +26,21 @@ export function structuredInboundFromMessage(message: ChatMessage): StructuredIn
   const fromTab = shortTabRef(message.fromTab);
   if (message.inboundKind === "system") {
     return { kind: "system", origin: { kind: "system" } };
+  }
+  if (message.inboundKind === "plugin" || message.fromPlugin) {
+    const pluginId = message.fromPlugin?.trim();
+    if (pluginId) {
+      return {
+        kind: "plugin",
+        origin: {
+          kind: "plugin",
+          pluginId,
+          name: fromLabel,
+          iconSvg: message.pluginIconSvg,
+        },
+      };
+    }
+    if (message.inboundKind === "plugin") return null;
   }
   if (message.inboundKind === "pebble") {
     return { kind: "pebble", origin: { kind: "pebble" } };

@@ -135,7 +135,6 @@ export function MissionControlPlanSurface({
   const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
   useEffect(() => setBoardEvents(recordedEvents), [recordedEvents]);
   const teamSpend = useTeamSpend(api, boardTeamId, teamRevision);
-  const teamWeekly = useTeamSpend(api, boardTeamId, teamRevision, "weekly_limit_points");
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
   const refPlans = useMemo(
     () => (team ? [...orderedPlans, ...team.archivedPlans] : orderedPlans),
@@ -241,7 +240,6 @@ export function MissionControlPlanSurface({
           <MissionControlTeamBoard
             team={team}
             teamSpend={teamSpend}
-            teamWeekly={teamWeekly}
             deepLinks={deepLinks}
             onOpenPlan={openPlanDetail}
           />
@@ -265,7 +263,6 @@ export function MissionControlPlanSurface({
             deepLinks={deepLinks}
             eventPager={team?.events}
             teamSpend={teamSpend}
-            teamWeekly={teamWeekly}
           />
         )}
       </div>

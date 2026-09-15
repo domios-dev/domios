@@ -1,5 +1,11 @@
 /** Native-only IPC commands — honest web degradation via webCapability(). */
 export const WEB_UNSUPPORTED: Record<string, string> = {
+  bridge_thread_state:
+    "Telegram thread menu state is a desktop Tauri command; a REST route would let a bearer token bypass caller-tab authority",
+  bridge_thread_open:
+    "Opening a Telegram thread is caller-tab authorized in the desktop shell; the web mirror hides the menu group",
+  bridge_thread_close:
+    "Closing a Telegram thread is caller-tab authorized in the desktop shell; the web mirror hides the menu group",
   get_recovery_state:
     "Native crash recovery state is sourced from the desktop supervisor",
   get_tab_history_raw:

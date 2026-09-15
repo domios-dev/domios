@@ -16,8 +16,10 @@ pub mod activity;
 pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
+mod analytics_host;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
+pub(crate) mod bridge_threads;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
 mod command_port_impl;
@@ -67,6 +69,7 @@ pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
 mod reasoning_effort;
+pub(crate) mod receiver_target;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub(crate) mod restore_exited_member;
@@ -247,6 +250,8 @@ pub struct ServiceContext {
     >,
     /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
+    /// Per-tab Telegram topic bindings, sender identity and open authority.
+    pub bridge_threads: Arc<codeterm_bridge::bridge::threads::ThreadService>,
     /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
     pub provider_updates: provider_update::ProviderUpdateRegistry,
@@ -261,8 +266,8 @@ pub struct ServiceContext {
     /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
     /// Voice notes resolve the active transcriber here by id.
     pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
-    /// Registry of glance-view providers (plugins with `glanceView`). Pinned
-    /// plugins render their popover from here.
+    /// Registry of glance-view providers (plugins with `glanceView`). Plugin
+    /// bubbles render their popovers from here.
     pub glance_registry: crate::glance::GlanceRegistryHandle,
     /// Registry of status-bubble providers (plugins with `statusBubble`). The
     /// tab-footer bubble row polls these per tab context.
@@ -293,6 +298,10 @@ pub struct ServiceContext {
     /// Registry of synchronous webhook receivers declared by JS plugins.
     /// Inbound API routes resolve the receiver here by manifest plugin id.
     pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
+    /// Manifest-declared tab menu items, keyed by plugin id.
+    pub tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle,
+    /// Sole owner of the webhook-receiver → tab bindings.
+    pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).

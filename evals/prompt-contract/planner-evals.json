@@ -179,6 +179,31 @@
         "Preserves the Orchestrator's stated intent rather than substituting a different goal.",
         "Does NOT approve the plan or dispatch any task."
       ]
+    },
+    {
+      "id": 17,
+      "name": "planner-declares-work-facet-and-tags-every-draft",
+      "response_mode": "text",
+      "prompt": "You are Planner for a new draft graph in pl_demo. Repository inspection and task boundaries are already accepted: one task for the frontend-owned settings form, one for the backend-owned settings persistence API, and one for the docs-owned operator guide. They have independent owners. The current facet declaration is area with value settings; preserve it. All three tasks need area:settings and topic settings-save. Section sec_settings already exists. Show the facet declaration and the three task-add commands you would hand to the Orchestrator. Do not execute anything.",
+      "expected_output": "Declares work alongside area and drafts three tasks, each carrying one explicit allowed work value plus the supplied unrelated tags.",
+      "expectations": [
+        "Emits a codeterm plan facets set command for pl_demo before the task-add commands, declaring work with frontend, backend, design, qa, infra, and docs as values while retaining the area facet and its settings value.",
+        "Emits exactly three codeterm plan task add commands; the settings form has exactly one work:frontend tag, the persistence API exactly one work:backend tag, and the operator guide exactly one work:docs tag.",
+        "Every task-add command preserves area:settings and settings-save as tags, with no second work value and no malformed or unsupported work tag.",
+        "Does NOT approve the plan, dispatch tasks, or implement any product change."
+      ]
+    },
+    {
+      "id": 18,
+      "name": "planner-work-facet-legacy-audit-needs-explicit-repair",
+      "response_mode": "text",
+      "prompt": "You are Planner for pl_demo, which declares work and area. Quality doctor reports task_old has tags area:settings, urgent, work:frontend, work:backend. Its title is 'Settings' and there is no evidence identifying its owning surface. Another plan pl_other declares only area and has untagged legacy tasks. State your next planning action and the repair needed; do not execute tools or invent a classification.",
+      "expected_output": "Names the conflicting work values and seeks an explicit classification decision before repairing that task, retaining unrelated tags and leaving the other plan compatible.",
+      "expectations": [
+        "Identifies task_old's two work values as a violation and requires exactly one of frontend, backend, design, qa, infra, or docs chosen from ownership evidence or an explicit Orchestrator decision.",
+        "Does NOT silently select a work value from the title or keep both values, and preserves area:settings and urgent in the proposed repair.",
+        "Does NOT classify pl_other's tasks as work-facet violations or silently backfill them, since that plan has no work declaration."
+      ]
     }
   ]
 }

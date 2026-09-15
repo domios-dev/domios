@@ -123,7 +123,7 @@ impl WebhookRejection {
         Self::new(
             StatusCode::BAD_GATEWAY,
             "delivery_failed",
-            "General Agent delivery failed",
+            "Webhook event delivery failed",
         )
     }
 
@@ -281,6 +281,7 @@ fn sanitize_event_text(text: &str) -> String {
 fn receive_and_deliver<S: DeliverySeam>(
     gateway: &MessageGateway,
     seam: &S,
+    live_bound_target: impl FnOnce(&str) -> Option<String>,
     resolve_general_agent: impl FnOnce() -> Result<String, String>,
     receiver: &dyn WebhookReceiver,
     context: WebhookReceiveContext,
@@ -313,10 +314,13 @@ fn receive_and_deliver<S: DeliverySeam>(
         return Err(WebhookRejection::receiver_failed());
     }
 
-    let target = resolve_general_agent().map_err(|error| {
-        log::warn!("[pebble-webhook] General Agent unavailable: {error}");
-        WebhookRejection::general_agent_missing()
-    })?;
+    let target = match live_bound_target(receiver.id()) {
+        Some(tab_id) => tab_id,
+        None => resolve_general_agent().map_err(|error| {
+            log::warn!("[pebble-webhook] General Agent unavailable: {error}");
+            WebhookRejection::general_agent_missing()
+        })?,
+    };
     let idempotency_key = event_id
         .as_deref()
         .map(|event_id| format!("pebble:{}:{event_id}", receiver.id()));
@@ -326,14 +330,17 @@ fn receive_and_deliver<S: DeliverySeam>(
             OutboundMessage {
                 target,
                 body: MessageBody::Text { body: text },
-                envelope: Some(MessageEnvelope::pebble()),
+                envelope: Some(MessageEnvelope::plugin(
+                    receiver.id(),
+                    receiver.icon_svg().map(str::to_string),
+                )),
                 class: DeliveryClass::SystemNotice,
                 origin: MessageOrigin::ServiceToken,
                 idempotency_key,
             },
         )
         .map_err(|error| {
-            log::warn!("[pebble-webhook] General Agent delivery failed: {error}");
+            log::warn!("[pebble-webhook] event delivery failed: {error}");
             WebhookRejection::delivery_failed()
         })?;
     if receipt.dedup_hit {
@@ -356,6 +363,7 @@ pub(crate) async fn receive_pebble_webhook(
         receive_and_deliver(
             &svc.gateway,
             svc.as_ref(),
+            |receiver_id| svc.live_receiver_target(receiver_id),
             || general_agent.resolve_general_tab(),
             receiver.as_ref(),
             context,

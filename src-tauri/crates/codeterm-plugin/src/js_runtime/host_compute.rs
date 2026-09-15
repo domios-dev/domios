@@ -1,4 +1,4 @@
-//! `host.worker` / `host.agent` / `host.workspace` / `host.mem` handles.
+//! `host.worker` / `host.agent` / `host.workspace` / `host.mem` / `host.analytics` handles.
 //!
 //! All service calls delegate through `PluginHostCtx`; no app types leak in.
 
@@ -174,6 +174,34 @@ pub(super) fn install_handles(
     bind!("memSearch", move |opts: String| -> String {
         match sb.service() {
             Some(svc) => svc.mem_search_json(&opts),
+            None => err("host service unavailable"),
+        }
+    });
+
+    let sb = sandbox.clone();
+    bind!("analyticsQuery", move |query: String| -> String {
+        if !sb.analytics_allowed() {
+            return err("host.analytics: analytics permission required");
+        }
+        match sb.service() {
+            Some(svc) => svc.analytics_query_json(&query),
+            None => err("host service unavailable"),
+        }
+    });
+
+    // Scoped to the calling plugin's own receiver; assigning a tab is host chrome, never a plugin call.
+    let sb = sandbox.clone();
+    bind!("receiverTargetGet", move || -> String {
+        match sb.service() {
+            Some(svc) => svc.receiver_target_json(sb.plugin_id()),
+            None => err("host service unavailable"),
+        }
+    });
+
+    let sb = sandbox.clone();
+    bind!("receiverTargetClear", move || -> String {
+        match sb.service() {
+            Some(svc) => svc.receiver_target_clear_json(sb.plugin_id()),
             None => err("host service unavailable"),
         }
     });

@@ -778,6 +778,7 @@ impl ServiceContext {
         if let Some(reservation) = worker_persona_reservation {
             reservation.commit_to_tab(&tab_id);
         }
+        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         let reasoning_effort = params.reasoning_effort.clone();
         self.record_kpi_spawn(

@@ -115,6 +115,15 @@ pub(super) fn dispatch(
                     }
                 });
 
+            // A send from a live tab speaks for that tab; anything else stays an unattributed chat send.
+            let route = params
+                .as_ref()
+                .and_then(|p| p.get("caller_tab_id"))
+                .and_then(|v| v.as_str())
+                .and_then(|caller| svc.mux.read().resolve_tab_id(caller.trim()))
+                .map(|tab_id| crate::bridge::manager::OutboundRoute::Tab { tab_id })
+                .unwrap_or_default();
+
             if let Some(tx) = svc.bridge_outbound.lock().as_ref() {
                 let msg = crate::bridge::manager::OutboundMessage {
                     user_id: chat_id,
@@ -123,6 +132,7 @@ pub(super) fn dispatch(
                     buttons,
                     edit: None,
                     receipt: None,
+                    route,
                 };
                 tx.send(msg).map_err(|e| JsonRpcError {
                     code: -32603,
@@ -138,6 +148,8 @@ pub(super) fn dispatch(
                 })
             }
         }
+
+        "bridge.thread.open" => open_thread(params, svc),
 
         "bridge.react" => {
             let chat_id = params
@@ -202,4 +214,57 @@ pub(super) fn dispatch(
             data: None,
         }),
     }
+}
+
+/// Same refusal class as a stale task binding: the caller lacks authority.
+const THREAD_AUTHORITY_CODE: i32 = -32003;
+
+fn thread_param(params: &Option<Value>, key: &str) -> Option<String> {
+    params
+        .as_ref()
+        .and_then(|p| p.get(key))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+}
+
+fn open_thread(params: &Option<Value>, svc: &ServiceState) -> Result<Value, JsonRpcError> {
+    let invalid = |message: String| JsonRpcError {
+        code: -32602,
+        message,
+        data: None,
+    };
+    let service = thread_param(params, "service")
+        .unwrap_or_else(|| codeterm_bridge::bridge::threads::SERVICE.to_string());
+    if service != codeterm_bridge::bridge::threads::SERVICE {
+        return Err(invalid(format!("service '{service}' has no topic threads")));
+    }
+    let caller = thread_param(params, "caller_tab_id").ok_or_else(|| {
+        invalid("caller_tab_id is required: run inside a CodeTerm tab".to_string())
+    })?;
+    let target = thread_param(params, "tab_id").unwrap_or_else(|| caller.clone());
+    let chat_id = params
+        .as_ref()
+        .and_then(|p| p.get("chat_id"))
+        .and_then(|v| v.as_i64());
+    let svc = svc.clone();
+    let opened = tauri::async_runtime::block_on(async move {
+        svc.open_bridge_thread(Some(&caller), &target, chat_id)
+            .await
+    })
+    .map_err(|error| JsonRpcError {
+        code: if error.is_authority() {
+            THREAD_AUTHORITY_CODE
+        } else {
+            -32602
+        },
+        message: error.to_string(),
+        data: None,
+    })?;
+    serde_json::to_value(opened).map_err(|error| JsonRpcError {
+        code: -32603,
+        message: error.to_string(),
+        data: None,
+    })
 }
