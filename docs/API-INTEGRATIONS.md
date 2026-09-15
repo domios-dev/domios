@@ -12,25 +12,9 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
 | socket | `bridge.thread.open` | `{caller_tab_id, tab_id?, service?, chat_id?}` | Open or reuse a tab's Telegram topic; returns `{tab_id, chat_id, thread_id, topic_name, link, created}`; `link` is null unless the chat kind has a topic link. A foreign target from a non-General caller fails with `-32003`. Socket `bridge.send` with `caller_tab_id` routes through that tab's topic. Contract: `TELEGRAM-SETUP` |
 
-**Concurrency contract.** `bridge_start`, `bridge_stop`, and the boot-time spawn all acquire the same `BridgeSupervisor::op_guard()` (tokio Mutex), so start/stop operations on the same daemon are serialized — no two of them ever race.
+**Concurrency.** Start, stop, and the boot-time spawn share one operation guard, so start/stop on one daemon never race.
 
-**GET /api/bridge/state** — current bridge runtime + config metadata. The `?service` query defaults to `telegram`; an unsupported value returns `400`. The `has_secret_in_vault` field is metadata-only via `SecretStore::has` and never decrypts the value.
-
-```json
-{
-  "service": "telegram",
-  "active": true,
-  "config_enabled": true,
-  "token_present": true,
-  "has_secret_in_vault": true,
-  "secret_name": "telegram_bot_token",
-  "started_at": "2026-05-06T12:00:00Z",
-  "last_poll_ok": "2026-05-06T12:01:30Z",
-  "last_poll_error": null,
-  "error_count": 0,
-  "instance_name": "workstation"
-}
-```
+**GET /api/bridge/state** — runtime and config snapshot. `?service` defaults to `telegram`; an unsupported value returns `400`. `has_secret_in_vault` is metadata only; the value is never decrypted.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -68,23 +52,9 @@ If a polling error containing `409` is observed (Telegram refuses the lock — a
 | `service` | `string` | `"telegram"` | Service to stop. `400` if unsupported. |
 | `timeout_ms` | `u64` | `30000` | How long to wait for the poller task to exit gracefully. |
 
-Behaviour:
-- If the supervisor is already idle, persists `telegram_enabled=false` (idempotent) and returns `200`:
-  ```json
-  {"ok": true, "released_in_ms": 0, "was_active": false}
-  ```
-- If active, signals the supervisor and waits up to `timeout_ms`. On success returns `200` with `was_active: true`. The config flip to `telegram_enabled=false` happens **only after** the supervisor stop succeeds, so timeouts never leave config disagreeing with runtime.
-- On timeout returns `408 Request Timeout` (`bridge stop timed out`); config is left untouched.
+An idle supervisor persists `telegram_enabled=false` and returns `200 {"ok": true, "released_in_ms": 0, "was_active": false}`. An active one is signalled and awaited up to `timeout_ms`: success returns `200` with `was_active: true` and only then flips the config; a timeout returns `408` (`bridge stop timed out`) with the config untouched.
 
-**POST /api/bridge/announce** — enqueue a one-shot text message via the existing outbound channel. Used by `codeterm bridge migrate --announce` to post a "now serving from <host>" sentinel after a successful migration. Body:
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `service` | `string` | `"telegram"` | Service to announce on. `400` if unsupported. |
-| `chat_id` | `i64` | *(required)* | Target Telegram chat/user id. |
-| `text` | `string` | *(required)* | Message text (HTML parse mode). |
-
-Returns `200 {"ok": true}` on success or `503 Service Unavailable` (`Bridge not active`) if the local bridge has no outbound channel yet.
+**POST /api/bridge/announce** — one-shot text (HTML parse mode) through the running bridge, used by `bridge migrate --announce`. Body `{service? = "telegram", chat_id (i64, required), text (required)}`. Returns `200 {"ok": true}`, or `503` (`Bridge not active`) while the bridge has no outbound channel.
 
 **POST /api/bridge/send** — sends an outbound message or media through the bridge. Parameters:
 
@@ -99,19 +69,9 @@ Returns `200 {"ok": true}` on success or `503 Service Unavailable` (`Bridge not 
 | `caption` | `string?` | — | Caption for media messages. If not set, positional `text` is used as caption. Stickers do not support captions. |
 | `filename` | `string?` | — | Custom filename for `document` type (overrides the original filename). |
 
-**Behavior:** `bridge send` (without `--append`) always sends a **new** message — no auto-edit. With `--append`, text is concatenated to the previous message (with an automatic `\n\n` paragraph break) and edited in-place, provided the previous message was sent within the last 60 seconds. If the 60-second window has expired, `--append` sends a new message instead.
+**Behavior.** Without `--append` every send is a new message. `--append` joins the text to the previous message with a paragraph break and edits it in place while that message is under 60 seconds old; otherwise it sends a new one. Text over Telegram's 4096-character limit is split on UTF-8 character boundaries. Sending works from any tab. Each inbound message shows a typing indicator, and inbound messages within 300 ms merge into one delivery. A dead polling service restarts after a 5-second backoff; the manager never exits.
 
-**Typing indicator:** On every inbound Telegram message, CodeTerm sends a `sendChatAction("typing")` to show the typing bubble.
-
-**Inbound debounce:** Rapid-fire Telegram messages within a 300ms window are merged into a single delivery to the agent PTY.
-
-**UTF-8 safe chunking:** Messages exceeding Telegram's 4096-character limit are split into chunks. The chunker uses `floor_char_boundary()` to avoid slicing multi-byte UTF-8 characters (Cyrillic, emoji, CJK), preventing panics on non-ASCII text.
-
-**Any-tab sending:** `bridge send` works from any tab, not just the General Agent tab. The CLI routes through the socket API without tab restrictions.
-
-**Service resilience:** If the Telegram polling service dies (network error, API failure), the bridge manager automatically restarts it after a 5-second backoff. The manager never exits — it loops indefinitely, logging panics instead of dying silently.
-
-Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
+Returns `{"ok": true}`, or `503` when the bridge is not active.
 
 #### Inbound webhooks (Pebble)
 | Method | Path | Body | Description |
@@ -122,17 +82,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 
 **Plugin contract.** The receiver's synchronous `webhookReceive({payload, receivedAt, audio?})` runs on a blocking thread and returns `{text, eventId?, transcript?}`, `null`, or throws. `audio` is `{mediaType, size}` metadata only; the bytes never enter the plugin. `transcript` is the sender's own transcript, which the host renders labelled (see *Audio*).
 
-**CoreApp format.** Pebble sends `multipart/form-data` containing `transcription`,
-`recordedAt` (Unix epoch milliseconds), and `client`; test events can add `test`,
-and a recording arrives as an `audio` file part (`audio/mp4`). Choose what CoreApp
-sends: with an audio-capable receiver, send the recording together with the
-transcription (CoreApp labels this contents `recording + transcription`); with a
-text-only receiver, send the transcription only. Configure only the Authorization
-header and let the app supply Content-Type and its boundary. The host passes text
-parts as a JSON object, rejects duplicate names and invalid UTF-8, and limits
-forms to 16 parts and 64 KiB per text part. File parts that are not the accepted
-audio part are skipped without being saved.
-Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-index-advanced-features-mcp-webhook).
+**CoreApp format.** Pebble sends `multipart/form-data` with `transcription`, `recordedAt` (epoch ms), and `client`; test events add `test`, and a recording is an `audio` file part (`audio/mp4`). Send `recording + transcription` to an audio-capable receiver and the transcription only to a text-only one; configure only the Authorization header. Text parts reach the plugin as a JSON object; duplicate names and invalid UTF-8 are rejected; forms allow 16 parts and 64 KiB per text part; other file parts are skipped unsaved. Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-index-advanced-features-mcp-webhook).
 
 **Audio.** A receiver opts in with `capabilities.webhookReceiver.audio: true`;
 the host branches only on that normalized flag. The route authenticates from the
@@ -184,12 +134,6 @@ Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by 
 
 **Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `-=-codeterm:pebble source=Pebble plugin=<plugin-id>-=-` followed by the text on its own line, with no reply address. The stored chat-origin metadata carries the receiver id and its host-sanitized plugin SVG; the marker carries identity only. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
 
-```bash
-curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
-  -H "Authorization: Bearer $PEBBLE_SECRET" \
-  -F 'transcription=Focus mode enabled' -F 'recordedAt=1789412400000' -F 'client=ring'
-```
-
 #### Receiver targets and plugin tab menus
 
 `GET /api/plugins/tab-menu` returns `{items: [{pluginId, itemId, label, action, iconSvg?, iconColor?}], receiverTargets: {<pluginId>: <tabId>}}` for every manifest `tabMenu` item; `iconSvg` is the host-sanitized SVG from the plugin bundle, or absent when the item and plugin have no accepted asset, and `iconColor` is the plugin's validated manifest color. `POST /api/plugins/tab-menu/action` `{pluginId, itemId, tabId}` runs the declared host-owned action on a local tab (`receiverTarget` binds the tab, or clears it when that tab is already bound). `GET|PUT {tabId}|DELETE /api/plugins/{id}/receiver-target` reads, binds (id or alias, replacing any previous binding) or clears one tab and returns `{pluginId, tabId, live}`; `tabId: null` or `live: false` means events take the General Agent path.
@@ -203,9 +147,9 @@ The host owns one binding per receiver plugin id, persisted in the data director
 | POST | `/api/setup/rules/install` | — | Install project rules |
 | GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status (`codeterm integration status --provider <id>`). Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete. |
 | POST | `/api/setup/hooks/install` | `?provider=<id>&precompact_memory_export=<bool>` | Authenticated install is consent: records `integration_consent_granted`, `integration_consent_recorded_at`, `integration_target` exactly like the Settings install, installs CodeTerm's own marked entries and grants their provider trust in the same step (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
+| POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
 
 With consent recorded, daemon start and provider plugin reload reconcile a missing, stale, or untrusted (`untrusted_hash`) integration by reinstalling with the trust grant. Without recorded consent nothing is rewritten or trusted.
-| POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
 
 #### Cron Jobs
 | Method | Path | Body / Query | Description |
@@ -225,13 +169,7 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Oneshot jobs:** Set `oneshot: true` to create a one-time scheduled task. Oneshot jobs accept relative time (`"in 5m"`, `"in 1h30m"`, `"in 2d"`), ISO 8601 (`"2026-04-05T14:30:00Z"`), or unix milliseconds instead of cron expressions. After firing, oneshot jobs are disabled (`next_run=null`) and auto-deleted on completion. The `CronJob` object includes `oneshot: bool` (default `false`, omitted from JSON when `false`).
 
-**`model`** — optional per-job override of the agent's model (e.g. `"opus"`, `"haiku"`, `"gpt-5.4-mini"`). Valid values depend on the `agent` provider; query `/api/agents/providers` for the list. Unset → use provider default.
-
-**`jitter_max_ms`** — max random delay added to each scheduled fire. `null`/omitted → auto (10% of interval, clamped to `[1m, 30m]`). `0` → disabled (fires exactly on schedule). Positive → cap in milliseconds.
-
-**`tz`** — IANA timezone string (e.g. `"Europe/Riga"`, `"UTC"`, `"America/New_York"`) the schedule is interpreted in. `null`/omitted → UTC. Invalid zones are rejected on create/update. DST transitions are handled by `chrono-tz`.
-
-**`timeout_seconds`** — per-cron run timeout override. When set, this overrides the global `memory.worker_timeout_seconds` for runs of this job. `null`/omitted → fall back to global default. `0` (on update) → clear the override. Use a higher value for long-running tasks like memory dreaming (e.g. `1800` for 30 minutes).
+**Fields.** `model` overrides the provider's default model (valid ids from `/api/agents/providers`). `jitter_max_ms`: omitted = 10% of the interval clamped to 1-30 min, `0` = exact, positive = cap in ms. `tz`: IANA zone, omitted = UTC, invalid zones rejected, DST handled. `timeout_seconds` overrides `memory.worker_timeout_seconds` for this job; `0` on update clears it.
 
 **`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
 
@@ -248,14 +186,6 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 | POST | `/api/tabs/{id}/permission-auto-confirm` | `{enabled}` | Opt the tab in/out of auto-confirming provider permission prompts the provider positively recognizes (`permissionPromptResponse`) and a hook PermissionRequest backs. Persisted in the session snapshot; journaled. Returns `{ok, tab_id, enabled}`. CLI: `codeterm tab auto-confirm on\|off`. |
 | GET | `/api/tabs/{id}/permission-auto-confirm` | — | `{tab_id, enabled, recent}` — `recent` holds the last auto-confirmations (`tool_name`, `option_label`, `rule`, `question`, `options`, `prompt_fingerprint`, `session_id`, `confirmed_at_ms`). CLI: `codeterm tab auto-confirm status`. |
 
-## Related documents
-
-Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage used by bridge startup: `codeterm docs API-STATE`.
-
-#### Updates
-| Method | Path | Body / Query | Description |
-|--------|------|------|-------------|
-| GET | `/api/update/status` | — | Current updater state and last update result |
 #### Git
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -267,4 +197,8 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 16 -->
+## Related documents
+
+Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
+
+<!-- revision: 17 -->

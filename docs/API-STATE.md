@@ -44,7 +44,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
-| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) — the browser bundle's `mux_get_state`. **Bounded:** at most `MAX_CONCURRENT_STATE_SNAPSHOTS` (`api::snapshot_bound`) snapshots build at once; over that, or while a lifecycle writer owns the mux/tracker lock, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. See *Full-state snapshot overload* below. |
+| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) — the browser bundle's `mux_get_state`. **Bounded:** at most `MAX_CONCURRENT_STATE_SNAPSHOTS` (`api::snapshot_bound`) snapshots build at once; over that, or while a lifecycle writer owns the mux/tracker lock, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
@@ -56,28 +56,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
 
-**Snapshot refetch cost and its bound.** `mux-state-changed` is a bare signal
-(`{"event":"mux_state_changed"}`), not a snapshot, so each one costs the client a
-full `GET /api/mux/state`: one refetch per event, measured 1:1 over 1405 switches.
-Bursts and the ring replay after an `overflow` therefore multiply, and the browser
-once held >1000 concurrent snapshot requests. The bundle now coalesces to **one
-snapshot fetch in flight** (`src/store/multiplexer/refreshCoalescer.ts`): a request
-arriving mid-fetch never joins it -- that fetch may predate the request's event --
-so it waits for the next one and a burst of any size costs at most two round trips.
-The daemon independently refuses past its own concurrency bound with `503`; it also
-refuses immediately when a lifecycle writer owns either snapshot lock. Both are
-back-pressure, not failure: the provider keeps its state in a not-yet-reconciled
-state and the next `mux-state-changed` or `mesh-state-changed` event schedules one
-coalesced read. There is no timer or polling retry.
-
-**Known defect (`rollacode/codeterm#428` family).** The "never by a silent gap"
-guarantee above does not hold today. `EventBus::send_bus` allocates the seq under
-the ring lock but publishes to the broadcast after releasing it, so concurrent
-publishers can reach the bus out of order and `events_stream`'s monotonic
-`replayed_max` guard then drops the lower seq with no `overflow` frame. The ring
-still holds it in order, so a reconnect with `since` recovers it. Observed as 9
-silent seq holes in a 9739-frame 60 s capture at high publish rate, none at ~4.5x
-lower rate. The relay is not implicated: it copies bytes through unmodified.
+Snapshot refetch coalescing, the snapshot bound and its `503`, and the known event-order gap in the stream: `codeterm docs API-EVENTS`.
 
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
@@ -102,7 +81,7 @@ Per-provider usage snapshots come from each provider plugin's quota-free `fetchU
 
 **Adaptive polling.** A single background scheduler ticks every 30 s and decides which provider/account is due. The cadence steps through `[600 s, 1200 s, 1800 s, 2400 s, 3000 s]` with ±10% jitter. A tab is active when `TabActivity::mark` records a recent keypress, send, or focus. Providers without a quota-free `fetchUsage` capability are not scheduled.
 
-**Projection algorithm.** `src-tauri/src/usage/projection.rs` builds per-day-of-week medians from the last four weeks, projects today's curve from the elapsed shape, and rejects pair-noise jumps wider than four hours with more than 25% change. The frontend's `activeWeeklyCycle()` discards stale weekly-reset timestamps that lag the latest reset.
+**Projection algorithm.** The projection builds per-day-of-week medians from the last four weeks, projects today's curve from the elapsed shape, and rejects pair-noise jumps wider than four hours with more than 25% change. The frontend's `activeWeeklyCycle()` discards stale weekly-reset timestamps that lag the latest reset.
 
 #### Logs
 
@@ -216,6 +195,7 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 | POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General tab after restart. Update application is single flight process-wide: a request arriving while another is applying is refused with `{"status":"already_in_flight"}`, which is distinct from `no_update`. |
 | GET | `/api/update/channel` | — | Returns the active diagnostic channel, currently `{"channel":"stable"}` on normal installs. |
 | POST | `/api/update/channel` | `{channel}` | Disabled while CodeTerm ships only the default update channel; returns `409 update channel switching is disabled`. |
+| GET | `/api/update/status` | — | Current updater state and last update result |
 
 **Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — the public key is embedded in `tauri.conf.json`; signature verification is handled by `tauri-plugin-updater` and a wrong-key signature aborts the install before any binary is touched.
 
@@ -234,10 +214,6 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 **Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
 
-### Full-state snapshot overload
-
-The 8-way bound on concurrent `GET /api/mux/state` snapshots, its 503 answer, and the client contract: see `codeterm docs API-EVENTS`.
-
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

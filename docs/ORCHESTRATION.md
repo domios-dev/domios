@@ -48,46 +48,22 @@ The Orchestrator may implement a genuinely small local change when delegation
 would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
 When Team-bound, utility shells and cron jobs inherit the same Team for cleanup. Use `--no-team` only when a resource must deliberately outlive it.
 
-Plan-owned work is dispatched atomically with `codeterm plan task dispatch`,
-which spawns the Worker, assigns the task, and delivers the brief in one call.
-When a dispatch is blocked, clear the blocker or record the task as blocked.
-Never substitute a loose roleless agent: an agent outside the Team and outside
-the plan owns no task, appears in no plan state, and reports to nobody, so its
-work is invisible to every gate that would otherwise catch it.
+Plan-owned work is dispatched atomically with `codeterm plan task dispatch` (spawn,
+assign, brief in one call). When a dispatch is blocked, clear the blocker or record
+the task as blocked. Never substitute a loose roleless agent: it owns no task,
+appears in no plan state, reports to nobody, and escapes every gate.
 
-Lane safety has two hard stops and otherwise only advisory nudges; the rules,
-violation ids and fixes are in the lanes playbook the table above names.
+Lane safety has two hard stops and otherwise only nudges; see the lanes playbook.
 
 ### Recovering a tab-gone task
 
-When a Worker's tab is gone, its owner epoch is stale by definition — so the
-epoch is not allowed to block recovery. The **live authenticated Plan owner**
-may `cancel`, `pend`, reassign, respawn, or **dispatch** such a task — every
-verb that actually meets the tab-gone state. That recovery retires
-the stale attempt in the *same* transition that clears the dead owner identity,
-so no half-applied state is observable and a `dispatch_ready` arriving later for
-the retired attempt is rejected instead of resurrecting ownership. The widening
-is for the Plan owner only: a non-owner, non-epoch caller is still refused.
+The live Plan owner may cancel, pend, reassign, respawn, or dispatch a task whose
+Worker tab is gone; the recovery retires the stale attempt in the same transition.
+Ownership proof, verb allowlists, and refusals: `codeterm docs API-PLAN`.
 
-Plan ownership itself is proven against the caller's **live tab binding** —
-tab present, agent session live, binding nonce both stored and reported back,
-and that tab recorded as the plan's owner with Team-Orchestrator authority. It
-is never proven from the owner record's `session_id`, which only the agent
-restart path refreshes; an Orchestrator whose session moved by restore,
-compaction, or provider relaunch stays its own plan's owner.
-
-Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs
-are a subset of the verbs where the Plan owner has authority over a task it does
-not itself hold. A verb that asserts the *caller's own* task binding — a Worker
-report — is on neither list, so it is validated only against that binding and
-can never ride the recovery hatch to transition a task the caller is not bound
-to. Refusals carry a stable `data.type` discriminant naming the state that
-blocked them, so a tab-gone task is never reported as a stale epoch.
-
-Archiving a plan with no retrospective **succeeds** and emits the advisory
-`plan.retrospective_unrecorded`. Write the retrospective before normal closure
-(`codeterm plan retrospective <plan> --body-file <pad-relative-path>`) — but the
-mechanism is a nudge, never a gate, so it can never trap recovery or closure.
+Archiving a plan with no retrospective succeeds with the advisory
+`plan.retrospective_unrecorded`; write it first with
+`codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
 ## The loop
 
@@ -216,14 +192,9 @@ Before a wave:
 6. If dispatch fails, alert the user immediately and verify rollback. Never
    blind-retry a write.
 
-Every Worker must be visible under the Orchestrator and carry:
-
-- a clear title and description;
-- `CODETERM_PLAN_ID` and `CODETERM_TASK_ID`;
-- checkout placement chosen by the Orchestrator;
-- a self-contained brief with exact acceptance and test commands;
-- `codeterm agent ack` as its first task action;
-- instructions to report by running `codeterm agent report`.
+Every Worker is visible under the Orchestrator with a clear title and description,
+`CODETERM_PLAN_ID` and `CODETERM_TASK_ID`, the checkout the Orchestrator chose, and a
+self-contained brief with exact acceptance and test commands; it acks first and reports last.
 
 `plan task dispatch` is local-only. A Worker spawned with `agent spawn --mesh PEER`
 has no attempt on the origin plan store and no plan/task env, so it reports with
@@ -254,14 +225,7 @@ Generic task updates, decision gates, and removals cannot move a task out
 of `in_review`. Use `codeterm plan review accept|bounce|hold <plan> <task> --note
 "…"`: `bounce` returns the work to the Worker, `hold` keeps the review open with
 the assignment and lane intact, and every verdict requires `--note`, never
-`--reason`. Historical credit leaked by older builds is repaired auditably with:
+`--reason`. Review credit repair, task-less evidence reporters, and Planner parent
+resolution are plan surface contracts (API-PLAN).
 
-```bash
-codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
-```
-Both mutations require the live bound Orchestrator session and record an immutable plan stride.
-For task-less review or canonical-QA evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan> <tab> --class review|canonical_qa`; the exact current session receives evidence-only authority. The tab reports with `codeterm agent report --plan <plan>` and no task/status, producing an immutable Plan stride and ordinary owner event without task transition or elevated authority. Missing, foreign, rebound, task-bound, or stale-owner grants fail before persistence or delivery and require reauthorization.
-Planner spawns through CLI, REST, and synchronous service callers resolve an omitted `--parent-tab` from the supplied Plan owner before provisioning. A missing owner refuses with the Plan identity and creates no tab; an explicit parent still wins.
-Fresh shells may omit `CODETERM_SESSION_ID`: evidence reporting resolves the exact registered tab session only with a matching stored and hook-reported nonce. Explicit wrong sessions and missing grants still refuse; never inject another tab's session.
-
-<!-- revision: 79 -->
+<!-- revision: 80 -->
