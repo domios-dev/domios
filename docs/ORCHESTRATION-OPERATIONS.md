@@ -29,6 +29,21 @@ run tests, start dev services, or execute gates, even when a command is focused
 or cheap. A Worker in canonical still requires explicit Orchestrator permission
 for each authorized command.
 
+A mutating canonical Worker exists only through the explicit dispatch opt-in:
+
+```bash
+codeterm plan task dispatch <plan> <task> --execution-intent mutating \
+  --canonical-writer --authorized-gate "<exact focused command>"
+```
+
+Use it for sequential work that benefits from fast iteration; parallel source
+work stays in isolated lanes. The writer holds canonical exclusively: occupancy
+refuses a second live canonical attempt, and `plan review accept` refuses lane
+tasks until the writer's own verdict. Authorize only focused tests, check and
+fmt; broad, release and integration gates stay with you. It commits on the
+integration branch and reports its commit ids with a clean tree; a dirty report
+is refused and is a bounce. Accept or bounce it before merging any lane.
+
 After integrating a lane candidate, run its focused oracle through a canonical
 verification Worker. If it fails, bounce the task with the exact command and
 failure evidence. Run broad suites only once for the compatible group.
@@ -106,7 +121,9 @@ Repository-specific restrictions override generic gate suggestions.
 ## Integration and cleanup
 
 Integrate accepted work with a real merge commit. Never cherry-pick, squash,
-replay, or patch-copy lane work.
+replay, or patch-copy lane work. Never merge a lane into canonical while a
+canonical writer attempt is live; the merge is plain git, so the accept refusal
+is the recorded stop.
 
 Before deleting a lane:
 
@@ -179,4 +196,4 @@ An effort is complete only when:
 - the final handoff or retrospective is recorded;
 - the plan is archived.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
