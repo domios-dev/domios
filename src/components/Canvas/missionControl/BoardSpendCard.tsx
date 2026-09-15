@@ -6,6 +6,7 @@ import { formatCompact, formatCount, formatSharePct } from "./missionControlBoar
 import {
   TEAM_SPEND_DAYS,
   teamPlanShares,
+  teamSpendNote,
   teamSpendTotals,
   teamTokensChart,
   teamWeeklyChart,
@@ -132,6 +133,14 @@ function TokensReading({ spend, byModel }: { spend: TeamSpend; byModel: boolean 
   const shares = teamPlanShares(spend);
   const [showAll, setShowAll] = useState(false);
   const listId = useId();
+  const note = teamSpendNote(spend);
+  if (note) {
+    return (
+      <p data-testid="mc-board-spend-not-recording" className="mc-board-note">
+        {note}
+      </p>
+    );
+  }
   const visibleShares = showAll ? shares : shares.slice(0, PLAN_SHARES_PREVIEW);
   return (
     <>
