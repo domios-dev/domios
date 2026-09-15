@@ -113,11 +113,78 @@ pub fn uniform_id_value(value: &serde_json::Value) -> serde_json::Value {
 pub const TAB_LIST_JSON_KEY: &str = "tabs";
 
 pub fn tab_list_json_envelope(tabs: Vec<serde_json::Value>) -> serde_json::Value {
+    tab_list_json_envelope_with_request(tabs, None)
+}
+
+pub fn tab_list_json_envelope_with_request(
+    tabs: Vec<serde_json::Value>,
+    requested_workspace: Option<&str>,
+) -> serde_json::Value {
+    let first = tabs.first();
+    let kind = requested_workspace
+        .map(|_| "workspace")
+        .or_else(|| {
+            first
+                .and_then(|tab| tab.get("scope"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .unwrap_or("all_workspaces")
+        .to_string();
+    let workspace_id = requested_workspace
+        .map(str::to_string)
+        .or_else(|| {
+            first
+                .and_then(|tab| tab.get("scope_workspace_id"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        });
+    let workspace_name = first
+        .and_then(|tab| tab.get("scope_workspace_name"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let other_workspace_tab_count = first
+        .and_then(|tab| tab.get("other_workspace_tab_count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let mut grouped = std::collections::BTreeMap::<(String, String), Vec<serde_json::Value>>::new();
+    for tab in &tabs {
+        let id = tab
+            .get("workspace_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let name = tab
+            .get("workspace_name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        grouped.entry((id, name)).or_default().push(tab.clone());
+    }
+    let workspaces = grouped
+        .into_iter()
+        .map(|((id, name), tabs)| {
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "tabs": tabs,
+            })
+        })
+        .collect::<Vec<_>>();
     let mut envelope = serde_json::Map::new();
     envelope.insert(
         TAB_LIST_JSON_KEY.to_string(),
         serde_json::Value::Array(tabs),
     );
+    envelope.insert(
+        "scope".into(),
+        serde_json::json!({
+            "kind": kind,
+            "workspace_id": workspace_id,
+            "workspace_name": workspace_name,
+            "other_workspace_tab_count": other_workspace_tab_count,
+        }),
+    );
+    envelope.insert("workspaces".into(), serde_json::Value::Array(workspaces));
     serde_json::Value::Object(envelope)
 }
 
@@ -579,6 +646,30 @@ mod tests {
         let printed = uniform_id_value(&tab_list_json_envelope(Vec::new()));
 
         assert_eq!(printed["tabs"], json!([]));
+    }
+
+    #[test]
+    fn tab_list_json_workspace_grouping() {
+        let printed = uniform_id_value(&tab_list_json_envelope(vec![
+            json!({
+                "id": "tab_one",
+                "workspace_id": "ws_one",
+                "workspace_name": "One",
+                "scope": "all_workspaces"
+            }),
+            json!({
+                "id": "tab_two",
+                "workspace_id": "ws_two",
+                "workspace_name": "Two",
+                "scope": "all_workspaces"
+            }),
+        ]));
+
+        assert_eq!(printed["scope"]["kind"], "all_workspaces");
+        let groups = printed["workspaces"].as_array().expect("workspace groups");
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0]["tabs"].as_array().unwrap().len(), 1);
+        assert_eq!(groups[1]["tabs"].as_array().unwrap().len(), 1);
     }
 
     #[test]

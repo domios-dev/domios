@@ -245,10 +245,13 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     query.push(format!("workspace_id={}", urlencoding::encode(workspace)));
                 } else if *all_workspaces {
                     query.push("all_workspaces=true".into());
-                } else {
-                    query.push("focused_workspace=true".into());
                 }
-                ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
+                let path = if query.is_empty() {
+                    "/api/tabs".to_string()
+                } else {
+                    format!("/api/tabs?{}", query.join("&"))
+                };
+                ("GET".into(), path, None)
             }
             crate::TabAction::Inspect { tabs, tab, lifecycle } => (
                 "GET".into(),

@@ -63,7 +63,7 @@ async function json(path) {
 async function observedState() {
   const mux = await json("/api/mux/state");
   if (!mux) return null;
-  const tabEnvelope = await json("/api/tabs?all_workspaces=true");
+  const tabEnvelope = await json("/api/tabs");
   if (!tabEnvelope) return null;
   const tabs = Array.isArray(tabEnvelope) ? tabEnvelope : (tabEnvelope.tabs || []);
   lastLifecycleTitles = tabs
