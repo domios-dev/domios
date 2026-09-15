@@ -1,20 +1,23 @@
 import { type MutableRefObject, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   lastSessionResetIndex,
-  matchedOptimisticEchoes,
-  nextOptimisticOrder,
   projectContextEpochs,
   projectTranscript,
   reduceToolEvents,
   stabilizeTimelineItems,
+  timestampMs,
   transcriptBackfillCursor,
   transcriptRows,
-  type NormalizedChatMessage as ChatMessage,
-  type OptimisticEcho,
   type TimelineItem,
   type TranscriptState,
 } from "@codeterm/chat-core";
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
+import {
+  addChatSend,
+  recordChatSendEchoes,
+  updateChatSendContent,
+  useChatSends,
+} from "./chatSendStore";
 import {
   chatWindowAnchorIdentity,
   chatWindowProjection,
@@ -26,57 +29,24 @@ import {
 } from "./chatWindow";
 import { setTranscriptAnchor } from "./transcriptStore";
 
-const MAX_RETAINED_OPTIMISTIC_MESSAGES = 16;
-const MS_EPOCH_FLOOR = 1e12;
-
-export function timestampMs(ts: string | undefined): number | null {
-  if (!ts) return null;
-  const numeric = Number(ts);
-  if (Number.isFinite(numeric)) {
-    if (numeric <= 0) return null;
-    return numeric < MS_EPOCH_FLOOR ? numeric * 1000 : numeric;
-  }
-  const parsed = Date.parse(ts);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-function toEchoes(msgs: readonly ChatMessage[]): OptimisticEcho[] {
-  return msgs.map((m) => ({
-    id: m.id,
-    content: m.content,
-    sentAtMs: Number(m.timestamp) || 0,
-    clientOrder: m.clientOrder,
-    correlationId: m.correlationId,
-  }));
-}
-
-/** A transcript reset restarts arrival ordinals, so an ordinal above the live count
- *  is from the previous epoch and would keep its echo from ever reconciling. */
-function withCurrentArrivalOrder(rows: ChatMessage[], arrivals: number): ChatMessage[] {
-  if (!rows.some((row) => row.clientOrder != null && row.clientOrder > arrivals)) return rows;
-  return rows.map((row) => {
-    if (row.clientOrder == null || row.clientOrder <= arrivals) return row;
-    const { clientOrder: _staleOrder, ...rebased } = row;
-    return rebased;
-  });
-}
-
-/** Viewport projection over the committed transcript: window anchor, enriched
- *  rows and the optimistic tail. It reads the transcript and never stores one. */
+/** Viewport projection over the committed transcript and the tab's sends: window anchor
+ *  and enriched rows. It reads both stores and never keeps a copy of either. */
 export function useChatWindowView({
+  tabId,
   windowKey,
   transcript,
   anchorKey,
   followTailRef,
   loadOlderPage,
 }: {
+  tabId: string;
   windowKey: string;
   transcript: TranscriptState;
   anchorKey: string | null;
   followTailRef: MutableRefObject<boolean>;
   loadOlderPage: (beforeOffset: number) => Promise<boolean>;
 }) {
-  const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
+  const sends = useChatSends(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const backfillInFlightRef = useRef(false);
   const pendingRevealRef = useRef(false);
@@ -90,27 +60,16 @@ export function useChatWindowView({
     const index = lastSessionResetIndex(committedRows);
     return index >= 0 ? timestampMs(committedRows[index]?.timestamp) : null;
   }, [committedRows]);
-  const arrivals = transcript.arrivals;
-  const rebasedOptimistic = useMemo(
-    () => withCurrentArrivalOrder(optimistic, arrivals),
-    [optimistic, arrivals],
-  );
-  useLayoutEffect(() => {
-    if (rebasedOptimistic === optimistic) return;
-    setOptimistic((previous) => withCurrentArrivalOrder(previous, arrivals));
-  }, [arrivals, optimistic, rebasedOptimistic]);
-  const liveOptimistic = useMemo(() => {
-    if (resetCutoffMs == null) return rebasedOptimistic;
-    return rebasedOptimistic.filter((m) => {
-      const ts = timestampMs(m.timestamp);
-      return ts == null || ts >= resetCutoffMs;
-    });
-  }, [rebasedOptimistic, resetCutoffMs]);
+  const liveSends = useMemo(() => {
+    if (resetCutoffMs == null) return sends;
+    return sends.filter((send) => send.sentAtMs >= resetCutoffMs);
+  }, [sends, resetCutoffMs]);
 
-  const allMessages = useMemo(
-    () => projectContextEpochs(projectTranscript(transcript, liveOptimistic).rows),
-    [transcript, liveOptimistic],
-  );
+  const projection = useMemo(() => projectTranscript(transcript, liveSends), [transcript, liveSends]);
+  const allMessages = useMemo(() => projectContextEpochs(projection.rows), [projection]);
+  useLayoutEffect(() => {
+    recordChatSendEchoes(tabId, projection.echoes);
+  }, [projection, tabId]);
 
   // Both layers reuse prior objects for unchanged messages so MessageBubble
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
@@ -212,65 +171,24 @@ export function useChatWindowView({
     updateWindowAnchor(item ? timelineItemKey(item) : null);
   }, [allTimelineItems, anchorKey, followTailRef, showLatest, updateWindowAnchor, windowRange.end]);
 
-  // Consumers hand this straight to memoized rows, so it must not churn with the
-  // streaming transcript; the ordinal is read from the live one at call time.
-  const transcriptRef = useRef(transcript);
-  transcriptRef.current = transcript;
-
+  // The send key is captured here, once, when the composer accepts the send.
   const addOptimistic = useCallback((content: string) => {
-    const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    const clientOrder = nextOptimisticOrder(transcriptRef.current);
-    setOptimistic((previous) => [
-      ...previous.slice(-(MAX_RETAINED_OPTIMISTIC_MESSAGES - 1)),
-      {
-        id,
-        type: "user",
-        content,
-        timestamp: String(Date.now()),
-        clientOrder,
-        // The bubble's own id doubles as its stable send-correlation token; the
-        // server echoes it onto the committed turn to reconcile by identity.
-        correlationId: id,
-      },
-    ]);
+    const sentAtMs = Date.now();
+    const id = `opt-${sentAtMs}-${Math.floor(Math.random() * 1e6)}`;
+    // The bubble's own id doubles as its send-correlation token.
+    addChatSend(tabId, { id, content, sentAtMs, correlationId: id });
     return id;
-  }, []);
+  }, [tabId]);
 
-  /** Replace an optimistic bubble's content in place — used to morph a
-   * "transcribing…" placeholder into the final transcript (or an error)
-   * without the bubble shifting or re-mounting. */
   const updateOptimistic = useCallback((id: string, content: string) => {
-    setOptimistic((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, content, timestamp: String(Date.now()) } : m)),
-    );
-  }, []);
-
-  const clearOptimistic = useCallback(() => setOptimistic([]), []);
-
-  useLayoutEffect(() => {
-    if (rebasedOptimistic.length === 0) return;
-    const parsedUsers = committedRows.filter(
-      (m) => m.type === "user" || m.type === "local_command",
-    );
-    const { matchedIds } = matchedOptimisticEchoes(toEchoes(rebasedOptimistic), parsedUsers);
-    const matched = new Set(matchedIds);
-    setOptimistic((prev) => {
-      const next = prev.filter((m) => {
-        if (matched.has(m.id)) return false;
-        if (resetCutoffMs == null) return true;
-        const ts = timestampMs(m.timestamp);
-        return ts == null || ts >= resetCutoffMs;
-      });
-      return next.length === prev.length ? prev : next;
-    });
-  }, [committedRows, resetCutoffMs, rebasedOptimistic]);
+    updateChatSendContent(tabId, id, content);
+  }, [tabId]);
 
   return {
     addOptimistic,
     allMessages,
     backfillLoading,
     canBackfillOlder,
-    clearOptimistic,
     committedRows,
     enrichedMessages,
     hiddenMessageCount,

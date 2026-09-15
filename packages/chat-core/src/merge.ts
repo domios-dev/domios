@@ -21,7 +21,6 @@ function semanticMessageFingerprint(message: NormalizedChatMessage): string {
   const {
     id: _id,
     seq: _seq,
-    clientOrder: _clientOrder,
     toolId: _toolId,
     ...semantic
   } = message;

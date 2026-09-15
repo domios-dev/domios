@@ -1,7 +1,7 @@
-import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 import { mergeById } from "./merge";
+import { reconcileSends, sendRow, type ChatSend, type SendEcho } from "./sendOrder";
 import { timestampMs } from "./time";
-import { chronologicalRows } from "./timeline";
+import { chronologicalOrder, inheritedOrderKeys } from "./timeline";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open byte range `[start, end)` of a session source, both ends on a
@@ -30,9 +30,6 @@ export interface TranscriptState {
   segments: TranscriptSegment[];
   /** Rows dropped off the top by the retention bound. */
   evictedOlder: number;
-  /** Arrival ordinals handed to live rows; the only ordering signal an
-   *  optimistic row can be placed against. */
-  arrivals: number;
 }
 
 export interface TranscriptBatch {
@@ -60,15 +57,9 @@ export interface TranscriptResult {
 export const TRANSCRIPT_RETENTION_LIMIT = 440;
 
 export function createTranscriptState(): TranscriptState {
-  return { authority: null, segments: [], evictedOlder: 0, arrivals: 0 };
+  return { authority: null, segments: [], evictedOlder: 0 };
 }
 
-/** Ordinal an optimistic row must carry to sit above every later arrival. */
-export function nextOptimisticOrder(state: TranscriptState): number {
-  return state.arrivals;
-}
-
-/** History rows only inherit the batch session; they never take an ordinal. */
 function ownedRows(
   authority: TranscriptAuthority,
   rows: readonly NormalizedChatMessage[],
@@ -77,23 +68,6 @@ function ownedRows(
   return rows.map((row) => (
     row.sourceSessionId != null ? row : { ...row, sourceSessionId }
   ));
-}
-
-/** Live rows take the next arrival ordinals; history never does, so a re-parsed
- *  window cannot push a pending optimistic row upward. */
-function arrivedRows(
-  state: TranscriptState,
-  authority: TranscriptAuthority,
-  rows: readonly NormalizedChatMessage[],
-): { rows: NormalizedChatMessage[]; arrivals: number } {
-  let arrivals = state.arrivals;
-  const sourceSessionId = authority.sourceSessionId ?? undefined;
-  const stamped = rows.map((row) => {
-    const clientOrder = row.clientOrder ?? arrivals;
-    if (row.clientOrder == null) arrivals += 1;
-    return { ...row, clientOrder, sourceSessionId: row.sourceSessionId ?? sourceSessionId };
-  });
-  return { rows: stamped, arrivals };
 }
 
 function isRange(range: TranscriptRange | null | undefined): range is TranscriptRange {
@@ -262,14 +236,8 @@ function reduceDelta(
   limit: number,
 ): TranscriptResult {
   if (!isRange(batch.range)) {
-    const arrived = arrivedRows(state, batch.authority, batch.rows);
-    const rows = mergeById(unrangedRows(state), arrived.rows);
-    return committed(
-      { ...state, arrivals: arrived.arrivals },
-      withUnrangedRows(state, "delta", rows),
-      "adopted",
-      limit,
-    );
+    const rows = mergeById(unrangedRows(state), ownedRows(batch.authority, batch.rows));
+    return committed(state, withUnrangedRows(state, "delta", rows), "adopted", limit);
   }
   const range = batch.range;
   const end = transcriptCommittedEnd(state);
@@ -280,10 +248,9 @@ function reduceDelta(
     if (range.start < end) return { state, outcome: "recover_overlap" };
     if (range.start > end) return { state, outcome: "recover_gap" };
   }
-  const arrived = arrivedRows(state, batch.authority, batch.rows);
   return committed(
-    { ...state, arrivals: arrived.arrivals },
-    [...state.segments, { kind: "delta", range, rows: rangedRows(range, arrived.rows) }],
+    state,
+    [...state.segments, { kind: "delta", range, rows: rangedRows(range, ownedRows(batch.authority, batch.rows)) }],
     "adopted",
     limit,
   );
@@ -336,53 +303,25 @@ export function reduceTranscript(
 
 export interface TranscriptProjection {
   rows: NormalizedChatMessage[];
-  /** Optimistic rows still awaiting their parsed echo. */
-  pending: NormalizedChatMessage[];
+  /** Sends still awaiting their source echo. */
+  pending: ChatSend[];
+  /** Echo identity of every send reconciled against this transcript. */
+  echoes: Map<string, SendEcho>;
 }
 
-function toEchoes(rows: readonly NormalizedChatMessage[]): OptimisticEcho[] {
-  return rows.map((row) => ({
-    id: row.id,
-    content: row.content,
-    sentAtMs: Number(row.timestamp) || 0,
-    clientOrder: row.clientOrder,
-    correlationId: row.correlationId,
-  }));
-}
-
-/** Places a pending optimistic row inline by timestamp instead of pinning it
- *  below later-arriving committed rows; a null stamp falls back to the tail. */
-function insertionIndexByTimestamp(
-  rows: readonly NormalizedChatMessage[],
-  timestamp: string | number | undefined,
-): number {
-  const ts = timestampMs(timestamp);
-  if (ts == null) return rows.length;
-  let index = rows.length;
-  while (index > 0) {
-    const rowTs = timestampMs(rows[index - 1]?.timestamp);
-    if (rowTs == null || rowTs <= ts) break;
-    index -= 1;
-  }
-  return index;
-}
-
-/** An echoed row reconciles once: matching runs against the whole committed
- *  projection, so a reconciled row is never re-appended. */
+/** The single ordering authority: committed and pending rows share one key path, so an
+ *  echo that reconciles a send changes the row's identity and content, never its place. */
 export function projectTranscript(
   state: TranscriptState,
-  optimistic: readonly NormalizedChatMessage[] = [],
+  sends: readonly ChatSend[] = [],
 ): TranscriptProjection {
-  const rows = chronologicalRows(transcriptRows(state));
-  if (optimistic.length === 0) return { rows, pending: [] };
-  const parsedUsers = rows.filter((row) => row.type === "user" || row.type === "local_command");
-  const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
-  const matched = new Set(matchedIds);
-  const pending = optimistic.filter((row) => !matched.has(row.id));
-  if (pending.length === 0) return { rows, pending: [] };
-  const projected = [...rows];
-  for (const row of pending) {
-    projected.splice(insertionIndexByTimestamp(projected, row.timestamp), 0, row);
-  }
-  return { rows: projected, pending };
+  const committedRows = transcriptRows(state);
+  const { keys: sendKeys, echoes, pending } = reconcileSends(sends, committedRows);
+  const rows = [...committedRows, ...pending.map(sendRow)];
+  const keys = inheritedOrderKeys(rows, (row, index) => (
+    index >= committedRows.length
+      ? pending[index - committedRows.length].sentAtMs
+      : sendKeys.get(index) ?? timestampMs(row.timestamp)
+  ));
+  return { rows: chronologicalOrder(rows, keys), pending, echoes };
 }
