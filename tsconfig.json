@@ -24,7 +24,10 @@
     "plugins/provider-claude/src/plugin.ts",
     "plugins/provider-codex/src/plugin.ts",
     "plugins/provider-opencode/src/plugin.ts",
-    "plugins/git/src"
+    "plugins/git/src",
+    "plugins/analytics/src",
+    "plugins/analytics/ui/src",
+    "plugins/analytics/tests"
   ],
   "exclude": [
     "packages/chat-ui/src/**/*.test.ts",

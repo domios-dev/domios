@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ThemeConfig } from "../../lib/types";
 import { CloseXIcon, HamburgerIcon } from "../Icons";
@@ -9,6 +9,7 @@ import { IS_WEB } from "../../lib/webApi";
 import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
+import { AnalyticsTray } from "./AnalyticsTray";
 import { SettingsMenu } from "./SettingsMenu";
 import type { SectionId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
@@ -22,6 +23,9 @@ interface TitlebarProps {
   onNewTab?: () => void;
   theme: ThemeConfig;
   onOpenExtensions?: () => void;
+  analyticsOpen?: boolean;
+  onToggleAnalytics?: () => void;
+  analyticsButtonRef?: Ref<HTMLButtonElement>;
   onOpenSettings?: (section?: SectionId) => void;
   notifications?: Notification[];
   /** The master bell switch. False removes the indicator; nothing about what is
@@ -42,6 +46,9 @@ export function Titlebar({
   showSidebarToggle = false,
   theme: _theme,
   onOpenExtensions,
+  analyticsOpen = false,
+  onToggleAnalytics,
+  analyticsButtonRef,
   onOpenSettings,
   notifications = [],
   showBell = true,
@@ -142,6 +149,9 @@ export function Titlebar({
               onNavigate={onNavigateToast}
               onAnswer={onAnswerNotification}
             />
+          )}
+          {onToggleAnalytics && (
+            <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
           )}
           {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
           <KeepAwakeTray />

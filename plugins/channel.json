@@ -33,6 +33,12 @@
       "path": "chat-preprocessor",
       "version": "1.4.6",
       "minCodeterm": "1.0.0"
+    },
+    {
+      "id": "analytics",
+      "path": "analytics",
+      "version": "1.10.20",
+      "minCodeterm": "1.10.20"
     }
   ]
 }
