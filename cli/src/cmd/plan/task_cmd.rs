@@ -408,6 +408,9 @@ pub(super) fn run_task(
                     "--executor-role names who executes this task and cannot be blank".to_string(),
                 );
             }
+            if let Some(personality) = personality.as_deref() {
+                codeterm_types::plan::validate_executor_name(personality)?;
+            }
             let role_guidance_text =
                 super::resolve_role_guidance(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;

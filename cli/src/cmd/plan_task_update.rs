@@ -187,6 +187,9 @@ pub(crate) fn run(
     handle: Option<String>,
     external_refs: Vec<String>,
 ) -> Result<Value, String> {
+    if let Some(personality) = personality.as_deref() {
+        codeterm_types::plan::validate_executor_name(personality)?;
+    }
     let why_text = resolve_text(why, why_file)?;
     let body_text = resolve_text(body, body_file)?;
     let role_guidance_text = resolve_role_guidance(role_guidance, role_guidance_file)?;
