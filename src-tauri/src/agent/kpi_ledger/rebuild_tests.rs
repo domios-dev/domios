@@ -48,34 +48,39 @@ fn legacy_ledger(db: &Path, sources: &[LegacySource<'_>]) {
     KpiLedger::add_v3_dedup_and_cursors(&conn).unwrap();
     KpiLedger::add_v4_workspace_and_tab_created(&conn).unwrap();
     for source in sources {
+        insert_legacy_rows(&conn, source);
         let len = std::fs::metadata(&source.path).unwrap().len();
-        let (batch, _) = UsageIngestor::read_through(&UsageSource::new(&source.path), len).unwrap();
-        let lines = batch
-            .records
-            .iter()
-            .flat_map(|record| record.observed.iter())
-            .chain(batch.superseded.iter());
-        for (timestamp, tokens) in lines {
-            conn.execute(
-                "INSERT INTO kpi_events (schema_version, plan_id, tab_id, role, provider, model,
-                     ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens)
-                 VALUES (4, ?1, ?2, 'Worker', ?3, 'model-x', ?4, 'token_usage', ?5, ?6, ?7, ?8)",
-                params![
-                    source.plan,
-                    source.tab,
-                    source.provider,
-                    *timestamp as i64,
-                    tokens.total() as i64,
-                    tokens.input as i64,
-                    tokens.uncached_input as i64,
-                    tokens.output as i64,
-                ],
-            )
-            .unwrap();
-        }
         conn.execute(
             "INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, ?2)",
             params![source.path.to_string_lossy(), len as i64],
+        )
+        .unwrap();
+    }
+}
+
+fn insert_legacy_rows(conn: &Connection, source: &LegacySource<'_>) {
+    let len = std::fs::metadata(&source.path).unwrap().len();
+    let (batch, _) = UsageIngestor::read_through(&UsageSource::new(&source.path), len).unwrap();
+    let lines = batch
+        .records
+        .iter()
+        .flat_map(|record| record.observed.iter())
+        .chain(batch.superseded.iter());
+    for (timestamp, tokens) in lines {
+        conn.execute(
+            "INSERT INTO kpi_events (schema_version, plan_id, tab_id, role, provider, model,
+                 ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens)
+             VALUES (4, ?1, ?2, 'Worker', ?3, 'model-x', ?4, 'token_usage', ?5, ?6, ?7, ?8)",
+            params![
+                source.plan,
+                source.tab,
+                source.provider,
+                *timestamp as i64,
+                tokens.total() as i64,
+                tokens.input as i64,
+                tokens.uncached_input as i64,
+                tokens.output as i64,
+            ],
         )
         .unwrap();
     }
@@ -112,6 +117,7 @@ fn kpi_usage_rebuild_restores_ground_truth_and_is_idempotent() {
     write(&parent, SUBAGENT_PARENT);
     write(&sidechain, SIDECHAIN);
     write(&codex, CODEX_REPEATED);
+    // The streamed fixture reuses sidechain lines verbatim, so two sources share line tuples.
     let db = dir.join("kpi_ledger.db");
     let claude_tab = |path: &PathBuf| LegacySource {
         path: path.clone(),
@@ -182,6 +188,45 @@ fn kpi_usage_rebuild_restores_ground_truth_and_is_idempotent() {
     assert_eq!(again.legacy_rows_removed, 0);
     assert_eq!(again.unattributed_responses, 0);
     assert_eq!(ledger.list_all().unwrap(), rows);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn kpi_usage_rebuild_removes_lines_recorded_twice() {
+    let dir = scratch("twice");
+    let claude = dir.join("claude.jsonl");
+    write(&claude, CLAUDE_STREAMED);
+    let db = dir.join("kpi_ledger.db");
+    let source = |tab: &'static str| LegacySource {
+        path: claude.clone(),
+        tab,
+        plan: "pl_claude",
+        provider: "claude",
+    };
+    legacy_ledger(&db, &[source("tab-claude")]);
+    insert_legacy_rows(&Connection::open(&db).unwrap(), &source("tab-restored"));
+    let ledger = Arc::new(KpiLedger::open_at(&db).unwrap());
+    assert_eq!(provider_usage(&ledger, "claude").0, 10);
+
+    let outcome = KpiRecorder::with_ledger(ledger.clone())
+        .rebuild_usage()
+        .unwrap();
+
+    assert_eq!(
+        (
+            outcome.responses,
+            outcome.legacy_rows_removed,
+            outcome.unattributed_responses
+        ),
+        (2, 10, 0)
+    );
+    assert_eq!(provider_usage(&ledger, "claude"), (2, 78_775, 4_221, 607));
+    assert!(ledger
+        .list_all()
+        .unwrap()
+        .iter()
+        .all(|row| row.tab_id == "tab-claude"));
 
     std::fs::remove_dir_all(&dir).ok();
 }

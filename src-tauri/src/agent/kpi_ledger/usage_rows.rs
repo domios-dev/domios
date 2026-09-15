@@ -187,16 +187,16 @@ impl KpiLedger {
             sources: 1,
             ..Default::default()
         };
-        let mut legacy_ids = BTreeSet::new();
+        let mut claimed = BTreeSet::new();
         for response in responses {
             outcome.responses += 1;
             let mut owner: Option<LegacyRow> = None;
             for (timestamp, tokens) in &response.observed {
-                for row in legacy_rows(&tx, *timestamp, *tokens)? {
-                    legacy_ids.insert(row.id);
-                    if owner.as_ref().is_none_or(|current| row.id < current.id) {
-                        owner = Some(row);
-                    }
+                let Some(row) = claim_legacy_row(&tx, *timestamp, *tokens, &mut claimed)? else {
+                    continue;
+                };
+                if owner.as_ref().is_none_or(|current| row.id < current.id) {
+                    owner = Some(row);
                 }
             }
             match owner {
@@ -212,21 +212,66 @@ impl KpiLedger {
             }
         }
         for (timestamp, tokens) in superseded {
-            for row in legacy_rows(&tx, *timestamp, *tokens)? {
-                legacy_ids.insert(row.id);
-            }
+            claim_legacy_row(&tx, *timestamp, *tokens, &mut claimed)?;
         }
-        for id in &legacy_ids {
+        for id in &claimed {
             tx.execute("DELETE FROM kpi_events WHERE id = ?1", params![id])
                 .map_err(|e| format!("kpi ledger rebuild delete: {}", e))?;
         }
-        outcome.legacy_rows_removed = legacy_ids.len() as u64;
+        outcome.legacy_rows_removed = claimed.len() as u64;
         upsert_cursor(&tx, source_path, cursor)?;
         tx.commit()
             .map_err(|e| format!("kpi ledger rebuild commit: {}", e))?;
         self.committed();
         Ok(outcome)
     }
+
+    /// Keyless rows still matching a transcript line once every source claimed its own
+    /// are that line recorded again, as when two tabs ingested one session.
+    pub fn remove_duplicate_legacy_rows(
+        &self,
+        lines: &[(u64, TokenCounts)],
+    ) -> Result<u64, String> {
+        let mut conn = self.conn.lock();
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("kpi ledger duplicate transaction: {}", e))?;
+        let mut removed = 0u64;
+        for (timestamp, tokens) in lines {
+            removed +=
+                tx.execute(
+                    r#"DELETE FROM kpi_events
+                       WHERE kind = ?1 AND dedup_key IS NULL AND ts = ?2
+                         AND input_tokens = ?3 AND uncached_input_tokens = ?4
+                         AND output_tokens = ?5"#,
+                    params![
+                        KpiEventKind::TokenUsage.label(),
+                        *timestamp as i64,
+                        tokens.input as i64,
+                        tokens.uncached_input as i64,
+                        tokens.output as i64,
+                    ],
+                )
+                .map_err(|e| format!("kpi ledger duplicate delete: {}", e))? as u64;
+        }
+        tx.commit()
+            .map_err(|e| format!("kpi ledger duplicate commit: {}", e))?;
+        self.committed();
+        Ok(removed)
+    }
+}
+
+/// Each transcript line wrote one legacy row, so it claims one; an identical line in
+/// another source keeps its own row and attribution.
+fn claim_legacy_row(
+    tx: &Transaction<'_>,
+    timestamp: u64,
+    tokens: TokenCounts,
+    claimed: &mut BTreeSet<i64>,
+) -> Result<Option<LegacyRow>, String> {
+    Ok(legacy_rows(tx, timestamp, tokens)?
+        .into_iter()
+        .find(|row| claimed.insert(row.id)))
 }
 
 const CURSOR_COLUMNS: &str = "source_path, cursor_offset, cumulative_input, cumulative_cached, \
