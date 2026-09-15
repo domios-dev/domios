@@ -3,7 +3,7 @@ import type { PluginIconData } from "./PluginIcon";
 import { daemonHttpBase, daemonAuthToken } from "../../lib/webApi";
 
 export interface AppConfigShape {
-  plugins?: Record<string, { pinned?: boolean; serverUrl?: string; [k: string]: unknown } | undefined>;
+  plugins?: Record<string, { serverUrl?: string; [k: string]: unknown } | undefined>;
   integrations?: {
     secrets?: { backend?: string; default_organization?: string; default_collection?: string };
   };

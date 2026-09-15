@@ -266,8 +266,8 @@ pub struct ServiceContext {
     /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
     /// Voice notes resolve the active transcriber here by id.
     pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
-    /// Registry of glance-view providers (plugins with `glanceView`). Pinned
-    /// plugins render their popover from here.
+    /// Registry of glance-view providers (plugins with `glanceView`). Plugin
+    /// bubbles render their popovers from here.
     pub glance_registry: crate::glance::GlanceRegistryHandle,
     /// Registry of status-bubble providers (plugins with `statusBubble`). The
     /// tab-footer bubble row polls these per tab context.

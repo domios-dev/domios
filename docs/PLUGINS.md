@@ -84,6 +84,10 @@ carries the host change) AND publishing the plugin — a plugin alone cannot unl
 host API the installed app lacks. (This is the trap behind "I updated the plugin but
 the new behaviour isn't there".)
 
+Installed plugins are opened from the Extensions list or the titlebar Plugins
+button. View-capable plugins render their embedded page from the plugin detail;
+status bubbles remain the quick-glance surface for plugins that provide one.
+
 ## Anatomy of a plugin
 
 Plugins are authored in **TypeScript** and compiled to the artifacts the host loads.
@@ -834,4 +838,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

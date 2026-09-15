@@ -196,7 +196,7 @@ function matchesFilter(entry: CatalogEntry, filter: CatalogFilter): boolean {
   }
 }
 
-/** Filter + search, sorted: pinned-agnostic deterministic order (installed
+/** Filter + search, sorted by deterministic order (installed
  * first, then by display name) so the list is stable across refreshes. */
 export function filterCatalog(
   entries: CatalogEntry[],
