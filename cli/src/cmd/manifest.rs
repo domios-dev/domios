@@ -231,10 +231,8 @@ mod tests {
         s.replace("\r\n", "\n")
     }
 
-    const MANIFEST_PATH: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../essences/cli-manifest.json"
-    );
+    const MANIFEST_PATH: &str =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../essences/cli-manifest.json");
     const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../essences/CLI.md");
     const COMMAND_PATHS_PATH: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),

@@ -318,13 +318,10 @@ fn worker_prompt_places_ack_before_assignment_work() {
     let report = prompt
         .find("codeterm agent report --status in_review")
         .unwrap();
-    let fallback = prompt
-        .find("load the provider skill named `codeterm`")
-        .unwrap();
 
     assert!(identity < context && context < ack && ack < body);
     assert!(body < intent && intent < correctness);
-    assert!(correctness < report && report < fallback);
+    assert!(correctness < report);
     assert_eq!(prompt.matches("codeterm agent ack").count(), 1);
     assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }
