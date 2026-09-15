@@ -39,6 +39,43 @@ Three self-hosted runners, one `release-X.Y.Z` tag fires all three in parallel:
 No SSH between machines; each runner builds, signs, and (macOS/Linux-arm64) publishes/mirrors
 itself. Full setup and hard-won constraints: `.codeterm/build-machine/README.md`.
 
+## Build timing and no-waste contract
+
+Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
+`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares both the
+`codeterm` application and `codeterm-embed` bins in one Cargo invocation, so Tauri can reuse
+the dependency graph. The three self-hosted workflows do not use Rust target caches; clean
+checkouts therefore remain explicit and reproducible.
+
+The 1.10.22 baseline was captured from runs `35009190163` (Mac), `35009189838` (Windows),
+and `35009190153` (Linux):
+
+| Lane | Before change | Waste measured |
+|---|---:|---|
+| Mac arm64 / x86_64 | 418s / 427s, sequential | first-arch notarization blocked the second build |
+| Windows arm64 | release-inputs 7m04s; Tauri 5m30s; cache save 42s | app target was selected in separate Cargo invocations; target upload failed |
+| Windows x86_64 | release-inputs 8m01s; Tauri 5m15s; cache save 43s | same separate target selection; target upload failed |
+| Linux x86_64 | release-inputs 18m45s; Tauri 16m05s; cache save 1m33s | release-inputs used `target/release`, Tauri used `target/x86_64-unknown-linux-gnu/release` |
+| Completion signals | Mac queued 19m54s; Windows queued 7m37s | metadata-only jobs waited for `linux-build` |
+
+The Windows logs show the same `CARGO_BUILD_TARGET` and `CARGO_INCREMENTAL=0` in both steps,
+but no Cargo fingerprint or feature diagnostics. The verified source-level cause is that
+`release-inputs` selected `--bin codeterm-embed` and Tauri selected the `codeterm` application
+target in a second Cargo invocation; the new input command selects both bins together.
+
+After the next real release, record the corresponding step durations and tag-to-publish time
+in this table. Read-only timing capture (run IDs are the three workflow runs) is:
+
+```bash
+gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate \
+  --jq '.jobs[] | [.name, .started_at, .completed_at, .conclusion] | @tsv'
+```
+
+The expected observation is one `release-inputs` and one Tauri build per target, no cache-save
+step, overlap between Mac arm64 notarization and x86_64 compilation, and completion jobs
+running on `ubuntu-latest`. The release remains incomplete until the existing five-platform
+updater-manifest verification passes.
+
 ## 1. Preflight (before bumping the version)
 
 Run from the canonical checkout, on `develop`:
@@ -374,7 +411,6 @@ prompt assertion then passes. Keep child-exit diagnostics instead of widening wa
 | Linux arm64 leg fails to start, or the Docker build errors on missing tools | `codeterm-build-linux-arm64` Docker image is missing or stale on the Mac runner | `cd .codeterm/build-machine/docker && docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .`. Also confirm Docker Desktop memory is ~20 GiB — the `codeterm` crate needs ≳8 GiB to compile and an under-provisioned Docker OOM-kills `rustc`. |
 | `release-windows.yml` jobs show `cancelled` for both `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` shortly after the tag push, no `.exe` uploaded by CI | The `windows-build` (ROG) self-hosted runner was offline/unreachable when the tag fired | Dispatch a worker on the ROG mesh peer to run `bash .agents/skills/github-release/scripts/win-release.sh $VER` directly (checkout → build → sign → upload, machine-parseable report). This produces the **x64** installer only — see next row. Once the runner is confirmed back online, `gh run rerun` (§5) can still be used for future tags; it does not retroactively fill in the missed run for this version. |
 | `latest.json` / release assets have no `windows-aarch64` entry for this version | The manual x64 fallback above has no ARM64 equivalent — cross-compiling `aarch64-pc-windows-msvc` needs the runner's `vcvarsall x64_arm64` toolchain, which only exists on the registered `windows-build` runner, not on an ad-hoc peer | Do not synthesize or claim a `windows-aarch64` asset for a release built this way. Either wait for the runner and rerun `release-windows.yml` before publishing, or ship without it and note the gap in the release notes; 1.7.2 shipped without it. |
-| Windows x64 succeeds, then ARM64 immediately fails with `rustup.exe not found` | `Swatinem/rust-cache` can clean `%USERPROFILE%\.cargo\bin` in the x64 post-job hook before the queued ARM64 job starts | Keep a copied proxy set outside Cargo's cache path (for ROG: `%USERPROFILE%\tools\rustup-proxies`) first in the runner `.env` `PATH`; restore Cargo's normal proxies, restart only the runner listener, then use `gh run rerun <run-id> --failed`. v1.7.4 proved this repair on the same tag/SHA. |
 | An archived release manifest downloads a later release or 404s after a newer version becomes GitHub Latest | The manifest used `/releases/latest/download/…` floating asset URLs | Generate all `latest.json` and updater fragment URLs with `/releases/download/vX.Y.Z/…`. Track this in issue #265; do not use an archived manifest as a stable download record until fixed. |
 | Public issue validation fails with `python: command not found` | The self-hosted runner exposes Python as `python3` only | Keep release workflows on `python3`; rerun the failed PR check after the workflow fix is pushed. |
 | `release.yml` preflight fails with `No Keychain password item found for profile: codeterm`, blaming expired Apple Developer agreements | The notary **keychain profile** vanished. `notarytool store-credentials` writes to the data-protection keychain, which only persists from a real interactive login session — from the runner (or any agent shell) it reports success and stores nothing, so the profile rots silently and cannot be re-provisioned automatically | Fixed in 1.7.5: preflight and `notarize-dmg.sh` now authenticate with `--apple-id/--team-id/--password`, taken from the `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_PASSWORD` repo secrets and falling back to `~/.claude/.secrets/apple-notary.env`. No keychain profile is consulted. If preflight still fails, the credentials themselves are bad — verify with `xcrun notarytool history --apple-id … --team-id … --password …` before suspecting Apple agreements, because the old error message pointed at the wrong cause. |
@@ -662,4 +698,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->
