@@ -205,6 +205,17 @@ impl PlanStore {
         let mut staged = arc.lock().clone();
         let previous = staged.clone();
         let out = f(&mut staged)?;
+        let existing_ids: std::collections::HashSet<_> =
+            previous.tasks.iter().map(|task| task.id.as_str()).collect();
+        for task in &staged.tasks {
+            if !existing_ids.contains(task.id.as_str()) {
+                codeterm_types::plan::work_facet::validate_work_facet(
+                    staged.tag_facets.iter().map(|facet| facet.key.as_str()),
+                    task.tags.iter().map(String::as_str),
+                )
+                .map_err(PlanError::WorkFacetViolation)?;
+            }
+        }
         staged.updated_at = now_ms;
         if staged.canonical_project_path.trim().is_empty() {
             staged.canonical_project_path = staged.project_path.clone();
