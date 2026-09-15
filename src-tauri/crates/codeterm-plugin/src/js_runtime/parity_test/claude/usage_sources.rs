@@ -26,10 +26,21 @@ fn additional_usage_sources_native_js_parity() {
     touch(&own.join("agent-a1.jsonl"));
     touch(&own.join("agent-af66d7d8e4a99a6bb.meta.json"));
     touch(&own.join("notes.jsonl"));
-    touch(&tmp.path().join("foreign-session").join("subagents").join("agent-x.jsonl"));
+    touch(
+        &tmp.path()
+            .join("foreign-session")
+            .join("subagents")
+            .join("agent-x.jsonl"),
+    );
 
-    let expected = vec![own.join("agent-a1.jsonl"), own.join("agent-af66d7d8e4a99a6bb.jsonl")];
-    assert_eq!(native.additional_usage_sources(&session, session_id), expected);
+    let expected = vec![
+        own.join("agent-a1.jsonl"),
+        own.join("agent-af66d7d8e4a99a6bb.jsonl"),
+    ];
+    assert_eq!(
+        native.additional_usage_sources(&session, session_id),
+        expected
+    );
     assert_eq!(js.additional_usage_sources(&session, session_id), expected);
 
     let absent = tmp.path().join("absent.jsonl");

@@ -5,8 +5,7 @@ use super::identity::{truncate_chars, TOPIC_NAME_MAX_CHARS};
 pub const TOPICS_DISABLED_NOTICE: &str =
     "Enable topics for the bot in BotFather to talk to agents in threads.";
 const CLOSED_TOPIC_PREFIX: &str = "[closed] ";
-const CLOSING_NOTE: &str =
-    "This tab was closed. Messages sent here now reach the General Agent.";
+const CLOSING_NOTE: &str = "This tab was closed. Messages sent here now reach the General Agent.";
 const POINTER_PREVIEW_CHARS: usize = 80;
 
 pub(super) fn escape_html(raw: &str) -> String {
@@ -52,7 +51,10 @@ pub(super) fn pointer(header: &str, link: Option<&str>, markdown: &str) -> Strin
 }
 
 pub(super) fn intro(header: &str, title: &str) -> String {
-    with_header(header, &escape_html(&format!("you can talk to {title} here")))
+    with_header(
+        header,
+        &escape_html(&format!("you can talk to {title} here")),
+    )
 }
 
 pub(super) fn closing_note() -> String {
@@ -67,5 +69,8 @@ pub(super) fn closed_topic_name(name: &str) -> String {
     if name.starts_with(CLOSED_TOPIC_PREFIX) {
         return truncate_chars(name, TOPIC_NAME_MAX_CHARS);
     }
-    truncate_chars(&format!("{CLOSED_TOPIC_PREFIX}{name}"), TOPIC_NAME_MAX_CHARS)
+    truncate_chars(
+        &format!("{CLOSED_TOPIC_PREFIX}{name}"),
+        TOPIC_NAME_MAX_CHARS,
+    )
 }

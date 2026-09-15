@@ -26,7 +26,10 @@ pub fn classify_failure(description: &str) -> TopicFailure {
     if topics_off {
         return TopicFailure::TopicsUnavailable;
     }
-    if d.contains("thread not found") || d.contains("topic_deleted") || d.contains("topic_id_invalid") {
+    if d.contains("thread not found")
+        || d.contains("topic_deleted")
+        || d.contains("topic_id_invalid")
+    {
         return TopicFailure::ThreadGone;
     }
     TopicFailure::Rejected(description.to_string())
@@ -56,7 +59,12 @@ pub trait TopicTransport: Send + Sync {
     async fn bot_username(&self) -> Option<String>;
     async fn create_topic(&self, chat_id: i64, name: &str) -> Result<i64, TopicFailure>;
     async fn delete_topic(&self, chat_id: i64, thread_id: i64) -> Result<(), TopicFailure>;
-    async fn rename_topic(&self, chat_id: i64, thread_id: i64, name: &str) -> Result<(), TopicFailure>;
+    async fn rename_topic(
+        &self,
+        chat_id: i64,
+        thread_id: i64,
+        name: &str,
+    ) -> Result<(), TopicFailure>;
     async fn send_html(
         &self,
         chat_id: i64,
@@ -139,7 +147,11 @@ impl TopicTransport for TelegramTopicTransport {
                 self.call("getMe", json!({}))
                     .await
                     .ok()
-                    .and_then(|me| me.get("username").and_then(Value::as_str).map(str::to_string))
+                    .and_then(|me| {
+                        me.get("username")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
                     .ok_or(())
             })
             .await
@@ -149,7 +161,10 @@ impl TopicTransport for TelegramTopicTransport {
 
     async fn create_topic(&self, chat_id: i64, name: &str) -> Result<i64, TopicFailure> {
         let result = self
-            .call("createForumTopic", json!({ "chat_id": chat_id, "name": name }))
+            .call(
+                "createForumTopic",
+                json!({ "chat_id": chat_id, "name": name }),
+            )
             .await
             .map_err(|description| classify_failure(&description))?;
         result
@@ -168,7 +183,12 @@ impl TopicTransport for TelegramTopicTransport {
         .map_err(|description| classify_failure(&description))
     }
 
-    async fn rename_topic(&self, chat_id: i64, thread_id: i64, name: &str) -> Result<(), TopicFailure> {
+    async fn rename_topic(
+        &self,
+        chat_id: i64,
+        thread_id: i64,
+        name: &str,
+    ) -> Result<(), TopicFailure> {
         self.call(
             "editForumTopic",
             json!({ "chat_id": chat_id, "message_thread_id": thread_id, "name": name }),

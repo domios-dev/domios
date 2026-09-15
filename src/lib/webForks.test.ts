@@ -47,6 +47,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/WebGate/PwaSetup.tsx", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "platform-adaptation", note: "service worker registration is web-only" },
   { file: "src/components/WebGate/PwaSetup.tsx", anchor: "if (!IS_WEB || isStandalone()) return;", ordinal: 1, cls: "platform-adaptation", note: "PWA install-prompt banner is web-only" },
   { file: "src/lib/serviceWorkerRegistration.ts", anchor: "if (!IS_WEB || !(\"serviceWorker\" in navigator)) return;", ordinal: 1, cls: "platform-adaptation", note: "service worker registration guard is web-only" },
+  { file: "src/lib/pluginTabMenu.ts", anchor: "if (!IS_WEB) return true;", ordinal: 1, cls: "capability-gate", note: "plugin tab menu sync needs a host bridge: always in Tauri, only with an authenticated web session" },
   { file: "src/components/WebGate/WebGate.tsx", anchor: "const [state, setState] = useState<GateState>(IS_WEB ? \"checking\" : \"ready\");", ordinal: 1, cls: "platform-adaptation", note: "token auth gate only exists for the browser entry point" },
   { file: "src/components/WebGate/WebGate.tsx", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "capability-gate", note: "browser-gateway availability events only exist where a gateway sits between the app and the daemon (web)" },
   { file: "src/components/WebGate/WebGate.tsx", anchor: "if (!IS_WEB) return;", ordinal: 2, cls: "platform-adaptation", note: "URL-fragment token consumption only applies to a browser tab" },

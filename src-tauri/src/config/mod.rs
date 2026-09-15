@@ -762,8 +762,12 @@ enabled = true
         );
 
         let serialized = serialize_config(&config).expect("config should serialize");
-        let reloaded: AppConfig = toml::from_str(&serialized).expect("serialized config should parse");
-        let settings = reloaded.plugins.get("bitwarden").expect("plugin settings should remain");
+        let reloaded: AppConfig =
+            toml::from_str(&serialized).expect("serialized config should parse");
+        let settings = reloaded
+            .plugins
+            .get("bitwarden")
+            .expect("plugin settings should remain");
 
         assert_eq!(settings["serverUrl"], "https://vault.example");
         assert_eq!(settings["defaultOrganization"], "personal");

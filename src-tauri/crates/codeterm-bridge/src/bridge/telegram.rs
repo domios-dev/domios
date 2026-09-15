@@ -451,13 +451,14 @@ impl TelegramService {
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown")
                         .to_string();
-                    let reply_ctx = cb.get("message").map(reply_context).unwrap_or(
-                        ReplyContext::Telegram {
-                            chat_id: 0,
-                            thread_id: None,
-                            reply_to_message_id: None,
-                        },
-                    );
+                    let reply_ctx =
+                        cb.get("message")
+                            .map(reply_context)
+                            .unwrap_or(ReplyContext::Telegram {
+                                chat_id: 0,
+                                thread_id: None,
+                                reply_to_message_id: None,
+                            });
                     let msg_id = cb
                         .get("message")
                         .and_then(|m| m.get("message_id"))

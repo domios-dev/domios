@@ -230,7 +230,11 @@ fn voice_msg(path: &str) -> InboundMessage {
         }],
         message_id: Some(7),
         callback_data: None,
-        reply_ctx: ReplyContext::Telegram { chat_id: 99 },
+        reply_ctx: ReplyContext::Telegram {
+            chat_id: 99,
+            thread_id: None,
+            reply_to_message_id: None,
+        },
     }
 }
 
@@ -248,7 +252,11 @@ fn photo_msg(path: &str) -> InboundMessage {
         }],
         message_id: None,
         callback_data: None,
-        reply_ctx: ReplyContext::Telegram { chat_id: 99 },
+        reply_ctx: ReplyContext::Telegram {
+            chat_id: 99,
+            thread_id: None,
+            reply_to_message_id: None,
+        },
     }
 }
 

@@ -7,7 +7,9 @@ use async_trait::async_trait;
 use codeterm_bridge::bridge::manager::{OutboundMessage, OutboundRoute};
 use codeterm_bridge::bridge::telegram::reply_context;
 use codeterm_bridge::bridge::threads::identity::{topic_name, HEADER_SEPARATOR};
-use codeterm_bridge::bridge::threads::transport::{bot_id_from_token, classify_failure, topic_link};
+use codeterm_bridge::bridge::threads::transport::{
+    bot_id_from_token, classify_failure, topic_link,
+};
 use codeterm_bridge::bridge::threads::{
     CloseOutcome, InboundOrigin, InboundRoute, SenderIdentity, SenderRole, TabText, ThreadCaller,
     ThreadError, ThreadRegistry, ThreadService, ThreadTabs, TopicFailure, TopicTransport,
@@ -136,7 +138,12 @@ impl TopicTransport for FakeTransport {
         Ok(())
     }
 
-    async fn rename_topic(&self, _chat_id: i64, thread_id: i64, name: &str) -> Result<(), TopicFailure> {
+    async fn rename_topic(
+        &self,
+        _chat_id: i64,
+        thread_id: i64,
+        name: &str,
+    ) -> Result<(), TopicFailure> {
         self.calls.lock().push(Call::Rename {
             thread: thread_id,
             name: name.to_string(),
@@ -365,7 +372,10 @@ async fn telegram_topic_first_tab_send_creates_one_topic_and_routes_it_back() {
     assert!(post.html.contains(&header), "topic post names its sender");
     assert!(pointer.html.contains(&header), "pointer names its sender");
     let link = topic_link(Some(BOT_USERNAME), CHAT, thread).expect("link");
-    assert!(pointer.html.contains(&link), "pointer is a one-tap link into the topic");
+    assert!(
+        pointer.html.contains(&link),
+        "pointer is a one-tap link into the topic"
+    );
 
     assert_eq!(
         threads.resolve_inbound(&tabs, CHAT, Some(thread), None),
@@ -391,7 +401,10 @@ async fn telegram_topic_repeated_sends_reuse_one_binding() {
     let threads = attached(transport.clone());
 
     for body in ["one", "two", "three"] {
-        threads.route_text(&tabs, text(PLANCK, body)).await.expect("placed");
+        threads
+            .route_text(&tabs, text(PLANCK, body))
+            .await
+            .expect("placed");
     }
 
     assert_eq!(transport.creates().len(), 1, "one topic per tab");
@@ -421,7 +434,10 @@ async fn telegram_topic_choice_buttons_ride_the_topic_post() {
 
     let post = topic_post(&transport);
     assert!(post.buttons, "the choices ride the topic post");
-    assert_eq!(post.message, placed, "the receipt names the message with buttons");
+    assert_eq!(
+        post.message, placed,
+        "the receipt names the message with buttons"
+    );
     assert!(transport
         .sends()
         .iter()
@@ -474,17 +490,32 @@ fn telegram_topic_notification_from_a_tab_is_routed_through_that_tab() {
     crate::notification::channels::telegram::CHANNEL
         .deliver(&host, &Audience(vec![CHAT.to_string()]), &unattributed)
         .expect("delivered");
-    assert_eq!(host.0.lock().pop().expect("enqueued").route, OutboundRoute::Chat);
+    assert_eq!(
+        host.0.lock().pop().expect("enqueued").route,
+        OutboundRoute::Chat
+    );
 }
 
 #[tokio::test]
 async fn telegram_topic_sender_headers_name_all_four_roles() {
-    assert_eq!(SenderRole::classify(false, Some("orchestrator")), SenderRole::Orchestrator);
-    assert_eq!(SenderRole::classify(false, Some("planner")), SenderRole::Planner);
+    assert_eq!(
+        SenderRole::classify(false, Some("orchestrator")),
+        SenderRole::Orchestrator
+    );
+    assert_eq!(
+        SenderRole::classify(false, Some("planner")),
+        SenderRole::Planner
+    );
     assert_eq!(SenderRole::classify(false, None), SenderRole::Worker);
-    assert_eq!(SenderRole::classify(false, Some("rust-platform-dev")), SenderRole::Worker);
+    assert_eq!(
+        SenderRole::classify(false, Some("rust-platform-dev")),
+        SenderRole::Worker
+    );
     assert_eq!(SenderRole::classify(true, None), SenderRole::General);
-    assert_eq!(SenderRole::classify(false, Some("general_agent")), SenderRole::General);
+    assert_eq!(
+        SenderRole::classify(false, Some("general_agent")),
+        SenderRole::General
+    );
 
     for (role, label) in [
         (SenderRole::Orchestrator, "orchestrator"),
@@ -512,7 +543,10 @@ async fn telegram_topic_sender_headers_name_all_four_roles() {
         .route_text(&tabs, text(GENERAL, "main chat reply"))
         .await
         .expect("placed");
-    assert!(transport.creates().is_empty(), "the General Agent has no topic");
+    assert!(
+        transport.creates().is_empty(),
+        "the General Agent has no topic"
+    );
     let sends = transport.sends();
     assert_eq!(sends.len(), 1, "no pointer for a main-chat send");
     assert_eq!(sends[0].thread, None);
@@ -533,16 +567,29 @@ async fn telegram_topic_duplicate_live_titles_get_a_short_deterministic_suffix()
     assert!(first.starts_with("Planck") && second.starts_with("Planck"));
     assert_ne!(first, "Planck");
     assert_ne!(first, second);
-    assert_eq!(first, topic_name("Planck", "tab_aaaa1111", &twins), "deterministic");
-    assert!(first.chars().count() <= "Planck".chars().count() + 8, "short suffix");
+    assert_eq!(
+        first,
+        topic_name("Planck", "tab_aaaa1111", &twins),
+        "deterministic"
+    );
+    assert!(
+        first.chars().count() <= "Planck".chars().count() + 8,
+        "short suffix"
+    );
 
     let transport = FakeTransport::enabled();
     let tabs = FakeTabs::new();
     tabs.add("tab_aaaa1111", "Planck", SenderRole::Worker);
     tabs.add("tab_bbbb2222", "Planck", SenderRole::Worker);
     let threads = attached(transport.clone());
-    threads.route_text(&tabs, text("tab_aaaa1111", "a")).await.expect("placed");
-    threads.route_text(&tabs, text("tab_bbbb2222", "b")).await.expect("placed");
+    threads
+        .route_text(&tabs, text("tab_aaaa1111", "a"))
+        .await
+        .expect("placed");
+    threads
+        .route_text(&tabs, text("tab_bbbb2222", "b"))
+        .await
+        .expect("placed");
     let names = transport.creates();
     assert_eq!(names.len(), 2);
     assert_ne!(names[0], names[1]);
@@ -569,7 +616,11 @@ async fn telegram_topic_disabled_falls_back_to_main_chat_with_one_notice() {
         .await
         .expect("placed in the main chat");
 
-    assert_eq!(transport.creates().len(), 1, "no creation retry per message");
+    assert_eq!(
+        transport.creates().len(),
+        1,
+        "no creation retry per message"
+    );
     assert_eq!(transport.notices(), 1, "the owner is told once");
     let sends = transport.sends();
     assert!(sends.iter().all(|sent| sent.thread.is_none()));
@@ -589,7 +640,11 @@ async fn telegram_topic_disabled_falls_back_to_main_chat_with_one_notice() {
         .route_text(&tabs, text(PLANCK, "after restart"))
         .await
         .expect("placed");
-    assert_eq!(transport.creates().len(), 2, "a bridge restart probes once more");
+    assert_eq!(
+        transport.creates().len(),
+        2,
+        "a bridge restart probes once more"
+    );
     assert_eq!(transport.notices(), 1, "the notice is never repeated");
 }
 
@@ -624,7 +679,10 @@ async fn telegram_topic_closed_tab_and_unbound_threads_reach_general_with_origin
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
-    threads.route_text(&tabs, text(PLANCK, "hi")).await.expect("placed");
+    threads
+        .route_text(&tabs, text(PLANCK, "hi"))
+        .await
+        .expect("placed");
     let thread = topic_post(&transport).thread.expect("thread");
 
     tabs.close(PLANCK);
@@ -668,7 +726,10 @@ async fn telegram_topic_tab_close_deletes_the_topic_and_a_same_title_tab_gets_a_
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
-    threads.route_text(&tabs, text(PLANCK, "hi")).await.expect("placed");
+    threads
+        .route_text(&tabs, text(PLANCK, "hi"))
+        .await
+        .expect("placed");
     let first_thread = topic_post(&transport).thread.expect("thread");
 
     let outcomes = threads.close_tab(PLANCK).await;
@@ -694,7 +755,10 @@ async fn telegram_topic_tab_close_deletes_the_topic_and_a_same_title_tab_gets_a_
         .route_text(&tabs, text("tab_planck_next", "fresh"))
         .await
         .expect("placed");
-    assert_eq!(transport.creates(), vec!["Planck".to_string(), "Planck".to_string()]);
+    assert_eq!(
+        transport.creates(),
+        vec!["Planck".to_string(), "Planck".to_string()]
+    );
     let fresh_thread = transport
         .sends()
         .into_iter()
@@ -716,7 +780,10 @@ async fn telegram_topic_failed_delete_renames_with_closed_prefix_and_routes_gene
     let transport = FakeTransport::failing_delete();
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
-    threads.route_text(&tabs, text(PLANCK, "hi")).await.expect("placed");
+    threads
+        .route_text(&tabs, text(PLANCK, "hi"))
+        .await
+        .expect("placed");
     let thread = topic_post(&transport).thread.expect("thread");
     let before_close = transport.calls().len();
 
@@ -745,8 +812,15 @@ async fn telegram_topic_failed_delete_renames_with_closed_prefix_and_routes_gene
         })
         .expect("the topic is renamed");
     assert_ne!(renamed, "Planck");
-    assert!(renamed.ends_with("Planck"), "the closed prefix keeps the name");
-    assert_eq!(closing_calls.len(), 3, "delete, note and rename only; never closeForumTopic");
+    assert!(
+        renamed.ends_with("Planck"),
+        "the closed prefix keeps the name"
+    );
+    assert_eq!(
+        closing_calls.len(),
+        3,
+        "delete, note and rename only; never closeForumTopic"
+    );
     assert!(!threads.has_open_binding(PLANCK));
 
     assert_eq!(
@@ -765,7 +839,10 @@ async fn telegram_topic_deleted_thread_send_falls_back_and_rebinds_next_time() {
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
-    threads.route_text(&tabs, text(PLANCK, "hi")).await.expect("placed");
+    threads
+        .route_text(&tabs, text(PLANCK, "hi"))
+        .await
+        .expect("placed");
     let gone = topic_post(&transport).thread.expect("thread");
     transport.gone_threads.lock().push(gone);
 
@@ -780,9 +857,15 @@ async fn telegram_topic_deleted_thread_send_falls_back_and_rebinds_next_time() {
         .expect("fallback send");
     assert_eq!(fallback.thread, None);
     assert!(fallback.html.contains(&tabs.header(PLANCK)));
-    assert!(!threads.has_open_binding(PLANCK), "a deleted thread is unbound");
+    assert!(
+        !threads.has_open_binding(PLANCK),
+        "a deleted thread is unbound"
+    );
 
-    threads.route_text(&tabs, text(PLANCK, "again")).await.expect("placed");
+    threads
+        .route_text(&tabs, text(PLANCK, "again"))
+        .await
+        .expect("placed");
     assert_eq!(transport.creates().len(), 2);
 }
 
@@ -791,7 +874,10 @@ async fn telegram_topic_append_edits_the_tab_post_without_a_new_pointer() {
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
-    let placed = threads.route_text(&tabs, text(PLANCK, "part one")).await.expect("placed");
+    let placed = threads
+        .route_text(&tabs, text(PLANCK, "part one"))
+        .await
+        .expect("placed");
     let sends_before = transport.sends().len();
 
     let appended = threads
@@ -806,7 +892,11 @@ async fn telegram_topic_append_edits_the_tab_post_without_a_new_pointer() {
 
     assert_eq!(appended, Some(placed));
     assert!(transport.calls().contains(&Call::Edit { message: placed }));
-    assert_eq!(transport.sends().len(), sends_before, "no new post or pointer");
+    assert_eq!(
+        transport.sends().len(),
+        sends_before,
+        "no new post or pointer"
+    );
 }
 
 #[tokio::test]
@@ -817,20 +907,32 @@ async fn telegram_topic_binding_persists_across_restarts_without_credentials() {
     let first_transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     let first = attached_with(ThreadRegistry::load(path.clone()), first_transport.clone());
-    first.route_text(&tabs, text(PLANCK, "hi")).await.expect("placed");
+    first
+        .route_text(&tabs, text(PLANCK, "hi"))
+        .await
+        .expect("placed");
     let thread = topic_post(&first_transport).thread.expect("thread");
 
     let second_transport = FakeTransport::enabled();
     let second = attached_with(ThreadRegistry::load(path.clone()), second_transport.clone());
-    second.route_text(&tabs, text(PLANCK, "after restart")).await.expect("placed");
-    assert!(second_transport.creates().is_empty(), "the stored binding is reused");
+    second
+        .route_text(&tabs, text(PLANCK, "after restart"))
+        .await
+        .expect("placed");
+    assert!(
+        second_transport.creates().is_empty(),
+        "the stored binding is reused"
+    );
     assert_eq!(topic_post(&second_transport).thread, Some(thread));
 
     let stored = std::fs::read_to_string(&path).expect("binding persisted");
     assert!(stored.contains(PLANCK));
     let secret = TOKEN.split(':').nth(1).expect("secret half");
     for forbidden in [TOKEN, secret, "api.telegram.org", "http", "7685", "7686"] {
-        assert!(!stored.contains(forbidden), "stored bindings leak `{forbidden}`");
+        assert!(
+            !stored.contains(forbidden),
+            "stored bindings leak `{forbidden}`"
+        );
     }
 }
 
@@ -859,7 +961,10 @@ async fn telegram_thread_open_is_idempotent_and_posts_the_intro_once() {
         .collect();
     assert_eq!(intros.len(), 1, "the first message is posted once");
     assert!(intros[0].html.contains("Planck") && intros[0].html.contains(&tabs.header(PLANCK)));
-    assert_eq!(first.link, topic_link(Some(BOT_USERNAME), CHAT, first.thread_id));
+    assert_eq!(
+        first.link,
+        topic_link(Some(BOT_USERNAME), CHAT, first.thread_id)
+    );
     assert!(first.link.is_some());
 }
 
@@ -868,7 +973,10 @@ async fn telegram_thread_open_reuses_a_topic_a_send_created() {
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
-    threads.route_text(&tabs, text(PLANCK, "hi")).await.expect("placed");
+    threads
+        .route_text(&tabs, text(PLANCK, "hi"))
+        .await
+        .expect("placed");
 
     let opened = threads
         .open(&tabs, tab_caller(PLANCK), PLANCK, CHAT)
@@ -876,7 +984,11 @@ async fn telegram_thread_open_reuses_a_topic_a_send_created() {
         .expect("opened");
 
     assert!(!opened.created);
-    assert_eq!(transport.creates().len(), 1, "one binding owner for sends and opens");
+    assert_eq!(
+        transport.creates().len(),
+        1,
+        "one binding owner for sends and opens"
+    );
     assert_eq!(Some(opened.thread_id), topic_post(&transport).thread);
 }
 
@@ -932,7 +1044,10 @@ async fn telegram_thread_foreign_target_is_refused_without_any_bot_api_call() {
 
     assert!(transport.calls().is_empty(), "no Bot API call");
     assert!(!threads.has_open_binding(PLANCK));
-    assert!(!threads.stored_json().contains(PLANCK), "no binding recorded");
+    assert!(
+        !threads.stored_json().contains(PLANCK),
+        "no binding recorded"
+    );
 }
 
 #[tokio::test]
@@ -941,14 +1056,18 @@ async fn telegram_thread_general_tab_bridge_off_and_topics_off_are_explicit_erro
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
     assert_eq!(
-        threads.open(&tabs, ThreadCaller::Owner, GENERAL, CHAT).await,
+        threads
+            .open(&tabs, ThreadCaller::Owner, GENERAL, CHAT)
+            .await,
         Err(ThreadError::GeneralUsesMainChat)
     );
     assert!(transport.calls().is_empty());
 
     let detached = ThreadService::new(ThreadRegistry::in_memory());
     assert_eq!(
-        detached.open(&tabs, ThreadCaller::Owner, PLANCK, CHAT).await,
+        detached
+            .open(&tabs, ThreadCaller::Owner, PLANCK, CHAT)
+            .await,
         Err(ThreadError::BridgeInactive)
     );
 

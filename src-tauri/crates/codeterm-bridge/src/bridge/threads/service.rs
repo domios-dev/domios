@@ -74,10 +74,17 @@ pub struct OpenedThread {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum CloseOutcome {
-    Deleted { thread_id: i64 },
-    Renamed { thread_id: i64, renamed: bool },
+    Deleted {
+        thread_id: i64,
+    },
+    Renamed {
+        thread_id: i64,
+        renamed: bool,
+    },
     /// The bridge was off: the binding is retired without a Bot API call.
-    Deferred { thread_id: i64 },
+    Deferred {
+        thread_id: i64,
+    },
 }
 
 /// Where a tab's media lands and how it is attributed.
@@ -144,7 +151,11 @@ impl ThreadService {
     }
 
     pub fn has_open_binding(&self, tab_id: &str) -> bool {
-        !self.registry.lock().open_bindings_for_tab(tab_id).is_empty()
+        !self
+            .registry
+            .lock()
+            .open_bindings_for_tab(tab_id)
+            .is_empty()
     }
 
     pub fn stored_json(&self) -> String {
@@ -161,7 +172,12 @@ impl ThreadService {
         let bot_id = self.attached().map(|a| a.bot_id).unwrap_or_default();
         let lookup = {
             let registry = self.registry.lock();
-            routing::lookup(&registry, &scope(bot_id, chat_id), thread_id, reply_to_message_id)
+            routing::lookup(
+                &registry,
+                &scope(bot_id, chat_id),
+                thread_id,
+                reply_to_message_id,
+            )
         };
         routing::decide(lookup, &|tab_id| tabs.is_live_tab(tab_id))
     }
@@ -203,7 +219,13 @@ impl ThreadService {
             None => body,
         };
         let mut placed = self
-            .send_chunks(&attached, text.chat_id, thread_id, &html, text.buttons.as_ref())
+            .send_chunks(
+                &attached,
+                text.chat_id,
+                thread_id,
+                &html,
+                text.buttons.as_ref(),
+            )
             .await;
         if let (Some(gone), Err(TopicFailure::ThreadGone)) = (thread_id, &placed) {
             self.registry
@@ -223,7 +245,8 @@ impl ThreadService {
         };
         self.record_origin(&attached, text.chat_id, placed, &text.tab_id);
 
-        if let (Some(thread_id), Some(header), false) = (thread_id, header.as_deref(), text.append) {
+        if let (Some(thread_id), Some(header), false) = (thread_id, header.as_deref(), text.append)
+        {
             let link = topic_link(
                 attached.transport.bot_username().await.as_deref(),
                 text.chat_id,
@@ -294,7 +317,13 @@ impl ThreadService {
         MediaDestination { thread_id, header }
     }
 
-    pub async fn after_media(&self, tab_id: &str, chat_id: i64, destination: &MediaDestination, caption: &str) {
+    pub async fn after_media(
+        &self,
+        tab_id: &str,
+        chat_id: i64,
+        destination: &MediaDestination,
+        caption: &str,
+    ) {
         let (Some(attached), Some(thread_id), Some(header)) = (
             self.attached(),
             destination.thread_id,
@@ -302,9 +331,17 @@ impl ThreadService {
         ) else {
             return;
         };
-        let link = topic_link(attached.transport.bot_username().await.as_deref(), chat_id, thread_id);
+        let link = topic_link(
+            attached.transport.bot_username().await.as_deref(),
+            chat_id,
+            thread_id,
+        );
         let pointer = compose::pointer(header, link.as_deref(), caption);
-        if let Ok(pointer_id) = attached.transport.send_html(chat_id, None, &pointer, None).await {
+        if let Ok(pointer_id) = attached
+            .transport
+            .send_html(chat_id, None, &pointer, None)
+            .await
+        {
             self.record_origin(&attached, chat_id, pointer_id, tab_id);
         }
     }
