@@ -16,6 +16,9 @@
  * webLinkWithToken() when building a one-tap link or QR.
  */
 
+import { spawnAiHelper, type AiHelperSpawned } from "./aiHelperSpawn";
+import type { DaemonApiConfig } from "./webApi";
+
 export interface WebAccessNetworkInfo {
   local_ip?: string | null;
   tailscale_ip?: string | null;
@@ -193,6 +196,14 @@ export function serveSetupTask(status: ServeStatus | null, apiPort: number): str
     `Then expose this daemon: \`tailscale serve --bg --https=443 http://127.0.0.1:${apiPort}\` (on macOS provision the cert first with \`tailscale cert <my-magicdns-name>\`).`,
     "Finally verify the HTTPS URL actually responds, then reply with the clean link I can scan.",
   ].join(" ");
+}
+
+export function startWebAccessSetupHelper(
+  status: ServeStatus | null,
+  apiPort: number,
+  api: DaemonApiConfig,
+): Promise<AiHelperSpawned> {
+  return spawnAiHelper({ title: "Set up Web Access", task: serveSetupTask(status, apiPort) }, api);
 }
 
 /** Sibling CodeTerm API port (prod 7685 ↔ dev 7686). Mirrors the backend. */

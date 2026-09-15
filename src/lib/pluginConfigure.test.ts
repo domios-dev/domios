@@ -1,4 +1,5 @@
 import { parseMarker } from "@codeterm/chat-core";
+import { AI_HELPER_SPAWN_PATH } from "./aiHelperSpawn";
 import { buildConfigureTask, CONFIG_PREAMBLE, configureWithAI } from "./pluginConfigure";
 
 let passed = 0;
@@ -49,15 +50,20 @@ async function asyncTests() {
     }
   };
   const opaqueToken = process.env.PROVIDER_SETUP_TASK_TOKEN ?? "configure-token-7f91b";
+  let requestUrl = "";
   let requestBody: Record<string, unknown> = {};
-  g.fetch = async (_url: string, init: { body?: string }) => {
+  g.fetch = async (url: string, init: { body?: string }) => {
+    requestUrl = url;
     requestBody = JSON.parse(init.body ?? "{}");
-    return { ok: true, status: 200, json: async () => ({ id: "tab-xyz", delivery_state: "confirmed" }) };
+    return { ok: true, status: 200, json: async () => ({ id: "tab-xyz", delivery_state: "launched" }) };
   };
   await configureWithAI("lmstudio", "LM Studio", opaqueToken, { host: "127.0.0.1", port: 7686 });
   const focus = focusEvents.find((e) => e.type === "codeterm:focus-tab");
-  assert("leaves provider resolution to the configured General-Agent contract", !("agent" in requestBody));
-  assert("requests observable delivery acknowledgement", requestBody.require_delivery_ack === true);
+  assert("spawns through the shared daemon helper route", requestUrl.endsWith(AI_HELPER_SPAWN_PATH));
+  assert(
+    "leaves provider and placement to the daemon",
+    !("agent" in requestBody) && !("workspace_id" in requestBody) && !("cwd" in requestBody),
+  );
   assert("delivers the supplied opaque token in the spawn task", String(requestBody.task).includes(opaqueToken));
   assert("dispatches codeterm:focus-tab with the spawned Tab id", focus?.detail?.tabId === "tab-xyz");
 
