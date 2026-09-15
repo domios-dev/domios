@@ -159,6 +159,14 @@ pub struct PluginManifest {
     #[serde(skip)]
     pub source_path: Option<PathBuf>,
 
+    // Pre-1.10.21 manifests still ship these; accept and ignore them so a plugin never fails to load over an icon field.
+    #[serde(default, rename = "iconHint")]
+    pub legacy_icon_hint: Option<serde_json::Value>,
+    #[serde(default, rename = "iconColor")]
+    pub legacy_icon_color: Option<serde_json::Value>,
+    #[serde(default, rename = "iconSvg")]
+    pub legacy_icon_svg: Option<serde_json::Value>,
+
     /// Sanitized host-owned SVG loaded from `icon` at plugin load time.
     #[serde(skip)]
     pub icon_svg: Option<String>,
