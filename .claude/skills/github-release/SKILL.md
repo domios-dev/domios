@@ -81,7 +81,7 @@ Pushing `release-X.Y.Z` triggers the runners, which **fully automatically**:
 
 End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/codeterm`.
 
-**Prereqs for the automated path** (one-time, see `docs/build_machine_setup.md`):
+**Prereqs for the automated path** (one-time, see `essences/build-machine/mac-setup.md`):
 - self-hosted runner registered + running (`~/actions-runner`; `./svc.sh install` for always-on);
 - Docker image baked for arm64 Linux: `codeterm-build-linux-arm64`;
 - ROG self-hosted runners provisioned (Windows `windows-build`, x86_64 Linux `linux-build`) — they
@@ -96,7 +96,7 @@ the new `release-X.Y.Z` trigger tag.
 
 > **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
 > you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
-> Linux, the ROG Windows + x86_64-Linux runners, signing) lives in **`docs/build_machine_setup.md`**.
+> Linux, the ROG Windows + x86_64-Linux runners, signing) lives in **`essences/build-machine/mac-setup.md`**.
 
 ---
 

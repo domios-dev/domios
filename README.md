@@ -31,11 +31,11 @@
 
 ### Agent Orchestration
 
-<img src="docs/assets/agent-team.gif" alt="Agent Team Demo" width="100%">
+<img src="assets/demo/agent-team.gif" alt="Agent Team Demo" width="100%">
 
 ### Cron Jobs
 
-<img src="docs/assets/cron.gif" alt="Cron Demo" width="100%">
+<img src="assets/demo/cron.gif" alt="Cron Demo" width="100%">
 
 ---
 
@@ -82,7 +82,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 ### Self-update & resilience
 - **Self-update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifests are signed with ed25519 and verified before any binary is touched; auto-install runs a 9-step graceful shutdown (mem WAL checkpoint, supervisor stop, signed binary swap), then tabs auto-resume so context survives the upgrade
 - **Subprocess supervisor** — heavy mem operations (dreaming, librarian extraction) run as child processes with a circuit breaker (3 failures in 60s → open). Worker death does not take the API down; `503` timeouts on heavy mem requests keep the daemon responsive
-- **External watchdog** — health probe at `/api/health`; setup recipes for Windows Task Scheduler, launchd, and systemd live in [docs/RESILIENCE.md](docs/RESILIENCE.md)
+- **External watchdog** — health probe at `/api/health`; setup recipes for Windows Task Scheduler, launchd, and systemd live in [essences/RESILIENCE.md](essences/RESILIENCE.md)
 
 ### Theming
 - **8 built-in themes** — dark and light options included
@@ -269,7 +269,7 @@ CodeTerm sets these in every PTY session:
 | `CODETERM_API_PORT` / `CODETERM_API_TOKEN` | API port and bearer token, so CLI subcommands and Claude hooks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring |
 | `TERM_PROGRAM` | `CodeTerm` |
 
-See [API Reference](docs/API.md) for the complete endpoint documentation.
+See [API Reference](prod-docs/API.md) for the complete endpoint documentation.
 
 ## Configuration
 
@@ -298,7 +298,7 @@ port = 7685
 # token = "your-secret-token"
 ```
 
-See [Configuration Guide](docs/CONFIG.md) for all options.
+See [Configuration Guide](prod-docs/CONFIG.md) for all options.
 
 ## Architecture
 

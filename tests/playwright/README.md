@@ -6,7 +6,7 @@ instance on port 7686 and its `~/.codeterm-dev` store are never adopted,
 restarted, or mutated by this suite.
 
 For the canonical layer taxonomy and the "which layer do I write?" decision tree,
-see [`docs/TESTING.md`](../../docs/TESTING.md).
+see [`essences/TESTING.md`](../../essences/TESTING.md).
 
 ## Tooling decision (spike result, 2026-06-06)
 

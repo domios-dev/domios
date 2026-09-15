@@ -9,7 +9,7 @@
  *
  * For now this only loads in-repo bundled plugins. Loading user-
  * installed plugins from `~/.codeterm/plugins/<id>/dist/plugin.js`
- * is a follow-up (Step 5 in docs/plans/relay/20-provider-plugins-ts.md)
+ * is a follow-up
  * and will use a parallel discovery path that reads via tauri's
  * filesystem APIs.
  */
