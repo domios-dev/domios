@@ -112,6 +112,35 @@ pub async fn usage_projection(
     ))
 }
 
+pub async fn usage_ledger_rebuild(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let kpi = state.svc.kpi.clone();
+    if !kpi.is_enabled() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "kpi ledger not recording"));
+    }
+    let outcome = tokio::task::spawn_blocking(move || kpi.rebuild_usage())
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "usage ledger rebuild stopped",
+            )
+        })?
+        .map_err(|e| {
+            log::warn!("[kpi] usage ledger rebuild failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "usage ledger rebuild failed",
+            )
+        })?;
+    Ok(Json(
+        serde_json::to_value(outcome).unwrap_or(serde_json::json!(null)),
+    ))
+}
+
 pub async fn usage_refresh(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

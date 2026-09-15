@@ -14520,6 +14520,13 @@
           "subcommands": []
         },
         {
+          "name": "rebuild-ledger",
+          "about": "Re-derive KPI token usage from provider transcripts so each response counts once; safe to repeat",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
           "name": "refresh",
           "about": "Re-read usage from the provider's own quota-free source (never spends quota)",
           "aliases": [],

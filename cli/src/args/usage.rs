@@ -18,6 +18,8 @@ pub enum UsageAction {
         #[arg(long)]
         account_id: Option<String>,
     },
+    /// Re-derive KPI token usage from provider transcripts so each response counts once; safe to repeat.
+    RebuildLedger,
     /// Re-read usage from the provider's own quota-free source (never spends quota).
     Refresh {
         #[arg(long, default_value = "claude")]

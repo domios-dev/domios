@@ -3144,6 +3144,10 @@ End-of-today and end-of-cycle projection based on your historical rhythm scaled 
 - `--account-id`
 - `--provider`
 
+#### `codeterm usage rebuild-ledger`
+
+Re-derive KPI token usage from provider transcripts so each response counts once; safe to repeat
+
 #### `codeterm usage refresh`
 
 Re-read usage from the provider's own quota-free source (never spends quota)
