@@ -2046,6 +2046,90 @@
       ]
     },
     {
+      "name": "essence-map",
+      "about": "Generate and validate the source-backed essence map",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "generate",
+          "about": "Generate essences/map.jsonl from the capability and core essences",
+          "aliases": [],
+          "args": [
+            {
+              "name": "decisions",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Decisions JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "map",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Map JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "root",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": ".",
+              "help": "Repository root containing the essences directory",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "validate",
+          "about": "Validate a generated essence map and its append-only decisions log",
+          "aliases": [],
+          "args": [
+            {
+              "name": "decisions",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Decisions JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "map",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Map JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "root",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": ".",
+              "help": "Repository root containing the essences directory",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "identify",
       "about": "Show CodeTerm version and system info",
       "aliases": [],

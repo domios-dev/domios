@@ -137,10 +137,10 @@ fn essence_map_contract_rejects_budget_overflow() {
     let fixture = fixture_root();
     let (map, decisions, _) = valid_map(fixture.path());
     let original = fs::read_to_string(&map).expect("read map");
-    let first_node = original.lines().next().expect("generated node");
+    let first_node = original.lines().next().expect("generated node").to_string();
     let mut overflow = original;
     for _ in 0..46 {
-        overflow.push_str(first_node);
+        overflow.push_str(&first_node);
         overflow.push('\n');
     }
     fs::write(&map, overflow).expect("write over-budget map");
