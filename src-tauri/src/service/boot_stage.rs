@@ -212,6 +212,9 @@ impl ServiceContext {
         // A boot stage is the only moment a tab's agent liveness can change on
         // the launch side; the restore wave settles here rather than on a tick.
         self.settle_restore_report();
+        if stage == BootStage::ShellReady {
+            self.resume_exited_member_on_shell_ready(tab_id);
+        }
         if stage == BootStage::AgentReady {
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.
