@@ -53,9 +53,10 @@ Specialized reference docs alongside this skill:
 - `references/telegram.md` — bridge setup, media types, formatting, per-tab topic threads (`codeterm bridge thread open [--tab ID]`), migration orchestration
 - `references/themes.md` — custom theme TOML format
 - `essences/MODELS.md` (in the CodeTerm repo) — agent model catalog: how the per-provider model list works, how to override or update entries without rebuilding (`<data_dir>/models/<provider>.toml`)
+- `prod-docs/ESSENCE-MAP.md` (read with `codeterm docs ESSENCE-MAP`) — source-backed map generation, validation, and decision records
 
 ## Memory protocol (always-on)
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->

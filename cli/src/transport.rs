@@ -148,6 +148,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Effort { .. } => socket_rpc_relayed(
             "effort management is local-only — run it on the target machine",
         ),
+        Commands::EssenceMap { .. } => pre_socket_unsupported(
+            "essence-map is local-only — it reads the repository's source essences",
+        ),
         Commands::Task { .. } => socket_rpc_relayed(TASK_LOCAL_ONLY),
         Commands::Inbox { .. } => socket_rpc_relayed(TASK_LOCAL_ONLY),
         // Canvas is not in the relayed group, so its verdict is reachable.

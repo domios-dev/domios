@@ -87,8 +87,11 @@ Keep one register per line; never mix `✗` and `hint:` on the same line.
 
 Every command goes through clap so the manifest stays complete. Commands that
 must run without the daemon (filesystem-local: `plugin`, `docs`, `system`,
-`config`, `cli-manifest`) are short-circuited early in `cli/src/main.rs` before
-socket discovery — but they are still real clap variants, so they appear in the
-manifest and docs. Do not reintroduce a separate hand-rolled arg parser.
+`config`, `cli-manifest`, `essence-map`) are short-circuited early in
+`cli/src/main.rs` before socket discovery — but they are still real clap
+variants, so they appear in the manifest and docs. The `essence-map` command
+reads only `essences/CAPABILITIES.md` and `essences/CORE.md`; its JSONL contract
+and source-digest checks are documented in `codeterm docs ESSENCE-MAP`. Do not
+reintroduce a separate hand-rolled arg parser.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

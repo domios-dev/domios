@@ -4,6 +4,7 @@ pub mod cron;
 pub mod debug;
 pub mod delayed;
 pub mod effort;
+pub mod essence_map;
 pub mod inbox;
 pub mod integration;
 pub mod lane;
