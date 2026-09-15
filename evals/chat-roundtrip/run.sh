@@ -93,7 +93,7 @@ ledger_send() {
         "http://127.0.0.1:7686/api/tabs/$tab/chat-send"
 }
 
-# Raw-keystroke seam (docs/API.md `raw`): byte-for-byte PTY writes for the
+# Raw-keystroke seam (prod-docs/API.md `raw`): byte-for-byte PTY writes for the
 # command followed by its carriage return.
 send_raw_keys() {
   local tab="$1" text="$2" base="http://127.0.0.1:${CODETERM_API_PORT:-7686}"

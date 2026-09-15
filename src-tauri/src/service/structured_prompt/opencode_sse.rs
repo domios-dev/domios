@@ -2,8 +2,7 @@
 //!
 //! Maps the local opencode server's `/event` bus payloads onto a
 //! provider-agnostic [`PendingPrompt`] plus the routing needed to answer over
-//! HTTP. Event and endpoint shapes are proven live and documented in
-//! `docs/plans/2026-06-20-opencode-structured-prompt-handle.md`.
+//! HTTP. Event and endpoint shapes are proven live.
 //!
 //! Pure + deterministic: no I/O, no locks. The subscriber thread feeds raw
 //! `data:` JSON in and gets a [`ParsedEvent`] back; the HTTP layer turns a

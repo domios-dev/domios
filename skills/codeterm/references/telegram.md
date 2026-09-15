@@ -105,4 +105,4 @@ codeterm bridge migrate --to PEER \
 
 **Secret locality.** Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` from the source and never sends it across the wire — `--ensure-token` only fires on the daemon that owns the secret. Same contract as `--mesh PEER mem secret …`.
 
-**Exit codes:** `0` success / `1` generic failure (rollback OK) / `5` preflight (target unreachable, no token + no vault, missing peer) / `6` usage error (e.g. `--mesh`) / `7` split-brain (rollback also failed; CLI prints the manual repair command). Full orchestration steps + REST endpoints: `docs/MESH.md` and `docs/API.md`.
+**Exit codes:** `0` success / `1` generic failure (rollback OK) / `5` preflight (target unreachable, no token + no vault, missing peer) / `6` usage error (e.g. `--mesh`) / `7` split-brain (rollback also failed; CLI prints the manual repair command). Full orchestration steps + REST endpoints: `codeterm docs MESH` and `codeterm docs API`.

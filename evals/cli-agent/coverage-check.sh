@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Report CLI commands (from docs/cli-manifest.json) with no benchmark case.
+# Report CLI commands (from essences/cli-manifest.json) with no benchmark case.
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HARNESS_DIR/../.." && pwd)"
-python3 - "$REPO_ROOT/docs/cli-manifest.json" "$HARNESS_DIR/cases" <<'PY'
+python3 - "$REPO_ROOT/essences/cli-manifest.json" "$HARNESS_DIR/cases" <<'PY'
 import sys, json, glob, os, yaml
 manifest = json.load(open(sys.argv[1]))
 def paths(node, prefix=()):
