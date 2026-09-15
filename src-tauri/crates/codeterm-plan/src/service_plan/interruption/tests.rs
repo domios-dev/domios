@@ -130,6 +130,61 @@ fn checkpoint(task_id: &str, attempt_id: &str) -> InterruptionCheckpoint {
 }
 
 #[test]
+fn task_pause_status_preservation_provider_hold() {
+    let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
+    store
+        .begin_provider_exhaustion_pause(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "old-tab",
+            "old-session",
+            1,
+            5,
+        )
+        .unwrap();
+    let sealed = checkpoint(&task_id, &attempt_id);
+    store
+        .finish_provider_exhaustion_pause(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            1,
+            sealed.clone(),
+            6,
+        )
+        .unwrap();
+
+    let held = store.show_task(&task_id).unwrap().task;
+    assert_eq!(held.status, TaskStatus::Paused);
+    assert_eq!(held.status_label.as_deref(), Some("provider_exhausted"));
+    assert_eq!(
+        held.execution_attempts[0].interruption.reason.as_deref(),
+        Some("provider_exhausted")
+    );
+    assert_eq!(held.interruption.checkpoint, Some(sealed));
+    assert_eq!(held.interruption.owner_epoch, 1);
+    assert!(held.execution_attempts[0].closed_at.is_none());
+
+    store
+        .resume_from_provider_exhaustion(
+            &plan_id,
+            &task_id,
+            "old-tab",
+            "old-session",
+            1,
+            7,
+        )
+        .unwrap();
+    let resumed = store.show_task(&task_id).unwrap().task;
+    assert_eq!(resumed.status, TaskStatus::InProgress);
+    assert!(resumed.status_label.is_none());
+    assert!(resumed.interruption.checkpoint.is_none());
+    assert_eq!(resumed.interruption.owner_epoch, 1);
+    assert!(resumed.execution_attempts[0].closed_at.is_none());
+}
+
+#[test]
 fn exhaustion_after_dirty_edit_recovers_handoff_required() {
     let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
     let sealed = checkpoint(&task_id, &attempt_id);

@@ -61,13 +61,13 @@ fn renders_bad_status_fix() {
 }
 
 #[test]
-fn renders_task_pause_reason_fix() {
+fn renders_system_only_paused_status_refusal() {
     let msg = render_plan_error(
-        &json!({ "type": "task_pause_requires_reason" }),
+        &json!({ "type": "task_paused_system_only" }),
         &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
     )
     .unwrap();
-    assert!(msg.contains("codeterm plan task pause plan_1 task_1 --reason"));
+    assert!(!msg.contains("plan task pause"));
 }
 
 #[test]

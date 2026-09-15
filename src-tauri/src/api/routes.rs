@@ -300,14 +300,6 @@ pub fn create_router(state: AppState) -> Router {
             post(plan_routes::task_close),
         )
         .route(
-            "/api/plans/{id}/tasks/{tid}/pause",
-            post(plan_routes::task_pause),
-        )
-        .route(
-            "/api/plans/{id}/tasks/{tid}/resume",
-            post(plan_routes::task_resume),
-        )
-        .route(
             "/api/plans/{id}/tasks/{tid}/assign",
             post(plan_routes::task_assign),
         )

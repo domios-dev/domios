@@ -35,7 +35,7 @@ pub enum PlanError {
     TaskCreationRequiresApproval,
     TaskDispatchRequiresApproval,
     HeartbeatRequiresExecution,
-    TaskPauseRequiresReason,
+    TaskPausedSystemOnly,
     ReviewHoldRequired,
     PauseRequiresReason,
     InProgressRequiresTab,
@@ -218,9 +218,9 @@ impl fmt::Display for PlanError {
                 f,
                 "executor_role names who executes this task and cannot be emptied; pass --executor-role \"<role>\" with a value"
             ),
-            PlanError::TaskPauseRequiresReason => write!(
+            PlanError::TaskPausedSystemOnly => write!(
                 f,
-                "pausing a task requires a reason; run `codeterm plan task pause <plan> <task> --reason \"<why>\"`"
+                "paused task status is reserved for decision-gate and provider-exhaustion system holds"
             ),
             PlanError::ReviewHoldRequired => write!(
                 f,
@@ -419,8 +419,8 @@ impl PlanError {
             PlanError::ExecutorRoleRequired => {
                 serde_json::json!({ "type": "executor_role_required" })
             }
-            PlanError::TaskPauseRequiresReason => {
-                serde_json::json!({ "type": "task_pause_requires_reason" })
+            PlanError::TaskPausedSystemOnly => {
+                serde_json::json!({ "type": "task_paused_system_only" })
             }
             PlanError::ReviewHoldRequired => serde_json::json!({
                 "type": "review_hold_required",
