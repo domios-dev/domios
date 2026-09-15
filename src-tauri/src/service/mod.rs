@@ -16,6 +16,7 @@ pub mod activity;
 pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
+pub(crate) mod ai_helper_spawn;
 mod analytics_host;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
