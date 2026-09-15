@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn ask_gate_pauses_blocking_tasks_only() {
+    fn task_pause_status_preservation_gate_hold() {
         let (_dir, store, pid, tids) = store_with_tasks(&["task-one", "task-two", "task-three"]);
         let (t1, t2, t3) = (tids[0].clone(), tids[1].clone(), tids[2].clone());
 

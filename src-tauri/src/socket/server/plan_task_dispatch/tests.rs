@@ -117,7 +117,7 @@ fn repository_lane_guards_remain_required_for_code_mutation() {
 }
 
 #[test]
-fn paused_task_dispatch_refuses_before_spawn_with_the_resume_command() {
+fn paused_task_dispatch_refuses_before_spawn_without_agent_resume_instruction() {
     let paused = task(json!({
         "id": "task_paused",
         "name": "waiting for user",
@@ -130,7 +130,8 @@ fn paused_task_dispatch_refuses_before_spawn_with_the_resume_command() {
 
     assert_eq!(error.code, -32602);
     assert_eq!(data["stage"], "task_status");
-    assert_eq!(data["fix"], "codeterm plan task resume plan_1 task_paused");
+    assert_eq!(data["hold_kind"], "unclassified");
+    assert!(data.get("fix").is_none());
 }
 
 #[test]

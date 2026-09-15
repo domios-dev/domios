@@ -32,7 +32,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::InProgressRequiresTab
         | PlanError::BlockedRequiresLabel
         | PlanError::ExecutorRoleRequired
-        | PlanError::TaskPauseRequiresReason
+        | PlanError::TaskPausedSystemOnly
         | PlanError::PauseRequiresReason
         | PlanError::QaNoteRequired
         | PlanError::QaSlotUnavailable

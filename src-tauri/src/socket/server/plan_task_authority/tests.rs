@@ -13,10 +13,7 @@ use crate::service::test_fixture::ServiceFixture;
 use serde_json::json;
 use std::sync::Arc;
 
-/// The three verbs the recovery list omitted, which is why `close` recovered a
-/// tab-gone task live while these refused.
-const TAB_GONE_RECOVERY_VERBS: &[&str] =
-    &["plan.task.dispatch", "plan.task.pause", "plan.task.resume"];
+const TAB_GONE_RECOVERY_VERBS: &[&str] = &["plan.task.dispatch"];
 
 const GONE_OWNER_TAB: &str = "gone-worker-tab";
 const GONE_OWNER_SESSION: &str = "gone-worker-session";
@@ -219,11 +216,10 @@ fn recovery_authority_recovery_verbs_are_a_subset_of_plan_owner_authority() {
     assert!(!RECOVERY_METHODS.contains(&"agent.report"));
 }
 
-/// Mechanism 1: the tab-gone escape hatch fires for dispatch AND pause AND
-/// resume, not only for the four verbs the list happened to name.
+/// Mechanism 1: the tab-gone escape hatch fires for dispatch.
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
-fn recovery_authority_recovers_a_tab_gone_task_for_dispatch_pause_and_resume() {
+fn recovery_authority_recovers_a_tab_gone_task_for_dispatch() {
     for method in TAB_GONE_RECOVERY_VERBS {
         let harness = authority_fixture();
         bind_owner(

@@ -276,8 +276,6 @@ pub(super) fn dispatch(
                 | "plan.task.update"
                 | "plan.task.attach"
                 | "plan.task.close"
-                | "plan.task.pause"
-                | "plan.task.resume"
                 | "plan.task.assign"
                 | "plan.task.dispatch"
                 | "plan.task.respawn"
