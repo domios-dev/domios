@@ -12,7 +12,7 @@ use super::compose;
 use super::identity::{display_title, topic_name, SenderIdentity, ThreadTabs};
 use super::registry::{ChatScope, ThreadBinding, ThreadRegistry};
 use super::routing::{self, authorize_open, InboundRoute, ThreadCaller};
-use super::transport::{topic_link, TopicFailure, TopicTransport};
+use super::transport::{classify_failure, topic_link, TopicFailure, TopicProbe, TopicTransport};
 use super::{ThreadError, SERVICE};
 use crate::bridge::markdown::markdown_to_sanitized_html;
 use crate::bridge::response::chunk_message;
@@ -152,12 +152,34 @@ impl ThreadService {
         self.attached.read().clone()
     }
 
+    /// A live, usable binding; a stale one no longer counts as attached.
     pub fn has_open_binding(&self, tab_id: &str) -> bool {
+        self.registry
+            .lock()
+            .open_bindings_for_tab(tab_id)
+            .iter()
+            .any(|binding| !binding.stale)
+    }
+
+    /// Any unretired topic, stale included, that tab close must still clean up.
+    pub fn holds_topics(&self, tab_id: &str) -> bool {
         !self
             .registry
             .lock()
             .open_bindings_for_tab(tab_id)
             .is_empty()
+    }
+
+    /// Mark the binding stale when a caller-owned send hit a missing or closed topic.
+    pub fn note_thread_send_failure(&self, chat_id: i64, thread_id: i64, description: &str) {
+        let Some(attached) = self.attached() else {
+            return;
+        };
+        if classify_failure(description).thread_unusable() {
+            self.registry
+                .lock()
+                .set_stale(&scope(attached.bot_id, chat_id), thread_id, true);
+        }
     }
 
     pub fn stored_json(&self) -> String {
@@ -229,10 +251,11 @@ impl ThreadService {
                 text.buttons.as_ref(),
             )
             .await;
-        if let (Some(gone), Err(TopicFailure::ThreadGone)) = (thread_id, &placed) {
+        let unusable = matches!(&placed, Err(failure) if failure.thread_unusable());
+        if let (Some(dead), true) = (thread_id, unusable) {
             self.registry
                 .lock()
-                .remove(&scope(attached.bot_id, text.chat_id), gone);
+                .set_stale(&scope(attached.bot_id, text.chat_id), dead, true);
             thread_id = None;
             placed = self
                 .send_chunks(&attached, text.chat_id, None, &html, text.buttons.as_ref())
@@ -457,7 +480,10 @@ impl ThreadService {
         let (binding, unavailable, any_bound) = {
             let registry = self.registry.lock();
             (
-                registry.open_binding_for_tab(&chat, tab_id).cloned(),
+                registry
+                    .open_binding_for_tab(&chat, tab_id)
+                    .filter(|binding| !binding.stale)
+                    .cloned(),
                 registry.topics_unavailable(&chat),
                 registry.has_open_bindings(&chat),
             )
@@ -489,25 +515,35 @@ impl ThreadService {
         probe: bool,
     ) -> Ensured {
         let chat = scope(attached.bot_id, chat_id);
-        if let Some(binding) = self.bound(&chat, &identity.tab_id) {
-            return Ensured::Bound {
-                binding,
-                created: false,
-            };
-        }
-        if !probe && self.registry.lock().topics_unavailable(&chat) {
-            return Ensured::Fallback {
-                notice_due: false,
-                unavailable: true,
-                reason: None,
-            };
+        match self.bound(&chat, &identity.tab_id) {
+            Some(binding) if !probe && !binding.stale => {
+                return Ensured::Bound {
+                    binding,
+                    created: false,
+                };
+            }
+            None if !probe && self.registry.lock().topics_unavailable(&chat) => {
+                return Ensured::Fallback {
+                    notice_due: false,
+                    unavailable: true,
+                    reason: None,
+                };
+            }
+            _ => {}
         }
         let _gate = self.create_gate.lock().await;
         if let Some(binding) = self.bound(&chat, &identity.tab_id) {
-            return Ensured::Bound {
-                binding,
-                created: false,
+            let verified = if !probe && !binding.stale {
+                Some(binding)
+            } else {
+                self.verify_binding(attached, binding).await
             };
+            if let Some(binding) = verified {
+                return Ensured::Bound {
+                    binding,
+                    created: false,
+                };
+            }
         }
         let name = topic_name(&identity.title, &identity.tab_id, &tabs.live_tab_titles());
         match attached.transport.create_topic(chat_id, &name).await {
@@ -519,6 +555,7 @@ impl ThreadService {
                     topic_name: name,
                     intro_posted: false,
                     closed: false,
+                    stale: false,
                 };
                 self.registry.lock().bind(binding.clone());
                 Ensured::Bound {
@@ -545,6 +582,41 @@ impl ThreadService {
         }
     }
 
+    /// Runs under `create_gate`. `None` means the topic is gone and its binding was dropped.
+    async fn verify_binding(
+        &self,
+        attached: &Attached,
+        binding: ThreadBinding,
+    ) -> Option<ThreadBinding> {
+        let probe = attached
+            .transport
+            .probe_topic(
+                binding.scope.chat_id,
+                binding.thread_id,
+                &binding.topic_name,
+            )
+            .await;
+        match probe {
+            TopicProbe::Gone => {
+                self.registry
+                    .lock()
+                    .remove(&binding.scope, binding.thread_id);
+                self.appends.lock().remove(&binding.tab_id);
+                None
+            }
+            TopicProbe::Open | TopicProbe::Reopened => {
+                self.registry
+                    .lock()
+                    .set_stale(&binding.scope, binding.thread_id, false);
+                Some(ThreadBinding {
+                    stale: false,
+                    ..binding
+                })
+            }
+            TopicProbe::Unverified => Some(binding),
+        }
+    }
+
     /// Concurrent opens of one binding re-read the flag under the gate, so one intro lands.
     async fn post_intro_once(
         &self,
@@ -564,15 +636,23 @@ impl ThreadService {
             &identity.header(),
             &display_title(&identity.title, &identity.tab_id),
         );
-        if let Ok(message_id) = attached
+        match attached
             .transport
             .send_html(chat_id, Some(binding.thread_id), &intro, None)
             .await
         {
-            self.record_origin(attached, chat_id, message_id, &binding.tab_id);
-            self.registry
-                .lock()
-                .mark_intro_posted(&binding.scope, binding.thread_id);
+            Ok(message_id) => {
+                self.record_origin(attached, chat_id, message_id, &binding.tab_id);
+                self.registry
+                    .lock()
+                    .mark_intro_posted(&binding.scope, binding.thread_id);
+            }
+            Err(failure) if failure.thread_unusable() => {
+                self.registry
+                    .lock()
+                    .set_stale(&binding.scope, binding.thread_id, true);
+            }
+            Err(_) => {}
         }
     }
 

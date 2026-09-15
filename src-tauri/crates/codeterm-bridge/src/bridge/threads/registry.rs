@@ -28,6 +28,9 @@ pub struct ThreadBinding {
     /// Deletion failed and the topic was renamed; it routes to the General Agent.
     #[serde(default)]
     pub closed: bool,
+    /// A send found the topic missing or closed; the next attach verifies it before reuse.
+    #[serde(default)]
+    pub stale: bool,
 }
 
 /// A message a tab placed, so a reply to it can find the tab without topics.
@@ -138,6 +141,18 @@ impl ThreadRegistry {
             .find(|b| b.scope == *scope && b.thread_id == thread_id)
         {
             binding.intro_posted = true;
+            self.persist();
+        }
+    }
+
+    pub fn set_stale(&mut self, scope: &ChatScope, thread_id: i64, stale: bool) {
+        if let Some(binding) = self
+            .snapshot
+            .bindings
+            .iter_mut()
+            .find(|b| b.scope == *scope && b.thread_id == thread_id && b.stale != stale)
+        {
+            binding.stale = stale;
             self.persist();
         }
     }
