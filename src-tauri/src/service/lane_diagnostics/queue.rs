@@ -138,10 +138,11 @@ mod tests {
     #[test]
     fn lane_diagnostics_enqueue_returns_before_blocked_runner() {
         let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = std::sync::Mutex::new(release_rx);
         let runner = Arc::new(move |request: DiagnosticsRequest, _: Duration| {
             started_tx.send(request.attempt_id.clone()).unwrap();
-            release_rx.recv().unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
             Ok(clean_summary(&request))
         });
         let service = LaneDiagnosticsService::with_runner_for_test(
@@ -160,10 +161,11 @@ mod tests {
     #[test]
     fn lane_diagnostics_newer_queued_report_supersedes_older() {
         let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = std::sync::Mutex::new(release_rx);
         let runner = Arc::new(move |request: DiagnosticsRequest, _: Duration| {
             started_tx.send(request.attempt_id.clone()).unwrap();
-            release_rx.recv().unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
             Ok(clean_summary(&request))
         });
         let service = LaneDiagnosticsService::with_runner_for_test(

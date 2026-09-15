@@ -263,10 +263,11 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
         .unwrap()
         .id;
     let (started_tx, started_rx) = mpsc::channel();
-    let (release_tx, release_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let release_rx = std::sync::Mutex::new(release_rx);
     let runner = Arc::new(move |request: DiagnosticsRequest, _: Duration| {
         started_tx.send(request.attempt_id.clone()).unwrap();
-        release_rx.recv().unwrap();
+        release_rx.lock().unwrap().recv().unwrap();
         Ok(LaneDiagnosticsSummary::from_findings(
             request.plan_id,
             request.task_id,
