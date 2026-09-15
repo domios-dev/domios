@@ -50,6 +50,17 @@ function toEchoes(msgs: readonly ChatMessage[]): OptimisticEcho[] {
   }));
 }
 
+/** A transcript reset restarts arrival ordinals, so an ordinal above the live count
+ *  is from the previous epoch and would keep its echo from ever reconciling. */
+function withCurrentArrivalOrder(rows: ChatMessage[], arrivals: number): ChatMessage[] {
+  if (!rows.some((row) => row.clientOrder != null && row.clientOrder > arrivals)) return rows;
+  return rows.map((row) => {
+    if (row.clientOrder == null || row.clientOrder <= arrivals) return row;
+    const { clientOrder: _staleOrder, ...rebased } = row;
+    return rebased;
+  });
+}
+
 /** Viewport projection over the committed transcript: window anchor, enriched
  *  rows and the optimistic tail. It reads the transcript and never stores one. */
 export function useChatWindowView({
@@ -79,13 +90,22 @@ export function useChatWindowView({
     const index = lastSessionResetIndex(committedRows);
     return index >= 0 ? timestampMs(committedRows[index]?.timestamp) : null;
   }, [committedRows]);
+  const arrivals = transcript.arrivals;
+  const rebasedOptimistic = useMemo(
+    () => withCurrentArrivalOrder(optimistic, arrivals),
+    [optimistic, arrivals],
+  );
+  useLayoutEffect(() => {
+    if (rebasedOptimistic === optimistic) return;
+    setOptimistic((previous) => withCurrentArrivalOrder(previous, arrivals));
+  }, [arrivals, optimistic, rebasedOptimistic]);
   const liveOptimistic = useMemo(() => {
-    if (resetCutoffMs == null) return optimistic;
-    return optimistic.filter((m) => {
+    if (resetCutoffMs == null) return rebasedOptimistic;
+    return rebasedOptimistic.filter((m) => {
       const ts = timestampMs(m.timestamp);
       return ts == null || ts >= resetCutoffMs;
     });
-  }, [optimistic, resetCutoffMs]);
+  }, [rebasedOptimistic, resetCutoffMs]);
 
   const allMessages = useMemo(
     () => projectContextEpochs(projectTranscript(transcript, liveOptimistic).rows),
@@ -228,11 +248,11 @@ export function useChatWindowView({
   const clearOptimistic = useCallback(() => setOptimistic([]), []);
 
   useLayoutEffect(() => {
-    if (optimistic.length === 0) return;
+    if (rebasedOptimistic.length === 0) return;
     const parsedUsers = committedRows.filter(
       (m) => m.type === "user" || m.type === "local_command",
     );
-    const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(rebasedOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     setOptimistic((prev) => {
       const next = prev.filter((m) => {
@@ -243,7 +263,7 @@ export function useChatWindowView({
       });
       return next.length === prev.length ? prev : next;
     });
-  }, [committedRows, resetCutoffMs, optimistic]);
+  }, [committedRows, resetCutoffMs, rebasedOptimistic]);
 
   return {
     addOptimistic,

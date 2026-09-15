@@ -1,6 +1,7 @@
 // Every case is a projection the production bounded-snapshot seam produced or must never produce again.
 import {
   createTranscriptState,
+  nextOptimisticOrder,
   projectTranscript,
   reduceTranscript,
   transcriptBackfillCursor,
@@ -215,6 +216,82 @@ function contents(state: TranscriptState): string[] {
     projectTranscript(echoed, optimistic).pending.length,
     0,
     "a matched optimistic still disappears on echo",
+  );
+}
+
+// ── 3c. Mid-turn send: the source writes the user row where the agent consumed
+// it but stamps it at send time; the row keeps its send slot after committing.
+{
+  const at = (offset: number) => String(1_700_000_000_000 + offset);
+  const history = reduceTranscript(
+    createTranscriptState(),
+    batch("snapshot", 0, 100, [
+      { id: "h-0", type: "assistant", content: "earlier reply", seq: 0, timestamp: at(0) },
+    ]),
+  ).state;
+  const optimistic: NormalizedChatMessage[] = [{
+    id: "opt-mid",
+    type: "user",
+    content: "also check the logs",
+    timestamp: at(5_000),
+    clientOrder: nextOptimisticOrder(history),
+    correlationId: "opt-mid",
+  }];
+  const laterOutput: NormalizedChatMessage[] = [
+    { id: "w-0", type: "assistant", content: "running the build", seq: 0, timestamp: at(6_000) },
+    { id: "w-1", type: "tool_call", content: "Bash build.sh", seq: 1, timestamp: at(7_000) },
+  ];
+  const working = reduceTranscript(history, batch("delta", 100, 300, laterOutput)).state;
+  eq(
+    projectTranscript(working, optimistic).rows.map((row) => row.content),
+    ["earlier reply", "also check the logs", "running the build", "Bash build.sh"],
+    "a pending mid-turn send holds its send slot while later output follows it",
+  );
+  const committedTurn: NormalizedChatMessage[] = [
+    { id: "c-0", type: "tool_result", content: "build ok", seq: 0, timestamp: at(8_000) },
+    {
+      id: "c-1",
+      type: "user",
+      content: "also check the logs",
+      seq: 1,
+      timestamp: at(5_000),
+      timelineMarker: { kind: "queued" },
+    },
+    { id: "c-2", type: "assistant", content: "logs are clean", seq: 2, timestamp: at(9_000) },
+  ];
+  const consumed = reduceTranscript(working, batch("delta", 300, 600, committedTurn)).state;
+  const expected = [
+    "earlier reply",
+    "also check the logs",
+    "running the build",
+    "Bash build.sh",
+    "build ok",
+    "logs are clean",
+  ];
+  const live = projectTranscript(consumed, optimistic);
+  eq(live.pending.length, 0, "the consumed echo reconciles the mid-turn send");
+  eq(
+    live.rows.map((row) => row.content),
+    expected,
+    "the committed mid-turn user row keeps its send slot and later rows follow as ordinary rows",
+  );
+  eq(
+    live.rows.filter((row) => row.type === "user").map((row) => row.id),
+    ["300:1"],
+    "exactly one user row remains and the committed source row owns it",
+  );
+  const fresh = reduceTranscript(
+    createTranscriptState(),
+    batch("snapshot", 0, 600, [
+      { id: "h-0", type: "assistant", content: "earlier reply", seq: 0, timestamp: at(0) },
+      ...laterOutput,
+      ...committedTurn,
+    ]),
+  ).state;
+  eq(
+    projectTranscript(fresh).rows.map((row) => row.content),
+    expected,
+    "a fresh parse of the same bytes projects the same chronological order",
   );
 }
 
