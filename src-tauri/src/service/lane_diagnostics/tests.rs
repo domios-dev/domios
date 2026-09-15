@@ -338,3 +338,44 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
     );
     assert!(delivery_rx.try_recv().is_err());
 }
+
+#[cfg(windows)]
+#[test]
+fn lane_diagnostics_extended_canonical_paths_use_warm_scope() {
+    for canonical in [r"\\?\D:\Developer\codeterm", "//?/D:/Developer/codeterm"] {
+        let warm = warm_worktree_path(canonical).unwrap();
+        let warm = warm.to_string_lossy();
+        assert!(!warm.starts_with(r"\\?\"));
+        assert!(!warm.starts_with("//?/"));
+        assert_eq!(
+            analysis_scope(
+                canonical,
+                &warm,
+                Some(r"D:\Developer\codeterm-worktrees\lane"),
+                Some(r"D:\Developer\codeterm-worktrees\lane"),
+                &warm,
+            ),
+            AnalysisScope::Warm
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn lane_diagnostics_plain_canonical_path_uses_warm_scope() {
+    let canonical = r"D:\Developer\codeterm";
+    let warm = warm_worktree_path(canonical).unwrap();
+    let warm = warm.to_string_lossy();
+    assert!(!warm.starts_with(r"\\?\"));
+    assert!(!warm.starts_with("//?/"));
+    assert_eq!(
+        analysis_scope(
+            canonical,
+            &warm,
+            Some(r"D:\Developer\codeterm-worktrees\lane"),
+            Some(r"D:\Developer\codeterm-worktrees\lane"),
+            &warm,
+        ),
+        AnalysisScope::Warm
+    );
+}
