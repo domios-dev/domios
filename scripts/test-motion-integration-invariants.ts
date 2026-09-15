@@ -136,6 +136,7 @@ const sharedDotGeometrySelectors = new Set([
   ".activity-dots--micro",
   ".activity-dots--small",
   ".activity-dots--medium",
+  ".activity-dots--workspace-badge",
 ]);
 const consumerDotGeometryViolations: string[] = [];
 for (const path of filesUnder(stylesRoot).filter((candidate) => candidate.endsWith(".css"))) {
@@ -181,8 +182,8 @@ assert.equal(
 
 const activityDotsSource = readFileSync(activityDotsPath, "utf8");
 assert.equal(
-  (activityDotsSource.match(/size !== "micro" && <i \/>/g) ?? []).length,
-  2,
+  (activityDotsSource.match(/size === "micro" \? 1 : 3/g) ?? []).length,
+  1,
   "micro must render one dot while small and medium render three",
 );
 
