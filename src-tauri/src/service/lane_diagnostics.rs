@@ -89,9 +89,10 @@ impl LaneDiagnosticsService {
     ) -> Result<LaneDiagnosticsSummary, String> {
         let _run_guard = self.run_lock.lock();
         let warm = warm_worktree_path(&request.canonical_project_path)?;
+        let warm_str = warm.to_string_lossy().into_owned();
         let lane_scope = analysis_scope(
             &request.canonical_project_path,
-            &warm,
+            &warm_str,
             Some(&request.lane_worktree_path),
             request.lane_marker.as_deref(),
             &request.lane_worktree_path,
@@ -104,7 +105,7 @@ impl LaneDiagnosticsService {
         if super::same_path(&request.canonical_project_path, &request.lane_worktree_path) {
             return Err("lane diagnostics refused: lane path is the canonical checkout".into());
         }
-        if super::same_path(&warm, &request.lane_worktree_path) {
+        if super::same_path(&warm_str, &request.lane_worktree_path) {
             return Err("lane diagnostics refused: lane path is the diagnostics worktree".into());
         }
         let lane_tip = git_value(&request.lane_worktree_path, &["rev-parse", "HEAD"])?;
@@ -132,10 +133,10 @@ impl LaneDiagnosticsService {
         prepare_warm_worktree(&request.canonical_project_path, &warm, Some(&lane_tip))?;
         if !analysis_allowed(analysis_scope(
             &request.canonical_project_path,
-            &warm,
+            &warm_str,
             Some(&request.lane_worktree_path),
             None,
-            &warm,
+            &warm_str,
         )) {
             return Err(
                 "lane diagnostics refused: warm checkout is not an allowed analysis scope".into(),
@@ -923,10 +924,13 @@ fn resolve_lane_subject(
 ) -> Result<(codeterm_types::plan::Plan, codeterm_types::plan::Task), String> {
     if let Ok(resolved) = store.resolve_task_ref(plan_ref, subject) {
         if let Some(plan) = store.get(&resolved.plan_id) {
-            if let Some(task) = plan.tasks.iter().find(|task| task.id == resolved.task_id) {
-                if task.lane.worktree_path.is_some() {
-                    return Ok((plan, task.clone()));
-                }
+            let laned_task = plan
+                .tasks
+                .iter()
+                .find(|task| task.id == resolved.task_id && task.lane.worktree_path.is_some())
+                .cloned();
+            if let Some(task) = laned_task {
+                return Ok((plan, task));
             }
         }
     }

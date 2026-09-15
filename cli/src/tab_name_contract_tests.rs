@@ -16,6 +16,8 @@ fn tab_name_contract_cli_accepts_executor_name_and_keeps_role_slug_distinct() {
         "rust-backend-dev",
         "--personality",
         "Ada",
+        "--role-guidance",
+        "Own the backend change end to end.",
     ])
     .expect("CLI accepts a one-word executor name and role slug");
 
