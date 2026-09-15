@@ -709,6 +709,31 @@ describe("mission control board panels", () => {
     expect(onOpenTask).toHaveBeenCalledWith("task_render1");
     await unmount();
   });
+
+  it.each([
+    { planning_state: "drafting" as const, label: "Draft · Drafting" },
+    { planning_state: "structure_ready" as const, label: "Draft · Structure ready" },
+  ])("marks a $planning_state plan in the Plan box as a draft", async ({ planning_state, label }) => {
+    const draft: Plan = { ...PLAN, mode: "planning", planning_state };
+    const { host, unmount } = await render(
+      <MissionControlBoard plan={draft} state={boardState(recordingState())} now={NOW} />,
+    );
+    const marker = host.querySelector('[data-testid="mc-board-plan"] [data-testid="mc-board-plan-draft"]');
+    expect(marker?.textContent).toBe(label);
+    expect(marker?.getAttribute("data-planning-state")).toBe(planning_state);
+    expect(text(host, "mc-board-plan-heading")).toBe(draft.title);
+    await unmount();
+  });
+
+  it("shows no draft marker once the plan is approved", async () => {
+    const approved: Plan = { ...PLAN, mode: "approved", planning_state: "approved" };
+    const { host, unmount } = await render(
+      <MissionControlBoard plan={approved} state={boardState(recordingState())} now={NOW} />,
+    );
+    expect(host.querySelector('[data-testid="mc-board-plan-draft"]')).toBeNull();
+    expect(text(host, "mc-board-plan-heading")).toBe(approved.title);
+    await unmount();
+  });
 });
 
 describe("mission control board fallback states", () => {
