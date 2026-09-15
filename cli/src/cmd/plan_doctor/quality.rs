@@ -100,7 +100,8 @@ fn inspect_work_facet(path: &Path, plan: &Value, task: &Value, findings: &mut Ve
         .into_iter()
         .flatten()
         .filter_map(Value::as_str);
-    if let Err(violation) = codeterm_types::plan::work_facet::validate_work_facet(facet_keys, tags) {
+    if let Err(violation) = codeterm_types::plan::work_facet::validate_work_facet(facet_keys, tags)
+    {
         findings.push(Finding {
             severity: "error",
             kind: "work_facet_violation",

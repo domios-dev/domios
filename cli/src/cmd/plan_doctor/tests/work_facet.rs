@@ -83,7 +83,9 @@ fn work_facet_quality_does_not_apply_to_undeclared_plans_or_storage_audit() {
     let mut plan = compliant_plan();
     plan["tasks"][0]["tags"] = json!(["work:", "work:custom", "work:custom", "topic"]);
     let storage = inspect_plan(Path::new("pl_work.json"), &plan, "storage");
-    assert!(!storage.iter().any(|finding| finding.kind == "work_facet_violation"));
+    assert!(!storage
+        .iter()
+        .any(|finding| finding.kind == "work_facet_violation"));
     plan["tag_facets"] = json!([{"key": "area", "values": []}]);
     let findings = inspect_plan(Path::new("pl_work.json"), &plan, "quality");
     assert!(findings.is_empty(), "{findings:?}");
