@@ -18,6 +18,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-claude/tests/hook-ownership.test.ts
       plugins/provider-claude/tests/file-diffs.test.ts
+      plugins/provider-claude/tests/subagents.test.ts
       plugins/provider-claude/tests/launch-session.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/directory-trust-frames.test.ts
@@ -60,6 +61,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-claude/tests/hook-ownership.test.ts
       plugins/provider-claude/tests/file-diffs.test.ts
+      plugins/provider-claude/tests/subagents.test.ts
       plugins/provider-claude/tests/launch-session.test.ts
     )
     ;;
