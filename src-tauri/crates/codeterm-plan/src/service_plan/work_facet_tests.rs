@@ -41,7 +41,13 @@ fn work_facet_add_persists_each_allowed_value_and_unrelated_tags() {
     let (_dir, store, id) = setup(vec![facet("area"), facet("work")]);
     for value in WORK_VALUES {
         let tag = format!("work:{value}");
-        let tags = ["area:plan", "topic", "work", tag.as_str(), "workflow:review"];
+        let tags = [
+            "area:plan",
+            "topic",
+            "work",
+            tag.as_str(),
+            "workflow:review",
+        ];
         let task_id = store
             .add_task_with_external_refs(&id, new_task(&tags), &[], 2)
             .unwrap();
@@ -88,9 +94,15 @@ fn work_facet_add_rejects_invalid_drafts_before_persistence() {
         );
         assert_eq!(error.to_json()["type"], "work_facet_violation");
         assert_eq!(writes.load(Ordering::SeqCst), 0, "{tags:?}");
-        assert_eq!(serde_json::to_value(store.get(&id).unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(store.get(&id).unwrap()).unwrap(),
+            before
+        );
         store.reload_from_disk(&id).unwrap();
-        assert_eq!(serde_json::to_value(store.get(&id).unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(store.get(&id).unwrap()).unwrap(),
+            before
+        );
     }
 }
 
@@ -140,5 +152,8 @@ fn work_facet_batch_cannot_bypass_task_add_contract() {
         PlanError::WorkFacetViolation(WorkFacetViolation::Missing)
     ));
     store.reload_from_disk(&id).unwrap();
-    assert_eq!(serde_json::to_value(store.get(&id).unwrap()).unwrap(), before);
+    assert_eq!(
+        serde_json::to_value(store.get(&id).unwrap()).unwrap(),
+        before
+    );
 }
