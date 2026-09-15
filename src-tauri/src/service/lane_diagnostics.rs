@@ -12,8 +12,8 @@ use wait_timeout::ChildExt;
 
 use crate::process_util;
 
-mod queue;
 mod completion;
+mod queue;
 use queue::Scheduler;
 
 pub(crate) const DIAGNOSTICS_DEADLINE: Duration = Duration::from_secs(900);
@@ -78,9 +78,8 @@ pub(crate) struct DiagnosticsCore {
 }
 
 #[cfg(test)]
-type DiagnosticsRunner = dyn Fn(DiagnosticsRequest, Duration) -> Result<LaneDiagnosticsSummary, String>
-    + Send
-    + Sync;
+type DiagnosticsRunner =
+    dyn Fn(DiagnosticsRequest, Duration) -> Result<LaneDiagnosticsSummary, String> + Send + Sync;
 
 pub(crate) struct LaneDiagnosticsService {
     core: Arc<DiagnosticsCore>,
@@ -165,10 +164,7 @@ impl LaneDiagnosticsService {
 }
 
 impl DiagnosticsCore {
-    fn run(
-        &self,
-        request: DiagnosticsRequest,
-    ) -> Result<LaneDiagnosticsSummary, String> {
+    fn run(&self, request: DiagnosticsRequest) -> Result<LaneDiagnosticsSummary, String> {
         let _run_guard = self.run_lock.lock();
         #[cfg(test)]
         if let Some(runner) = &self.runner {
