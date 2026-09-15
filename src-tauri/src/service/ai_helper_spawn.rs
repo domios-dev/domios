@@ -119,7 +119,8 @@ impl ServiceContext {
             .agent_registry
             .with_provider(&provider, visible_spawn_capabilities)
             .ok_or_else(|| format!("General Agent provider '{provider}' is not registered"))?;
-        let delivery = ai_helper_delivery(system_prompt_capable, native_starter_capable, &request.task);
+        let delivery =
+            ai_helper_delivery(system_prompt_capable, native_starter_capable, &request.task);
         // The visible spawn path starts a roleless task with a first turn; the
         // orchestrated path launches it with no starter and leaves the composer empty.
         let spec = SpawnTabSpec::from_agent_params(params);

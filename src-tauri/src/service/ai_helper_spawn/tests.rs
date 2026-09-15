@@ -14,7 +14,8 @@ fn activate_project_workspace(mux: &mut MultiplexerState) -> String {
     );
     let _ = mux.set_active_workspace(&project.id);
     assert_eq!(
-        mux.get_active_workspace().map(|workspace| workspace.id.clone()),
+        mux.get_active_workspace()
+            .map(|workspace| workspace.id.clone()),
         Some(project.id.clone())
     );
     project.id
@@ -66,7 +67,10 @@ fn ai_helper_spawn_spec_is_a_roleless_visible_launch_in_general() {
     assert_eq!(agent.task.as_deref(), Some("ai-helper-task-3e9"));
     assert_eq!(agent.role, None);
     assert_eq!(agent.spawned_by_tab_id, None);
-    assert_eq!(agent.provisioned_cwd.as_deref(), Some("general-cwd-fixture"));
+    assert_eq!(
+        agent.provisioned_cwd.as_deref(),
+        Some("general-cwd-fixture")
+    );
     assert_eq!(agent.activate, Some(true));
 }
 

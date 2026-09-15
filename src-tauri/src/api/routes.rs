@@ -11,13 +11,13 @@ use tower_http::{
 };
 
 use super::{
-    agent_done_routes, agent_routes, ai_helper_routes, bridge_routes, clipboard_routes, config_routes, cron_routes,
-    debug_routes, fs_routes, health_routes, inbound_webhook, logs_routes, mem_routes,
-    mesh_inventory, mesh_routes, network_routes, notification_routes, output_stream,
-    pasteboard_routes, plan_routes, plugin_tab_menu_routes, pty_routes, services_routes,
-    session_routes, tab_agent_routes, tab_routes, task_routes, team_mission_control_routes,
-    team_routes, team_spend, theme_routes, updater_routes, usage_routes, web_routes,
-    webhook_routes, workspace_routes,
+    agent_done_routes, agent_routes, ai_helper_routes, bridge_routes, clipboard_routes,
+    config_routes, cron_routes, debug_routes, fs_routes, health_routes, inbound_webhook,
+    logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes, notification_routes,
+    output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes, pty_routes,
+    services_routes, session_routes, tab_agent_routes, tab_routes, task_routes,
+    team_mission_control_routes, team_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -558,7 +558,10 @@ pub fn create_router(state: AppState) -> Router {
             post(session_routes::resume_session_api),
         )
         .route("/api/agents/spawn", post(agent_routes::spawn_agent))
-        .route("/api/agents/helper", post(ai_helper_routes::spawn_ai_helper))
+        .route(
+            "/api/agents/helper",
+            post(ai_helper_routes::spawn_ai_helper),
+        )
         .route("/api/agents/done", get(agent_done_routes::list_done))
         .route(
             "/api/orchestration/new",
