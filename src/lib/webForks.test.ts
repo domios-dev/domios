@@ -28,7 +28,6 @@ interface ForkSite {
 
 const INVENTORY: ForkSite[] = [
   { file: "src/App.tsx", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
-  { file: "src/components/MeshPanel/MeshPanel.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
   { file: "src/components/Terminal/NewSessionPicker.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
   { file: "src/components/Terminal/sessionBindingApi.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "session rebind uses the web bridge mapping vs authenticated native daemon fetch" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
@@ -68,8 +67,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/bridge.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "THE seam: invoke() routes to tauriInvoke vs HTTP_MAP" },
   { file: "src/lib/bridge.ts", anchor: "if (IS_WEB && event === \"config-changed\" && e.payload && typeof e.payload === \"object\") {", ordinal: 1, cls: "transport-shim", note: "config-changed payload carries the browser's own token; native reads it from the daemon config" },
   { file: "src/lib/bridge.ts", anchor: "if (localListenBranch(IS_WEB) === \"tauri\") {", ordinal: 1, cls: "transport-shim", note: "THE seam: listen() routes to tauriListen vs webListen" },
-  { file: "src/lib/pluginConfigure.ts", anchor: "const token = IS_WEB ? \"\" : daemonAuthToken(api);", ordinal: 1, cls: "transport-shim", note: "omit the native bearer token on web transport" },
-  { file: "src/lib/pluginConfigure.ts", anchor: "const response = IS_WEB", ordinal: 1, cls: "transport-shim", note: "spawn configure-agent via webFetch vs native fetch" },
+  { file: "src/lib/aiHelperSpawn.ts", anchor: "if (IS_WEB) return webFetch(AI_HELPER_SPAWN_PATH, init);", ordinal: 1, cls: "transport-shim", note: "AI helper spawn via webFetch vs native fetch" },
   { file: "src/lib/resizeOwner.ts", anchor: "const prefix = IS_WEB ? \"web:\" : \"tauri:\";", ordinal: 1, cls: "capability-gate", note: "resize-owner client-id namespacing to avoid native/web arbitration collisions" },
   { file: "src/lib/stateCache.ts", anchor: "if (!IS_WEB) return null;", ordinal: 1, cls: "capability-gate", note: "boot snapshot cache only meaningful where a network round-trip exists (web)" },
   { file: "src/lib/webApi.ts", anchor: "if (IS_WEB) return apiHost();", ordinal: 1, cls: "transport-shim", note: "THE seam: daemonHttpBase() — canonical daemon origin per access mode" },
