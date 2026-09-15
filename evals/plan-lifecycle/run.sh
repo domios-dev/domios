@@ -93,12 +93,16 @@ IMPL_SECTION="$(dc plan section add "$PLAN_ID" --title Implementation --body="Im
 [ -n "$IMPL_SECTION" ] || fail "section add did not return an id"
 pass "added implementation section $IMPL_SECTION"
 
+dc plan groups set "$PLAN_ID" --groups "lifecycle:Lifecycle" >/dev/null
+pass "declared the lifecycle group"
+
 TASK_ID="$(dc plan task add "$PLAN_ID" \
   --name "Implement fixture task" \
   --type implement \
   --executor-role rust-backend-dev \
   --sections "$SPEC_SECTION,$IMPL_SECTION" \
   --body="Touch both sections" \
+  --group lifecycle \
   --intent="Keep the eval scoped")"
 [ -n "$TASK_ID" ] || fail "task add did not return an id"
 pass "added task $TASK_ID"
@@ -129,6 +133,20 @@ assert_jq "$PLAN_JSON" \
   "task close marked done" \
   --arg task "$TASK_ID" \
   '.tasks[] | select(.id == $task) | .status == "done"'
+
+# A terminal group holds the next frontier until its retrospective stride exists.
+STATE_JSON="$(dc --json plan state "$PLAN_ID")"
+assert_jq "$STATE_JSON" \
+  "terminal group requires a retrospective" \
+  '.pending_group_retrospectives | map(.key) | index("lifecycle") != null'
+dc plan groups close "$PLAN_ID" lifecycle --note="Lifecycle fixture retrospective" >/dev/null
+STATE_JSON="$(dc --json plan state "$PLAN_ID")"
+assert_jq "$STATE_JSON" \
+  "group retrospective clears the frontier gate" \
+  '.pending_group_retrospectives | length == 0'
+assert_jq "$(json_get "$PLAN_ID")" \
+  "group retrospective is a group-linked stride" \
+  '[.strides[] | select(.kind == "group_close" and (.links | index("group:lifecycle")))] | length == 1'
 
 LOOP_ID="$(dc plan loop create "$PLAN_ID" --target "$TASK_ID" --budget 1 --stop-when="all checks pass")"
 [ -n "$LOOP_ID" ] || fail "loop create did not return an id"

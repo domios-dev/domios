@@ -157,6 +157,35 @@ pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection 
     }
 }
 
+impl TaskProjection {
+    // A wait on a missing task never clears by itself, so it stays the owner's to replan.
+    pub fn needs_orchestrator_action(&self) -> bool {
+        match self.presentation {
+            TaskPresentation::WaitingOnDependencies => {
+                self.dependency_waits.iter().any(|wait| wait.missing)
+            }
+            TaskPresentation::Paused | TaskPresentation::Terminal => false,
+            _ => true,
+        }
+    }
+}
+
+/// Tasks the plan owner can act on now, in plan order. Dependency-waiting and
+/// machine-paused tasks advance without the owner and are excluded.
+pub fn orchestrator_actionable_task_ids(plan: &Plan) -> Vec<String> {
+    plan.tasks
+        .iter()
+        .filter(|task| task_projection(plan, task).needs_orchestrator_action())
+        .map(|task| task.id.clone())
+        .collect()
+}
+
+pub fn plan_needs_orchestrator_action(plan: &Plan) -> bool {
+    plan.tasks
+        .iter()
+        .any(|task| task_projection(plan, task).needs_orchestrator_action())
+}
+
 /// The single count of tasks the Orchestrator still owes attention to beyond
 /// ordinary dispatch: every task explicitly `Blocked`, plus every `Pending`
 /// task still gated on an unmet dependency. `plan next`, the orchestrator
@@ -232,6 +261,8 @@ pub struct PlanStateSnapshot {
     pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
     // Pending gates minus authorized waivers — the set that actually blocks dispatch.
     pub blocking_regression_gates: Vec<super::milestone_gates::RegressionGate>,
+    // Terminal groups whose retrospective is missing or predates their last close.
+    pub pending_group_retrospectives: Vec<super::milestone_gates::RegressionGate>,
     pub regression_overrides: Vec<RegressionGateOverride>,
     pub review_gate: super::review_gate::ReviewGateStatus,
     // Stored-field Mission Control projection. The KPI and machine-spend blocks
@@ -626,6 +657,7 @@ pub fn build_plan_state_snapshot(
         recent_strides: recent_strides(plan),
         pending_regression_gates: super::milestone_gates::pending_regression_gates(plan),
         blocking_regression_gates: super::milestone_gates::blocking_regression_gates(plan),
+        pending_group_retrospectives: super::milestone_gates::pending_group_retrospectives(plan),
         regression_overrides: plan.regression_gate_overrides.clone(),
         review_gate: super::review_gate::review_gate_status(plan),
         mission_control: mission_control::build_mission_control(plan, now_ms),

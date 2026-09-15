@@ -340,10 +340,8 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
         })
         .unwrap();
 
-    let text = store.prepend_heartbeat_for_plan(
-        &plan_id,
-        &super::reminders::nudge_text(super::reminders::NudgeKind::Orchestrator),
-    );
+    let reminder = super::reminders::orchestrator_nudge_text(&store.get(&plan_id).unwrap());
+    let text = store.prepend_heartbeat_for_plan(&plan_id, &reminder);
 
     assert!(text.starts_with("<codeterm-role-identity"));
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
@@ -358,7 +356,8 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains("codeterm docs ORCHESTRATION"));
     assert!(!text.contains("<codeterm-orchestrator-heartbeat"));
     assert!(!text.contains("Current focus:"));
-    assert!(text.contains("Plan reminder: this tab owns unfinished execution-plan work."));
+    assert!(text.ends_with(&reminder));
+    assert!(!reminder.contains("{actionable}"));
 }
 
 #[test]

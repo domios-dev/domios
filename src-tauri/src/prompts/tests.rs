@@ -2,6 +2,7 @@
 //! inside the repository size gate; the module contract is unchanged.
 
 mod idle_coordination;
+mod task_sequencing;
 
 use super::*;
 
@@ -11,7 +12,7 @@ const CLI_MANIFEST: &str = include_str!("../../../docs/cli-manifest.json");
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
-fn cli_teaching_fragments() -> [(&'static str, &'static str); 8] {
+fn cli_teaching_fragments() -> [(&'static str, &'static str); 9] {
     [
         ("general_agent.md", GENERAL_AGENT_TEMPLATE),
         ("codeterm_rule.md", CODETERM_RULE),
@@ -20,6 +21,7 @@ fn cli_teaching_fragments() -> [(&'static str, &'static str); 8] {
         ("orchestrator_suffix.md", ORCHESTRATOR_SUFFIX),
         ("worker_suffix.md", WORKER_SUFFIX),
         ("team_creation_contract.md", TEAM_CREATION_CONTRACT),
+        ("task_sequencing_contract.md", TASK_SEQUENCING_CONTRACT),
         ("agent_codeterm_primer.md", AGENT_CODETERM_PRIMER),
     ]
 }
@@ -581,6 +583,7 @@ fn prompt_placeholders_are_fully_substituted() {
         for slot in [
             "{planning_compaction_contract}",
             "{team_creation_contract}",
+            "{task_sequencing_contract}",
             "{test_author_guidance}",
             "{task_contract_line}",
             "{task_routing_line}",
