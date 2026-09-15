@@ -275,7 +275,10 @@ reapable: see the `release-preflight` FIFO teardown row below.
 Use `./build.sh help` as the command index. `test-one <app|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
 hides manifest/package details for focused tests. The `types` and `cli`
 selectors include all Cargo targets so integration and binary tests are
-reachable; the other selectors retain their existing ownership scopes.
+reachable; the other selectors retain their existing ownership scopes. Each
+target is its own test binary and prints its own `test result` line, so a
+target reporting `0 passed` only means the filter matched nothing there. Judge
+the run by the per-test `... ok` lines of the target that owns the test.
 `verify` runs the standard
 check, full Rust workspace library suite, and source-size integration gate.
 Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait
@@ -284,11 +287,21 @@ for Cargo and libtest to finish by default. For a targeted diagnostic only, set
 group and exits 124, while ordinary child success or failure is propagated.
 
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
-Cargo serializes its separate `cli/target` itself. The command also regenerates
-`docs/cli-manifest.json` and the generated block in `docs/CLI.md`, then installs
-the release binary only into the active development data directory. Dev builds
-never overwrite `~/.codeterm/bin`: production CLI updates come from the bundled
-production app during startup, in-app update, or `install-local`.
+Cargo serializes its separate `cli/target` itself. The command builds the release
+CLI, regenerates the three generated CLI artifacts (`docs/cli-manifest.json`, the
+generated block in `docs/CLI.md`, and the Chat UI command paths), then installs
+the binary into the active development data directory, replacing the CLI every
+tab of that dev instance runs. Dev builds never overwrite `~/.codeterm/bin`:
+production CLI updates come from the bundled production app during startup,
+in-app update, or `install-local`.
+
+The generated artifacts are never hand-edited. `cli-manifest --write` writes into
+the checkout the binary was compiled from, so only a CLI built from the checkout
+being changed may regenerate them; the installed `codeterm` on `PATH` is the
+wrong binary. To regenerate without replacing a dev instance's CLI, run
+`./build.sh release-inputs` (it also builds the release CLI, without installing)
+and then run that binary from the CLI release target directory with
+`cli-manifest --write`.
 
 ### Crash symbols for dev builds
 
@@ -401,4 +414,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 136 -->
+<!-- revision: 137 -->

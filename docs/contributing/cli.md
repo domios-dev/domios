@@ -5,12 +5,16 @@ The clap tree in `cli/src/args/*.rs` is the single source of truth.
 When you add/rename/remove a command or flag:
 
 1. Edit the clap definition in `cli/src/args/`.
-2. Run `codeterm cli-manifest --write` — regenerates `docs/cli-manifest.json`,
-   the auto-block of `docs/CLI.md`, and the Chat UI command-path tree.
+2. In canonical, regenerate `docs/cli-manifest.json`, the auto-block of
+   `docs/CLI.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` with
+   `cli-manifest --write` run by the CLI built from this checkout (`./build.sh cli`
+   does both, and also installs into the active dev data directory; see
+   `docs/BUILD.md` for regenerating without installing). Never hand-edit these
+   three files, and never regenerate them with the installed `codeterm`.
 3. If agent-facing behavior changed, update the wording in
    `src-tauri/prompts/codeterm_cli.md` (it is validated, not generated). For
    tab messaging behavior, also check `docs/SKILLS.md`.
-4. `cargo test -p codeterm-cli cmd::manifest` must be green.
+4. `./build.sh test-one cli cmd::manifest` must be green (canonical QA).
 5. If you added a chat-card template, it is checked by chat-ui `recognize.test.ts`.
 6. If the change breaks the CLI↔daemon wire contract (a removed/renamed method
    or required param, a changed field meaning), bump `PROTOCOL_VERSION` in
@@ -57,11 +61,11 @@ Two structural blind spots, so you do not mistake green for complete:
 
 ## Historical surfaces are not drift
 
-`docs/specs/**` and `docs/release/<version>-*.md` are dated design and release
-records: they describe the CLI as it stood on their date. Divergence from today's
-clap tree is expected and is **not** a defect. Do not rewrite them to match the
-current tree, and do not add them to any validation corpus. If a spec's design
-is still live, restate it in a maintained doc and link there.
+`docs/release/<version>-*.md` are release records: they describe the CLI as it
+stood on their date. Divergence from today's clap tree is expected and is **not**
+a defect. Do not rewrite them to match the current tree, and do not add them to
+any validation corpus. Design decisions live in plan strides and commits; a
+design that is still live belongs in a maintained doc.
 
 ## Error & hint hygiene
 
@@ -87,4 +91,4 @@ must run without the daemon (filesystem-local: `plugin`, `docs`, `system`,
 socket discovery — but they are still real clap variants, so they appear in the
 manifest and docs. Do not reintroduce a separate hand-rolled arg parser.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
