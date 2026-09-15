@@ -31,6 +31,16 @@ import {
 import { discoverAnthropicModels } from "./models";
 import { claudeFileDiffs } from "./fileDiffs";
 import {
+  isAgentActivityBlock,
+  isSubAgentCall,
+  subAgentCallBlock,
+  subAgentLaunchBlock,
+  subAgentNotificationBlock,
+  subAgentUsageSources,
+  xmlTagBody,
+} from "./subagents";
+import { canonicalToolFields, toolDescription } from "./toolFields";
+import {
   classifyClaudeTabState,
   TabStateSnapshot,
   TabStateClassification,
@@ -83,17 +93,6 @@ function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string)
   if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return FILE_TASK_PROMPT;
-}
-
-function xmlTagBody(content: string, tag: string): string | null {
-  const open = `<${tag}>`;
-  const close = `</${tag}>`;
-  const start = content.indexOf(open);
-  if (start < 0) return null;
-  const bodyStart = start + open.length;
-  const end = content.indexOf(close, bodyStart);
-  if (end < 0) return null;
-  return content.slice(bodyStart, end).trim();
 }
 
 function taskNotificationStatus(content: string): string | null {
@@ -573,8 +572,11 @@ const plugin: PluginModule = {
         if (!msg) continue;
         const content = msg.content;
         if (typeof content === "string") {
-          const taskStatus = t === "user" ? taskNotificationStatus(content) : null;
-          if (taskStatus) {
+          const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
+          const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
+          if (agentNotice) {
+            blocks.push(agentNotice);
+          } else if (taskStatus) {
             role = "status";
             sourceSubtype = "task_notification";
             blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
@@ -594,6 +596,13 @@ const plugin: PluginModule = {
             for (const k in b) {
               if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
                 data[k] = (b as Record<string, unknown>)[k];
+              }
+            }
+            if (b.type === "tool_use" && isSubAgentCall(data.name, data.input)) {
+              const agent = subAgentCallBlock(data.id, data.input);
+              if (agent) {
+                blocks.push(agent);
+                continue;
               }
             }
             if (b.type === "tool_use") {
@@ -616,6 +625,11 @@ const plugin: PluginModule = {
               delete data.signature;
             }
             if (b.type === "tool_result") {
+              const agent = subAgentLaunchBlock(data.tool_use_id, v.toolUseResult);
+              if (agent) {
+                blocks.push(agent);
+                continue;
+              }
               const outcome = commandOutcome(v.toolUseResult);
               if (outcome) Object.assign(data, outcome);
               const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
@@ -633,16 +647,22 @@ const plugin: PluginModule = {
         } else {
           continue;
         }
+        // Sub-agent progress is not user input, whichever record carried it.
+        if (blocks.length > 0 && blocks.every(isAgentActivityBlock)) role = "assistant";
       } else if (t === "attachment") {
         // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
           continue;
         }
-        const taskStatus = att.commandMode === "task-notification"
+        const agentNotice = subAgentNotificationBlock(att.prompt, v);
+        const taskStatus = agentNotice ? null : att.commandMode === "task-notification"
           ? taskNotificationStatus(att.prompt) ?? "Task notification"
           : taskNotificationStatus(att.prompt);
-        if (taskStatus) {
+        if (agentNotice) {
+          role = "assistant";
+          blocks.push(agentNotice);
+        } else if (taskStatus) {
           role = "status";
           sourceSubtype = "task_notification";
           blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
@@ -681,6 +701,10 @@ const plugin: PluginModule = {
   sessionJsonlPath(_cwd: string, sessionId: string): string | null {
     if (!sessionId) return null;
     return claudeSessionFilePath(_cwd, sessionId);
+  },
+
+  sessionUsageSources(sessionFilePath: string, sessionId: string): string[] {
+    return subAgentUsageSources(sessionFilePath, sessionId);
   },
 
   // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
@@ -987,72 +1011,6 @@ const plugin: PluginModule = {
     return detectClaudeLaunchSession(evidence);
   },
 };
-
-interface CanonicalToolFields {
-  kind: string;
-  summary: string;
-  detail: string;
-  edits: Array<{ path: string; old: string; new: string }>;
-}
-
-function canonicalToolFields(name: string, input: unknown): CanonicalToolFields {
-  const tool = name.trim();
-  const value = input && typeof input === "object" && !Array.isArray(input)
-    ? input as Record<string, unknown>
-    : {};
-  const text = (key: string): string => typeof value[key] === "string" ? value[key] as string : "";
-  const command = text("command");
-  const path = text("file_path") || text("filePath") || text("path");
-  const pattern = text("pattern");
-  const edits = extractCanonicalEdits(value);
-  const lower = tool.toLowerCase();
-  if (lower === "bash" || lower === "shell" || lower === "exec") {
-    return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
-  }
-  if (lower === "edit" || lower === "multiedit" || lower === "write") {
-    return { kind: "edit", summary: path || "File edit", detail: path, edits: edits };
-  }
-  if (lower === "read") {
-    return { kind: "read", summary: path || "Read file", detail: path, edits: [] };
-  }
-  if (lower === "glob" || lower === "grep" || lower === "search") {
-    return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
-  }
-  return {
-    kind: "generic",
-    summary: cleanToolText(tool, "Tool"),
-    detail: tool,
-    edits: edits,
-  };
-}
-
-function toolDescription(input: unknown): string {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
-  const value = (input as Record<string, unknown>).description;
-  return typeof value === "string" ? value.replace(/[\r\n\t]+/g, " ").trim() : "";
-}
-
-function extractCanonicalEdits(input: Record<string, unknown>): Array<{ path: string; old: string; new: string }> {
-  const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
-  const pair = (value: unknown, fallbackPath: string): { path: string; old: string; new: string } | null => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    const item = value as Record<string, unknown>;
-    const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
-    const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
-    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
-    const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
-    return { path: path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
-  };
-  if (Array.isArray(input.edits)) return input.edits.map((edit) => pair(edit, parentPath)).filter((e): e is { path: string; old: string; new: string } => e !== null);
-  const single = pair(input, parentPath);
-  return single ? [single] : [];
-}
-
-function cleanToolText(value: string, fallback: string): string {
-  const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
-  if (!text) return fallback;
-  return text.length > 120 ? text.slice(0, 117) + "..." : text;
-}
 
 function exactSourceIdentity(value: unknown): string | undefined {
   if (typeof value !== "string" || !value || value.trim() !== value) return undefined;
