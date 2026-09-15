@@ -1,61 +1,46 @@
-import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
-export function mergeTimelineMessages<T extends NormalizedChatMessage>(
-  confirmed: T[],
-  pending: T[],
-): T[] {
-  if (pending.length === 0) return confirmed;
-  return [
-    ...confirmed.map((message, index) => ({ message, index })),
-    ...pending.map((message, index) => ({ message, index: confirmed.length + index })),
-  ]
-    .sort((a, b) => {
-      const ao = a.message.clientOrder;
-      const bo = b.message.clientOrder;
-      if (ao != null && bo != null && ao !== bo) return ao - bo;
-      const at = timestampMs(a.message.timestamp);
-      const bt = timestampMs(b.message.timestamp);
-      if (at != null && bt != null && at !== bt) return at - bt;
-      const as = a.message.seq;
-      const bs = b.message.seq;
-      if (as != null && bs != null && as !== bs) return as - bs;
-      return a.index - b.index;
-    })
-    .map((entry) => entry.message);
+/** Rows flattened from one source record share its id base inside one batch; a base can
+ *  be a reused stream ordinal, so it never links rows across batches. */
+function sourceEntry(row: NormalizedChatMessage): string | null {
+  if (row.sourceMessageId == null) return null;
+  const separator = row.id.indexOf(":");
+  const batch = separator < 0 ? "" : row.id.slice(0, separator);
+  return `${batch}|${row.sourceMessageId.replace(/-\d+$/, "")}`;
 }
 
-function isUserAuthored(message: NormalizedChatMessage): boolean {
-  return message.type === "user" || message.type === "local_command";
-}
-
-function ownTimestampSlot(
+/** Keys are epoch ms of a row's own event, null when neither the row nor a proven parent has one.
+ *  A row inherits only from its event parent: a result from its call, a block from its record. */
+export function inheritedOrderKeys(
   rows: readonly NormalizedChatMessage[],
-  end: number,
-  ts: number | null,
-): number {
-  if (ts == null) return end;
-  let slot = end;
-  while (slot > 0) {
-    const prior = rows[slot - 1];
-    const priorTs = timestampMs(prior.timestamp);
-    if (isUserAuthored(prior) || priorTs == null || priorTs <= ts) break;
-    slot -= 1;
-  }
-  return slot;
+  ownKey: (row: NormalizedChatMessage, index: number) => number | null,
+): Array<number | null> {
+  const callKeys = new Map<string, number>();
+  const entryKeys = new Map<string, number>();
+  return rows.map((row, index) => {
+    const entry = sourceEntry(row);
+    let key = ownKey(row, index);
+    if (key == null && row.type === "tool_result" && row.toolId) key = callKeys.get(row.toolId) ?? null;
+    if (key == null && entry != null) key = entryKeys.get(entry) ?? null;
+    if (key == null) return null;
+    if (row.type === "tool_call" && row.toolId && !callKeys.has(row.toolId)) callKeys.set(row.toolId, key);
+    if (entry != null && !entryKeys.has(entry)) entryKeys.set(entry, key);
+    return key;
+  });
 }
 
-/** A source records input sent mid-turn where the agent consumed it but stamps it
- *  at send time, so a user row takes its own timestamp slot among later output. */
-export function chronologicalRows<T extends NormalizedChatMessage>(rows: T[]): T[] {
-  let out: T[] | null = null;
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    const placed: readonly T[] = out ?? rows;
-    const end = out ? out.length : index;
-    const slot = row.type === "user" ? ownTimestampSlot(placed, end, timestampMs(row.timestamp)) : end;
-    if (out == null && slot !== end) out = rows.slice(0, index);
-    if (out != null) out.splice(slot, 0, row);
-  }
-  return out ?? rows;
+/** The one total order: keyed rows sort by key (source position breaks ties) into the
+ *  positions keyed rows occupy; keyless rows hold their position and block nothing. */
+export function chronologicalOrder<T>(rows: T[], keys: ReadonlyArray<number | null>): T[] {
+  const slots: number[] = [];
+  keys.forEach((key, index) => {
+    if (key != null) slots.push(index);
+  });
+  const sorted = [...slots].sort((a, b) => (keys[a] as number) - (keys[b] as number) || a - b);
+  if (sorted.every((index, position) => index === slots[position])) return rows;
+  const out = [...rows];
+  sorted.forEach((index, position) => {
+    out[slots[position]] = rows[index];
+  });
+  return out;
 }

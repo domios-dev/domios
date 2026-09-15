@@ -9,7 +9,7 @@ import type { NormalizedChatMessage } from "./types";
  *  history messages (seconds-to-minutes back) never satisfy the time guard —
  *  so re-sending a short message ("yes", "y") matches the NEW echo, not an
  *  identical line from earlier in the conversation. */
-const ECHO_SKEW_MS = 2_000;
+export const ECHO_SKEW_MS = 2_000;
 
 /** Fuzzy fallback: clears an echo whose real counterpart diverged slightly —
  *  a leaked stray prefix, or the raw attachment path that the optimistic bubble
@@ -24,8 +24,6 @@ export interface OptimisticEcho {
   content: string;
   /** Epoch ms the bubble was sent at (the stable client send time). */
   sentAtMs: number;
-  /** Monotonic frontend order captured before transport submission. */
-  clientOrder?: number;
   /** Stable client send-correlation token. When the server echoes it onto the
    *  committed turn, reconciliation is by identity instead of content. */
   correlationId?: string;
@@ -121,9 +119,6 @@ function consumeTokenSequence(tokens: CoverageToken[], needle: string[]): boolea
 }
 
 function candidateFollowsEcho<T extends NormalizedChatMessage>(echo: OptimisticEcho, candidate: T): boolean {
-  if (echo.clientOrder != null && candidate.clientOrder != null) {
-    return candidate.clientOrder >= echo.clientOrder;
-  }
   const ts = timestampMs(candidate.timestamp);
   return ts == null || ts >= echo.sentAtMs - ECHO_SKEW_MS;
 }
@@ -145,7 +140,8 @@ function candidateFollowsEcho<T extends NormalizedChatMessage>(echo: OptimisticE
 export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   optimistic: OptimisticEcho[],
   parsedUsers: T[],
-): { matchedIds: string[]; pendingIds: string[] } {
+): { matchedIds: string[]; pendingIds: string[]; claims: Array<{ echoId: string; parsedIndex: number }> } {
+  const claims: Array<{ echoId: string; parsedIndex: number }> = [];
   const consumed = new Array<boolean>(parsedUsers.length).fill(false);
   const idMatched = new Set<string>();
   const exactMatched = new Set<string>();
@@ -161,6 +157,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       if (candidate.correlationId == null || candidate.correlationId !== echo.correlationId) continue;
       consumed[i] = true;
       idMatched.add(echo.id);
+      claims.push({ echoId: echo.id, parsedIndex: i });
       break;
     }
   }
@@ -188,6 +185,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     if (hit >= 0) {
       consumed[hit] = true;
       exactMatched.add(echo.id);
+      claims.push({ echoId: echo.id, parsedIndex: hit });
     }
   }
   const coverageClaimed = new Set<number>();
@@ -205,6 +203,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       if (consumeTokenSequence(candidate.tokens, wanted)) {
         coveredMatched.add(echo.id);
         coverageClaimed.add(candidate.index);
+        claims.push({ echoId: echo.id, parsedIndex: candidate.index });
         break;
       }
     }
@@ -238,6 +237,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     if (hit >= 0) {
       consumed[hit] = true;
       fuzzyMatched.add(echo.id);
+      claims.push({ echoId: echo.id, parsedIndex: hit });
     }
   }
   const matchedIds: string[] = [];
@@ -253,7 +253,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       pendingIds.push(echo.id);
     }
   }
-  return { matchedIds, pendingIds };
+  return { matchedIds, pendingIds, claims };
 }
 
 /** Window (ms) within which two consecutive user messages with identical content

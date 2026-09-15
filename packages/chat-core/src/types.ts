@@ -152,9 +152,6 @@ export interface NormalizedChatMessage {
   /** Frontend join context for a parser sequence; sequence values repeat when a
    * tab rotates to a new agent session. */
   sourceSessionId?: string;
-  /** Frontend-only arrival/send order hint for live optimistic merges. Providers
-   *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
-  clientOrder?: number;
   /** Stable client send-correlation token. Set on the optimistic row and echoed
    *  by the server onto the committed user turn, so an optimistic bubble
    *  reconciles with its echo by identity — never content, which diverges once
