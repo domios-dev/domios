@@ -10,26 +10,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib/webApi";
 import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
+import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
 
 type ApiCfg = DaemonApiConfig;
 
-// Theme tokens pushed into the iframe so plugin UIs match the app.
-const THEME_VARS = [
-  "--ct-bg",
-  "--ct-bg-elev",
-  "--ct-fg",
-  "--ct-muted",
-  "--ct-accent",
-  "--ct-border-default",
-  "--ct-border-subtle",
-  "--ct-ok",
-  "--ct-warn",
-  "--ct-err",
-];
+/** Every theme token the app derives, so shared components render inside a plugin UI as they do in the app. */
+export const PLUGIN_THEME_VARS = Object.keys(themeToCSS(DEFAULT_THEME));
 
 function themeCss(): string {
   const cs = getComputedStyle(document.documentElement);
-  return THEME_VARS.map((v) => `${v}:${cs.getPropertyValue(v).trim()}`)
+  return PLUGIN_THEME_VARS.map((v) => `${v}:${cs.getPropertyValue(v).trim()}`)
     .filter((s) => !s.endsWith(":"))
     .join(";");
 }
@@ -40,6 +30,8 @@ export function PluginView({
   onClose,
   embedded,
   cwd,
+  active = true,
+  focusOnActive = false,
 }: {
   pluginId: string;
   api: ApiCfg | undefined;
@@ -48,8 +40,13 @@ export function PluginView({
   embedded?: boolean;
   /** Tab cwd stamped into view-call args that omit one (e.g. the Git panel). */
   cwd?: string | null;
+  /** A kept-mounted view that is hidden ignores Escape; the iframe hears `__ctActive` on each change. */
+  active?: boolean;
+  focusOnActive?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   // bridge's __ctResize). Fullscreen views fill their container instead.
   const [contentHeight, setContentHeight] = useState<number | null>(null);
 
@@ -57,18 +54,18 @@ export function PluginView({
   // already loaded until its src changes, so the reload has to bust it.
   const [reloadNonce, setReloadNonce] = useState(0);
   useEffect(() => {
-    let active = true;
+    let alive = true;
     let unlisten: UnlistenFn | undefined;
     listen<{ kind: string }>("contributions-changed", (event) => {
-      if (active && event.payload.kind === `plugin_view:${pluginId}`) {
+      if (alive && event.payload.kind === `plugin_view:${pluginId}`) {
         setReloadNonce((n) => n + 1);
       }
     }).then((fn) => {
-      if (active) unlisten = fn;
+      if (alive) unlisten = fn;
       else fn();
     });
     return () => {
-      active = false;
+      alive = false;
       unlisten?.();
     };
   }, [pluginId]);
@@ -82,6 +79,7 @@ export function PluginView({
       const m = e.data || {};
       if (m.__ctReady) {
         win.postMessage({ __ctTheme: themeCss() }, "*");
+        win.postMessage({ __ctActive: activeRef.current }, "*");
         return;
       }
       if (typeof m.__ctResize === "number" && embedded) {
@@ -118,15 +116,20 @@ export function PluginView({
     return () => window.removeEventListener("message", onMessage);
   }, [onMessage]);
 
+  useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage({ __ctActive: active }, "*");
+    if (active && focusOnActive && !embedded) iframeRef.current?.focus();
+  }, [active, focusOnActive, embedded]);
+
   // Universal escape (host-side focus); in-iframe Esc/close routes via __ctClose.
   useEffect(() => {
-    if (embedded) return;
+    if (embedded || !active) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose?.();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [embedded, onClose]);
+  }, [active, embedded, onClose]);
 
   const frame = (
     <iframe

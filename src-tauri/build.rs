@@ -96,7 +96,10 @@ fn embed_macos_info_plist() {
     );
 }
 
-/// Walk `<repo>/plugins/provider-*/`, hash each bundle canonically, and
+/// Core plugins that ship with the app but are not agent providers.
+const CORE_PLUGIN_DIRS: &[&str] = &["analytics"];
+
+/// Walk `<repo>/plugins/provider-*/` and the core plugin dirs, hash each bundle canonically, and
 /// emit `$OUT_DIR/system_plugin_hashes.rs` with `SYSTEM_PLUGIN_HASHES`.
 /// The runtime loader includes that file via `include!`. Failure here
 /// fails the build — the hash table is load-bearing for the system-
@@ -133,10 +136,11 @@ fn generate_system_plugin_hashes() {
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
-        if !dir_name.starts_with("provider-") {
-            continue;
-        }
-        let id = dir_name.trim_start_matches("provider-").to_string();
+        let id = match dir_name.strip_prefix("provider-") {
+            Some(provider) => provider.to_string(),
+            None if CORE_PLUGIN_DIRS.contains(&dir_name.as_str()) => dir_name.clone(),
+            None => continue,
+        };
 
         // Sanity check: plugin.json#id must match folder name. Catches copy-paste mistakes at build time.
         verify_id_matches_folder(&path, &id);

@@ -105,6 +105,9 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if perm_on("spawn_agents", "spawnAgents") {
             granted.push("spawn_agents");
         }
+        if perm_on("analytics", "analytics") {
+            granted.push("analytics");
+        }
     }
     let settings_schema = m
         .get("settingsSchema")
@@ -433,7 +436,8 @@ mod tests {
                 "manage_workspaces": true,
                 "spawn_agents": true,
                 "agent_commands": true,
-                "secrets": true
+                "secrets": true,
+                "analytics": true
             }
         });
         let mut entry = serde_json::json!({ "id": "codeterm-npc" });
@@ -459,6 +463,7 @@ mod tests {
             "spawn_agents",
             "agent_commands",
             "secrets",
+            "analytics",
         ] {
             assert!(
                 granted.contains(&want.to_string()),

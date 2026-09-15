@@ -35,7 +35,13 @@ Three moving parts, two channels, one published SDK:
 - **`codeterm-alpha` (this repo) → the `codeterm-core` channel.** The *intrinsic*
   provider plugins (`plugins/provider-claude|codex|opencode`), bundled into the
   binary (`build.rs` → `embedded`). They ship and update **with the app**; their
-  versions **mirror the app version**.
+  versions **mirror the app version**. The core **Analytics** view plugin
+  (`plugins/analytics`, `CORE_PLUGIN_DIRS` in both `build.rs` files) ships the
+  same way: embedded, System-trusted and present by default. Its iframe UI
+  bundles the shared Board components (`SpendChart`, `BoardPanel`, `Segmented`)
+  and `src/styles/primitives.css`, and reads data only through `host.analytics`
+  from its `viewCall`. The titlebar entry beside Plugins appears while it is
+  installed with its `view` capability.
 - **`codeterm-plugins` (separate repo, `rollacode/codeterm-plugins`) → the
   `codeterm-plugins` marketplace channel.** Non-provider capability plugins
   (`git`, `transcriber`, `bitwarden`, `lmstudio`, `chat-preprocessor`), authored in
@@ -774,4 +780,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

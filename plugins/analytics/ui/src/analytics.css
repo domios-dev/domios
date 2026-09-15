@@ -1,0 +1,419 @@
+/* Layout for the Analytics view only; panels, charts, tables, chips and segmented controls come from the shared Board CSS. */
+
+html,
+body,
+#ct-root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--ct-font-ui);
+  font-size: var(--ct-font-size-sm);
+  line-height: var(--ct-line-height);
+  color: var(--ct-fg);
+}
+
+.analytics-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mc-space-2) var(--mc-space-3);
+  min-width: 0;
+}
+
+.analytics-head-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-1);
+  min-width: 0;
+}
+
+.analytics-title {
+  margin: 0;
+  font-size: var(--ct-font-size-lg);
+  font-weight: 600;
+  line-height: 1.28;
+  color: var(--ct-fg);
+}
+
+.analytics-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mc-space-1) var(--mc-space-2);
+  margin: 0;
+  font-size: var(--mc-text-meta);
+  color: var(--ct-muted-fg);
+}
+
+.analytics-pill-accent {
+  border-color: color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  color: var(--ct-accent);
+}
+
+.analytics-head-side {
+  display: flex;
+  align-items: center;
+  gap: var(--mc-space-2);
+}
+
+.analytics-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+
+.analytics-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mc-space-2);
+  min-width: 0;
+}
+
+.analytics-filter {
+  position: relative;
+}
+
+.analytics-filter .mc-board-chip b {
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.analytics-range-caption {
+  margin-left: auto;
+}
+
+.analytics-popover {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  width: min(20rem, calc(100vw - 2rem));
+  max-height: 17.5rem;
+  overflow-y: auto;
+  padding: var(--mc-space-2);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-surface);
+  box-shadow: var(--ct-shadow-md);
+}
+
+.analytics-option-detail {
+  color: var(--ct-muted-fg);
+}
+
+.analytics-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--mc-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analytics-tiles > li {
+  display: flex;
+  min-width: 0;
+}
+
+.analytics-tiles .mc-board-panel {
+  flex: 1 1 auto;
+}
+
+.analytics-amount {
+  display: block;
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--ct-fg);
+}
+
+.analytics-amount.is-missing {
+  color: var(--ct-muted);
+}
+
+.analytics .mc-board-panel-head {
+  flex-wrap: wrap;
+}
+
+.analytics-chart-panel .mc-board-chart-bars {
+  min-height: 10rem;
+}
+
+.analytics-readout {
+  min-height: 1.5rem;
+}
+
+.analytics-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 18.75rem);
+  gap: var(--mc-gap);
+  align-items: start;
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .analytics-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.analytics-breakdown .analytics-child-name {
+  padding-left: var(--mc-space-4);
+}
+
+.analytics-breakdown .mc-board-models-row[data-depth="0"] > th {
+  font-weight: 600;
+}
+
+.analytics-row-toggle {
+  margin-left: var(--mc-space-2);
+}
+
+.analytics-breakdown-detail td {
+  padding-bottom: var(--mc-space-2);
+}
+
+.analytics-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.analytics-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mc-space-2);
+  padding: var(--mc-space-2) var(--mc-space-3);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+}
+
+.analytics-banner > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.analytics-banner > svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.analytics-banner[data-tone="warn"] {
+  border-color: color-mix(in srgb, var(--ct-yellow) 40%, transparent);
+  background: color-mix(in srgb, var(--ct-yellow) 7%, var(--ct-bg));
+}
+
+.analytics-banner[data-tone="warn"] > svg {
+  color: var(--ct-yellow);
+}
+
+.analytics-banner[data-tone="error"] {
+  border-color: color-mix(in srgb, var(--ct-red) 40%, transparent);
+  background: color-mix(in srgb, var(--ct-red) 7%, var(--ct-bg));
+}
+
+.analytics-banner[data-tone="error"] > svg {
+  color: var(--ct-red);
+}
+
+.analytics-banner-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.analytics-meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analytics-meter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: var(--mc-space-2);
+}
+
+.analytics-meter-label {
+  min-width: 0;
+  font-size: var(--mc-text-meta);
+  color: var(--ct-fg);
+}
+
+.analytics-meter-pct {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.analytics-meter-bar {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 6px;
+  margin-top: var(--mc-space-1);
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+}
+
+.analytics-meter-bar > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: inherit;
+  background: var(--ct-accent);
+}
+
+.analytics-meter[data-state="warn"] .analytics-meter-bar > span {
+  background: var(--ct-yellow);
+}
+
+.analytics-meter[data-state="danger"] .analytics-meter-bar > span {
+  background: var(--ct-red);
+}
+
+.analytics-meter-reset {
+  grid-column: 1 / -1;
+  margin-top: var(--mc-space-1);
+  font-family: var(--ct-font-mono);
+  font-size: 10px;
+  color: var(--ct-muted-fg);
+}
+
+.analytics-loading {
+  display: grid;
+  gap: var(--mc-space-2);
+}
+
+.analytics-skeleton {
+  height: 4.5rem;
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-surface);
+}
+
+.analytics-skeleton-tall {
+  height: 11rem;
+}
+
+.analytics-footer {
+  padding-top: var(--mc-space-1);
+}
+
+.analytics-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  background: var(--ct-bg-overlay);
+}
+
+.analytics-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100% - 3rem);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-xl) var(--ct-radius-xl) 0 0;
+  background: var(--ct-surface);
+}
+
+.analytics-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mc-space-2);
+  padding: var(--mc-space-2) var(--mc-space-3);
+}
+
+.analytics-sheet-head h2 {
+  margin: 0 auto 0 0;
+  font-size: var(--ct-font-size-lg);
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.analytics-sheet-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--mc-space-3);
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--mc-space-3) var(--mc-space-3);
+}
+
+.analytics-sheet-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+}
+
+.analytics-sheet-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  padding: var(--mc-space-2) var(--mc-space-3) var(--mc-space-3);
+  border-top: 1px solid var(--ct-border);
+}
+
+.analytics-primary {
+  border-color: color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+  color: var(--ct-fg);
+  font-weight: 600;
+}
+
+/* Phone width: controls reach 44px targets and every segmented control spans its row. */
+.analytics[data-layout="narrow"] .mc-board-chip,
+.analytics[data-layout="narrow"] .analytics-row-toggle {
+  min-height: 2.75rem;
+  padding: 0 var(--mc-space-3);
+}
+
+.analytics[data-layout="narrow"] .analytics-icon-btn {
+  min-width: 2.75rem;
+  padding: 0;
+}
+
+.analytics[data-layout="narrow"] .analytics-range,
+.analytics[data-layout="narrow"] .mc-board-panel-meta .ct-liquid-segmented {
+  width: 100%;
+}
+
+.analytics[data-layout="narrow"] .ct-liquid-segmented__option {
+  padding: 0 var(--mc-space-1);
+}
+
+.analytics[data-layout="narrow"] .mc-board-panel-meta {
+  width: 100%;
+  margin-left: 0;
+  text-align: left;
+}
+
+.analytics-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mc-space-2);
+  width: 100%;
+}

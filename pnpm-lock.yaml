@@ -224,6 +224,12 @@ importers:
 
   packages/plugin-sdk: {}
 
+  plugins/analytics:
+    devDependencies:
+      '@codeterm/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   plugins/chat-preprocessor:
     devDependencies:
       '@codeterm/plugin-sdk':
