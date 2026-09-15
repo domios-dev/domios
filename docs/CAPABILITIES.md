@@ -104,10 +104,10 @@ Detail: API-STATE, TAB-LIFECYCLE; repository docs RESILIENCE and RELEASE.
 
 | Capability | What it enables | Entry points | Invariants | Status |
 |---|---|---|---|---|
-| Essence-anchored code map | Code points back to the essences it serves, so agents can derive the project's foundation in reverse: what is core, what is peripheral, which file belongs to which capability, and which expectations a change must re-verify | Planned for agents rather than people; mechanism not chosen | Essences stay the stable anchor and code follows them, never the reverse; the map is derived, not hand-maintained | roadmap |
+| Essence-anchored code map | Code points back to the essences it serves, so agents can derive the project's foundation in reverse: what is core, what is peripheral, which file belongs to which capability, and which expectations a change must re-verify | Planned for agents rather than people; mechanism not chosen | The map is an indirect beacon: work is done with an eye on it, but real architecture is more complex and is never bent to mirror the map; essences stay the stable anchor; the map is derived, not hand-maintained | roadmap |
 | Usage tracking | Provider quota percentages with end-of-day and end-of-cycle projections | CLI `usage latest`, `usage projection`, `usage refresh` | Refresh reads the provider's quota-free source and never spends quota | stable |
 | KPI ledger and Analytics | Token usage per tab and plan, aggregated in the Analytics view | Analytics titlebar view; CLI `usage rebuild-ledger`; usage API | Each provider response counts once; a rebuild is idempotent | stable; ledger rebuild in rollout |
 | Health and diagnostics | Liveness, running build identity, orchestration and plan consistency | Health API; CLI `identify`, `tab inspect`, `orchestrator status`, `plan doctor` | Debugging starts by confirming the running build matches the source | stable |
 | Updates | Signed updates checked, installed and relaunched | Update UI; CLI `update check`, `update install` | A client is offered only an artifact for its own platform; manifests are signature-verified; channel switching is disabled | stable |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
