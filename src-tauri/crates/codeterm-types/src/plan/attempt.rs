@@ -81,6 +81,20 @@ pub struct LoadedPlanSkillEvidence {
     pub loaded_at: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerPlacement {
+    #[default]
+    IsolatedLane,
+    CanonicalWriter,
+}
+
+impl WorkerPlacement {
+    pub fn is_isolated_lane(&self) -> bool {
+        matches!(self, Self::IsolatedLane)
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TaskExecutionAttempt {
     pub id: String,
@@ -117,6 +131,9 @@ pub struct TaskExecutionAttempt {
     /// empty list is deliberate: that dispatch granted no gate permission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorized_gates: Option<Vec<String>>,
+    /// Set only by an explicit dispatch opt-in; never derived from a checkout path.
+    #[serde(default, skip_serializing_if = "WorkerPlacement::is_isolated_lane")]
+    pub placement: WorkerPlacement,
     #[serde(default)]
     pub report: Option<TaskExecutionReportSnapshot>,
     #[serde(default)]

@@ -30,13 +30,26 @@ the response carries `safety_nudges`, each with a stable id, why it matters, and
 the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
 are never obstructed, including in canonical.
 
+**The one mutating canonical placement is an explicit opt-in.** `plan task
+dispatch --execution-intent mutating --canonical-writer` places a single Worker
+in the canonical checkout when sequential work benefits from fast iteration. It
+is never inferred from `--cwd`, a recorded path, or the task's shape, and it is
+refused for a read-only dispatch, a non-repository task, or a task that records
+a lane. The attempt persists `placement: canonical_writer`. The checkout
+occupancy preflight makes the placement exclusive: a second live attempt in
+canonical is refused with `checkout_occupied`, and `plan review accept` refuses a
+lane task while the writer is live (`lane.integration_while_canonical_writer_holds_checkout`).
+The writer executes only its `--authorized-gate` commands, commits on the
+integration branch, and reports with a clean tree; any dirt refuses the report.
+Without the flag every rule above is unchanged.
+
 Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
 **mutating** competitor gets its own worktree, branch, and base before spawning,
 so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.

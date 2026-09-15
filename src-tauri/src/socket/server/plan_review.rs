@@ -203,6 +203,11 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("residual_risk"))
                 .and_then(|v| v.as_str());
             let from = actor(p);
+            if let Some(plan) = store.get(&plan_id) {
+                super::plan_task_dispatch::canonical_writer::refuse_lane_integration_while_canonical_held(
+                    &plan, &task_id,
+                )?;
+            }
             let result = store
                 .accept_review(
                     &plan_id,

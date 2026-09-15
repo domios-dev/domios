@@ -77,6 +77,25 @@ Both payloads that report the lane — the synchronous dispatch response and the
 canonical checkout and `lane.worktree_path` as the **worker's** lane, for a
 provisioned and a pre-created lane alike.
 
+### Canonical writer placement is an explicit dispatch parameter
+
+`plan.task.dispatch` accepts `placement: "isolated_lane" | "canonical_writer"`;
+absent or null is `isolated_lane`, and nothing else ever selects the canonical
+placement. `canonical_writer` requires `execution_intent: "mutating"`, a
+repository task, and no recorded lane (otherwise `invalid_task_dispatch`). It
+verifies canonical as an attached checkout, skips lane provisioning, and runs the
+checkout occupancy preflight against canonical, so any live attempt there refuses
+it with `checkout_occupied`. The attempt persists `placement`, and on readiness
+records `worktree_path` as the canonical checkout with no `base`, which keeps the
+report guard strict. `task.lane` stays empty, so lane cleanup never touches
+canonical. The dispatch response echoes `placement`.
+
+While such an attempt is live, `plan.review.accept` on another task that records
+a lane is refused with code `-32015`, `data.type = "canonical_writer_holds_checkout"`,
+`violation_id = "lane.integration_while_canonical_writer_holds_checkout"`, and the
+holder task and attempt ids. Gate claims stay bound to the attempt's exact
+`authorized_gates`.
+
 ### Recording an executor that runs elsewhere
 
 A task executed by an agent on another machine records its executor with the
@@ -152,4 +171,4 @@ mandatory skills as soon as it launches, before any session id exists, while
 stale, mismatched, partial, or foreign identities are refused. Reading a plan
 skill as evidence still requires a current task binding for that plan.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

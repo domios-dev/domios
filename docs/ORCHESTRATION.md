@@ -156,7 +156,9 @@ Before a wave:
 2. Define a disjoint lane map: task, files, branch/worktree, expected output,
    focused oracle, and central gates requested.
 3. Run plan doctor.
-4. Dispatch through `codeterm plan task dispatch`.
+4. Dispatch through `codeterm plan task dispatch`. Lanes are the default; add
+   `--canonical-writer` only as a deliberate choice for one sequential mutating
+   Worker in canonical (see the operations playbook).
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
 6. If dispatch fails, alert the user immediately and verify rollback. Never
    blind-retry a write.
@@ -197,4 +199,4 @@ the assignment and lane intact, and every verdict requires `--note`, never
 `--reason`. Review credit repair, task-less evidence reporters, and Planner parent
 resolution are plan surface contracts (API-PLAN).
 
-<!-- revision: 81 -->
+<!-- revision: 82 -->

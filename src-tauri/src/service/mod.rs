@@ -125,7 +125,8 @@ pub(crate) use team::rename_team_core;
 pub(crate) use team::rename_team_with_state_change;
 mod task_lane_guard;
 pub(crate) use task_lane_guard::{
-    canonical_path_of, classify_mutating_lane, recorded_lane_matches, UnsafeMutatingLane,
+    canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,
+    UnsafeMutatingLane,
 };
 // The value-only verdict has no production caller; the routes go through the
 // ServiceContext wrapper instead.

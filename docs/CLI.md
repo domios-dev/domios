@@ -2302,6 +2302,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 
 - `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
 - `--authorized-gate` — Gate token the worker may claim as executed; repeatable
+- `--canonical-writer` — Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred
 - `--cwd`
 - `--execution-intent` — Explicit task intent used by provider reserve policy
 - `--model`
