@@ -350,15 +350,9 @@ fn task_bound_mutating_spawn_rejects_missing_lane() {
 fn lane_provisioning_failure_is_a_synchronous_lane_dispatch_error() {
     let root = tempfile::tempdir().unwrap();
     let missing_checkout = root.path().join("missing-checkout");
-    let provisioning_failure = provision_lane_for_test(
-        missing_checkout.to_str().unwrap(),
-        "plan-task-lane",
-    )
-    .unwrap_err();
-    let error = super::super::dispatch_failed(
-        "lane_provision",
-        provisioning_failure,
-    );
+    let provisioning_failure =
+        provision_lane_for_test(missing_checkout.to_str().unwrap(), "plan-task-lane").unwrap_err();
+    let error = super::super::dispatch_failed("lane_provision", provisioning_failure);
 
     assert_eq!(error.code, -32603);
     assert!(error.message.contains("dispatch failed at lane_provision"));

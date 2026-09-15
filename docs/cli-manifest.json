@@ -2356,6 +2356,70 @@
       ]
     },
     {
+      "name": "lane",
+      "about": "Run and read daemon-owned diagnostics for worker lanes",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "check",
+          "about": "Run the daemon-owned diagnostics check for a task or lane branch",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "required": false,
+              "value_name": "PLAN",
+              "possible_values": [],
+              "default": null,
+              "help": "Plan id (default: $CODETERM_PLAN_ID)",
+              "aliases": []
+            },
+            {
+              "name": "subject",
+              "positional": true,
+              "required": true,
+              "value_name": "SUBJECT",
+              "possible_values": [],
+              "default": null,
+              "help": "Task id, task handle, or recorded lane branch",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "diagnostics",
+          "about": "Read the stored diagnostics for a task",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "required": false,
+              "value_name": "PLAN",
+              "possible_values": [],
+              "default": null,
+              "help": "Plan id (default: $CODETERM_PLAN_ID)",
+              "aliases": []
+            },
+            {
+              "name": "subject",
+              "positional": true,
+              "required": true,
+              "value_name": "SUBJECT",
+              "possible_values": [],
+              "default": null,
+              "help": "Task id, task handle, or recorded lane branch",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "mem",
       "about": "Unified memory store — skills, facts, notes, scripts, peers, preferences",
       "aliases": [],

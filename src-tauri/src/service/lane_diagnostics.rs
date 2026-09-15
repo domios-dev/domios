@@ -97,7 +97,9 @@ impl LaneDiagnosticsService {
             &request.lane_worktree_path,
         );
         if request.require_lane_marker && lane_scope != AnalysisScope::WorkerLane {
-            return Err("lane diagnostics refused: task lane and dispatcher marker do not agree".into());
+            return Err(
+                "lane diagnostics refused: task lane and dispatcher marker do not agree".into(),
+            );
         }
         if super::same_path(&request.canonical_project_path, &request.lane_worktree_path) {
             return Err("lane diagnostics refused: lane path is the canonical checkout".into());
@@ -114,10 +116,17 @@ impl LaneDiagnosticsService {
             let reported_commit = format!("{reported}^{{commit}}");
             let resolved = git_value(
                 &request.lane_worktree_path,
-                &["rev-parse", "--verify", "--end-of-options", &reported_commit],
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    &reported_commit,
+                ],
             )?;
             if resolved != lane_tip {
-                return Err("lane diagnostics refused: report SHA is not the current lane tip".into());
+                return Err(
+                    "lane diagnostics refused: report SHA is not the current lane tip".into(),
+                );
             }
         }
         prepare_warm_worktree(&request.canonical_project_path, &warm, Some(&lane_tip))?;
@@ -128,7 +137,9 @@ impl LaneDiagnosticsService {
             None,
             &warm,
         )) {
-            return Err("lane diagnostics refused: warm checkout is not an allowed analysis scope".into());
+            return Err(
+                "lane diagnostics refused: warm checkout is not an allowed analysis scope".into(),
+            );
         }
         let changed_files = changed_files(&request, &lane_tip);
         let crates = touched_crates(&changed_files);
@@ -147,7 +158,10 @@ impl LaneDiagnosticsService {
                 "CODETERM_DIAGNOSTICS_BRANCH",
                 request.lane_branch.clone().unwrap_or_default(),
             )
-            .env("CODETERM_DIAGNOSTICS_BASE", request.base.clone().unwrap_or_default())
+            .env(
+                "CODETERM_DIAGNOSTICS_BASE",
+                request.base.clone().unwrap_or_default(),
+            )
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_INCREMENTAL", "1")
             .stdout(Stdio::piped())
@@ -215,7 +229,11 @@ impl LaneDiagnosticsService {
             )
         })?;
         let path = self.storage_path(&summary.plan_id, &summary.task_id, &summary.attempt_id);
-        let temp = path.with_file_name(format!(".{}.{}.tmp", path.file_name().unwrap().to_string_lossy(), uuid::Uuid::new_v4().simple()));
+        let temp = path.with_file_name(format!(
+            ".{}.{}.tmp",
+            path.file_name().unwrap().to_string_lossy(),
+            uuid::Uuid::new_v4().simple()
+        ));
         let json = serde_json::to_vec_pretty(summary)
             .map_err(|error| format!("cannot serialize diagnostics: {error}"))?;
         std::fs::write(&temp, json)
@@ -225,9 +243,8 @@ impl LaneDiagnosticsService {
                 format!("cannot replace diagnostics {}: {error}", path.display())
             })?;
         }
-        std::fs::rename(&temp, &path).map_err(|error| {
-            format!("cannot commit diagnostics {}: {error}", path.display())
-        })
+        std::fs::rename(&temp, &path)
+            .map_err(|error| format!("cannot commit diagnostics {}: {error}", path.display()))
     }
 
     fn storage_path(&self, plan_id: &str, task_id: &str, attempt_id: &str) -> PathBuf {
@@ -268,7 +285,9 @@ pub(crate) fn warm_worktree_path(canonical: &str) -> Result<PathBuf, String> {
     let parent = project
         .parent()
         .ok_or_else(|| format!("cannot derive diagnostics worktree from '{canonical}'"))?;
-    Ok(parent.join(format!("{repo}-worktrees")).join(".diagnostics"))
+    Ok(parent
+        .join(format!("{repo}-worktrees"))
+        .join(".diagnostics"))
 }
 
 fn prepare_warm_worktree(canonical: &str, warm: &Path, sha: Option<&str>) -> Result<(), String> {
@@ -280,12 +299,18 @@ fn prepare_warm_worktree(canonical: &str, warm: &Path, sha: Option<&str>) -> Res
     if !warm.exists() {
         if let Some(parent) = warm.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
-                format!("cannot create diagnostics worktree parent {}: {error}", parent.display())
+                format!(
+                    "cannot create diagnostics worktree parent {}: {error}",
+                    parent.display()
+                )
             })?;
         }
         let warm_display = warm.display().to_string();
         let result = run_command(
-            git_command(canonical, &["worktree", "add", "--detach", &warm_display, &tip]),
+            git_command(
+                canonical,
+                &["worktree", "add", "--detach", &warm_display, &tip],
+            ),
             PREPARE_DEADLINE,
         )?;
         return result_success(result, "create diagnostics warm worktree");
@@ -296,9 +321,12 @@ fn prepare_warm_worktree(canonical: &str, warm: &Path, sha: Option<&str>) -> Res
             warm.display()
         ));
     }
-    let warm_str = warm
-        .to_str()
-        .ok_or_else(|| format!("diagnostics worktree path is not valid Unicode: {}", warm.display()))?;
+    let warm_str = warm.to_str().ok_or_else(|| {
+        format!(
+            "diagnostics worktree path is not valid Unicode: {}",
+            warm.display()
+        )
+    })?;
     let top = git_value(warm_str, &["rev-parse", "--show-toplevel"])?;
     if !super::same_path(&top, &warm.display().to_string()) {
         return Err(format!(
@@ -320,17 +348,18 @@ fn result_success(result: ProcessOutput, operation: &str) -> Result<(), String> 
     if result.code == Some(0) {
         Ok(())
     } else {
-        Err(format!(
-            "{operation} failed: {}",
-            result.output.trim()
-        ))
+        Err(format!("{operation} failed: {}", result.output.trim()))
     }
 }
 
 fn git_command(cwd: &str, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     process_util::no_window_std(&mut command);
-    command.current_dir(cwd).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .current_dir(cwd)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     command
 }
 
@@ -387,7 +416,11 @@ fn run_command(mut command: Command, deadline: Duration) -> Result<ProcessOutput
     let mut output = stdout
         .map(|thread| thread.join().unwrap_or_default())
         .unwrap_or_default();
-    output.push_str(&stderr.map(|thread| thread.join().unwrap_or_default()).unwrap_or_default());
+    output.push_str(
+        &stderr
+            .map(|thread| thread.join().unwrap_or_default())
+            .unwrap_or_default(),
+    );
     Ok(ProcessOutput {
         code,
         timed_out,
@@ -461,14 +494,25 @@ fn changed_files(request: &DiagnosticsRequest, sha: &str) -> Vec<String> {
     if !request.changed_files.is_empty() {
         return request.changed_files.clone();
     }
-    let Some(base) = request.base.as_deref().filter(|value| !value.trim().is_empty()) else {
+    let Some(base) = request
+        .base
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
         return Vec::new();
     };
     git_value(
         &request.lane_worktree_path,
         &["diff", "--name-only", &format!("{base}...{sha}")],
     )
-    .map(|value| value.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect())
+    .map(|value| {
+        value
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect()
+    })
     .unwrap_or_default()
 }
 
@@ -485,7 +529,10 @@ fn diagnostic_tools(output: &str) -> Vec<String> {
     tools
 }
 
-pub(crate) fn parse_diagnostics(output: &str, changed_files: &[String]) -> Vec<LaneDiagnosticFinding> {
+pub(crate) fn parse_diagnostics(
+    output: &str,
+    changed_files: &[String],
+) -> Vec<LaneDiagnosticFinding> {
     let mut findings = Vec::new();
     let mut tool = "lane-diagnostics".to_string();
     let mut exits = Vec::new();
@@ -532,14 +579,9 @@ pub(crate) fn parse_diagnostics(output: &str, changed_files: &[String]) -> Vec<L
 }
 
 fn diagnostic_file_matches(file: &str, changed: &str) -> bool {
-    let file = file
-        .trim()
-        .trim_start_matches("file://")
-        .replace('\\', "/");
+    let file = file.trim().trim_start_matches("file://").replace('\\', "/");
     let changed = changed.trim().trim_start_matches("./").replace('\\', "/");
-    let matches = |candidate: &str| {
-        file == candidate || file.ends_with(&format!("/{candidate}"))
-    };
+    let matches = |candidate: &str| file == candidate || file.ends_with(&format!("/{candidate}"));
     if matches(&changed) {
         return true;
     }
@@ -556,7 +598,10 @@ fn diagnostic_file_matches(file: &str, changed: &str) -> bool {
 }
 
 fn cargo_finding(tool: &str, value: &Value) -> Option<LaneDiagnosticFinding> {
-    if !matches!(value.get("reason").and_then(Value::as_str), Some("compiler-message")) {
+    if !matches!(
+        value.get("reason").and_then(Value::as_str),
+        Some("compiler-message")
+    ) {
         return None;
     }
     let message = value.get("message")?;
@@ -569,21 +614,46 @@ fn cargo_finding(tool: &str, value: &Value) -> Option<LaneDiagnosticFinding> {
     let span = message
         .get("spans")
         .and_then(Value::as_array)
-        .and_then(|spans| spans.iter().find(|span| span.get("is_primary") == Some(&Value::Bool(true))).or_else(|| spans.first()));
+        .and_then(|spans| {
+            spans
+                .iter()
+                .find(|span| span.get("is_primary") == Some(&Value::Bool(true)))
+                .or_else(|| spans.first())
+        });
     Some(LaneDiagnosticFinding {
         tool: tool.to_string(),
         severity: severity.into(),
-        file: span.and_then(|span| span.get("file_name")).and_then(Value::as_str).map(str::to_string),
-        line: span.and_then(|span| span.get("line_start")).and_then(Value::as_u64).map(|value| value as u32),
-        column: span.and_then(|span| span.get("column_start")).and_then(Value::as_u64).map(|value| value as u32),
-        message: message.get("message").and_then(Value::as_str).unwrap_or_default().to_string(),
-        code: message.get("code").and_then(|code| code.get("code")).and_then(Value::as_str).map(str::to_string),
+        file: span
+            .and_then(|span| span.get("file_name"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        line: span
+            .and_then(|span| span.get("line_start"))
+            .and_then(Value::as_u64)
+            .map(|value| value as u32),
+        column: span
+            .and_then(|span| span.get("column_start"))
+            .and_then(Value::as_u64)
+            .map(|value| value as u32),
+        message: message
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        code: message
+            .get("code")
+            .and_then(|code| code.get("code"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
 fn text_finding(tool: &str, line: &str) -> Option<LaneDiagnosticFinding> {
     let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with("Build gateway") || trimmed.starts_with("[cache-policy]") {
+    if trimmed.is_empty()
+        || trimmed.starts_with("Build gateway")
+        || trimmed.starts_with("[cache-policy]")
+    {
         return None;
     }
     if let Some(rest) = trimmed.strip_prefix("Diff in ") {
@@ -600,7 +670,10 @@ fn text_finding(tool: &str, line: &str) -> Option<LaneDiagnosticFinding> {
     if tool.contains("tsc") || tool.contains("tsgo") {
         return parse_typescript_finding(tool, trimmed);
     }
-    if matches!(tool, "fmt" | "cargo-fmt" | "clippy" | "cargo-check" | "tsc" | "tsgo" | "tsc-build" | "bacon") {
+    if matches!(
+        tool,
+        "fmt" | "cargo-fmt" | "clippy" | "cargo-check" | "tsc" | "tsgo" | "tsc-build" | "bacon"
+    ) {
         return None;
     }
     if tool == "machete" {
@@ -624,7 +697,16 @@ fn text_finding(tool: &str, line: &str) -> Option<LaneDiagnosticFinding> {
     }
     if tool.contains("gate") {
         let lower = trimmed.to_ascii_lowercase();
-        let failure_words = ["error", "missing", "stale", "fail", "would", "unused", "duplicate", "refused"];
+        let failure_words = [
+            "error",
+            "missing",
+            "stale",
+            "fail",
+            "would",
+            "unused",
+            "duplicate",
+            "refused",
+        ];
         if !failure_words.iter().any(|word| lower.contains(word)) {
             return None;
         }
@@ -633,7 +715,11 @@ fn text_finding(tool: &str, line: &str) -> Option<LaneDiagnosticFinding> {
         let (file, line, column) = diagnostic_text_location(trimmed);
         return Some(LaneDiagnosticFinding {
             tool: tool.to_string(),
-            severity: if tool == "jscpd" { "warning".into() } else { "error".into() },
+            severity: if tool == "jscpd" {
+                "warning".into()
+            } else {
+                "error".into()
+            },
             file,
             line,
             column,
@@ -647,7 +733,10 @@ fn text_finding(tool: &str, line: &str) -> Option<LaneDiagnosticFinding> {
 fn diagnostic_text_location(line: &str) -> (Option<String>, Option<u32>, Option<u32>) {
     for token in line.split_whitespace() {
         let token = token.trim_matches(|character: char| {
-            matches!(character, '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' | '`' | '\'')
+            matches!(
+                character,
+                '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' | '`' | '\''
+            )
         });
         let Some((prefix, last)) = token.rsplit_once(':') else {
             continue;
@@ -728,18 +817,13 @@ impl super::ServiceContext {
         if !super::same_path(lane, &marker) {
             return None;
         }
-        let attempt_id = details
-            .attempt_id
-            .clone()
-            .or_else(|| {
-                task.execution_attempts
-                    .iter()
-                    .rev()
-                    .find(|attempt| {
-                        attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                    })
-                    .map(|attempt| attempt.id.clone())
-            })?;
+        let attempt_id = details.attempt_id.clone().or_else(|| {
+            task.execution_attempts
+                .iter()
+                .rev()
+                .find(|attempt| attempt.executor_tab_id == tab_id && attempt.closed_at.is_none())
+                .map(|attempt| attempt.id.clone())
+        })?;
         Some(DiagnosticsRequest {
             plan_id: plan_id.to_string(),
             task_id: task_id.to_string(),
@@ -847,11 +931,13 @@ fn resolve_lane_subject(
         }
     }
     let plans = match plan_ref {
-        Some(reference) => vec![
-            store
-                .get(&store.resolve_plan_id(reference).map_err(|error| error.to_string())?)
-                .ok_or_else(|| "plan not found".to_string())?,
-        ],
+        Some(reference) => vec![store
+            .get(
+                &store
+                    .resolve_plan_id(reference)
+                    .map_err(|error| error.to_string())?,
+            )
+            .ok_or_else(|| "plan not found".to_string())?],
         None => store.list_full(),
     };
     let mut matches = Vec::new();
@@ -875,7 +961,9 @@ fn resolve_lane_subject(
     match matches.as_slice() {
         [(plan, task)] => Ok((plan.clone(), task.clone())),
         [] => Err(format!("no lane task matched '{subject}'")),
-        _ => Err(format!("lane subject '{subject}' is ambiguous; pass --plan")),
+        _ => Err(format!(
+            "lane subject '{subject}' is ambiguous; pass --plan"
+        )),
     }
 }
 
@@ -916,7 +1004,8 @@ mod tests {
     fn diagnostics_filter_to_changed_source_files() {
         let output = concat!(
             "CODETERM_DIAGNOSTIC_TOOL\tcargo-check\n",
-            r#"{"reason":"compiler-message","message":{"level":"warning","message":"changed","spans":[{"file_name":"src/changed.rs","line_start":2,"is_primary":true}]}}"#, "\n",
+            r#"{"reason":"compiler-message","message":{"level":"warning","message":"changed","spans":[{"file_name":"src/changed.rs","line_start":2,"is_primary":true}]}}"#,
+            "\n",
             r#"{"reason":"compiler-message","message":{"level":"warning","message":"unrelated","spans":[{"file_name":"src/other.rs","line_start":9,"is_primary":true}]}}"#,
         );
         let findings = parse_diagnostics(output, &["src-tauri/src/changed.rs".into()]);

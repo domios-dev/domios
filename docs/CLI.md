@@ -521,6 +521,24 @@ Show current keep-awake status (default)
 
 Stop the current keep-awake session
 
+#### `codeterm lane`
+
+Run and read daemon-owned diagnostics for worker lanes
+
+#### `codeterm lane check`
+
+Run the daemon-owned diagnostics check for a task or lane branch
+
+- `--plan` — Plan id (default: $CODETERM_PLAN_ID)
+- `<subject>` — Task id, task handle, or recorded lane branch
+
+#### `codeterm lane diagnostics`
+
+Read the stored diagnostics for a task
+
+- `--plan` — Plan id (default: $CODETERM_PLAN_ID)
+- `<subject>` — Task id, task handle, or recorded lane branch
+
 #### `codeterm mem`
 
 Unified memory store — skills, facts, notes, scripts, peers, preferences
