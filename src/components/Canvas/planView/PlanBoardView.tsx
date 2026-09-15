@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
-import { deleteTask, fetchSpecSections, pauseTask, resumeTask } from "../plansApi";
+import { deleteTask, fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { Plan, Section, Task } from "../types";
 import {
@@ -179,8 +179,6 @@ export function PlanBoardView({
 
   const taskActions = useMemo<BoardTaskActions>(() => (api
     ? {
-        onPauseTask: (selectedPlanId, taskId, reason) => pauseTask(api, selectedPlanId, taskId, reason),
-        onResumeTask: (selectedPlanId, taskId) => resumeTask(api, selectedPlanId, taskId),
         onDeleteTask: (selectedPlanId, taskId) => deleteTask(api, selectedPlanId, taskId),
       }
     : {}), [api]);

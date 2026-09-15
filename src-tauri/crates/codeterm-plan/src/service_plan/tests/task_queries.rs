@@ -182,13 +182,12 @@ fn a_plan_in_another_project_reports_the_mismatch_reason() {
 fn a_plan_whose_tasks_are_all_inactive_reports_the_all_flag_reason() {
     let (store, plan_id, task_id) = store_with_task(&["status_update"]);
     store
-        .pause_task(
-            &plan_id,
-            &task_id,
-            "operator hold",
-            crate::plan::AgentRef::from_tab("orch"),
-            3,
-        )
+        .with_plan(&plan_id, 3, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            task.status = TaskStatus::Paused;
+            task.pause_reason = Some("operator hold".into());
+            Ok(())
+        })
         .unwrap();
     let filter = TaskListFilter {
         plan_id: Some(plan_id),
@@ -381,13 +380,12 @@ fn active_task_query_excludes_paused_but_keeps_pending() {
         )
         .unwrap();
     store
-        .pause_task(
-            &id,
-            &paused_id,
-            "operator hold",
-            crate::plan::AgentRef::from_tab("orch"),
-            3,
-        )
+        .with_plan(&id, 3, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == paused_id).unwrap();
+            task.status = TaskStatus::Paused;
+            task.pause_reason = Some("operator hold".into());
+            Ok(())
+        })
         .unwrap();
 
     let active = store.list_tasks(TaskListFilter {
@@ -434,7 +432,7 @@ fn new_task_defaults_to_actionable_pending() {
 }
 
 #[test]
-fn task_detail_marks_unfinished_dependency_as_waiting_not_paused() {
+fn task_pause_status_preservation_dependency_wait() {
     let (store, plan_id, dependency_id) = store_with_task(&["status_update"]);
     store
         .update_task(
@@ -481,4 +479,32 @@ fn task_detail_marks_unfinished_dependency_as_waiting_not_paused() {
     );
     assert_eq!(detail.dependency_waits.len(), 1);
     assert_eq!(detail.dependency_waits[0].task_id, dependency_id);
+}
+
+#[test]
+fn task_pause_status_preservation_agent_status_refused() {
+    let (store, plan_id, task_id) = store_with_task(&["status_update"]);
+    let error = store.update_task(
+        &plan_id,
+        &task_id,
+        None,
+        None,
+        None,
+        None,
+        Some("paused"),
+        Some(Some("agent-requested hold")),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        3,
+    );
+
+    assert!(matches!(error, Err(PlanError::TaskPausedSystemOnly)));
 }

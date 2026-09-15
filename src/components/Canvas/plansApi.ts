@@ -240,22 +240,6 @@ export async function deleteTask(api: ApiConfig, planId: string, taskId: string)
   if (!res.ok) throw new Error(`task delete failed: ${res.status} ${await res.text()}`);
 }
 
-export async function pauseTask(api: ApiConfig, planId: string, taskId: string, reason: string): Promise<void> {
-  const res = await fetch(
-    `${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/pause`,
-    { method: "POST", headers: jsonHeaders(api), body: JSON.stringify({ reason }) },
-  );
-  if (!res.ok) throw new Error(`task pause failed: ${res.status} ${await res.text()}`);
-}
-
-export async function resumeTask(api: ApiConfig, planId: string, taskId: string): Promise<void> {
-  const res = await fetch(
-    `${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/resume`,
-    { method: "POST", headers: jsonHeaders(api), body: "{}" },
-  );
-  if (!res.ok) throw new Error(`task resume failed: ${res.status} ${await res.text()}`);
-}
-
 export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {
   const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/unarchive`, {
     method: "POST",

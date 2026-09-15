@@ -373,13 +373,7 @@ fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
     );
     assert!(matches!(blocked, Err(PlanError::TransitionDenied { .. })));
     assert!(matches!(
-        store.pause_task(
-            &plan_id,
-            &task_id,
-            "operator pause",
-            AgentRef::from_tab("orch"),
-            5,
-        ),
+        set_status(&store, &plan_id, &task_id, "paused", 5),
         Err(PlanError::ReviewHoldRequired)
     ));
     assert!(matches!(
@@ -663,15 +657,7 @@ fn review_hold_verdict_pause_guard_survives() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
 
-    let pause_error = store
-        .pause_task(
-            &plan_id,
-            &task_id,
-            "operator pause",
-            AgentRef::from_tab("orch"),
-            5,
-        )
-        .unwrap_err();
+    let pause_error = set_status(&store, &plan_id, &task_id, "paused", 5).unwrap_err();
     assert!(matches!(pause_error, PlanError::ReviewHoldRequired));
     assert!(pause_error.to_string().contains("hold"));
     assert!(matches!(

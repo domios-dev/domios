@@ -318,18 +318,6 @@ pub enum PlanTaskAction {
         #[arg(long)]
         mesh: Option<String>,
     },
-    /// Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)
-    Pause {
-        plan_id: String,
-        task_id: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        reason: String,
-    },
-    /// Resume a paused task (returns it to dependency-waiting pending)
-    Resume {
-        plan_id: String,
-        task_id: Option<String>,
-    },
     /// Assign a task to a tab (exports CODETERM_TASK_ID to that tab)
     Assign {
         plan_id: String,

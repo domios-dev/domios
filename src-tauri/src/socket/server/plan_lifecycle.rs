@@ -5,13 +5,10 @@ use crate::plan::AgentRef;
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
 
-use super::{get_string_param, JsonRpcError};
+use super::JsonRpcError;
 
 pub(super) fn handles(method: &str) -> bool {
-    matches!(
-        method,
-        "plan.task.pause" | "plan.task.resume" | "plan.task.close"
-    )
+    matches!(method, "plan.task.close")
 }
 
 pub(super) fn dispatch(
@@ -24,25 +21,6 @@ pub(super) fn dispatch(
     let p = params.as_ref();
     let now = epoch_ms();
     match method {
-        "plan.task.pause" => {
-            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
-            let reason = get_string_param(params, "reason")?;
-            let milestone_id = store
-                .pause_task(&id, &tid, &reason, from_param(p), now)
-                .map_err(plan_rpc_err)?;
-            svc.reconcile_time_reminder_eligibility();
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true, "plan_id": id, "task_id": tid, "milestone_id": milestone_id }))
-        }
-        "plan.task.resume" => {
-            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
-            let milestone_id = store
-                .resume_task(&id, &tid, from_param(p), now)
-                .map_err(plan_rpc_err)?;
-            svc.reconcile_time_reminder_eligibility();
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true, "plan_id": id, "task_id": tid, "milestone_id": milestone_id }))
-        }
         "plan.task.close" => {
             let (id, tid) = super::plan_refs::resolve_task(store, params)?;
             let result = p
@@ -163,4 +141,16 @@ fn push_hints(value: &mut Value, hints: Vec<String>) {
         return;
     }
     value["_hints"] = json!(hints);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handles;
+
+    #[test]
+    fn task_pause_transport_removed() {
+        assert!(!handles("plan.task.pause"));
+        assert!(!handles("plan.task.resume"));
+        assert!(handles("plan.task.close"));
+    }
 }

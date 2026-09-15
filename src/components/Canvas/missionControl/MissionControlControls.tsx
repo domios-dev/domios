@@ -6,37 +6,24 @@ import type {
   PlanLifecycleKind,
   PlanLifecyclePreviewLoader,
 } from "../planLifecycle";
-import { TaskStatus } from "../types";
 import { MissionControlActionDialog, type MissionControlActionRequest } from "./MissionControlActionDialog";
 import { MissionControlPlanLifecycleDialog } from "./MissionControlPlanLifecycleDialog";
 
 export type MissionControlPlanAction = (planId: string) => void | Promise<void>;
 export type MissionControlTaskAction = (planId: string, taskId: string) => void | Promise<void>;
-export type MissionControlTaskPauseAction = (planId: string, taskId: string, reason: string) => void | Promise<void>;
 
 export interface MissionControlControlsProps {
   scope: "board" | "task";
   planId: string;
   taskId?: string;
   taskName?: string;
-  taskStatus?: TaskStatus;
   planPaused?: boolean;
   onApprovePlan?: MissionControlPlanAction;
   onPreviewPlanLifecycle?: PlanLifecyclePreviewLoader;
   onConfirmPlanLifecycle?: PlanLifecycleConfirm;
   onClearEverything?: MissionControlPlanAction;
-  onPauseTask?: MissionControlTaskPauseAction;
-  onResumeTask?: MissionControlTaskAction;
   onDeleteTask?: MissionControlTaskAction;
 }
-
-// The plan store refuses a pause for these; in_review needs a review hold instead.
-const UNPAUSABLE: ReadonlySet<TaskStatus> = new Set<TaskStatus>([
-  TaskStatus.Paused,
-  TaskStatus.InReview,
-  TaskStatus.Done,
-  TaskStatus.Cancelled,
-]);
 
 const TASK_TRIGGER_CLASS =
   "w-5 h-5 text-[var(--ct-muted-fg)] flex items-center justify-center rounded hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)] transition-colors";
@@ -50,14 +37,11 @@ export function MissionControlControls({
   planId,
   taskId,
   taskName,
-  taskStatus,
   planPaused = false,
   onApprovePlan,
   onPreviewPlanLifecycle,
   onConfirmPlanLifecycle,
   onClearEverything,
-  onPauseTask,
-  onResumeTask,
   onDeleteTask,
 }: MissionControlControlsProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -112,37 +96,6 @@ export function MissionControlControls({
 
   const taskItems = (id: string): DropdownMenuItem[] => {
     const items: DropdownMenuItem[] = [];
-    if (onPauseTask && taskStatus && !UNPAUSABLE.has(taskStatus)) {
-      items.push({
-        label: "Pause",
-        icon: <Pause size={11} strokeWidth={2} />,
-        "data-testid": itemTestId("pause"),
-        onClick: () =>
-          setRequest({
-            key: "pause-task",
-            title: "Pause task",
-            message: `Pause "${taskLabel}"? Its assignment is released until it is resumed.`,
-            confirmLabel: "Pause",
-            reasonLabel: "Reason",
-            run: (reason) => onPauseTask?.(planId, id, reason),
-          }),
-      });
-    }
-    if (onResumeTask && taskStatus === TaskStatus.Paused) {
-      items.push({
-        label: "Resume",
-        icon: <Play size={11} strokeWidth={2} />,
-        "data-testid": itemTestId("resume"),
-        onClick: () =>
-          setRequest({
-            key: "resume-task",
-            title: "Resume task",
-            message: `Resume "${taskLabel}"? It returns to pending.`,
-            confirmLabel: "Resume",
-            run: () => onResumeTask?.(planId, id),
-          }),
-      });
-    }
     if (onDeleteTask) {
       items.push({
         label: "Delete",

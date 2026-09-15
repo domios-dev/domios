@@ -673,33 +673,6 @@ pub(super) fn run_task(
             }
             call(client, "plan.task.close", params).map(Some)
         }
-        PlanTaskAction::Pause {
-            plan_id,
-            task_id,
-            reason,
-        } => {
-            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
-            let mut params = json!({
-                "task_id": task_ref,
-                "reason": reason,
-                "from": crate::cmd::plan::owner_from_env(),
-            });
-            if let Some(pid) = plan_ref {
-                params["plan_id"] = json!(pid);
-            }
-            call(client, "plan.task.pause", params).map(Some)
-        }
-        PlanTaskAction::Resume { plan_id, task_id } => {
-            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
-            let mut params = json!({
-                "task_id": task_ref,
-                "from": crate::cmd::plan::owner_from_env(),
-            });
-            if let Some(pid) = plan_ref {
-                params["plan_id"] = json!(pid);
-            }
-            call(client, "plan.task.resume", params).map(Some)
-        }
         PlanTaskAction::Assign {
             plan_id,
             task_id,

@@ -174,10 +174,10 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             "✗ blocked is a claim, not an operator hold.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
             task_id.unwrap_or("<task_id>")
         )),
-        "task_pause_requires_reason" => Some(format!(
-            "✗ pause requires a reason.\nfix: codeterm plan task pause {plan_id} {} --reason \"<reason>\"",
-            task_id.unwrap_or("<task_id>")
-        )),
+        "task_paused_system_only" => Some(
+            "✗ paused task status is reserved for decision-gate and provider-exhaustion system holds."
+                .into(),
+        ),
         "pause_requires_reason" => Some(format!(
             "✗ pause requires a reason.\nfix: codeterm plan pause {plan_id} --reason \"<why this plan is paused>\""
         )),
