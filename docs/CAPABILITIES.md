@@ -2,7 +2,7 @@
 
 What CodeTerm fundamentally does, grouped by the few vectors that give the system its shape. Each row names a capability, what it makes possible, where it is reached (UI surface, CLI command group, API area), the rules that must not break, and its status. Why these vectors exist is stated once, in VISION at the repository root; how to maintain this map is stated in BEGIN_HERE.
 
-Status: **stable** is in the latest release; **in rollout** is merged for the next release and not yet shipped; **planned** is an agreed direction with no shipped surface. Detail names an embedded document (read it with `codeterm docs <NAME>`) or a repository document.
+Status: **stable** is in the latest release; **in rollout** is merged for the next release and not yet shipped; **planned** is an agreed direction with no shipped surface; **roadmap** is where the product is heading, with its exact shape still open. Detail names an embedded document (read it with `codeterm docs <NAME>`) or a repository document.
 
 ## Invariants that bind every vector
 
@@ -41,6 +41,7 @@ Detail: ORCHESTRATION, ORCHESTRATION-OPERATIONS, PLANNER, PLAN-EDITING, API-PLAN
 | Review, bounce and decisions | Results accepted or bounced on evidence; owner questions routed as decision gates | CLI `plan review`, `plan decision`, `plan qa` | A bounce names the failing command and its evidence; a pass that still needs a repair is a bounce | stable |
 | Reminders, milestones and pause | A plan keeps moving without polling; the owner can hold it | Heartbeat; CLI `plan milestone`, `plan pause`, `plan resume` | Plan pause is the only agent-issued pause; paused tasks are system holds and there is no per-task pause verb | stable; task-pause removal in rollout |
 | Plan skills | Reusable procedures every executor of a plan reads | CLI `plan skill` | Executors read applicable skills before acting | stable |
+| Team observer | A small, cheap local model quietly watches a working team in the background, reads a little of each agent's recent context on a slow cadence, and surfaces simple truths: what each agent is doing, how the team is doing, who has been stuck too long; its hints help the Orchestrator and the owner see the team without reading it | Watcher role on a watcher-capable open agent shell (charter and tick policy) | Observes and suggests, never acts on a task or holds authority; costs little enough to run continuously | roadmap |
 
 ## 3. Work flows through isolated lanes into canonical
 
@@ -106,4 +107,4 @@ Detail: API-STATE, TAB-LIFECYCLE; repository docs RESILIENCE and RELEASE.
 | Health and diagnostics | Liveness, running build identity, orchestration and plan consistency | Health API; CLI `identify`, `tab inspect`, `orchestrator status`, `plan doctor` | Debugging starts by confirming the running build matches the source | stable |
 | Updates | Signed updates checked, installed and relaunched | Update UI; CLI `update check`, `update install` | A client is offered only an artifact for its own platform; manifests are signature-verified; channel switching is disabled | stable |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
