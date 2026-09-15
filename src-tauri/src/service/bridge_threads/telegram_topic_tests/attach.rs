@@ -1,6 +1,6 @@
 //! One host attach operation for every caller: idempotent binding, one intro, chat-kind links.
 
-use codeterm_bridge::bridge::threads::transport::{chat_kind, ChatKind};
+use codeterm_bridge::bridge::threads::transport::{chat_kind, probe_outcome, ChatKind};
 use codeterm_bridge::bridge::threads::{OpenedThread, ThreadError};
 
 use super::*;
@@ -281,4 +281,166 @@ async fn telegram_topic_attach_emits_a_link_only_where_it_opens_the_topic() {
         forum.menu_state(PLANCK, Some(SUPERGROUP)).await.link,
         opened.link
     );
+}
+
+#[test]
+fn telegram_topic_attach_probe_and_send_errors_classify_topic_state() {
+    assert_eq!(
+        probe_outcome("Bad Request: TOPIC_NOT_MODIFIED"),
+        Some(TopicProbe::Open)
+    );
+    for gone in [
+        "Bad Request: message thread not found",
+        "Bad Request: TOPIC_ID_INVALID",
+        "Bad Request: TOPIC_DELETED",
+    ] {
+        assert_eq!(probe_outcome(gone), Some(TopicProbe::Gone), "{gone}");
+        assert_eq!(classify_failure(gone), TopicFailure::ThreadGone, "{gone}");
+    }
+    assert_eq!(probe_outcome("Bad Request: not enough rights"), None);
+    assert_eq!(
+        classify_failure("Bad Request: TOPIC_CLOSED"),
+        TopicFailure::ThreadClosed
+    );
+    assert!(TopicFailure::ThreadClosed.thread_unusable());
+    assert!(!TopicFailure::Rejected("x".into()).thread_unusable());
+}
+
+async fn attach_planck(threads: &ThreadService, tabs: &FakeTabs) -> OpenedThread {
+    threads
+        .open(tabs, ThreadCaller::Owner, PLANCK, CHAT)
+        .await
+        .expect("attached")
+}
+
+#[tokio::test]
+async fn telegram_topic_attach_recreates_a_deleted_topic_once_with_its_first_message() {
+    let transport = FakeTransport::enabled();
+    let tabs = tabs_with_planck();
+    let threads = attached(transport.clone());
+    let first = attach_planck(&threads, &tabs).await;
+    transport.gone_threads.lock().push(first.thread_id);
+
+    let recreated = attach_planck(&threads, &tabs).await;
+    let again = attach_planck(&threads, &tabs).await;
+
+    assert!(recreated.created);
+    assert_ne!(recreated.thread_id, first.thread_id);
+    assert_eq!(
+        again,
+        OpenedThread {
+            created: false,
+            ..recreated.clone()
+        }
+    );
+    assert_eq!(transport.creates().len(), 2);
+    assert_eq!(topic_posts(&transport, recreated.thread_id), 1);
+    assert_eq!(
+        threads.resolve_inbound(&tabs, CHAT, Some(recreated.thread_id), None),
+        InboundRoute::Tab {
+            tab_id: PLANCK.to_string(),
+            thread_id: Some(recreated.thread_id),
+        }
+    );
+    assert!(threads.menu_state(PLANCK, Some(CHAT)).await.bound);
+}
+
+#[tokio::test]
+async fn telegram_topic_attach_reopens_a_closed_topic_instead_of_duplicating_it() {
+    let transport = FakeTransport::enabled();
+    let tabs = tabs_with_planck();
+    let threads = attached(transport.clone());
+    let first = attach_planck(&threads, &tabs).await;
+    transport.closed_threads.lock().push(first.thread_id);
+
+    let reopened = attach_planck(&threads, &tabs).await;
+
+    assert_eq!(
+        reopened,
+        OpenedThread {
+            created: false,
+            ..first.clone()
+        }
+    );
+    assert_eq!(transport.creates().len(), 1);
+    assert!(transport.closed_threads.lock().is_empty(), "reopened");
+    assert_eq!(
+        topic_posts(&transport, first.thread_id),
+        1,
+        "no second intro"
+    );
+}
+
+#[tokio::test]
+async fn telegram_topic_attach_concurrent_attaches_after_deletion_create_one_topic() {
+    let transport = FakeTransport::enabled();
+    let tabs = tabs_with_planck();
+    let threads = attached(transport.clone());
+    let first = attach_planck(&threads, &tabs).await;
+    transport.gone_threads.lock().push(first.thread_id);
+
+    let (from_menu, from_general) = tokio::join!(
+        threads.open(&tabs, ThreadCaller::Owner, PLANCK, CHAT),
+        threads.open(&tabs, tab_caller(GENERAL), PLANCK, CHAT),
+    );
+    let from_menu = from_menu.expect("menu attach");
+    let from_general = from_general.expect("General Agent attach");
+
+    assert_eq!(from_menu.thread_id, from_general.thread_id);
+    assert_ne!(from_menu.thread_id, first.thread_id);
+    assert_eq!(
+        transport.creates().len(),
+        2,
+        "exactly one replacement topic"
+    );
+    assert_eq!(topic_posts(&transport, from_menu.thread_id), 1);
+}
+
+#[tokio::test]
+async fn telegram_topic_attach_outbound_missing_thread_marks_the_binding_stale() {
+    for closed in [false, true] {
+        let transport = FakeTransport::enabled();
+        let tabs = tabs_with_planck();
+        let threads = attached(transport.clone());
+        let first = attach_planck(&threads, &tabs).await;
+        let dead = if closed {
+            &transport.closed_threads
+        } else {
+            &transport.gone_threads
+        };
+        dead.lock().push(first.thread_id);
+
+        threads
+            .route_text(&tabs, text(PLANCK, "after the owner removed it"))
+            .await
+            .expect("placed in the main chat");
+
+        let menu = threads.menu_state(PLANCK, Some(CHAT)).await;
+        assert!(!menu.bound, "closed={closed}: a dead topic is not attached");
+        assert!(!threads.has_open_binding(PLANCK));
+        assert!(threads.holds_topics(PLANCK), "tab close still retires it");
+
+        let reattached = attach_planck(&threads, &tabs).await;
+        assert_eq!(reattached.created, !closed);
+        assert_eq!(transport.creates().len(), if closed { 1 } else { 2 });
+        assert!(threads.menu_state(PLANCK, Some(CHAT)).await.bound);
+    }
+}
+
+#[tokio::test]
+async fn telegram_topic_attach_caller_owned_media_failure_marks_only_thread_errors_stale() {
+    let transport = FakeTransport::enabled();
+    let tabs = tabs_with_planck();
+    let threads = attached(transport.clone());
+    let first = attach_planck(&threads, &tabs).await;
+
+    threads.note_thread_send_failure(CHAT, first.thread_id, "Bad Request: not enough rights");
+    assert!(threads.menu_state(PLANCK, Some(CHAT)).await.bound);
+
+    threads.note_thread_send_failure(
+        CHAT,
+        first.thread_id,
+        "Bad Request: message thread not found",
+    );
+    assert!(!threads.menu_state(PLANCK, Some(CHAT)).await.bound);
 }
