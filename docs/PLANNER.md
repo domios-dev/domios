@@ -222,12 +222,10 @@ task needs an explicit provider/model or named persona.
   release verification.
 - Isolated-lane Workers implement source, author coverage, and report exact
   oracle commands without executing project verification. Put every build,
-  test, dev check, and gate after real merge in Orchestrator-owned canonical QA.
-  A canonical Worker may run only explicitly authorized commands.
+  test, dev check, and gate after real merge in Orchestrator-owned canonical QA. A canonical Worker may run only explicitly authorized commands.
 - Checkout placement is chosen by the Orchestrator based on concurrency and
   file ownership; never make an isolated lane an unconditional task requirement.
-- A task with no exact command or surface in its test plan is under-specified —
-  do not ship it; the Orchestrator will bounce it back to you.
+- A task with no exact command or surface in its test plan is under-specified — do not ship it; the Orchestrator will bounce it back to you.
 - Discovery/research is not a plan: it produces evidence and decisions. Turn
   those into concrete tasks.
 - A fresh pairing starts empty. If nothing has been delegated yet, say you are
@@ -238,6 +236,5 @@ task needs an explicit provider/model or named persona.
 ## The `codeterm` skill
 
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
-`codeterm` skill. If it is not already loaded, find it:
-`codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 21 -->
+`codeterm` skill. If it is not already loaded, find it: `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
+<!-- revision: 22 -->

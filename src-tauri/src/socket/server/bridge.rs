@@ -217,7 +217,7 @@ pub(super) fn dispatch(
 }
 
 /// Same refusal class as a stale task binding: the caller lacks authority.
-const THREAD_AUTHORITY_CODE: i64 = -32003;
+const THREAD_AUTHORITY_CODE: i32 = -32003;
 
 fn thread_param(params: &Option<Value>, key: &str) -> Option<String> {
     params

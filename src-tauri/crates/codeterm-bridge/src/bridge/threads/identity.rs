@@ -90,13 +90,22 @@ pub(crate) fn truncate_chars(text: &str, max: usize) -> String {
 /// shares that title, so the name stays deterministic for the same tab.
 pub fn topic_name(title: &str, tab_id: &str, live_tabs: &[(String, String)]) -> String {
     let base = display_title(title, tab_id);
-    let shared = live_tabs
-        .iter()
-        .any(|(other_id, other_title)| other_id != tab_id && display_title(other_title, other_id) == base);
+    let shared = live_tabs.iter().any(|(other_id, other_title)| {
+        other_id != tab_id && display_title(other_title, other_id) == base
+    });
     if !shared {
         return truncate_chars(&base, TOPIC_NAME_MAX_CHARS);
     }
-    let suffix = format!(" #{}", truncate_chars(tab_id, SUFFIX_CHARS));
+    let tail: String = tab_id
+        .chars()
+        .rev()
+        .take(SUFFIX_CHARS)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    // The tail distinguishes ids that share a prefix such as `tab_`.
+    let suffix = format!(" #{tail}");
     let room = TOPIC_NAME_MAX_CHARS.saturating_sub(suffix.chars().count());
     format!("{}{suffix}", truncate_chars(&base, room))
 }
