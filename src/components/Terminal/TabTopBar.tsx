@@ -2,21 +2,27 @@ import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
-import type { ApiConfig } from "../../lib/types";
+import type { ApiConfig, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
 import { matchesBinding } from "../../lib/keybindings";
-import { reconnectTabSession, restartTabSession, setTabPermissionAutoConfirm } from "./tabSessionActions";
-import {
-  closeTelegramThread,
-  fetchTelegramThreadState,
-  openTelegramThread,
-  type TelegramThreadMenuState,
-} from "./telegramThreadActions";
+import { usePluginTabMenu } from "../../lib/pluginTabMenu";
+import { displayTitleForTab } from "../../store/multiplexer/tree";
+import { reconnectTabSession, restartTabSession, tabSessionActionView } from "./tabSessionActions";
+import { buildTabMenu, type TabMenuAction, type TabMenuContext } from "./tabMenuModel";
+import { performTabMenuAction } from "./tabMenuActions";
+import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
+
+export interface HeaderTabMenu {
+  tab: Tab;
+  context: TabMenuContext;
+  onRename?: (title: string) => void;
+  onClose?: () => void;
+}
 
 interface TabTopBarProps {
   tabId: string;
@@ -30,14 +36,35 @@ interface TabTopBarProps {
   /** Watcher tabs surface health from `tab.watcher.last_status` in the header. */
   watcherLastStatus?: string | null;
   isWatcherTab?: boolean;
-  canReconnect?: boolean;
-  canRestartSession?: boolean;
-  sessionId?: string | null;
   isActive?: boolean;
-  /** Persisted auto-confirm opt-in; `null` when the provider cannot recognize permission prompts. */
-  permissionAutoConfirm?: boolean | null;
-  /** Offer the Telegram thread items for this tab. */
-  telegramThreadMenu?: boolean;
+  tabMenu?: HeaderTabMenu;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function TabRenameField({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
+  const [value, setValue] = useState(title);
+  return (
+    <input
+      autoFocus
+      aria-label={`Rename tab ${title}`}
+      data-testid="tab-header-rename"
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        const trimmed = value.trim();
+        onDone(trimmed && trimmed !== title ? trimmed : null);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        else if (event.key === "Escape") onDone(null);
+      }}
+      className="min-w-0 rounded border border-[var(--ct-border)] bg-[var(--ct-bg)] px-1.5 text-[12px] text-[var(--ct-fg)] outline-none"
+      style={{ height: TAB_BAR_CONTROL_H }}
+    />
+  );
 }
 
 /**
@@ -53,31 +80,18 @@ export function TabTopBar({
   usageVisible,
   watcherLastStatus,
   isWatcherTab = false,
-  canReconnect = false,
-  canRestartSession = false,
-  sessionId = null,
   isActive = false,
-  permissionAutoConfirm = null,
-  telegramThreadMenu = false,
+  tabMenu,
 }: TabTopBarProps) {
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
-  const [telegramThread, setTelegramThread] = useState<TelegramThreadMenuState | null>(null);
-
-  const refreshTelegramThread = useCallback(() => {
-    if (!telegramThreadMenu) return;
-    fetchTelegramThreadState(tabId).then(setTelegramThread, () => setTelegramThread(null));
-  }, [tabId, telegramThreadMenu]);
-
-  const runTelegramThreadAction = useCallback(async (action: (tabId: string) => Promise<unknown>) => {
-    setReconnectError(null);
-    try {
-      await action(tabId);
-    } catch (error) {
-      setReconnectError(error instanceof Error ? error.message : String(error));
-    }
-  }, [tabId]);
+  const menuTab = tabMenu?.tab ?? null;
+  const onRename = tabMenu?.onRename;
+  const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect : false;
+  const pluginTabMenu = usePluginTabMenu();
+  const telegramThread = useTelegramThreadMenu(tabId, menuTab !== null && !menuTab.remote_peer_id);
 
   const reconnect = useCallback(async () => {
     if (reconnecting) return;
@@ -86,7 +100,7 @@ export function TabTopBar({
     try {
       await reconnectTabSession(tabId);
     } catch (error) {
-      setReconnectError(error instanceof Error ? error.message : String(error));
+      setReconnectError(errorMessage(error));
     } finally {
       setReconnecting(false);
     }
@@ -99,20 +113,11 @@ export function TabTopBar({
     try {
       await restartTabSession(tabId);
     } catch (error) {
-      setReconnectError(error instanceof Error ? error.message : String(error));
+      setReconnectError(errorMessage(error));
     } finally {
       setRestarting(false);
     }
   }, [tabId, restarting]);
-
-  const togglePermissionAutoConfirm = useCallback(async (enabled: boolean) => {
-    setReconnectError(null);
-    try {
-      await setTabPermissionAutoConfirm(tabId, enabled);
-    } catch (error) {
-      setReconnectError(error instanceof Error ? error.message : String(error));
-    }
-  }, [tabId]);
 
   useEffect(() => {
     if (!isActive || !canReconnect) return;
@@ -125,6 +130,33 @@ export function TabTopBar({
     window.addEventListener("keydown", handleReloadShortcut, true);
     return () => window.removeEventListener("keydown", handleReloadShortcut, true);
   }, [canReconnect, isActive, reconnect]);
+
+  const entries = tabMenu
+    ? buildTabMenu({
+      ...tabMenu.context,
+      tab: tabMenu.tab,
+      surface: "header",
+      canRename: Boolean(tabMenu.onRename),
+      canClose: Boolean(tabMenu.onClose),
+      pluginTabMenu,
+      telegramThread: telegramThread.state,
+      busy: { reconnecting, restarting },
+    })
+    : [];
+
+  const runMenuAction = (action: TabMenuAction) => {
+    if (action.type === "reconnect") {
+      void reconnect();
+      return;
+    }
+    if (action.type === "restart") {
+      void restartSession();
+      return;
+    }
+    setReconnectError(null);
+    performTabMenuAction(tabId, action, { rename: () => setRenaming(true), close: tabMenu?.onClose })
+      .catch((error) => setReconnectError(errorMessage(error)));
+  };
 
   return (
     <div
@@ -139,7 +171,15 @@ export function TabTopBar({
       }}
     >
       <div className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
-        {showSwitch && (
+        {renaming && menuTab && onRename ? (
+          <TabRenameField
+            title={displayTitleForTab(menuTab)}
+            onDone={(title) => {
+              setRenaming(false);
+              if (title) onRename(title);
+            }}
+          />
+        ) : showSwitch && (
           <TabModeSwitch
             tabId={tabId}
             height={TAB_BAR_CONTROL_H}
@@ -160,22 +200,12 @@ export function TabTopBar({
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
-        {(canReconnect || canRestartSession || sessionId || permissionAutoConfirm !== null || telegramThreadMenu) && (
+        {entries.length > 0 && (
           <TabActionsMenu
-            sessionId={sessionId}
-            canReconnect={canReconnect}
-            canRestart={canRestartSession}
-            reconnecting={reconnecting}
-            restarting={restarting}
-            onReconnect={() => void reconnect()}
-            onRestart={() => void restartSession()}
-            onError={setReconnectError}
-            permissionAutoConfirm={permissionAutoConfirm}
-            onTogglePermissionAutoConfirm={(enabled) => void togglePermissionAutoConfirm(enabled)}
-            telegramThread={telegramThreadMenu ? telegramThread : null}
-            onMenuOpen={refreshTelegramThread}
-            onOpenTelegramThread={() => void runTelegramThreadAction(openTelegramThread)}
-            onCloseTelegramThread={() => void runTelegramThreadAction(closeTelegramThread)}
+            entries={entries}
+            busy={reconnecting || restarting}
+            onAction={runMenuAction}
+            onOpen={telegramThread.refresh}
           />
         )}
       </div>

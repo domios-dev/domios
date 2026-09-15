@@ -752,6 +752,7 @@ function AppInner() {
                   usageEnabledByProvider={usageEnabledByProvider}
                   api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
+                  workspaceId={ws.id}
                   uiFontScale={uiFontScale}
                   isVisible={isVisible}
                 />
