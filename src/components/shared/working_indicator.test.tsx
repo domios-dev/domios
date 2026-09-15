@@ -1,20 +1,22 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActivityDots } from "./ActivityDots";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const css = readFileSync(new URL("../../styles/agent-state.css", import.meta.url), "utf8");
+const repoRoot = process.cwd();
+const css = readFileSync(resolve(repoRoot, "src/styles/agent-state.css"), "utf8");
 const sourceFiles = [
-  "../Terminal/AgentStateIndicator.tsx",
-  "./BusyState.tsx",
-  "../Sidebar/TabItem.tsx",
-  "../Sidebar/TeamUnit.tsx",
-  "../Sidebar/WorkspaceCardGrid.tsx",
-  "../Canvas/PlanButton.tsx",
-  "../Canvas/planView/PlanCompanionBubble.tsx",
+  "src/components/Terminal/AgentStateIndicator.tsx",
+  "src/components/shared/BusyState.tsx",
+  "src/components/Sidebar/TabItem.tsx",
+  "src/components/Sidebar/TeamUnit.tsx",
+  "src/components/Sidebar/WorkspaceCardGrid.tsx",
+  "src/components/Canvas/PlanButton.tsx",
+  "src/components/Canvas/planView/PlanCompanionBubble.tsx",
 ];
 
 let host: HTMLElement;
@@ -76,7 +78,7 @@ describe("working_indicator", () => {
       /\.activity-dots--still i\s*\{[^}]*animation:\s*none;[^}]*opacity:\s*0\.42;[^}]*transform:\s*scale\(0\.9\);/s,
     );
     expect(css).toMatch(/@keyframes ct-dots-cooldown[\s\S]*100%\s*\{[^}]*transform:\s*scale\(0\.9\);/);
-    const component = readFileSync(new URL("./ActivityDots.tsx", import.meta.url), "utf8");
+    const component = readFileSync(resolve(repoRoot, "src/components/shared/ActivityDots.tsx"), "utf8");
     expect(component).not.toMatch(/setTimeout|setInterval|requestAnimationFrame/);
   });
 
@@ -96,13 +98,16 @@ describe("working_indicator", () => {
 
   it("uses ActivityDots as the owner for every shipped working-dot surface", () => {
     for (const relativePath of sourceFiles) {
-      const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+      const source = readFileSync(resolve(repoRoot, relativePath), "utf8");
       expect(source, relativePath).toMatch(/ActivityDots/);
     }
-    const tabItem = readFileSync(new URL("../Sidebar/TabItem.tsx", import.meta.url), "utf8");
+    const tabItem = readFileSync(resolve(repoRoot, "src/components/Sidebar/TabItem.tsx"), "utf8");
     expect(tabItem).toMatch(/status === "Working" \|\| status === "Idle"/);
     expect(tabItem).toMatch(/<TabWorkingActivity active=\{status === "Working"\} \/>/);
-    const agentState = readFileSync(new URL("../Terminal/AgentStateIndicator.tsx", import.meta.url), "utf8");
+    const agentState = readFileSync(
+      resolve(repoRoot, "src/components/Terminal/AgentStateIndicator.tsx"),
+      "utf8",
+    );
     expect(agentState).toMatch(/active=\{isWorking\}/);
   });
 });
