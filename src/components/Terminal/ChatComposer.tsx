@@ -35,6 +35,8 @@ import {
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
+import { ReceiverTargetMarks } from "./ReceiverTargetMark";
+import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -301,6 +303,7 @@ function ChatComposerImpl({
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  const pluginTabMenu = usePluginTabMenu();
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -845,6 +848,7 @@ function ChatComposerImpl({
           </div>
         </div>
       )}
+      <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <TabTaskStrip tabId={tabId} />
       <ComposerBubbleRow
         attachments={attachments}
