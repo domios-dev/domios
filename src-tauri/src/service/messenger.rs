@@ -505,7 +505,6 @@ impl Messenger {
         if self.envelope.kind == MessageKind::Pebble {
             return crate::message_markers::Marker::new("pebble")
                 .attr("source", "Pebble")
-                .attr_opt("trust", trust_attr(MessageKind::Pebble))
                 .build();
         }
         let tab = short_id(&self.envelope.from_tab);
@@ -662,16 +661,10 @@ fn build_chatbackend_inbound(
     (msg, marked)
 }
 
-/// Third-party event text is framed as untrusted so the agent never treats it as instructions.
-fn trust_attr(kind: MessageKind) -> Option<&'static str> {
-    (kind == MessageKind::Pebble).then_some("untrusted")
-}
-
 fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     let label = clean_name(&envelope.from_label);
     crate::message_markers::Marker::new("inbound")
         .attr("kind", envelope.kind.inbound_kind())
-        .attr_opt("trust", trust_attr(envelope.kind))
         .attr_opt("from_label", Some(label.as_str()).filter(|s| !s.is_empty()))
         .attr_opt(
             "from_tab",

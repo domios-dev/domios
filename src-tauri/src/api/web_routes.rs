@@ -902,7 +902,7 @@ pub async fn plugin_view_call(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     crate::commands::plugins::view_call(
-        &state.svc.view_registry,
+        &state.svc,
         &req.plugin_id,
         &req.method,
         req.args.unwrap_or(serde_json::Value::Null),
