@@ -440,6 +440,9 @@ pub async fn mesh_relay_to_peer(
         let mesh = state.mesh.lock();
         resolve_relay_peer(&mesh, &req.target_peer_id)?
     };
+    crate::api::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &req.body)
+        .await
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
     let delivery_id = relay_send_delivery_id(&req.method, &req.path);
     let mut relay_body = req.body;
     enrich_spawn_ownership(&state, &req.method, &req.path, &mut relay_body);
@@ -582,8 +585,9 @@ const SEND_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_sec
 /// Reads answer in milliseconds; they keep the short failure deadline.
 const READ_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
-fn local_forward_deadline(method: &str, path: &str) -> std::time::Duration {
-    if is_tab_send(method, path) {
+pub(crate) fn local_forward_deadline(method: &str, path: &str) -> std::time::Duration {
+    if is_tab_send(method, path) || crate::api::mesh_attachment::is_attachment_ingest(method, path)
+    {
         SEND_FORWARD_DEADLINE
     } else {
         READ_FORWARD_DEADLINE

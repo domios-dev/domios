@@ -36,7 +36,7 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
     !tab_id.is_empty() && !tab_id.contains('/')
 }
 
-const PUBLIC_PATHS: &[&str] = &[
+pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
     "/api/mesh/pair/request",
@@ -61,7 +61,7 @@ fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bo
 /// unauthenticated — an anonymous caller on the network could self-approve a
 /// pairing. Only `relay`, `introduce`, and the unpair handler
 /// (`DELETE /api/mesh/peers/{id}`) self-verify.
-fn is_custom_auth(method: &Method, path: &str) -> bool {
+pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     if path == "/api/mesh/relay" || path == "/api/mesh/introduce" {
         return true;
     }

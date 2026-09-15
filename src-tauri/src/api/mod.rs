@@ -19,6 +19,7 @@ pub mod hook_routes;
 pub mod inbound_webhook;
 pub mod logs_routes;
 pub mod mem_routes;
+pub mod mesh_attachment;
 pub mod mesh_inventory;
 pub mod mesh_routes;
 pub mod network_routes;
