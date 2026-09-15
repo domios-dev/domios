@@ -73,7 +73,7 @@ export function Dashboard() {
       aria-labelledby="analytics-title"
       aria-busy={data.refreshing}
     >
-      <Header snapshot={snapshot} filterCount={filterCount} refreshing={data.refreshing} onRefresh={data.refresh} />
+      <Header snapshot={snapshot} filterCount={filterCount} />
       <FilterControls
         preset={preset}
         onPreset={setPreset}

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib/webApi";
 import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
+import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
 
 type ApiCfg = DaemonApiConfig;
@@ -32,6 +33,7 @@ export function PluginView({
   cwd,
   active = true,
   focusOnActive = false,
+  kpiNotices = false,
 }: {
   pluginId: string;
   api: ApiCfg | undefined;
@@ -43,6 +45,8 @@ export function PluginView({
   /** A kept-mounted view that is hidden ignores Escape; the iframe hears `__ctActive` on each change. */
   active?: boolean;
   focusOnActive?: boolean;
+  /** Forward KPI ledger commits while shown; a hidden view catches up from its `__ctActive` notice. */
+  kpiNotices?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const activeRef = useRef(active);
@@ -115,6 +119,24 @@ export function PluginView({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [onMessage]);
+
+  useEffect(() => {
+    if (!kpiNotices) return;
+    let alive = true;
+    let unlisten: UnlistenFn | undefined;
+    listen(KPI_RECORDED_EVENT, () => {
+      if (activeRef.current) iframeRef.current?.contentWindow?.postMessage({ [KPI_CHANGE_NOTICE]: true }, "*");
+    })
+      .then((fn) => {
+        if (alive) unlisten = fn;
+        else fn();
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, [kpiNotices]);
 
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage({ __ctActive: active }, "*");
