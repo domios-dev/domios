@@ -74,6 +74,9 @@ pub mod worker_charter;
 pub mod worker_identity;
 
 #[cfg(test)]
+mod work_facet_tests;
+
+#[cfg(test)]
 mod attachment_tests;
 #[cfg(test)]
 mod body_file_tests;

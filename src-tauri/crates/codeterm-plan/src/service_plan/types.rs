@@ -112,6 +112,7 @@ pub enum PlanError {
     },
     InvalidPlanSkillSlug,
     InvalidExternalRef(String),
+    WorkFacetViolation(codeterm_types::plan::work_facet::WorkFacetViolation),
     UnauthorizedGateClaim {
         claimed: String,
         authorized: Vec<String>,
@@ -192,6 +193,7 @@ impl fmt::Display for PlanError {
             PlanError::InvalidExternalRef(message) => {
                 write!(f, "invalid external reference: {message}")
             }
+            PlanError::WorkFacetViolation(violation) => write!(f, "{violation}"),
             PlanError::TaskCreationRequiresApproval => write!(
                 f,
                 "plan is still in planning mode; run `codeterm plan approve <plan>` before creating tasks, or pass --force for deliberate draft tasks"
@@ -561,6 +563,10 @@ impl PlanError {
             PlanError::InvalidExternalRef(message) => serde_json::json!({
                 "type": "invalid_external_ref",
                 "message": message,
+            }),
+            PlanError::WorkFacetViolation(violation) => serde_json::json!({
+                "type": "work_facet_violation",
+                "message": violation.to_string(),
             }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
