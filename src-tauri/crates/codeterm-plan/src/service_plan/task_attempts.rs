@@ -1008,6 +1008,33 @@ impl PlanStore {
         })
     }
 
+    pub fn record_task_attempt_diagnostics(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        diagnostics: codeterm_types::plan::LaneDiagnosticsSummary,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+            else {
+                return Ok(false);
+            };
+            let Some(report) = attempt.report.as_mut() else {
+                return Ok(false);
+            };
+            report.diagnostics = Some(diagnostics);
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
     /// Ingest a worker report for its currently assigned task in one plan write.
     /// An accepted `in_review` report advances the task; every other
     /// accepted report remains a handoff milestone without changing task state.

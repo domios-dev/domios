@@ -94,6 +94,33 @@ impl LaneDiagnosticsSummary {
         }
     }
 
+    pub fn skipped(
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+        worktree: String,
+        reason: String,
+    ) -> Self {
+        Self {
+            plan_id,
+            task_id,
+            attempt_id,
+            status: "skipped".into(),
+            incomplete: false,
+            worktree,
+            tools: vec!["build-gateway".into()],
+            error_count: 0,
+            warning_count: 1,
+            info_count: 0,
+            findings: vec![LaneDiagnosticFinding {
+                tool: "build-gateway".into(),
+                severity: "warning".into(),
+                message: reason,
+                ..Default::default()
+            }],
+        }
+    }
+
     pub fn compact_lines(&self, limit: usize) -> Vec<String> {
         let mut lines = vec![format!(
             "diagnostics: {} errors, {} warnings, {} info ({})",
