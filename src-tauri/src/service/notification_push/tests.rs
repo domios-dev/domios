@@ -111,6 +111,7 @@ impl PushChannel for FixtureChannel {
                 buttons: None,
                 edit: None,
                 receipt: None,
+                route: Default::default(),
             },
         )
     }
@@ -529,6 +530,7 @@ fn spent_question_the_telegram_channel_rewrites_the_message_it_placed() {
             },
         ],
         record: "record-1".to_string(),
+        origin_tab: None,
     };
 
     channels::telegram::CHANNEL
@@ -553,6 +555,7 @@ fn spent_question_the_telegram_channel_rewrites_the_message_it_placed() {
         text: "[action needed] Deploy?\n\nAnswered: Ship it".to_string(),
         choices: Vec::new(),
         record: "record-1".to_string(),
+        origin_tab: None,
     };
     channels::telegram::CHANNEL
         .spend(&host, &locator, &spent)

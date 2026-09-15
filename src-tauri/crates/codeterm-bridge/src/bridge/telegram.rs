@@ -45,6 +45,32 @@ pub fn parse_locator(raw: &str) -> Option<(i64, i64)> {
     Some((chat_id.parse().ok()?, message_id.parse().ok()?))
 }
 
+/// Where one Telegram message sits. A thread counts only on a real topic
+/// message, and the topic-created service message is never a reply target.
+pub fn reply_context(msg: &serde_json::Value) -> ReplyContext {
+    let chat_id = msg
+        .get("chat")
+        .and_then(|c| c.get("id"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let thread_id = msg
+        .get("is_topic_message")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        .then(|| msg.get("message_thread_id").and_then(|v| v.as_i64()))
+        .flatten();
+    let reply_to_message_id = msg
+        .get("reply_to_message")
+        .filter(|reply| reply.get("forum_topic_created").is_none())
+        .and_then(|reply| reply.get("message_id"))
+        .and_then(|v| v.as_i64());
+    ReplyContext::Telegram {
+        chat_id,
+        thread_id,
+        reply_to_message_id,
+    }
+}
+
 pub fn telegram_api_base() -> String {
     std::env::var("TELEGRAM_API_BASE").unwrap_or_else(|_| "https://api.telegram.org".to_string())
 }
@@ -425,12 +451,13 @@ impl TelegramService {
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown")
                         .to_string();
-                    let chat_id = cb
-                        .get("message")
-                        .and_then(|m| m.get("chat"))
-                        .and_then(|c| c.get("id"))
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
+                    let reply_ctx = cb.get("message").map(reply_context).unwrap_or(
+                        ReplyContext::Telegram {
+                            chat_id: 0,
+                            thread_id: None,
+                            reply_to_message_id: None,
+                        },
+                    );
                     let msg_id = cb
                         .get("message")
                         .and_then(|m| m.get("message_id"))
@@ -458,7 +485,7 @@ impl TelegramService {
                             attachments: vec![],
                             message_id: msg_id,
                             callback_data: Some(data.to_string()),
-                            reply_ctx: ReplyContext::Telegram { chat_id },
+                            reply_ctx,
                         })
                         .await;
                     continue;
@@ -467,11 +494,6 @@ impl TelegramService {
                 let Some(msg) = update.get("message") else {
                     continue;
                 };
-                let chat_id = msg
-                    .get("chat")
-                    .and_then(|c| c.get("id"))
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
                 let user_id = msg
                     .get("from")
                     .and_then(|f| f.get("id"))
@@ -516,7 +538,7 @@ impl TelegramService {
                         attachments,
                         message_id,
                         callback_data: None,
-                        reply_ctx: ReplyContext::Telegram { chat_id },
+                        reply_ctx: reply_context(msg),
                     })
                     .await
                     .is_err()

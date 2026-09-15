@@ -105,6 +105,9 @@ impl ServiceFixture {
             bridge_outbound,
             bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
             bridge_supervisor: Arc::new(crate::bridge::supervisor::BridgeSupervisor::new()),
+            bridge_threads: Arc::new(codeterm_bridge::bridge::threads::ThreadService::new(
+                codeterm_bridge::bridge::threads::ThreadRegistry::in_memory(),
+            )),
             restart_tracker: crate::service::agent_restart::new_restart_tracker(),
             provider_updates: Default::default(),
             chat_registry: crate::service::tab_chat::ChatRegistry::new(),

@@ -74,6 +74,7 @@ impl PushChannel for FixtureChannel {
                 buttons: None,
                 edit: None,
                 receipt: None,
+                route: Default::default(),
             },
         )
     }

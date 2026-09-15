@@ -93,6 +93,7 @@ pub async fn bridge_stop(
     ensure_telegram(&body.service)?;
 
     let _op = state.svc.bridge_supervisor.op_guard().await;
+    state.svc.bridge_threads.detach();
 
     let was_active = state.svc.bridge_supervisor.is_active();
     if !was_active {
@@ -295,6 +296,7 @@ pub async fn bridge_announce(
         buttons: None,
         edit: None,
         receipt: None,
+        route: crate::bridge::manager::OutboundRoute::Chat,
     })
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 

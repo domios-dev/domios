@@ -1071,6 +1071,42 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "thread",
+          "about": "Open a tab's Telegram topic thread",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "open",
+              "about": "Open or reuse a tab's Telegram topic and print its link",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "service",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SERVICE",
+                  "possible_values": [],
+                  "default": "telegram",
+                  "help": "Target service",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         }
       ]
     },

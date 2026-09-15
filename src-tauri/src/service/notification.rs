@@ -53,6 +53,7 @@ impl PushEnvelope {
             text: self.content.render(bounds),
             choices: self.choices.clone(),
             record: self.record.clone(),
+            origin_tab: self.content.provenance.tab_id.clone(),
         }
     }
 }
