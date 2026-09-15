@@ -784,3 +784,25 @@ fn permission_request_roster_resolution_rejects_unknown_verdict() {
         "{error}"
     );
 }
+
+#[test]
+fn manifest_accepts_legacy_icon_fields_shipped_by_channel_plugins() {
+    let manifest = PluginManifest::from_json_str(
+        r##"{
+            "id": "legacy",
+            "version": "1.0.0",
+            "displayName": "Legacy",
+            "description": "Still loads",
+            "iconHint": "lock",
+            "iconColor": "#175ddc",
+            "iconSvg": "<svg viewBox=\"0 0 1 1\"></svg>",
+            "capabilities": { "view": true }
+        }"##,
+    )
+    .expect("pre-1.10.21 channel manifests keep loading");
+    assert_eq!(manifest.description.as_deref(), Some("Still loads"));
+    assert!(
+        manifest.icon_svg.is_none(),
+        "legacy inline SVG is never trusted as the icon"
+    );
+}
