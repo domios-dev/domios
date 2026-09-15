@@ -10,7 +10,8 @@ Read this before creating or editing any document in this repository.
 
 ## Kinds of documents
 
-- **Stable docs** describe what a capability is and the contracts around it: the capability map and one detailed doc per area. They name UI surfaces, command groups and API areas, never code identifiers, file paths or line numbers.
+- **Stable docs** describe what a capability is and the contracts around it: the capability map, the core essence (core parts, clients and the routing spine) and one detailed doc per area. They name UI surfaces, command groups and API areas, never code identifiers, file paths or line numbers.
+- **The project map** is generated from the capability map and the core essence: vectors, capabilities, core parts and clients, linked by runs on, feeds, part of and client of, within about one hundred nodes. When it grows past that, simplify the essences; never reshape the architecture to fit the map.
 - **Reference docs** are the one internal source for building, releasing and testing. They may name commands and files; the executable steps live in the matching skill.
 - **The vision** (`essences/VISION.md`) says why the capabilities exist.
 
@@ -41,4 +42,4 @@ Verify the product first, then fix whichever is wrong. A doc edit never papers o
 
 The map itself: `essences/CAPABILITIES.md`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
