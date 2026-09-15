@@ -1,7 +1,5 @@
 use serde_json::Value;
 
-use crate::plugin::js_runtime::PluginManifest;
-
 use super::cli::{read_audit_events, run_plugin_cli};
 
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
@@ -25,12 +23,11 @@ fn scan_plugin_manifests(
             let Ok(m) = serde_json::from_str::<Value>(&text) else {
                 continue;
             };
-            let Ok(loaded) = PluginManifest::load(&manifest_path) else {
-                continue;
-            };
             if let Some(id) = m.get("id").and_then(|v| v.as_str()) {
-                map.entry(id.to_string())
-                    .or_insert((dir, m, loaded.icon_svg));
+                map.entry(id.to_string()).or_insert_with(|| {
+                    let icon_svg = manifest_icon_svg(&dir, &m);
+                    (dir, m, icon_svg)
+                });
             }
         }
     }
@@ -381,13 +378,57 @@ fn channel_plugin_manifest(
     let plugin_path = dir.join("plugin.json");
     let plugin_text = std::fs::read_to_string(&plugin_path).ok()?;
     let plugin_manifest: Value = serde_json::from_str(&plugin_text).ok()?;
-    let loaded = PluginManifest::load(&plugin_path).ok()?;
-    Some((dir, plugin_manifest, loaded.icon_svg))
+    let icon_svg = manifest_icon_svg(&dir, &plugin_manifest);
+    Some((dir, plugin_manifest, icon_svg))
+}
+
+// Icons never gate enrichment: a manifest the strict loader rejects still gets its description and capabilities.
+fn manifest_icon_svg(dir: &std::path::Path, manifest: &Value) -> Option<String> {
+    let relative = manifest.get("icon")?.as_str()?;
+    codeterm_plugin::plugin_icon::load_plugin_icon(dir, relative)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_icon_svg_manifest_the_strict_loader_rejects_still_enriches() {
+        let root = std::env::temp_dir().join(format!("ct-snapshot-lenient-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("icon.svg"),
+            r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="7"/></svg>"#,
+        )
+        .unwrap();
+        let manifest = serde_json::json!({
+            "id": "lenient",
+            "version": "0.1.0",
+            "displayName": "Lenient",
+            "description": "Still described",
+            "icon": "icon.svg",
+            "capabilities": { "view": true },
+            "futureManifestField": true,
+        });
+        std::fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+        assert!(
+            crate::plugin::js_runtime::PluginManifest::load(&root.join("plugin.json")).is_err()
+        );
+
+        let icon_svg = manifest_icon_svg(&root, &manifest);
+        assert!(icon_svg
+            .as_deref()
+            .is_some_and(|svg| svg.contains("circle")));
+        let mut entry = serde_json::json!({ "id": "lenient" });
+        enrich_from_manifest_with_icon(&mut entry, &root, &manifest, icon_svg.as_deref());
+        assert_eq!(entry["description"], "Still described");
+        assert_eq!(entry["capabilities"]["view"], true);
+        assert!(entry["icon_svg"]
+            .as_str()
+            .is_some_and(|svg| svg.contains("circle")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn plugin_icon_svg_snapshot_carries_only_the_sanitized_asset() {
@@ -411,7 +452,8 @@ mod tests {
         )
         .unwrap();
 
-        let manifest = PluginManifest::load(&root.join("plugin.json")).unwrap();
+        let manifest =
+            crate::plugin::js_runtime::PluginManifest::load(&root.join("plugin.json")).unwrap();
         let mut entry = serde_json::json!({ "id": "demo" });
         enrich_from_manifest_with_icon(
             &mut entry,
