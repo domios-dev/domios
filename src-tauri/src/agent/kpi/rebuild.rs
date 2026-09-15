@@ -9,6 +9,7 @@ pub(super) fn rebuild_usage(
     ingestor: &mut UsageIngestor,
 ) -> Result<UsageRebuildOutcome, String> {
     let mut outcome = UsageRebuildOutcome::default();
+    let mut transcript_lines = Vec::new();
     for (path, cursor) in ledger.list_usage_cursors()? {
         let source = UsageSource::new(path.as_str());
         if !source.path.is_file() {
@@ -16,6 +17,13 @@ pub(super) fn rebuild_usage(
             continue;
         }
         let (batch, reread) = UsageIngestor::read_through(&source, cursor.offset)?;
+        transcript_lines.extend(
+            batch
+                .records
+                .iter()
+                .flat_map(|record| record.observed.iter().copied()),
+        );
+        transcript_lines.extend(batch.superseded.iter().copied());
         let responses: Vec<RebuiltResponse> = batch
             .records
             .into_iter()
@@ -40,5 +48,6 @@ pub(super) fn rebuild_usage(
         )?);
         ingestor.forget(&source);
     }
+    outcome.legacy_rows_removed += ledger.remove_duplicate_legacy_rows(&transcript_lines)?;
     Ok(outcome)
 }
