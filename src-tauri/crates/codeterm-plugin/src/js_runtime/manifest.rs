@@ -12,6 +12,7 @@
 mod capabilities;
 mod config;
 mod methods;
+mod tab_menu;
 
 use std::path::PathBuf;
 
@@ -31,6 +32,7 @@ pub use config::{
     LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
 pub use methods::manifest_settings_sections;
+pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
 
 /// Top-level `plugin.json` document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +180,7 @@ fn default_capabilities() -> Capabilities {
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
+        tab_menu: Vec::new(),
     }
 }
 

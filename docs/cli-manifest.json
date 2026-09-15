@@ -11814,6 +11814,44 @@
           "subcommands": []
         },
         {
+          "name": "receiver-target",
+          "about": "Show, set, or clear the tab that receives a webhook plugin's events",
+          "aliases": [],
+          "args": [
+            {
+              "name": "clear",
+              "positional": false,
+              "required": false,
+              "value_name": "CLEAR",
+              "possible_values": [],
+              "default": null,
+              "help": "Clear the binding so events return to the General Agent",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Plugin id that declares a webhook receiver",
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Bind this tab id as the receiver target",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "remove",
           "about": "Remove an installed plugin",
           "aliases": [],

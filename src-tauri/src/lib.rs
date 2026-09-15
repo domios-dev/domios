@@ -293,6 +293,8 @@ pub fn run() {
             commands::repo_watch_subscribe,
             commands::repo_watch_unsubscribe,
             commands::plugin_view_call,
+            commands::plugin_tab_menu,
+            commands::plugin_tab_menu_action,
             commands::mux_commands::build_agent_launch_command,
             commands::mux_commands::mux_spawn_tab,
             commands::mux_commands::mux_create_orchestration_pair,
@@ -447,6 +449,8 @@ pub fn run() {
                 Arc::new(crate::agent_commands::AgentCommandRegistry::new());
             let webhook_registry: codeterm_plugin::WebhookRegistryHandle =
                 Arc::new(codeterm_plugin::WebhookRegistry::new());
+            let tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle =
+                Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new());
             // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
                 secret: Some(std::sync::Arc::new(
@@ -460,6 +464,7 @@ pub fn run() {
                 chat_preprocessor: chat_preprocessor_registry.clone(),
                 agent_command: agent_command_registry.clone(),
                 webhook_receiver: webhook_registry.clone(),
+                tab_menu: tab_menu_registry.clone(),
             };
             // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
             let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
@@ -846,6 +851,10 @@ pub fn run() {
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),
                 webhook_registry: webhook_registry.clone(),
+                tab_menu_registry: tab_menu_registry.clone(),
+                receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
+                    crate::service::receiver_target::ReceiverTargetStore::default_path(),
+                )),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
                 session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),

@@ -73,6 +73,17 @@ pub enum PluginAction {
         /// Path to the plugin directory (the folder containing plugin.json).
         dir: String,
     },
+    /// Show, set, or clear the tab that receives a webhook plugin's events.
+    ReceiverTarget {
+        /// Plugin id that declares a webhook receiver.
+        id: String,
+        /// Bind this tab id as the receiver target.
+        #[arg(long, value_name = "TAB_ID", conflicts_with = "clear")]
+        set: Option<String>,
+        /// Clear the binding so events return to the General Agent.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Passthrough to a plugin's `onAgentCommand`: `codeterm plugin <id> <verb>
     /// [args…]`. Routes the reserved `plugin:<id>.<verb>` socket method to the
     /// owning plugin (requires its `agent_commands` grant). Catch-all for any

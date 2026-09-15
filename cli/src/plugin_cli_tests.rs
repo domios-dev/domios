@@ -89,9 +89,40 @@ fn plugin_subcommands_parse() {
         } if name == "codeterm-core"
     ));
 
+    assert!(matches!(
+        parse_plugin(&["receiver-target", "receiver"]),
+        PluginAction::ReceiverTarget { id, set: None, clear: false } if id == "receiver"
+    ));
+
     // `validate` must resolve as the built-in verb, not the `<id> <verb>` passthrough.
     assert!(matches!(
         parse_plugin(&["validate", "./provider-demo"]),
         PluginAction::Validate { dir } if dir == "./provider-demo"
     ));
+}
+
+#[test]
+fn pebble_receiver_target_cli_parses_set_and_clear_but_not_both() {
+    assert!(matches!(
+        parse_plugin(&["receiver-target", "receiver", "--set", "tab-1"]),
+        PluginAction::ReceiverTarget { set: Some(tab), clear: false, .. } if tab == "tab-1"
+    ));
+    assert!(matches!(
+        parse_plugin(&["receiver-target", "receiver", "--clear"]),
+        PluginAction::ReceiverTarget {
+            set: None,
+            clear: true,
+            ..
+        }
+    ));
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "plugin",
+        "receiver-target",
+        "receiver",
+        "--set",
+        "tab-1",
+        "--clear",
+    ])
+    .is_err());
 }

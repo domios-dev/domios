@@ -189,6 +189,23 @@ pub(super) fn install_handles(
         }
     });
 
+    // Scoped to the calling plugin's own receiver; assigning a tab is host chrome, never a plugin call.
+    let sb = sandbox.clone();
+    bind!("receiverTargetGet", move || -> String {
+        match sb.service() {
+            Some(svc) => svc.receiver_target_json(sb.plugin_id()),
+            None => err("host service unavailable"),
+        }
+    });
+
+    let sb = sandbox.clone();
+    bind!("receiverTargetClear", move || -> String {
+        match sb.service() {
+            Some(svc) => svc.receiver_target_clear_json(sb.plugin_id()),
+            None => err("host service unavailable"),
+        }
+    });
+
     Ok(())
 }
 
