@@ -9,6 +9,7 @@ const readCss = (name: string) =>
 const tokensCss = readCss("./tokens.css");
 const agentStateCss = readCss("./agent-state.css");
 const globalsCss = readCss("./globals.css");
+const primitivesCss = readCss("./primitives.css");
 
 const expectedTokens = {
   "--ct-ease-squash-jump": "cubic-bezier(.22, .9, .25, 1)",
@@ -106,8 +107,9 @@ for (const [css, before, after] of substitutedDeclarations) {
   assert.equal(resolved, before, `substitution must resolve to its pre-change declaration: ${after}`);
 }
 
+assert.match(globalsCss, /@import "\.\/primitives\.css";/, "globals must load the shared primitives");
 assert.match(
-  globalsCss,
+  primitivesCss,
   /\.ct-deferred-loader\[data-transition-state="present"\]\s*\{[^}]*animation:\s*ct-deferred-loader-reveal var\(--ct-duration-fast\) var\(--ct-ease-liquid-settle\) var\(--ct-duration-normal\) both;/s,
   "shared loader reveal must remain delayed, theme-tokenized, and cancellable by state",
 );

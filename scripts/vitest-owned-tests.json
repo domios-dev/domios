@@ -24,5 +24,11 @@
   "src/components/Canvas/planView/BoardTaskCard.actions.test.tsx",
   "src/components/Terminal/useChatScroll.stability.test.tsx",
   "src/components/Canvas/teamTaskSegment.test.tsx",
-  "src/components/Snake/simulation.test.ts"
+  "src/components/Snake/simulation.test.ts",
+  "src/components/Canvas/missionControl/BoardSpendChart.test.tsx",
+  "src/components/Extensions/PluginView.activation.test.tsx",
+  "src/components/Titlebar/AnalyticsTray.test.tsx",
+  "plugins/analytics/tests/plugin.test.ts",
+  "plugins/analytics/ui/src/model/model.test.ts",
+  "plugins/analytics/ui/src/Dashboard.test.tsx"
 ]
