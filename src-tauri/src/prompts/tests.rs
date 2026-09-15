@@ -973,6 +973,7 @@ fn every_prompt_md_has_a_loader() {
         "mem_extraction.md",
         "mem_rerank.md",
         "dreaming_rem.md",
+        "task_sequencing_contract.md",
     ]
     .into_iter()
     .collect();
