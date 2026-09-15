@@ -398,7 +398,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 ## Related documents
 
-Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
+Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `docs/TESTING.md`.
 
 ### Windows provider launch verification
 
@@ -414,4 +414,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 137 -->
+<!-- revision: 138 -->

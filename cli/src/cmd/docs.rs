@@ -177,16 +177,6 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../docs/AGENT-CONTROL.md"
     ),
     doc!(
-        "TESTING",
-        "Test layers and verification workflows",
-        "../../../docs/TESTING.md"
-    ),
-    doc!(
-        "E2E-TESTING",
-        "E2E, cross-platform, and manual smoke workflows",
-        "../../../docs/E2E-TESTING.md"
-    ),
-    doc!(
         "PROMPT-DETECTION",
         "Prompt detection architecture and verification",
         "../../../docs/PROMPT-DETECTION.md"
