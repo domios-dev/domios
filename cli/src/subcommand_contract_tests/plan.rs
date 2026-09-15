@@ -235,6 +235,41 @@ fn plan_pause_parses_without_park_alias() {
 }
 
 #[test]
+fn task_pause_cli_removed() {
+    assert!(parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "task",
+        "pause",
+        "pl_1",
+        "task_1",
+        "--reason",
+        "hold"
+    ])
+    .is_err());
+    assert!(parse_plan_cli_result(["codeterm", "plan", "task", "resume", "pl_1", "task_1"]).is_err());
+
+    let plan_pause =
+        parse_plan_cli_result(["codeterm", "plan", "pause", "pl_1", "--reason", "hold"])
+            .expect("plan pause remains available");
+    assert!(matches!(
+        plan_pause.command,
+        Commands::Plan {
+            action: PlanAction::Pause { .. }
+        }
+    ));
+
+    let plan_resume = parse_plan_cli_result(["codeterm", "plan", "resume", "pl_1"])
+        .expect("plan resume remains available");
+    assert!(matches!(
+        plan_resume.command,
+        Commands::Plan {
+            action: PlanAction::Resume { .. }
+        }
+    ));
+}
+
+#[test]
 fn plan_task_update_parses_sections() {
     let parsed = parse_plan_cli_result([
         "codeterm",

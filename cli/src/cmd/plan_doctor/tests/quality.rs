@@ -280,6 +280,33 @@ fn quality_errors_for_paused_without_reason() {
 }
 
 #[test]
+fn quality_preserves_provider_exhausted_pause() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "execution",
+        "goal": {"vector": "ship"},
+        "tasks": [{
+            "id": "task_1",
+            "name": "Do work",
+            "status": "paused",
+            "status_label": "provider_exhausted",
+            "section_ids": [],
+            "body": "b",
+            "acceptance_criteria": ["c"],
+            "test_plan": "t",
+            "correctness": "x",
+            "executor_role": "rust-backend-dev"
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(!findings.iter().any(|finding| {
+        finding.kind == "paused_without_reason" && finding.task_id.as_deref() == Some("task_1")
+    }));
+}
+
+#[test]
 fn quality_warns_for_aged_unstaffed_pending_task() {
     let old = 1_000u64;
     let now = old + PENDING_UNSTAFFED_STALE_MS + 1;

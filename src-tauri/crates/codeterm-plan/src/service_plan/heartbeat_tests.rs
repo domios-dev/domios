@@ -535,13 +535,12 @@ fn is_plan_complete_rejects_paused_and_blocked_tasks() {
         )
         .unwrap();
     store
-        .pause_task(
-            &plan.id,
-            &paused_id,
-            "waiting for quota reset",
-            AgentRef::from_tab("orch"),
-            4,
-        )
+        .with_plan(&plan.id, 4, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == paused_id).unwrap();
+            task.status = TaskStatus::Paused;
+            task.pause_reason = Some("waiting for quota reset".into());
+            Ok(())
+        })
         .unwrap();
 
     let paused_plan = store.get(&plan.id).unwrap();

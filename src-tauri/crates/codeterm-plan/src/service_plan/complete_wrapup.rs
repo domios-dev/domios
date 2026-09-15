@@ -16,7 +16,7 @@ pub fn needs_complete_wrapup(plan: &Plan) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{AgentRef, OrchestratorRef, PlanMode};
+    use crate::plan::{AgentRef, OrchestratorRef, PlanMode, TaskStatus};
     use crate::service_plan::prompts_plan::PLAN_RETROSPECTIVE_NUDGE;
     use crate::service_plan::{NewTask, PlanStore};
 
@@ -91,13 +91,12 @@ mod tests {
             )
             .unwrap();
         store
-            .pause_task(
-                &plan.id,
-                &task_id,
-                "provider quota exhausted",
-                OrchestratorRef::from_tab("orch"),
-                4,
-            )
+            .with_plan(&plan.id, 4, |plan| {
+                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+                task.status = TaskStatus::Paused;
+                task.pause_reason = Some("provider quota exhausted".into());
+                Ok(())
+            })
             .unwrap();
 
         let plan = store.get(&plan.id).unwrap();
