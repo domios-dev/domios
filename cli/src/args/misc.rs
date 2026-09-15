@@ -616,7 +616,7 @@ pub enum BridgeAction {
 
 #[derive(Subcommand)]
 pub enum BridgeThreadAction {
-    /// Open or reuse a tab's Telegram topic and print its link
+    /// Open or reuse a tab's Telegram topic and print where to find it
     Open {
         /// Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab
         #[arg(long)]

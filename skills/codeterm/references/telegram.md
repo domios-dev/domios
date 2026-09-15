@@ -56,13 +56,13 @@ Supported `--type`: `text` (default), `photo`, `document`, `voice`, `animation`,
 
 ## Per-tab topic threads
 
-Open or reuse your own topic and print its link:
+Open or reuse your own topic; it prints one sentence naming the topic (with a link only where Telegram has one):
 
 ```bash
 codeterm bridge thread open --service telegram
 ```
 
-Only the General Agent may open another tab's topic, then reply in the main chat with the printed link:
+Only the General Agent may open another tab's topic, then relay the printed sentence in the main chat:
 
 ```bash
 codeterm bridge thread open --tab TAB_ID --service telegram

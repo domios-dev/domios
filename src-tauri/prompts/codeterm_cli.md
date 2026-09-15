@@ -36,7 +36,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or the `--role Orchestrator` flag. | as above |
 | Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | as above |
 | Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |
-| Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts. A tab's send lands in its own topic; `bridge thread open` prints that topic's link, and only the General Agent may add `--tab ID` for another tab | `docs TELEGRAM-SETUP` |
+| Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts. A tab's send lands in its own topic; `bridge thread open` prints one relayable sentence; only the General Agent may add `--tab ID` for another tab | `docs TELEGRAM-SETUP` |
 | Remote machines (mesh) | see Mesh block below | `docs MESH` |
 | Memory, remember/recall, skills | see Mem block below | `docs MEMORY` |
 | Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |

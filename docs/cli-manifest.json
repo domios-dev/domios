@@ -1080,7 +1080,7 @@
           "subcommands": [
             {
               "name": "open",
-              "about": "Open or reuse a tab's Telegram topic and print its link",
+              "about": "Open or reuse a tab's Telegram topic and print where to find it",
               "aliases": [],
               "args": [
                 {

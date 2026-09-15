@@ -110,6 +110,7 @@ pub struct ThreadService {
     registry: Mutex<ThreadRegistry>,
     attached: RwLock<Option<Attached>>,
     create_gate: tokio::sync::Mutex<()>,
+    intro_gate: tokio::sync::Mutex<()>,
     appends: Mutex<HashMap<String, AppendState>>,
 }
 
@@ -127,6 +128,7 @@ impl ThreadService {
             registry: Mutex::new(registry),
             attached: RwLock::new(None),
             create_gate: tokio::sync::Mutex::new(()),
+            intro_gate: tokio::sync::Mutex::new(()),
             appends: Mutex::new(HashMap::new()),
         }
     }
@@ -247,11 +249,7 @@ impl ThreadService {
 
         if let (Some(thread_id), Some(header), false) = (thread_id, header.as_deref(), text.append)
         {
-            let link = topic_link(
-                attached.transport.bot_username().await.as_deref(),
-                text.chat_id,
-                thread_id,
-            );
+            let link = topic_link(text.chat_id, thread_id);
             let pointer = compose::pointer(header, link.as_deref(), &text.markdown);
             if let Ok(pointer_id) = attached
                 .transport
@@ -331,11 +329,7 @@ impl ThreadService {
         ) else {
             return;
         };
-        let link = topic_link(
-            attached.transport.bot_username().await.as_deref(),
-            chat_id,
-            thread_id,
-        );
+        let link = topic_link(chat_id, thread_id);
         let pointer = compose::pointer(header, link.as_deref(), caption);
         if let Ok(pointer_id) = attached
             .transport
@@ -388,28 +382,9 @@ impl ThreadService {
             }
         };
 
-        if !binding.intro_posted {
-            let intro = compose::intro(
-                &identity.header(),
-                &display_title(&identity.title, &identity.tab_id),
-            );
-            if let Ok(message_id) = attached
-                .transport
-                .send_html(chat_id, Some(binding.thread_id), &intro, None)
-                .await
-            {
-                self.record_origin(&attached, chat_id, message_id, target_tab_id);
-                self.registry
-                    .lock()
-                    .mark_intro_posted(&binding.scope, binding.thread_id);
-            }
-        }
+        self.post_intro_once(&attached, &identity, &binding).await;
 
-        let link = topic_link(
-            attached.transport.bot_username().await.as_deref(),
-            chat_id,
-            binding.thread_id,
-        );
+        let link = topic_link(chat_id, binding.thread_id);
         Ok(OpenedThread {
             tab_id: binding.tab_id,
             chat_id,
@@ -494,14 +469,9 @@ impl ThreadService {
         } else {
             TopicsState::Unknown
         };
-        let link = match &binding {
-            Some(binding) => topic_link(
-                attached.transport.bot_username().await.as_deref(),
-                chat_id,
-                binding.thread_id,
-            ),
-            None => None,
-        };
+        let link = binding
+            .as_ref()
+            .and_then(|binding| topic_link(chat_id, binding.thread_id));
         ThreadMenuState {
             bridge_active: true,
             topics,
@@ -572,6 +542,37 @@ impl ThreadService {
                     reason: Some(format!("{failure:?}")),
                 }
             }
+        }
+    }
+
+    /// Concurrent opens of one binding re-read the flag under the gate, so one intro lands.
+    async fn post_intro_once(
+        &self,
+        attached: &Attached,
+        identity: &SenderIdentity,
+        binding: &ThreadBinding,
+    ) {
+        let _gate = self.intro_gate.lock().await;
+        let posted = self
+            .bound(&binding.scope, &binding.tab_id)
+            .is_some_and(|current| current.intro_posted);
+        if posted {
+            return;
+        }
+        let chat_id = binding.scope.chat_id;
+        let intro = compose::intro(
+            &identity.header(),
+            &display_title(&identity.title, &identity.tab_id),
+        );
+        if let Ok(message_id) = attached
+            .transport
+            .send_html(chat_id, Some(binding.thread_id), &intro, None)
+            .await
+        {
+            self.record_origin(attached, chat_id, message_id, &binding.tab_id);
+            self.registry
+                .lock()
+                .mark_intro_posted(&binding.scope, binding.thread_id);
         }
     }
 
