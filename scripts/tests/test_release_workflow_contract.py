@@ -233,13 +233,15 @@ class ReleaseBuildSpeedContractTest(unittest.TestCase):
         self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings}"', build)
         self.assertIn("--bin codeterm --bin codeterm-embed", build)
 
-    def test_metadata_only_completion_jobs_are_not_on_linux_build(self):
+    def test_metadata_only_completion_jobs_run_on_the_self_hosted_mac_runner(self):
         for name in ("release.yml", "release-windows.yml"):
             with self.subTest(workflow=name):
                 _, marker, tail = read(name).partition("  completion:\n")
                 self.assertTrue(marker)
-                self.assertIn("runs-on: ubuntu-latest", tail)
-                self.assertNotIn("linux-build", tail.split("permissions:", 1)[0])
+                header = tail.split("permissions:", 1)[0]
+                self.assertIn("runs-on: [self-hosted, codeterm-builder]", header)
+                self.assertNotIn("ubuntu-latest", header)
+                self.assertNotIn("linux-build", header)
 
     def test_mac_pipeline_has_an_explicit_notarization_overlap_stage(self):
         script = (ROOT / ".codeterm" / "build-machine" / "scripts" / "mac-overlap.sh").read_text(

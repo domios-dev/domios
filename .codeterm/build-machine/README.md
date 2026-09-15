@@ -94,8 +94,9 @@ secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac
 - **Mac notarization overlaps architectures.** `mac-overlap.sh` completes and verifies the arm64
   app, starts the existing `notarize-dmg.sh` (including stapler and spctl), then runs the complete
   x86_64 pipeline. The arm64 updater bundle is packed only after its notarization succeeds.
-- **Completion signals use hosted metadata runners.** Mac and Windows completion jobs only query
-  and upload GitHub release metadata, so they run on `ubuntu-latest` and do not wait for `linux-build`.
+- **Completion signals run on the self-hosted Mac runner.** GitHub-hosted minutes are unavailable, and the
+  Windows runner has no bash, so the Mac and Windows completion jobs run on `codeterm-builder`, which has
+  bash, jq, gh and python3 and frees up before `linux-build`.
 - **Timing ledger.** The 1.10.22 baseline was Mac 418s arm64 + 427s x86_64 sequential, Windows
   release-input/Tauri 7m04s/5m30s (arm64) and 8m01s/5m15s (x86_64), and Linux 18m45s/16m05s;
   target-cache saves added 42s, 43s, and 1m33s. Record the next real release's corresponding
@@ -164,4 +165,4 @@ Three self-hosted GitHub Actions runners, each scoped to its workflow by label:
 No SSH between machines; each runner signs and publishes itself. Keep the repo private / gate fork
 PRs — self-hosted runners execute repo workflow code.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
