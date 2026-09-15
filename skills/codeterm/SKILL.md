@@ -52,10 +52,10 @@ Specialized reference docs alongside this skill:
 - `references/cron.md` — full cron flag set, oneshot schedules, lifecycle
 - `references/telegram.md` — bridge setup, media types, formatting, per-tab topic threads (`codeterm bridge thread open [--tab ID]`), migration orchestration
 - `references/themes.md` — custom theme TOML format
-- `docs/MODELS.md` (in the CodeTerm repo) — agent model catalog: how the per-provider model list works, how to override or update entries without rebuilding (`<data_dir>/models/<provider>.toml`)
+- `essences/MODELS.md` (in the CodeTerm repo) — agent model catalog: how the per-provider model list works, how to override or update entries without rebuilding (`<data_dir>/models/<provider>.toml`)
 
 ## Memory protocol (always-on)
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->

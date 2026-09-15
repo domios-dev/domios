@@ -9,7 +9,7 @@ use super::*;
 
 /// The committed clap manifest is the authority on which commands exist.
 /// Generated artifact — read here, never written.
-const CLI_MANIFEST: &str = include_str!("../../../docs/cli-manifest.json");
+const CLI_MANIFEST: &str = include_str!("../../../essences/cli-manifest.json");
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
@@ -263,7 +263,7 @@ fn prompt_cli_references_exist_in_manifest() {
     assert!(
         problems.is_empty(),
         "prompts teach commands the CLI manifest does not have. If the command \
-         is new, docs/cli-manifest.json needs regeneration:\n{}",
+         is new, essences/cli-manifest.json needs regeneration:\n{}",
         problems.join("\n")
     );
 }
@@ -373,9 +373,9 @@ fn cron_skill_prompts_keep_their_substitution_slots() {
 
 #[test]
 fn orchestration_guidance_uses_only_complete_document_reads() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../docs/ORCHESTRATION.md");
-    const PLANNER_DOC: &str = include_str!("../../../docs/PLANNER.md");
-    const PLAN_EDITING_DOC: &str = include_str!("../../../docs/PLAN-EDITING.md");
+    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION.md");
+    const PLANNER_DOC: &str = include_str!("../../../prod-docs/PLANNER.md");
+    const PLAN_EDITING_DOC: &str = include_str!("../../../prod-docs/PLAN-EDITING.md");
     let surfaces = [
         ORCHESTRATOR_ONBOARDING,
         PLANNER_SUFFIX,
@@ -450,9 +450,9 @@ fn agent_pad_rule_has_exactly_one_source() {
 
 #[test]
 fn selected_instruction_references_name_whole_documents() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../docs/ORCHESTRATION.md");
-    const PLANNER_DOC: &str = include_str!("../../../docs/PLANNER.md");
-    const PLAN_EDITING_DOC: &str = include_str!("../../../docs/PLAN-EDITING.md");
+    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION.md");
+    const PLANNER_DOC: &str = include_str!("../../../prod-docs/PLANNER.md");
+    const PLAN_EDITING_DOC: &str = include_str!("../../../prod-docs/PLAN-EDITING.md");
     let surfaces = [
         ORCHESTRATOR_ONBOARDING,
         PLANNER_SUFFIX,
@@ -687,7 +687,7 @@ fn planner_suffix_embeds_the_canonical_manual() {
 
 #[test]
 fn milestone_gate_constants_wire_into_orchestration_ladder() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../docs/ORCHESTRATION-OPERATIONS.md");
+    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION-OPERATIONS.md");
 
     // Suggestion fills both placeholders and names the record command.
     let msg = milestone_gate_suggestion("phase-1", "Phase 1");
@@ -952,7 +952,6 @@ fn every_prompt_md_has_a_loader() {
         "planner_suffix.md",
         "planning_compaction.md",
         "team_creation_contract.md",
-        "bounce_unwinding_contract.md",
         "orchestrator_suffix.md",
         "orchestrator_onboarding.md",
         "manager_bootstrap.md",

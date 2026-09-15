@@ -57,11 +57,11 @@ ct_forbid_mutable_cache_dir() {
 # SCCACHE_DIR/server but each has its own (possibly diverged) sources at the
 # same relative paths, so a stripped basedir can return an artifact built from
 # a different worktree's sources (codeterm#327). Never derive or forward it —
-# see docs/BUILD.md#development.
+# see essences/BUILD.md#development.
 ct_reject_basedir_rewriting() {
   if [ -n "${SCCACHE_BASEDIRS:-}" ]; then
     echo "[cache-policy] WARNING: SCCACHE_BASEDIRS='${SCCACHE_BASEDIRS}' inherited from environment; unsetting." >&2
-    echo "[cache-policy] Basedir rewriting is disallowed for this repo: it can hand back a cache hit built from a different worktree's sources. See docs/BUILD.md." >&2
+    echo "[cache-policy] Basedir rewriting is disallowed for this repo: it can hand back a cache hit built from a different worktree's sources. See essences/BUILD.md." >&2
   fi
   unset SCCACHE_BASEDIRS
 }
@@ -86,7 +86,7 @@ ct_configure_sccache() {
   echo "[cache-policy] sccache verified before build server start"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see docs/BUILD.md>"
+  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see essences/BUILD.md>"
   echo "[cache-policy] $(sccache --version)"
   sccache --start-server >/dev/null 2>&1 || true
   sccache --show-stats 2>/dev/null | sed -n '/Cache location/,$p' || true
@@ -108,7 +108,7 @@ ct_require_prestarted_sccache() {
   echo "[cache-policy] prestarted shared sccache verified"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see docs/BUILD.md>"
+  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see essences/BUILD.md>"
   echo "[cache-policy] $(sccache --version)"
 }
 

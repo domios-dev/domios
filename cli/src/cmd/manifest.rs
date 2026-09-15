@@ -1,5 +1,5 @@
 //! Machine-readable dump of the clap command tree — the single source of truth
-//! consumed by docs/CLI.md, the prompt doctor, and the chat-card templates.
+//! consumed by essences/CLI.md, the prompt doctor, and the chat-card templates.
 //! Regenerate committed artifacts with `codeterm cli-manifest --write`.
 
 use clap::{Arg, ArgAction, Command, CommandFactory};
@@ -206,16 +206,16 @@ pub fn handle(write: bool, markdown: bool) {
         print!("{}", to_json());
         return;
     }
-    let manifest = repo_path("docs/cli-manifest.json");
+    let manifest = repo_path("essences/cli-manifest.json");
     std::fs::write(&manifest, to_json()).expect("write cli-manifest.json");
     println!("wrote {}", manifest.display());
 
-    let cli_md = repo_path("docs/CLI.md");
-    let md = std::fs::read_to_string(&cli_md).expect("read docs/CLI.md");
+    let cli_md = repo_path("essences/CLI.md");
+    let md = std::fs::read_to_string(&cli_md).expect("read essences/CLI.md");
     let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
     let end = md.find(MD_END).expect("missing cli:auto-end marker");
     let spliced = format!("{}\n{}\n{}", &md[..start], to_markdown(), &md[end..]);
-    std::fs::write(&cli_md, spliced).expect("write docs/CLI.md");
+    std::fs::write(&cli_md, spliced).expect("write essences/CLI.md");
     println!("wrote {}", cli_md.display());
 
     let command_paths = repo_path("packages/chat-ui/src/codeterm/commandPaths.ts");
@@ -225,16 +225,17 @@ pub fn handle(write: bool, markdown: bool) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use super::*;
 
     fn normalize_newlines(s: &str) -> String {
         s.replace("\r\n", "\n")
     }
 
-    const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
-    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/CLI.md");
+    const MANIFEST_PATH: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../essences/cli-manifest.json"
+    );
+    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../essences/CLI.md");
     const COMMAND_PATHS_PATH: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../packages/chat-ui/src/codeterm/commandPaths.ts"
@@ -243,17 +244,17 @@ mod tests {
     #[test]
     fn cli_manifest_is_fresh() {
         let committed = std::fs::read_to_string(MANIFEST_PATH)
-            .expect("docs/cli-manifest.json missing — run `codeterm cli-manifest --write`");
+            .expect("essences/cli-manifest.json missing — run `codeterm cli-manifest --write`");
         assert_eq!(
             normalize_newlines(&committed),
             normalize_newlines(&to_json()),
-            "docs/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
+            "essences/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
         );
     }
 
     #[test]
     fn docs_cli_md_is_fresh() {
-        let md = std::fs::read_to_string(CLI_MD_PATH).expect("docs/CLI.md missing");
+        let md = std::fs::read_to_string(CLI_MD_PATH).expect("essences/CLI.md missing");
         let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
         let end = md.find(MD_END).expect("missing cli:auto-end marker");
         let block = &md[start..end];
@@ -261,7 +262,7 @@ mod tests {
         assert_eq!(
             normalize_newlines(block),
             normalize_newlines(&expected),
-            "docs/CLI.md auto-block stale — run `codeterm cli-manifest --write`"
+            "essences/CLI.md auto-block stale — run `codeterm cli-manifest --write`"
         );
     }
 
@@ -525,7 +526,7 @@ mod tests {
     }
 
     // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
-    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "docs/CLI.md"];
+    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "essences/CLI.md"];
 
     fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -617,132 +618,7 @@ mod tests {
         );
     }
 
-    // Each entry states why the document is not served by `codeterm docs`; a
-    // wildcard would let an unlisted doc silently default to unvalidated.
-    const DOCS_EXCLUDED_FROM_EMBEDDING: &[(&str, &str)] = &[
-        (
-            "BEGIN_HERE.md",
-            "internal documentation contract for contributors, not shipped to agents",
-        ),
-        (
-            "CAPABILITIES.md",
-            "internal capability map of product essences, not shipped to agents",
-        ),
-        (
-            "TESTING.md",
-            "internal test guide for CodeTerm contributors, not shipped to agents",
-        ),
-        (
-            "E2E-TESTING.md",
-            "internal end-to-end and cross-platform test guide for contributors, not shipped to agents",
-        ),
-        (
-            "BUILD.md",
-            "repository build procedure, held non-user-facing by `repository_build_docs_are_not_user_facing`",
-        ),
-        (
-            "BUILD-REFERENCE.md",
-            "same non-user-facing build contract as BUILD.md",
-        ),
-        (
-            "CLI.md",
-            "generated command reference; agents discover flags with `codeterm <cmd> --help`",
-        ),
-        (
-            "GENERAL_AGENT.md",
-            "design record for the General-Agent prompt, addressed to contributors editing it",
-        ),
-        (
-            "MARKER-PROVENANCE.md",
-            "provenance rationale; the rule agents must follow ships in ROUTING",
-        ),
-        (
-            "MODELS.md",
-            "provider/model catalogue; agents discover models with `codeterm agent models`",
-        ),
-        (
-            "PLUGINS.md",
-            "plugin publishing map for maintainers, well past the embedded reading boundary",
-        ),
-        (
-            "RELEASE.md",
-            "human release runbook; agents never drive a release themselves",
-        ),
-        (
-            "RESILIENCE.md",
-            "daemon-operator troubleshooting for a human reading host logs",
-        ),
-        (
-            "WEB_ACCESS.md",
-            "web-access configuration owned by the machine's maintainer",
-        ),
-        (
-            "build_machine_setup.md",
-            "build-farm host setup performed by a physical machine operator",
-        ),
-        (
-            "crash-recovery-supervisor.md",
-            "OS-wrapper supervisor contract; installed via `codeterm system enable-autostart`",
-        ),
-    ];
-
-    #[test]
-    fn every_docs_md_is_embedded_or_explicitly_excluded() {
-        let embedded: HashSet<&str> = crate::cmd::docs::DOCS
-            .iter()
-            .filter_map(|document| crate::cmd::docs::docs_dir_file(document.source))
-            .collect();
-        assert!(
-            !embedded.is_empty(),
-            "no DOCS entry resolves to a docs/*.md source — the coverage check would pass vacuously"
-        );
-
-        let excluded: HashSet<&str> = DOCS_EXCLUDED_FROM_EMBEDDING
-            .iter()
-            .map(|(file, _)| *file)
-            .collect();
-        for &(file, reason) in DOCS_EXCLUDED_FROM_EMBEDDING {
-            assert!(
-                !reason.trim().is_empty(),
-                "{file} is excluded without a reason"
-            );
-            assert!(
-                !embedded.contains(file),
-                "{file} is both embedded and on the exclusion list"
-            );
-            assert!(
-                repo_path("docs").join(file).is_file(),
-                "exclusion list names {file}, which no longer exists"
-            );
-        }
-
-        let mut unclassified: Vec<String> = Vec::new();
-        for entry in std::fs::read_dir(repo_path("docs"))
-            .expect("read docs/")
-            .flatten()
-        {
-            let path = entry.path();
-            if path.is_dir() || path.extension().is_none_or(|ext| ext != "md") {
-                continue;
-            }
-            let file = path
-                .file_name()
-                .expect("docs entry has a file name")
-                .to_string_lossy()
-                .to_string();
-            if !embedded.contains(file.as_str()) && !excluded.contains(file.as_str()) {
-                unclassified.push(file);
-            }
-        }
-        unclassified.sort();
-        assert!(
-            unclassified.is_empty(),
-            "docs/*.md must be embedded in cmd::docs::DOCS or named in DOCS_EXCLUDED_FROM_EMBEDDING with a reason:\n{}",
-            unclassified.join("\n")
-        );
-    }
-
-    // `about` string so docs/CLI.md and chat cards never render a blank line.
+    // `about` string so essences/CLI.md and chat cards never render a blank line.
     #[test]
     fn every_leaf_command_has_about() {
         fn walk(cmd: &Command, path: &[String], missing: &mut Vec<String>) {

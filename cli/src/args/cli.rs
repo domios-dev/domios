@@ -1,9 +1,9 @@
 //! SOURCE OF TRUTH for the CodeTerm CLI surface.
 //! On any change here run `codeterm cli-manifest --write` to regenerate
-//! docs/cli-manifest.json + docs/CLI.md. The tests `cli_manifest_is_fresh`,
+//! essences/cli-manifest.json + essences/CLI.md. The tests `cli_manifest_is_fresh`,
 //! `docs_cli_md_is_fresh`, and `prompt_cli_commands_exist` (cli/src/cmd/manifest.rs)
 //! plus the chat-ui `recognize.test.ts` fail CI if anything drifts.
-//! See docs/contributing/cli.md.
+//! See essences/contributing/cli.md.
 
 use clap::{Parser, Subcommand};
 
@@ -82,10 +82,10 @@ pub enum Commands {
 
     /// Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
     CliManifest {
-        /// Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
+        /// Regenerate committed artifacts (essences/cli-manifest.json + essences/CLI.md)
         #[arg(long)]
         write: bool,
-        /// Emit the docs/CLI.md auto-block markdown instead of JSON
+        /// Emit the essences/CLI.md auto-block markdown instead of JSON
         #[arg(long, conflicts_with = "write")]
         markdown: bool,
     },
