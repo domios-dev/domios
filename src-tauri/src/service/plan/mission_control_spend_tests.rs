@@ -744,10 +744,9 @@ fn mission_control_spend_records_a_second_turn_in_the_same_session() {
     );
     assert_eq!(second.tokens.map(|t| t.uncached_input), Some(50));
     assert_eq!(second.tokens.map(|t| t.output), Some(25));
-    assert!(
-        rows.iter().all(|row| row.dedup_key.is_none()),
-        "usage rows carry no dedup key, so a repeat turn can never be ignored"
-    );
+    let keys: Vec<_> = rows.iter().map(|row| row.dedup_key.clone()).collect();
+    assert!(keys.iter().all(Option::is_some));
+    assert_ne!(keys[0], keys[1]);
 
     // A third pass with nothing appended adds nothing and loses nothing.
     fixture.service.request_kpi_usage_ingest(&tab_id);
