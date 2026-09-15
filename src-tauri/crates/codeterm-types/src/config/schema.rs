@@ -613,7 +613,7 @@ impl Default for OrchestrationConfig {
     fn default() -> Self {
         Self {
             plan_reminders: true,
-            nudge_interval_secs: 1800,
+            nudge_interval_secs: 2700,
             reflect: ReflectConfig::default(),
             digests: OrchestrationDigestsConfig::default(),
             refresh: RefreshConfig::default(),

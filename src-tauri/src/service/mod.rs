@@ -48,6 +48,8 @@ mod orchestration_pair;
 mod orchestrator;
 mod process_tree;
 pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
+#[cfg(test)]
+pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) mod directory_trust;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
