@@ -240,7 +240,7 @@ Open a tab's Telegram topic thread
 
 #### `codeterm bridge thread open`
 
-Open or reuse a tab's Telegram topic and print its link
+Open or reuse a tab's Telegram topic and print where to find it
 
 - `--service` — Target service
 - `--tab` — Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab
