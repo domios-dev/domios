@@ -433,6 +433,13 @@ const HTTP_MAP: Record<string, Mapper> = {
       return relay.data;
     });
   },
+  mesh_transfer_attachment: (a) =>
+    webJson("POST", "/api/mesh/attachments/transfer", {
+      ordinary_tab_id: s(a, "ordinaryTabId"),
+      peer_id: s(a, "peerId"),
+      path: s(a, "path"),
+      kind: s(a, "kind"),
+    }),
   mesh_peer_services_list: (a) =>
     webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
   mesh_inventory_list: () => webJson("GET", "/api/mesh/inventory"),
