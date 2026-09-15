@@ -37,6 +37,9 @@ pub fn apply_persisted(perms: &mut PermissionsConfig, bundle_dir: &Path) {
     if let Some(v) = g.get("secrets") {
         perms.secrets = *v;
     }
+    if let Some(v) = g.get("analytics") {
+        perms.analytics = *v;
+    }
 }
 
 /// Persist a single grant decision (used by the install/grant flow). Merges into

@@ -29,6 +29,7 @@ pub(crate) mod hierarchy;
 pub mod inject_verify;
 pub mod input_parser;
 pub(crate) mod integration_silence;
+mod analytics_host;
 mod kpi_hooks;
 pub(crate) mod lane_removal;
 pub(crate) mod launch_delivery;

@@ -340,6 +340,8 @@ fn ledger_event(plan_id: &str, kind: KpiEventKind, tokens: Option<TokenCounts>) 
         bytes: 120,
         tokens,
         dedup_key: None,
+        workspace_id: None,
+        tab_kind: None,
     }
 }
 
