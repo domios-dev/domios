@@ -587,16 +587,33 @@ fn gate_keys(gates: &[RegressionGate]) -> String {
 }
 
 // Refuse the dispatch loudly, naming every blocking gate — no tab is spawned.
-fn regression_blocked_error(gates: Vec<RegressionGate>) -> JsonRpcError {
-    let names = gate_keys(&gates);
+fn regression_blocked_error(
+    gates: Vec<RegressionGate>,
+    retrospectives: Vec<RegressionGate>,
+) -> JsonRpcError {
+    let mut causes = Vec::new();
+    if !gates.is_empty() {
+        causes.push(format!(
+            "pending regression gate(s) {}: run the warm integration QA (codeterm plan qa next <plan> --group <gate> --note \"<evidence>\") or record an authorized override (codeterm plan qa override <plan> --reason \"<why>\")",
+            gate_keys(&gates)
+        ));
+    }
+    if !retrospectives.is_empty() {
+        causes.push(format!(
+            "unrecorded group retrospective(s) {}: record each with codeterm plan groups close <plan> <group> --note \"<retrospective>\"",
+            gate_keys(&retrospectives)
+        ));
+    }
     JsonRpcError {
         code: -32010,
         message: format!(
-            "dispatch blocked by pending regression gate(s): {names}. Run the warm integration QA to clear them (codeterm plan qa next <plan> --group <gate> --note \"<evidence>\"), tag the task regression-gate/release-blocking if it is the exception, or record an authorized override (codeterm plan qa override <plan> --reason \"<why>\")."
+            "dispatch blocked by {}. Tag the task regression-gate/release-blocking only if it is the exception.",
+            causes.join("; ")
         ),
         data: Some(json!({
             "type": "regression_gate_blocked",
             "blocking_gates": gates,
+            "pending_retrospectives": retrospectives,
         })),
     }
 }
@@ -640,8 +657,11 @@ pub(super) fn dispatch(
     match regression_dispatch_decision(&plan, &detail.task) {
         RegressionDispatchDecision::Clear => {}
         RegressionDispatchDecision::Exempt { exemption: e, .. } => exemption = Some(e),
-        RegressionDispatchDecision::Blocked { blocking } => {
-            return Err(regression_blocked_error(blocking));
+        RegressionDispatchDecision::Blocked {
+            blocking,
+            retrospectives,
+        } => {
+            return Err(regression_blocked_error(blocking, retrospectives));
         }
     }
     // Same frontier policy for the review WIP gate: decide before any tab

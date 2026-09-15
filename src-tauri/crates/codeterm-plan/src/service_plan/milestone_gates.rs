@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use super::prompts_plan::REGRESSION_MILESTONE_KIND;
+use super::reflection::GROUP_CLOSE_MILESTONE_KIND;
 use crate::plan::{AgentRef, Milestone, Plan, RegressionGateOverride, Task};
 
 use super::{PlanError, PlanStore};
@@ -51,9 +52,14 @@ pub enum RegressionDispatchDecision {
     Exempt {
         exemption: DispatchExemption,
         blocking: Vec<RegressionGate>,
+        retrospectives: Vec<RegressionGate>,
     },
-    /// Dispatch must be refused until these gates go green or are overridden.
-    Blocked { blocking: Vec<RegressionGate> },
+    /// Dispatch must be refused until the regression gates go green or are
+    /// overridden and every terminal group has its retrospective recorded.
+    Blocked {
+        blocking: Vec<RegressionGate>,
+        retrospectives: Vec<RegressionGate>,
+    },
 }
 
 pub fn regression_link(group_key: &str) -> String {
@@ -112,33 +118,59 @@ fn override_satisfied(plan: &Plan, key: &str, completed_at: u64) -> bool {
         .any(|o| o.ts >= completed_at && o.gates.iter().any(|g| g == key))
 }
 
-// `respect_override` drops gates cleared by an authorized waiver, yielding the set that actually blocks dispatch; without it the full advisory set (what still needs a real QA run) shows.
-fn compute_gates(plan: &Plan, respect_override: bool) -> Vec<RegressionGate> {
+// The retrospective is a `group_close` stride and re-arms exactly like the regression record.
+fn group_retrospective_satisfied(plan: &Plan, key: &str, completed_at: u64) -> bool {
+    let link = regression_link(key);
+    plan.strides.iter().any(|m| {
+        m.kind == GROUP_CLOSE_MILESTONE_KIND
+            && m.ts >= completed_at
+            && m.links.iter().any(|l| l == &link)
+    })
+}
+
+fn completed_groups(plan: &Plan) -> Vec<(&str, u64)> {
     let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for task in &plan.tasks {
-        let Some(key) = task.group.as_deref() else {
-            continue;
-        };
-        if !seen.insert(key.to_string()) {
-            continue;
-        }
-        let Some(completed_at) = group_completion(plan, key) else {
-            continue;
-        };
-        if regression_satisfied(plan, key, completed_at) {
-            continue;
-        }
-        if respect_override && override_satisfied(plan, key, completed_at) {
-            continue;
-        }
-        out.push(RegressionGate {
+    plan.tasks
+        .iter()
+        .filter_map(|task| task.group.as_deref())
+        .filter(|key| seen.insert(*key))
+        .filter_map(|key| group_completion(plan, key).map(|completed_at| (key, completed_at)))
+        .collect()
+}
+
+fn sorted_gates<'a>(plan: &Plan, keys: impl Iterator<Item = &'a str>) -> Vec<RegressionGate> {
+    let mut out: Vec<RegressionGate> = keys
+        .map(|key| RegressionGate {
             key: key.to_string(),
             label: group_label(plan, key),
-        });
-    }
+        })
+        .collect();
     out.sort_by(|a, b| a.key.cmp(&b.key));
     out
+}
+
+// `respect_override` drops gates cleared by an authorized waiver, yielding the set that actually blocks dispatch; without it the full advisory set (what still needs a real QA run) shows.
+fn compute_gates(plan: &Plan, respect_override: bool) -> Vec<RegressionGate> {
+    let groups = completed_groups(plan);
+    let keys = groups
+        .iter()
+        .filter(|(key, completed_at)| !regression_satisfied(plan, key, *completed_at))
+        .filter(|(key, completed_at)| {
+            !(respect_override && override_satisfied(plan, key, *completed_at))
+        })
+        .map(|(key, _)| *key);
+    sorted_gates(plan, keys)
+}
+
+/// Terminal groups whose retrospective stride is missing or predates their
+/// latest close. An override never waives these: recording one is the fix.
+pub fn pending_group_retrospectives(plan: &Plan) -> Vec<RegressionGate> {
+    let groups = completed_groups(plan);
+    let keys = groups
+        .iter()
+        .filter(|(key, completed_at)| !group_retrospective_satisfied(plan, key, *completed_at))
+        .map(|(key, _)| *key);
+    sorted_gates(plan, keys)
 }
 
 // Advisory only — complete groups whose full-gate regression is missing or stale.
@@ -167,16 +199,21 @@ pub fn task_dispatch_exemption(task: &Task) -> Option<DispatchExemption> {
 /// Never mutates. A blocked decision names every gate that stands in the way.
 pub fn regression_dispatch_decision(plan: &Plan, task: &Task) -> RegressionDispatchDecision {
     let blocking = blocking_regression_gates(plan);
-    if blocking.is_empty() {
+    let retrospectives = pending_group_retrospectives(plan);
+    if blocking.is_empty() && retrospectives.is_empty() {
         return RegressionDispatchDecision::Clear;
     }
     if let Some(exemption) = task_dispatch_exemption(task) {
         return RegressionDispatchDecision::Exempt {
             exemption,
             blocking,
+            retrospectives,
         };
     }
-    RegressionDispatchDecision::Blocked { blocking }
+    RegressionDispatchDecision::Blocked {
+        blocking,
+        retrospectives,
+    }
 }
 
 impl PlanStore {
@@ -458,7 +495,7 @@ mod tests {
         close_phase_1(&store, &pid, &ids);
         let plan = store.get(&pid).unwrap();
         match regression_dispatch_decision(&plan, &candidate(&[])) {
-            RegressionDispatchDecision::Blocked { blocking } => {
+            RegressionDispatchDecision::Blocked { blocking, .. } => {
                 assert_eq!(blocking.len(), 1);
                 assert_eq!(blocking[0].key, "phase-1");
             }
@@ -479,6 +516,7 @@ mod tests {
                 RegressionDispatchDecision::Exempt {
                     exemption,
                     blocking,
+                    ..
                 } => {
                     assert_eq!(exemption, expected);
                     assert_eq!(blocking[0].key, "phase-1", "exemption still names the gate");
@@ -515,8 +553,11 @@ mod tests {
             "advisory set still shows the gate needs a real QA run"
         );
         assert_eq!(plan.regression_gate_overrides.len(), 1);
+        store
+            .close_group(&pid, "phase-1", "retro", AgentRef::from_tab("orch"), 31)
+            .unwrap();
         assert_eq!(
-            regression_dispatch_decision(&plan, &candidate(&[])),
+            regression_dispatch_decision(&store.get(&pid).unwrap(), &candidate(&[])),
             RegressionDispatchDecision::Clear
         );
     }
@@ -586,5 +627,111 @@ mod tests {
         let blocking = blocking_regression_gates(&plan);
         assert_eq!(blocking.len(), 1, "phase-2 still gates dispatch");
         assert_eq!(blocking[0].key, "phase-2");
+    }
+
+    fn retrospective_keys(store: &PlanStore, pid: &str) -> Vec<String> {
+        pending_group_retrospectives(&store.get(pid).unwrap())
+            .into_iter()
+            .map(|gate| gate.key)
+            .collect()
+    }
+
+    fn record_retrospective(store: &PlanStore, pid: &str, now: u64) {
+        store
+            .close_group(pid, "phase-1", "retro", AgentRef::from_tab("orch"), now)
+            .unwrap();
+    }
+
+    #[test]
+    fn milestone_retrospective_contract_terminal_group_gates_next_frontier() {
+        let (_d, store, pid, ids) = store_with_two_groups();
+        close_phase_1(&store, &pid, &ids);
+        store
+            .record_group_regression(&pid, "phase-1", "green", AgentRef::from_tab("qa"), 30)
+            .unwrap();
+        let plan = store.get(&pid).unwrap();
+        let next_group_task = plan.tasks.iter().find(|t| t.id == ids[2]).unwrap();
+        assert!(blocking_regression_gates(&plan).is_empty());
+        match regression_dispatch_decision(&plan, next_group_task) {
+            RegressionDispatchDecision::Blocked {
+                blocking,
+                retrospectives,
+            } => {
+                assert!(blocking.is_empty());
+                assert_eq!(retrospectives.len(), 1);
+                assert_eq!(retrospectives[0].key, "phase-1");
+            }
+            other => panic!("expected Blocked by the retrospective, got {other:?}"),
+        }
+
+        record_retrospective(&store, &pid, 40);
+        let plan = store.get(&pid).unwrap();
+        assert!(retrospective_keys(&store, &pid).is_empty());
+        let retro = plan
+            .strides
+            .iter()
+            .find(|m| m.kind == GROUP_CLOSE_MILESTONE_KIND)
+            .unwrap();
+        assert_eq!(retro.links, vec![regression_link("phase-1")]);
+        assert_eq!(
+            regression_dispatch_decision(&plan, &plan.tasks[2]),
+            RegressionDispatchDecision::Clear
+        );
+    }
+
+    #[test]
+    fn milestone_retrospective_contract_reclose_rearms_the_retrospective() {
+        let (_d, store, pid, ids) = store_with_two_groups();
+        close_phase_1(&store, &pid, &ids);
+        record_retrospective(&store, &pid, 30);
+        assert!(retrospective_keys(&store, &pid).is_empty());
+
+        set_status(&store, &pid, &ids[1], TaskStatus::InProgress, 40);
+        assert!(
+            retrospective_keys(&store, &pid).is_empty(),
+            "an open member means the group is not terminal"
+        );
+        set_status(&store, &pid, &ids[1], TaskStatus::Done, 50);
+        assert_eq!(
+            retrospective_keys(&store, &pid),
+            vec!["phase-1".to_string()]
+        );
+    }
+
+    #[test]
+    fn milestone_retrospective_contract_early_close_does_not_cover_later_completion() {
+        let (_d, store, pid, ids) = store_with_two_groups();
+        record_retrospective(&store, &pid, 5);
+        assert!(retrospective_keys(&store, &pid).is_empty());
+        close_phase_1(&store, &pid, &ids);
+        assert_eq!(
+            retrospective_keys(&store, &pid),
+            vec!["phase-1".to_string()]
+        );
+    }
+
+    #[test]
+    fn milestone_retrospective_contract_override_never_waives_it() {
+        let (_d, store, pid, ids) = store_with_two_groups();
+        close_phase_1(&store, &pid, &ids);
+        store
+            .record_regression_override(&pid, vec![], "waiver", AgentRef::from_tab("orch"), 30)
+            .unwrap();
+        let plan = store.get(&pid).unwrap();
+        assert!(blocking_regression_gates(&plan).is_empty());
+        assert!(matches!(
+            regression_dispatch_decision(&plan, &candidate(&[])),
+            RegressionDispatchDecision::Blocked { ref retrospectives, .. } if retrospectives.len() == 1
+        ));
+    }
+
+    #[test]
+    fn milestone_retrospective_contract_skips_open_and_all_cancelled_groups() {
+        let (_d, store, pid, ids) = store_with_two_groups();
+        set_status(&store, &pid, &ids[0], TaskStatus::Done, 10);
+        assert!(retrospective_keys(&store, &pid).is_empty());
+        set_status(&store, &pid, &ids[0], TaskStatus::Cancelled, 11);
+        set_status(&store, &pid, &ids[1], TaskStatus::Cancelled, 12);
+        assert!(retrospective_keys(&store, &pid).is_empty());
     }
 }

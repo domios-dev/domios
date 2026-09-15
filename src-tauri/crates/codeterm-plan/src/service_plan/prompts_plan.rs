@@ -25,8 +25,19 @@ pub fn milestone_gate_suggestion(key: &str, label: &str) -> String {
         .replace("{key}", key)
 }
 
+pub const GROUP_RETROSPECTIVE_HEARTBEAT_TITLE: &str = "Group retrospectives:";
+
+pub const GROUP_RETROSPECTIVE_SUGGESTION: &str = "group {label} is terminal — record its retrospective before the next group dispatches: `codeterm plan groups close {plan} {key} --note \"<what worked, what failed, what changes next>\"`.";
+
+pub fn group_retrospective_suggestion(plan_id: &str, key: &str, label: &str) -> String {
+    GROUP_RETROSPECTIVE_SUGGESTION
+        .replace("{label}", label)
+        .replace("{plan}", plan_id)
+        .replace("{key}", key)
+}
+
 pub const REFLECTION_HEARTBEAT_TITLE: &str = "Reflection:";
-pub const REFLECTION_BLOCK: &str = "{trigger} — pause and self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window. Then run the VELOCITY AND COST sweep over the open frontier: is it shrinking — and if not, what blocks it? Which open tasks no longer earn their priority (descope, defer, or split — propose it to your Planner)? Which gates can batch into one QA run instead of several? Which remaining work fits a cheaper model or an idle machine? Green lanes get one-line verdicts, not essays — spend tokens on findings, not ceremony.";
+pub const REFLECTION_BLOCK: &str = "{trigger} — self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window. Then run the VELOCITY AND COST sweep over the open frontier: is it shrinking — and if not, what blocks it? Which open tasks no longer earn their priority (descope, defer, or split — propose it to your Planner)? Which gates can batch into one QA run instead of several? Which remaining work fits a cheaper model or an idle machine? Green lanes get one-line verdicts, not essays — spend tokens on findings, not ceremony.";
 
 pub fn reflection_block(trigger: &str, window: &super::reflection::ReflectionWindow) -> String {
     REFLECTION_BLOCK

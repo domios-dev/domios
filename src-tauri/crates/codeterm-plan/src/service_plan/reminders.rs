@@ -2,31 +2,33 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
+use crate::plan::Plan;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NudgeKind {
     Worker,
     Orchestrator,
 }
 
-pub fn nudge_text(kind: NudgeKind) -> String {
-    match kind {
-        NudgeKind::Worker => {
-            "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress."
-                .to_string()
-        }
-        NudgeKind::Orchestrator => format!(
-            "Plan reminder: this tab owns unfinished execution-plan work. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
-        ),
-    }
+pub const WORKER_REMINDER: &str = "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress.";
+
+pub const ORCHESTRATOR_REMINDER: &str = "Plan reminder: actionable tasks: {actionable}. Dispatch, judge, unblock, or replan each of them. Tasks waiting on dependencies and machine-paused tasks need nothing; they advance when the dependency lands or the hold clears. Pause the plan only when the owner must decide before any task can advance. Read `codeterm docs ORCHESTRATION` if the loop is unclear.";
+
+pub fn worker_nudge_text() -> String {
+    WORKER_REMINDER.to_string()
+}
+
+pub fn orchestrator_nudge_text(plan: &Plan) -> String {
+    let actionable = super::state::orchestrator_actionable_task_ids(plan);
+    let listed = if actionable.is_empty() {
+        "none".to_string()
+    } else {
+        actionable.join(", ")
+    };
+    ORCHESTRATOR_REMINDER.replace("{actionable}", &listed)
 }
 
 pub const UNCHANGED_REMINDER_COOLDOWN_SECS: u64 = 300;
-
-// Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
-pub const CONTRACT: &str = "repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option.";
-
-// The five sanctioned exits for an open task.
-pub const EXITS: &str = "(1) dispatch it to a worker, (2) pause with a reason (`codeterm plan task pause <plan> <task> --reason \"<why>\"`), (3) judge an in_review task to done or bounce it, (4) send it to replanning, (5) escalate to a smarter model";
 
 /// Scheduler telemetry is deliberately independent from turn/activity state.
 /// A tab can be continuously active and still retain its time deadline.
@@ -187,28 +189,6 @@ impl TurnCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn orchestrator_nudge_body_defers_state_reconciliation_to_plan_prepend() {
-        let text = nudge_text(NudgeKind::Orchestrator);
-        assert!(text.contains("unfinished execution-plan work"));
-        assert!(text.contains("codeterm docs ORCHESTRATION"));
-        assert!(!text.contains("STATE-RECONCILIATION"));
-
-        let worker_text = nudge_text(NudgeKind::Worker);
-        assert!(!worker_text.contains("STATE-RECONCILIATION"));
-    }
-
-    #[test]
-    fn open_work_nudges_carry_contract_and_five_exits() {
-        let text = nudge_text(NudgeKind::Orchestrator);
-        assert!(text.contains("repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option."));
-        assert!(text.contains("dispatch"));
-        assert!(text.contains("pause with a reason"));
-        assert!(text.contains("judge"));
-        assert!(text.contains("replanning"));
-        assert!(text.contains("escalate to a smarter model"));
-    }
 
     #[test]
     fn digest_rule_rate_limit_blocks_repeat_within_interval() {

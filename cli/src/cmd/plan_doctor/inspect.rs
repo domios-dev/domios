@@ -8,8 +8,9 @@ use crate::cmd::plan_local::plan_id_from;
 
 use super::{plan_id, Finding};
 
-// Mirrors src-tauri prompts::REGRESSION_MILESTONE_KIND and milestone_gates::GROUP_REGRESSION_LINK_PREFIX.
+// Mirrors src-tauri prompts::REGRESSION_MILESTONE_KIND, reflection::GROUP_CLOSE_MILESTONE_KIND and milestone_gates::GROUP_REGRESSION_LINK_PREFIX.
 const REGRESSION_MILESTONE_KIND: &str = "regression";
+const GROUP_CLOSE_MILESTONE_KIND: &str = "group_close";
 const GROUP_REGRESSION_LINK_PREFIX: &str = "group:";
 
 pub(super) fn inspect_stray_sidecars(
@@ -414,31 +415,43 @@ fn inspect_group_regression_gates(path: &Path, plan: &Value, tasks: &[Value]) ->
             .filter_map(|t| t.get("status_changed_at").and_then(Value::as_u64))
             .max()
             .unwrap_or(0);
-        if regression_ts_for_group(plan, key).is_some_and(|ts| ts >= last_close) {
-            continue;
+        if group_stride_ts(plan, key, REGRESSION_MILESTONE_KIND).is_none_or(|ts| ts < last_close) {
+            findings.push(Finding {
+                severity: "warning",
+                kind: "group_missing_regression",
+                plan_id: plan_id(plan, path),
+                path: path.display().to_string(),
+                task_id: None,
+                detail: format!(
+                    "group '{key}' is complete but has no full-gate regression run on record since its last close"
+                ),
+                fix: "run the full gate once and record it: codeterm plan qa next --group <group> --claim --note \"<scope>\"".into(),
+            });
         }
-        findings.push(Finding {
-            severity: "warning",
-            kind: "group_missing_regression",
-            plan_id: plan_id(plan, path),
-            path: path.display().to_string(),
-            task_id: None,
-            detail: format!(
-                "group '{key}' is complete but has no full-gate regression run on record since its last close"
-            ),
-            fix: "run the full gate once and record it: codeterm plan qa next --group <group> --claim --note \"<scope>\"".into(),
-        });
+        if group_stride_ts(plan, key, GROUP_CLOSE_MILESTONE_KIND).is_none_or(|ts| ts < last_close) {
+            findings.push(Finding {
+                severity: "warning",
+                kind: "group_missing_retrospective",
+                plan_id: plan_id(plan, path),
+                path: path.display().to_string(),
+                task_id: None,
+                detail: format!(
+                    "group '{key}' is complete but has no retrospective on record since its last close, so no further task dispatches"
+                ),
+                fix: format!("record it: codeterm plan groups close <plan> {key} --note \"<what worked, what failed, what changes next>\""),
+            });
+        }
     }
     findings
 }
 
-fn regression_ts_for_group(plan: &Value, key: &str) -> Option<u64> {
+fn group_stride_ts(plan: &Value, key: &str, kind: &str) -> Option<u64> {
     let link = format!("{GROUP_REGRESSION_LINK_PREFIX}{key}");
     plan.get("strides")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|m| m.get("kind").and_then(Value::as_str) == Some(REGRESSION_MILESTONE_KIND))
+        .filter(|m| m.get("kind").and_then(Value::as_str) == Some(kind))
         .filter(|m| {
             m.get("links")
                 .and_then(Value::as_array)
