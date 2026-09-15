@@ -5,10 +5,6 @@ use super::orchestrator::SpawnAgentParams;
 use super::ServiceContext;
 use crate::process_util;
 
-#[path = "worker_lane_bootstrap.rs"]
-mod bootstrap;
-pub(crate) use bootstrap::LaneBootstrap;
-
 fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
     role == Some("Worker")
 }
@@ -92,7 +88,6 @@ pub(crate) struct ProvisionedWorkerLane {
     pub(crate) cwd: String,
     pub(crate) branch: String,
     base: String,
-    pub(crate) bootstrap: LaneBootstrap,
 }
 
 impl ProvisionedWorkerLane {
@@ -258,14 +253,11 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
         return Err(error);
     }
-    // Worker lanes are source-only; a junction-backed dependency install could
-    // write through the lane into the canonical checkout.
     Ok(ProvisionedWorkerLane {
         canonical_cwd: project_cwd,
         cwd: lane_cwd,
         branch,
         base,
-        bootstrap: LaneBootstrap::default(),
     })
 }
 
@@ -462,6 +454,21 @@ mod tests {
         );
     }
 
+    fn source_only_fixture() -> (tempfile::TempDir, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        git(&project, &["init", "-q"]);
+        git(&project, &["config", "user.email", "test@example.com"]);
+        git(&project, &["config", "user.name", "Test"]);
+        std::fs::write(project.join("README.md"), "fixture").unwrap();
+        git(&project, &["add", "README.md"]);
+        git(&project, &["commit", "-qm", "fixture"]);
+        std::fs::create_dir(project.join("node_modules")).unwrap();
+        std::fs::write(project.join("node_modules/marker.txt"), "canonical").unwrap();
+        (root, project)
+    }
+
     /// The provenance is persisted and later replayed as a git working directory,
     /// so a verbatim prefix here is what refuses a finished worker's report.
     #[test]
@@ -641,5 +648,58 @@ mod tests {
         let error =
             verify_worker_lane(outside, outside, None, None, LaneProtection::Waived).unwrap_err();
         assert!(error.contains("failed to inspect worker lane"), "{error}");
+    }
+
+    #[test]
+    fn lane_provisioning_source_only_skips_dependency_link_and_preserves_canonical_modules() {
+        let (_root, project) = source_only_fixture();
+        let canonical_marker = project.join("node_modules/marker.txt");
+        let canonical_before = std::fs::read_to_string(&canonical_marker).unwrap();
+        let lane = provision_lane_for_test(project.to_str().unwrap(), "source-only").unwrap();
+        let lane_modules = Path::new(&lane.cwd).join("node_modules");
+
+        assert!(
+            std::fs::symlink_metadata(&lane_modules).is_err(),
+            "source-only provisioning must not create a dependency link"
+        );
+        assert_eq!(
+            std::fs::read_to_string(canonical_marker).unwrap(),
+            canonical_before
+        );
+        lane.cleanup().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn lane_provisioning_windows_junction_resolution_is_test_fixture_only() {
+        let (_root, project) = source_only_fixture();
+        let canonical_marker = project.join("node_modules/marker.txt");
+        let canonical_before = std::fs::read_to_string(&canonical_marker).unwrap();
+        let lane = provision_lane_for_test(project.to_str().unwrap(), "winlink").unwrap();
+        let lane_modules = Path::new(&lane.cwd).join("node_modules");
+        let mut command = Command::new("cmd");
+        process_util::no_window_std(&mut command);
+        let output = command
+            .args(["/C", "mklink", "/J"])
+            .arg(&lane_modules)
+            .arg(project.join("node_modules"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "junction creation failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert_eq!(
+            std::fs::read_to_string(lane_modules.join("marker.txt")).unwrap(),
+            canonical_before
+        );
+        assert_eq!(
+            std::fs::read_to_string(canonical_marker).unwrap(),
+            canonical_before
+        );
+        std::fs::remove_dir(&lane_modules).unwrap();
+        lane.cleanup().unwrap();
     }
 }
