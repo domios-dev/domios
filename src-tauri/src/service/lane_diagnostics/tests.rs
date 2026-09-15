@@ -2,7 +2,7 @@ use super::*;
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{OrchestratorRef, Plan};
+use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::mpsc;
@@ -193,6 +193,7 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&worker).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
         tab.agent_session_id = Some("worker-session".into());
         tab.session_binding_nonce = Some("worker-nonce".into());
         tab.reported_session_binding_nonce = Some("worker-nonce".into());
@@ -212,28 +213,30 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
             NewTask {
                 name: "diagnostics task".into(),
                 kind: "implement".into(),
+                acceptance_criteria: vec!["diagnostics are attached to the attempt".into()],
+                test_plan: Some("lane diagnostics report".into()),
                 ..Default::default()
             },
             2,
         )
         .unwrap();
-    fixture
+    let attempt_id = fixture
         .service
         .plan_store
-        .assign_task(&plan.id, &task_id, &worker, None, 3)
-        .unwrap();
-    fixture
-        .service
-        .plan_store
-        .with_plan(&plan.id, 4, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
-                .unwrap();
-            task.lane.worktree_path = Some(lane.display().to_string());
-            Ok(())
-        })
+        .begin_task_dispatch(
+            &plan.id,
+            &task_id,
+            &worker,
+            "fixture-worker",
+            TaskLaneMetadata {
+                worktree_path: Some(lane.display().to_string()),
+                branch: Some("lane/diagnostics-report".into()),
+                base: Some("base".into()),
+                destination: Some("integrate".into()),
+                ..Default::default()
+            },
+            3,
+        )
         .unwrap();
     fixture
         .service
@@ -248,7 +251,7 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
             5,
         )
         .unwrap();
-    let attempt_id = fixture
+    let owner_epoch = fixture
         .service
         .plan_store
         .get(&plan.id)
@@ -257,11 +260,8 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap()
-        .execution_attempts
-        .into_iter()
-        .next()
-        .unwrap()
-        .id;
+        .interruption
+        .owner_epoch;
     let (started_tx, started_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel::<()>();
     let release_rx = std::sync::Mutex::new(release_rx);
@@ -281,6 +281,16 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
         fixture.temp.path().join("diagnostics"),
         runner,
     );
+    let completion_owner = Arc::new(fixture.service.clone());
+    fixture
+        .service
+        .lane_diagnostics
+        .bind_owner(Arc::downgrade(&completion_owner));
+    let (delivery_tx, delivery_rx) = mpsc::channel();
+    fixture
+        .service
+        .gateway
+        .set_delivery_observer_for_test(delivery_tx);
     let service = fixture.service.clone();
     let (returned_tx, returned_rx) = mpsc::channel();
     let report_plan = plan.id.clone();
@@ -297,7 +307,7 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
                 caller_tab_id: Some(report_worker.clone()),
                 caller_session_id: Some("worker-session".into()),
                 session_binding_nonce: Some("worker-nonce".into()),
-                owner_epoch: Some(0),
+                owner_epoch: Some(owner_epoch),
                 ..Default::default()
             },
             Some(&report_plan),
@@ -312,6 +322,19 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
         attempt_id
     );
     assert!(returned_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+    assert_eq!(
+        delivery_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        orchestrator
+    );
     release_tx.send(()).unwrap();
     assert!(report.join().unwrap().is_ok());
+    assert_eq!(
+        delivery_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        orchestrator
+    );
+    assert_eq!(
+        delivery_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        worker
+    );
+    assert!(delivery_rx.try_recv().is_err());
 }
