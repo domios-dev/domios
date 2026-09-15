@@ -602,6 +602,19 @@ impl ServiceContext {
         );
         let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
 
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+            crate::service::spawn::persist_model_launch_identity(
+                tab,
+                params.planned_model.as_deref(),
+                &model_resolution,
+            );
+            crate::service::reasoning_effort::persist_launch_identity(
+                tab,
+                params.planned_reasoning_effort.as_deref(),
+                params.reasoning_effort.as_deref(),
+            );
+        }
+
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
             self.agent_registry
@@ -616,19 +629,6 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         }
-        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
-            crate::service::spawn::persist_model_launch_identity(
-                tab,
-                params.planned_model.as_deref(),
-                &model_resolution,
-            );
-            crate::service::reasoning_effort::persist_launch_identity(
-                tab,
-                params.planned_reasoning_effort.as_deref(),
-                params.reasoning_effort.as_deref(),
-            );
-        }
-
         params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
             self,
             &agent_cmd,

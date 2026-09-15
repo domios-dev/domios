@@ -76,7 +76,9 @@ touch "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}"
 touch src-tauri/bundled-cli/codeterm
 
 # 3b. Build the frontend and target-correct x86_64 sidecars.
-CARGO_BUILD_TARGET=x86_64-apple-darwin ./build.sh release-inputs
+CARGO_BUILD_TARGET=x86_64-apple-darwin \
+  CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}" \
+  ./build.sh release-inputs
 
 # 4. Stage signed dylibs alongside the already bundled sidecars.
 mkdir -p src-tauri/bundled-embed src-tauri/bundled-cli src-tauri/bundled-embed-libs
@@ -143,7 +145,9 @@ JSONEOF
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/codeterm.key)"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-pnpm tauri build --target x86_64-apple-darwin --config /tmp/tauri.x86_64.conf.json
+pnpm tauri build --target x86_64-apple-darwin \
+  --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+  --config /tmp/tauri.x86_64.conf.json
 unset CARGO_BUILD_TARGET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 # 6b. Arch assertion: fail before notarize if CLI or GUI is wrong arch.
@@ -166,7 +170,7 @@ spctl --assess --type open --context context:primary-signature --verbose "$DMG"
 xcrun stapler validate "$DMG"
 
 # 9. Restore arm64 CLI to bundled-cli so future arm64 builds aren't broken
-cargo build --release --manifest-path cli/Cargo.toml >/dev/null
+CARGO_TARGET_DIR=cli/target cargo build --release --manifest-path cli/Cargo.toml >/dev/null
 cp cli/target/release/codeterm src-tauri/bundled-cli/codeterm
 codesign --force --options runtime --timestamp --sign "$SIGN_ID" src-tauri/bundled-cli/codeterm
 
