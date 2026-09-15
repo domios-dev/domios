@@ -243,47 +243,53 @@ fn restarted_recorder_resumes_from_the_persisted_cursor_instead_of_reingesting()
     std::fs::remove_dir_all(&dir).ok();
 }
 
+const SUBAGENT_PARENT_FIXTURE: &str = include_str!(
+    "../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b.jsonl"
+);
 const SIDECHAIN_FIXTURE: &str = include_str!(
     "../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-User-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b/subagents/agent-af66d7d8e4a99a6bb.jsonl"
 );
 
 /// A sub-agent transcript is its own usage source: each file keeps its own cursor, both
-/// land on the same tab and plan, and a second pass over either appends nothing.
+/// land on the same tab, plan and workspace, and a second pass appends nothing. The
+/// parent's async launch result and task notification carry no ledger usage of their own.
 #[test]
 fn sidechain_usage_is_ingested_once_beside_the_main_session() {
     let dir = scratch("sidechain");
     let session = dir.join("session.jsonl");
-    std::fs::write(
-        &session,
-        include_str!("usage/fixtures/claude-session.jsonl"),
-    )
-    .unwrap();
-    let sidechain = dir.join("session").join("subagents").join("agent-af66d7d8e4a99a6bb.jsonl");
+    std::fs::write(&session, SUBAGENT_PARENT_FIXTURE).unwrap();
+    let sidechain = dir
+        .join("session")
+        .join("subagents")
+        .join("agent-af66d7d8e4a99a6bb.jsonl");
     std::fs::create_dir_all(sidechain.parent().unwrap()).unwrap();
     std::fs::write(&sidechain, SIDECHAIN_FIXTURE).unwrap();
 
     let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
     let recorder = KpiRecorder::with_ledger(ledger.clone());
+    let attribution = || worker("tab-worker").workspace(Some("ws_subagents".into()));
     for _ in 0..2 {
-        recorder.request_ingest(UsageSource::new(&session), worker("tab-worker"));
-        recorder.request_ingest(UsageSource::new(&sidechain), worker("tab-worker"));
+        recorder.request_ingest(UsageSource::new(&session), attribution());
+        recorder.request_ingest(UsageSource::new(&sidechain), attribution());
         recorder.drain();
     }
 
     let rows = ledger.list_all().unwrap();
-    assert_eq!(rows.len(), 4 + 7, "main rows plus one per sidechain assistant record");
+    assert_eq!(rows.len(), 1 + 7, "one parent turn plus seven sidechain turns");
     let tokens: Vec<_> = rows.iter().filter_map(|r| r.tokens).collect();
     let totals = (
         tokens.iter().map(|t| t.input).sum::<u64>(),
         tokens.iter().map(|t| t.uncached_input).sum::<u64>(),
         tokens.iter().map(|t| t.output).sum::<u64>(),
     );
-    // Sidechain: fresh 60 + cache write 82_964 uncached, 185_437 cache read, 1_008 output.
-    assert_eq!(totals, (514_028 + 268_461, 25_600 + 83_024, 1_800 + 1_008));
+    // Parent: 2 fresh + 76 cache write, 116_217 cache read, 544 output.
+    // Sidechain: 60 fresh + 82_964 cache write, 185_437 cache read, 1_008 output.
+    assert_eq!(totals, (116_295 + 268_461, 78 + 83_024, 544 + 1_008));
     for row in &rows {
         assert_eq!(row.tab_id, "tab-worker");
         assert_eq!(row.plan_id.as_deref(), Some("pl_dwojf1"));
         assert_eq!(row.task_id.as_deref(), Some("task_xr8mx3"));
+        assert_eq!(row.workspace_id.as_deref(), Some("ws_subagents"));
     }
 
     std::fs::remove_dir_all(&dir).ok();
