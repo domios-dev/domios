@@ -347,6 +347,42 @@ fn mesh_relay_attachment_ingest_outlives_transcription() {
 }
 
 #[test]
+fn mesh_attachment_consumer_transfer_body_matches_web_bridge() {
+    for (kind, expected) in [("voice", AttachmentKind::Voice), ("file", AttachmentKind::File)] {
+        let body: TransferBody = serde_json::from_value(serde_json::json!({
+            "ordinary_tab_id": "mesh:air/tab-7",
+            "peer_id": "air",
+            "path": "C:\\Users\\blackstar\\.codeterm\\uploads\\1a2b-note.webm",
+            "kind": kind,
+        }))
+        .unwrap();
+        assert_eq!(body.kind, expected);
+        assert_eq!(body.ordinary_tab_id, "mesh:air/tab-7");
+        assert_eq!(body.peer_id, "air");
+    }
+    assert!(serde_json::from_value::<TransferBody>(serde_json::json!({
+        "ordinary_tab_id": "mesh:air/tab-7",
+        "peer_id": "air",
+        "path": "x.png",
+        "kind": "image",
+    }))
+    .is_err());
+}
+
+#[test]
+fn mesh_attachment_consumer_refuses_oversized_source_before_relay() {
+    let origin = scratch("oversized");
+    let source = origin.join("huge-voice-note.webm");
+    std::fs::File::create(&source)
+        .unwrap()
+        .set_len(MESH_ATTACHMENT_MAX_BYTES + 1)
+        .unwrap();
+    let error = build_ingest_request(&source, AttachmentKind::Voice).unwrap_err();
+    assert!(error.contains(&MESH_ATTACHMENT_MAX_BYTES.to_string()), "{error}");
+    let _ = std::fs::remove_dir_all(origin);
+}
+
+#[test]
 fn mesh_relay_attachment_requires_authenticated_peer_access() {
     use crate::api::access_policy::check_access;
     use crate::api::auth::{is_custom_auth, PUBLIC_PATHS};
