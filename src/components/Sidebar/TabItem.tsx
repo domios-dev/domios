@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
+import { Bot, Check, Copy, Cpu, MessageSquare, Pencil, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
+import { openTelegramThread, TELEGRAM_THREAD_LABELS } from "../Terminal/telegramThreadActions";
 import { pluginTabMenuEntries, runPluginTabMenuItem, usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
@@ -386,6 +387,14 @@ function TabItemInner({
           "data-testid": `tab-menu-plugin-${entry.pluginId}-${entry.itemId}`,
         });
       }
+      items.push({
+        label: TELEGRAM_THREAD_LABELS.open,
+        icon: <MessageSquare size={11} strokeWidth={2} />,
+        onClick: () => {
+          void openTelegramThread(tab.id).catch((error) => console.warn("Connect Telegram failed:", error));
+        },
+        "data-testid": "tab-menu-telegram-connect",
+      });
     }
     if (canClose && !tab?.protected) {
       items.push({
