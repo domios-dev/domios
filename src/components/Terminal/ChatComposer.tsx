@@ -35,9 +35,20 @@ import {
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 import { planComposerAttachments } from "./composerAttachmentPlan";
+import {
+  assertNoSourceAttachmentPaths,
+  resolveAttachmentParts,
+  type AttachmentHandoffDeps,
+  type TransferredAttachment,
+} from "./meshAttachmentHandoff";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
+const attachmentHandoff: AttachmentHandoffDeps = {
+  transfer: (request) => invoke<TransferredAttachment>("mesh_transfer_attachment", request),
+  transcribeLocal: (path) => invoke<string>("transcribe_voice_attachment", { path }),
+  quote: quotePathForPaste,
+};
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -542,24 +553,16 @@ function ChatComposerImpl({
     allAttachments: string[],
     recordedVoiceAttachments: string[],
   ) {
-    let transcribeFailed = false;
-    const pathParts = await Promise.all(
-      planComposerAttachments(allAttachments, recordedVoiceAttachments).map(
-        async ({ path, transcribe }) => {
-          if (!transcribe) return quotePathForPaste(path);
-          try {
-            return await invoke<string>("transcribe_voice_attachment", { path });
-          } catch {
-            transcribeFailed = true;
-            return quotePathForPaste(path);
-          }
-        },
-      ),
+    const { parts, transcribeFailed } = await resolveAttachmentParts(
+      tabId,
+      planComposerAttachments(allAttachments, recordedVoiceAttachments),
+      attachmentHandoff,
     );
-    const pathLines = pathParts.join(" ");
+    const pathLines = parts.join(" ");
     const composed = text && pathLines
       ? `${text} ${pathLines}`
       : text || pathLines;
+    assertNoSourceAttachmentPaths(tabId, composed, allAttachments, quotePathForPaste);
     return { composed, transcribeFailed };
   }
 
@@ -577,11 +580,17 @@ function ChatComposerImpl({
     const placeholderId = recordedVoiceAttachments.length > 0
       ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER)
       : null;
-    const { composed, transcribeFailed } = await composeDraft(
-      text,
-      allAttachments,
-      recordedVoiceAttachments,
-    );
+    let draftResult: Awaited<ReturnType<typeof composeDraft>>;
+    try {
+      draftResult = await composeDraft(text, allAttachments, recordedVoiceAttachments);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (placeholderId) updateOptimistic(placeholderId, `⚠️ ${message}`);
+      else flagComposerError(message);
+      refocusComposer();
+      return;
+    }
+    const { composed, transcribeFailed } = draftResult;
     if (placeholderId && transcribeFailed) {
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");

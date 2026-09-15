@@ -636,6 +636,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
         .route("/api/mesh/relay-to", post(mesh_routes::mesh_relay_to_peer))
+        .route(
+            "/api/mesh/attachments/transfer",
+            post(super::mesh_attachment::transfer),
+        )
         .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
         .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
         .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))
@@ -665,7 +669,12 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/broadcast/stop",
             post(mesh_routes::mesh_stop_broadcast),
         )
-        .route("/api/mesh/relay", post(mesh_routes::mesh_relay))
+        .route(
+            "/api/mesh/relay",
+            post(mesh_routes::mesh_relay).layer(axum::extract::DefaultBodyLimit::max(
+                super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,
+            )),
+        )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
             "/api/mesh/relay-stream",
