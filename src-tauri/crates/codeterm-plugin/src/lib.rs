@@ -25,6 +25,7 @@ pub mod rich_to_chat;
 pub mod session_evidence;
 pub mod structured_prompt;
 pub mod system_plugins;
+pub mod tab_menu;
 pub mod tab_state;
 pub mod transcribe;
 pub mod usage_parser;

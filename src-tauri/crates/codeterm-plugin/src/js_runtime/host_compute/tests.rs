@@ -24,8 +24,8 @@ fn agent_usage_is_null_until_wired() {
     assert_eq!(agent_usage_json(), "null");
 }
 
-/// Answers analytics with the query it received and a missing total; every other
-/// host surface is inert.
+/// Answers analytics with the query it received and a missing total, and receiver
+/// targets with the plugin id it was asked for; every other host surface is inert.
 struct AnalyticsHost;
 
 impl PluginHostCtx for AnalyticsHost {
@@ -95,6 +95,56 @@ impl PluginHostCtx for AnalyticsHost {
     fn secret_delete(&self, _: &str, _: &str) -> bool {
         false
     }
+    fn receiver_target_json(&self, plugin_id: &str) -> String {
+        json!({ "pluginId": plugin_id, "tabId": "tab-bound", "live": true }).to_string()
+    }
+    fn receiver_target_clear_json(&self, plugin_id: &str) -> String {
+        json!({ "pluginId": plugin_id, "tabId": null, "live": false }).to_string()
+    }
+}
+
+const RECEIVER_PROBE_PLUGIN: &str = r#"module.exports.default = {
+    read() { return host.receiverTarget.get(); },
+    reset() { return host.receiverTarget.clear(); },
+    canAssign() { return typeof host.receiverTarget.set; },
+}"#;
+
+#[test]
+fn pebble_receiver_target_host_binding_is_scoped_to_the_calling_plugin() {
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost);
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(vec![], vec![])
+            .with_identity_and_perms("receiver-probe", &PermissionsConfig::default()),
+    );
+    let vm = PluginVm::from_source_sandboxed(
+        "receiver-probe",
+        RECEIVER_PROBE_PLUGIN.to_string(),
+        None,
+        sandbox,
+    )
+    .expect("receiver probe vm");
+    assert!(vm.set_service(Arc::downgrade(&host)));
+
+    let read: Value = call_json(&vm, "read", &[]).unwrap();
+    assert_eq!(
+        read,
+        json!({ "pluginId": "receiver-probe", "tabId": "tab-bound", "live": true })
+    );
+    let reset: Value = call_json(&vm, "reset", &[]).unwrap();
+    assert_eq!(
+        reset,
+        json!({ "pluginId": "receiver-probe", "tabId": null, "live": false })
+    );
+    let assign: Value = call_json(&vm, "canAssign", &[]).unwrap();
+    assert_eq!(assign, json!("undefined"), "a plugin cannot assign a tab");
+}
+
+#[test]
+fn pebble_receiver_target_host_binding_without_service_is_an_error() {
+    let vm = PluginVm::from_source("receiver-probe", RECEIVER_PROBE_PLUGIN.to_string())
+        .expect("receiver probe vm");
+    let read: Value = call_json(&vm, "read", &[]).unwrap();
+    assert!(read["error"].is_string());
 }
 
 const PROBE_PLUGIN: &str =

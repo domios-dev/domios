@@ -68,6 +68,7 @@ pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
 mod reasoning_effort;
+pub(crate) mod receiver_target;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub(crate) mod restore_exited_member;
@@ -294,6 +295,10 @@ pub struct ServiceContext {
     /// Registry of synchronous webhook receivers declared by JS plugins.
     /// Inbound API routes resolve the receiver here by manifest plugin id.
     pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
+    /// Manifest-declared tab menu items, keyed by plugin id.
+    pub tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle,
+    /// Sole owner of the webhook-receiver → tab bindings.
+    pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).

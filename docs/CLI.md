@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 63 -->
+<!-- revision: 64 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2523,6 +2523,14 @@ Install a plugin by id from channels, or directly from a local folder
 #### `codeterm plugin list`
 
 List installed plugins
+
+#### `codeterm plugin receiver-target`
+
+Show, set, or clear the tab that receives a webhook plugin's events
+
+- `--clear` — Clear the binding so events return to the General Agent
+- `<id>` — Plugin id that declares a webhook receiver
+- `--set` — Bind this tab id as the receiver target
 
 #### `codeterm plugin remove`
 
