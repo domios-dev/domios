@@ -16,7 +16,7 @@ pub use service::{
     CloseOutcome, MediaDestination, OpenedThread, TabText, ThreadMenuState, ThreadService,
     TopicsState,
 };
-pub use transport::{TelegramTopicTransport, TopicFailure, TopicTransport};
+pub use transport::{TelegramTopicTransport, TopicFailure, TopicProbe, TopicTransport};
 
 /// The bridge service whose chats carry topic threads.
 pub const SERVICE: &str = "telegram";

@@ -12,8 +12,8 @@ use codeterm_bridge::bridge::threads::transport::{
 };
 use codeterm_bridge::bridge::threads::{
     CloseOutcome, InboundOrigin, InboundRoute, SenderIdentity, SenderRole, TabText, ThreadCaller,
-    ThreadRegistry, ThreadService, ThreadTabs, TopicFailure, TopicTransport, TopicsState,
-    TOPICS_DISABLED_NOTICE,
+    ThreadRegistry, ThreadService, ThreadTabs, TopicFailure, TopicProbe, TopicTransport,
+    TopicsState, TOPICS_DISABLED_NOTICE,
 };
 use codeterm_bridge::bridge::traits::{InlineButton, InlineKeyboard, ReplyContext};
 use codeterm_types::message_markers;
@@ -35,6 +35,7 @@ const ROWAN: &str = "tab_rowan";
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Call {
     Create { name: String },
+    Probe { thread: i64 },
     Delete { thread: i64 },
     Rename { thread: i64, name: String },
     Send(Sent),
@@ -55,6 +56,7 @@ struct FakeTransport {
     topics_disabled: bool,
     delete_fails: bool,
     gone_threads: Mutex<Vec<i64>>,
+    closed_threads: Mutex<Vec<i64>>,
     next_id: Mutex<i64>,
 }
 
@@ -129,6 +131,20 @@ impl TopicTransport for FakeTransport {
         Ok(self.next())
     }
 
+    async fn probe_topic(&self, _chat_id: i64, thread_id: i64, _name: &str) -> TopicProbe {
+        self.calls.lock().push(Call::Probe { thread: thread_id });
+        tokio::task::yield_now().await;
+        if self.gone_threads.lock().contains(&thread_id) {
+            return TopicProbe::Gone;
+        }
+        let mut closed = self.closed_threads.lock();
+        if closed.contains(&thread_id) {
+            closed.retain(|thread| *thread != thread_id);
+            return TopicProbe::Reopened;
+        }
+        TopicProbe::Open
+    }
+
     async fn delete_topic(&self, _chat_id: i64, thread_id: i64) -> Result<(), TopicFailure> {
         self.calls.lock().push(Call::Delete { thread: thread_id });
         if self.delete_fails {
@@ -160,6 +176,9 @@ impl TopicTransport for FakeTransport {
         tokio::task::yield_now().await;
         if thread_id.is_some_and(|thread| self.gone_threads.lock().contains(&thread)) {
             return Err(TopicFailure::ThreadGone);
+        }
+        if thread_id.is_some_and(|thread| self.closed_threads.lock().contains(&thread)) {
+            return Err(TopicFailure::ThreadClosed);
         }
         let message = self.next();
         self.calls.lock().push(Call::Send(Sent {

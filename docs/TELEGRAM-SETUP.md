@@ -114,7 +114,7 @@ Attach a tab to its topic (create or reuse) and print one sentence naming it:
 codeterm bridge thread open [--tab ID] [--service telegram]
 ```
 
-Without `--tab` it opens the caller's own topic. Only the General Agent may name another tab: the topic belongs to the target, carries its header, and routes replies to it. Any other caller naming a foreign tab is refused (socket `bridge.thread.open`, code `-32003`) before any Bot API call. The first open posts `you can talk to <tab> here` once, even when opens race; repeated opens create and post nothing. A link is printed only for a supergroup forum (`t.me/c/<id>/<topic>`); Telegram documents no link that opens a topic in a bot's private chat, so there the sentence names the topic to pick from the chat's topic list. **Attach Telegram** and **Detach Telegram** under **Plugins** in the tab actions menu run the same host operations, so menu, CLI and General Agent opens share one binding and one first message; the sidebar tab menu and the tab header menu list them identically.
+Without `--tab` it opens the caller's own topic. Only the General Agent may name another tab: the topic belongs to the target, carries its header, and routes replies to it. Any other caller naming a foreign tab is refused (socket `bridge.thread.open`, code `-32003`) before any Bot API call. The first open posts `you can talk to <tab> here` once, even when opens race; repeated opens create and post nothing. Every attach first checks the bound topic: one the owner closed is reopened, one the owner deleted is recreated with a fresh first message, and a send that hits a missing or closed topic marks the binding stale so the menu offers Attach again. A link is printed only for a supergroup forum (`t.me/c/<id>/<topic>`); Telegram documents no link that opens a topic in a bot's private chat, so there the sentence names the topic to pick from the chat's topic list. **Attach Telegram** and **Detach Telegram** under **Plugins** in the tab actions menu run the same host operations, so menu, CLI and General Agent opens share one binding and one first message; the sidebar tab menu and the tab header menu list them identically.
 
 ## Cross-machine bridge migration
 
@@ -125,4 +125,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
