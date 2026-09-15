@@ -138,30 +138,32 @@ export function Titlebar({
             embedded
           />
         )}
-        <div className="flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
-          {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
-            <NotificationBell
-              notifications={notifications}
-              onMarkRead={onMarkNotificationRead}
-              onMarkAllRead={onMarkAllNotificationsRead}
-              onDelete={onDeleteNotification}
-              onClearAll={onClearNotifications}
-              onNavigate={onNavigateToast}
-              onAnswer={onAnswerNotification}
-            />
-          )}
-          {onToggleAnalytics && (
-            <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
-          )}
-          {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
-          <KeepAwakeTray />
-          {onOpenSettings && (
-            <>
-              <span className={UI_TRAY_DIVIDER} aria-hidden />
-              <SettingsMenu onOpenSection={onOpenSettings} />
-            </>
-          )}
-        </div>
+      </div>
+
+      {/* Trays sit outside the clipping toast lane so a narrow window never hides them. */}
+      <div className="flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
+        {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
+          <NotificationBell
+            notifications={notifications}
+            onMarkRead={onMarkNotificationRead}
+            onMarkAllRead={onMarkAllNotificationsRead}
+            onDelete={onDeleteNotification}
+            onClearAll={onClearNotifications}
+            onNavigate={onNavigateToast}
+            onAnswer={onAnswerNotification}
+          />
+        )}
+        {onToggleAnalytics && (
+          <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
+        )}
+        {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
+        <KeepAwakeTray />
+        {onOpenSettings && (
+          <>
+            <span className={UI_TRAY_DIVIDER} aria-hidden />
+            <SettingsMenu onOpenSection={onOpenSettings} />
+          </>
+        )}
       </div>
 
       {/* Windows/Linux: controls on the right */}
