@@ -338,6 +338,14 @@ impl PlanStore {
                             personality,
                             personality_provenance: _,
                         } => {
+                            let personality = personality
+                                .map(|name| {
+                                    crate::service_plan::worker_identity::validate_executor_name(
+                                        &name,
+                                    )
+                                    .map_err(PlanError::InvalidExecutorName)
+                                })
+                                .transpose()?;
                             let created =
                                 crate::plan::task_key::find_task_index(&working.tasks, &handle)
                                     .is_none();

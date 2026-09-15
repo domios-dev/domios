@@ -411,6 +411,29 @@ mod tests {
     }
 
     #[test]
+    fn tab_name_contract_spawn_name_paths_keep_name_and_description_separate() {
+        let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            agent: Some("codex".into()),
+            title: Some("Ada".into()),
+            description: Some("Worker · rust-backend-dev · pending".into()),
+            role: Some("Worker".into()),
+            ..Default::default()
+        });
+
+        assert_eq!(spec.title.as_deref(), Some("Ada"));
+        assert_eq!(
+            spec.description.as_deref(),
+            Some("Worker · rust-backend-dev · pending")
+        );
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.title.as_deref(), Some("Ada"));
+        assert_eq!(
+            params.description.as_deref(),
+            Some("Worker · rust-backend-dev · pending")
+        );
+    }
+
+    #[test]
     fn assigned_worker_task_authority_reaches_pty_spec() {
         let mut params = SpawnAgentParams {
             agent: Some("worker-provider".into()),

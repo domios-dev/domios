@@ -361,15 +361,6 @@ impl ServiceContext {
         let tab_id = {
             let mut mux = self.mux.write();
             let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?;
-            if let Some(ref t) = spec.title {
-                if !t.trim().is_empty() {
-                    let _ = mux.rename_tab_at_level(
-                        &result,
-                        t,
-                        crate::multiplexer::types::TitleLevel::User,
-                    );
-                }
-            }
             if let Some(ref dir) = resolved_cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
@@ -418,7 +409,6 @@ impl ServiceContext {
                     tab.chat_view = true;
                 }
             }
-            // real agent name was supplied — the raw provider id is never a title.
             if let Some((title, level)) = super::spawn_title::creation_title_override(
                 spec.title.as_deref(),
                 agent.agent_name.as_deref(),
