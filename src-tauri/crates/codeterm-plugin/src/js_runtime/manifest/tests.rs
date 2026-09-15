@@ -41,6 +41,50 @@ fn webhook_receiver_contract_rejects_unknown_field() {
 }
 
 #[test]
+fn plugin_icon_svg_load_falls_back_from_item_to_plugin_asset() {
+    let root = std::env::temp_dir().join(format!("ct-manifest-icon-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("icons")).unwrap();
+    let icon = r#"<svg viewBox="0 0 1 1" fill="currentColor"><circle cx="0.5" cy="0.5" r="0.5"/></svg>"#;
+    let item_icon = r#"<svg viewBox="0 0 1 1" fill="currentColor"><path d="M0 0"/></svg>"#;
+    std::fs::write(root.join("icon.svg"), icon).unwrap();
+    std::fs::write(root.join("icons/item.svg"), item_icon).unwrap();
+    std::fs::write(
+        root.join("plugin.json"),
+        serde_json::json!({
+            "id": "demo",
+            "version": "0.1.0",
+            "displayName": "Demo",
+            "icon": "icon.svg",
+            "capabilities": {
+                "webhookReceiver": { "kind": "pebble" },
+                "tabMenu": [{
+                    "id": "receive",
+                    "label": "Receive",
+                    "action": "receiverTarget",
+                    "icon": "icons/item.svg"
+                }]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let manifest = PluginManifest::load(&root.join("plugin.json")).unwrap();
+    assert_eq!(manifest.icon_svg.as_deref(), Some(icon));
+    assert_eq!(manifest.capabilities.tab_menu[0].icon_svg.as_deref(), Some(item_icon));
+    assert_eq!(manifest.capabilities.tab_menu[0].icon.as_deref(), Some("icons/item.svg"));
+    std::fs::remove_file(root.join("icons/item.svg")).unwrap();
+    let fallback = PluginManifest::load(&root.join("plugin.json")).unwrap();
+    assert_eq!(fallback.capabilities.tab_menu[0].icon_svg.as_deref(), Some(icon));
+    std::fs::remove_file(root.join("icon.svg")).unwrap();
+    let missing = PluginManifest::load(&root.join("plugin.json")).unwrap();
+    assert!(missing.icon_svg.is_none());
+    assert!(missing.capabilities.tab_menu[0].icon_svg.is_none());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn parse_minimal_manifest() {
     let json = r#"{
             "id": "demo",
@@ -64,8 +108,7 @@ fn parse_full_manifest() {
             "id": "claude",
             "version": "0.1.0",
             "displayName": "Claude Code",
-            "iconHint": "✳",
-            "iconColor": "#d97757",
+            "icon": "icon.svg",
             "binaryName": "claude",
             "cliBinary": "claude",
             "spawn": {
@@ -111,7 +154,7 @@ fn parse_full_manifest() {
         }"##;
     let m: PluginManifest = serde_json::from_str(json).expect("parse");
     assert_eq!(m.id, "claude");
-    assert_eq!(m.icon_hint.as_deref(), Some("✳"));
+    assert_eq!(m.icon.as_deref(), Some("icon.svg"));
     assert_eq!(m.models.len(), 1);
     assert_eq!(m.default_model.as_deref(), Some("sonnet"));
     assert_eq!(

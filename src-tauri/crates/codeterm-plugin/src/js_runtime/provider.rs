@@ -957,7 +957,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn icon_hint(&self) -> Option<&str> {
-        self.manifest.icon_hint.as_deref()
+        None
     }
 
     fn icon_svg(&self) -> Option<&str> {
@@ -965,7 +965,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn icon_color(&self) -> Option<&str> {
-        self.manifest.icon_color.as_deref()
+        None
     }
 
     fn cli_binary(&self) -> Option<&str> {

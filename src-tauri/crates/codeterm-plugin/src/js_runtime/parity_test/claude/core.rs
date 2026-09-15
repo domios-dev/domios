@@ -152,8 +152,6 @@ fn metadata_parity() {
     assert_eq!(n.display_name(), j.display_name());
     assert_eq!(n.binary_name(), j.binary_name());
     assert_eq!(n.cli_binary(), j.cli_binary());
-    assert_eq!(n.icon_hint(), j.icon_hint());
-    assert_eq!(n.icon_color(), j.icon_color());
     assert_eq!(n.has_hooks(), j.has_hooks());
     assert_eq!(n.supports_lazy_skills(), j.supports_lazy_skills());
     assert_eq!(n.status_bar_rows(), j.status_bar_rows());

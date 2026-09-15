@@ -48,6 +48,7 @@ async function main() {
     itemId: "receiver-target",
     label: "Receive events here",
     action: "receiverTarget",
+    iconSvg: '<svg viewBox="0 0 1 1" fill="currentColor"><path d="M0 0"/></svg>',
   };
   const ITEM_TEST_ID = `tab-menu-plugin-${ITEM.pluginId}-${ITEM.itemId}`;
 
@@ -154,6 +155,9 @@ async function main() {
   assert(item.getAttribute("role") === "menuitemcheckbox", "the plugin item exposes a checkbox role");
   assert(item.getAttribute("aria-checked") === "false", "an unbound tab is unchecked");
   assert(item.textContent?.trim() === ITEM.label, "the accessible name is the declared label");
+  assert(item.querySelector("svg")?.getAttribute("aria-hidden") === "true", "plugin menu icon is aria-hidden");
+  assert(item.querySelector("svg")?.getAttribute("fill") === "currentColor", "plugin menu icon inherits currentColor");
+  assert(item.getAttribute("aria-label") === null, "the menu item keeps its text label as the accessible name");
 
   await act(async () => {
     (item as unknown as { click: () => void }).click();

@@ -59,7 +59,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
   const level = notificationLevel(notification);
   const tone = notificationTone(notification);
   const LevelIcon = levelIcon(level);
-  const hasCustomIcon = Boolean(notification.icon_svg || notification.icon_hint || notification.icon_color);
+  const hasCustomIcon = Boolean(notification.icon_svg);
   const content = (
     <>
       {hasCustomIcon ? (
@@ -67,8 +67,6 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           <PluginIcon
             plugin={{
               icon_svg: notification.icon_svg,
-              icon_color: notification.icon_color,
-              icon_hint: notification.icon_hint,
             }}
             size={16}
           />

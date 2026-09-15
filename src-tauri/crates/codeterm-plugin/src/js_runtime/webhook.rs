@@ -13,6 +13,7 @@ pub struct JsWebhookReceiver {
     vm: Arc<PluginVm>,
     id: String,
     kind: WebhookReceiverKind,
+    icon_svg: Option<String>,
 }
 
 impl JsWebhookReceiver {
@@ -21,6 +22,21 @@ impl JsWebhookReceiver {
             vm,
             id: id.into(),
             kind,
+            icon_svg: None,
+        }
+    }
+
+    pub fn with_icon(
+        vm: Arc<PluginVm>,
+        id: impl Into<String>,
+        kind: WebhookReceiverKind,
+        icon_svg: Option<String>,
+    ) -> Self {
+        Self {
+            vm,
+            id: id.into(),
+            kind,
+            icon_svg,
         }
     }
 }
@@ -32,6 +48,10 @@ impl WebhookReceiver for JsWebhookReceiver {
 
     fn kind(&self) -> WebhookReceiverKind {
         self.kind
+    }
+
+    fn icon_svg(&self) -> Option<&str> {
+        self.icon_svg.as_deref()
     }
 
     fn receive(

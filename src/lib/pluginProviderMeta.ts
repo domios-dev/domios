@@ -2,8 +2,6 @@ export interface PluginProviderMeta {
   id: string;
   displayName: string;
   iconSvg?: string | null;
-  iconColor?: string | null;
-  iconHint?: string | null;
 }
 
 /** Subset of a `plugin_manager_snapshot` entry the resolver cares about. */
@@ -11,8 +9,6 @@ interface SnapshotPluginEntry {
   id?: string | null;
   display_name?: string | null;
   icon_svg?: string | null;
-  icon_color?: string | null;
-  icon_hint?: string | null;
 }
 
 export interface PluginSnapshotLike {
@@ -29,20 +25,20 @@ export function pluginProviderMetaFromSnapshot(
       id: p.id,
       displayName: p.display_name || p.id,
       iconSvg: p.icon_svg ?? null,
-      iconColor: p.icon_color ?? null,
-      iconHint: p.icon_hint ?? null,
     });
   }
   return out;
 }
 
 let cache: Record<string, PluginProviderMeta> = {};
+let generation = 0;
 const subscribers = new Set<() => void>();
 
 export function setPluginProviderMeta(list: PluginProviderMeta[]): void {
   const next: Record<string, PluginProviderMeta> = {};
   for (const m of list) next[m.id] = m;
   cache = next;
+  generation += 1;
   for (const fn of subscribers) fn();
 }
 
@@ -56,4 +52,8 @@ export function subscribePluginProviderMeta(fn: () => void): () => void {
   return () => {
     subscribers.delete(fn);
   };
+}
+
+export function pluginProviderMetaVersion(): number {
+  return generation;
 }

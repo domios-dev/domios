@@ -10,6 +10,7 @@ export interface PluginTabMenuItem {
   itemId: string;
   label: string;
   action: PluginTabMenuAction;
+  iconSvg?: string | null;
 }
 
 export interface PluginTabMenuState {

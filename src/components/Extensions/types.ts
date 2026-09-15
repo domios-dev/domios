@@ -39,8 +39,6 @@ export interface InstalledPlugin {
   /** Live signal: installed after daemon start, waiting on a reload to activate. */
   pending_reload?: boolean | null;
   icon_svg?: string | null;
-  icon_color?: string | null;
-  icon_hint?: string | null;
   description?: string | null;
   /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
   config_help?: string | null;
@@ -83,8 +81,6 @@ export interface MarketplaceRow extends DiffRow {
   capabilities?: PluginCapabilities | null;
   granted_permissions?: string[] | null;
   icon_svg?: string | null;
-  icon_color?: string | null;
-  icon_hint?: string | null;
   description?: string | null;
   config_help?: string | null;
   homepage?: string | null;

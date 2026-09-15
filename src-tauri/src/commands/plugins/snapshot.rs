@@ -1,11 +1,13 @@
 use serde_json::Value;
 
+use crate::plugin::js_runtime::PluginManifest;
+
 use super::cli::{read_audit_events, run_plugin_cli};
 
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
 /// only reports installed plugins with empty paths, so it can't surface capabilities
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
-fn scan_plugin_manifests() -> std::collections::HashMap<String, (std::path::PathBuf, Value)> {
+fn scan_plugin_manifests() -> std::collections::HashMap<String, (std::path::PathBuf, Value, Option<String>)> {
     let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
     let roots = crate::plugin::js_runtime::default_roots(Some(workspace.as_path()));
     let mut map = std::collections::HashMap::new();
@@ -15,14 +17,19 @@ fn scan_plugin_manifests() -> std::collections::HashMap<String, (std::path::Path
         };
         for e in entries.flatten() {
             let dir = e.path();
-            let Ok(text) = std::fs::read_to_string(dir.join("plugin.json")) else {
+            let manifest_path = dir.join("plugin.json");
+            let Ok(text) = std::fs::read_to_string(&manifest_path) else {
                 continue;
             };
             let Ok(m) = serde_json::from_str::<Value>(&text) else {
                 continue;
             };
+            let Ok(loaded) = PluginManifest::load(&manifest_path) else {
+                continue;
+            };
             if let Some(id) = m.get("id").and_then(|v| v.as_str()) {
-                map.entry(id.to_string()).or_insert((dir, m));
+                map.entry(id.to_string())
+                    .or_insert((dir, m, loaded.icon_svg));
             }
         }
     }
@@ -33,6 +40,15 @@ fn scan_plugin_manifests() -> std::collections::HashMap<String, (std::path::Path
 /// from a plugin manifest. Absent `capabilities` ⇒ agent provider (mirrors
 /// `default_capabilities`). `dir` resolves the relative settings-schema path.
 fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
+    enrich_from_manifest_with_icon(entry, dir, m, None);
+}
+
+fn enrich_from_manifest_with_icon(
+    entry: &mut Value,
+    dir: &std::path::Path,
+    m: &Value,
+    icon_svg: Option<&str>,
+) {
     let caps = m.get("capabilities");
     let agent_provider = match caps {
         Some(c) => c
@@ -116,6 +132,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         .and_then(|t| serde_json::from_str::<Value>(&t).ok());
 
     if let Some(obj) = entry.as_object_mut() {
+        remove_untrusted_plugin_icons(obj);
         obj.insert("capabilities".into(), cap_obj);
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
         // Static manifest flag; the live "waiting on reload now" signal is `pending_reload`, set by build_snapshot.
@@ -129,15 +146,8 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if let Some(schema) = settings_schema {
             obj.insert("settings_schema".into(), schema);
         }
-        // Carry the manifest's icon_svg/icon_color/icon_hint so the UI renders SVGs, not emoji.
-        for (src, dst) in [
-            ("iconSvg", "icon_svg"),
-            ("iconColor", "icon_color"),
-            ("iconHint", "icon_hint"),
-        ] {
-            if let Some(v) = m.get(src) {
-                obj.insert(dst.into(), v.clone());
-            }
+        if let Some(icon_svg) = icon_svg {
+            obj.insert("icon_svg".into(), serde_json::json!(icon_svg));
         }
         if obj.get("display_name").map(|v| v.is_null()).unwrap_or(true) {
             if let Some(dn) = m.get("displayName") {
@@ -171,6 +181,20 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if let Some(md) = read_bounded_text(&dir.join(readme_rel)) {
             obj.insert("readme_markdown".into(), serde_json::json!(md));
         }
+    }
+}
+
+fn remove_untrusted_plugin_icons(entry: &mut serde_json::Map<String, Value>) {
+    for key in [
+        "icon",
+        "icon_svg",
+        "iconSvg",
+        "icon_color",
+        "iconColor",
+        "icon_hint",
+        "iconHint",
+    ] {
+        entry.remove(key);
     }
 }
 
@@ -214,8 +238,11 @@ pub(super) fn build_snapshot(
         for entry in arr.iter_mut() {
             if let Some(id) = entry.get("id").and_then(|v| v.as_str()).map(String::from) {
                 seen.insert(id.clone());
-                if let Some((dir, m)) = manifests.get(&id) {
-                    enrich_from_manifest(entry, dir, m);
+                if let Some(obj) = entry.as_object_mut() {
+                    remove_untrusted_plugin_icons(obj);
+                }
+                if let Some((dir, m, icon_svg)) = manifests.get(&id) {
+                    enrich_from_manifest_with_icon(entry, dir, m, icon_svg.as_deref());
                 }
                 // the plugin VM mutex and can block tab/session loading.
                 if let Some(obj) = entry.as_object_mut() {
@@ -227,7 +254,7 @@ pub(super) fn build_snapshot(
             }
         }
         // Surface plugins the daemon loaded from disk but the CLI didn't list (dev workspace plugins), so the view is honest.
-        for (id, (dir, m)) in &manifests {
+        for (id, (dir, m, icon_svg)) in &manifests {
             if seen.contains(id) {
                 continue;
             }
@@ -240,7 +267,7 @@ pub(super) fn build_snapshot(
                 "dev": true,
                 "install_path": dir.to_string_lossy(),
             });
-            enrich_from_manifest(&mut entry, dir, m);
+            enrich_from_manifest_with_icon(&mut entry, dir, m, icon_svg.as_deref());
             arr.push(entry);
         }
     }
@@ -309,13 +336,14 @@ fn build_marketplace(
             .unwrap_or_default();
         let mut entry = row.clone();
         if let Some(obj) = entry.as_object_mut() {
+            remove_untrusted_plugin_icons(obj);
             obj.insert(
                 "installed".into(),
                 serde_json::json!(installed_ids.contains(id)),
             );
         }
-        if let Some((dir, m)) = channel_plugin_manifest(channels, channel, id) {
-            enrich_from_manifest(&mut entry, &dir, &m);
+        if let Some((dir, m, icon_svg)) = channel_plugin_manifest(channels, channel, id) {
+            enrich_from_manifest_with_icon(&mut entry, &dir, &m, icon_svg.as_deref());
         }
         out.push(entry);
     }
@@ -328,7 +356,7 @@ fn channel_plugin_manifest(
     channels: &[Value],
     channel: &str,
     id: &str,
-) -> Option<(std::path::PathBuf, Value)> {
+) -> Option<(std::path::PathBuf, Value, Option<String>)> {
     let channel_path = channels
         .iter()
         .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(channel))
@@ -348,14 +376,60 @@ fn channel_plugin_manifest(
                 .or_else(|| p.get("source").and_then(|v| v.as_str()))
         })?;
     let dir = root.join(rel);
-    let plugin_text = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+    let plugin_path = dir.join("plugin.json");
+    let plugin_text = std::fs::read_to_string(&plugin_path).ok()?;
     let plugin_manifest: Value = serde_json::from_str(&plugin_text).ok()?;
-    Some((dir, plugin_manifest))
+    let loaded = PluginManifest::load(&plugin_path).ok()?;
+    Some((dir, plugin_manifest, loaded.icon_svg))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_icon_svg_snapshot_carries_only_the_sanitized_asset() {
+        let root = std::env::temp_dir().join(format!("ct-snapshot-icon-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("icon.svg"),
+            r#"<svg viewBox="0 0 1 1" fill="currentColor"><path d="M0 0"/></svg>"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("plugin.json"),
+            serde_json::json!({
+                "id": "demo",
+                "version": "0.1.0",
+                "displayName": "Demo",
+                "icon": "icon.svg",
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let manifest = PluginManifest::load(&root.join("plugin.json")).unwrap();
+        let mut entry = serde_json::json!({ "id": "demo" });
+        enrich_from_manifest_with_icon(
+            &mut entry,
+            &root,
+            &serde_json::json!({ "id": "demo", "displayName": "Demo" }),
+            manifest.icon_svg.as_deref(),
+        );
+        assert_eq!(entry["icon_svg"], serde_json::json!(manifest.icon_svg));
+        entry["iconSvg"] = serde_json::json!("<svg>raw</svg>");
+        entry["icon"] = serde_json::json!("https://example.test/icon.svg");
+        entry["icon_color"] = serde_json::json!("#f00");
+        entry["icon_hint"] = serde_json::json!("raw");
+        enrich_from_manifest_with_icon(&mut entry, &root, &serde_json::json!({}), None);
+        assert!(entry.get("icon").is_none());
+        assert!(entry.get("icon_svg").is_none());
+        assert!(entry.get("iconSvg").is_none());
+        assert!(entry.get("icon_color").is_none());
+        assert!(entry.get("icon_hint").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn enrich_reads_description_homepage_and_readme() {
