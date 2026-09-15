@@ -885,6 +885,9 @@ pub fn run() {
                 )),
                 worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
+                lane_diagnostics: crate::service::lane_diagnostics::LaneDiagnosticsService::new(
+                    crate::paths::data_dir().join("lane-diagnostics"),
+                ),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             service_state.plan_store.bind_task_key_port(Arc::new(

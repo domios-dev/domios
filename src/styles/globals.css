@@ -5335,6 +5335,29 @@ button.plan-peer-chip:focus-visible {
   line-height: 1.4;
   color: color-mix(in srgb, var(--ct-fg) 78%, transparent);
 }
+.plan-task-activity-diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.plan-task-activity-diagnostics-summary,
+.plan-task-activity-diagnostic {
+  font-size: 12px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--ct-fg) 78%, transparent);
+}
+.plan-task-activity-diagnostic {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.plan-task-activity-diagnostic-severity {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+.plan-task-activity-diagnostic-tool {
+  color: color-mix(in srgb, var(--ct-fg) 55%, transparent);
+}
 .plan-task-activity-timeline {
   display: flex;
   flex-direction: column;

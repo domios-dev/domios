@@ -155,6 +155,7 @@ fn third_round_report_is_accepted_without_bounce_rejection() {
                 test_cmd: None,
                 test_result: None,
                 skipped: None,
+                diagnostics: None,
                 authority: None,
             },
             20,
