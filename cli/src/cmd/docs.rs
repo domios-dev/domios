@@ -37,6 +37,16 @@ pub(crate) fn docs_dir_file(source: &str) -> Option<&str> {
 
 pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
+        "BEGIN_HERE",
+        "Documentation contract: what stable docs hold and when to edit them",
+        "../../../docs/BEGIN_HERE.md"
+    ),
+    doc!(
+        "CAPABILITIES",
+        "Capability map: what CodeTerm can do, entry points, invariants, status",
+        "../../../docs/CAPABILITIES.md"
+    ),
+    doc!(
         "CONFIG",
         "Application configuration reference",
         "../../../docs/CONFIG.md"

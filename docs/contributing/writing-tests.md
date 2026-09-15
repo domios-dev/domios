@@ -99,6 +99,13 @@ Rule: `.sh` scripts from PowerShell are always run through bash. WHY: bare
 `.sh` opens a Windows "choose an app" dialog. Example:
 `bash scripts/plugin-tests.sh`.
 
+Rule: register what an inventory test watches in the same change. WHY: these
+tests fail on anything unlisted. A new `IS_WEB` / `isTauriEnv` /
+`__TAURI_INTERNALS__` branch in `src/` needs a classified entry in
+`src/lib/webForks.test.ts`; a new prompt file needs the steps in
+`docs/contributing/prompts.md`; a new top-level `docs/*.md` is embedded in or
+excluded from the `codeterm docs` registry.
+
 ## Recipes
 
 ### Component/unit with tsx and happy-dom
@@ -180,4 +187,4 @@ Example: `tests/playwright/suites/03-agents/agents.spec.ts`.
   failure.
 - LLM/golden markers are explicit. WHY: reviewers can control token spend.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

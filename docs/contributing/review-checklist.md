@@ -12,7 +12,7 @@
 
 ## Documentation
 - [ ] Revision tags bumped on every touched `.md` file
-- [ ] File size check passes (no source file >1000 lines without prior approval)
+- [ ] File size check passes (no source file over 1200 lines; there is no exception)
 
 ## Code Quality
 - [ ] Autonomous fixes are small, well-understood, low-risk, and one logical fix per commit; otherwise escalate options, trade-offs, and recommendation
@@ -25,4 +25,4 @@
 - [ ] Changes respect cross-platform constraints (Windows paths, ConPTY, etc.)
 - [ ] No breaking changes to public APIs without documented migration path
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
