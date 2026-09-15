@@ -71,7 +71,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 2. **Send notifications**: `codeterm notify send "Done" --level action_needed` — `--level` (verbose|action_needed|failure) is what lets it alert; without one it only files in the bell. An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. A short completion or progress note may be filed at `verbose` — a periodic status, never a running commentary of one notification per step; Worker and Planner tabs still report through their reporting channel instead of notifying. A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried
 3. **Create workspaces**: `codeterm workspace create "Feature X"`
 4. **Read visible terminal text**: `codeterm tab get-text` (reads what the user sees). If a tab is showing an abandoned provider session, recover the live transcript without restarting the agent with `codeterm tab rebind SESSION_ID --tab ID`; the command refuses a session that has not materialized. If the tab's provider label is wrong, repair it from its own verified evidence with `codeterm tab repair --from-evidence`; use `--from-journal` to select the newest restorable provenance record. Repair never restarts the tab and is authorized only for the tab itself or its task's Plan owner.
-5. **Rename tab**: `codeterm tab rename "my task"` or `codeterm tab rename "my task" --tab ID`
+5. **Rename tab**: `codeterm tab rename "my task"` or `codeterm tab rename "my task" --tab ID`. A task-bound tab refuses rename and keeps its planned name; record progress with `codeterm tab describe "..."` instead
 6. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
 7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator)
 8. **Compact context**: `codeterm agent compact [--tab ID]` (sends /compact to Claude)
@@ -179,4 +179,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 58 -->
+<!-- revision: 59 -->

@@ -49,7 +49,7 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ./build.sh verify           # check + unit tests + source-size gate
 ./build.sh build            # production build
 ./build.sh install-local    # incremental production build + self-install (Windows canonical)
-./build.sh cli              # rebuild CLI only → active ~/.codeterm-dev*/bin/
+./build.sh cli              # rebuild CLI + regenerate CLI artifacts → active ~/.codeterm-dev*/bin/
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # API E2E tests against running dev
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
@@ -347,7 +347,7 @@ Full rationale + the boundary map: **`docs/contributing/architecture.md`**.
 
 ## Code navigation
 
-Prefer cached SCIP indexes for definitions, references, and implementation graphs; use `rg` for exact text. Build/query details and fallbacks live in `docs/spikes/llm-codemap-eval.md`.
+Prefer cached SCIP indexes for definitions, references, and implementation graphs; use `rg` for exact text.
 
 ## GitHub and release
 
@@ -369,6 +369,8 @@ PRs that target a non-default integration branch declare each fixed source-repo 
 
 Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 
+- `docs/BEGIN_HERE.md` — the documentation contract; read it before editing any doc
+- `docs/CAPABILITIES.md` — capability map: what CodeTerm can do, entry points, invariants, status
 - `docs/API.md` — REST / Socket / CLI reference
 - `docs/PLUGINS.md` — plugin ecosystem map: **what is published where** (npm `@codeterm/plugin-sdk`; in-repo `plugins/provider-*` → embedded `codeterm-core` channel; external `rollacode/codeterm-plugins` repo → marketplace channel), authoring, release/publish flows. Read its "Ecosystem at a glance" before touching anything plugin- or npm-related
 - `docs/CONFIG.md` — config options, themes, keybindings
@@ -381,7 +383,6 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/TAB-LIFECYCLE.md` — tab lifecycle journal (telemetry only): file location, schema, compaction, the unconditional restore contract, read-only inspection recipes
 - `docs/PROMPTS.md` — prompt templates: where they live, how they compile
 - `docs/TESTING.md` — full test guide
-- `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

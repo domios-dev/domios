@@ -621,10 +621,6 @@ mod tests {
     // wildcard would let an unlisted doc silently default to unvalidated.
     const DOCS_EXCLUDED_FROM_EMBEDDING: &[(&str, &str)] = &[
         (
-            "ARCHITECTURE.md",
-            "contributor architecture map; agent-facing runtime behavior ships in API and ORCHESTRATION",
-        ),
-        (
             "BUILD.md",
             "repository build procedure, held non-user-facing by `repository_build_docs_are_not_user_facing`",
         ),
@@ -659,10 +655,6 @@ mod tests {
         (
             "RESILIENCE.md",
             "daemon-operator troubleshooting for a human reading host logs",
-        ),
-        (
-            "SECURITY-AUDIT-2026-06.md",
-            "dated audit record — a historical surface, correct as written on its date",
         ),
         (
             "WEB_ACCESS.md",

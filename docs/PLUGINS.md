@@ -5,7 +5,8 @@ the *capability seams* — traits, registries, the JS runtime, and the iframe-vi
 host/bridge. Everything feature-specific — Git, Bitwarden, the Transcriber, and the
 agent providers (Claude/Codex/OpenCode) including their UI — is a plugin.
 
-This guide reflects **what exists in the code today**.
+This guide reflects **what exists in the code today**. For what CodeTerm can do
+across every area, not only plugins, start from `docs/CAPABILITIES.md`.
 
 ## Ecosystem at a glance
 
@@ -858,4 +859,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->

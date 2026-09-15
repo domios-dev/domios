@@ -41,6 +41,11 @@ itself. Full setup and hard-won constraints: `.codeterm/build-machine/README.md`
 
 ## 1. Preflight (before bumping the version)
 
+Canonical work for a version collects on `integrate/<version>`: accepted lanes merge there with
+real merge commits, and the verified branch merges into `develop`. Batch `develop` pushes: every
+push to `develop` queues CI (documentation-only changes excepted), so push once per verified wave,
+never once per lane.
+
 Run from the canonical checkout, on `develop`:
 
 ```bash
@@ -149,9 +154,16 @@ whenever you touch a published manifest or artifact:
 # THE check: every platform signature verified against the bytes actually served.
 # Cache-bust the manifest URL - GitHub serves a replaced asset stale for a few minutes.
 node scripts/verify-updater-manifest.mjs \
-  --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)"
+  --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)" \
+  --require-version "$VER" \
+  --require-platform darwin-aarch64 --require-platform darwin-x86_64 \
+  --require-platform windows-x86_64 --require-platform linux-x86_64
 # -> "all N platform signature(s) verify against the served bytes"; exit 1 names each bad platform.
 ```
+
+The script runs with `--manifest` alone, but that run proves only that some manifest is internally
+consistent. A manual verification counts as evidence for this release only with `--require-version`
+and every required `--require-platform`.
 
 The key defaults to `src-tauri/tauri.conf.json`'s updater pubkey - the one the shipped app uses,
 so the check cannot pass against a key no client has. `--local <dir>` verifies files on disk
@@ -559,15 +571,16 @@ cargo sweep --time 2
 ```
 
 Remove merged lane worktrees and delete their merged `lane/*` branches, close finished worker
-Tabs, stop lane-specific dev daemons. Then fast-forward `develop`:
+Tabs, stop lane-specific dev daemons. Then merge the released `master` back into `develop` and push
+once:
 
 ```bash
 git checkout develop
-git pull --ff-only origin master
+git pull --ff-only origin develop
+git merge --no-ff origin/master -m "Merge master after the $VER release"
 git push origin develop
 ```
 
-If `--ff-only` refuses, `git merge --no-ff origin/master --no-edit && git push origin develop`.
 Don't skip this — a stale `develop` makes the next release start from a missing-commits base.
 
 ## Gotchas that have cost real build time (general, not version-specific)
@@ -662,4 +675,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->
