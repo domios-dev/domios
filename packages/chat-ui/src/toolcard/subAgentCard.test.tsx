@@ -70,7 +70,9 @@ function text(scope: ParentNode, testId: string): string | null | undefined {
 async function expand(card: HTMLElement) {
   const toggle = card.querySelector<HTMLButtonElement>("button[aria-expanded]");
   expect(toggle).toBeTruthy();
-  await act(async () => toggle?.click());
+  // Expansion persists per card across renders, so an earlier test may have left it open.
+  if (toggle?.getAttribute("aria-expanded") !== "true") await act(async () => toggle?.click());
+  expect(toggle?.getAttribute("aria-expanded")).toBe("true");
 }
 
 describe("Claude sub-agent card", () => {
