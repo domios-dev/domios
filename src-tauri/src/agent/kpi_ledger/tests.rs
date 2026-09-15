@@ -427,7 +427,7 @@ fn thousand_mixed_synthetic_events_round_trip_and_aggregate() {
                 kind,
                 bytes,
                 tokens: None,
-                dedup_key: None,
+                dedup_key: (kind == KpiEventKind::TokenUsage).then(|| format!("synthetic:{i}")),
                 workspace_id: None,
                 tab_kind: None,
             })
