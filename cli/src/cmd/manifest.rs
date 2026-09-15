@@ -629,6 +629,14 @@ mod tests {
             "internal capability map of product essences, not shipped to agents",
         ),
         (
+            "TESTING.md",
+            "internal test guide for CodeTerm contributors, not shipped to agents",
+        ),
+        (
+            "E2E-TESTING.md",
+            "internal end-to-end and cross-platform test guide for contributors, not shipped to agents",
+        ),
+        (
             "BUILD.md",
             "repository build procedure, held non-user-facing by `repository_build_docs_are_not_user_facing`",
         ),
