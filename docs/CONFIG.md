@@ -34,7 +34,7 @@ copy_on_select = false
 
 [orchestration]
 plan_reminders = true
-nudge_interval_secs = 1800  # 30 minutes
+nudge_interval_secs = 2700  # 45 minutes
 
 [orchestration.reflect]
 every_gates = 15  # emit a one-shot self-review block every N gate/bounce events (0 disables)
@@ -207,4 +207,4 @@ agent command. Source-only workers do not build or test in their lane.
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->

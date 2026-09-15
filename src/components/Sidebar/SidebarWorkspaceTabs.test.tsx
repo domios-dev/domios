@@ -881,7 +881,8 @@ test("rename_focus_state", async () => {
     activeTabId: "active",
   });
   const row = host.querySelector('[data-tab-id="human"]') as HTMLElement | null;
-  assert(row?.className.includes("sidebar-tab-dimmed"), "inactive tab starts dimmed");
+  assert(row, "inactive human tab row rendered");
+  assert(row.className.includes("sidebar-tab-dimmed"), "inactive tab starts dimmed");
   const title = row?.querySelector('[data-testid="tab-title"]');
   assert(title, "inactive human tab title rendered");
   await act(async () => title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
