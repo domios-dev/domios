@@ -73,7 +73,7 @@ gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate \
 
 The expected observation is one `release-inputs` and one Tauri build per target, no cache-save
 step, overlap between Mac arm64 notarization and x86_64 compilation, and completion jobs
-running on `ubuntu-latest`. The release remains incomplete until the existing five-platform
+running on the self-hosted Mac runner `codeterm-builder`. The release remains incomplete until the existing five-platform
 updater-manifest verification passes.
 
 ## 1. Preflight (before bumping the version)
@@ -698,4 +698,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

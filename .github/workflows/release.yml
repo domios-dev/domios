@@ -125,8 +125,8 @@ jobs:
     name: publish release completion signal
     if: ${{ always() }}
     needs: release
-    # This job only uploads a GitHub API signal; it needs no signing keys or build hardware.
-    runs-on: ubuntu-latest
+    # GitHub-hosted minutes are unavailable; the Mac runner has bash, jq, gh and python3 and frees up before the Linux runner.
+    runs-on: [self-hosted, codeterm-builder]
     permissions:
       actions: read
       contents: write

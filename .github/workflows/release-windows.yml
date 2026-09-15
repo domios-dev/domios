@@ -470,8 +470,8 @@ jobs:
     name: publish Windows completion signal
     if: ${{ always() }}
     needs: build
-    # This job only uploads a GitHub API signal; it needs no build-machine hardware or secrets.
-    runs-on: ubuntu-latest
+    # GitHub-hosted minutes are unavailable and windows-build has no bash; the Mac runner has bash, jq, gh and python3.
+    runs-on: [self-hosted, codeterm-builder]
     permissions:
       actions: read
       contents: write
