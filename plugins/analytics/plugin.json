@@ -1,0 +1,15 @@
+{
+  "id": "analytics",
+  "version": "1.10.20",
+  "minCodeterm": "1.10.20",
+  "hostApi": 2,
+  "displayName": "Analytics",
+  "description": "Machine-wide token totals, time series and tab counts, grouped by provider, model, workspace, team or plan.",
+  "entry": "plugin.js",
+  "capabilities": {
+    "view": true
+  },
+  "permissions": {
+    "analytics": true
+  }
+}

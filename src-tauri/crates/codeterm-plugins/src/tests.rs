@@ -82,8 +82,8 @@ mod store_index_tests {
         assert_eq!(manifest.name, "codeterm-core");
         assert_eq!(
             manifest.plugins.len(),
-            5,
-            "expected claude/codex/opencode/cursor/chat-preprocessor in the core channel"
+            6,
+            "expected claude/codex/opencode/cursor/chat-preprocessor/analytics in the core channel"
         );
 
         for p in &manifest.plugins {

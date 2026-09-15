@@ -296,7 +296,7 @@ describe("mission control board visual system", () => {
       expect(head.tagName).toBe("HEADER");
       expect(panel.getAttribute("aria-labelledby")).toBe(head.querySelector("h2")?.id);
     }
-    expect(rule(readRepo("src/styles/globals.css"), ".ct-panel-card")).toContain("border: 1px solid");
+    expect(rule(readRepo("src/styles/primitives.css"), ".ct-panel-card")).toContain("border: 1px solid");
     expect(rule(css, ".mc-board .mc-board-panel")).toContain("background: var(--ct-surface);");
     expect(rule(css, ".mc-board-panel-head")).toContain("border-bottom: 1px solid var(--ct-border);");
     expect(rule(css, ".mc-board-sub + .mc-board-sub")).toContain("padding-top: 0;");
