@@ -174,7 +174,7 @@ pub fn generate_unique_tab_name<'a>(existing: impl IntoIterator<Item = &'a str>)
 
     let mut index = 2;
     loop {
-        let candidate = format!("Tab {}", index);
+        let candidate = format!("Tab{index}");
         if !occupied.contains(candidate.as_str()) {
             return candidate;
         }
@@ -215,5 +215,16 @@ mod tests {
         let generated = generate_unique_tab_name(occupied.iter().map(String::as_str));
 
         assert_eq!(generated, available);
+    }
+
+    #[test]
+    fn tab_name_contract_fallback_name_is_one_word() {
+        let occupied = NOTABLES
+            .iter()
+            .chain(ADJECTIVES)
+            .map(|name| capitalize(name))
+            .collect::<Vec<_>>();
+        let generated = generate_unique_tab_name(occupied.iter().map(String::as_str));
+        assert!(!generated.chars().any(char::is_whitespace));
     }
 }

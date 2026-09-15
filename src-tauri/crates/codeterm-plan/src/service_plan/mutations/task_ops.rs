@@ -306,11 +306,18 @@ impl PlanStore {
         provenance: Option<Option<crate::plan::IdentityProvenance>>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        let personality = personality
+            .map(|name| {
+                name.map(crate::service_plan::worker_identity::validate_executor_name)
+                    .transpose()
+            })
+            .transpose()
+            .map_err(PlanError::InvalidExecutorName)?;
         self.with_plan(plan_id, now_ms, |p| {
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if let Some(name) = personality {
-                task.personality = name.map(str::to_string);
+                task.personality = name;
             }
             if let Some(provenance) = provenance {
                 task.personality_provenance = provenance;

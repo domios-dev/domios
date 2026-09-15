@@ -111,6 +111,7 @@ pub enum PlanError {
         slug: String,
     },
     InvalidPlanSkillSlug,
+    InvalidExecutorName(String),
     InvalidExternalRef(String),
     WorkFacetViolation(codeterm_types::plan::work_facet::WorkFacetViolation),
     UnauthorizedGateClaim {
@@ -193,6 +194,7 @@ impl fmt::Display for PlanError {
             PlanError::InvalidExternalRef(message) => {
                 write!(f, "invalid external reference: {message}")
             }
+            PlanError::InvalidExecutorName(message) => write!(f, "{message}"),
             PlanError::WorkFacetViolation(violation) => write!(f, "{violation}"),
             PlanError::TaskCreationRequiresApproval => write!(
                 f,
@@ -372,6 +374,7 @@ impl PlanError {
             | PlanError::GroupNotFound
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
+            PlanError::InvalidExecutorName(_) => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
     }
@@ -562,6 +565,10 @@ impl PlanError {
             }),
             PlanError::InvalidExternalRef(message) => serde_json::json!({
                 "type": "invalid_external_ref",
+                "message": message,
+            }),
+            PlanError::InvalidExecutorName(message) => serde_json::json!({
+                "type": "invalid_executor_name",
                 "message": message,
             }),
             PlanError::WorkFacetViolation(violation) => serde_json::json!({
