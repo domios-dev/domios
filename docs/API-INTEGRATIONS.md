@@ -159,17 +159,10 @@ curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
 ```
 
 #### Receiver targets and plugin tab menus
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| GET | `/api/plugins/tab-menu` | — | `{items: [{pluginId, itemId, label, action}], receiverTargets: {<pluginId>: <tabId>}}` for every manifest `tabMenu` item |
-| POST | `/api/plugins/tab-menu/action` | `{pluginId, itemId, tabId}` | Run the declared item's host-owned action on a local tab; returns the tab menu state. `receiverTarget` binds the tab, or clears the binding when that tab is already bound |
-| GET | `/api/plugins/{id}/receiver-target` | — | `{pluginId, tabId, live}`; `tabId: null` or `live: false` means events take the General Agent path |
-| PUT | `/api/plugins/{id}/receiver-target` | `{tabId}` | Bind one local tab (id or alias) as the receiver target, replacing any previous binding |
-| DELETE | `/api/plugins/{id}/receiver-target` | — | Clear the binding; returns `{pluginId, tabId: null, live: false}` |
 
-The host owns one binding per receiver plugin id, persisted in the data directory and restored on restart. Closing the bound tab clears it. `live` is true only while the tab exists and its PTY or chat-backend session is open; the webhook route reads the same observation. Set and get require a plugin with an active `webhookReceiver`; clear does not. Errors are `{"ok": false, "error": {"code", "message"}}`: `404` `receiver_not_found`, `tab_not_found` (including a peer's tab), or `menu_item_not_found`; `500` `persist_failed` (nothing changed). Changes publish `contributions-changed` with kind `receiver_target`; plugin loads that add or remove `tabMenu` items publish kind `tab_menu`.
+`GET /api/plugins/tab-menu` returns `{items: [{pluginId, itemId, label, action}], receiverTargets: {<pluginId>: <tabId>}}` for every manifest `tabMenu` item; `POST /api/plugins/tab-menu/action` `{pluginId, itemId, tabId}` runs the declared host-owned action on a local tab (`receiverTarget` binds the tab, or clears it when that tab is already bound). `GET|PUT {tabId}|DELETE /api/plugins/{id}/receiver-target` reads, binds (id or alias, replacing any previous binding) or clears one tab and returns `{pluginId, tabId, live}`; `tabId: null` or `live: false` means events take the General Agent path.
 
-Socket: `plugin.receiver_target.get|set|clear` with `{plugin_id, tab_id?}` returns the same view; refusals carry `data.code`. CLI: `codeterm plugin receiver-target <id> [--set <tab> | --clear]`. Plugins read or clear only their own binding through `host.receiverTarget` (see `codeterm docs PLUGINS`).
+The host owns one binding per receiver plugin id, persisted in the data directory and restored on restart. Closing the bound tab clears it. `live` is true only while the tab exists and its PTY or chat-backend session is open; the webhook route reads the same observation. Set and get require a plugin with an active `webhookReceiver`; clear does not. Errors are `{"ok": false, "error": {"code", "message"}}`: `404` `receiver_not_found`, `tab_not_found` (including a peer's tab), or `menu_item_not_found`; `500` `persist_failed` (nothing changed). Changes publish `contributions-changed` with kind `receiver_target`; plugin loads that add or remove `tabMenu` items publish kind `tab_menu`. Socket: `plugin.receiver_target.get|set|clear` with `{plugin_id, tab_id?}` returns the same view; refusals carry `data.code`. CLI: `codeterm plugin receiver-target <id> [--set <tab> | --clear]`. Plugins read or clear only their own binding through `host.receiverTarget` (see `docs/PLUGINS.md`).
 
 #### Setup (Rules, Hooks)
 | Method | Path | Body | Description |
@@ -212,15 +205,9 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab** (no UI surface); observe progress via the cron tabl / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
 
-**Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`.
+**Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
-**Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID.
-
-**Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
-
-**Tauri events:**
-- `cron-state-changed` — emitted on any cron CRUD operation
-- `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, tab_id, tab_id}`
+**Tauri events:** `cron-state-changed` on any cron CRUD operation; `cron-fired` when a cron fires, payload `{cron_id, run_id, tab_id, tab_id}`.
 
 ## Permission auto-confirm
 
@@ -248,4 +235,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
