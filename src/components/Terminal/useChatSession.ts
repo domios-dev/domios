@@ -40,6 +40,7 @@ import {
   useTranscriptWindow,
 } from "./transcriptStore";
 import type { ChatSendStatus } from "./chatSendStatus";
+import { chatSendAt } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -251,9 +252,9 @@ export function useChatSession({
   }, [tabId]);
 
   const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
-    trackTranscriptSend(windowKeyRef.current, status);
+    trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
     void reconcileSendStatuses();
-  }, [reconcileSendStatuses]);
+  }, [reconcileSendStatuses, tabId]);
 
   const loadOlderPage = useCallback(async (beforeOffset: number) => {
     const generationAtRequest = attachmentRef.current.generation;
@@ -288,17 +289,14 @@ export function useChatSession({
   }, [commitBatch, tabId]);
 
   const view = useChatWindowView({
+    tabId,
     windowKey,
     transcript,
     anchorKey,
     followTailRef,
     loadOlderPage,
   });
-  const { clearOptimistic, committedRows } = view;
-
-  useEffect(() => {
-    clearOptimistic();
-  }, [clearOptimistic, tabId]);
+  const { committedRows } = view;
 
   useEffect(() => {
     if (!active) {
