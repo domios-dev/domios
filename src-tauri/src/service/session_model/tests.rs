@@ -256,7 +256,7 @@ mod model_refresh_tests {
     /// `agent_session_model`, normalized exactly once by the spawn policy.
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn model_refresh_commits_observed_model_for_current_session() {
+    fn model_badge_commits_observed_model_for_current_session() {
         let (mux, tab_id) = seeded_tab(Some("session-live"));
         let fixture = ServiceFixture::new(mux);
         fixture
@@ -280,7 +280,7 @@ mod model_refresh_tests {
     /// guarded write, so the answer now describes a retired session.
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn model_refresh_rejects_answer_from_superseded_session() {
+    fn model_badge_rejects_answer_from_superseded_session() {
         let (mux, tab_id) = seeded_tab(Some("session-live"));
         let fixture = ServiceFixture::new(mux);
         let racing_mux: MuxState = Arc::clone(&fixture.service.mux);
@@ -320,7 +320,7 @@ mod model_refresh_tests {
     /// tab was already relaunched onto a different provider.
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn model_refresh_rejects_answer_for_foreign_agent() {
+    fn model_badge_rejects_answer_for_foreign_agent() {
         let (mux, tab_id) = seeded_tab(Some("session-live"));
         let fixture = ServiceFixture::new(mux);
         let racing_mux: MuxState = Arc::clone(&fixture.service.mux);
@@ -351,7 +351,7 @@ mod model_refresh_tests {
     /// The binding event is what puts the model back.
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn model_refresh_after_session_binding_recovers_unbound_startup_tab() {
+    fn model_badge_after_session_binding_recovers_unbound_startup_tab() {
         let (mux, tab_id) = seeded_tab(None);
         let fixture = ServiceFixture::new(mux);
         fixture
@@ -397,7 +397,7 @@ mod model_refresh_tests {
     /// from the launch request still records both, with the model committed.
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn model_refresh_keeps_fallback_and_mismatch_for_current_session() {
+    fn model_badge_keeps_fallback_and_mismatch_for_current_session() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_requested_model = Some("sonnet".into());
