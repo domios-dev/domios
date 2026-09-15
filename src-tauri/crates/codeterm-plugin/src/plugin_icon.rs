@@ -82,7 +82,8 @@ pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
                 }
             }
             Event::End(end) => {
-                let name = std::str::from_utf8(end.name().as_ref()).ok()?;
+                let end_name = end.name();
+                let name = std::str::from_utf8(end_name.as_ref()).ok()?;
                 if stack.pop().as_deref() != Some(name) {
                     return None;
                 }

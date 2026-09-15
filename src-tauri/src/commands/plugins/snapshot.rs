@@ -40,6 +40,7 @@ fn scan_plugin_manifests(
 /// Derive `capabilities` (snake_case) + `granted_permissions` + `settings_schema`
 /// from a plugin manifest. Absent `capabilities` ⇒ agent provider (mirrors
 /// `default_capabilities`). `dir` resolves the relative settings-schema path.
+#[cfg(test)]
 fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
     enrich_from_manifest_with_icon(entry, dir, m, None);
 }

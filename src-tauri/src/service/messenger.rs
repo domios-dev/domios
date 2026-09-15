@@ -516,7 +516,7 @@ impl Messenger {
         }
         if self.envelope.kind == MessageKind::Pebble {
             return crate::message_markers::Marker::new("pebble")
-                .attr("source", clean_name(&self.envelope.from_label))
+                .attr("source", &clean_name(&self.envelope.from_label))
                 .attr_opt("plugin", self.envelope.from_plugin.as_deref())
                 .build();
         }
