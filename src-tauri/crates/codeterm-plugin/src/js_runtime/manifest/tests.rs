@@ -17,12 +17,35 @@ fn webhook_receiver_contract_accepts_pebble_object() {
         manifest.capabilities.webhook_receiver,
         Some(WebhookReceiverCap {
             kind: WebhookReceiverKind::Pebble,
+            audio: false,
         })
     );
     assert_eq!(
         serde_json::to_value(manifest.capabilities.webhook_receiver).expect("serialize receiver"),
         serde_json::json!({ "kind": "pebble" })
     );
+}
+
+#[test]
+fn pebble_audio_receiver_manifest_declares_audio_and_round_trips() {
+    let json = r#"{
+            "id": "pebble",
+            "version": "0.1.0",
+            "displayName": "Pebble",
+            "capabilities": { "webhookReceiver": { "kind": "pebble", "audio": true } }
+        }"#;
+    let manifest: PluginManifest = serde_json::from_str(json).expect("parse audio receiver");
+    let receiver = manifest.capabilities.webhook_receiver.expect("receiver");
+    assert!(receiver.audio);
+    assert_eq!(
+        serde_json::to_value(&receiver).expect("serialize receiver"),
+        serde_json::json!({ "kind": "pebble", "audio": true })
+    );
+    let non_bool = serde_json::json!({
+        "id": "pebble", "version": "0.1.0", "displayName": "Pebble",
+        "capabilities": { "webhookReceiver": { "kind": "pebble", "audio": "yes" } }
+    });
+    assert!(serde_json::from_value::<PluginManifest>(non_bool).is_err());
 }
 
 #[test]

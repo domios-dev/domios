@@ -14,6 +14,16 @@ use crate::js_runtime::VmError;
 pub struct WebhookReceiveContext {
     pub payload: Value,
     pub received_at: String,
+    /// Present only when an audio-capable receiver was sent an audio part; the bytes stay with the host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<WebhookAudio>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WebhookAudio {
+    pub media_type: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -22,6 +32,20 @@ pub struct WebhookDelivery {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<String>,
+    /// The sender's own transcript, rendered by the host beside its own transcription.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<String>,
+}
+
+fn optional_string<E: serde::de::Error>(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<Option<String>, E> {
+    match object.get(field) {
+        None => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(E::custom(format!("{field} must be omitted or a string"))),
+    }
 }
 
 impl<'de> Deserialize<'de> for WebhookDelivery {
@@ -34,7 +58,7 @@ impl<'de> Deserialize<'de> for WebhookDelivery {
             .as_object()
             .ok_or_else(|| serde::de::Error::custom("delivery must be an object"))?;
         for field in object.keys() {
-            if field != "text" && field != "eventId" {
+            if !matches!(field.as_str(), "text" | "eventId" | "transcript") {
                 return Err(serde::de::Error::custom(format!(
                     "unknown delivery field `{field}`"
                 )));
@@ -44,18 +68,10 @@ impl<'de> Deserialize<'de> for WebhookDelivery {
             .get("text")
             .and_then(Value::as_str)
             .ok_or_else(|| serde::de::Error::custom("delivery text must be a string"))?;
-        let event_id = match object.get("eventId") {
-            None => None,
-            Some(Value::String(event_id)) => Some(event_id.clone()),
-            Some(_) => {
-                return Err(serde::de::Error::custom(
-                    "eventId must be omitted or a string",
-                ))
-            }
-        };
         Ok(Self {
             text: text.to_string(),
-            event_id,
+            event_id: optional_string::<D::Error>(object, "eventId")?,
+            transcript: optional_string::<D::Error>(object, "transcript")?,
         })
     }
 }
@@ -91,6 +107,9 @@ pub trait WebhookReceiver: Send + Sync {
     fn kind(&self) -> WebhookReceiverKind;
     fn icon_svg(&self) -> Option<&str> {
         None
+    }
+    fn accepts_audio(&self) -> bool {
+        false
     }
     fn receive(
         &self,
