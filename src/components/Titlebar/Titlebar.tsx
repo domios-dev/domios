@@ -110,9 +110,11 @@ export function Titlebar({
           src={logoUrl}
           alt=""
           className="h-4 w-4 rounded-sm opacity-90"
+          data-tauri-drag-region
         />
         <span
           className="text-[11px] font-medium text-[var(--ct-muted-fg)]"
+          data-tauri-drag-region
         >
           CodeTerm
         </span>
