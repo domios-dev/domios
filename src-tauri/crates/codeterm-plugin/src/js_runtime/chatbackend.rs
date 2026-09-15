@@ -23,6 +23,7 @@ pub struct JsChatBackend {
     id: String,
     display_name: String,
     icon_svg: Option<String>,
+    icon_color: Option<String>,
     /// `{ spawnable: true }` ⇒ user-openable from the picker; bare `chatBackend: true` ⇒ false (backend-only).
     spawnable: bool,
     watcher_capable: bool,
@@ -39,6 +40,7 @@ impl JsChatBackend {
             display_name: id.clone(),
             id,
             icon_svg: None,
+            icon_color: None,
             spawnable: false,
             watcher_capable: false,
             session_config: false,
@@ -53,6 +55,7 @@ impl JsChatBackend {
             id: manifest.id.clone(),
             display_name: manifest.display_name.clone(),
             icon_svg: manifest.icon_svg.clone(),
+            icon_color: manifest.icon_color.clone(),
             spawnable: manifest.capabilities.chat_backend_spawnable(),
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
@@ -202,7 +205,7 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn icon_color(&self) -> Option<&str> {
-        None
+        self.icon_color.as_deref()
     }
 
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError> {

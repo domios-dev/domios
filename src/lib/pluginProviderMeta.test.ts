@@ -21,6 +21,7 @@ test("maps snake_case snapshot entries into camelCase meta", () => {
         id: "lmstudio",
         display_name: "LM Studio",
         icon_svg: "<svg/>",
+        icon_color: "#d97757",
       },
     ],
   });
@@ -29,6 +30,7 @@ test("maps snake_case snapshot entries into camelCase meta", () => {
   assert(m.id === "lmstudio", "id");
   assert(m.displayName === "LM Studio", "displayName");
   assert(m.iconSvg === "<svg/>", "iconSvg");
+  assert(m.iconColor === "#d97757", "iconColor");
 });
 
 test("falls back displayName to id when absent", () => {

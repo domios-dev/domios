@@ -32,6 +32,23 @@ pub fn load_plugin_icon(bundle_dir: &Path, relative_path: &str) -> Option<String
     sanitize_plugin_icon_svg(&bytes)
 }
 
+/// Accept only `#rgb[a]`/`#rrggbb[aa]` or a CodeTerm theme token, so a manifest color can never carry CSS syntax.
+pub fn sanitize_plugin_icon_color(value: &str) -> Option<String> {
+    let value = value.trim();
+    if let Some(hex) = value.strip_prefix('#') {
+        let valid =
+            matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit());
+        return valid.then(|| value.to_string());
+    }
+    let token = value.strip_prefix("var(--ct-")?.strip_suffix(')')?;
+    let valid = !token.is_empty()
+        && token.len() <= 48
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    valid.then(|| value.to_string())
+}
+
 pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() || bytes.len() > MAX_PLUGIN_ICON_BYTES {
         return None;
@@ -301,5 +318,42 @@ mod legacy_shape_tests {
         assert!(sanitize_plugin_icon_svg(negative.as_bytes()).is_none());
         let points = r##"<svg viewBox="0 0 1 1"><polygon points="0,0 url(x)"/></svg>"##;
         assert!(sanitize_plugin_icon_svg(points.as_bytes()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod icon_color_tests {
+    use super::sanitize_plugin_icon_color;
+
+    #[test]
+    fn plugin_icon_color_accepts_hex_and_theme_tokens() {
+        for color in [
+            "#d97757",
+            "#fff",
+            "#ffff",
+            "#175ddc80",
+            "var(--ct-fg)",
+            "var(--ct-accent-2)",
+        ] {
+            assert_eq!(sanitize_plugin_icon_color(color).as_deref(), Some(color));
+        }
+    }
+
+    #[test]
+    fn plugin_icon_color_rejects_css_syntax() {
+        for color in [
+            "",
+            "red",
+            "#12",
+            "#ggg",
+            "url(x)",
+            "var(--other)",
+            "var(--ct-fg); background: red",
+            "var(--ct-FG)",
+            "var(--ct-)",
+            "expression(alert(1))",
+        ] {
+            assert!(sanitize_plugin_icon_color(color).is_none(), "{color}");
+        }
     }
 }

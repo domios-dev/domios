@@ -111,7 +111,8 @@ function OriginProviderAvatar({ providerId }: { providerId: string | null | unde
 }
 
 function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?: string | null }) {
-  const resolvedIcon = iconSvg ?? getPluginProviderMeta(pluginId)?.iconSvg;
+  const meta = getPluginProviderMeta(pluginId);
+  const resolvedIcon = iconSvg ?? meta?.iconSvg;
   return (
     <span
       className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
@@ -122,7 +123,7 @@ function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?:
       }}
       aria-hidden="true"
     >
-      <PluginIcon plugin={{ icon_svg: resolvedIcon }} size={14} />
+      <PluginIcon plugin={{ icon_svg: resolvedIcon, icon_color: meta?.iconColor }} size={14} />
     </span>
   );
 }
@@ -573,8 +574,9 @@ export function TabSessionChat({
     const next = new Map<string, OriginProps>();
     for (const { msg, origin } of renderedEnrichedMessages) {
       if (origin?.kind === "plugin") {
-        const iconSvg = origin.iconSvg ?? getPluginProviderMeta(origin.pluginId)?.iconSvg;
-        const key = `plugin:${origin.pluginId}:${iconSvg ?? "fallback"}`;
+        const meta = getPluginProviderMeta(origin.pluginId);
+        const iconSvg = origin.iconSvg ?? meta?.iconSvg;
+        const key = `plugin:${origin.pluginId}:${iconSvg ?? "fallback"}:${meta?.iconColor ?? ""}`;
         const prev = cache.get(msg.id);
         const entry: OriginProps = prev && prev.key === key
           ? prev

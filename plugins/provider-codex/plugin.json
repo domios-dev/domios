@@ -6,6 +6,7 @@
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",
+  "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
   "sessions": {
     "rootDir": "~/.codex",
