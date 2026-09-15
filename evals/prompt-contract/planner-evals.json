@@ -183,6 +183,7 @@
     {
       "id": 17,
       "name": "planner-declares-work-facet-and-tags-every-draft",
+      "response_mode": "text",
       "prompt": "You are Planner for a new draft graph in pl_demo. Repository inspection and task boundaries are already accepted: one task for the frontend-owned settings form, one for the backend-owned settings persistence API, and one for the docs-owned operator guide. They have independent owners. The current facet declaration is area with value settings; preserve it. All three tasks need area:settings and topic settings-save. Section sec_settings already exists. Show the facet declaration and the three task-add commands you would hand to the Orchestrator. Do not execute anything.",
       "expected_output": "Declares work alongside area and drafts three tasks, each carrying one explicit allowed work value plus the supplied unrelated tags.",
       "expectations": [
@@ -195,6 +196,7 @@
     {
       "id": 18,
       "name": "planner-work-facet-legacy-audit-needs-explicit-repair",
+      "response_mode": "text",
       "prompt": "You are Planner for pl_demo, which declares work and area. Quality doctor reports task_old has tags area:settings, urgent, work:frontend, work:backend. Its title is 'Settings' and there is no evidence identifying its owning surface. Another plan pl_other declares only area and has untagged legacy tasks. State your next planning action and the repair needed; do not execute tools or invent a classification.",
       "expected_output": "Names the conflicting work values and seeks an explicit classification decision before repairing that task, retaining unrelated tags and leaving the other plan compatible.",
       "expectations": [
