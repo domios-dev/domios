@@ -171,7 +171,9 @@ pub(super) fn scene() -> Scene {
             label: LABEL.into(),
             action: TabMenuAction::ReceiverTarget,
             icon: None,
-            icon_svg: Some("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into()),
+            icon_svg: Some(
+                "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into(),
+            ),
         }]),
     );
     let workspace = service
@@ -231,7 +233,9 @@ fn plugin_icon_svg_tab_menu_payload_and_target_action_toggles_one_binding() {
     let payload = serde_json::to_value(service.tab_menu_state()).unwrap();
     assert_eq!(
         payload["items"][0]["iconSvg"],
-        serde_json::json!("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>"),
+        serde_json::json!(
+            "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>"
+        ),
         "the same state feeds the REST and Tauri tab-menu payloads",
     );
 
@@ -245,7 +249,9 @@ fn plugin_icon_svg_tab_menu_payload_and_target_action_toggles_one_binding() {
             item_id: ITEM.into(),
             label: LABEL.into(),
             action: TabMenuAction::ReceiverTarget,
-            icon_svg: Some("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into()),
+            icon_svg: Some(
+                "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into()
+            ),
         }]
     );
     assert_eq!(bound.receiver_targets.get(RECEIVER), Some(&scene.tab));

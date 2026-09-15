@@ -7,7 +7,8 @@ use super::cli::{read_audit_events, run_plugin_cli};
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
 /// only reports installed plugins with empty paths, so it can't surface capabilities
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
-fn scan_plugin_manifests() -> std::collections::HashMap<String, (std::path::PathBuf, Value, Option<String>)> {
+fn scan_plugin_manifests(
+) -> std::collections::HashMap<String, (std::path::PathBuf, Value, Option<String>)> {
     let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
     let roots = crate::plugin::js_runtime::default_roots(Some(workspace.as_path()));
     let mut map = std::collections::HashMap::new();

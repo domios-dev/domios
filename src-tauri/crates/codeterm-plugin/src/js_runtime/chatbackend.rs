@@ -560,20 +560,15 @@ mod tests {
             }"#,
         );
         let mut b = JsChatBackend::new(vm, "pebble");
-        b.icon_svg = Some(
-            "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>"
-                .into(),
-        );
+        b.icon_svg =
+            Some("<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into());
 
         let mut messages = b.poll("s1", None).unwrap().messages;
         let message = messages.remove(0);
 
         assert_eq!(message.inbound_kind.as_deref(), Some("plugin"));
         assert_eq!(message.from_plugin.as_deref(), Some("pebble"));
-        assert_eq!(
-            message.plugin_icon_svg.as_deref(),
-            b.icon_svg.as_deref(),
-        );
+        assert_eq!(message.plugin_icon_svg.as_deref(), b.icon_svg.as_deref(),);
     }
 
     #[test]
