@@ -550,6 +550,72 @@ fn tab_summary_is_workspace_scoped_and_excludes_full_payload_fields() {
 }
 
 #[test]
+fn tab_list_defaults_to_all_workspaces() {
+    use crate::multiplexer::state::MultiplexerState;
+
+    let (mut state, first_tab) = MultiplexerState::new();
+    let second_workspace = state.create_workspace("second".into(), None);
+    let second_tab = state.create_tab(&second_workspace.id).unwrap();
+
+    let summaries = build_tab_summary_json(
+        &state.snapshot(),
+        None,
+        Some(&first_tab),
+        false,
+        false,
+    );
+    let ids = summaries
+        .iter()
+        .filter_map(|tab| tab["id"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+
+    assert_eq!(ids, [first_tab.as_str(), second_tab.as_str()].into_iter().collect());
+    assert!(summaries.iter().all(|tab| tab["scope"] == "all_workspaces"));
+}
+
+#[test]
+fn tab_list_explicit_workspace_scope() {
+    use crate::multiplexer::state::MultiplexerState;
+
+    let (mut state, first_tab) = MultiplexerState::new();
+    let first_workspace = state.snapshot().workspaces[0].id.clone();
+    let second_workspace = state.create_workspace("second".into(), None);
+    let second_tab = state.create_tab(&second_workspace.id).unwrap();
+
+    let summaries = build_tab_summary_json(
+        &state.snapshot(),
+        Some(&first_workspace),
+        None,
+        false,
+        false,
+    );
+
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0]["id"], first_tab);
+    assert_ne!(summaries[0]["id"], second_tab);
+    assert_eq!(summaries[0]["scope"], "workspace");
+    assert_eq!(summaries[0]["scope_workspace_id"], first_workspace);
+    assert_eq!(summaries[0]["other_workspace_tab_count"], 1);
+}
+
+#[test]
+fn tab_list_agents_filter_remains_global() {
+    use crate::multiplexer::state::MultiplexerState;
+
+    let (mut state, first_tab) = MultiplexerState::new();
+    let second_workspace = state.create_workspace("second".into(), None);
+    let second_tab = state.create_tab(&second_workspace.id).unwrap();
+    state.get_tab_mut(&second_tab).unwrap().agent_type = Some("claude".into());
+
+    let summaries = build_tab_summary_json(&state.snapshot(), None, None, false, true);
+
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0]["id"], second_tab);
+    assert_ne!(summaries[0]["id"], first_tab);
+    assert_eq!(summaries[0]["scope"], "all_workspaces");
+}
+
+#[test]
 fn tab_summary_keeps_team_terminal_provenance() {
     use crate::multiplexer::state::MultiplexerState;
 

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2905,11 +2905,11 @@ Show the full daemon tab payload for one or more explicit tab ids
 
 #### `codeterm tab list`
 
-List compact tab summaries in the current workspace. Use `tab inspect` for full tab details
+List compact tab summaries across every workspace. Use `--workspace` for one workspace and `tab inspect` for full tab details
 
 - `--agents` — Show only tabs running an agent (have an agent_type)
-- `--all-workspaces` — Include every workspace instead of the current one
-- `--workspace` — Workspace id to list. Defaults to this tab's workspace, then the focused workspace
+- `--all-workspaces` — Include every workspace explicitly (the default when --workspace is absent)
+- `--workspace` — Workspace id to list. Without this selector every workspace is listed
 
 #### `codeterm tab new`
 

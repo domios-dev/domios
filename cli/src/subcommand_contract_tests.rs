@@ -876,7 +876,7 @@ fn tab_rebind_parses_session_and_target_without_restart_flags() {
 }
 
 #[test]
-fn tab_list_defaults_to_compact_current_workspace_scope() {
+fn tab_list_defaults_to_all_workspace_scope() {
     let parsed = TabOnly::try_parse_from(["tab", "list"]).expect("tab list parses");
     assert!(matches!(
         parsed.action,

@@ -483,7 +483,7 @@ pub async fn mesh_peer_tabs_list(
     let response = client
         .send_relay(&crate::mesh::types::RelayCommand {
             method: "GET".into(),
-            path: "/api/tabs?all_workspaces=true&local_only=true".into(),
+            path: "/api/tabs?local_only=true".into(),
             body: serde_json::Value::Null,
             delivery_id: None,
         })

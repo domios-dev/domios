@@ -66,7 +66,7 @@ pub enum Command {
     /// List all tabs with metadata
     TabList,
 
-    /// List compact tab summaries scoped to one workspace or the focused workspace.
+    /// List compact tab summaries scoped to one workspace or all workspaces.
     TabSummary {
         #[serde(default)]
         workspace_id: Option<String>,
@@ -520,11 +520,41 @@ pub fn build_tab_summary_json(
         .focused_tab_id
         .as_deref()
         .and_then(|tab_id| tab_index.get(tab_id).map(|(_, id, _)| *id));
-    let caller_workspace_id =
-        caller_tab_id.and_then(|tab_id| tab_index.get(tab_id).map(|(_, id, _)| *id));
+    let caller_workspace_id = if focused_workspace {
+        caller_tab_id.and_then(|tab_id| tab_index.get(tab_id).map(|(_, id, _)| *id))
+    } else {
+        None
+    };
     let selected_workspace = workspace_id
         .or(caller_workspace_id)
         .or_else(|| focused_workspace.then_some(focused_workspace_id).flatten());
+    let scope_workspace_name = selected_workspace.and_then(|selected| {
+        snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == selected)
+            .map(|workspace| workspace.name.as_str())
+    });
+    let other_workspace_tab_count = if let Some(selected) = selected_workspace {
+        snapshot
+            .tabs
+            .values()
+            .filter(|tab| !tab.hidden)
+            .filter(|tab| !agents_only || tab.agent_type.is_some())
+            .filter(|tab| {
+                tab_index
+                    .get(tab.id.as_str())
+                    .is_some_and(|(_, workspace, _)| *workspace != selected)
+            })
+            .count()
+    } else {
+        0
+    };
+    let scope_kind = if selected_workspace.is_some() {
+        "workspace"
+    } else {
+        "all_workspaces"
+    };
     let focused_id = snapshot.focused_tab_id.as_deref();
     snapshot
         .tabs
@@ -552,6 +582,10 @@ pub fn build_tab_summary_json(
                 "description": tab.description,
                 "workspace_id": workspace_id,
                 "workspace_name": workspace_name,
+                "scope": scope_kind,
+                "scope_workspace_id": selected_workspace,
+                "scope_workspace_name": scope_workspace_name,
+                "other_workspace_tab_count": other_workspace_tab_count,
                 "team_id": tab.team_id,
                 "parent_tab_id": tab.parent_tab_id,
                 "spawned_by_tab_id": tab.spawned_by_tab_id,

@@ -378,13 +378,13 @@ const HTTP_MAP: Record<string, Mapper> = {
 
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
-  ordinary_tabs_list: () => webJson("GET", "/api/tabs?all_workspaces=true"),
+  ordinary_tabs_list: () => webJson("GET", "/api/tabs"),
   mesh_peer_tabs_list: async (a) => {
     const peer = s(a, "peerId") ?? s(a, "peer_id");
     const response = await webJson<{ ok?: boolean; data?: unknown; error?: string | null }>("POST", "/api/mesh/relay-to", {
       target_peer_id: peer,
       method: "GET",
-      path: "/api/tabs?all_workspaces=true&local_only=true",
+      path: "/api/tabs?local_only=true",
       body: null,
     });
     if (!response.ok) throw new Error(response.error ?? "Failed to list remote Tabs");
