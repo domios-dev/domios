@@ -672,6 +672,7 @@ function AppInner() {
                 api={stableApiConfig}
                 active={mainView === "analytics"}
                 focusOnActive
+                kpiNotices
                 onClose={closeAnalytics}
               />
             </div>

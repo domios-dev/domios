@@ -1,18 +1,7 @@
-import { RotateCw } from "lucide-react";
 import type { AnalyticsSnapshot } from "@codeterm/plugin-sdk";
 import { formatClock, formatStamp } from "../model/format";
 
-export function Header({
-  snapshot,
-  filterCount,
-  refreshing,
-  onRefresh,
-}: {
-  snapshot: AnalyticsSnapshot | null;
-  filterCount: number;
-  refreshing: boolean;
-  onRefresh: () => void;
-}) {
+export function Header({ snapshot, filterCount }: { snapshot: AnalyticsSnapshot | null; filterCount: number }) {
   const since = snapshot?.recording.first_recorded_at ?? null;
   return (
     <header className="analytics-head">
@@ -37,16 +26,6 @@ export function Header({
             as of {formatClock(snapshot.as_of * 1000)}
           </span>
         )}
-        <button
-          type="button"
-          data-testid="analytics-refresh"
-          className="mc-board-chip analytics-icon-btn"
-          aria-label="Refresh"
-          aria-busy={refreshing}
-          onClick={onRefresh}
-        >
-          <RotateCw size={14} aria-hidden />
-        </button>
       </div>
     </header>
   );
