@@ -622,48 +622,6 @@ impl ServiceContext {
             }
         }
 
-        let mut diagnostics = None;
-        if details.status == Some(ReportStatus::InReview)
-            && !homed_to_remote
-            && !foreign
-            && rejected_task_transition.is_none()
-        {
-            if let (Some(plan_id), Some(task_id)) = (eff_plan_id.as_deref(), eff_task_id.as_deref())
-            {
-                if let Some(request) =
-                    self.diagnostics_request_for_report(tab_id, plan_id, task_id, &details)
-                {
-                    let fallback_worktree = request.lane_worktree_path.clone();
-                    let fallback_attempt = request.attempt_id.clone();
-                    let summary = match self.lane_diagnostics.run(request) {
-                        Ok(summary) => summary,
-                        Err(error) => {
-                            let summary = codeterm_types::plan::LaneDiagnosticsSummary::incomplete(
-                                plan_id.to_string(),
-                                task_id.to_string(),
-                                fallback_attempt,
-                                fallback_worktree,
-                                format!("diagnostics incomplete: {error}"),
-                            );
-                            if let Err(storage_error) =
-                                self.lane_diagnostics.store_summary(&summary)
-                            {
-                                notices.push(format!(
-                                    "lane diagnostics could not be stored: {storage_error}"
-                                ));
-                            }
-                            summary
-                        }
-                    };
-                    if summary.incomplete {
-                        notices.push("lane diagnostics incomplete; the report was delivered with the bounded-run finding".into());
-                    }
-                    details.diagnostics = Some(summary.clone());
-                    diagnostics = Some(summary);
-                }
-            }
-        }
-
         let persisted_plan_evidence = persist_plan_only_evidence(
             self,
             plan_only_authority,
@@ -737,6 +695,22 @@ impl ServiceContext {
         {
             report_outcome = Some(ReportOutcomeClass::StructurallyNotAttachable);
         }
+
+        let diagnostics_request = if details.status == Some(ReportStatus::InReview)
+            && !homed_to_remote
+            && !foreign
+            && rejected_task_transition.is_none()
+            && persisted_task.is_some()
+        {
+            eff_plan_id
+                .as_deref()
+                .zip(eff_task_id.as_deref())
+                .and_then(|(plan_id, task_id)| {
+                    self.diagnostics_request_for_report(tab_id, plan_id, task_id, &details)
+                })
+        } else {
+            None
+        };
 
         let storage_key = target.storage_key();
         let delivered_message = rejected_task_transition.as_ref().map_or_else(
@@ -834,6 +808,10 @@ impl ServiceContext {
             &report.id,
         );
 
+        if let Some(request) = diagnostics_request {
+            self.enqueue_lane_diagnostics(request);
+        }
+
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_tab_id: storage_key,
@@ -842,7 +820,7 @@ impl ServiceContext {
             persisted_plan_evidence,
             rejected_task_transition,
             report_outcome,
-            diagnostics,
+            diagnostics: None,
         })
     }
 
