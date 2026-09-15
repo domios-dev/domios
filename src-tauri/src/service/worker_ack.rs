@@ -823,7 +823,6 @@ impl ServiceContext {
         task_id: &str,
         attempt_id: &str,
         spawn_command: String,
-        startup_allowance: Duration,
     ) {
         let acknowledged = self.plan_store.get(plan_id).is_some_and(|plan| {
             crate::plan::task_key::find_task(&plan.tasks, task_id)
@@ -843,9 +842,7 @@ impl ServiceContext {
         let task_id = task_id.to_string();
         let attempt_id = attempt_id.to_string();
         std::thread::spawn(move || {
-            // A queued lane setup command runs before the agent boots; the
-            // first ack deadline stretches by that bound, never the final one.
-            match receiver.recv_timeout(WORKER_ACK_TIMEOUT + startup_allowance) {
+            match receiver.recv_timeout(WORKER_ACK_TIMEOUT) {
                 Ok(WorkerAckSignal::Acknowledged) | Ok(WorkerAckSignal::Superseded) => return,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -978,7 +975,6 @@ impl ServiceContext {
             task_id,
             &attempt.id,
             spawn_command,
-            Duration::ZERO,
         );
         Ok(true)
     }

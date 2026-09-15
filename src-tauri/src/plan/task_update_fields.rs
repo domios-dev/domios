@@ -112,7 +112,7 @@ pub(crate) fn validate_task_update_fields(
             }
             return Ok(());
         };
-        if let Err(message) = crate::plan::validate_executor_name(personality) {
+        if let Err(message) = codeterm_types::plan::validate_executor_name(personality) {
             return Err(TaskUpdateInputError {
                 unknown_key: None,
                 accepted_keys,

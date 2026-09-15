@@ -268,7 +268,6 @@ pub(super) fn arm_worker_ack_deadline(
     task_id: &str,
     attempt_id: &str,
     spawn_command: String,
-    startup_allowance: Duration,
 ) {
     svc.arm_worker_ack_deadline(
         parent_tab_id,
@@ -278,7 +277,6 @@ pub(super) fn arm_worker_ack_deadline(
         task_id,
         attempt_id,
         spawn_command,
-        startup_allowance,
     );
 }
 
@@ -405,7 +403,6 @@ impl DispatchStartup {
                     &self.task_id,
                     &self.attempt_id,
                     self.spawn_command.clone(),
-                    startup_allowance,
                 );
                 emit_plan_changed(&self.app, &self.plan_id);
                 let nudges = self

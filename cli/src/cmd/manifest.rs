@@ -621,6 +621,14 @@ mod tests {
     // wildcard would let an unlisted doc silently default to unvalidated.
     const DOCS_EXCLUDED_FROM_EMBEDDING: &[(&str, &str)] = &[
         (
+            "BEGIN_HERE.md",
+            "internal documentation contract for contributors, not shipped to agents",
+        ),
+        (
+            "CAPABILITIES.md",
+            "internal capability map of product essences, not shipped to agents",
+        ),
+        (
             "BUILD.md",
             "repository build procedure, held non-user-facing by `repository_build_docs_are_not_user_facing`",
         ),
