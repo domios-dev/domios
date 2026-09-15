@@ -17,9 +17,8 @@ interface WireThreadState {
 }
 
 export const TELEGRAM_THREAD_LABELS = {
-  group: "Telegram thread",
-  open: "Connect Telegram",
-  close: "Disconnect Telegram",
+  open: "Attach Telegram",
+  close: "Detach Telegram",
   bridgeOff: "Start the Telegram bridge to open a thread.",
   topicsDisabled: "Enable topics for the bot in BotFather to talk to agents in threads.",
 } as const;

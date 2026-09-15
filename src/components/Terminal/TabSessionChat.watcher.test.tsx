@@ -555,6 +555,13 @@ test("mount failure remains loading without releasing a shared tailer", async ()
   await act(async () => root.unmount());
 });
 
+function headerTabMenu(menuTab: import("../../lib/types").Tab): import("./TabTopBar").HeaderTabMenu {
+  return {
+    tab: menuTab,
+    context: { status: null, descriptor: undefined, descriptors: [], activity: null, orchestrators: undefined },
+  };
+}
+
 test("Tab header reconnect control requests a hook-owned reattach", async () => {
   const { createRequire } = await import("node:module");
   const require = createRequire(__filename);
@@ -581,14 +588,14 @@ test("Tab header reconnect control requests a hook-owned reattach", async () => 
         tabId="header-tab"
         cwd={null}
         showSwitch={false}
-        canReconnect={true}
+        tabMenu={headerTabMenu({ id: "header-tab", pty_id: null, tab_type: "Terminal", title: "Header", cwd: null, agent_type: "claude" })}
         isActive={true}
       />,
     );
   });
   const trigger = host.querySelector('[data-testid="tab-actions-trigger"]') as HTMLButtonElement | null;
   assert(trigger, "compact tab actions control is visible");
-  await act(async () => trigger.click());
+  await act(async () => trigger.parentElement?.dispatchEvent(new window.Event("pointerdown", { bubbles: true })));
   const reconnect = document.querySelector('[data-testid="chat-reconnect"]') as HTMLButtonElement | null;
   assert(reconnect, "reconnect is available inside tab actions");
   await act(async () => reconnect.click());
@@ -632,27 +639,24 @@ test("Tab actions restart the agent session and copy its ID", async () => {
         tabId="agent-tab"
         cwd={null}
         showSwitch={false}
-        canReconnect={true}
-        canRestartSession={true}
-        sessionId="session-123"
+        tabMenu={headerTabMenu({ id: "agent-tab", pty_id: "pty-agent", tab_type: "Terminal", title: "Agent", cwd: null, agent_type: "claude", agent_session_id: "session-123" })}
       />,
     );
   });
 
   const trigger = host.querySelector('[data-testid="tab-actions-trigger"]') as HTMLButtonElement;
   assert(trigger.getAttribute("aria-haspopup") === "menu", "tab actions expose menu semantics");
-  await act(async () => trigger.click());
+  await act(async () => trigger.parentElement?.dispatchEvent(new window.Event("pointerdown", { bubbles: true })));
   const menu = document.querySelector('[data-testid="tab-actions-menu"]');
   assert(menu?.getAttribute("role") === "menu", "tab actions render an accessible menu");
   assert(menu.textContent?.includes("session-123"), "menu identifies the current session");
-  const copy = menu.querySelector('[data-testid="tab-copy-session-id"]') as HTMLButtonElement;
+  const copy = menu.querySelector('[data-testid="tab-menu-copy-session-id"]') as HTMLButtonElement;
   assert(copy.getAttribute("aria-label") === "Copy session ID", "session ID has an accessible adjacent copy icon");
   assert(copy.textContent?.trim() === "", "copy control is icon-only beside the session ID");
   await act(async () => copy.click());
   assert(copied === "session-123", "copy action writes the current session ID");
 
-  await act(async () => trigger.click());
-  const restart = document.querySelector('[data-testid="tab-restart-session"]') as HTMLButtonElement;
+  const restart = document.querySelector('[data-testid="tab-menu-restart-session"]') as HTMLButtonElement;
   await act(async () => restart.click());
   assert(commands.includes("restart_agent_tab"), "restart action uses the generic session-preserving restart");
 
