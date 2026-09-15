@@ -141,6 +141,20 @@ export function resolveDisplayPlanningState(plan: Plan): PlanningState | null {
   return raw ?? null;
 }
 
+export const PLANNING_STATE_LABEL: Record<PlanningState, string> = {
+  drafting: "Drafting",
+  structure_ready: "Structure ready",
+  approved: "Approved",
+};
+
+export type PlanDraftState = Exclude<PlanningState, "approved">;
+
+/** Non-null while the plan still waits for approval; approval through setPlanMode clears it. */
+export function planDraftState(plan: Plan): PlanDraftState | null {
+  const state = plan.mode === "planning" ? plan.planning_state ?? "drafting" : plan.mode === "paused" ? plan.planning_state : null;
+  return state && state !== "approved" ? state : null;
+}
+
 // approved/execution lifecycle mode bridges plans predating planning_state.
 export function planExecutionUnlocked(plan: Plan): boolean {
   if (plan.mode === "complete") return false;
