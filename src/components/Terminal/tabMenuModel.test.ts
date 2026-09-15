@@ -122,6 +122,7 @@ describe("tab menu model", () => {
     expect(sidebar.map((entry) => entry.id)).toEqual([
       "session",
       "rename",
+      "make-orchestrator",
       "make-planner",
       "model",
       "provider",

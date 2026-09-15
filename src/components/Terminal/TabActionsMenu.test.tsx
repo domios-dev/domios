@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Terminal/TabActionsMenu.test.tsx
 
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { TabActionsMenu } from "./TabActionsMenu";
@@ -158,7 +158,8 @@ async function cleanup({ host, root }: Mounted) {
 test("the auto-confirm checkbox reports its state, requests the flip and keeps the menu open", async () => {
   const mounted = await mountOpen(headerInput({ pluginTabMenu: { items: [], receiverTargets: {} } }));
   const item = byTestId("tab-permission-auto-confirm");
-  assert(item?.closest('[role="menu"]'), "auto-confirm lives in the tab actions menu");
+  assert(item, "auto-confirm item is rendered");
+  assert(item.closest('[role="menu"]'), "auto-confirm lives in the tab actions menu");
   assert(item.getAttribute("role") === "menuitemcheckbox", "auto-confirm is a menuitemcheckbox");
   assert(item.getAttribute("aria-checked") === "false", "auto-confirm reports the persisted opt-out");
   assert(describedText(item).length > 0, "auto-confirm is described");
