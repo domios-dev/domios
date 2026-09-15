@@ -890,6 +890,9 @@ pub fn run() {
                 ),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            service_state
+                .lane_diagnostics
+                .bind_owner(std::sync::Arc::downgrade(&service_state));
             service_state.plan_store.bind_task_key_port(Arc::new(
                 crate::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
                     service_state.mux.clone(),
