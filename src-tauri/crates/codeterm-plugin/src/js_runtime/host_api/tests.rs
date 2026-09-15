@@ -282,6 +282,9 @@ fn sandbox_service_ref_is_late_bound() {
         fn mem_search_json(&self, _: &str) -> String {
             String::new()
         }
+        fn analytics_query_json(&self, _: &str) -> String {
+            String::new()
+        }
         fn workspace_ensure_json(&self, _: &str) -> String {
             String::new()
         }

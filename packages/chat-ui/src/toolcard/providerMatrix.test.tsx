@@ -25,10 +25,10 @@ for (const [provider, detail] of providerCommands) {
 const report = 'cd /d/Developer/codeterm\ncodeterm agent report --status in_review --sha 979a8683e --text "STATUS: in_review\nCHANGES: Added cards\nTESTS RUN: 12 passed" 2>&1 | tail -3';
 const reportHost = await render(<ToolCallBubble event={command(report, "ok true")} expanded onToggle={() => {}} />);
 const reportGroups = reportHost.querySelectorAll('[data-testid="chat-command-group"]');
-if (reportGroups.length !== 1 || reportGroups[0].querySelectorAll('[data-testid="chat-command-group-row"]').length !== 3) {
-  throw new Error("piped Claude agent report did not render one grouped box with a row per segment");
+if (reportGroups.length !== 1 || reportGroups[0].querySelectorAll('[data-testid="chat-command-tree-line"]').length !== 3) {
+  throw new Error("piped Claude agent report did not render one grouped box with a line per segment");
 }
-const reportRow = reportGroups[0].querySelector('[data-row-role="codeterm"]');
+const reportRow = reportGroups[0].querySelector('[data-testid="chat-command-tree-line"][data-row-role="codeterm"]');
 if (!reportRow?.querySelector(".lucide-message-square-text") || !reportRow.textContent?.includes("report")) {
   throw new Error("Claude agent report lost its CodeTerm card inside the group");
 }
@@ -40,7 +40,7 @@ if (!reportRow.textContent?.includes("979a8683e") || !reportRow.textContent.incl
 const plainHost = await render(<ToolCallBubble event={command("git status --short")} expanded={false} onToggle={() => {}} />);
 if (!plainHost.querySelector(".lucide-terminal") || plainHost.querySelector(".lucide-brain")) throw new Error("non-action command was misclassified");
 const pipedSaveHost = await render(<ToolCallBubble event={command('cat notes.txt | codeterm mem save "payload"')} expanded={false} onToggle={() => {}} />);
-const pipedRoles = [...pipedSaveHost.querySelectorAll<HTMLElement>('[data-testid="chat-command-group-row"]')].map((row) => row.dataset.rowRole);
+const pipedRoles = [...pipedSaveHost.querySelectorAll<HTMLElement>('[data-testid="chat-command-tree-line"]')].map((row) => row.dataset.rowRole);
 if (pipedRoles.join() !== "command,codeterm" || !pipedSaveHost.querySelector('[data-row-role="command"] .lucide-terminal') || !pipedSaveHost.querySelector('[data-row-role="codeterm"] .lucide-brain')) {
   throw new Error("a pipeline into a CodeTerm action must group a command row and a CodeTerm row");
 }
@@ -56,10 +56,10 @@ for (const detail of ["runner opaque-input\n\ncodeterm agent spawn --help", "cod
   const mixed = event({ kind: "command", summary: detail, detail });
   const host = await render(<ToolCallBubble event={mixed} expanded={false} onToggle={() => {}} />);
   const groups = host.querySelectorAll('[data-testid="chat-command-group"]');
-  if (groups.length !== 1 || groups[0].querySelectorAll('[data-testid="chat-command-group-row"]').length !== 2) {
+  if (groups.length !== 1 || groups[0].querySelectorAll('[data-testid="chat-command-tree-line"]').length !== 2) {
     throw new Error("mixed command batch was not split into one grouped box");
   }
-  if (host.querySelectorAll('[data-testid="chat-command-group-operator"]').length !== 1) throw new Error("batch rows lost their connector");
+  if (host.querySelectorAll('[data-testid="chat-command-tree-operator"]').length !== 0) throw new Error("batch lines still render operator glyphs");
 }
 
 console.log("provider-neutral CodeTerm action matrix passed");

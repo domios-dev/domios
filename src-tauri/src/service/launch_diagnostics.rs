@@ -3,6 +3,7 @@ const TAIL_BYTES: usize = 4096;
 #[derive(Clone, Copy)]
 pub(crate) enum AgentLaunchOrigin {
     AtomicSpawn,
+    ExitRecovery,
     GeneralAgent,
     HiddenSpawn,
     OrchestratedSpawn,
@@ -15,6 +16,7 @@ impl AgentLaunchOrigin {
     fn label(self) -> &'static str {
         match self {
             Self::AtomicSpawn => "atomic_spawn",
+            Self::ExitRecovery => "exit_recovery",
             Self::GeneralAgent => "general_agent",
             Self::HiddenSpawn => "hidden_spawn",
             Self::OrchestratedSpawn => "orchestrated_spawn",

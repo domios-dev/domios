@@ -186,7 +186,7 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
-    /// Restart an observed live agent; an exited provider requires a fresh spawn
+    /// Restart a live agent, or resume an exited provider's verified session in its shell
     Restart {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]

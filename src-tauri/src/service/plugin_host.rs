@@ -118,6 +118,12 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         }
     }
 
+    // ── Analytics ────────────────────────────────────────────────────────
+
+    fn analytics_query_json(&self, query_json: &str) -> String {
+        self.analytics_snapshot_json(query_json)
+    }
+
     // ── Workspace / tab ─────────────────────────────────────────────────
 
     fn workspace_ensure_json(&self, opts_json: &str) -> String {

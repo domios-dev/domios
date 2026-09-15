@@ -355,6 +355,7 @@ mod tests {
                 name: "Welcome".into(),
                 active_tab_id: Some("tab-picker".into()),
                 cwd: None,
+                provisioned_cwd: None,
                 protected: false,
                 sort_order: 0,
                 tabs: vec![TabSnapshot {
@@ -384,6 +385,7 @@ mod tests {
                         depth: 0,
                         chat_view: Some(false),
                         auto_approve: false,
+                        permission_auto_confirm: false,
                         audience: crate::multiplexer::types::TabAudience::User,
                         agent_session_model: None,
                         agent_planned_model: None,

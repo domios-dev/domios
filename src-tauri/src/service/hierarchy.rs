@@ -23,13 +23,13 @@ pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
 use planner_delivery::{epoch_ms, planner_rehydrate_payload, planner_request_payload};
-pub(crate) use report_target::is_explicit_plan_foreign;
-pub use report_target::{resolve_report_target, worker_death_report, ReportTarget};
-use report_target::resolve_peer_client_by_name;
 use report_persistence::{
     persist_authorized_local_task_report, persist_plan_only_evidence,
     rejected_report_delivery_message,
 };
+pub(crate) use report_target::is_explicit_plan_foreign;
+use report_target::resolve_peer_client_by_name;
+pub use report_target::{resolve_report_target, worker_death_report, ReportTarget};
 
 use super::{
     RejectedTaskTransition, ReportResult, ReportSubmissionError, ServiceContext, ServiceState,
@@ -439,9 +439,8 @@ impl ServiceContext {
         milestone_kind: Option<&str>,
         source_outcome: Option<ReportOutcomeClass>,
     ) -> Result<ReportResult, ReportSubmissionError> {
-        let mut report_outcome =
-            (source_outcome == Some(ReportOutcomeClass::DeliveredUnattached))
-                .then_some(ReportOutcomeClass::DeliveredUnattached);
+        let mut report_outcome = (source_outcome == Some(ReportOutcomeClass::DeliveredUnattached))
+            .then_some(ReportOutcomeClass::DeliveredUnattached);
         let (task_status, mut task_transition_refusal) =
             match report_task_status_transition(details.status) {
                 Ok(status) => (status, None),
@@ -505,9 +504,8 @@ impl ServiceContext {
                 plan_id: eff_plan_id.clone(),
                 task_id: eff_task_id.clone(),
                 cause,
-                report_outcome: report_outcome.filter(|outcome| {
-                    *outcome == ReportOutcomeClass::StaleBindingConflict
-                }),
+                report_outcome: report_outcome
+                    .filter(|outcome| *outcome == ReportOutcomeClass::StaleBindingConflict),
             });
 
         let (from_title, default_target_opt, model_identity, from_ref) = {
@@ -1103,7 +1101,6 @@ fn ledger_with_live_children(
     rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     rows
 }
-
 
 #[cfg(test)]
 mod tests;

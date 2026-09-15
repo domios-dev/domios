@@ -6,10 +6,13 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
+mod folder_trust;
 pub mod hook_ownership;
 pub mod integration;
 mod interactive;
 mod launch;
+pub(crate) mod launch_session;
+mod permission_prompt;
 mod schemas;
 mod sessions;
 mod subagents;
@@ -17,6 +20,8 @@ mod usage;
 
 #[cfg(test)]
 pub(crate) use schemas::manifest_defaults;
+#[cfg(test)]
+pub(crate) use sessions::{enumerate_sessions_under, find_session_under};
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -56,6 +61,10 @@ impl AgentProvider for ClaudeProvider {
         true
     }
 
+    fn supports_permission_auto_confirm(&self) -> bool {
+        true
+    }
+
     fn structured_pending_prompt(
         &self,
         cwd: &str,
@@ -85,8 +94,19 @@ impl AgentProvider for ClaudeProvider {
         SessionIdInjection::None
     }
 
+    fn detect_launch_session(
+        &self,
+        evidence: &crate::provider::LaunchSessionEvidence,
+    ) -> Option<crate::provider::LaunchSessionDetection> {
+        launch_session::detect_launch_session(evidence)
+    }
+
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         sessions::enumerate_sessions()
+    }
+
+    fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {
+        sessions::find_session(session_id)
     }
 
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
@@ -117,8 +137,7 @@ impl AgentProvider for ClaudeProvider {
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         VerifySubmitStrategy::TuiInputDrained {
             // The composer swallows a submit key glued to a paste it is still
-            // ingesting, which leaves the text sitting unsent. Codex carries the
-            // same guard in its manifest; Claude had none.
+            // ingesting, which leaves the text sitting unsent.
             initial_key_delay: Duration::from_millis(100),
         }
     }
@@ -260,6 +279,27 @@ impl AgentProvider for ClaudeProvider {
         }
         steps.push(b"\r".to_vec());
         steps
+    }
+
+    fn directory_trust_prompt_response(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
+        folder_trust::response(screen)
+    }
+
+    fn permission_prompt_response(
+        &self,
+        tool_name: &str,
+        prompt: &codeterm_types::pty::PendingPrompt,
+        screen: &str,
+    ) -> Option<crate::permission_prompt::PermissionPromptResponse> {
+        let option_index = permission_prompt::affirmative_option(tool_name, prompt, screen)?;
+        Some(crate::permission_prompt::PermissionPromptResponse {
+            option_index,
+            rule: permission_prompt::RULE.to_string(),
+            steps: self.build_prompt_response(option_index, screen),
+        })
     }
 
     fn status_bar_rows(&self) -> u16 {

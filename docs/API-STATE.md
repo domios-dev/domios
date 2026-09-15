@@ -149,7 +149,7 @@ Response shape:
 }
 ```
 
-**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
+**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record (`AgentProvider::find_session`: Claude probes `<project>/<id>.jsonl`, Codex reads its state-DB thread row); session history is never enumerated, so the cost does not grow with the number of stored sessions. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
 
 **POST /api/sessions/{id}/resume** — single call replacing the error-prone "create workspace at guessed cwd → spawn agent with `--resume <id>`" dance. Steps:
 1. Locate the session across providers (`AgentRegistry::find_session`) → get cwd + provider id from disk metadata (Claude reads cwd out of the JSONL itself; the encoded directory name is NOT trusted because it loses leading-dot folders and case).
@@ -235,8 +235,6 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 The 8-way bound on concurrent `GET /api/mux/state` snapshots, its 503 answer, and the client contract: see `codeterm docs API-EVENTS`.
 
-## Related documents
+Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
-
-<!-- revision: 14 -->
+<!-- revision: 16 -->

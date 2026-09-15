@@ -91,6 +91,17 @@ impl LifecycleKey {
     }
 }
 
+/// Evidence a session binding was taken from. The hook is primary; the other
+/// two read this launch's own provider record after the hook missed its deadline.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BindingSource {
+    #[default]
+    Hook,
+    PidRegistry,
+    LaunchMarker,
+}
+
 /// A committed transition, written by the owner of the mutation in the same
 /// operation that performs it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +135,8 @@ pub enum LifecycleTransition {
     SessionBound {
         session_id: String,
         binding_nonce: String,
+        #[serde(default)]
+        source: BindingSource,
     },
     /// Role and profile as committed. `role: None` records a role that was
     /// deliberately cleared, which is a commit like any other.
@@ -144,6 +157,11 @@ pub enum LifecycleTransition {
     /// Seals the operation. Only a sealed operation yields a checkpoint.
     LaunchReady,
     RestartRequested,
+    /// Diagnostic: restore relaunched nothing because the provider had exited
+    /// before shutdown; `agent restart` recovers `session_id`. Never authority.
+    RestoreAwaitingAgentRestart {
+        session_id: String,
+    },
     /// Authority withdrawn; the operation can never seal afterwards.
     RolledBack {
         reason: String,
@@ -154,6 +172,34 @@ pub enum LifecycleTransition {
         #[serde(default = "unattributed_close_reason")]
         reason: String,
     },
+    /// Diagnostic audit of opt-in permission auto-confirm: a toggle, an answered
+    /// prompt, or a refusal. Never lifecycle authority.
+    PermissionAutoConfirm {
+        decision: PermissionAutoConfirmDecision,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        option_label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rule: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt_fingerprint: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionAutoConfirmDecision {
+    Enabled,
+    Disabled,
+    Confirmed,
+    Refused,
 }
 
 fn unattributed_close_reason() -> String {
@@ -171,8 +217,10 @@ impl LifecycleTransition {
             Self::TeamBinding { .. } => "team_binding",
             Self::LaunchReady => "launch_ready",
             Self::RestartRequested => "restart_requested",
+            Self::RestoreAwaitingAgentRestart { .. } => "restore_awaiting_agent_restart",
             Self::RolledBack { .. } => "rolled_back",
             Self::Closed { .. } => "closed",
+            Self::PermissionAutoConfirm { .. } => "permission_auto_confirm",
         }
     }
 }

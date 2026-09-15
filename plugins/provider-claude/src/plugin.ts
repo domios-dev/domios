@@ -1,6 +1,14 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
-import type { LaunchParams, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
+import type {
+  LaunchParams,
+  LaunchSessionDetection,
+  LaunchSessionEvidence,
+  ParsedPrompt,
+  PluginModule,
+  ResumeParams,
+} from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
+import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
   parseFetchedClaudeUsage,
@@ -43,6 +51,8 @@ import {
   parseClaudeNumberedPrompt,
   parseClaudeWizardPrompt,
 } from "./prompts";
+import { claudePermissionPromptResponse } from "./permissionPrompt";
+import { claudeFolderTrustResponse } from "./folderTrust";
 
 const TITLE_RE = /claude/i;
 // v2.1+ TUIs prefix the title with a braille spinner glyph or ✳/✻.
@@ -248,13 +258,12 @@ const plugin: PluginModule = {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
 
-  directoryTrustPromptResponse(prompt: ParsedPrompt, screen?: string): string[] | null {
-    const question = String(prompt.question || "").toLowerCase();
-    const first = prompt.options[0];
-    const firstLabel = Array.isArray(first) ? first[0] : (first as unknown as { label?: string }).label;
-    const isTrustGate = question.includes("trust") && question.includes("project");
-    if (!isTrustGate || !firstLabel || !/^yes\b.*trust/i.test(firstLabel)) return null;
-    return buildClaudePromptResponse(0, String(screen || ""));
+  directoryTrustPromptResponse(screen: string): string[] | null {
+    return claudeFolderTrustResponse(screen);
+  },
+
+  permissionPromptResponse(toolName: string, prompt: ParsedPrompt, screen?: string) {
+    return claudePermissionPromptResponse(toolName, prompt, screen);
   },
 
   // Launch command parity for native behavior across OS-specific execution modes.
@@ -996,6 +1005,10 @@ const plugin: PluginModule = {
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
   classifyTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
     return classifyClaudeTabState(snapshot);
+  },
+
+  detectLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
+    return detectClaudeLaunchSession(evidence);
   },
 };
 

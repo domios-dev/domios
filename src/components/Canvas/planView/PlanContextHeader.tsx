@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import type { PlanningState } from "../types";
 import type { ApiConfig } from "../../../lib/types";
-import type { BoardPlanSummary, BoardSpecSummary } from "./boardModel";
+import { PLANNING_STATE_LABEL, type BoardPlanSummary, type BoardSpecSummary } from "./boardModel";
 import type { Plan } from "../types";
 import { PairAffordance } from "../../shared/PairAffordance";
 import { isPlanParked } from "./PlanModeControls";
@@ -23,12 +23,6 @@ function progressLabel(done: number, total: number): string {
   if (total <= 0) return "No active tasks";
   return `${done}/${total} done`;
 }
-
-const PLANNING_STATE_LABEL: Record<PlanningState, string> = {
-  drafting: "Drafting",
-  structure_ready: "Structure ready",
-  approved: "Approved",
-};
 
 function planningStateLabel(state: PlanningState | null | undefined): string | null {
   return state ? PLANNING_STATE_LABEL[state] : null;

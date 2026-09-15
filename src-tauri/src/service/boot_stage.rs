@@ -21,13 +21,15 @@ pub(crate) enum RestartReadiness {
     },
 }
 
+/// `replaced_pty_id: None` is an in-place relaunch on the tab's own PTY; its
+/// caller retires the prior stage first, so only the new launch can be ready.
 pub(crate) fn classify_restart_readiness(
     pty_id: Option<&str>,
     stage: Option<BootStage>,
     failure_reason: Option<&str>,
-    old_pty_id: &str,
+    replaced_pty_id: Option<&str>,
 ) -> Option<RestartReadiness> {
-    let new_pty_id = pty_id.filter(|pty_id| *pty_id != old_pty_id);
+    let new_pty_id = pty_id.filter(|pty_id| Some(*pty_id) != replaced_pty_id);
     match (new_pty_id, stage) {
         (Some(pty_id), Some(BootStage::AgentReady)) => Some(RestartReadiness::Ready {
             pty_id: pty_id.to_string(),
@@ -45,7 +47,7 @@ pub(crate) fn classify_restart_readiness(
 pub(crate) fn wait_for_restart_readiness(
     mux: &crate::MuxState,
     tab_id: &str,
-    old_pty_id: &str,
+    replaced_pty_id: Option<&str>,
     timeout: std::time::Duration,
 ) -> RestartReadiness {
     let inspect = || {
@@ -55,7 +57,7 @@ pub(crate) fn wait_for_restart_readiness(
                 tab.pty_id.as_deref(),
                 tab.boot_stage,
                 tab.boot_failure_reason.as_deref(),
-                old_pty_id,
+                replaced_pty_id,
             ),
             None => Some(RestartReadiness::Failed {
                 pty_id: None,
@@ -75,7 +77,7 @@ pub(crate) fn wait_for_restart_readiness(
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.pty_id.clone())
-        .filter(|pty_id| pty_id != old_pty_id);
+        .filter(|pty_id| Some(pty_id.as_str()) != replaced_pty_id);
     RestartReadiness::TimedOut { pty_id }
 }
 
@@ -105,6 +107,22 @@ pub(crate) fn honest_boot_stage(
 /// contradicts. The binding is the agent naming itself on its own launch.
 pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
+}
+
+/// A provider started inside the tab's own shell, outside any owned launch,
+/// proved itself with this PTY's nonce. No launch pipeline will ever seal it.
+pub(crate) fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
+    let shell_stage = matches!(
+        tab.boot_stage,
+        None | Some(
+            BootStage::PtyStarting
+                | BootStage::PtySpawned
+                | BootStage::ReaderReady
+                | BootStage::ShellReady
+                | BootStage::PtyReattached
+        )
+    );
+    shell_stage && !tab.agent_booting && tab.pty_id.is_some() && tab.launch_session_authenticated()
 }
 
 /// Record a stage on the tab. Only a reason-carrying stage keeps its reason, so
@@ -194,6 +212,9 @@ impl ServiceContext {
         // A boot stage is the only moment a tab's agent liveness can change on
         // the launch side; the restore wave settles here rather than on a tick.
         self.settle_restore_report();
+        if stage == BootStage::ShellReady {
+            self.resume_exited_member_on_shell_ready(tab_id);
+        }
         if stage == BootStage::AgentReady {
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.
@@ -304,17 +325,35 @@ impl ServiceContext {
     /// own launch, which disproves a failure another observer already latched.
     /// Event-driven by the proof's arrival — never a poll or a retry.
     pub(crate) fn reconcile_boot_stage_with_session_binding(&self, tab_id: &str) {
-        let contradicted = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(binding_disproves_latched_failure);
+        let (contradicted, in_tab_pty) = {
+            let mux = self.mux.read();
+            match mux.get_tab(tab_id) {
+                Some(tab) => (
+                    binding_disproves_latched_failure(tab),
+                    binding_observes_in_tab_launch(tab)
+                        .then(|| tab.pty_id.clone())
+                        .flatten(),
+                ),
+                None => (false, None),
+            }
+        };
         if contradicted {
             log::info!(
                 "[boot-stage] Tab {tab_id} spawn_failed disproved by its nonce-verified session binding"
             );
             self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
+            return;
         }
+        let Some(pty_id) = in_tab_pty else {
+            return;
+        };
+        if self.pty.lock().get_session(&pty_id).is_none() {
+            return;
+        }
+        log::info!(
+            "[boot-stage] Tab {tab_id} in-tab provider launch observed live by its nonce-verified session binding on PTY {pty_id}"
+        );
+        self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
     }
 
     /// A user send refused before the agent was ready waits here, not in the
@@ -358,6 +397,10 @@ impl ServiceContext {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "boot_stage/in_tab_launch_tests.rs"]
+mod in_tab_launch_tests;
 
 #[cfg(test)]
 mod tests {
@@ -859,9 +902,8 @@ mod tests {
             BootStage::SpawnFailed,
         );
 
-        // A launch that dies AFTER a provisional stage latched still latches,
-        // from either source: the provisional stage is evidence about one
-        // observer, not a shield.
+        // A provisional stage is evidence about one observer, not a shield, so a
+        // later spawn failure still latches from either source.
         let latches: [fn(&mut Tab, &str); 2] = [latch_deadline, latch_submit_unconfirmed];
         for latch in latches {
             let mut latched = launching_tab("pty-a", "nonce-a");

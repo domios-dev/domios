@@ -73,6 +73,7 @@ sockets) inside individual benches that then drift across platforms.
 - `cleanup_test_workspaces [prefix]` — closes leftover `WS-*` workspaces from prior runs
 - `assert_atomic_save_clean` — guards against corrupt `last.json` or leftover `.tmp`
 - `new_workspace`, `new_shell_tab`, `new_claude_tab` — one-line scenario builders
+- `new_provisioned_workspace` — the daemon creates the workspace directory, so agents started in it get directory trust
 
 OS detection is via `$OSTYPE` (works in git bash on Windows). All
 commands are POSIX-portable; Windows-only branches are isolated to

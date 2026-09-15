@@ -1165,9 +1165,31 @@ kill_process_tree() {
   kill "$pid" 2>/dev/null || true
 }
 
+managed_pid_from_file() {
+  local pidfile="$1" pid
+  [ -f "$pidfile" ] || return
+  pid="$(cat "$pidfile" 2>/dev/null || true)"
+  if [[ "$pid" =~ ^[0-9]+$ ]] && [ "$pid" -gt 0 ]; then
+    echo "$pid"
+  fi
+}
+
+process_pid_for_cleanup() {
+  local shell_pid="$1" windows_pid
+  case "$OSTYPE" in
+    msys*|cygwin*)
+      windows_pid="$(cat "/proc/$shell_pid/winpid" 2>/dev/null || true)"
+      if [[ "$windows_pid" =~ ^[0-9]+$ ]] && [ "$windows_pid" -gt 0 ]; then
+        echo "$windows_pid"
+        return
+      fi
+      ;;
+  esac
+  echo "$shell_pid"
+}
+
 kill_orphan_web_watchers() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
-    windows_dev_leftover_cleanup
     return
   fi
   local root pid cwd
@@ -1200,7 +1222,13 @@ windows_dev_leftover_cleanup() {
   fi
   command -v powershell.exe >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || return
 
-  local root_win target_debug_win data_dir_win cleanup_script ps
+  local root_win target_debug_win data_dir_win cleanup_script ps pid
+  local -a owned_pids=() cleanup_args
+  for pid in "$@"; do
+    if [[ "$pid" =~ ^[0-9]+$ ]] && [ "$pid" -gt 0 ]; then
+      owned_pids+=("$pid")
+    fi
+  done
   root_win="$(pwd -W 2>/dev/null || pwd)"
   target_debug_win="$(cd "$(tauri_debug_dir)" 2>/dev/null && pwd -W 2>/dev/null || echo "$(pwd -W 2>/dev/null || pwd)/$(tauri_debug_dir)")"
   data_dir_win="$(cd "$CT_DATA_DIR" 2>/dev/null && pwd -W 2>/dev/null || cygpath -w "$CT_DATA_DIR" 2>/dev/null || echo "$CT_DATA_DIR")"
@@ -1210,16 +1238,22 @@ windows_dev_leftover_cleanup() {
   else
     ps="powershell"
   fi
-  "$ps" -NoProfile -ExecutionPolicy Bypass -File "$cleanup_script" -Root "$root_win" \
-    -TargetDebug "$target_debug_win" -DataDir "$data_dir_win" -Identifier "$CT_IDENTIFIER" -Instance "$CT_INSTANCE" \
-    -VitePort "$CT_VITE_PORT" -ApiPort "$CT_PORT" -CdpPort "$CT_CDP_PORT" 2>/dev/null || true
+  cleanup_args=(
+    "$ps" -NoProfile -ExecutionPolicy Bypass -File "$cleanup_script" -Root "$root_win"
+    -TargetDebug "$target_debug_win" -DataDir "$data_dir_win" -Identifier "$CT_IDENTIFIER" -Instance "$CT_INSTANCE"
+    -VitePort "$CT_VITE_PORT" -ApiPort "$CT_PORT" -CdpPort "$CT_CDP_PORT"
+  )
+  if [ "${#owned_pids[@]}" -gt 0 ]; then
+    cleanup_args+=(-OwnedProcessIds "${owned_pids[@]}" -OwnedOnly)
+  fi
+  "${cleanup_args[@]}" 2>/dev/null || true
 }
 
 start_web_watch() {
   kill_web_watch || true
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
   local vite_entry="node_modules/vite/bin/vite.js"
-  local pid spawn_status
+  local pid shell_pid spawn_status
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
@@ -1229,13 +1263,14 @@ start_web_watch() {
       CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
       ;;
   esac
-  pid=$!
+  shell_pid=$!
   spawn_status=$?
   set -e
-  if [ -z "$pid" ] || [ "$spawn_status" -ne 0 ]; then
+  if [ -z "$shell_pid" ] || [ "$spawn_status" -ne 0 ]; then
     echo "WARNING: web bundle watcher did not start (status=$spawn_status, log $log); continuing without dist/ auto-rebuilds." >&2
     return 0
   fi
+  pid="$(process_pid_for_cleanup "$shell_pid")"
   if ! echo "$pid" > "$(web_watch_pidfile)"; then
     echo "WARNING: web bundle watcher pidfile was not written; continuing without managed watcher cleanup." >&2
     return 0
@@ -1246,7 +1281,7 @@ start_web_watch() {
 start_dev_static_server() {
   kill_dev_static_server || true
   local log="/tmp/codeterm-dev-static${CT_SUFFIX}.log"
-  local pid spawn_status
+  local pid shell_pid spawn_status
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
@@ -1256,13 +1291,14 @@ start_dev_static_server() {
       nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
-  pid=$!
+  shell_pid=$!
   spawn_status=$?
   set -e
-  if [ -z "$pid" ] || [ "$spawn_status" -ne 0 ]; then
+  if [ -z "$shell_pid" ] || [ "$spawn_status" -ne 0 ]; then
     echo "ERROR: dev static server did not start (status=$spawn_status, log $log)" >&2
     return 1
   fi
+  pid="$(process_pid_for_cleanup "$shell_pid")"
   echo "$pid" > "$(dev_static_pidfile)"
   echo "Dev static server started (devUrl port $CT_VITE_PORT, pid $pid, log $log)"
 }
@@ -1270,8 +1306,13 @@ start_dev_static_server() {
 kill_web_watch() {
   local pidfile
   pidfile="$(web_watch_pidfile)"
-  if [ -f "$pidfile" ]; then
-    kill_process_tree "$(cat "$pidfile")"
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    if [ -f "$pidfile" ]; then
+      windows_dev_leftover_cleanup "$(managed_pid_from_file "$pidfile")"
+      rm -f "$pidfile"
+    fi
+  elif [ -f "$pidfile" ]; then
+    kill_process_tree "$(managed_pid_from_file "$pidfile")"
     rm -f "$pidfile"
   fi
   kill_orphan_web_watchers
@@ -1280,8 +1321,13 @@ kill_web_watch() {
 kill_dev_static_server() {
   local pidfile
   pidfile="$(dev_static_pidfile)"
-  if [ -f "$pidfile" ]; then
-    kill_process_tree "$(cat "$pidfile")"
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    if [ -f "$pidfile" ]; then
+      windows_dev_leftover_cleanup "$(managed_pid_from_file "$pidfile")"
+      rm -f "$pidfile"
+    fi
+  elif [ -f "$pidfile" ]; then
+    kill_process_tree "$(managed_pid_from_file "$pidfile")"
     rm -f "$pidfile"
   fi
   kill_orphan_dev_static_servers

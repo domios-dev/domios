@@ -65,8 +65,12 @@ pub(crate) fn machine_spend(svc: &ServiceContext) -> MissionControlSpend {
         } else {
             KpiNotRecordingReason::Disabled
         };
-        return MissionControlSpend::not_recording(reason)
-            .with_providers(provider_rows(svc, Vec::new(), allowances, 0));
+        return MissionControlSpend::not_recording(reason).with_providers(provider_rows(
+            svc,
+            Vec::new(),
+            allowances,
+            0,
+        ));
     };
     let usage = match ledger.aggregate_token_usage_by_provider_model() {
         Ok(usage) => usage,
@@ -79,9 +83,9 @@ pub(crate) fn machine_spend(svc: &ServiceContext) -> MissionControlSpend {
                 .with_providers(provider_rows(svc, Vec::new(), allowances, 0));
         }
     };
-    let measured_tokens: u64 = usage
-        .iter()
-        .fold(0u64, |sum, row| sum.saturating_add(row.uncached_input_tokens));
+    let measured_tokens: u64 = usage.iter().fold(0u64, |sum, row| {
+        sum.saturating_add(row.uncached_input_tokens)
+    });
     let turns: u64 = usage
         .iter()
         .fold(0u64, |sum, row| sum.saturating_add(row.turns));
@@ -96,7 +100,7 @@ pub(crate) fn machine_spend(svc: &ServiceContext) -> MissionControlSpend {
 
 /// The latest usage snapshot per provider that reports one, keyed by provider id —
 /// the same id the ledger records in its `provider` column.
-fn provider_allowances(svc: &ServiceContext) -> BTreeMap<String, ProviderAllowance> {
+pub(crate) fn provider_allowances(svc: &ServiceContext) -> BTreeMap<String, ProviderAllowance> {
     let mut out: BTreeMap<String, ProviderAllowance> = BTreeMap::new();
     for provider in svc.agent_registry.provider_ids() {
         let reports_usage = svc

@@ -151,6 +151,8 @@ pub(crate) struct TeamSpendResponse {
     pub to: String,
     pub state: TeamSpendState,
     pub not_recording_reason: Option<String>,
+    /// The setting that turns recording back on, named only while it is off.
+    pub enable_setting: Option<String>,
     pub plans: Vec<TeamPlanSummary>,
     pub attribution: AttributionSummary,
     pub daily: Vec<TeamSpendDaily>,
@@ -495,7 +497,11 @@ fn weekly_limit_days_from_rows(
                 day: day.format("%Y-%m-%d").to_string(),
                 provider: provider.clone(),
                 account_id: account_id.clone(),
-                points_used: if reset { reading } else { reading - base_reading },
+                points_used: if reset {
+                    reading
+                } else {
+                    reading - base_reading
+                },
                 weekly_limit_points: reading,
                 scope: scope_of(&provider, account_id.as_deref()),
                 team_attribution: "unavailable",
@@ -545,7 +551,7 @@ pub(crate) fn project_team_spend(
         parse_request(team_id, query).map_err(ProjectionError::BadRequest)?;
     let plans_snapshot = svc.plan_store.list_full();
     let (plans, team_plans, _) = plan_summaries(&plans_snapshot, team_id);
-    let base = |state, reason, attribution| TeamSpendResponse {
+    let base = |state, reason: Option<String>, attribution| TeamSpendResponse {
         team_id: team_id.to_string(),
         metric,
         units: match metric {
@@ -560,6 +566,8 @@ pub(crate) fn project_team_spend(
         from: range.from.format("%Y-%m-%d").to_string(),
         to: range.to.format("%Y-%m-%d").to_string(),
         state,
+        enable_setting: (reason.as_deref() == Some("disabled"))
+            .then(|| crate::config::schema::KPI_ENABLED_KEY.to_string()),
         not_recording_reason: reason,
         plans: plans.clone(),
         attribution,
@@ -718,6 +726,8 @@ mod tests {
                 output,
             }),
             dedup_key: None,
+            workspace_id: None,
+            tab_kind: None,
         }
     }
 

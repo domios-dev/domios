@@ -323,6 +323,7 @@ impl ServiceContext {
             let _ = mux.set_active_tab(workspace_id, &tab_id);
             tab_id
         };
+        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
         self.emit_tab_title_pinned(&tab_id, title);
         self.emit_state_changed();
         session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
@@ -342,6 +343,7 @@ impl ServiceContext {
             }
             tab_id
         };
+        self.record_kpi_tab_created(&result, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
         self.emit_state_changed();
         Ok(result)
     }

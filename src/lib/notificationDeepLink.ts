@@ -37,7 +37,7 @@ export interface NeedsYouNotificationItem {
 }
 
 export function isNeedsYouNotification(notification: Notification): boolean {
-  return notification.level === "action_needed" && !notification.read;
+  return notification.level === "action_needed" && !notification.read && !notification.answer?.answered;
 }
 
 /** Scope reads daemon-resolved provenance only: a caller-supplied jump target cannot place a record in a team. */

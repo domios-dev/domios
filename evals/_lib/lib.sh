@@ -641,6 +641,14 @@ new_workspace() {
     | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))"
 }
 
+# Workspace whose directory the daemon creates, so agents started in it get directory trust.
+# Echoes "<id><TAB><cwd>"; the caller never creates or names the directory.
+new_provisioned_workspace() {
+  local name="$1"
+  dc workspace create "$name" --provision --json 2>/dev/null \
+    | python3 -c "import json,sys; w=json.load(sys.stdin); print(w.get('id','') + '\t' + w.get('cwd',''))"
+}
+
 # Spawn a plain shell tab in the given workspace. Echoes tab_id.
 new_shell_tab() {
   local ws="$1" cwd="$2" title="${3:-shell}"

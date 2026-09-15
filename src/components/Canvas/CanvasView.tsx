@@ -888,7 +888,11 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focusTabId, api, onClose }: CanvasViewProps) {
-  const { setFocusedTab, setActiveTab, selectTabByTab } = useMultiplexer();
+  const { setFocusedTab, setActiveTab, selectTabByTab, deleteNotification } = useMultiplexer();
+  const clearNotifications = useCallback(
+    (ids: string[]) => ids.forEach((id) => deleteNotification(id)),
+    [deleteNotification],
+  );
   const state = useMuxState();
   const openPlanTarget = usePlanTargetNavigation();
   const onOpenTab = useCallback(
@@ -979,6 +983,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
       onOpenTab={onOpenTab}
       notifications={state.notifications}
       onSelectTab={selectTabByTab}
+      onClearNotifications={clearNotifications}
       onOpenPlanTarget={openPlanTarget}
       api={api}
     />

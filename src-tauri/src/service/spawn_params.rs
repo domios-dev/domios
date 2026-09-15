@@ -143,7 +143,7 @@ impl SpawnTabSpec {
             agent_name: agent.agent_name.clone(),
             args: if args.is_empty() { None } else { Some(args) },
             cwd: self.cwd.clone(),
-            provisioned_cwd: None,
+            provisioned_cwd: agent.provisioned_cwd.clone(),
             lane_setup_command: agent.lane_setup_command.clone(),
             title: self.title.clone(),
             title_provenance: None,
@@ -512,6 +512,25 @@ mod tests {
             assert_eq!(params.task, task);
             assert_eq!(params.starter_prompt, expected);
         }
+    }
+
+    #[test]
+    fn host_provenance_survives_in_process_spec_roundtrip_but_never_the_wire() {
+        let mut params = SpawnAgentParams {
+            cwd: Some("/srv/lanes/a".into()),
+            ..Default::default()
+        };
+        params.provisioned_cwd = Some("/srv/lanes/a".into());
+        let spec = SpawnTabSpec::from_agent_params(params);
+
+        let in_process = spec.to_agent_params().unwrap();
+        assert_eq!(in_process.provisioned_cwd.as_deref(), Some("/srv/lanes/a"));
+
+        let json = serde_json::to_string(&spec).unwrap();
+        let restored: SpawnTabSpec = serde_json::from_str(&json).unwrap();
+        let wire = restored.to_agent_params().unwrap();
+        assert_eq!(wire.cwd.as_deref(), Some("/srv/lanes/a"));
+        assert!(wire.provisioned_cwd.is_none());
     }
 
     #[test]

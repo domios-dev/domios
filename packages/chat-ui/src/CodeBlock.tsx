@@ -40,6 +40,8 @@ type PointLike = {
   x: number;
   y: number;
 };
+const MERMAID_WHEEL_LINE_PX = 16;
+const MERMAID_WHEEL_ZOOM_RATE = 0.0025;
 type MermaidGesture = {
   distance: number;
   midpoint: PointLike;
@@ -149,7 +151,6 @@ type CodeContentProps = {
   onMermaidPointerDown?: React.PointerEventHandler<HTMLDivElement>;
   onMermaidPointerMove?: React.PointerEventHandler<HTMLDivElement>;
   onMermaidPointerUp?: React.PointerEventHandler<HTMLDivElement>;
-  onMermaidWheel?: React.WheelEventHandler<HTMLDivElement>;
   onMermaidDoubleClick?: React.MouseEventHandler<HTMLDivElement>;
 };
 
@@ -172,7 +173,6 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   onMermaidPointerDown,
   onMermaidPointerMove,
   onMermaidPointerUp,
-  onMermaidWheel,
   onMermaidDoubleClick,
 }: CodeContentProps) {
   const resolvedLanguage = language !== "text" ? language : inferCodeLanguage(null, displayedText);
@@ -214,7 +214,6 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           onPointerMove={onMermaidPointerMove}
           onPointerUp={onMermaidPointerUp}
           onPointerCancel={onMermaidPointerUp}
-          onWheel={onMermaidWheel}
           onDoubleClick={onMermaidDoubleClick}
         >
           <div
@@ -321,6 +320,10 @@ export function CodeBlock({
   const mermaidNodeId = useMemo(() => `ct-mermaid-${Math.random().toString(36).slice(2, 11)}`, []);
   const [mermaidPan, setMermaidPan] = useState<PointLike>({ x: 0, y: 0 });
   const [mermaidScale, setMermaidScale] = useState(1);
+  const mermaidPanRef = useRef(mermaidPan);
+  const mermaidScaleRef = useRef(mermaidScale);
+  mermaidPanRef.current = mermaidPan;
+  mermaidScaleRef.current = mermaidScale;
   const [mermaidViewMode, setMermaidViewMode] = useState<"fit" | "reset" | "custom">("fit");
   const mermaidViewModeRef = useRef(mermaidViewMode);
   const mermaidSize = useMemo(() => mermaidSvgSize(mermaidSvg), [mermaidSvg]);
@@ -719,25 +722,59 @@ export function CodeBlock({
     startMermaidGesture();
   }, [startMermaidGesture]);
 
-  const handleMermaidWheel = useCallback<React.WheelEventHandler<HTMLDivElement>>((event) => {
-    if (!isFullscreen || !mermaidMode || !shouldDisplayMermaid) {
-      return;
-    }
-    event.preventDefault();
-    setMermaidMode("custom");
-    const rect = event.currentTarget.getBoundingClientRect();
-    const originX = event.clientX - rect.left - rect.width / 2;
-    const originY = event.clientY - rect.top - rect.height / 2;
-    const direction = event.deltaY < 0 ? 1.12 : 0.88;
-    setMermaidScale((currentScale) => {
-      const nextScale = clamp(currentScale * direction, MERMAID_FULLSCREEN_MIN_SCALE, MERMAID_FULLSCREEN_MAX_SCALE);
-      const ratio = nextScale / currentScale;
-      setMermaidPan((currentPan) => ({
-        x: originX - (originX - currentPan.x) * ratio,
-        y: originY - (originY - currentPan.y) * ratio,
-      }));
-      return nextScale;
-    });
+  // React registers wheel listeners as passive, so preventDefault there cannot stop the chat from scrolling underneath.
+  useEffect(() => {
+    if (!isFullscreen || !mermaidMode || !shouldDisplayMermaid) return;
+    const viewport = mermaidViewportRef.current;
+    if (!viewport) return;
+    let frame: number | null = null;
+    let scheduled = false;
+    let pending: { pan: PointLike; scale: number } | null = null;
+    const flush = () => {
+      scheduled = false;
+      frame = null;
+      if (!pending) return;
+      setMermaidScale(pending.scale);
+      setMermaidPan(pending.pan);
+      pending = null;
+    };
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      setMermaidMode("custom");
+      const unit = event.deltaMode === 1 ? MERMAID_WHEEL_LINE_PX : event.deltaMode === 2 ? viewport.clientHeight : 1;
+      const deltaX = event.deltaX * unit;
+      const deltaY = event.deltaY * unit;
+      const base = pending ?? { pan: mermaidPanRef.current, scale: mermaidScaleRef.current };
+      if (event.ctrlKey || event.metaKey) {
+        const rect = viewport.getBoundingClientRect();
+        // A wheel without finite coordinates zooms about the centre instead of poisoning the pan.
+        const originX = Number.isFinite(event.clientX) ? event.clientX - rect.left - rect.width / 2 : 0;
+        const originY = Number.isFinite(event.clientY) ? event.clientY - rect.top - rect.height / 2 : 0;
+        const scale = clamp(
+          base.scale * Math.exp(-deltaY * MERMAID_WHEEL_ZOOM_RATE),
+          MERMAID_FULLSCREEN_MIN_SCALE,
+          MERMAID_FULLSCREEN_MAX_SCALE,
+        );
+        const ratio = scale / base.scale;
+        pending = {
+          scale,
+          pan: { x: originX - (originX - base.pan.x) * ratio, y: originY - (originY - base.pan.y) * ratio },
+        };
+      } else {
+        pending = { scale: base.scale, pan: { x: base.pan.x - deltaX, y: base.pan.y - deltaY } };
+      }
+      mermaidPanRef.current = pending.pan;
+      mermaidScaleRef.current = pending.scale;
+      if (!scheduled) {
+        scheduled = true;
+        frame = window.requestAnimationFrame(flush);
+      }
+    };
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      viewport.removeEventListener("wheel", onWheel);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, [isFullscreen, mermaidMode, setMermaidMode, shouldDisplayMermaid]);
 
   const fullscreenHeaderTopPadding = needsFullscreenSafeTop
@@ -910,7 +947,6 @@ export function CodeBlock({
                 onMermaidPointerDown={handleMermaidPointerDown}
                 onMermaidPointerMove={handleMermaidPointerMove}
                 onMermaidPointerUp={handleMermaidPointerUp}
-                onMermaidWheel={handleMermaidWheel}
                 onMermaidDoubleClick={fitMermaidView}
               />
             </div>

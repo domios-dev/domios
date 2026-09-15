@@ -9,6 +9,7 @@ pub mod planning_state;
 pub mod review;
 pub mod task_key;
 pub mod types;
+pub mod work_facet;
 
 pub use attempt::*;
 pub use execution::*;

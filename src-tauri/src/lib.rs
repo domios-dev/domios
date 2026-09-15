@@ -264,6 +264,7 @@ pub fn run() {
             commands::mux_commands::mux_set_tab_agent_type,
             commands::mux_commands::mux_unlock_tab_agent_type,
             commands::mux_commands::mux_set_chat_view,
+            commands::mux_commands::mux_set_permission_auto_confirm,
             commands::mux_commands::detect_claude_session_id,
             commands::mux_commands::detect_tab_session_id,
             commands::mux_commands::mux_set_claude_session_id,

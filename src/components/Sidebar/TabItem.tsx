@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
+import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, ShieldCheck, UserCog, X } from "lucide-react";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { switchTabModel, tabModelEntryLabel, tabModelMenuView } from "./tabModelMenu";
@@ -209,10 +209,8 @@ function TabItemInner({
     bootStage: tab.boot_stage ?? null,
     bootInFlight: tab.agent_booting ?? false,
   });
-  // The daemon composes the label with the resolved-model fallback; recompute
-  // only for a projection that predates the field, through the same rule. The
-  // raw id goes in: the shared rule owns the catalogue-to-short-name policy,
-  // and a badge-truncated id would no longer match any catalogue entry.
+  // Recompute only for a projection predating the daemon's label, from the raw id:
+  // a badge-truncated id would no longer match any catalogue entry.
   const tabAgentLabel = tab.agent_label ?? agentBracketLabel(
     tab.agent_type,
     tabModel,
@@ -532,6 +530,18 @@ function TabItemInner({
             <TelegramIcon />
           </span>
         )}
+        {tab?.permission_auto_confirm && (
+          <span
+            role="img"
+            aria-label={`${accessibleTitle} auto-confirms recognized permission prompts`}
+            title="Auto-confirms recognized permission prompts"
+            data-testid="tab-auto-confirm-indicator"
+            className="shrink-0"
+            style={{ color: "var(--ct-green)" }}
+          >
+            <ShieldCheck size={12} aria-hidden />
+          </span>
+        )}
         {/* Prompt/status indicator dot */}
         {tab?.pending_prompt && (
           <span
@@ -665,6 +675,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.remote_peer_name === np.remote_peer_name &&
     pp.remote_peer_id === np.remote_peer_id &&
     pp.chat_view === np.chat_view &&
+    pp.permission_auto_confirm === np.permission_auto_confirm &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
     pp.boot_stage === np.boot_stage &&

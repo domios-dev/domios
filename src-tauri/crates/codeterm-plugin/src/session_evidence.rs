@@ -20,7 +20,7 @@ fn evidence_dir() -> PathBuf {
 
 /// Record keys are provider session ids; anything path-like must not become a
 /// store filename.
-fn valid_session_id(session_id: &str) -> bool {
+pub fn valid_session_id(session_id: &str) -> bool {
     !session_id.is_empty()
         && session_id.len() <= 128
         && session_id

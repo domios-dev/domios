@@ -1,5 +1,6 @@
 mod agent_access;
 mod dropped_keys;
+mod kpi_default;
 pub mod lane;
 pub mod schema;
 
@@ -284,6 +285,7 @@ fn load_config_uncached_at(path: &std::path::Path) -> Result<AppConfig, ()> {
             Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
                 Ok(mut config) => {
                     let migrated_agent_access = agent_access::migrate(&mut config, &contents);
+                    let migrated_kpi_default = kpi_default::migrate(&mut config);
                     let dropped_keys = dropped_keys::detect(&contents);
                     if !dropped_keys.is_empty() {
                         log::warn!(
@@ -300,10 +302,10 @@ fn load_config_uncached_at(path: &std::path::Path) -> Result<AppConfig, ()> {
                     }
                     log::info!("Config loaded from {}", path.display());
                     let config = ensure_api_token(config, Some(path));
-                    if migrated_agent_access {
+                    if migrated_agent_access || migrated_kpi_default {
                         if let Ok(toml_str) = toml::to_string_pretty(&config) {
                             if let Err(error) = write_config_atomic(path, &toml_str) {
-                                log::warn!("Failed to persist agent access migration: {error}");
+                                log::warn!("Failed to persist config migration: {error}");
                             }
                         }
                     }

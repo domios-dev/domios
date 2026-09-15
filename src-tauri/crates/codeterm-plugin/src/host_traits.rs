@@ -12,6 +12,10 @@ pub trait PluginHostCtx: Send + Sync {
     // ── Memory ──────────────────────────────────────────────────────────
     fn mem_search_json(&self, opts_json: &str) -> String;
 
+    // ── Analytics ───────────────────────────────────────────────────────
+    /// Machine-wide KPI aggregates for one query; never a ledger handle or path.
+    fn analytics_query_json(&self, query_json: &str) -> String;
+
     // ── Workspace / tab ────────────────────────────────────────────────
     fn workspace_ensure_json(&self, opts_json: &str) -> String;
     fn workspace_tabs_json(&self, workspace_id: &str) -> String;

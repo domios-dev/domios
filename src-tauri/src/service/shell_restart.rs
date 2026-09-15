@@ -18,15 +18,21 @@ impl ServiceContext {
         tab_id: &str,
         cwd: Option<String>,
     ) -> Result<ShellRestartOutcome, String> {
-        let (old_pty_id, current_cwd, agent_type) = {
+        let (old_pty_id, current_cwd, agent_type, agent_member) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
                 .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-            (tab.pty_id.clone(), tab.cwd.clone(), tab.agent_type.clone())
+            (
+                tab.pty_id.clone(),
+                tab.cwd.clone(),
+                tab.agent_type.clone(),
+                tab.role.is_some() || tab.roleless_tracked,
+            )
         };
         reject_non_shell_restart(
             agent_type.as_deref(),
+            agent_member,
             self.tab_chat_backing(tab_id).is_some(),
         )?;
 
@@ -72,24 +78,42 @@ impl ServiceContext {
     }
 }
 
-fn reject_non_shell_restart(agent_type: Option<&str>, chat_backend: bool) -> Result<(), String> {
+pub(crate) const SHELL_RESTART_AGENT_MEMBER: &str = "shell_restart_agent_member";
+
+fn reject_non_shell_restart(
+    agent_type: Option<&str>,
+    agent_member: bool,
+    chat_backend: bool,
+) -> Result<(), String> {
     if chat_backend {
         return Err("tab restart only supports PTY shell tabs".into());
     }
     if agent_type.is_some() {
         return Err("tab restart only supports plain shells; use agent restart for agents".into());
     }
+    // Exit teardown clears the provider but keeps the role; a hand-typed resume here launches without the granted access.
+    if agent_member {
+        return Err(format!(
+            "{SHELL_RESTART_AGENT_MEMBER}: this agent Tab's provider exited; run `codeterm agent restart --tab <TAB>` to resume its verified session with the granted access"
+        ));
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::reject_non_shell_restart;
+    use super::{reject_non_shell_restart, SHELL_RESTART_AGENT_MEMBER};
 
     #[test]
     fn shell_restart_rejects_agent_and_chat_backend_tabs() {
-        assert!(reject_non_shell_restart(Some("codex"), false).is_err());
-        assert!(reject_non_shell_restart(None, true).is_err());
-        assert!(reject_non_shell_restart(None, false).is_ok());
+        assert!(reject_non_shell_restart(Some("codex"), false, false).is_err());
+        assert!(reject_non_shell_restart(None, false, true).is_err());
+        assert!(reject_non_shell_restart(None, false, false).is_ok());
+    }
+
+    #[test]
+    fn shell_restart_refuses_exited_agent_member_tab() {
+        let refusal = reject_non_shell_restart(None, true, false).unwrap_err();
+        assert!(refusal.starts_with(SHELL_RESTART_AGENT_MEMBER));
     }
 }

@@ -375,9 +375,10 @@ jobs:
               "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
             mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
           done
-          gh api --paginate --slurp \
+          # gh api --slurp needs gh 2.48+; jq -s builds the same page array on any runner gh.
+          gh api --paginate \
             "repos/${SOURCE_REPO}/pulls?state=closed&sort=updated&direction=desc&per_page=100" \
-            > "$RUNNER_TEMP/closed-pr-pages.json"
+            | jq -s '.' > "$RUNNER_TEMP/closed-pr-pages.json"
           jq --arg source_sha "$SOURCE_SHA" \
             --slurpfile commits "$RUNNER_TEMP/release-commits.json" '
             ($commits[0] | map({key: .sha, value: true}) | from_entries) as $included

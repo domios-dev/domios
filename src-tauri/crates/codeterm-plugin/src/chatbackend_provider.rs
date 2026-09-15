@@ -215,6 +215,7 @@ pub trait ChatBackendProvider: Send + Sync {
             supports_stop: false,
             supports_chat_ui: true,
             supports_structured_prompts: false,
+            supports_permission_auto_confirm: false,
             supports_watcher: self.watcher_capable(),
             trust: ProviderTrust::Unknown,
             transport: ProviderTransport::ChatBackend,

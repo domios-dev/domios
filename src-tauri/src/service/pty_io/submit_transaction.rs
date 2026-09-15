@@ -767,9 +767,8 @@ pub(crate) fn submit_text_with_key_claimed(
     let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).inspect(
         |result| {
             if recovery_attempted(result) {
-                // `recovered=false` is not evidence of a lost message: for a TUI
-                // strategy the only accepted proof is a turn transition, which a
-                // busy tab cannot produce. See rollacode/codeterm#475.
+                // `recovered=false` is not a lost message: a TUI strategy proves submit
+                // only by a turn transition, which a busy tab cannot produce.
                 let level = if result.submit_observed {
                     log::Level::Debug
                 } else {

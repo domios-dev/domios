@@ -32,12 +32,38 @@ fn decode(value: u8) -> Option<ShutdownReason> {
 
 /// True once a graceful-exit route has run; real crashes happen while it's `false`, so they're never suppressed.
 pub fn is_shutting_down() -> bool {
-    SHUTDOWN_CAUSE.load(Ordering::SeqCst) != NOT_SHUTTING_DOWN
+    active_shutdown().is_some()
 }
 
 /// The cause recorded by the first graceful-exit route that fired, if any.
 pub fn active_shutdown() -> Option<ShutdownReason> {
-    decode(SHUTDOWN_CAUSE.load(Ordering::SeqCst))
+    let stored = decode(SHUTDOWN_CAUSE.load(Ordering::SeqCst));
+    let resolved = resolve_shutdown(stored, os_session_ending());
+    if stored.is_none() {
+        if let Some(reason) = resolved {
+            mark_shutting_down_for(reason);
+        }
+    }
+    resolved
+}
+
+/// An OS session end terminates console providers before the app sees ExitRequested.
+fn resolve_shutdown(
+    stored: Option<ShutdownReason>,
+    os_session_ending: bool,
+) -> Option<ShutdownReason> {
+    stored.or(os_session_ending.then_some(ShutdownReason::Signal))
+}
+
+#[cfg(windows)]
+fn os_session_ending() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SHUTTINGDOWN};
+    unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
+}
+
+#[cfg(not(windows))]
+fn os_session_ending() -> bool {
+    false
 }
 
 /// Mark the process as gracefully shutting down and drop the clean-exit
@@ -146,5 +172,15 @@ mod tests {
             assert_ne!(encoded, NOT_SHUTTING_DOWN);
             assert_eq!(decode(encoded), Some(reason));
         }
+    }
+
+    #[test]
+    fn os_session_end_reads_as_a_shutdown_before_any_exit_route_runs() {
+        assert_eq!(resolve_shutdown(None, false), None);
+        assert_eq!(resolve_shutdown(None, true), Some(ShutdownReason::Signal));
+        assert_eq!(
+            resolve_shutdown(Some(ShutdownReason::Update), true),
+            Some(ShutdownReason::Update)
+        );
     }
 }

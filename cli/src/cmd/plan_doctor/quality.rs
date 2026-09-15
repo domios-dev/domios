@@ -80,10 +80,38 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
     findings.extend(inspect_duplicate_role_guidance(path, plan, &tasks));
     findings.extend(inspect_loop_quality(path, plan, now_ms));
     for task in &tasks {
+        inspect_work_facet(path, plan, task, &mut findings);
         inspect_task_quality(path, plan, task, &mut findings);
         inspect_task_lifecycle(path, plan, task, now_ms, &mut findings);
     }
     findings
+}
+
+fn inspect_work_facet(path: &Path, plan: &Value, task: &Value, findings: &mut Vec<Finding>) {
+    let facet_keys = plan
+        .get("tag_facets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|facet| facet.get("key").and_then(Value::as_str));
+    let tags = task
+        .get("tags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    if let Err(violation) = codeterm_types::plan::work_facet::validate_work_facet(facet_keys, tags)
+    {
+        findings.push(Finding {
+            severity: "error",
+            kind: "work_facet_violation",
+            plan_id: plan_id(plan, path),
+            path: path.display().to_string(),
+            task_id: task.get("id").and_then(Value::as_str).map(str::to_string),
+            detail: violation.to_string(),
+            fix: "explicitly choose one allowed work value; repair this task's tags by removing malformed/extra work entries and keeping exactly one work:<value>; preserve unrelated tags and task history".into(),
+        });
+    }
 }
 
 fn inspect_duplicate_role_guidance(path: &Path, plan: &Value, tasks: &[Value]) -> Vec<Finding> {

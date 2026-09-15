@@ -13,6 +13,7 @@ use crate::plan::{
 
 use super::next_actions::{compute_next_actions, NextAction};
 
+pub mod analytics;
 pub mod lane_rows;
 pub mod mission_control;
 

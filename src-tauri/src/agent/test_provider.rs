@@ -126,6 +126,10 @@ impl AgentProvider for MockProvider {
                 cmd.push_str(a);
             }
         }
+        if let Some(marker) = &params.launch_marker {
+            cmd.push_str(" --launch-marker ");
+            cmd.push_str(marker);
+        }
         cmd
     }
     fn readiness_strategy(&self) -> ReadinessStrategy {

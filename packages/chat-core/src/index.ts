@@ -70,11 +70,14 @@ export {
   type ToolEvent,
 } from "./toolEvents";
 export {
+  assignedCommand,
   commandArgvStart,
   commandBasename,
   parseShellComposition,
+  shellSegmentLabel,
   toolCommand,
   unwrapShellLauncher,
+  type AssignedCommand,
   type ShellComposition,
   type ShellDialect,
   type ShellOperator,

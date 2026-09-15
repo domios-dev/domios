@@ -263,6 +263,39 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
 }
 
 #[test]
+fn restore_contract_valid_session_claim_resumes_and_keeps_the_session() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.agent_session_id = Some("persisted".into());
+    tab.cwd = Some("cwd".into());
+    tab.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-valid-claim-test", state));
+
+    let launch = claim_restored_launch(
+        &mux,
+        &tab_id,
+        "fixture-provider",
+        Some("persisted"),
+        Some("cwd"),
+        true,
+    )
+    .unwrap()
+    .expect("a restored tab with a valid session is claimed");
+
+    assert_eq!(launch.session_id.as_deref(), Some("persisted"));
+    let mux = mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some("persisted"));
+    assert!(tab.agent_booting);
+    assert!(!tab.restored_from_snapshot);
+}
+
+#[test]
 fn stale_session_validity_cannot_claim_changed_tab() {
     use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;

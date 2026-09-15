@@ -70,8 +70,7 @@ pub struct ReportRefusal {
 
 const UNRESOLVED_LANE_REFUSAL_PREFIX: &str =
     "readiness report refused: cannot locate your lane worktree";
-const MISSING_LANE_WORKTREE_REFUSAL_PREFIX: &str =
-    "readiness report refused: lane worktree";
+const MISSING_LANE_WORKTREE_REFUSAL_PREFIX: &str = "readiness report refused: lane worktree";
 
 /// Copied verbatim by an agent that has just lost a report, so every line must be
 /// runnable: an inline body is mangled by the shell before the report is sent.
@@ -101,8 +100,10 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
 impl ReportRefusal {
     pub fn report_outcome(&self) -> Option<ReportOutcomeClass> {
         (self.reason.starts_with(UNRESOLVED_LANE_REFUSAL_PREFIX)
-            || self.reason.starts_with(MISSING_LANE_WORKTREE_REFUSAL_PREFIX))
-            .then_some(ReportOutcomeClass::DeliveredUnattached)
+            || self
+                .reason
+                .starts_with(MISSING_LANE_WORKTREE_REFUSAL_PREFIX))
+        .then_some(ReportOutcomeClass::DeliveredUnattached)
     }
 
     pub fn message(&self) -> String {
@@ -444,7 +445,8 @@ fn git_refusal(reason: String) -> ReportRefusal {
 
 fn unresolved_lane_refusal() -> ReportRefusal {
     ReportRefusal {
-        reason: format!("{UNRESOLVED_LANE_REFUSAL_PREFIX}. This task requires a \
+        reason: format!(
+            "{UNRESOLVED_LANE_REFUSAL_PREFIX}. This task requires a \
                  repository but no lane worktree is bound to your report, so the provided --sha \
                  cannot be validated against your own lane HEAD (never against the canonical \
                  checkout). Re-dispatch this task with `codeterm plan task dispatch`, or report \

@@ -13,6 +13,7 @@
   "src/components/Canvas/missionControl/missionControlBoardVisualSystem.test.tsx",
   "src/components/Canvas/missionControl/missionControlLiveRefresh.test.tsx",
   "src/components/Canvas/missionControl/missionControlBoardLinks.test.tsx",
+  "src/components/Canvas/missionControl/missionControlDraftPlan.test.tsx",
   "src/components/Notifications/notificationDeepLink.test.tsx",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
@@ -23,5 +24,6 @@
   "src/components/Canvas/planView/PlanParagraphAsk.test.tsx",
   "src/components/Canvas/planView/BoardTaskCard.actions.test.tsx",
   "src/components/Terminal/useChatScroll.stability.test.tsx",
-  "src/components/Canvas/teamTaskSegment.test.tsx"
+  "src/components/Canvas/teamTaskSegment.test.tsx",
+  "src/components/Snake/simulation.test.ts"
 ]

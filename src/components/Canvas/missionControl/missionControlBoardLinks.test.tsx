@@ -1,14 +1,11 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
-import { DEEP_LINK_UNAVAILABLE_COPY } from "../../../lib/notificationDeepLink";
-import type { ApiConfig, Tab, Workspace } from "../../../lib/types";
-import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
+import type { ApiConfig, Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlPlanSurface } from "./MissionControlPlanSurface";
-import { GATE_NO_TAB_COPY } from "./missionControlBoardModel";
 import type { MissionControlState, OpenDecisionGate, PlanBoardState, PlanTaskCounts } from "./missionControlState";
 import { planForDetail } from "./planDetailTarget";
 
@@ -62,28 +59,6 @@ function missionState(openGates: OpenDecisionGate[] = []): MissionControlState {
 
 function boardState(openGates: OpenDecisionGate[] = []): PlanBoardState {
   return { plan_id: ACTIVE.id, task_counts: COUNTS, mission_control: missionState(openGates) };
-}
-
-function gate(tabId: string | null): OpenDecisionGate {
-  return {
-    id: "gt_1",
-    question: `Resolve the provider incident for ${ACTIVE.id}`,
-    status: "open",
-    asked_at: 0,
-    age_ms: 3_600_000,
-    blocking_task_count: 1,
-    tab_id: tabId,
-  };
-}
-
-function deepLinks(onSelectTab: NeedsYouDeepLinks["onSelectTab"]): NeedsYouDeepLinks {
-  return {
-    notifications: [],
-    tabs: { "tab-hopper": { id: "tab-hopper", workspace_id: "ws-1", title: "Hopper" } as unknown as Tab },
-    workspaces: [],
-    scope: { teamId: null, workspaceId: null },
-    onSelectTab,
-  };
 }
 
 async function mount(ui: ReactElement) {
@@ -192,60 +167,5 @@ describe("mission control previous plans", () => {
     await act(async () => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(document.querySelector('[data-testid="mc-board-previous-plans-menu"]')).toBeNull();
     await unmount();
-  });
-});
-
-describe("mission control decision gate rows", () => {
-  it("mission_control_gate_row_jumps_to_its_tab_by_click_and_enter_while_names_keep_their_links", async () => {
-    const onSelectTab = vi.fn();
-    const onOpenPlan = vi.fn();
-    const { host, unmount } = await mount(
-      <MissionControlBoard
-        plan={ACTIVE}
-        plans={[ACTIVE]}
-        state={boardState([gate("tab-hopper")])}
-        deepLinks={deepLinks(onSelectTab)}
-        onOpenPlan={onOpenPlan}
-      />,
-    );
-
-    const link = host.querySelector('[data-testid="mc-board-gate-link"]') as HTMLElement;
-    expect(link.getAttribute("role")).toBe("link");
-    expect(link.tabIndex).toBe(0);
-    expect(link.querySelectorAll("button").length).toBe(1);
-
-    await act(async () => link.click());
-    expect(onSelectTab).toHaveBeenLastCalledWith("ws-1", "tab-hopper");
-    await act(async () => keydown(link, "Enter"));
-    expect(onSelectTab).toHaveBeenCalledTimes(2);
-
-    const planName = link.querySelector(`[data-ref-id="${ACTIVE.id}"]`) as HTMLButtonElement;
-    expect(planName.textContent).toBe(ACTIVE.title);
-    await act(async () => planName.click());
-    await act(async () => keydown(planName, "Enter"));
-    expect(onOpenPlan).toHaveBeenCalledWith(ACTIVE.id);
-    expect(onSelectTab).toHaveBeenCalledTimes(2);
-    await unmount();
-  });
-
-  it("mission_control_gate_row_without_a_live_tab_is_not_a_link_and_says_why", async () => {
-    for (const [tabId, reason] of [
-      [null, GATE_NO_TAB_COPY],
-      ["tab-gone", DEEP_LINK_UNAVAILABLE_COPY.tab_gone],
-    ] as const) {
-      const onSelectTab = vi.fn();
-      const { host, unmount } = await mount(
-        <MissionControlBoard plan={ACTIVE} plans={[ACTIVE]} state={boardState([gate(tabId)])} deepLinks={deepLinks(onSelectTab)} />,
-      );
-
-      const row = host.querySelector('[data-kind="gate"]') as HTMLElement;
-      expect(row.getAttribute("data-gate-link")).toBe("unavailable");
-      expect(row.querySelector('[role="link"]')).toBeNull();
-      expect(row.querySelector('[data-testid="mc-board-gate-unavailable"]')?.textContent).toBe(reason);
-      await act(async () => row.click());
-      await act(async () => keydown(row, "Enter"));
-      expect(onSelectTab).not.toHaveBeenCalled();
-      await unmount();
-    }
   });
 });

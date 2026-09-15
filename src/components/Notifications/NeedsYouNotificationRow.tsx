@@ -16,6 +16,8 @@ export interface NeedsYouDeepLinks {
   workspaces: Workspace[];
   scope: DeepLinkScope;
   onSelectTab: (workspaceId: string, tabId: string) => void | Promise<void>;
+  /** Removes these notifications for good; the panel passes exactly the ones it shows. */
+  onClear?: (ids: string[]) => void;
 }
 
 const NO_ITEMS: NeedsYouNotificationItem[] = [];

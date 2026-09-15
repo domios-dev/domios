@@ -1,0 +1,10 @@
+ /srv/codeterm/provisioned-workspaces/bench-3
+
+ Quick safety check: Is this a project you created or one you trust?
+
+ Security guide
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel

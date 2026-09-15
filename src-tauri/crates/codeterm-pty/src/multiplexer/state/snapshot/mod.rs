@@ -157,6 +157,7 @@ impl MultiplexerState {
                     boot_stage: p.boot_stage,
                     reasoning_effort: p.reasoning_effort_identity.clone(),
                     context_epochs: p.context_epoch_archives.clone(),
+                    prior_session_bindings: p.prior_session_binding_nonces.clone(),
                     task_binding: p.task_binding.clone(),
                     roleless_tracked: p.roleless_tracked,
                     lifecycle_epoch: p.lifecycle_epoch,
@@ -174,6 +175,7 @@ impl MultiplexerState {
                 depth: tab.map(|p| p.depth).unwrap_or(0),
                 chat_view: tab.map(|p| p.chat_view),
                 auto_approve: tab.map(|p| p.auto_approve).unwrap_or(false),
+                permission_auto_confirm: tab.is_some_and(|p| p.permission_auto_confirm),
                 audience: tab.map(|p| p.audience).unwrap_or(TabAudience::Automation),
                 agent_session_model: tab.and_then(|p| p.agent_session_model.clone()),
                 agent_planned_model: tab.and_then(|p| p.agent_planned_model.clone()),
@@ -199,6 +201,7 @@ impl MultiplexerState {
                     name: ws.name.clone(),
                     active_tab_id: ws.active_tab_id.clone(),
                     cwd: ws.cwd.clone(),
+                    provisioned_cwd: ws.provisioned_cwd.clone(),
                     protected: ws.protected,
                     sort_order: ws.sort_order,
                     tabs: ws
@@ -281,6 +284,7 @@ impl MultiplexerState {
                     Some(tab_id)
                 }).collect(),
                 cwd: ws.cwd.clone(),
+                provisioned_cwd: ws.provisioned_cwd.clone(),
                 protected: ws.protected,
                 sort_order: ws.sort_order,
             }
@@ -374,6 +378,7 @@ impl MultiplexerState {
                         tabs: added_tab_ids,
                         active_tab_id,
                         cwd: ws_snap.cwd.clone(),
+                        provisioned_cwd: ws_snap.provisioned_cwd.clone(),
                         // Restored authority is never inferred from a file.
                         protected: false,
                         sort_order: ws_snap.sort_order,
@@ -450,6 +455,7 @@ fn install_leaf(
         depth,
         chat_view,
         auto_approve: _,
+        permission_auto_confirm,
         audience,
         agent_session_model,
         agent_planned_model,
@@ -555,7 +561,11 @@ fn install_leaf(
                 .and_then(|identity| identity.session_binding_nonce.clone()),
             reported_session_binding_nonce: restored_identity
                 .and_then(|identity| identity.reported_session_binding_nonce.clone()),
-            prior_session_binding_nonces: Vec::new(),
+            // Lineage is recovery evidence, not a session claim, so an unclaimed restore keeps it.
+            prior_session_binding_nonces: agent_identity
+                .as_ref()
+                .map(|identity| identity.prior_session_bindings.clone())
+                .unwrap_or_default(),
             shell_integration_nonce: None,
             lifecycle_epoch: restored_identity.and_then(|identity| identity.lifecycle_epoch),
             lifecycle_operation_id: restored_identity
@@ -582,6 +592,8 @@ fn install_leaf(
             pending_prompt: None,
             agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
             auto_approve: false,
+            permission_auto_confirm: *permission_auto_confirm,
+            permission_auto_confirmations: Vec::new(),
             protected: false,
             connected_services: vec![],
             agent_set_at: None,

@@ -1,4 +1,5 @@
-//! Agent restart: graceful /exit + auto-resume, or force-kill PTY + relaunch.
+//! Agent restart: graceful /exit + auto-resume, force-kill PTY + relaunch, or
+//! in-place recovery of a provider that exited to its shell.
 //!
 //! Wraps the manual /exit + resume dance documented in AGENT.md as a single
 //! atomic primitive callable from the CLI (`codeterm agent restart`) and from
@@ -54,6 +55,8 @@ pub struct RestartOutcome {
     /// The tab's plan/task caller binding was re-established against its own
     /// authoritative session. Always settled before `agent_ready` is returned.
     pub binding_restored: bool,
+    /// An exited provider was relaunched in its own shell PTY; nothing was torn down.
+    pub recovered_in_place: bool,
     pub old_pty_id: Option<String>,
     pub new_pty_id: Option<String>,
 }
@@ -71,6 +74,7 @@ impl RestartOutcome {
             old_pty_torn_down: false,
             agent_ready: false,
             binding_restored: false,
+            recovered_in_place: false,
             old_pty_id: (!snap.pty_id.is_empty()).then(|| snap.pty_id.clone()),
             new_pty_id: None,
         }
@@ -137,6 +141,9 @@ impl ServiceContext {
         if let Some(outcome) = self.restart_general_agent_if_target(tab_id, force)? {
             return outcome;
         }
+        if let Some(exited_tab_id) = self.absent_restart_target(tab_id)? {
+            return self.recover_exited_provider(&exited_tab_id, force);
+        }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
@@ -202,7 +209,7 @@ impl ServiceContext {
 
         let ready = self.finish_observed_restart(
             outcome,
-            &snap.pty_id,
+            Some(snap.pty_id.as_str()),
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
         )?;
         self.settle_restored_binding(ready, &snap)
@@ -296,7 +303,7 @@ impl ServiceContext {
         );
         let result = self.finish_observed_restart(
             outcome,
-            &target.pty_id,
+            Some(target.pty_id.as_str()),
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
         );
         let old_pty_torn_down = self.old_pty_was_torn_down(&target);
@@ -518,13 +525,13 @@ impl ServiceContext {
     fn finish_observed_restart(
         &self,
         mut outcome: RestartOutcome,
-        old_pty_id: &str,
+        replaced_pty_id: Option<&str>,
         timeout: Duration,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         match crate::service::boot_stage::wait_for_restart_readiness(
             &self.mux,
             &outcome.tab_id,
-            old_pty_id,
+            replaced_pty_id,
             timeout,
         ) {
             crate::service::boot_stage::RestartReadiness::Ready { pty_id } => {
@@ -672,7 +679,7 @@ fn build_relaunch_command(
         session_present,
         structured_prompt_server,
         launch_task,
-        snap.role.as_deref(),
+        &snap.tab_id,
     )
 }
 
@@ -684,7 +691,7 @@ fn build_relaunch_command_with_registry(
     session_present: bool,
     structured_prompt_server: Option<StructuredPromptServer>,
     launch_task: Option<&str>,
-    _role: Option<&str>,
+    tab_id: &str,
 ) -> Option<String> {
     let starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     if session_present && structured_prompt_server.is_some() {
@@ -698,6 +705,7 @@ fn build_relaunch_command_with_registry(
                     skip_permissions: auto_approve,
                     session_id: Some(sid.to_string()),
                     structured_prompt_server: structured_prompt_server.clone(),
+                    launch_marker: None,
                 })
             });
         }
@@ -727,17 +735,18 @@ fn build_relaunch_command_with_registry(
             }
         }
     }
-    registry.with_provider(provider, |p| {
-        p.build_launch_command(&AgentLaunchParams {
-            agent_name: None,
-            task: launch_task.map(str::to_string),
-            starter_prompt,
-            args: None,
-            skip_permissions: auto_approve,
-            session_id: None,
-            structured_prompt_server,
-        })
-    })
+    let mut params = AgentLaunchParams {
+        agent_name: None,
+        task: launch_task.map(str::to_string),
+        starter_prompt,
+        args: None,
+        skip_permissions: auto_approve,
+        session_id: None,
+        structured_prompt_server,
+        launch_marker: None,
+    };
+    crate::service::launch_session_detection::mark_fresh_launch(tab_id, &mut params);
+    registry.with_provider(provider, |p| p.build_launch_command(&params))
 }
 
 pub(crate) fn screen_shows_agent_tui(
@@ -747,6 +756,8 @@ pub(crate) fn screen_shows_agent_tui(
     crate::pty::screen_state::screen_has_agent_tui(screen_text)
         || registry.any_provider_screen_has_tui(screen_text)
 }
+
+mod exit_recovery;
 
 #[cfg(test)]
 mod tests;

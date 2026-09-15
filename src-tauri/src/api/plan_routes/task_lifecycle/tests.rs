@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use super::*;
 use crate::api::plan_routes::tasks::tests::{owner_headers, update_fixture};
 use crate::plan::{Task, TaskStatus};
 use crate::service::test_fixture::ServiceFixture;
+use std::sync::Arc;
 
 fn stored_task(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> Task {
     fixture

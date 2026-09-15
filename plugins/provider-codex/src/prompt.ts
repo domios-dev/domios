@@ -85,6 +85,19 @@ export function parseActiveTerminalChoice(screen: string): ActiveTerminalChoice 
   return { question: questionForMenu(lines, options[0].line), options };
 }
 
+// The paragraph directly above a menu, joined across terminal wraps.
+export function menuPreamble(screen: string, firstOptionLine: number): string {
+  const lines = normalizeLines(screen);
+  let i = firstOptionLine - 1;
+  while (i >= 0 && !lines[i].trim()) i--;
+  const parts: string[] = [];
+  while (i >= 0 && lines[i].trim()) {
+    parts.unshift(lines[i].trim());
+    i--;
+  }
+  return parts.join(" ");
+}
+
 function parseCodexPromptShape(screen: string): PromptShape | null {
   return parseCodexNumberedMenu(screen)
     || parseCodexLetteredPrompt(screen)

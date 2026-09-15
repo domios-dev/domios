@@ -112,6 +112,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            launch_marker: None,
             starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
@@ -136,6 +137,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            launch_marker: None,
             starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
@@ -214,6 +216,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            launch_marker: None,
             starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
@@ -231,6 +234,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            launch_marker: None,
             starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
@@ -256,6 +260,7 @@ mod tests {
             skip_permissions: true,
             session_id: Some("my-pre-generated-uuid".to_string()),
             structured_prompt_server: None,
+            launch_marker: None,
             starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
@@ -281,6 +286,7 @@ mod tests {
             skip_permissions: true,
             session_id: Some("sid-xyz".to_string()),
             structured_prompt_server: None,
+            launch_marker: None,
             starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
