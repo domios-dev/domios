@@ -32,6 +32,23 @@ pub fn load_plugin_icon(bundle_dir: &Path, relative_path: &str) -> Option<String
     sanitize_plugin_icon_svg(&bytes)
 }
 
+/// Accept only `#rgb[a]`/`#rrggbb[aa]` or a CodeTerm theme token, so a manifest color can never carry CSS syntax.
+pub fn sanitize_plugin_icon_color(value: &str) -> Option<String> {
+    let value = value.trim();
+    if let Some(hex) = value.strip_prefix('#') {
+        let valid =
+            matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit());
+        return valid.then(|| value.to_string());
+    }
+    let token = value.strip_prefix("var(--ct-")?.strip_suffix(')')?;
+    let valid = !token.is_empty()
+        && token.len() <= 48
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    valid.then(|| value.to_string())
+}
+
 pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() || bytes.len() > MAX_PLUGIN_ICON_BYTES {
         return None;
@@ -157,14 +174,22 @@ fn sanitized_element(element: &BytesStart<'_>, name: &str) -> Option<BytesStart<
 fn allowed_attribute(element: &str, attribute: &str) -> bool {
     match attribute {
         "fill" | "stroke" | "stroke-width" | "stroke-linecap" | "stroke-linejoin" => true,
-        "viewBox" => element == "svg",
+        "viewBox" | "xmlns" => element == "svg",
         "d" => element == "path",
-        "cx" | "cy" | "r" => element == "circle",
+        "cx" | "cy" => matches!(element, "circle" | "ellipse"),
+        "r" => element == "circle",
+        "rx" | "ry" => matches!(element, "rect" | "ellipse"),
+        "x" | "y" | "width" | "height" => element == "rect",
+        "x1" | "y1" | "x2" | "y2" => element == "line",
+        "points" => matches!(element, "polyline" | "polygon"),
         _ => false,
     }
 }
 
 fn allowed_attribute_value(attribute: &str, value: &str) -> bool {
+    if attribute == "xmlns" {
+        return value == "http://www.w3.org/2000/svg";
+    }
     if value.is_empty()
         || value.chars().any(char::is_control)
         || value.contains('#')
@@ -178,7 +203,12 @@ fn allowed_attribute_value(attribute: &str, value: &str) -> bool {
         "fill" | "stroke" => matches!(value, "currentColor" | "none"),
         "stroke-linecap" => matches!(value, "butt" | "round" | "square"),
         "stroke-linejoin" => matches!(value, "miter" | "round" | "bevel"),
-        "stroke-width" => nonnegative_number(value),
+        "stroke-width" | "r" | "rx" | "ry" | "width" | "height" => nonnegative_number(value),
+        "cx" | "cy" | "x" | "y" | "x1" | "y1" | "x2" | "y2" => finite_number(value),
+        "points" => value
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|part| !part.is_empty())
+            .all(finite_number),
         "viewBox" => {
             let values: Vec<_> = value.split_whitespace().collect();
             values.len() == 4
@@ -226,7 +256,7 @@ mod tests {
             br#"<svg><path xlink:href="https://example.test/icon" d="M0 0"/></svg>"#.as_slice(),
             br#"<svg><style>*{fill:red}</style></svg>"#.as_slice(),
             br#"<svg><path fill="url(#paint)" d="M0 0"/></svg>"#.as_slice(),
-            br#"<svg><rect width="1"/></svg>"#.as_slice(),
+            br#"<svg><rect transform="scale(2)" width="1"/></svg>"#.as_slice(),
         ] {
             assert!(
                 sanitize_plugin_icon_svg(source).is_none(),
@@ -263,5 +293,67 @@ mod tests {
         .expect("large asset");
         assert!(load_plugin_icon(&root, "assets/large.svg").is_none());
         let _ = std::fs::remove_dir_all(PathBuf::from(root));
+    }
+}
+
+#[cfg(test)]
+mod legacy_shape_tests {
+    use super::sanitize_plugin_icon_svg;
+
+    #[test]
+    fn plugin_icon_svg_accepts_legacy_channel_icon_shapes() {
+        let namespaced = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v16H4z"/></svg>"##;
+        assert!(sanitize_plugin_icon_svg(namespaced.as_bytes()).is_some());
+        let geometry = r##"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><ellipse cx="12" cy="11" rx="3" ry="2"/><polyline points="4,4 8,8 12,4"/></svg>"##;
+        assert!(sanitize_plugin_icon_svg(geometry.as_bytes()).is_some());
+    }
+
+    #[test]
+    fn plugin_icon_svg_rejects_unsafe_geometry_and_foreign_namespaces() {
+        let foreign =
+            r##"<svg xmlns="https://evil.example/svg" viewBox="0 0 1 1"><path d="M0 0"/></svg>"##;
+        assert!(sanitize_plugin_icon_svg(foreign.as_bytes()).is_none());
+        let negative =
+            r##"<svg viewBox="0 0 1 1"><rect x="0" y="0" width="-1" height="1"/></svg>"##;
+        assert!(sanitize_plugin_icon_svg(negative.as_bytes()).is_none());
+        let points = r##"<svg viewBox="0 0 1 1"><polygon points="0,0 url(x)"/></svg>"##;
+        assert!(sanitize_plugin_icon_svg(points.as_bytes()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod icon_color_tests {
+    use super::sanitize_plugin_icon_color;
+
+    #[test]
+    fn plugin_icon_color_accepts_hex_and_theme_tokens() {
+        for color in [
+            "#d97757",
+            "#fff",
+            "#ffff",
+            "#175ddc80",
+            "var(--ct-fg)",
+            "var(--ct-accent-2)",
+        ] {
+            assert_eq!(sanitize_plugin_icon_color(color).as_deref(), Some(color));
+        }
+    }
+
+    #[test]
+    fn plugin_icon_color_rejects_css_syntax() {
+        for color in [
+            "",
+            "red",
+            "#12",
+            "#ggg",
+            "url(x)",
+            "var(--other)",
+            "var(--ct-fg); background: red",
+            "var(--ct-FG)",
+            "var(--ct-)",
+            "expression(alert(1))",
+        ] {
+            assert!(sanitize_plugin_icon_color(color).is_none(), "{color}");
+        }
     }
 }

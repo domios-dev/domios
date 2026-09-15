@@ -479,6 +479,103 @@ async function main(): Promise<void> {
     await act(async () => fresh.root.unmount());
   }
 
+  // --- 8. three sends during one long turn keep send order through away/back, remount and
+  // restart before their echoes are written; late echoes neither move nor duplicate them ---
+  {
+    const { forgetChatSendsInMemory } = await import("./chatSendStore");
+    const realNow = Date.now;
+    const base = 1_800_000_000_000;
+    let clock = base;
+    Date.now = () => clock;
+    try {
+      const row = (
+        id: string,
+        type: NormalizedChatMessage["type"],
+        content: string,
+        offset: number,
+        extra: Partial<NormalizedChatMessage> = {},
+      ): NormalizedChatMessage => ({ id, type, content, timestamp: String(base + offset), ...extra });
+      const queued = { timelineMarker: { kind: "queued" as const } };
+      const history = [row("h-0", "user", "ship it", 0), row("h-1", "assistant", "on it", 1_000)];
+      const turnA = [row("t-0", "tool_call", "Bash build", 2_000)];
+      const turnB = [row("t-1", "tool_result", "build ok", 6_000), row("t-2", "assistant", "linting", 7_000)];
+      const turnC = [row("t-3", "tool_call", "Bash lint", 9_000)];
+      const lateTail = [row("t-4", "tool_result", "lint ok", 12_000)];
+      const echoes = [
+        row("e-0", "user", "also run tests", 3_050, queued),
+        row("e-1", "user", "then bump version", 8_050, queued),
+        row("e-2", "user", "and tag it", 10_050, queued),
+      ];
+      const finalReply = [row("t-5", "assistant", "all done", 13_000)];
+      const expected = [
+        "ship it", "on it", "Bash build", "also run tests", "build ok", "linting",
+        "then bump version", "Bash lint", "and tag it", "lint ok", "all done",
+      ];
+      const beforeEchoes = expected.slice(0, 9).join("|");
+      const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
+      const shape = (rows: NormalizedChatMessage[]) => JSON.stringify(rows.map(({ id, type, content }) => ({ id, type, content })));
+
+      const server = new FakeChatServer();
+      server.snapshot = history;
+      let app = await mount(server);
+      server.emit(turnA);
+      await flush();
+      clock = base + 3_000;
+      await act(async () => {
+        app.addOptimistic("also run tests");
+      });
+      server.emit(turnB);
+      await flush();
+      clock = base + 8_000;
+      await act(async () => {
+        app.addOptimistic("then bump version");
+      });
+      server.emit(turnC);
+      await flush();
+      clock = base + 10_000;
+      await act(async () => {
+        app.addOptimistic("and tag it");
+      });
+      await flush();
+      assert(contents(app.messages()) === beforeEchoes, `pending sends interleave in send order (${contents(app.messages())})`);
+
+      await app.render(server.sessionId, false);
+      server.snapshot = [...history, ...turnA, ...turnB, ...turnC];
+      await app.render(server.sessionId, true);
+      assert(contents(app.messages()) === beforeEchoes, `away/back keeps pending sends in place (${contents(app.messages())})`);
+
+      await act(async () => app.root.unmount());
+      app = await mount(server);
+      const pendingPlaces = app.messages().map((message) => message.content);
+      assert(contents(app.messages()) === beforeEchoes, `a remount keeps pending sends in place (${contents(app.messages())})`);
+
+      server.emit([...lateTail, ...echoes, ...finalReply]);
+      await flush();
+      const echoed = app.messages();
+      assert(contents(echoed) === expected.join("|"), `late echoes keep send order (${contents(echoed)})`);
+      assert(
+        pendingPlaces.every((content, index) => echoed[index]?.content === content),
+        "late echoes move no row that was already projected",
+      );
+      assert(echoed.filter((message) => message.type === "user").length === 4, "late echoes never duplicate a send");
+      assert(new Set(echoed.map((message) => message.id)).size === echoed.length, "every echoed row keeps a unique identity");
+
+      server.snapshot = [...history, ...turnA, ...turnB, ...turnC, ...lateTail, ...echoes, ...finalReply];
+      await act(async () => app.root.unmount());
+      app = await mount(server);
+      const remounted = shape(app.messages());
+      assert(contents(app.messages()) === expected.join("|"), `a remount hydrates the same order (${contents(app.messages())})`);
+
+      await act(async () => app.root.unmount());
+      forgetChatSendsInMemory();
+      app = await mount(server);
+      assert(shape(app.messages()) === remounted, "a restart hydrates byte-for-byte identical rows and identities");
+      await act(async () => app.root.unmount());
+    } finally {
+      Date.now = realNow;
+    }
+  }
+
   console.log("chat reactivation lifecycle checks passed");
 }
 

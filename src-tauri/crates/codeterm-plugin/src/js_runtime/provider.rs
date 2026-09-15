@@ -965,7 +965,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn icon_color(&self) -> Option<&str> {
-        None
+        self.manifest.icon_color.as_deref()
     }
 
     fn cli_binary(&self) -> Option<&str> {

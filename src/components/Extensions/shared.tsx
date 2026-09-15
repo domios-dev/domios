@@ -35,8 +35,8 @@ export async function readApiError(r: Response, fallback: string): Promise<strin
 }
 
 /** Adapt a catalog entry's sanitized host icon to the shared renderer shape. */
-export function iconOf(entry: Pick<CatalogEntry, "iconSvg">): PluginIconData {
-  return { icon_svg: entry.iconSvg };
+export function iconOf(entry: Pick<CatalogEntry, "iconSvg" | "iconColor">): PluginIconData {
+  return { icon_svg: entry.iconSvg, icon_color: entry.iconColor };
 }
 
 export function GroupLabel({ children }: { children: React.ReactNode }) {

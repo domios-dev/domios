@@ -174,6 +174,7 @@ pub(super) fn scene() -> Scene {
             icon_svg: Some(
                 "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into(),
             ),
+            icon_color: Some("#d97757".into()),
         }]),
     );
     let workspace = service
@@ -252,6 +253,7 @@ fn plugin_icon_svg_tab_menu_payload_and_target_action_toggles_one_binding() {
             icon_svg: Some(
                 "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>".into()
             ),
+            icon_color: Some("#d97757".into()),
         }]
     );
     assert_eq!(bound.receiver_targets.get(RECEIVER), Some(&scene.tab));

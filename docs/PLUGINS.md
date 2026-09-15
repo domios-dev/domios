@@ -140,6 +140,7 @@ audited channel to the host, and a separately-sandboxed UI.
   "homepage": "https://…",     // optional project/docs link
   "readme": "README.md",       // optional relative markdown path; loaded into the snapshot (bounded) and rendered safely (no raw HTML, remote images not fetched)
   "icon": "icon.svg",          // optional relative SVG shipped in this plugin bundle
+  "iconColor": "#f05133",      // optional: #rgb[a], #rrggbb[aa] or var(--ct-*); anything else is dropped
   "entry": "plugin.js",
   "capabilities": {
     "agentProvider": false,
@@ -846,4 +847,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->
