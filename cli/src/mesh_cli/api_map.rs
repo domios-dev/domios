@@ -869,6 +869,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("GET".into(), path, None)
             }
+            crate::UsageAction::RebuildLedger => (
+                "POST".into(),
+                "/api/usage/ledger/rebuild".into(),
+                Some("{}".into()),
+            ),
             crate::UsageAction::Refresh {
                 provider,
                 account_id,

@@ -50,7 +50,7 @@ fn claude_fixture_totals_match_precomputed_values() {
 }
 
 #[test]
-fn codex_fixture_totals_use_last_turn_usage_not_cumulative() {
+fn codex_fixture_totals_are_deltas_of_cumulative_usage() {
     let dir = scratch("codex");
     let source = write_source(&dir, "rollout.jsonl", codex_fixture());
 
