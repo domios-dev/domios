@@ -100,7 +100,7 @@ describe("compound command group", () => {
     expect(host.children).toHaveLength(1);
     const group = groups[0];
     expect(lines(group).map((line) => line.dataset.rowRole)).toEqual(["codeterm", "script"]);
-    expect(operators(group)).toEqual(["pipe"]);
+    expect(operators(group)).toEqual([]);
     expect(group.querySelector('[data-testid="chat-command-group-title"]')?.textContent).toBe("codeterm mem secret get +1");
 
     const codetermLine = lines(group)[0];
@@ -137,12 +137,13 @@ describe("compound command group", () => {
     expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
   });
 
-  it("titles a Claude Bash compound by its description and marks operators inline", async () => {
+  it("titles a Claude Bash compound by its description and lists segments as a plain tree", async () => {
     const command = "gh issue list --state open --json number && gh pr list || echo offline; git status";
     const host = await render(<ToolCallBubble event={singleEvent(claudeBash(command, "Count open work"))} expanded onToggle={() => {}} />);
     const group = host.querySelector('[data-testid="chat-command-group"]');
     expect(group?.querySelector('[data-testid="chat-command-group-title"]')?.textContent).toBe("Count open work");
-    expect(operators(host)).toEqual(["and", "or", "then"]);
+    expect(operators(host)).toEqual([]);
+    expect(lines(host).map((line) => line.textContent?.match(/&&|\|\||;/))).toEqual([null, null, null, null]);
     expect(lines(host).map((line) => line.dataset.rowRole)).toEqual(["command", "command", "command", "command"]);
     expect(host.querySelectorAll('[data-testid="toolcard-exit-code"]')).toHaveLength(1);
   });
@@ -187,13 +188,13 @@ describe("compound command group", () => {
 });
 
 describe("compact command tree", () => {
-  it("prints one line per segment of the two-segment CodeTerm help chain, in order, with the operator inline", async () => {
+  it("prints one tree line per segment of the two-segment CodeTerm help chain, in order, without operator glyphs", async () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexChain("chain-spec", SPEC_CHAIN))} expanded={false} onToggle={() => {}} />);
     expect(leads(host)).toEqual(["spec section update", "plan task update"]);
     expect(lines(host).map((line) => line.querySelector('[data-testid="chat-command-tree-object"]')?.textContent)).toEqual(["help", "help"]);
-    expect(operators(host)).toEqual(["then"]);
-    expect(lines(host)[0].querySelector('[data-testid="chat-command-tree-operator"]')).toBeNull();
-    expect(lines(host)[1].querySelector('[data-testid="chat-command-tree-operator"]')?.textContent).toContain(";");
+    expect(operators(host)).toEqual([]);
+    expect(lines(host).map((line) => line.textContent?.charAt(0))).toEqual(["├", "└"]);
+    expect(lines(host)[1].textContent).not.toContain(";");
     expect(host.querySelector('[data-testid="chat-command-group-operator"]')).toBeNull();
     for (const line of lines(host)) {
       expect([...line.children].map((child) => child.tagName)).toEqual(["BUTTON"]);
@@ -205,14 +206,14 @@ describe("compact command tree", () => {
     const event = singleEvent(codexChain("chain-plan", PLAN_CHAIN));
     const host = await render(<Stateful event={event} />);
     expect(leads(host)).toEqual(["plan doctor", "plan decision list", "task show"]);
-    expect(operators(host)).toEqual(["then", "then"]);
+    expect(operators(host)).toEqual([]);
     const more = host.querySelector('[data-testid="chat-command-tree-more"]');
     expect(more?.textContent).toContain("+1 more");
 
     await click(more);
     expect(host.querySelector('[data-testid="chat-command-tree-more"]')).toBeNull();
     expect(leads(host)).toEqual(["plan doctor", "plan decision list", "task show", "task show"]);
-    expect(operators(host)).toEqual(["then", "then", "then"]);
+    expect(operators(host)).toEqual([]);
     for (const line of lines(host)) {
       const lead = line.querySelector('[data-testid="chat-command-tree-lead"]')?.textContent ?? "";
       expect(line.textContent?.split(lead).length).toBe(2);
