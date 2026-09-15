@@ -12,8 +12,8 @@ use codeterm_bridge::bridge::threads::transport::{
 };
 use codeterm_bridge::bridge::threads::{
     CloseOutcome, InboundOrigin, InboundRoute, SenderIdentity, SenderRole, TabText, ThreadCaller,
-    ThreadError, ThreadRegistry, ThreadService, ThreadTabs, TopicFailure, TopicTransport,
-    TopicsState, TOPICS_DISABLED_NOTICE,
+    ThreadRegistry, ThreadService, ThreadTabs, TopicFailure, TopicTransport, TopicsState,
+    TOPICS_DISABLED_NOTICE,
 };
 use codeterm_bridge::bridge::traits::{InlineButton, InlineKeyboard, ReplyContext};
 use codeterm_types::message_markers;
@@ -23,9 +23,11 @@ use serde_json::json;
 use crate::notification::channel_ask::{ChannelChoice, PushMessage};
 use crate::notification::channels::{Audience, ChannelHost, PushChannel};
 
+mod attach;
+
 const CHAT: i64 = 186_000_001;
+const SUPERGROUP: i64 = -1_001_234_567_890;
 const TOKEN: &str = "777000:do-not-store-this-secret";
-const BOT_USERNAME: &str = "codeterm_fixture_bot";
 const GENERAL: &str = "tab_general";
 const PLANCK: &str = "tab_planck";
 const ROWAN: &str = "tab_rowan";
@@ -115,12 +117,9 @@ impl FakeTransport {
 
 #[async_trait]
 impl TopicTransport for FakeTransport {
-    async fn bot_username(&self) -> Option<String> {
-        Some(BOT_USERNAME.to_string())
-    }
-
     async fn create_topic(&self, chat_id: i64, name: &str) -> Result<i64, TopicFailure> {
-        assert_eq!(chat_id, CHAT);
+        assert!(chat_id == CHAT || chat_id == SUPERGROUP);
+        tokio::task::yield_now().await;
         self.calls.lock().push(Call::Create {
             name: name.to_string(),
         });
@@ -158,6 +157,7 @@ impl TopicTransport for FakeTransport {
         html: &str,
         buttons: Option<&InlineKeyboard>,
     ) -> Result<i64, TopicFailure> {
+        tokio::task::yield_now().await;
         if thread_id.is_some_and(|thread| self.gone_threads.lock().contains(&thread)) {
             return Err(TopicFailure::ThreadGone);
         }
@@ -371,10 +371,10 @@ async fn telegram_topic_first_tab_send_creates_one_topic_and_routes_it_back() {
     let header = tabs.header(PLANCK);
     assert!(post.html.contains(&header), "topic post names its sender");
     assert!(pointer.html.contains(&header), "pointer names its sender");
-    let link = topic_link(Some(BOT_USERNAME), CHAT, thread).expect("link");
+    assert_eq!(topic_link(CHAT, thread), None);
     assert!(
-        pointer.html.contains(&link),
-        "pointer is a one-tap link into the topic"
+        !pointer.html.contains("href"),
+        "a private-chat pointer carries no link that cannot open the topic"
     );
 
     assert_eq!(
@@ -936,176 +936,6 @@ async fn telegram_topic_binding_persists_across_restarts_without_credentials() {
     }
 }
 
-#[tokio::test]
-async fn telegram_thread_open_is_idempotent_and_posts_the_intro_once() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    let threads = attached(transport.clone());
-
-    let first = threads
-        .open(&tabs, tab_caller(PLANCK), PLANCK, CHAT)
-        .await
-        .expect("opened");
-    let second = threads
-        .open(&tabs, tab_caller(PLANCK), PLANCK, CHAT)
-        .await
-        .expect("reopened");
-
-    assert!(first.created && !second.created);
-    assert_eq!(first.thread_id, second.thread_id);
-    assert_eq!(transport.creates().len(), 1);
-    let intros: Vec<_> = transport
-        .sends()
-        .into_iter()
-        .filter(|sent| sent.thread == Some(first.thread_id))
-        .collect();
-    assert_eq!(intros.len(), 1, "the first message is posted once");
-    assert!(intros[0].html.contains("Planck") && intros[0].html.contains(&tabs.header(PLANCK)));
-    assert_eq!(
-        first.link,
-        topic_link(Some(BOT_USERNAME), CHAT, first.thread_id)
-    );
-    assert!(first.link.is_some());
-}
-
-#[tokio::test]
-async fn telegram_thread_open_reuses_a_topic_a_send_created() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    let threads = attached(transport.clone());
-    threads
-        .route_text(&tabs, text(PLANCK, "hi"))
-        .await
-        .expect("placed");
-
-    let opened = threads
-        .open(&tabs, tab_caller(PLANCK), PLANCK, CHAT)
-        .await
-        .expect("opened");
-
-    assert!(!opened.created);
-    assert_eq!(
-        transport.creates().len(),
-        1,
-        "one binding owner for sends and opens"
-    );
-    assert_eq!(Some(opened.thread_id), topic_post(&transport).thread);
-}
-
-#[tokio::test]
-async fn telegram_thread_general_agent_opens_a_topic_owned_by_the_target() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    let threads = attached(transport.clone());
-
-    let opened = threads
-        .open(&tabs, tab_caller(GENERAL), PLANCK, CHAT)
-        .await
-        .expect("the General Agent may name another tab");
-
-    assert_eq!(opened.tab_id, PLANCK);
-    assert_eq!(transport.creates(), vec!["Planck".to_string()]);
-    let intro = topic_post(&transport);
-    assert!(intro.html.contains(&tabs.header(PLANCK)));
-    assert!(!intro.html.contains(&tabs.header(GENERAL)));
-    assert_eq!(
-        threads.resolve_inbound(&tabs, CHAT, Some(opened.thread_id), None),
-        InboundRoute::Tab {
-            tab_id: PLANCK.to_string(),
-            thread_id: Some(opened.thread_id),
-        }
-    );
-}
-
-#[tokio::test]
-async fn telegram_thread_foreign_target_is_refused_without_any_bot_api_call() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    tabs.add(ROWAN, "Rowan", SenderRole::Worker);
-    let threads = attached(transport.clone());
-
-    let refused = threads
-        .open(&tabs, tab_caller(ROWAN), PLANCK, CHAT)
-        .await
-        .expect_err("a worker may open only its own thread");
-    assert_eq!(
-        refused,
-        ThreadError::ForeignTarget {
-            caller: ROWAN.to_string(),
-            target: PLANCK.to_string(),
-        }
-    );
-    assert!(refused.is_authority());
-    let missing = threads
-        .open(&tabs, tab_caller(ROWAN), "tab_missing", CHAT)
-        .await
-        .expect_err("authority is decided before existence");
-    assert!(missing.is_authority());
-
-    assert!(transport.calls().is_empty(), "no Bot API call");
-    assert!(!threads.has_open_binding(PLANCK));
-    assert!(
-        !threads.stored_json().contains(PLANCK),
-        "no binding recorded"
-    );
-}
-
-#[tokio::test]
-async fn telegram_thread_general_tab_bridge_off_and_topics_off_are_explicit_errors() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    let threads = attached(transport.clone());
-    assert_eq!(
-        threads
-            .open(&tabs, ThreadCaller::Owner, GENERAL, CHAT)
-            .await,
-        Err(ThreadError::GeneralUsesMainChat)
-    );
-    assert!(transport.calls().is_empty());
-
-    let detached = ThreadService::new(ThreadRegistry::in_memory());
-    assert_eq!(
-        detached
-            .open(&tabs, ThreadCaller::Owner, PLANCK, CHAT)
-            .await,
-        Err(ThreadError::BridgeInactive)
-    );
-
-    let disabled = FakeTransport::topics_disabled();
-    let threads = attached(disabled.clone());
-    for _ in 0..2 {
-        assert_eq!(
-            threads.open(&tabs, tab_caller(PLANCK), PLANCK, CHAT).await,
-            Err(ThreadError::TopicsUnavailable)
-        );
-    }
-    assert_eq!(disabled.notices(), 1);
-    assert_eq!(disabled.creates().len(), 2, "an explicit open probes again");
-}
-
-#[tokio::test]
-async fn telegram_thread_menu_state_reflects_bridge_topics_and_binding() {
-    let tabs = tabs_with_planck();
-    let detached = ThreadService::new(ThreadRegistry::in_memory());
-    let off = detached.menu_state(PLANCK, Some(CHAT)).await;
-    assert!(!off.bridge_active && !off.bound);
-    assert_eq!(off.topics, TopicsState::Unknown);
-
-    let transport = FakeTransport::enabled();
-    let threads = attached(transport);
-    let before = threads.menu_state(PLANCK, Some(CHAT)).await;
-    assert!(before.bridge_active && !before.bound && before.link.is_none());
-
-    let opened = threads
-        .open(&tabs, ThreadCaller::Owner, PLANCK, CHAT)
-        .await
-        .expect("opened");
-    let after = threads.menu_state(PLANCK, Some(CHAT)).await;
-    assert!(after.bound);
-    assert_eq!(after.topics, TopicsState::Available);
-    assert_eq!(after.link, opened.link);
-}
-
 #[test]
 fn telegram_topic_failure_classification_and_links() {
     assert_eq!(
@@ -1121,13 +951,4 @@ fn telegram_topic_failure_classification_and_links() {
         TopicFailure::Rejected(_)
     ));
     assert_eq!(bot_id_from_token(TOKEN), 777_000);
-    assert_eq!(
-        topic_link(None, -1_001_234_567_890, 5).as_deref(),
-        Some("https://t.me/c/1234567890/5")
-    );
-    assert_eq!(
-        topic_link(Some(BOT_USERNAME), CHAT, 5),
-        Some(format!("https://t.me/{BOT_USERNAME}/5"))
-    );
-    assert_eq!(topic_link(None, CHAT, 5), None);
 }

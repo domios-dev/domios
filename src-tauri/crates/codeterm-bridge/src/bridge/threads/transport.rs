@@ -35,14 +35,37 @@ pub fn classify_failure(description: &str) -> TopicFailure {
     TopicFailure::Rejected(description.to_string())
 }
 
-/// A one-tap link into a topic. Supergroups use the `t.me/c` form; a bot's
-/// private chat uses the bot username form.
-pub fn topic_link(bot_username: Option<&str>, chat_id: i64, thread_id: i64) -> Option<String> {
-    if let Some(internal) = chat_id.to_string().strip_prefix("-100") {
-        return Some(format!("https://t.me/c/{internal}/{thread_id}"));
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatKind {
+    Private,
+    Supergroup { internal_id: i64 },
+    Group,
+}
+
+/// Bot API ids: users are positive, supergroups carry the `-100` prefix.
+pub fn chat_kind(chat_id: i64) -> ChatKind {
+    if chat_id > 0 {
+        return ChatKind::Private;
     }
-    let username = bot_username.map(str::trim).filter(|u| !u.is_empty())?;
-    Some(format!("https://t.me/{username}/{thread_id}"))
+    match chat_id
+        .to_string()
+        .strip_prefix("-100")
+        .and_then(|internal| internal.parse().ok())
+    {
+        Some(internal_id) => ChatKind::Supergroup { internal_id },
+        None => ChatKind::Group,
+    }
+}
+
+/// A link that opens the topic itself. Only supergroup forums have one
+/// (`t.me/c/<id>/<topic_id>`); Telegram documents no topic link for a bot's private chat.
+pub fn topic_link(chat_id: i64, thread_id: i64) -> Option<String> {
+    match chat_kind(chat_id) {
+        ChatKind::Supergroup { internal_id } => {
+            Some(format!("https://t.me/c/{internal_id}/{thread_id}"))
+        }
+        ChatKind::Private | ChatKind::Group => None,
+    }
 }
 
 /// The bot's public user id, which prefixes its token. Never the secret half.
@@ -56,7 +79,6 @@ pub fn bot_id_from_token(token: &str) -> i64 {
 
 #[async_trait]
 pub trait TopicTransport: Send + Sync {
-    async fn bot_username(&self) -> Option<String>;
     async fn create_topic(&self, chat_id: i64, name: &str) -> Result<i64, TopicFailure>;
     async fn delete_topic(&self, chat_id: i64, thread_id: i64) -> Result<(), TopicFailure>;
     async fn rename_topic(
@@ -79,7 +101,6 @@ pub struct TelegramTopicTransport {
     client: reqwest::Client,
     api_base: String,
     token: String,
-    username: tokio::sync::OnceCell<String>,
 }
 
 impl TelegramTopicTransport {
@@ -97,7 +118,6 @@ impl TelegramTopicTransport {
             client,
             api_base,
             token,
-            username: tokio::sync::OnceCell::new(),
         }
     }
 
@@ -141,24 +161,6 @@ impl TelegramTopicTransport {
 
 #[async_trait]
 impl TopicTransport for TelegramTopicTransport {
-    async fn bot_username(&self) -> Option<String> {
-        self.username
-            .get_or_try_init(|| async {
-                self.call("getMe", json!({}))
-                    .await
-                    .ok()
-                    .and_then(|me| {
-                        me.get("username")
-                            .and_then(Value::as_str)
-                            .map(str::to_string)
-                    })
-                    .ok_or(())
-            })
-            .await
-            .ok()
-            .cloned()
-    }
-
     async fn create_topic(&self, chat_id: i64, name: &str) -> Result<i64, TopicFailure> {
         let result = self
             .call(
