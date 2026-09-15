@@ -1,6 +1,7 @@
 import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 import { mergeById } from "./merge";
 import { timestampMs } from "./time";
+import { chronologicalRows } from "./timeline";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open byte range `[start, end)` of a session source, both ends on a
@@ -372,7 +373,7 @@ export function projectTranscript(
   state: TranscriptState,
   optimistic: readonly NormalizedChatMessage[] = [],
 ): TranscriptProjection {
-  const rows = transcriptRows(state);
+  const rows = chronologicalRows(transcriptRows(state));
   if (optimistic.length === 0) return { rows, pending: [] };
   const parsedUsers = rows.filter((row) => row.type === "user" || row.type === "local_command");
   const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);

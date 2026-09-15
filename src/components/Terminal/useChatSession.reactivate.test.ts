@@ -129,6 +129,7 @@ interface Mounted {
   root: Root;
   render: (sessionId: string | null, active: boolean) => Promise<void>;
   messages: () => NormalizedChatMessage[];
+  addOptimistic: (content: string) => string;
 }
 
 async function main(): Promise<void> {
@@ -136,9 +137,10 @@ async function main(): Promise<void> {
   const bridge = await import("../../lib/bridge");
   const { useChatSession } = await import("./useChatSession");
 
-  let view: NormalizedChatMessage[] = [];
   async function mount(server: FakeChatServer): Promise<Mounted> {
     server.install(bridge as never);
+    let view: NormalizedChatMessage[] = [];
+    let addOptimistic: ((content: string) => string) | null = null;
     function Harness({ sid, active }: { sid: string | null; active: boolean }) {
       const session = useChatSession({
         tabId: server.tabId,
@@ -147,6 +149,7 @@ async function main(): Promise<void> {
         active,
       });
       view = session.allMessages;
+      addOptimistic = session.addOptimistic;
       return null;
     }
     const host = document.createElement("div");
@@ -159,7 +162,15 @@ async function main(): Promise<void> {
       await flush();
     };
     await render(server.sessionId, true);
-    return { root, render, messages: () => view };
+    return {
+      root,
+      render,
+      messages: () => view,
+      addOptimistic: (content: string) => {
+        if (!addOptimistic) throw new Error("hook not rendered");
+        return addOptimistic(content);
+      },
+    };
   }
 
   // --- 1. plain leave/return: exactly one reattach, live deltas resume ---
@@ -369,6 +380,103 @@ async function main(): Promise<void> {
       "a genuinely repeated send is adopted after the committed turn",
     );
     await act(async () => app.root.unmount());
+  }
+
+  // --- 7. a mid-turn send whose echo lands after leave/return projects the same
+  // chronological order and snapshot identities as a fresh mount, without a remount ---
+  {
+    const row = (
+      base: number,
+      id: string,
+      type: NormalizedChatMessage["type"],
+      content: string,
+      offset: number,
+      extra: Partial<NormalizedChatMessage> = {},
+    ): NormalizedChatMessage => ({ id, type, content, timestamp: String(base + offset), ...extra });
+    const before = Date.now();
+    const history = [
+      row(before, "h-0", "user", "build it", -60_000),
+      row(before, "h-1", "assistant", "starting", -50_000),
+    ];
+    const beforeSend = [
+      row(before, "l-0", "assistant", "reading config", -40_000),
+      row(before, "l-1", "tool_call", "Read config.json", -30_000),
+      row(before, "l-2", "tool_result", "config ok", -20_000),
+    ];
+    const expected = [
+      "build it",
+      "starting",
+      "reading config",
+      "Read config.json",
+      "config ok",
+      "also check the logs",
+      "running the build",
+      "Bash build.sh",
+      "build ok",
+      "logs are clean",
+    ].join("|");
+    const contents = (rows: NormalizedChatMessage[]) => rows.map((message) => message.content).join("|");
+
+    const server = new FakeChatServer();
+    server.snapshot = history;
+    const app = await mount(server);
+    server.emit(beforeSend);
+    await flush();
+    let optimisticId = "";
+    const sentAt = Date.now();
+    await act(async () => {
+      optimisticId = app.addOptimistic("also check the logs");
+    });
+    const afterSend = [
+      row(sentAt, "l-3", "assistant", "running the build", 30_000),
+      row(sentAt, "l-4", "tool_call", "Bash build.sh", 40_000),
+    ];
+    const consumedTurn = [
+      row(sentAt, "c-0", "tool_result", "build ok", 50_000),
+      row(sentAt, "c-1", "user", "also check the logs", 0, { timelineMarker: { kind: "queued" } }),
+      row(sentAt, "c-2", "assistant", "logs are clean", 60_000),
+    ];
+    server.emit(afterSend);
+    await flush();
+    assert(
+      contents(app.messages()) === expected.split("|").slice(0, 8).join("|"),
+      `a pending mid-turn send holds its send slot while later output follows (${contents(app.messages())})`,
+    );
+
+    await app.render(server.sessionId, false);
+    server.snapshot = [...history, ...beforeSend, ...afterSend];
+    await app.render(server.sessionId, true);
+    const snapshotIds = app.messages().filter((message) => message.id !== optimisticId).map((message) => message.id);
+    server.emit(consumedTurn);
+    await flush();
+    const reactivated = app.messages().map((message) => ({ ...message }));
+    assert(server.log.starts.length === 2, `leave/return reattaches once without a remount (starts=${server.log.starts.length})`);
+    assert(
+      contents(reactivated) === expected,
+      `re-activation projects the chronological order (${contents(reactivated)})`,
+    );
+    assert(!reactivated.some((message) => message.id === optimisticId), "the echo reconciles the pre-leave optimistic row");
+    assert(
+      new Set(reactivated.map((message) => message.id)).size === reactivated.length,
+      "every re-activated row keeps a unique identity",
+    );
+    assert(
+      snapshotIds.every((id) => reactivated.some((message) => message.id === id)),
+      "rows hydrated on return keep their identity when the echo commits",
+    );
+    await act(async () => app.root.unmount());
+
+    const freshServer = new FakeChatServer();
+    freshServer.offset = server.offset;
+    freshServer.snapshot = [...history, ...beforeSend, ...afterSend, ...consumedTurn];
+    const fresh = await mount(freshServer);
+    const freshRows = fresh.messages();
+    assert(contents(freshRows) === expected, `a fresh mount projects the same order (${contents(freshRows)})`);
+    reactivated.forEach((message, index) => {
+      if (!snapshotIds.includes(message.id)) return;
+      assert(freshRows[index]?.id === message.id, `fresh and re-activated rows share snapshot identity at ${index}`);
+    });
+    await act(async () => fresh.root.unmount());
   }
 
   console.log("chat reactivation lifecycle checks passed");
