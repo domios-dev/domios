@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::Duration;
 
@@ -11,6 +11,10 @@ use serde_json::Value;
 use wait_timeout::ChildExt;
 
 use crate::process_util;
+
+mod queue;
+mod completion;
+use queue::Scheduler;
 
 pub(crate) const DIAGNOSTICS_DEADLINE: Duration = Duration::from_secs(900);
 const PREPARE_DEADLINE: Duration = Duration::from_secs(30);
@@ -61,13 +65,27 @@ pub(crate) struct DiagnosticsRequest {
     pub(crate) base: Option<String>,
     pub(crate) sha: Option<String>,
     pub(crate) changed_files: Vec<String>,
+    pub(crate) reporter_tab_id: String,
     pub(crate) require_lane_marker: bool,
 }
 
-pub(crate) struct LaneDiagnosticsService {
+pub(crate) struct DiagnosticsCore {
     storage_root: PathBuf,
     run_lock: Mutex<()>,
     deadline: Duration,
+    #[cfg(test)]
+    runner: Option<Arc<DiagnosticsRunner>>,
+}
+
+#[cfg(test)]
+type DiagnosticsRunner = dyn Fn(DiagnosticsRequest, Duration) -> Result<LaneDiagnosticsSummary, String>
+    + Send
+    + Sync;
+
+pub(crate) struct LaneDiagnosticsService {
+    core: Arc<DiagnosticsCore>,
+    scheduler: Scheduler,
+    owner: Mutex<Weak<super::ServiceContext>>,
 }
 
 impl LaneDiagnosticsService {
@@ -76,18 +94,88 @@ impl LaneDiagnosticsService {
     }
 
     pub(crate) fn with_deadline(storage_root: PathBuf, deadline: Duration) -> Arc<Self> {
-        Arc::new(Self {
+        let core = Arc::new(DiagnosticsCore {
             storage_root,
             run_lock: Mutex::new(()),
             deadline,
+            #[cfg(test)]
+            runner: None,
+        });
+        let scheduler = Scheduler::new(Arc::clone(&core));
+        Arc::new(Self {
+            core,
+            scheduler,
+            owner: Mutex::new(Weak::new()),
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_runner_for_test(
+        storage_root: PathBuf,
+        runner: Arc<DiagnosticsRunner>,
+    ) -> Arc<Self> {
+        let core = Arc::new(DiagnosticsCore {
+            storage_root,
+            run_lock: Mutex::new(()),
+            deadline: Duration::from_secs(1),
+            runner: Some(runner),
+        });
+        let scheduler = Scheduler::new(Arc::clone(&core));
+        Arc::new(Self {
+            core,
+            scheduler,
+            owner: Mutex::new(Weak::new()),
+        })
+    }
+
+    pub(crate) fn bind_owner(&self, owner: Weak<super::ServiceContext>) {
+        *self.owner.lock() = owner;
+    }
+
+    fn owner(&self) -> Weak<super::ServiceContext> {
+        self.owner.lock().clone()
+    }
+
+    pub(crate) fn enqueue<F>(&self, request: DiagnosticsRequest, completion: F) -> bool
+    where
+        F: FnOnce(Result<LaneDiagnosticsSummary, String>) + Send + 'static,
+    {
+        self.scheduler.enqueue(request, completion)
     }
 
     pub(crate) fn run(
         &self,
         request: DiagnosticsRequest,
     ) -> Result<LaneDiagnosticsSummary, String> {
+        self.core.run(request)
+    }
+
+    pub(crate) fn load(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+    ) -> Result<LaneDiagnosticsSummary, String> {
+        self.core.load(plan_id, task_id, attempt_id)
+    }
+
+    pub(crate) fn store_summary(&self, summary: &LaneDiagnosticsSummary) -> Result<(), String> {
+        self.core.store_summary(summary)
+    }
+}
+
+impl DiagnosticsCore {
+    fn run(
+        &self,
+        request: DiagnosticsRequest,
+    ) -> Result<LaneDiagnosticsSummary, String> {
         let _run_guard = self.run_lock.lock();
+        #[cfg(test)]
+        if let Some(runner) = &self.runner {
+            let summary = runner(request, self.deadline)?;
+            self.store_summary(&summary)?;
+            return Ok(summary);
+        }
         let warm = warm_worktree_path(&request.canonical_project_path)?;
         let warm_str = warm.to_string_lossy().into_owned();
         let lane_scope = analysis_scope(
@@ -165,6 +253,7 @@ impl LaneDiagnosticsService {
             )
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_INCREMENTAL", "1")
+            .env("CODETERM_BUILD_GATEWAY_MODE", "fail-fast")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let execution = run_command(command, self.deadline)?;
@@ -175,6 +264,17 @@ impl LaneDiagnosticsService {
                 request.attempt_id,
                 warm.display().to_string(),
                 "diagnostics incomplete: deadline exceeded".into(),
+            );
+            self.store_summary(&summary)?;
+            return Ok(summary);
+        }
+        if let Some(reason) = gateway_busy_reason(&execution.output) {
+            let summary = LaneDiagnosticsSummary::skipped(
+                request.plan_id,
+                request.task_id,
+                request.attempt_id,
+                warm.display().to_string(),
+                reason,
             );
             self.store_summary(&summary)?;
             return Ok(summary);
@@ -274,6 +374,14 @@ fn safe_component(value: &str) -> String {
     } else {
         encoded
     }
+}
+
+fn gateway_busy_reason(output: &str) -> Option<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("Build gateway busy:"))
+        .map(|line| format!("build gateway busy; {line}"))
 }
 
 pub(crate) fn warm_worktree_path(canonical: &str) -> Result<PathBuf, String> {
@@ -795,118 +903,22 @@ fn parse_typescript_finding(tool: &str, line: &str) -> Option<LaneDiagnosticFind
     })
 }
 
-impl super::ServiceContext {
-    pub(crate) fn diagnostics_request_for_report(
-        &self,
-        tab_id: &str,
-        plan_id: &str,
-        task_id: &str,
-        details: &crate::agent::reports::ReportDetails,
-    ) -> Option<DiagnosticsRequest> {
-        let plan = self.plan_store.get(plan_id)?;
-        let task = plan.tasks.iter().find(|task| task.id == task_id)?;
-        let lane = task
-            .lane
-            .worktree_path
-            .as_deref()
-            .filter(|path| !path.trim().is_empty())?;
-        let marker = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.provisioned_cwd.clone())?;
-        if !super::same_path(lane, &marker) {
-            return None;
-        }
-        let attempt_id = details.attempt_id.clone().or_else(|| {
-            task.execution_attempts
-                .iter()
-                .rev()
-                .find(|attempt| attempt.executor_tab_id == tab_id && attempt.closed_at.is_none())
-                .map(|attempt| attempt.id.clone())
-        })?;
-        Some(DiagnosticsRequest {
-            plan_id: plan_id.to_string(),
-            task_id: task_id.to_string(),
-            attempt_id,
-            canonical_project_path: canonical_project_path(&plan),
-            lane_worktree_path: lane.to_string(),
-            lane_marker: Some(marker),
-            lane_branch: details.branch.clone().or_else(|| task.lane.branch.clone()),
-            base: details.base.clone().or_else(|| task.lane.base.clone()),
-            sha: details.sha.clone(),
-            changed_files: details.changed_files.clone().unwrap_or_default(),
-            require_lane_marker: true,
-        })
-    }
+fn diagnostics_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
-    pub(crate) fn check_lane_subject(
-        &self,
-        plan_ref: Option<&str>,
-        subject: &str,
-    ) -> Result<(String, String, LaneDiagnosticsSummary), String> {
-        let (plan, task) = resolve_lane_subject(&self.plan_store, plan_ref, subject)?;
-        let attempt_id = task
-            .execution_attempts
-            .iter()
-            .rev()
-            .find(|attempt| attempt.closed_at.is_none())
-            .map(|attempt| attempt.id.clone())
-            .unwrap_or_else(|| "manual".into());
-        let lane = task
-            .lane
-            .worktree_path
-            .clone()
-            .ok_or_else(|| "task has no host-owned lane worktree".to_string())?;
-        let request = DiagnosticsRequest {
-            plan_id: plan.id.clone(),
-            task_id: task.id.clone(),
-            attempt_id,
-            canonical_project_path: canonical_project_path(&plan),
-            lane_worktree_path: lane,
-            lane_marker: None,
-            lane_branch: task.lane.branch.clone(),
-            base: task.lane.base.clone(),
-            sha: None,
-            changed_files: Vec::new(),
-            require_lane_marker: false,
-        };
-        let summary = self.lane_diagnostics.run(request)?;
-        Ok((plan.id, task.id, summary))
+fn diagnostics_followup_targets(owner: Option<&str>, worker: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    if let Some(owner) = owner.filter(|id| !id.is_empty()) {
+        targets.push(owner.to_string());
     }
-
-    pub(crate) fn diagnostics_for_task(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-    ) -> Result<LaneDiagnosticsSummary, String> {
-        let plan = self
-            .plan_store
-            .get(plan_id)
-            .ok_or_else(|| "plan not found".to_string())?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .ok_or_else(|| "task not found".to_string())?;
-        if let Some(summary) = task
-            .execution_attempts
-            .iter()
-            .rev()
-            .filter_map(|attempt| attempt.report.as_ref())
-            .find_map(|report| report.diagnostics.clone())
-        {
-            return Ok(summary);
-        }
-        let attempt_id = task
-            .execution_attempts
-            .iter()
-            .rev()
-            .map(|attempt| attempt.id.as_str())
-            .next()
-            .ok_or_else(|| "task has no execution attempt".to_string())?;
-        self.lane_diagnostics.load(plan_id, task_id, attempt_id)
+    if !worker.is_empty() && owner != Some(worker) {
+        targets.push(worker.to_string());
     }
+    targets
 }
 
 fn canonical_project_path(plan: &codeterm_types::plan::Plan) -> String {
@@ -972,140 +984,4 @@ fn resolve_lane_subject(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lane_path_never_allows_a_watcher_but_canonical_does() {
-        assert!(!analysis_allowed(analysis_scope(
-            "C:/repo",
-            "C:/repo-worktrees/.diagnostics",
-            Some("C:/repo-worktrees/lane-a"),
-            Some("C:/repo-worktrees/lane-a"),
-            "C:/repo-worktrees/lane-a",
-        )));
-        assert!(analysis_allowed(analysis_scope(
-            "C:/repo",
-            "C:/repo-worktrees/.diagnostics",
-            Some("C:/repo-worktrees/lane-a"),
-            Some("C:/repo-worktrees/lane-a"),
-            "C:/repo",
-        )));
-    }
-
-    #[test]
-    fn cargo_json_missing_import_keeps_primary_location_and_code() {
-        let output = r#"CODETERM_DIAGNOSTIC_TOOL	cargo-check
-{"reason":"compiler-message","message":{"level":"error","message":"cannot find value `x`","code":{"code":"E0425"},"spans":[{"file_name":"src/main.rs","line_start":7,"column_start":9,"is_primary":true}]}}"#;
-        let findings = parse_diagnostics(output, &[]);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].file.as_deref(), Some("src/main.rs"));
-        assert_eq!(findings[0].line, Some(7));
-        assert_eq!(findings[0].code.as_deref(), Some("E0425"));
-    }
-
-    #[test]
-    fn diagnostics_filter_to_changed_source_files() {
-        let output = concat!(
-            "CODETERM_DIAGNOSTIC_TOOL\tcargo-check\n",
-            r#"{"reason":"compiler-message","message":{"level":"warning","message":"changed","spans":[{"file_name":"src/changed.rs","line_start":2,"is_primary":true}]}}"#,
-            "\n",
-            r#"{"reason":"compiler-message","message":{"level":"warning","message":"unrelated","spans":[{"file_name":"src/other.rs","line_start":9,"is_primary":true}]}}"#,
-        );
-        let findings = parse_diagnostics(output, &["src-tauri/src/changed.rs".into()]);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].file.as_deref(), Some("src/changed.rs"));
-    }
-
-    #[test]
-    fn clean_tool_output_does_not_create_findings() {
-        let output = concat!(
-            "CODETERM_DIAGNOSTIC_TOOL\tcargo-check\nChecking codeterm\n",
-            "CODETERM_DIAGNOSTIC_EXIT\tcargo-check\t0\n",
-            "CODETERM_DIAGNOSTIC_TOOL\twebforks-gate\nweb fork inventory is fresh\n",
-            "CODETERM_DIAGNOSTIC_EXIT\twebforks-gate\t0\n",
-        );
-        assert!(parse_diagnostics(output, &[]).is_empty());
-    }
-
-    #[test]
-    fn typescript_type_mismatch_keeps_file_line_column_and_code() {
-        let findings = parse_diagnostics(
-            "CODETERM_DIAGNOSTIC_TOOL\ttsc\nsrc/app.ts(12,4): error TS2322: type mismatch",
-            &[],
-        );
-        assert_eq!(findings[0].file.as_deref(), Some("src/app.ts"));
-        assert_eq!(findings[0].line, Some(12));
-        assert_eq!(findings[0].column, Some(4));
-        assert_eq!(findings[0].code.as_deref(), Some("TS2322"));
-    }
-
-    #[test]
-    fn fmt_and_gate_findings_keep_their_tool_identity() {
-        let findings = parse_diagnostics(
-            "CODETERM_DIAGNOSTIC_TOOL\tfmt\nDiff in src/lib.rs at line 3:\nCODETERM_DIAGNOSTIC_TOOL\twebforks-gate\nmissing inventory entry",
-            &["src/lib.rs".into()],
-        );
-        assert_eq!(findings[0].file.as_deref(), Some("src/lib.rs"));
-        assert_eq!(findings[0].line, Some(3));
-        assert_eq!(findings[1].tool, "webforks-gate");
-    }
-
-    #[test]
-    fn touched_crates_are_unique_and_diff_scoped() {
-        let crates = touched_crates(&[
-            "src-tauri/src/lib.rs".into(),
-            "src-tauri/crates/codeterm-plan/src/lib.rs".into(),
-            "src-tauri/crates/codeterm-plan/src/other.rs".into(),
-            "cli/src/main.rs".into(),
-        ]);
-        assert_eq!(crates, vec!["app", "plan", "cli"]);
-    }
-
-    #[test]
-    fn lane_diagnostics_summary_round_trips_counts_and_locations() {
-        let summary = LaneDiagnosticsSummary::from_findings(
-            "plan".into(),
-            "task".into(),
-            "attempt".into(),
-            "warm".into(),
-            vec!["cargo-check".into()],
-            vec![
-                LaneDiagnosticFinding {
-                    tool: "cargo-check".into(),
-                    severity: "error".into(),
-                    file: Some("src/lib.rs".into()),
-                    line: Some(4),
-                    column: Some(2),
-                    message: "missing import".into(),
-                    code: Some("E0432".into()),
-                },
-                LaneDiagnosticFinding {
-                    tool: "fmt".into(),
-                    severity: "warning".into(),
-                    ..Default::default()
-                },
-            ],
-        );
-        let json = serde_json::to_string(&summary).unwrap();
-        let round_trip: LaneDiagnosticsSummary = serde_json::from_str(&json).unwrap();
-        assert_eq!(round_trip.error_count, 1);
-        assert_eq!(round_trip.warning_count, 1);
-        assert_eq!(round_trip.findings[0].line, Some(4));
-        assert_eq!(round_trip.findings[0].code.as_deref(), Some("E0432"));
-    }
-
-    #[test]
-    fn incomplete_diagnostics_are_explicitly_bounded() {
-        let summary = LaneDiagnosticsSummary::incomplete(
-            "plan".into(),
-            "task".into(),
-            "attempt".into(),
-            "warm".into(),
-            "deadline exceeded".into(),
-        );
-        assert!(summary.incomplete);
-        assert_eq!(summary.status, "incomplete");
-        assert_eq!(summary.warning_count, 1);
-    }
-}
+mod tests;

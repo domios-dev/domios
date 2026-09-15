@@ -167,6 +167,9 @@ impl ServiceFixture {
             ),
         };
         let owner = Arc::new(service.clone());
+        service
+            .lane_diagnostics
+            .bind_owner(Arc::downgrade(&owner));
         service.provider_updates.bind_execution_owner(&owner);
         Self {
             service,
