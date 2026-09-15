@@ -1,5 +1,5 @@
 /**
- * The pinned-plugin "glance" — a Chrome-extension-style popover that renders a
+ * The plugin "glance" — a Chrome-extension-style popover that renders a
  * plugin's read-only `renderGlance()` ViewNode tree. Not settings: a quick peek
  * (Bitwarden account, transcriber status, …) with a gear to open full settings.
  */
@@ -14,7 +14,7 @@ import { GlanceBody, type GlanceView } from "./ViewNodeRenderer";
 
 export interface GlanceAnchor {
   right: number;
-  /** Anchor from the top (titlebar tray) or bottom (tab-footer bubble). */
+  /** Anchor from the bottom tab-footer bubble. */
   top?: number;
   bottom?: number;
 }
