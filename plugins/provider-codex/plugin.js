@@ -2444,6 +2444,7 @@ var OUTPUT_FINGERPRINTS = [
   "codex>"
 ];
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
+var NO_TUI_ANIMATIONS = ["-c", "tui.animations=false"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
@@ -2530,7 +2531,7 @@ var plugin = {
     const p = params || {};
     const parts = [];
     let prefix = "";
-    parts.push("codex");
+    parts.push("codex", ...NO_TUI_ANIMATIONS);
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -2563,7 +2564,7 @@ var plugin = {
     return prefix + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["codex", "resume"];
+    const parts = ["codex", ...NO_TUI_ANIMATIONS, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
