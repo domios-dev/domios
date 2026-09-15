@@ -19,6 +19,7 @@ use super::JsonRpcError;
 
 mod attempt_rollback;
 mod brief;
+pub(super) mod canonical_writer;
 mod dispatch_failure;
 mod gates;
 mod lane_commit;
@@ -683,6 +684,8 @@ pub(super) fn dispatch(
             ))
         }
     };
+    let placement =
+        canonical_writer::dispatch_worker_placement(p, &execution_intent, &detail.task)?;
     let allowance_capability = svc
         .agent_registry
         .with_provider(&resolved_provider, |provider| {
@@ -750,12 +753,15 @@ pub(super) fn dispatch(
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
         .map_err(plan_rpc_err)?;
-    let brief = build_brief_with_manifest(
-        &detail.task,
-        &detail.sections,
-        &plan_id,
-        &manifest,
-        &authorized_gates,
+    let brief = canonical_writer::compose_dispatch_brief(
+        build_brief_with_manifest(
+            &detail.task,
+            &detail.sections,
+            &plan_id,
+            &manifest,
+            &authorized_gates,
+        ),
+        placement,
     );
 
     let explicit_cwd = owned_str(p, "cwd");
@@ -780,6 +786,12 @@ pub(super) fn dispatch(
                 LaneProtection::Waived,
             )
             .map_err(checkout_required)?;
+            Some(lane_resolution::DispatchLaneResolution {
+                spawn_cwd: canonical_cwd.clone(),
+                existing: None,
+            })
+        } else if placement == crate::plan::WorkerPlacement::CanonicalWriter {
+            canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
             Some(lane_resolution::DispatchLaneResolution {
                 spawn_cwd: canonical_cwd.clone(),
                 existing: None,
@@ -815,7 +827,10 @@ pub(super) fn dispatch(
     // Placement decides lane-vs-canonical before a tab exists, so a refusal and
     // a provisioning both happen with nothing yet to clean up.
     let lane_placement = match lane_resolution.as_ref() {
-        Some(resolution) if execution_intent == crate::plan::ExecutionIntent::Mutating => {
+        Some(resolution)
+            if execution_intent == crate::plan::ExecutionIntent::Mutating
+                && placement.is_isolated_lane() =>
+        {
             let resolved = resolution.existing.clone().ok_or_else(|| {
                 checkout_required("mutating dispatch resolved no repository checkout")
             })?;
@@ -879,19 +894,21 @@ pub(super) fn dispatch(
         ),
         _ => None,
     };
-    let initial_provenance =
-        if execution_intent == crate::plan::ExecutionIntent::Mutating && requires_repository {
-            match provisioned_lane.as_ref() {
-                Some(lane) => lane.verify(),
-                None => match lane_placement.as_ref() {
-                    Some(DispatchLanePlacement::Existing(provenance)) => Ok(provenance.clone()),
-                    _ => Err("dispatch did not provision or resolve a worker lane".to_string()),
-                },
-            }
-            .map(Some)
-        } else {
-            Ok(None)
-        };
+    let initial_provenance = if execution_intent == crate::plan::ExecutionIntent::Mutating
+        && requires_repository
+        && placement.is_isolated_lane()
+    {
+        match provisioned_lane.as_ref() {
+            Some(lane) => lane.verify(),
+            None => match lane_placement.as_ref() {
+                Some(DispatchLanePlacement::Existing(provenance)) => Ok(provenance.clone()),
+                _ => Err("dispatch did not provision or resolve a worker lane".to_string()),
+            },
+        }
+        .map(Some)
+    } else {
+        Ok(None)
+    };
     let initial_provenance = match initial_provenance {
         Ok(provenance) => provenance,
         Err(error) => {
@@ -984,6 +1001,7 @@ pub(super) fn dispatch(
         Some(&resolved_provider),
         &reserved_attempt_id,
         authorized_gates.clone(),
+        placement,
         now,
     ) {
         Ok(attempt_id) => attempt_id,
@@ -1073,6 +1091,7 @@ pub(super) fn dispatch(
         "attempt_id": attempt_id,
         "agent": resolved_provider,
         "authorized_gates": authorized_gates,
+        "placement": placement,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
         result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &detail.task.lane);
