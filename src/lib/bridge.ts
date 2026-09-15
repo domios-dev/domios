@@ -119,6 +119,8 @@ const HTTP_MAP: Record<string, Mapper> = {
   repo_watch_subscribe: (a) => webJson("POST", "/api/repo-watch/subscribe", a),
   repo_watch_unsubscribe: (a) => webJson("POST", "/api/repo-watch/unsubscribe", a),
   plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
+  plugin_tab_menu: () => webJson("GET", "/api/plugins/tab-menu"),
+  plugin_tab_menu_action: (a) => webJson("POST", "/api/plugins/tab-menu/action", a),
   chatbackend_session_info: (a) =>
     webJson("POST", "/api/plugins/chatbackend/session-info", {
       pluginId: s(a, "pluginId"),

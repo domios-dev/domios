@@ -115,7 +115,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 #### Inbound webhooks (Pebble)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/plugins/pebble/webhook` | Multipart form or JSON, at most 1 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches the General Agent |
+| POST | `/api/plugins/pebble/webhook` | Multipart form or JSON, at most 1 MiB | Hand an authenticated Pebble event to the plugin that registers a `webhookReceiver` of kind `pebble`; a delivery reaches that receiver's live bound tab, otherwise the General Agent |
 
 **Authentication.** Only `Authorization: Bearer <secret>`, compared in constant time with the secret-store entry `pebble_webhook_secret` (see `codeterm docs SECRETS`). The route does not use the daemon API token, and no URL, path, or query token is accepted. Nothing reaches the plugin before authentication succeeds. Non-loopback callers additionally need mesh networking enabled.
 
@@ -132,7 +132,7 @@ Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-i
 
 | Status | Body `status` / `error.code` | Meaning |
 |--------|------------------------------|---------|
-| `200` | `delivered` + `eventId` | The plugin returned a delivery and its text reached the General Agent |
+| `200` | `delivered` + `eventId` | The plugin returned a delivery and its text reached the bound tab or the General Agent |
 | `200` | `noop` | The plugin returned `null`, or this daemon already delivered that `eventId`; nothing is delivered |
 | `400` | `invalid_json` | Body is not valid JSON |
 | `400` | `invalid_multipart` / `invalid_form_fields` | Broken boundary/form, duplicate or invalid field names, or invalid UTF-8 |
@@ -142,20 +142,33 @@ Source: [Pebble webhook format](https://help.repebble.com/en/articles/15724406-i
 | `415` | `unsupported_media_type` | Missing or unsupported Content-Type; use multipart/form-data, application/json or application/*+json |
 | `500` | `webhook_internal_error` | The receiver task did not complete |
 | `502` | `webhook_receiver_failed` | The plugin threw, returned a malformed delivery, text over 64 KiB or empty after sanitizing, or an `eventId` over 256 bytes |
-| `502` | `delivery_failed` | Delivery to the General Agent failed |
+| `502` | `delivery_failed` | Delivery to the bound tab or the General Agent failed; it is never retried into another tab |
 | `503` | `authentication_unavailable` | `pebble_webhook_secret` is missing, empty, or the vault is locked or logged out |
 | `503` | `webhook_receiver_ambiguous` | More than one plugin registers a `pebble` receiver |
-| `503` | `general_agent_unavailable` | No General Agent tab exists |
+| `503` | `general_agent_unavailable` | The receiver has no live bound tab and no General Agent tab exists |
 
 Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by the receiver). Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Handler rejections, including 400/415, log status and code under `[pebble-webhook]` without the secret, headers, or payload.
 
-**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the General Agent as `-=-codeterm:pebble source=Pebble-=-` followed by the text on its own line, with no reply address. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `-=-codeterm:pebble source=Pebble-=-` followed by the text on its own line, with no reply address. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
 
 ```bash
 curl -sS -X POST http://127.0.0.1:7686/api/plugins/pebble/webhook \
   -H "Authorization: Bearer $PEBBLE_SECRET" \
   -F 'transcription=Focus mode enabled' -F 'recordedAt=1789412400000' -F 'client=ring'
 ```
+
+#### Receiver targets and plugin tab menus
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/plugins/tab-menu` | — | `{items: [{pluginId, itemId, label, action}], receiverTargets: {<pluginId>: <tabId>}}` for every manifest `tabMenu` item |
+| POST | `/api/plugins/tab-menu/action` | `{pluginId, itemId, tabId}` | Run the declared item's host-owned action on a local tab; returns the tab menu state. `receiverTarget` binds the tab, or clears the binding when that tab is already bound |
+| GET | `/api/plugins/{id}/receiver-target` | — | `{pluginId, tabId, live}`; `tabId: null` or `live: false` means events take the General Agent path |
+| PUT | `/api/plugins/{id}/receiver-target` | `{tabId}` | Bind one local tab (id or alias) as the receiver target, replacing any previous binding |
+| DELETE | `/api/plugins/{id}/receiver-target` | — | Clear the binding; returns `{pluginId, tabId: null, live: false}` |
+
+The host owns one binding per receiver plugin id, persisted in the data directory and restored on restart. Closing the bound tab clears it. `live` is true only while the tab exists and its PTY or chat-backend session is open; the webhook route reads the same observation. Set and get require a plugin with an active `webhookReceiver`; clear does not. Errors are `{"ok": false, "error": {"code", "message"}}`: `404` `receiver_not_found`, `tab_not_found` (including a peer's tab), or `menu_item_not_found`; `500` `persist_failed` (nothing changed). Changes publish `contributions-changed` with kind `receiver_target`; plugin loads that add or remove `tabMenu` items publish kind `tab_menu`.
+
+Socket: `plugin.receiver_target.get|set|clear` with `{plugin_id, tab_id?}` returns the same view; refusals carry `data.code`. CLI: `codeterm plugin receiver-target <id> [--set <tab> | --clear]`. Plugins read or clear only their own binding through `host.receiverTarget` (see `codeterm docs PLUGINS`).
 
 #### Setup (Rules, Hooks)
 | Method | Path | Body | Description |
@@ -234,4 +247,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

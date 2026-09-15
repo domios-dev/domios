@@ -301,6 +301,9 @@ pub(super) fn dispatch(
         "plan" | "task" => plan::dispatch(method, &params, app, svc),
         "canvas" => canvas::dispatch(method, &params, app),
         "spec" | "effort" => spec::dispatch(method, &params, app, svc),
+        "plugin" if receiver_target::handles(method) => {
+            receiver_target::dispatch(method, &params, svc)
+        }
         "plugin" => agent_commands::dispatch(method, &params, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
         "services" | "activity" => services::dispatch(method, &params, app, svc),

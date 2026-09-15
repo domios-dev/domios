@@ -58,7 +58,7 @@ pub use manifest::{
     IntegrationKind, PermissionsConfig, PluginManifest, RuleConfig, SerdeHookEventBinding,
     SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
     SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, TrustGrantConfig, UsageConfig, WebhookReceiverCap, WebhookReceiverKind,
-    LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
+    SpawnConfig, TabMenuAction, TabMenuItem, TrustGrantConfig, UsageConfig, WebhookReceiverCap,
+    WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
 pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};

@@ -35,5 +35,8 @@ export type {
   AnalyticsAllowance,
   AnalyticsSnapshot,
   AnalyticsRefusal,
+  HostReceiverTarget,
+  ReceiverTargetView,
+  ReceiverTargetRefusal,
 } from "./host";
 export * from "./capabilities";

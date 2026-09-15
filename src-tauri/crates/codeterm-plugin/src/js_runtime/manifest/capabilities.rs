@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -315,6 +316,9 @@ pub struct Capabilities {
     pub chat_preprocessor: ChatPreprocessorCap,
     #[serde(default)]
     pub webhook_receiver: Option<WebhookReceiverCap>,
+    /// Items the host renders in every tab's kebab menu; each action is host-owned.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tab_menu: Vec<TabMenuItem>,
 }
 
 impl Capabilities {
