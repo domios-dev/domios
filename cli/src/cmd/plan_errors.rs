@@ -23,9 +23,8 @@ pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> St
     }
 }
 
-fn render_regression_gate_blocked(data: &Value, plan_id: &str, task_id: Option<&str>) -> String {
-    let gates = data
-        .get("blocking_gates")
+fn gate_key_list(data: &Value, field: &str) -> String {
+    data.get(field)
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -33,16 +32,36 @@ fn render_regression_gate_blocked(data: &Value, plan_id: &str, task_id: Option<&
                 .collect::<Vec<_>>()
                 .join(", ")
         })
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "<gate>".into());
+        .unwrap_or_default()
+}
+
+fn render_regression_gate_blocked(data: &Value, plan_id: &str, task_id: Option<&str>) -> String {
+    let gates = gate_key_list(data, "blocking_gates");
+    let retrospectives = gate_key_list(data, "pending_retrospectives");
     let task = task_id.unwrap_or("<task_id>");
-    format!(
-        "✗ dispatch blocked: pending regression gate(s) {gates} must clear before a non-blocker task dispatches.\n\
-choose one:\n\
-  clear the gate with a warm integration QA run: codeterm plan qa next {plan_id} --group <gate> --note \"<evidence>\"\n\
-  mark {task} as the exception (gate-clearing or release-blocking): codeterm plan task update {plan_id} {task} --tags regression-gate\n\
-  record an authorized owner override: codeterm plan qa override {plan_id} --reason \"<why>\""
-    )
+    let mut out = String::from(
+        "✗ dispatch blocked: a terminal group's gates must clear before a non-blocker task dispatches.\nchoose one:\n",
+    );
+    if !gates.is_empty() || retrospectives.is_empty() {
+        let gates = if gates.is_empty() {
+            "<gate>"
+        } else {
+            gates.as_str()
+        };
+        out.push_str(&format!(
+            "  clear regression gate(s) {gates} with a warm integration QA run: codeterm plan qa next {plan_id} --group <gate> --note \"<evidence>\"\n\
+  record an authorized owner override: codeterm plan qa override {plan_id} --reason \"<why>\"\n"
+        ));
+    }
+    if !retrospectives.is_empty() {
+        out.push_str(&format!(
+            "  record the group retrospective for {retrospectives}: codeterm plan groups close {plan_id} <group> --note \"<what worked, what failed, what changes next>\"\n"
+        ));
+    }
+    out.push_str(&format!(
+        "  mark {task} as the exception (gate-clearing or release-blocking): codeterm plan task update {plan_id} {task} --tags regression-gate"
+    ));
+    out
 }
 
 fn render_checkout_occupied(data: &Value) -> Option<String> {

@@ -62,8 +62,8 @@ violation ids and fixes are in the lanes playbook the table above names.
 
 When a Worker's tab is gone, its owner epoch is stale by definition — so the
 epoch is not allowed to block recovery. The **live authenticated Plan owner**
-may `cancel`, `pend`, reassign, respawn, **dispatch, pause, or resume** such a
-task — every verb that actually meets the tab-gone state. That recovery retires
+may `cancel`, `pend`, reassign, respawn, or **dispatch** such a task — every
+verb that actually meets the tab-gone state. That recovery retires
 the stale attempt in the *same* transition that clears the dead owner identity,
 so no half-applied state is observable and a `dispatch_ready` arriving later for
 the retired attempt is rejected instead of resurrecting ownership. The widening
@@ -97,8 +97,9 @@ Run this loop after every report, reminder, task close, tab death, or gate:
    messages. Accept or bounce them without polling an inbox.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
-4. **Give every actionable task an exit:** dispatch, pause with a reason, judge,
-   replan through the Planner, or escalate.
+4. **Give every actionable task an exit:** dispatch, judge, unblock, replan
+   through the Planner, or escalate. Dependency-waiting and machine-paused tasks
+   need nothing; plan reminders name only the actionable task ids.
 5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
    independent actionable work exists. Clear dispatch, dependency, review, and
    cleanup blockers first, then reuse a matching Worker or dispatch the next
@@ -156,7 +157,7 @@ If the Planner is intentionally waived, record that explicitly on the plan.
 ```text
 pending → in_progress → in_review → done
               ↘ blocked
-pending/in_progress/blocked → paused
+pending/in_progress/blocked → paused   (system holds only)
 any open state → cancelled
 ```
 
@@ -170,10 +171,36 @@ any open state → cancelled
 - The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
   records a reason while preserving its assignment and lane; `bounce` returns it
   to the assigned Worker for another pass.
-- `paused` requires a reason and is excluded from heartbeat open work.
-- Dependencies express sequencing; pause is an operator hold, not a queue.
+- `paused` is a system hold, never an agent verb: a decision gate (`gate:<id>:`
+  reason) or provider exhaustion with a resumable checkpoint. It is excluded
+  from open work and resumes when the gate is answered or the provider recovers.
+- Sequence with `depends_on` and task groups. A `pending` task waiting on an
+  unfinished dependency needs nothing; a dependency on a missing task needs a
+  replan.
 
 Never leave an actionable task unstaffed or an `in_review` task unjudged.
+
+## Group milestones
+
+Group tasks with `--group` and declare the groups with `codeterm plan groups
+set`. When every task in a group is terminal and at least one is done, no
+further task dispatches until both group records exist:
+
+1. the regression run: `codeterm plan qa next <plan> --group <group> --note "<evidence>"`;
+2. the retrospective: `codeterm plan groups close <plan> <group> --note "<what worked, what failed, what changes next>"`.
+
+Reopening and re-closing a member re-arms both. An authorized
+`codeterm plan qa override` waives only the regression run, never the
+retrospective. Tasks tagged `regression-gate` or `release-blocking` still
+dispatch.
+
+## Pausing the plan
+
+`codeterm plan pause <plan> --reason "<what the owner must decide>"` is the only
+pause an agent issues, and it is rare: use it only when no task can advance
+until the owner decides. A paused plan receives no heartbeat or reminder; the
+owner's next message is the answer, and the Orchestrator runs
+`codeterm plan resume <plan>`.
 
 ## Dispatch contract
 
@@ -223,7 +250,7 @@ codeterm plan review authorize-capacity <plan> <task> --class review
 codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 ```
 
-Generic task updates, pauses, decision gates, and removals cannot move a task out
+Generic task updates, decision gates, and removals cannot move a task out
 of `in_review`. Use `codeterm plan review accept|bounce|hold <plan> <task> --note
 "…"`: `bounce` returns the work to the Worker, `hold` keeps the review open with
 the assignment and lane intact, and every verdict requires `--note`, never
@@ -237,4 +264,4 @@ For task-less review or canonical-QA evidence, the live Plan owner runs `codeter
 Planner spawns through CLI, REST, and synchronous service callers resolve an omitted `--parent-tab` from the supplied Plan owner before provisioning. A missing owner refuses with the Plan identity and creates no tab; an explicit parent still wins.
 Fresh shells may omit `CODETERM_SESSION_ID`: evidence reporting resolves the exact registered tab session only with a matching stored and hook-reported nonce. Explicit wrong sessions and missing grants still refuse; never inject another tab's session.
 
-<!-- revision: 78 -->
+<!-- revision: 79 -->

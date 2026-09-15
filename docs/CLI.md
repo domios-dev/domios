@@ -33,7 +33,7 @@ A Worker spawn without a task binding is permitted when it declares `--execution
 
 `codeterm plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
 
-`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task pause`, `plan task resume`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. The recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
+`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. The recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
 Competition has no `codeterm plan task` verb — it is driven by the `plan.task.compete` route, which `codeterm plan task show` prints for any competition-enabled task. That route gives each **mutating** competitor its own provisioned worktree/branch/base before spawn, so N competitors never share a checkout and never fall back to canonical; lanes created earlier in the call are removed if a later competitor fails. Read-only competition is unchanged.
 
@@ -1592,7 +1592,7 @@ Set task groups (phases)
 
 #### `codeterm plan groups close`
 
-Explicitly close a declared group's reflection window, even before every task in it reaches `done`
+Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate
 
 - `<key>`
 - `--note`
@@ -2310,14 +2310,6 @@ List a plan's tasks, optionally filtered by status
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 
-#### `codeterm plan task pause`
-
-Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)
-
-- `<plan_id>`
-- `--reason`
-- `<task_id>`
-
 #### `codeterm plan task relink`
 
 Preview or apply automatic section links for unlinked tasks (--apply)
@@ -2337,13 +2329,6 @@ Respawn a worker from one prior execution attempt
 - `<task_id>`
 - `--title`
 - `--workspace`
-
-#### `codeterm plan task resume`
-
-Resume a paused task (returns it to dependency-waiting pending)
-
-- `<plan_id>`
-- `<task_id>`
 
 #### `codeterm plan task retag`
 

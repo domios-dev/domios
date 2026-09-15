@@ -143,6 +143,12 @@ At each milestone boundary the Orchestrator runs the broad gate in one warm
 integration checkout before opening the next milestone. A milestone with no
 regression gate is a milestone in name only.
 
+Give each task its group with `--group` and sequence with `depends_on`, never by
+pausing tasks. When every task in a group is terminal, no further task
+dispatches until the group regression run and the group retrospective
+(`codeterm plan groups close <plan> <group> --note "<retrospective>"`) are both
+recorded; reclosing a member re-arms both.
+
 ## Reflection is a rhythm, not a one-off
 
 Self-improvement is scheduled, not ad-hoc:
@@ -237,4 +243,4 @@ task needs an explicit provider/model or named persona.
 
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it: `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 22 -->
+<!-- revision: 23 -->
