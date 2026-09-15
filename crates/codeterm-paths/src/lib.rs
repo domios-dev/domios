@@ -124,11 +124,16 @@ pub fn canonical_cwd(raw: &str) -> String {
 /// `std::fs::canonicalize` on Windows returns an extended-length path with a
 /// `\\?\` (or `\\?\UNC\`) verbatim prefix. Agent CLIs encode the plain cwd, so
 /// the prefix's extra leading slashes would corrupt any dir-name encoding.
+/// Slash-separated `//?/` spellings are accepted too.
 /// No-op on Unix paths.
 pub fn strip_verbatim_prefix(p: &str) -> String {
     if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{}", rest)
+    } else if let Some(rest) = p.strip_prefix("//?/UNC/") {
+        format!(r"\\{}", rest)
     } else if let Some(rest) = p.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else if let Some(rest) = p.strip_prefix("//?/") {
         rest.to_string()
     } else {
         p.to_string()
@@ -148,6 +153,14 @@ mod tests {
         assert_eq!(
             strip_verbatim_prefix(r"\\?\UNC\server\share\proj"),
             r"\\server\share\proj"
+        );
+        assert_eq!(
+            strip_verbatim_prefix("//?/UNC/server/share/proj"),
+            r"\\server\share\proj"
+        );
+        assert_eq!(
+            strip_verbatim_prefix("//?/C:/Users/User/project"),
+            "C:/Users/User/project"
         );
         assert_eq!(strip_verbatim_prefix("/home/user/p"), "/home/user/p");
         assert_eq!(strip_verbatim_prefix(r"C:\plain\path"), r"C:\plain\path");

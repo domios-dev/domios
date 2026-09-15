@@ -166,6 +166,19 @@ impl LaneDiagnosticsService {
 impl DiagnosticsCore {
     fn run(&self, request: DiagnosticsRequest) -> Result<LaneDiagnosticsSummary, String> {
         let _run_guard = self.run_lock.lock();
+        let mut request = request;
+        request.canonical_project_path =
+            codeterm_paths::strip_verbatim_prefix(&request.canonical_project_path);
+        request.lane_worktree_path =
+            codeterm_paths::strip_verbatim_prefix(&request.lane_worktree_path);
+        request.lane_marker = request
+            .lane_marker
+            .map(|path| codeterm_paths::strip_verbatim_prefix(&path));
+        request.changed_files = request
+            .changed_files
+            .into_iter()
+            .map(|path| codeterm_paths::strip_verbatim_prefix(&path))
+            .collect();
         #[cfg(test)]
         if let Some(runner) = &self.runner {
             let summary = runner(request, self.deadline)?;
@@ -233,7 +246,6 @@ impl DiagnosticsCore {
         command
             .arg("build.sh")
             .arg("lane-diagnostics")
-            .current_dir(&warm)
             .env("CI", "true")
             .env("CODETERM_DIAGNOSTICS_OWNER", "daemon")
             .env("CODETERM_DIAGNOSTICS_SCOPE", "warm")
@@ -381,7 +393,8 @@ fn gateway_busy_reason(output: &str) -> Option<String> {
 }
 
 pub(crate) fn warm_worktree_path(canonical: &str) -> Result<PathBuf, String> {
-    let project = Path::new(canonical);
+    let canonical = codeterm_paths::strip_verbatim_prefix(canonical);
+    let project = Path::new(&canonical);
     let repo = project
         .file_name()
         .and_then(|name| name.to_str())
@@ -460,6 +473,7 @@ fn result_success(result: ProcessOutput, operation: &str) -> Result<(), String> 
 fn git_command(cwd: &str, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     process_util::no_window_std(&mut command);
+    let cwd = codeterm_paths::strip_verbatim_prefix(cwd);
     command
         .current_dir(cwd)
         .args(args)
@@ -468,11 +482,13 @@ fn git_command(cwd: &str, args: &[&str]) -> Command {
     command
 }
 
-fn bash_command(_cwd: &Path) -> Command {
+fn bash_command(cwd: &Path) -> Command {
     let bash = which::which("bash").unwrap_or_else(|_| PathBuf::from("bash"));
     let mut command = Command::new(bash);
     process_util::no_window_std(&mut command);
     configure_process_group(&mut command);
+    let cwd = codeterm_paths::strip_verbatim_prefix(&cwd.to_string_lossy());
+    command.current_dir(cwd);
     command
 }
 
