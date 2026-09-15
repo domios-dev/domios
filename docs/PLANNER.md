@@ -27,10 +27,9 @@ Orchestrator, who alone runs `codeterm plan approve <plan>` to approve and
 activate it atomically. Never self-approve or manually force `structure_ready`.
 You do not dispatch workers or judge reports, before or after approval.
 
-You also do not spawn agents, and you never work around that limit. When the
-plan needs an agent, shell, or schedule that does not exist, route the request
-to your Orchestrator with the role, the reason, and the work it would own; the
-Orchestrator creates it inside the Team.
+You never spawn agents or work around that limit. When the plan needs an agent,
+shell, or schedule, send your Orchestrator the role, the reason, and the work it
+would own; the Orchestrator creates it inside the Team.
 
 After `plan doctor` is green, never wait silently. Give the Orchestrator a short
 plan summary and state explicitly that execution is waiting for user approval.
@@ -151,16 +150,10 @@ recorded; reclosing a member re-arms both.
 
 ## Reflection is a rhythm, not a one-off
 
-Self-improvement is scheduled, not ad-hoc:
-
-- `codeterm plan retrospective <plan>` — the plan-completion retrospective
-  (plan-level stride, kind=retrospective). Write it at plan close, every time.
-- `codeterm plan loop` — self-improving loops that re-run a task class until a
-  quality bar holds.
-- `codeterm plan qa` — the serialized QA queue for in_review tasks (one heavy
-  gate per machine at a time).
-
-Surface these at plan creation; they are part of the cadence, not optional extras.
+Surface these at plan creation: a plan-level retrospective at every plan close
+(`plan retrospective`), self-improving loops that re-run a task class until a
+quality bar holds (`plan loop`), and the serialized QA queue for in_review tasks,
+one heavy gate per machine at a time (`plan qa`).
 
 ## Plans carry their own skills
 
@@ -174,13 +167,8 @@ codeterm plan skill show <slug>             # read the SKILL.md + ledger history
 codeterm plan skill edit <slug> --body-file <path>   # record keep|discard|superseded, replace body
 ```
 
-A task-bound `plan skill show` is proven by the caller's live tab, not by an
-environment secret: the tab supplies its id and launch binding nonce, and the
-daemon derives the session id only when that nonce is both the tab's current
-nonce and the one its running session echoed back. A worker therefore reads its
-mandatory skills as soon as it is launched, before any session id exists, while
-stale, mismatched, partial, or foreign identities are refused. Reading a plan
-skill as evidence still requires a current task binding for that plan.
+A task-bound skill read is proven by the caller's live tab binding (API-PLAN), so
+a Worker reads its mandatory skills as soon as it launches.
 
 Promote the plan's skills in every worker brief. The canonical seed is a
 **gap-analysis / verify-before-claim** skill: before execution, list the
@@ -226,11 +214,9 @@ task needs an explicit provider/model or named persona.
 - Plan the smallest deterministic user-layer oracle before implementation.
   Keep it fast and reusable, and schedule it once at final integration or
   release verification.
-- Isolated-lane Workers implement source, author coverage, and report exact
-  oracle commands without executing project verification. Put every build,
-  test, dev check, and gate after real merge in Orchestrator-owned canonical QA. A canonical Worker may run only explicitly authorized commands.
-- Checkout placement is chosen by the Orchestrator based on concurrency and
-  file ownership; never make an isolated lane an unconditional task requirement.
+- Isolated-lane Workers author source and coverage and report exact oracle
+  commands; every build, test, and gate runs after real merge in canonical QA.
+  The Orchestrator chooses checkout placement; never require a lane in a task.
 - A task with no exact command or surface in its test plan is under-specified — do not ship it; the Orchestrator will bounce it back to you.
 - Discovery/research is not a plan: it produces evidence and decisions. Turn
   those into concrete tasks.
@@ -241,6 +227,5 @@ task needs an explicit provider/model or named persona.
 
 ## The `codeterm` skill
 
-The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
-`codeterm` skill. If it is not already loaded, find it: `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 23 -->
+The full CLI reference is the `codeterm` skill; if it is not loaded, run `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
+<!-- revision: 24 -->

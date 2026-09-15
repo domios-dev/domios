@@ -96,4 +96,60 @@ reader.
 `plan task update` deliberately has no assign flag: assignment is execution
 authority and lives on its own verb, outside what a Planner may write.
 
-<!-- revision: 3 -->
+### Recovering a tab-gone task
+
+When a Worker's tab is gone, its owner epoch is stale by definition, so the
+epoch never blocks recovery. The **live authenticated Plan owner** may `cancel`,
+`pend`, reassign, respawn, or **dispatch** such a task. The recovery retires the
+stale attempt in the *same* transition that clears the dead owner identity, so no
+half-applied state is observable and a later `dispatch_ready` for the retired
+attempt is rejected instead of resurrecting ownership. A non-owner, non-epoch
+caller is still refused.
+
+Plan ownership is proven against the caller's **live tab binding**: tab present,
+agent session live, binding nonce both stored and reported back, and that tab
+recorded as the plan's owner with Team-Orchestrator authority. It is never proven
+from the owner record's `session_id`, so an Orchestrator whose session moved by
+restore, compaction, or provider relaunch stays its own plan's owner.
+
+Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs are
+a subset of the verbs where the Plan owner has authority over a task it does not
+hold. A verb asserting the *caller's own* task binding, such as a Worker report,
+is on neither list and can never ride the recovery hatch. Refusals carry a stable
+`data.type` naming the blocking state, so a tab-gone task is never reported as a
+stale epoch.
+
+### Review credit repair and evidence reporters
+
+Historical review credit leaked by older builds is repaired auditably with:
+
+```bash
+codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
+```
+
+Credit repair and capacity classification require the live bound Orchestrator
+session and record an immutable plan stride. For task-less review or canonical-QA
+evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan>
+<tab> --class review|canonical_qa`; that exact session gains evidence-only
+authority and reports with `codeterm agent report --plan <plan>` and no
+task/status, producing a Plan stride and an ordinary owner event without a task
+transition. Missing, foreign, rebound, task-bound, or stale-owner grants fail
+before persistence or delivery. A fresh shell may omit `CODETERM_SESSION_ID`:
+evidence reporting resolves the registered tab session only with a matching
+stored and hook-reported nonce; never inject another tab's session.
+
+Planner spawns through CLI, REST, and synchronous service callers resolve an
+omitted `--parent-tab` from the Plan owner before provisioning; a missing owner
+refuses with the Plan identity and creates no tab, and an explicit parent wins.
+
+### Task-bound plan skill reads
+
+A task-bound `plan skill show` is proven by the caller's live tab, not by an
+environment secret: the tab supplies its id and launch binding nonce, and the
+daemon derives the session id only when that nonce is both the tab's current
+nonce and the one its running session echoed back. A Worker therefore reads its
+mandatory skills as soon as it launches, before any session id exists, while
+stale, mismatched, partial, or foreign identities are refused. Reading a plan
+skill as evidence still requires a current task binding for that plan.
+
+<!-- revision: 4 -->
