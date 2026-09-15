@@ -450,7 +450,7 @@ async function settle() {
 }
 
 describe("Board jumps through the single navigation", () => {
-  it("opens Needs you and What happened tasks by key through onOpenPlanTarget with no surface overlay", async () => {
+  it("opens What happened tasks by key through onOpenPlanTarget with no surface overlay", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
       : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
@@ -468,9 +468,7 @@ describe("Board jumps through the single navigation", () => {
     );
     await settle();
 
-    const review = host.querySelector('[data-testid="mc-board-needs-you-item"][data-kind="review"] [data-testid="mc-board-ref"]') as HTMLButtonElement;
-    expect(review.textContent).toBe("CT-7 Render the segment");
-    await act(async () => review.click());
+    expect(host.querySelector('[data-testid="mc-board-needs-you-item"][data-kind="review"]')).toBeNull();
 
     const locator = host.querySelector('[data-testid="mc-board-event-task"] [data-testid="mc-board-ref"]') as HTMLButtonElement;
     expect(locator.textContent).toBe("CT-7 Render the segment");
@@ -478,12 +476,11 @@ describe("Board jumps through the single navigation", () => {
 
     expect(onOpenPlanTarget.mock.calls).toEqual([
       [{ planId: TEAM_PLAN.id, taskId: KEYED.id, teamId: TEAM_ID }],
-      [{ planId: TEAM_PLAN.id, taskId: KEYED.id, teamId: TEAM_ID }],
     ]);
     expect(document.querySelector('[data-testid="plan-detail-overlay"]')).toBeNull();
   });
 
-  it("a Needs you task on the Board opens the shared side panel over Board", async () => {
+  it("a What happened task on the Board opens the shared side panel over Board", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
       : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
@@ -492,7 +489,7 @@ describe("Board jumps through the single navigation", () => {
     await act(async () => modeTab(host, "board").click());
     await settle();
 
-    const review = host.querySelector('[data-testid="mc-board-needs-you-item"][data-kind="review"] [data-testid="mc-board-ref"]') as HTMLButtonElement;
+    const review = host.querySelector('[data-testid="mc-board-event-task"] [data-testid="mc-board-ref"]') as HTMLButtonElement;
     review.focus();
     await act(async () => review.click());
     expect(shellMode(host)).toBe("board");

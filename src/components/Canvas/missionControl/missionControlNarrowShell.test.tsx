@@ -345,7 +345,7 @@ describe("mission control narrow shell", () => {
     );
     expect(text(narrow.host, "mc-board-quality")).toBe("bounced1first try10 of 12");
     expect(text(narrow.host, "mc-board-plan")).not.toContain("5.3M");
-    expect(text(narrow.host, "mc-board-needs-you")).toContain("Land the wave");
+    expect(narrow.host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
     expect(narrow.host.querySelector('[data-testid="mc-board-spend-gauge"]')).toBeNull();
     expect(text(narrow.host, "mc-board-spend-empty")).toBe("no data");
     expect(narrow.host.querySelector('[data-testid="mc-board-spend-table"]')).toBeNull();
