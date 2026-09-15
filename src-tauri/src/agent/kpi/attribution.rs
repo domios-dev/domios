@@ -1,7 +1,7 @@
 //! Pure attribution + kind-mapping rules shared by every choke point. Kept free of
 //! `ServiceContext` so the wiring contract is unit-testable without a live daemon.
 
-use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, TokenCounts};
+use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, TabCreatedKind, TokenCounts};
 use crate::service::messenger::MessageKind;
 
 /// Identity of the tab an event is charged to, resolved once per event at the choke point.
@@ -13,6 +13,8 @@ pub struct KpiAttribution {
     pub role: Option<&'static str>,
     pub provider: String,
     pub model: Option<String>,
+    /// The workspace holding the tab when the event is written.
+    pub workspace_id: Option<String>,
 }
 
 /// Descriptor labels keep the delivery path clear of `{:?}` formatting machinery.
@@ -57,6 +59,11 @@ impl KpiAttribution {
         self
     }
 
+    pub fn workspace(mut self, workspace_id: Option<String>) -> Self {
+        self.workspace_id = workspace_id;
+        self
+    }
+
     /// Consumes the attribution — choke points resolve one per event, so moving the
     /// owned identity strings keeps the delivery path free of clone traffic.
     pub fn into_event(self, kind: KpiEventKind, bytes: u64) -> KpiEventInput {
@@ -76,6 +83,8 @@ impl KpiAttribution {
             bytes,
             tokens: None,
             dedup_key: None,
+            workspace_id: self.workspace_id,
+            tab_kind: None,
         }
     }
 
@@ -103,6 +112,16 @@ impl KpiAttribution {
             ..self
                 .clone()
                 .into_event_at(KpiEventKind::TokenUsage, tokens.total(), timestamp)
+        }
+    }
+
+    /// Creation precedes any task binding, so a created tab is charged to no plan.
+    pub fn into_tab_created_event(self, kind: TabCreatedKind) -> KpiEventInput {
+        KpiEventInput {
+            plan_id: None,
+            task_id: None,
+            tab_kind: Some(kind),
+            ..self.into_event(KpiEventKind::TabCreated, 0)
         }
     }
 }
