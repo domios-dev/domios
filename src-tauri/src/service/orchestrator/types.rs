@@ -97,8 +97,8 @@ pub struct SpawnAgentParams {
     /// provenance, never accepted from a CLI/REST payload.
     #[serde(default, skip_deserializing)]
     pub provisioned_cwd: Option<String>,
-    /// Repo-declared `lane.setup_command`, queued as the lane's first shell
-    /// command. Host provenance from lane provisioning, never wire input.
+    /// Legacy host metadata from pre-source-only lane provisioning. It is never
+    /// executed or included in a Worker launch command.
     #[serde(default, skip_deserializing)]
     pub lane_setup_command: Option<String>,
     pub title: Option<String>,

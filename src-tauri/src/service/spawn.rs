@@ -663,7 +663,6 @@ impl ServiceContext {
             &legacy_params,
             role_suffixed_task.as_deref(),
             launch_session_id.as_deref(),
-            agent.lane_setup_command.as_deref(),
             &self.agent_registry,
         );
         launch_agent_in_background_with_env(
@@ -1092,26 +1091,22 @@ impl ServiceContext {
 }
 
 /// A visible launch carries a minted marker so a hook-less provider still binds
-/// its own session, and lane setup runs before it.
+/// its own session.
 fn visible_agent_launch_command(
     tab_id: &str,
     agent_cmd: &str,
     params: &super::SpawnAgentParams,
     task: Option<&str>,
     injected_session_id: Option<&str>,
-    lane_setup_command: Option<&str>,
     registry: &AgentRegistry,
 ) -> String {
-    super::worker_lane::compose_launch_with_setup(
-        lane_setup_command,
-        super::launch_session_detection::marked_agent_command(
-            tab_id,
-            agent_cmd,
-            params,
-            task,
-            injected_session_id,
-            registry,
-        ),
+    super::launch_session_detection::marked_agent_command(
+        tab_id,
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
     )
 }
 

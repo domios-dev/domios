@@ -1,3 +1,0 @@
-[lane]
-shared_directories = ["node_modules"]
-setup_command = "pnpm install --frozen-lockfile"

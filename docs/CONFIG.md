@@ -195,20 +195,16 @@ When enabled, CodeTerm starts with a single "General" workspace instead of the d
 
 Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
 
-## Per-repo lane bootstrap
+## Worker lane provisioning
 
-A repository can declare lane bootstrap in `<repo>/.codeterm/config.toml` (repo-level, separate from `~/.codeterm/config.toml`). Exactly two keys:
-
-```toml
-[lane]
-shared_directories = ["node_modules"]  # gitignored dirs linked from the primary checkout
-setup_command = "npm install"          # queued as the lane's first shell command
-```
-
-When a Worker lane worktree is created, each declared directory that exists in the primary checkout **and** is gitignored in the lane is linked into the lane (symlink; directory junction fallback on Windows). A name that is not gitignored is refused — the link must stay invisible to `git status` so `git add -A` cannot stage it. Link problems are recorded as warnings in the lane-dispatch record and never fail the dispatch. The setup command runs before the agent launch as an ordinary shell command; its failure is visible in the lane tab. Bounded parse: at most 100 entries; absolute paths, drive-letter paths, `..`/`.` segments, and `.git` are rejected. Deleting the keys restores current behavior.
+Worker lanes are source-only. Provisioning creates an isolated git worktree and
+launches the agent there; it does not install dependencies or link any directory
+from the canonical checkout. In particular, `node_modules` is never shared by a
+symlink or Windows junction, and no package-manager command is placed before the
+agent command. Source-only workers do not build or test in their lane.
 
 ## Related documents
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 55 -->
+<!-- revision: 56 -->
