@@ -26,5 +26,8 @@ fn lane_provisioning_visible_launch_is_independent_of_setup_input() {
         crate::service::launch_session_detection::registered_launch_marker("tab-visible-marked")
             .expect("visible spawn registers its launch marker");
     assert!(!marker.is_empty());
-    assert_eq!(command, format!("visible-marked-cli --launch-marker {marker}"));
+    assert_eq!(
+        command,
+        format!("visible-marked-cli --launch-marker {marker}")
+    );
 }

@@ -628,12 +628,11 @@ impl ServiceContext {
             && !foreign
             && rejected_task_transition.is_none()
         {
-            if let (Some(plan_id), Some(task_id)) =
-                (eff_plan_id.as_deref(), eff_task_id.as_deref())
+            if let (Some(plan_id), Some(task_id)) = (eff_plan_id.as_deref(), eff_task_id.as_deref())
             {
-                if let Some(request) = self.diagnostics_request_for_report(
-                    tab_id, plan_id, task_id, &details,
-                ) {
+                if let Some(request) =
+                    self.diagnostics_request_for_report(tab_id, plan_id, task_id, &details)
+                {
                     let fallback_worktree = request.lane_worktree_path.clone();
                     let fallback_attempt = request.attempt_id.clone();
                     let summary = match self.lane_diagnostics.run(request) {
@@ -646,8 +645,12 @@ impl ServiceContext {
                                 fallback_worktree,
                                 format!("diagnostics incomplete: {error}"),
                             );
-                            if let Err(storage_error) = self.lane_diagnostics.store_summary(&summary) {
-                                notices.push(format!("lane diagnostics could not be stored: {storage_error}"));
+                            if let Err(storage_error) =
+                                self.lane_diagnostics.store_summary(&summary)
+                            {
+                                notices.push(format!(
+                                    "lane diagnostics could not be stored: {storage_error}"
+                                ));
                             }
                             summary
                         }

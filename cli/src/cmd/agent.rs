@@ -295,7 +295,10 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
             .and_then(|value| value.as_u64())
             .unwrap_or(0);
         eprintln!("diagnostics: {errors} errors, {warnings} warnings");
-        if let Some(findings) = diagnostics.get("findings").and_then(|value| value.as_array()) {
+        if let Some(findings) = diagnostics
+            .get("findings")
+            .and_then(|value| value.as_array())
+        {
             for finding in findings.iter().take(3) {
                 let file = finding
                     .get("file")
