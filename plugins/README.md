@@ -275,7 +275,7 @@ Declarative config the host reads without running JS. Key fields:
 ```jsonc
 {
   "id": "myagent", "displayName": "My Agent", "binaryName": "myagent",
-  "iconSvg": "<svg…>", "entry": "plugin.js",
+  "icon": "icon.svg", "entry": "plugin.js",
   "spawn": {
     "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
     "taskDelivery": "pty_input",            // or "shell_arg"
@@ -292,6 +292,10 @@ Declarative config the host reads without running JS. Key fields:
   "installer": { "macos": "npm i -g …", "windows": "npm i -g …" }
 }
 ```
+
+`icon` is optional and must name a relative SVG shipped in the plugin bundle. The host caps it at
+8 KiB, sanitizes it to the closed host allowlist, and renders it with `currentColor`; rejected or
+missing assets use the generic plugin icon.
 
 A provider with only a manifest + `detectFromTitle`/`buildLaunchCommand`
 already spawns and resumes; everything else degrades to a sane default.
@@ -435,4 +439,4 @@ To keep the plugin contract honest:
 | Snapshot CI for JSONL drift | ⏳ planned |
 | Non-provider plugin kinds | 🟡 contract-only (extensible by design) |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

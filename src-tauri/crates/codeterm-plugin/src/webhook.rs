@@ -89,6 +89,9 @@ impl std::error::Error for WebhookReceiveError {
 pub trait WebhookReceiver: Send + Sync {
     fn id(&self) -> &str;
     fn kind(&self) -> WebhookReceiverKind;
+    fn icon_svg(&self) -> Option<&str> {
+        None
+    }
     fn receive(
         &self,
         ctx: WebhookReceiveContext,

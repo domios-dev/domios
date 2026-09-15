@@ -69,6 +69,24 @@ fn inbound_webhook_pebble_pty_and_chatbackend_metadata_are_originated_as_pebble(
 }
 
 #[test]
+fn plugin_icon_svg_webhook_metadata_preserves_id_and_sanitized_icon_for_chatbackend() {
+    let icon = "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>";
+    let envelope = MessageEnvelope::plugin("pebble", Some(icon.into()));
+    let marker = Messenger::from(envelope.clone()).build();
+    let parsed = crate::message_markers::parse(&marker).expect("plugin marker parses");
+    assert_eq!(parsed.kind, "pebble");
+    assert_eq!(parsed.attr("plugin"), Some("pebble"));
+
+    let (msg, marked) = build_chatbackend_inbound(&envelope, "focus enabled", "plugin-1".into());
+    assert_eq!(msg.inbound_kind.as_deref(), Some("plugin"));
+    assert_eq!(msg.from_plugin.as_deref(), Some("pebble"));
+    assert_eq!(msg.plugin_icon_svg.as_deref(), Some(icon));
+    let parsed = crate::message_markers::parse(&marked).expect("inbound marker parses");
+    assert_eq!(parsed.attr("kind"), Some("plugin"));
+    assert_eq!(parsed.attr("from_plugin"), Some("pebble"));
+}
+
+#[test]
 fn inbound_webhook_pebble_pty_delivery_marks_an_agent_even_without_a_source_tab() {
     assert!(should_prefix_pty(MessageKind::Pebble, true, "", "general"));
     assert!(!should_prefix_pty(MessageKind::Pebble, false, "", "shell"));

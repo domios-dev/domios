@@ -135,9 +135,7 @@ audited channel to the host, and a separately-sandboxed UI.
   "configHelp": "Agent-facing: what this plugin does, how to use it, and which `codeterm plugin config <id> --set key=value` knobs exist. REQUIRED — see \"Self-setup & Configure with AI\".",
   "homepage": "https://…",     // optional project/docs link
   "readme": "README.md",       // optional relative markdown path; loaded into the snapshot (bounded) and rendered safely (no raw HTML, remote images not fetched)
-  "iconColor": "#f05133",
-  "iconHint": "✳",             // text fallback when no svg
-  "iconSvg": "<svg …>",        // inline icon shown in the Extensions UI + bubbles
+  "icon": "icon.svg",          // optional relative SVG shipped in this plugin bundle
   "entry": "plugin.js",
   "capabilities": {
     "agentProvider": false,
@@ -240,7 +238,7 @@ and applies the item's host-owned action to the clicked tab id.
 "capabilities": {
   "webhookReceiver": { "kind": "pebble" },
   "tabMenu": [
-    { "id": "receiver-target", "label": "Receive Pebble events here", "action": "receiverTarget" }
+    { "id": "receiver-target", "label": "Receive Pebble events here", "action": "receiverTarget", "icon": "icon.svg" }
   ]
 }
 ```
@@ -248,6 +246,16 @@ and applies the item's host-owned action to the clicked tab id.
 - `id`: 1-32 lowercase letters, digits or `-`, unique within the plugin.
 - `label`: 1-48 trimmed characters without control characters; it is the item's accessible name.
 - `action`: one verb from a closed, host-owned set.
+- `icon`: optional relative path to an SVG shipped in the plugin folder. The host loads it once,
+  caps it at 8 KiB, and exposes only its sanitized allowlisted SVG with `currentColor`; a missing
+  or rejected asset uses the generic plugin icon. An item without `icon` uses the plugin icon.
+
+The sanitizer permits only `svg`, `g`, `path`, `circle`, `ellipse`, `rect`, `line`, `polyline`,
+and `polygon`, with `viewBox`, `d`, `cx`, `cy`, `r`, `fill`, `stroke`, `stroke-width`,
+`stroke-linecap`, and `stroke-linejoin`. `fill` and `stroke` may only be `currentColor` or
+`none`; scripts, `foreignObject`, `style`, `href`/`xlink`, event attributes, and external
+references are rejected. The host carries the sanitized SVG through plugin snapshots, tab-menu
+payloads, and plugin-origin chat metadata; it never accepts an inline SVG or plugin URL.
 
 | `action` | Requires | Rendered as | Effect |
 |----------|----------|-------------|--------|
@@ -834,4 +842,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

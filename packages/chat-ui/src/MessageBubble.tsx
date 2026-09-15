@@ -12,6 +12,7 @@ import {
   Network,         // mesh
   ChevronsRight,   // slash-command chip
   Settings,        // plugin_config (Configure card)
+  Puzzle,          // plugin webhook fallback
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
@@ -60,7 +61,7 @@ interface MessageBubbleProps {
   /** Widget ids already answered — kept in the parent so they survive remounts. */
   answeredInteractiveIds?: Set<string>;
   /** When set, this user message arrived via a codeterm channel (cross-tab,
-   *  Telegram, Pebble, mesh, slash-command) and should render as a typed header
+   *  Telegram, plugin webhook, Pebble, mesh, slash-command) and should render as a typed header
    *  instead of the default right-aligned "user" styling. */
   origin?: ChatOrigin;
   originAvatar?: React.ReactNode;
@@ -123,9 +124,9 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
-  const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble";
+  const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
   const shouldAutoExpand = message.type === "thinking" || hasVisibleEdit(item) ||(isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
@@ -324,16 +325,18 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     }
 
-    // codeterm channel (cross-tab, Telegram, Pebble, mesh) or wraps slash-commands.
+    // codeterm channel (cross-tab, Telegram, plugin, Pebble, mesh) or wraps slash-commands.
     const originHeader = effectiveOrigin ? (() => {
       const OriginIcon =
         effectiveOrigin.kind === "mesh"          ? Network :
         effectiveOrigin.kind === "command"       ? ChevronsRight :
         effectiveOrigin.kind === "plugin_config" ? Settings :
+        effectiveOrigin.kind === "plugin"       ? Puzzle :
         Send;
       const label =
         effectiveOrigin.kind === "telegram"     ? `Telegram · ${effectiveOrigin.userId.slice(0, 12)}` :
         effectiveOrigin.kind === "pebble"       ? "Pebble" :
+        effectiveOrigin.kind === "plugin"       ? effectiveOrigin.name || effectiveOrigin.pluginId :
         effectiveOrigin.kind === "mesh"         ? `Mesh · ${effectiveOrigin.peerId.slice(0, 10)}` :
         effectiveOrigin.kind === "plugin_config"? `Configure · ${effectiveOrigin.name}` :
         effectiveOrigin.kind === "command" ? (
@@ -358,7 +361,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           }}
           title={onOriginClick ? "Click to focus source Tab" : undefined}
         >
-          <OriginIcon size={12} />
+          {effectiveOrigin.kind === "plugin" ? (originAvatar ?? <Puzzle size={12} aria-hidden="true" />) : <OriginIcon size={12} aria-hidden="true" />}
           <span>{label}</span>
         </button>
       );

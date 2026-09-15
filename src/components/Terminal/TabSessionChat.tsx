@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   ChatSessionIntentLine,
@@ -39,6 +39,8 @@ import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
+import { PluginIcon } from "../Extensions/PluginIcon";
+import { getPluginProviderMeta, pluginProviderMetaVersion, subscribePluginProviderMeta } from "../../lib/pluginProviderMeta";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupStageLabel, chatSetupSubject, chatSetupView } from "./ChatSetupState";
@@ -108,6 +110,23 @@ function OriginProviderAvatar({ providerId }: { providerId: string | null | unde
   );
 }
 
+function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?: string | null }) {
+  const resolvedIcon = iconSvg ?? getPluginProviderMeta(pluginId)?.iconSvg;
+  return (
+    <span
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
+      style={{
+        background: "color-mix(in srgb, var(--ct-surface, #161b22) 86%, var(--ct-accent, #58a6ff) 14%)",
+        borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+        color: "var(--ct-fg)",
+      }}
+      aria-hidden="true"
+    >
+      <PluginIcon plugin={{ icon_svg: resolvedIcon }} size={14} />
+    </span>
+  );
+}
+
 export function TabSessionChat({
   tabId,
   api,
@@ -140,6 +159,11 @@ export function TabSessionChat({
   const { index: planIndex } = usePlanIndexOptional();
   const tabProvider = tab?.agent_type ?? null;
   const provider = useTabProvider(tab);
+  const pluginMetaVersion = useSyncExternalStore(
+    subscribePluginProviderMeta,
+    pluginProviderMetaVersion,
+    pluginProviderMetaVersion,
+  );
   const shellSessionModel = useShellSessionModel(tab);
   const tabModel = tab?.agent_session_model ?? shellSessionModel;
   const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
@@ -535,7 +559,7 @@ export function TabSessionChat({
   }, [tabAgentTypes, planNav.workspaces, selectTabByTab]);
 
   // Preserve origin prop identities so streamed chunks do not re-render old bubbles.
-  type OriginProps = { key: string; onOriginClick: () => void; originAvatar: ReactNode };
+  type OriginProps = { key: string; onOriginClick?: () => void; originAvatar?: ReactNode };
   const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
   const originFocusRef = useRef<((tabId: string) => void) | null>(null);
   const originPropsById = useMemo(() => {
@@ -548,6 +572,19 @@ export function TabSessionChat({
     const cache = originPropsCacheRef.current;
     const next = new Map<string, OriginProps>();
     for (const { msg, origin } of renderedEnrichedMessages) {
+      if (origin?.kind === "plugin") {
+        const iconSvg = origin.iconSvg ?? getPluginProviderMeta(origin.pluginId)?.iconSvg;
+        const key = `plugin:${origin.pluginId}:${iconSvg ?? "fallback"}`;
+        const prev = cache.get(msg.id);
+        const entry: OriginProps = prev && prev.key === key
+          ? prev
+          : {
+              key,
+              originAvatar: <OriginPluginAvatar pluginId={origin.pluginId} iconSvg={iconSvg} />,
+            };
+        next.set(msg.id, entry);
+        continue;
+      }
       if (origin?.kind !== "tab") continue;
       const idShort = origin.tabIdShort;
       const fullId = Object.keys(tabAgentTypes).find((id) => id.startsWith(idShort));
@@ -566,7 +603,7 @@ export function TabSessionChat({
     }
     originPropsCacheRef.current = next;
     return next;
-  }, [renderedEnrichedMessages, tabAgentTypes, setFocusedTab]);
+  }, [pluginMetaVersion, renderedEnrichedMessages, tabAgentTypes, setFocusedTab]);
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
