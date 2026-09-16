@@ -1063,34 +1063,7 @@ start_dev_wait_process() {
   local conf
   conf="$(dev_conf_path)"
   local cmd=(pnpm tauri dev --no-watch --config "$conf")
-  if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
-    local session="codeterm-dev${CT_SUFFIX}-$$"
-    local root_q log_q conf_q
-    printf -v root_q "%q" "$(pwd)"
-    printf -v log_q "%q" "$log"
-    printf -v conf_q "%q" "$conf"
-    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q >> $log_q 2>&1"
-    echo "screen:$session"
-    return
-  fi
-  local pid spawn_status
-  set +e
-  case "$OSTYPE" in
-    msys*|cygwin*|win32)
-      "${cmd[@]}" </dev/null >> "$log" 2>&1 &
-      ;;
-    *)
-      nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
-      ;;
-  esac
-  pid=$!
-  spawn_status=$?
-  set -e
-  if [ -z "$pid" ]; then
-    echo "Failed to spawn dev process (status=$spawn_status)" >&2
-    return "${spawn_status:-1}"
-  fi
-  echo "$pid"
+  node scripts/dev-wait-health.mjs --log "$log" --api-port "$CT_PORT" -- "${cmd[@]}"
 }
 
 dev_wait_process_alive() {
@@ -1836,6 +1809,14 @@ EOF
     fi
     ;;
   dev)
+    if [ "$CT_DEV_WAIT" -eq 1 ]; then
+      EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+      HEALTH="$(dev_health_status)"
+      if SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null) && dev_frontend_ready; then
+        echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+        exit 0
+      fi
+    fi
     if named_dev_wait_isolated; then
       prepare_named_dev_target
       echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
@@ -1875,72 +1856,31 @@ EOF
       LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
       : > "$LOG"
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-      DEV_PID=$(start_dev_wait_process "$LOG")
+      if ! DEV_PID=$(start_dev_wait_process "$LOG"); then
+        echo "Dev startup failed before the explicit health signal. Last log lines:"
+        tail -25 "$LOG"
+        exit 1
+      fi
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
-      DEADLINE=$(( $(date +%s) + 600 ))
-      LAST_STAGE=""
-      while : ; do
-        STAGE="$(dev_wait_stage "$LOG")"
-        if [ "$STAGE" != "$LAST_STAGE" ]; then
-          echo "Dev startup stage: $STAGE"
-          LAST_STAGE="$STAGE"
-        fi
-        echo "Dev startup heartbeat: stage=$LAST_STAGE"
-        if [ "$(date +%s)" -gt "$DEADLINE" ]; then
-          echo "Timeout after 600s during stage: $LAST_STAGE. Last log lines:"
-          tail -25 "$LOG"
-          if [ -f "/tmp/codeterm-web-watch${CT_SUFFIX}.log" ]; then
-            echo "Last web-watch log lines:"
-            tail -25 "/tmp/codeterm-web-watch${CT_SUFFIX}.log"
-          fi
-          exit 1
-        fi
-        if ! dev_wait_process_alive "$DEV_PID"; then
-          echo "Dev process exited before reporting ready during stage: $LAST_STAGE. Last log lines:"
-          tail -25 "$LOG"
-          exit 1
-        fi
-        HEALTH=$(dev_health_status)
-        if [ -n "$HEALTH" ]; then
-          STATUS=$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null | head -n1 || true)
-          if [ "$STATUS" = "ok" ]; then
-            if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
-              echo "$HEALTH"
-              exit 1
-            fi
-            STABLE=1
-            for _ in 1 2 3 4; do
-              sleep 2
-              HEALTH=$(dev_health_status)
-              if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null); then
-                STABLE=0
-                break
-              fi
-            done
-            if [ "$STABLE" != "1" ]; then
-              echo "Dev process became unhealthy immediately after reporting ready. Last log lines:"
-              tail -25 "$LOG"
-              exit 1
-            fi
-            if ! dev_frontend_ready; then
-              sleep 2
-              continue
-            fi
-            write_dev_provenance "$SHA"
-            retain_dev_pdb "$SHA"
-            echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
-            # Named --wait startup never acquires the shared gateway, so it must
-            # not claim its canonical lock after readiness.
-            if [ -n "$CT_INSTANCE" ]; then
-              echo "Named dev ready; shared build gateway handoff skipped."
-            else
-              handoff_gateway_to_dev "$DEV_PID"
-            fi
-            exit 0
-          fi
-        fi
-        sleep 2
-      done
+      HEALTH="$(dev_health_status)"
+      if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
+        echo "$HEALTH"
+        exit 1
+      fi
+      if ! dev_frontend_ready; then
+        echo "Dev reported API health but frontend readiness was not observable. Last log lines:"
+        tail -25 "$LOG"
+        exit 1
+      fi
+      write_dev_provenance "$SHA"
+      retain_dev_pdb "$SHA"
+      echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
+      if [ -n "$CT_INSTANCE" ]; then
+        echo "Named dev ready; shared build gateway handoff skipped."
+      else
+        handoff_gateway_to_dev "$DEV_PID"
+      fi
+      exit 0
     else
       # Retained after the session, not before it: only then is the PDB on disk
       # the one tauri just linked and ran. Nothing relinks until the next dev, so
