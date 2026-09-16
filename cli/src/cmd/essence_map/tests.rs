@@ -68,11 +68,11 @@ fn essence_map_contract_accepts_current_source_inventory() {
     assert_eq!(summary.nodes, 57);
     assert_eq!(summary.vectors, 7);
     assert_eq!(summary.capabilities, 36);
-    assert_eq!(summary.core, 10);
+    assert_eq!(summary.core, 12);
     assert_eq!(summary.clients, 2);
-    assert_eq!(summary.runs_on, 59);
+    assert_eq!(summary.runs_on, 67);
     assert_eq!(summary.feeds, 50);
-    assert_eq!(summary.part_of, 9);
+    assert_eq!(summary.part_of, 11);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
 }
@@ -85,7 +85,7 @@ fn essence_map_integrity_rejects_service_layer_self_parent_edges() {
     let summary = generate(fixture.path(), &map).expect("generate map without self-parent");
     let records = super::read_map(&map).expect("read generated map");
 
-    assert_eq!(summary.part_of, 9);
+    assert_eq!(summary.part_of, 11);
     assert!(!records.iter().any(|record| matches!(
         record,
         super::MapRecord::Edge(edge)
@@ -114,9 +114,13 @@ fn essence_map_integrity_normalizes_crlf_before_parsing_and_hashing() {
     let lf = fixture_root();
     let crlf = fixture_root();
     for name in ["CAPABILITIES.md", "CORE.md"] {
-        let path = crlf.path().join("essences").join(name);
-        let text = fs::read_to_string(&path).expect("read CRLF fixture source");
-        fs::write(path, text.replace('\n', "\r\n")).expect("write CRLF fixture source");
+        let lf_path = lf.path().join("essences").join(name);
+        let crlf_path = crlf.path().join("essences").join(name);
+        let text = fs::read_to_string(&lf_path).expect("read fixture source");
+        let normalized = text.replace("\r\n", "\n");
+        fs::write(&lf_path, &normalized).expect("write LF fixture source");
+        fs::write(crlf_path, normalized.replace('\n', "\r\n"))
+            .expect("write CRLF fixture source");
     }
 
     let lf_map = lf.path().join("essences/map.jsonl");
@@ -187,8 +191,8 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let decisions = root.join("essences/decisions.jsonl");
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
-    assert_eq!(summary.nodes, 55);
-    assert_eq!(summary.edges, 129);
+    assert_eq!(summary.nodes, 57);
+    assert_eq!(summary.edges, 130);
 }
 
 #[test]
