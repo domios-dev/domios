@@ -9,7 +9,8 @@ pub(super) struct DispatchRouting {
     pub agent: Option<String>,
     pub model: Option<String>,
     qualified_model: bool,
-    qualified_provider_mismatch: Option<String>,
+    explicit_agent_qualified_model: bool,
+    qualified_provider_mismatch: Option<(String, String)>,
 }
 
 pub(super) fn qualified_provider_model(
@@ -32,20 +33,24 @@ pub(super) fn unqualified_model_error(
     provider: &str,
     notice: &crate::service::spawn::ModelFallbackNotice,
 ) -> Option<JsonRpcError> {
-    if routing.qualified_model {
+    if let Some(error) = provider_mismatch_error(routing) {
+        return Some(error);
+    }
+    if routing.qualified_model && !routing.explicit_agent_qualified_model {
         return None;
     }
-    if let Some(requested_provider) = routing.qualified_provider_mismatch.as_deref() {
+    if routing.explicit_agent_qualified_model {
         return Some(JsonRpcError {
             code: -32602,
             message: format!(
-                "model provider '{}' does not match explicitly selected provider '{}'",
-                requested_provider, provider
+                "model '{}' is unavailable for provider '{}'; refusing to substitute '{}'.",
+                notice.requested_model, provider, notice.provider_resolved_model
             ),
             data: Some(json!({
-                "type": "model_provider_mismatch",
-                "requested_provider": requested_provider,
-                "selected_provider": provider,
+                "type": "qualified_model_unavailable",
+                "requested_model": notice.requested_model,
+                "provider": provider,
+                "suggestion": "use a model id listed by the selected provider",
             })),
         });
     }
@@ -60,6 +65,24 @@ pub(super) fn unqualified_model_error(
             "requested_model": notice.requested_model,
             "default_provider": provider,
             "suggestion": "use <provider>:<model> or pass --agent <provider>",
+        })),
+    })
+}
+
+pub(super) fn provider_mismatch_error(routing: &DispatchRouting) -> Option<JsonRpcError> {
+    let Some((requested_provider, explicit_agent)) = &routing.qualified_provider_mismatch else {
+        return None;
+    };
+    Some(JsonRpcError {
+        code: -32602,
+        message: format!(
+            "model provider '{}' does not match explicitly selected provider '{}'",
+            requested_provider, explicit_agent
+        ),
+        data: Some(json!({
+            "type": "model_provider_mismatch",
+            "requested_provider": requested_provider,
+            "selected_provider": explicit_agent,
         })),
     })
 }
@@ -97,6 +120,7 @@ pub(super) fn resolve_dispatch_routing(
                         agent: Some(agent),
                         model: Some(normalized_model),
                         qualified_model: true,
+                        explicit_agent_qualified_model: true,
                         qualified_provider_mismatch: None,
                     };
                 }
@@ -104,7 +128,8 @@ pub(super) fn resolve_dispatch_routing(
                     agent: Some(agent),
                     model: requested_model,
                     qualified_model: false,
-                    qualified_provider_mismatch: Some(requested_provider),
+                    explicit_agent_qualified_model: false,
+                    qualified_provider_mismatch: Some((requested_provider, agent)),
                 };
             }
         }
@@ -112,6 +137,7 @@ pub(super) fn resolve_dispatch_routing(
             agent: Some(agent),
             model: requested_model,
             qualified_model: false,
+            explicit_agent_qualified_model: false,
             qualified_provider_mismatch: None,
         };
     }
@@ -121,6 +147,7 @@ pub(super) fn resolve_dispatch_routing(
                 agent: Some(agent),
                 model: Some(model),
                 qualified_model: true,
+                explicit_agent_qualified_model: false,
                 qualified_provider_mismatch: None,
             };
         }
@@ -129,6 +156,7 @@ pub(super) fn resolve_dispatch_routing(
                 agent: Some(model),
                 model: None,
                 qualified_model: true,
+                explicit_agent_qualified_model: false,
                 qualified_provider_mismatch: None,
             };
         }
@@ -136,6 +164,7 @@ pub(super) fn resolve_dispatch_routing(
             agent: None,
             model: Some(model),
             qualified_model: false,
+            explicit_agent_qualified_model: false,
             qualified_provider_mismatch: None,
         };
     }
@@ -143,6 +172,7 @@ pub(super) fn resolve_dispatch_routing(
         agent: None,
         model: None,
         qualified_model: false,
+        explicit_agent_qualified_model: false,
         qualified_provider_mismatch: None,
     }
 }
