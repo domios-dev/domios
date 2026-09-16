@@ -60,8 +60,6 @@ const OUTPUT_FINGERPRINTS = [
   "codex>",
 ];
 const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
-// Idle composer animations repaint the screen forever, which reads as a working agent.
-const NO_TUI_ANIMATIONS = ["-c", "tui.animations=false"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
@@ -182,7 +180,7 @@ const plugin: PluginModule = {
     const p = params || {};
     const parts: string[] = [];
     let prefix = "";
-    parts.push("codex", ...NO_TUI_ANIMATIONS);
+    parts.push("codex");
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -223,7 +221,7 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["codex", ...NO_TUI_ANIMATIONS, "resume"];
+    const parts = ["codex", "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
