@@ -1,5 +1,4 @@
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
-use serde::Deserializer as _;
 use std::collections::HashSet;
 use std::fmt;
 

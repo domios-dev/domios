@@ -11,7 +11,7 @@ use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, KpiLedger, TokenCoun
 use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{AgentRef, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, TaskStatus};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 

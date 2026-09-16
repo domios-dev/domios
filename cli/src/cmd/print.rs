@@ -112,6 +112,7 @@ pub fn uniform_id_value(value: &serde_json::Value) -> serde_json::Value {
 /// The one key `tab list --json` wraps the list in, local and over `--mesh`.
 pub const TAB_LIST_JSON_KEY: &str = "tabs";
 
+#[cfg(test)]
 pub fn tab_list_json_envelope(tabs: Vec<serde_json::Value>) -> serde_json::Value {
     tab_list_json_envelope_with_request(tabs, None)
 }
