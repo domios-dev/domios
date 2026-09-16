@@ -75,7 +75,7 @@ describe("working_indicator", () => {
       /\.activity-dots--cooling i\s*\{[^}]*animation:\s*ct-dots-cooldown var\(--activity-dot-cooldown-duration\)[^;]*forwards;/s,
     );
     expect(css).toMatch(
-      /\.activity-dots--still i\s*\{[^}]*animation:\s*none;[^}]*opacity:\s*0\.42;[^}]*transform:\s*scale\(0\.9\);/s,
+      /\.activity-dots--still i\s*\{[^}]*animation:\s*none;[^}]*opacity:\s*0;[^}]*transform:\s*scale\(0\.9\);/s,
     );
     expect(css).toMatch(/@keyframes ct-dots-cooldown[\s\S]*100%\s*\{[^}]*transform:\s*scale\(0\.9\);/);
     const component = readFileSync(resolve(repoRoot, "src/components/shared/ActivityDots.tsx"), "utf8");
