@@ -39,6 +39,9 @@ nudge_interval_secs = 2700  # 45 minutes
 [orchestration.reflect]
 every_gates = 15  # emit a one-shot self-review block every N gate/bounce events (0 disables)
 
+[orchestration.map]
+enabled = false  # opt in to the workspace essence map and its boundary Cartographer
+
 [keybindings]
 new_tab = "Ctrl+T"
 reopen_tab = "Ctrl+Shift+T"
@@ -207,4 +210,4 @@ agent command. Source-only workers do not build or test in their lane.
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 58 -->
+<!-- revision: 59 -->

@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 
 use crate::args::essence_map::{EssenceMapAction, EssenceMapPaths};
 
+pub(crate) mod journal;
+
 pub(crate) const MAX_NODE_COUNT: usize = 100;
 const CAPABILITIES_PATH: &str = "essences/CAPABILITIES.md";
 const CORE_PATH: &str = "essences/CORE.md";
@@ -132,22 +134,6 @@ impl<'de> Deserialize<'de> for MapRecord {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct DecisionRecord {
-    pub kind: DecisionKind,
-    pub id: String,
-    pub map_sha256: String,
-    pub summary: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) enum DecisionKind {
-    #[serde(rename = "decision")]
-    Decision,
-}
-
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub(crate) struct MapSummary {
     pub nodes: usize,
@@ -205,52 +191,89 @@ struct Inventory {
     source_files: BTreeMap<&'static str, SourceFile>,
 }
 
+/// What one essence-map invocation produced. Generation and validation report
+/// the inventory; the journal actions report the decision log.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub(crate) enum Report {
+    Map(MapSummary),
+    Record(journal::RecordOutcome),
+    Release(journal::ReleaseSummary),
+    Revert(journal::RevertOutcome),
+}
+
 pub(crate) fn handle(json_output: bool, action: EssenceMapAction) {
     let result = match action {
-        EssenceMapAction::Generate(paths) => generate_from_paths(&paths),
-        EssenceMapAction::Validate(paths) => validate_from_paths(&paths),
+        EssenceMapAction::Generate(paths) => generate_from_paths(&paths).map(Report::Map),
+        EssenceMapAction::Validate(paths) => validate_from_paths(&paths).map(Report::Map),
+        EssenceMapAction::Record(record) => {
+            let (map_path, decisions_path) = match journal_paths(&record.paths) {
+                Ok(paths) => paths,
+                Err(error) => fail(error),
+            };
+            journal::record(&map_path, &decisions_path, &record.summary, &record.reason)
+                .map(Report::Record)
+        }
+        EssenceMapAction::ReleaseSummary(release) => {
+            let (map_path, decisions_path) = match journal_paths(&release.paths) {
+                Ok(paths) => paths,
+                Err(error) => fail(error),
+            };
+            journal::release_summary(&map_path, &decisions_path, release.since.as_deref())
+                .map(Report::Release)
+        }
+        EssenceMapAction::Revert(revert) => {
+            let (map_path, decisions_path) = match journal_paths(&revert.paths) {
+                Ok(paths) => paths,
+                Err(error) => fail(error),
+            };
+            journal::revert(&map_path, &decisions_path, &revert.to).map(Report::Revert)
+        }
     };
 
     match result {
-        Ok(summary) if json_output => {
-            println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+        Ok(report) if json_output => {
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
         }
-        Ok(summary) => print_summary(&summary),
-        Err(error) => {
-            eprintln!("✗ essence-map failed: {error}");
-            eprintln!("fix: codeterm essence-map generate --root .");
-            std::process::exit(1);
-        }
+        Ok(report) => print_report(&report),
+        Err(error) => fail(error),
     }
+}
+
+fn fail(error: String) -> ! {
+    eprintln!("✗ essence-map failed: {error}");
+    eprintln!("fix: codeterm essence-map generate --root .");
+    std::process::exit(1);
+}
+
+fn journal_paths(paths: &EssenceMapPaths) -> Result<(PathBuf, PathBuf), String> {
+    let root = canonical_root(&paths.root)?;
+    Ok((
+        resolve_path(&root, paths.map.as_deref(), MAP_PATH),
+        resolve_path(&root, paths.decisions.as_deref(), DECISIONS_PATH),
+    ))
 }
 
 fn generate_from_paths(paths: &EssenceMapPaths) -> Result<MapSummary, String> {
     let root = canonical_root(&paths.root)?;
     let map_path = resolve_path(&root, paths.map.as_deref(), MAP_PATH);
-    let inventory = build_inventory(&root)?;
-    let records = records_for(&inventory);
-    enforce_budget(&records)?;
-    let contents = records_to_jsonl(&records)?;
-    write_text(&map_path, &contents)?;
-    Ok(summary(&records))
+    generate(&root, &map_path)
 }
 
 fn validate_from_paths(paths: &EssenceMapPaths) -> Result<MapSummary, String> {
     let root = canonical_root(&paths.root)?;
     let map_path = resolve_path(&root, paths.map.as_deref(), MAP_PATH);
     let decisions_path = resolve_path(&root, paths.decisions.as_deref(), DECISIONS_PATH);
-    let inventory = build_inventory(&root)?;
-    let actual = read_map(&map_path)?;
-    validate_map_records(&actual, &inventory, &map_path)?;
-    validate_decisions(&decisions_path)?;
-    Ok(summary(&actual))
+    validate(&root, &map_path, &decisions_path)
 }
 
 pub(crate) fn generate(root: &Path, map_path: &Path) -> Result<MapSummary, String> {
     let inventory = build_inventory(root)?;
     let records = records_for(&inventory);
     enforce_budget(&records)?;
-    write_text(map_path, &records_to_jsonl(&records)?)?;
+    let contents = records_to_jsonl(&records)?;
+    journal::retain_superseded_map(map_path, &contents)?;
+    write_text(map_path, &contents)?;
     Ok(summary(&records))
 }
 
@@ -262,7 +285,7 @@ pub(crate) fn validate(
     let inventory = build_inventory(root)?;
     let actual = read_map(map_path)?;
     validate_map_records(&actual, &inventory, map_path)?;
-    validate_decisions(decisions_path)?;
+    journal::validate_decisions(decisions_path)?;
     Ok(summary(&actual))
 }
 
@@ -965,69 +988,6 @@ fn validate_flow_links(
     Ok(())
 }
 
-fn validate_decisions(path: &Path) -> Result<(), String> {
-    let text = fs::read_to_string(path)
-        .map_err(|error| format!("cannot read decisions {}: {error}", path.display()))?;
-    let mut previous_number = 0u64;
-    let mut ids = BTreeSet::new();
-    for (line_index, line) in text.lines().enumerate() {
-        let line_number = line_index + 1;
-        if line.trim().is_empty() {
-            return Err(format!(
-                "decisions {} line {line_number}: blank JSONL record",
-                path.display()
-            ));
-        }
-        let decision: DecisionRecord = serde_json::from_str(line).map_err(|error| {
-            format!(
-                "decisions {} line {line_number}: malformed record: {error}",
-                path.display()
-            )
-        })?;
-        if decision.id.trim().is_empty()
-            || decision.summary.trim().is_empty()
-            || decision.reason.trim().is_empty()
-        {
-            return Err(format!(
-                "decisions {} line {line_number}: id, summary and reason are required",
-                path.display()
-            ));
-        }
-        if !is_sha256(&decision.map_sha256) {
-            return Err(format!(
-                "decisions {} line {line_number}: map_sha256 must be 64 lowercase hex characters",
-                path.display()
-            ));
-        }
-        let Some(number) = decision
-            .id
-            .strip_prefix("decision-")
-            .and_then(|value| value.parse().ok())
-        else {
-            return Err(format!(
-                "decisions {} line {line_number}: id `{}` must use decision-N numbering",
-                path.display(),
-                decision.id
-            ));
-        };
-        if number <= previous_number {
-            return Err(format!(
-                "decisions {} line {line_number}: decision ids must be strictly increasing (append-only)",
-                path.display()
-            ));
-        }
-        previous_number = number;
-        if !ids.insert(decision.id.clone()) {
-            return Err(format!(
-                "decisions {} line {line_number}: duplicate decision id `{}`",
-                path.display(),
-                decision.id
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn enforce_budget(records: &[MapRecord]) -> Result<(), String> {
     let nodes = records
         .iter()
@@ -1129,5 +1089,43 @@ fn print_summary(summary: &MapSummary) {
     );
 }
 
+fn print_report(report: &Report) {
+    match report {
+        Report::Map(summary) => print_summary(summary),
+        Report::Record(journal::RecordOutcome::Appended { id, decisions, .. }) => {
+            println!("recorded {id}; the decision log now holds {decisions} record(s)");
+        }
+        Report::Record(journal::RecordOutcome::Unchanged { id, .. }) => {
+            println!("map unchanged since {id}; nothing recorded");
+        }
+        Report::Release(release) => print_release(release),
+        Report::Revert(revert) => {
+            println!(
+                "restored the map recorded by {} and logged {}",
+                revert.restored, revert.decision
+            );
+        }
+    }
+}
+
+fn print_release(release: &journal::ReleaseSummary) {
+    let baseline = release.baseline.as_deref().unwrap_or("no baseline");
+    println!(
+        "map decisions since {baseline}: {} change(s)",
+        release.changes.len()
+    );
+    for change in &release.changes {
+        println!("- {}: {}", change.id, change.summary);
+    }
+    for choice in &release.choices {
+        println!("choice: {choice}");
+    }
+    if let (Some(_), Some(baseline)) = (release.revert_choice(), release.baseline.as_deref()) {
+        println!("revert: codeterm essence-map revert --to {baseline}");
+    }
+}
+
+#[cfg(test)]
+mod cartographer_tests;
 #[cfg(test)]
 mod tests;
