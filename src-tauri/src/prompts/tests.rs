@@ -764,15 +764,22 @@ const SEED_SKILL_CODETERM: &str = include_str!("../../prompts/seed/skill_codeter
 /// manifest are compared against the same token rather than two spellings.
 const ASK_FLAG: &str = "--choice";
 
-/// Every surface that teaches an agent when to escalate to the user. The
-/// primer reaches composed launch prompts through the seam already asserted
-/// in service::orchestrator::prompt_compose::tests, so a clause present in
-/// the fragment is a clause present in what an agent receives.
-fn notify_escalation_surfaces() -> [(&'static str, &'static str); 3] {
+/// Every surface that teaches an agent when to escalate to the user, as the
+/// agent receives it rather than as the repository files it is built from.
+///
+/// `compose_system_prompt` joins the primer and the rule into one prompt, so
+/// requiring the clause in each file would require it twice in what arrives —
+/// which is the duplication these clauses were consolidated to remove. Counting
+/// the composed text catches the missing case and the doubled case alike, which
+/// per-file counting cannot. The seed skill is a separate distribution and
+/// carries its own copy.
+fn notify_escalation_surfaces() -> [(&'static str, String); 2] {
     [
-        ("codeterm_rule.md", CODETERM_RULE),
-        ("agent_codeterm_primer.md", AGENT_CODETERM_PRIMER),
-        ("seed/skill_codeterm.md", SEED_SKILL_CODETERM),
+        (
+            "composed system prompt",
+            format!("{AGENT_CODETERM_PRIMER}\n{CODETERM_RULE}"),
+        ),
+        ("seed/skill_codeterm.md", SEED_SKILL_CODETERM.to_string()),
     ]
 }
 

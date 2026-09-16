@@ -30,7 +30,6 @@ fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
     Some(root.canonicalize().unwrap_or(root))
 }
 
-
 pub(crate) fn plan_id_from(plan: &serde_json::Value, path: &Path) -> Option<String> {
     plan.get("id")
         .and_then(|v| v.as_str())

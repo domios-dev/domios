@@ -24,7 +24,13 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 
 /// Measured after the prompt diet, normalized to LF so a CRLF checkout measures
 /// the same bytes. Every ceiling sits below its pre-diet size.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 17_900;
+///
+/// The orchestrator ceiling was re-measured for the Cartographer project
+/// contract (7244934d6), which landed while this gate was not being run and put
+/// the surface 25 bytes over the previous 17_900. Raised to the new measurement
+/// rather than trimming another author's contract blind; the next addition pays
+/// the same cost of re-measuring deliberately.
+const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 17_950;
 const PLANNER_CONTRACT_MAX_BYTES: usize = 17_750;
 const WORKER_SUFFIX_MAX_BYTES: usize = 4_550;
 const PRIMER_MAX_BYTES: usize = 2_250;
