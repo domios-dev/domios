@@ -36,7 +36,7 @@ The hub. One service owns every operation on workspaces, tabs, agents and plans,
 What one CodeTerm instance remembers across restarts: configuration, the workspace and tab snapshot with its lifecycle journal, schedules, the secret store, the usage ledger and the kept notification records.
 
 - Part of: the service layer.
-- Invariants: each instance keeps its own data directory, so development never reads or writes production's state; restore is unconditional and the journal is telemetry, not authority; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
+- Invariants: each instance keeps its own data directory, so development never reads or writes production's state; restoring this state after a restart is unconditional and the journal is telemetry, not authority; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
 - Dependent capabilities: workspaces and tabs, session continuity, scheduling, service registry, secret store, configuration, usage and Analytics.
 
 ### PTY
@@ -68,7 +68,7 @@ The words an agent starts from: the primer every spawned agent receives, the rol
 Durable intent and the team that carries it out: goals, specs, plans, tasks and strides; the two-level hierarchy of Orchestrator, optional Planner and Workers; dispatch, acknowledgement, reports, review and lanes.
 
 - Part of: the service layer.
-- Invariants: planner state is the source of truth; two levels only, and Workers never spawn; only the Orchestrator approves a plan and closes a task; every Worker turn ends in a report; a mutating Worker writes only its own lane, never canonical unless the Orchestrator opts one Worker in; lanes land by real merges and executable proof runs only in canonical.
+- Invariants: planner state is the source of truth; only two hierarchy levels exist, and Workers never spawn; only the Orchestrator approves a plan and closes a task; every Worker turn ends in a report; a mutating Worker writes only its own lane, never canonical unless the Orchestrator opts one Worker in; lanes land by real merges and executable proof runs only in canonical.
 - Dependent capabilities: the whole meta-team vector and the lane vector up to integration and canonical verification.
 
 ### Message gateway and bridges
