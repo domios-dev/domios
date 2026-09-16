@@ -444,7 +444,7 @@ mod tests {
             .expect_err("second claim must be an explicit refusal");
         assert!(matches!(
             refusal,
-            crate::plan::PlanError::ReviewContinuationDeliveryRefused {
+            crate::service::plan::PlanError::ReviewContinuationDeliveryRefused {
                 expected_epoch: 1,
                 actual_epoch: Some(1),
                 continuation_state: Some(ref state),
@@ -560,7 +560,7 @@ mod tests {
             .expect_err("replayed claim must be an explicit refusal");
         assert!(matches!(
             refusal,
-            crate::plan::PlanError::ReviewContinuationDeliveryRefused { .. }
+            crate::service::plan::PlanError::ReviewContinuationDeliveryRefused { .. }
         ));
     }
 }
