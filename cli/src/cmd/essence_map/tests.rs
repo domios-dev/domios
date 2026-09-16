@@ -65,7 +65,7 @@ fn essence_map_contract_accepts_current_source_inventory() {
     let fixture = fixture_root();
     let (map, decisions, summary) = valid_map(fixture.path());
 
-    assert_eq!(summary.nodes, 55);
+    assert_eq!(summary.nodes, 57);
     assert_eq!(summary.vectors, 7);
     assert_eq!(summary.capabilities, 36);
     assert_eq!(summary.core, 10);
@@ -85,7 +85,7 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
     assert_eq!(summary.nodes, 55);
-    assert_eq!(summary.edges, 121);
+    assert_eq!(summary.edges, 129);
 }
 
 #[test]
@@ -101,6 +101,36 @@ fn essence_map_contract_generation_is_deterministic() {
         fs::read(&first).expect("read first map"),
         fs::read(&second).expect("read second map")
     );
+}
+
+#[test]
+fn essence_truth_model_preserves_capability_statuses_and_shipped_core_nodes() {
+    let fixture = fixture_root();
+    let (map, _, _) = valid_map(fixture.path());
+    let records = super::read_map(&map).expect("read generated map");
+    let nodes: std::collections::BTreeMap<_, _> = records
+        .iter()
+        .filter_map(|record| match record {
+            super::MapRecord::Node(node) => Some((node.id.as_str(), node)),
+            super::MapRecord::Edge(_) => None,
+        })
+        .collect();
+    assert_eq!(nodes["capability:essence-anchored-code-map"].status.as_deref(), Some("planned"));
+    assert_eq!(nodes["capability:agent-providers"].status.as_deref(), Some("stable; Cursor in rollout; Aider and Goose planned"));
+    assert!(nodes.contains_key("core:general-agent"));
+    assert!(nodes.contains_key("core:crash-recovery-supervisor"));
+    assert!(records.iter().any(|record| matches!(record, super::MapRecord::Edge(edge) if edge.from == "capability:session-continuity" && edge.to == "core:crash-recovery-supervisor")));
+}
+
+#[test]
+fn essence_truth_model_rejects_renamed_capability_slug() {
+    let fixture = fixture_root();
+    let (map, decisions, _) = valid_map(fixture.path());
+    let original = fs::read_to_string(&map).expect("read map");
+    fs::write(&map, original.replace("capability:agent-providers", "capability:renamed-providers"))
+        .expect("write renamed map");
+    let error = validate(fixture.path(), &map, &decisions).expect_err("renamed slug fails");
+    assert!(error.contains("missing node") || error.contains("dangling"));
 }
 
 #[test]

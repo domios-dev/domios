@@ -52,6 +52,8 @@ pub(crate) struct NodeRecord {
     pub vector: Option<String>,
     pub source: SourceRef,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub runs_on_reason: Option<String>,
 }
 
@@ -80,7 +82,7 @@ impl Serialize for MapRecord {
             MapRecord::Node(node) => {
                 let mut state = serializer.serialize_struct(
                     "MapRecord",
-                    6 + usize::from(node.runs_on_reason.is_some()),
+                    6 + usize::from(node.runs_on_reason.is_some()) + usize::from(node.status.is_some()),
                 )?;
                 state.serialize_field("kind", "node")?;
                 state.serialize_field("id", &node.id)?;
@@ -88,6 +90,9 @@ impl Serialize for MapRecord {
                 state.serialize_field("label", &node.label)?;
                 state.serialize_field("vector", &node.vector)?;
                 state.serialize_field("source", &node.source)?;
+                if let Some(status) = &node.status {
+                    state.serialize_field("status", status)?;
+                }
                 if let Some(reason) = &node.runs_on_reason {
                     state.serialize_field("runs_on_reason", reason)?;
                 }
@@ -169,6 +174,7 @@ struct CapabilityDef {
     runs_on: Vec<String>,
     runs_on_reason: Option<String>,
     feeds: Vec<String>,
+    status: String,
 }
 
 #[derive(Debug, Clone)]
@@ -342,6 +348,7 @@ fn build_inventory(root: &Path) -> Result<Inventory, String> {
             vector: None,
             source: source_ref(&capabilities, &vector.id),
             runs_on_reason: None,
+            status: None,
         });
     }
     for capability in &vectors_and_capabilities.1 {
@@ -352,6 +359,7 @@ fn build_inventory(root: &Path) -> Result<Inventory, String> {
             vector: Some(capability.vector.clone()),
             source: source_ref(&capabilities, &capability.id),
             runs_on_reason: capability.runs_on_reason.clone(),
+            status: Some(capability.status.clone()),
         });
     }
     for part in &core_data.0 {
@@ -362,6 +370,7 @@ fn build_inventory(root: &Path) -> Result<Inventory, String> {
             vector: None,
             source: source_ref(&core, &part.id),
             runs_on_reason: None,
+            status: None,
         });
     }
     for client in &core_data.1 {
@@ -372,6 +381,7 @@ fn build_inventory(root: &Path) -> Result<Inventory, String> {
             vector: None,
             source: source_ref(&core, &client.id),
             runs_on_reason: None,
+            status: None,
         });
     }
 
@@ -495,6 +505,10 @@ fn parse_capabilities(text: &str) -> Result<(Vec<VectorDef>, Vec<CapabilityDef>)
         }
         let (runs_on, runs_on_reason) = parse_relation_cell(&cells[5]);
         let feeds = parse_relation_cell(&cells[6]).0;
+        let status = cells[4].trim().to_string();
+        if status.is_empty() {
+            return Err(format!("capability `{label}` has an empty status"));
+        }
         capabilities.push(CapabilityDef {
             id: node_id(NodeType::Capability, &label),
             label,
@@ -502,6 +516,7 @@ fn parse_capabilities(text: &str) -> Result<(Vec<VectorDef>, Vec<CapabilityDef>)
             runs_on,
             runs_on_reason,
             feeds,
+            status,
         });
     }
 
@@ -867,6 +882,17 @@ fn validate_node_shape(node: &NodeRecord, inventory: &Inventory) -> Result<(), S
             "node `{}` has source anchor `{}`, expected `{}`",
             node.id, node.source.anchor, node.id
         ));
+    }
+    if node.node_type != NodeType::Capability && node.status.is_some() {
+        return Err(format!("node `{}` carries status but is not a capability", node.id));
+    }
+    if node.node_type == NodeType::Capability
+        && node
+            .status
+            .as_deref()
+            .map_or(true, |status| status.trim().is_empty())
+    {
+        return Err(format!("capability node `{}` has no status", node.id));
     }
     match node.node_type {
         NodeType::Capability if node.vector.is_none() => Err(format!(
