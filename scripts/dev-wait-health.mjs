@@ -18,11 +18,12 @@ const tail = (path) => {
 export function waitForReadiness({ log, apiPort, command, cwd = process.cwd(), env = process.env, deadlineMs = 600_000 }) {
   if (!Array.isArray(command) || command.length === 0) throw new Error("dev wait command is required");
   const logFd = openSync(log, "a");
-  const child = spawn(command[0], command.slice(1), {
+  const executable = process.platform === "win32" && command[0] === "pnpm" ? "pnpm.cmd" : command[0];
+  const child = spawn(executable, command.slice(1), {
     cwd,
     env,
     detached: true,
-    shell: process.platform === "win32",
+    shell: false,
     stdio: ["ignore", logFd, logFd],
     windowsHide: true,
   });
