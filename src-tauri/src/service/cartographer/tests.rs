@@ -249,7 +249,12 @@ fn cartographer_map_role_contract_layers_on_the_worker_base() {
 
 /// Measured after the prompt diet, normalized to LF so a CRLF checkout measures
 /// the same bytes. The Worker base plus one checklist, and no second manual.
-const CARTOGRAPHER_CONTRACT_MAX_BYTES: usize = 7_600;
+///
+/// Re-measured for the project contract that 7244934d6 taught this role while
+/// the gate was not being run; it put the surface 47 bytes over the previous
+/// 7_600. Raised to the new measurement rather than trimming the contract that
+/// was deliberately added.
+const CARTOGRAPHER_CONTRACT_MAX_BYTES: usize = 7_650;
 
 #[test]
 fn cartographer_map_contract_stays_within_its_measured_ceiling() {
