@@ -4,11 +4,11 @@ use super::{
     build_brief_with_personality, checkout_required, cleanup_succeeded,
     complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
-    preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
-    resolve_dispatch_lane, resolve_dispatch_routing, roll_back_dispatch_attempt,
-    rollback_failed_dispatch, task_launch_authority_for_dispatch, unqualified_model_error,
-    verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
-    DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
+    preflight_dispatch_task_status, preflight_review_capacity, provider_mismatch_error,
+    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
+    roll_back_dispatch_attempt, rollback_failed_dispatch, task_launch_authority_for_dispatch,
+    unqualified_model_error, verify_dispatched_task_binding, worker_ack_timeout_event,
+    DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -1074,6 +1074,31 @@ fn routing_explicit_agent_normalizes_matching_qualified_model() {
 }
 
 #[test]
+fn routing_explicit_agent_rejects_unavailable_matching_qualified_task_model() {
+    let routing = resolve_dispatch_routing(
+        Some("codex".into()),
+        None,
+        Some("CoDeX:missing-model".into()),
+        &providers(),
+    );
+    assert_eq!(routing.agent.as_deref(), Some("codex"));
+    assert_eq!(routing.model.as_deref(), Some("missing-model"));
+    assert!(routing.qualified_model);
+
+    let notice = crate::service::spawn::ModelFallbackNotice {
+        planned_model: Some("CoDeX:missing-model".into()),
+        requested_model: "missing-model".into(),
+        provider_resolved_model: "gpt-5.5".into(),
+        actual_model: None,
+        reason: "requested_model_unavailable".into(),
+    };
+    let error = unqualified_model_error(&routing, "codex", &notice)
+        .expect("explicit qualified unavailable model must be refused");
+    assert_eq!(error.code, -32602);
+    assert_eq!(error.data.unwrap()["type"], "qualified_model_unavailable");
+}
+
+#[test]
 fn routing_explicit_agent_rejects_mismatched_qualified_model() {
     let r = resolve_dispatch_routing(
         Some("codex".into()),
@@ -1083,16 +1108,14 @@ fn routing_explicit_agent_rejects_mismatched_qualified_model() {
     );
     assert_eq!(r.agent.as_deref(), Some("codex"));
     assert_eq!(r.model.as_deref(), Some("claude:opus"));
-    assert_eq!(r.qualified_provider_mismatch.as_deref(), Some("claude"));
+    assert_eq!(
+        r.qualified_provider_mismatch
+            .as_ref()
+            .map(|(provider, _)| provider.as_str()),
+        Some("claude")
+    );
 
-    let notice = crate::service::spawn::ModelFallbackNotice {
-        planned_model: Some("claude:opus".into()),
-        requested_model: "claude:opus".into(),
-        provider_resolved_model: "gpt-5.5".into(),
-        actual_model: None,
-        reason: "requested_model_unavailable".into(),
-    };
-    let error = unqualified_model_error(&r, "codex", &notice).unwrap();
+    let error = provider_mismatch_error(&r).unwrap();
     assert_eq!(error.code, -32602);
     let data = error.data.expect("provider mismatch data");
     assert_eq!(data["type"], "model_provider_mismatch");
