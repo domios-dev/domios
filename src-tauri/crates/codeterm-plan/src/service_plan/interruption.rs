@@ -91,7 +91,14 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.assign_task_with_optional_binding(
-            plan_id, task_id, tab, peer, role, None, Some(authority), now_ms,
+            plan_id,
+            task_id,
+            tab,
+            peer,
+            role,
+            None,
+            Some(authority),
+            now_ms,
         )
     }
 

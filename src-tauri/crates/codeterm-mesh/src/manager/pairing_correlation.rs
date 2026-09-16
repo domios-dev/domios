@@ -16,9 +16,9 @@ impl MeshManager {
             .iter()
             .find(|(_, delivery)| delivery.request_id() == request_id)
             .map(|(target_id, _)| target_id.clone());
-        if let Some(delivery) = delivery_key.and_then(|target_id| {
-            self.pairing_deliveries.remove(&target_id)
-        }) {
+        if let Some(delivery) =
+            delivery_key.and_then(|target_id| self.pairing_deliveries.remove(&target_id))
+        {
             delivery.complete(Ok(()));
         }
         Ok(())

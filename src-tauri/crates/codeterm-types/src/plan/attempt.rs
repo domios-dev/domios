@@ -1,6 +1,6 @@
+use super::diagnostics::LaneDiagnosticsSummary;
 use super::types::AttachmentRef;
 use super::{AttemptContinuationState, AttemptInterruptionState};
-use super::diagnostics::LaneDiagnosticsSummary;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

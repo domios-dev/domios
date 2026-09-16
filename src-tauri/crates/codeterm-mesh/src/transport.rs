@@ -210,7 +210,10 @@ pub fn safe_reqwest_error_detail(error: &reqwest::Error, phase: &str) -> String 
     } else {
         causes.join(",")
     };
-    format!("phase={phase};source_depth={};causes={cause_chain}", causes.len())
+    format!(
+        "phase={phase};source_depth={};causes={cause_chain}",
+        causes.len()
+    )
 }
 
 impl std::fmt::Display for TransportError {

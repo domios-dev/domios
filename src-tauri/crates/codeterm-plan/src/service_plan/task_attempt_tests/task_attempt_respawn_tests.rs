@@ -519,9 +519,8 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
     );
 
     let brief = store.prepend_worker_charter_for_tab("tab_guided", "continue");
-    let expected_prefix = format!(
-        "<codeterm-worker-charter task=\"{task_id}\">\nYou are Hopper. Review only.\n"
-    );
+    let expected_prefix =
+        format!("<codeterm-worker-charter task=\"{task_id}\">\nYou are Hopper. Review only.\n");
     assert_eq!(&brief[..expected_prefix.len()], expected_prefix);
     assert_eq!(brief.matches("You are Hopper.").count(), 1);
 }

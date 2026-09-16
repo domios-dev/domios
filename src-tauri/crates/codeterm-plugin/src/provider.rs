@@ -4,7 +4,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationInstallOptions {
     pub consent: bool,
