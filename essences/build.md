@@ -169,6 +169,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Local production build reports `TS2304: Cannot find name 'RefreshCw'` in the mesh peer panel | The shared busy spinner consumed the icon without importing it | Import the existing `RefreshCw` icon from `lucide-react`; rerun the owning production build before self-install. |
 | `registered_documents_have_one_title_and_fit_the_reading_boundary` rejects a CLI document | A contract addition exceeds the 240-line reading boundary | Integrate the clarification into its owning contract section and remove duplicate explanation, or move a separate concern to its linked reference. Run the focused CLI document test before the full preflight. |
 | A real newly spawned QA tab reports stale identity although its hook binding is live, while fixture-only report tests pass | Plan evidence authorization required a session environment variable that a fresh provider process does not have; tests always supplied one | Exercise `plan_evidence_session_test` with absent session metadata and an attested nonce. Resolve only the exact daemon-registered tab session, retain all grant/session/nonce refusals, and verify the real CLI after installation. |
 | `release-preflight` fails the action-card or Web fork inventory suite after a transport/presentation change | A card fixture bypassed the batch router, or a new platform branch lacked its required transport classification | Test single help invocations in the action card and multi-action batches through `ToolCallBubble`; register the exact Web transport branch in `webForks.test.ts`. Run both focused suites, then repeat preflight. |
@@ -413,4 +414,3 @@ If `verify` fails because a review-capacity test expects a refusal at WIP satura
 update that owning test to the advisory contract and retain separate real-failure
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
-

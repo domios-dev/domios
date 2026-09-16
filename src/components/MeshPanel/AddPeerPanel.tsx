@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { RefreshCw } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, DiscoveredPeer, MeshPairingRequest, PairedPeer } from "../../lib/types";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
