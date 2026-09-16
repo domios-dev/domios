@@ -42,6 +42,7 @@ describe("essence_document_tree", () => {
     await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="essence-map-view-toggle"]')?.click());
     expect(host.querySelector('[data-testid="essence-document-tree"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="essence-map-projects"]')).toBeNull();
+    expect(host.querySelector('[data-testid="essence-map-document-surface"]')).not.toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="essence-document"]')?.click());
     await act(async () => { await Promise.resolve(); });
     expect(sourceReader).toHaveBeenCalledWith("/repo", "essences/CORE.md");
@@ -49,6 +50,7 @@ describe("essence_document_tree", () => {
     await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="essence-map-view-toggle"]')?.click());
     expect(host.querySelector('[data-testid="essence-document-tree"]')).toBeNull();
     expect(host.querySelector('[data-testid="essence-map-projects"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="essence-map-document-surface"]')).toBeNull();
     await act(async () => root.unmount());
     host.remove();
   });
