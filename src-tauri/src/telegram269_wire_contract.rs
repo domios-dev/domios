@@ -38,6 +38,37 @@ fn unhex(value: &str) -> Vec<u8> {
         .collect()
 }
 
+fn verify_swift_interop_artifact() {
+    let artifact = std::fs::read_to_string("/tmp/codeterm-mobile-wire-v1-swift-interop.json")
+        .expect("Swift interop artifact must be produced before Rust QA");
+    let artifact: Value = serde_json::from_str(&artifact).expect("valid Swift interop artifact");
+    let public_key: [u8; 32] = unhex(artifact["public_key_hex"].as_str().unwrap())
+        .try_into()
+        .unwrap();
+    let message = unhex(artifact["message_hex"].as_str().unwrap());
+    let signature: [u8; 64] = unhex(artifact["signature_hex"].as_str().unwrap())
+        .try_into()
+        .unwrap();
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&public_key).unwrap();
+    let signature = ed25519_dalek::Signature::from_bytes(&signature);
+    verifying_key.verify(&message, &signature).unwrap();
+
+    let mut changed_message = message.clone();
+    changed_message[0] ^= 1;
+    assert!(verifying_key.verify(&changed_message, &signature).is_err());
+
+    let mut changed_signature = signature.to_bytes();
+    changed_signature[0] ^= 1;
+    assert!(verifying_key
+        .verify(&message, &ed25519_dalek::Signature::from_bytes(&changed_signature))
+        .is_err());
+
+    let mut changed_key = public_key;
+    changed_key[0] ^= 1;
+    let changed_key = ed25519_dalek::VerifyingKey::from_bytes(&changed_key).unwrap();
+    assert!(changed_key.verify(&message, &signature).is_err());
+}
+
 fn alphabet_value(byte: u8) -> Option<u8> {
     match byte {
         b'A'..=b'Z' => Some(byte - b'A'),
@@ -1040,4 +1071,5 @@ fn telegram269_wire_contract() {
         .as_array()
         .unwrap()
         .contains(&json!("grants")));
+    verify_swift_interop_artifact();
 }
