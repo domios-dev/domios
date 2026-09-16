@@ -536,7 +536,11 @@ fn handle_connection(
                 }
             }
             Err(e) => {
-                log::error!("Socket read error: {}", e);
+                if is_disconnected_client(&e) {
+                    log::debug!("Socket client disconnected before request read: {}", e);
+                } else {
+                    log::error!("Socket read error: {}", e);
+                }
                 break;
             }
         }
@@ -714,6 +718,20 @@ mod tests {
                 "{kind:?} should close only the client connection"
             );
         }
+    }
+
+    #[test]
+    fn log_composition_classifies_expected_socket_disconnects_without_error() {
+        for kind in [
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::NotConnected,
+            io::ErrorKind::UnexpectedEof,
+        ] {
+            assert!(is_disconnected_client(&io::Error::from(kind)));
+        }
+        assert!(!is_disconnected_client(&io::Error::from(io::ErrorKind::PermissionDenied)));
     }
 
     #[test]
