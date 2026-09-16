@@ -17,6 +17,7 @@
   "src/components/shared/working_indicator.test.tsx",
   "src/components/Notifications/notificationDeepLink.test.tsx",
   "src/components/Notifications/notification_status_row_truncation.test.tsx",
+  "src/components/Sidebar/hover_reveal_scrollbar.test.tsx",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
   "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx",
