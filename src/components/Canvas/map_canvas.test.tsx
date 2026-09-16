@@ -1,7 +1,8 @@
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Window } from "happy-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../lib/types";
+import { WorkspaceItem } from "../Sidebar/WorkspaceItem";
 import { EssenceMapCanvasInner } from "./EssenceMapCanvas";
 import {
   ESSENCE_MAP_MAX_NODES,
@@ -12,14 +13,20 @@ import {
   type EssenceMapNode,
 } from "./essenceMapModel";
 
-type TestFn = () => void | Promise<void>;
-const tests: Array<[string, TestFn]> = [];
-function test(name: string, fn: TestFn) {
-  tests.push([name, fn]);
-}
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
+vi.mock("../../hooks/useAgentProviders", () => ({
+  useAgentProviders: () => ({ providers: [], loading: false, error: null, refetch: () => {} }),
+}));
+
+vi.mock("../../hooks/useConfig", () => ({
+  useConfig: () => ({
+    config: { agents: {} },
+    loading: false,
+    theme: "dark",
+    updateConfig: async () => {},
+  }),
+}));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const workspace: Workspace = {
   id: "ws-map",
@@ -53,39 +60,62 @@ function mapFile(projectPath: string, records: unknown[]): EssenceMapFile {
   };
 }
 
-function setupDom() {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/essence-map" });
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
-  Object.defineProperty(globalThis, "ResizeObserver", {
-    configurable: true,
-    value: class {
-      observe() {}
-      disconnect() {}
-    },
+const mounted: Array<{ host: HTMLDivElement; root: Root }> = [];
+
+beforeEach(() => {
+  document.body.replaceChildren();
+});
+
+afterEach(async () => {
+  await act(async () => {
+    for (const { root } of mounted) root.unmount();
   });
+  for (const { host } of mounted) host.remove();
+  mounted.length = 0;
+});
+
+async function mount(element: ReactNode): Promise<{ host: HTMLDivElement; root: Root }> {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  mounted.push({ host, root });
+  await act(async () => root.render(element));
+  return { host, root };
 }
 
-async function render(
+async function renderMap(
   mapFiles: EssenceMapFile[],
   sourceReader?: (projectPath: string, sourcePath: string) => Promise<string>,
-): Promise<{ host: HTMLDivElement; root: Root }> {
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  await act(async () => {
-    root.render(
-      <EssenceMapCanvasInner
-        workspace={workspace}
-        mapFiles={mapFiles}
-        sourceReader={sourceReader}
-      />,
-    );
-  });
-  return { host, root };
+) {
+  return mount(
+    <EssenceMapCanvasInner
+      workspace={workspace}
+      mapFiles={mapFiles}
+      sourceReader={sourceReader}
+    />,
+  );
+}
+
+async function renderWorkspaceRow(onOpenMap: (workspace: Workspace) => void) {
+  return mount(
+    <WorkspaceItem
+      workspace={workspace}
+      isActive
+      isExpanded
+      onClick={() => {}}
+      onToggleExpand={() => {}}
+      onClose={() => {}}
+      onRename={() => {}}
+      onNewTerminal={() => {}}
+      onNewSession={() => {}}
+      onOpenMap={() => onOpenMap(workspace)}
+      onNewAgent={() => {}}
+      canClose
+      status={null}
+      showDisclosure={false}
+      detailHeader
+    />,
+  );
 }
 
 async function settle() {
@@ -107,108 +137,97 @@ const validRecords = [
   },
 ];
 
-test("map_canvas parser keeps only valid source-backed records", () => {
-  const parsed = parseEssenceMapJsonl(validRecords.map((record) => JSON.stringify(record)).join("\n"));
-  assert(parsed.status === "valid", "valid map parses");
-  assert(parsed.nodes.length === 2, "only the two source-backed nodes are rendered");
-  assert(parsed.edges.length === 1, "the source-backed edge is retained");
-});
-
-test("map_canvas layout stays inside its bounded phone-width cluster", () => {
-  const layout = layoutEssenceMapProject(
-    [
-      ...Array.from({ length: 7 }, (_, index) => node(`vector:${index}`, "vector", `Vector ${index}`)),
-      node("client:one", "client", "Client"),
-    ],
-    390,
-  );
-  const repeat = layoutEssenceMapProject(
-    [
-      ...Array.from({ length: 7 }, (_, index) => node(`vector:${index}`, "vector", `Vector ${index}`)),
-      node("client:one", "client", "Client"),
-    ],
-    390,
-  );
-  assert(layout.width <= 390, `layout width is bounded (${layout.width})`);
-  assert(layout.nodes.every((item) => item.x >= 0 && item.x + item.width <= layout.width), "every node fits inside the layout");
-  assert(layout.nodes.map((item) => item.node.id).join(",") === repeat.nodes.map((item) => item.node.id).join(","), "layout order is stable");
-});
-
-test("map_canvas collects each workspace project tree once", () => {
-  const paths = projectPathsForWorkspace(workspace, {
-    "tab-a": { cwd: "/repo/a" },
-    "tab-b": { cwd: "/repo/b" },
+describe("map_canvas workspace essence map", () => {
+  it("keeps only valid source-backed records", () => {
+    const parsed = parseEssenceMapJsonl(validRecords.map((record) => JSON.stringify(record)).join("\n"));
+    expect(parsed.status).toBe("valid");
+    expect(parsed.nodes).toHaveLength(2);
+    expect(parsed.edges).toHaveLength(1);
   });
-  assert(paths.join(",") === "/repo/a,/repo/b", `project roots are deduplicated: ${paths.join(",")}`);
-});
 
-test("map_canvas renders multi-project clusters with accessible node names", async () => {
-  const { host, root } = await render([
-    mapFile("/repo/a", validRecords),
-    mapFile("/repo/b", [node("core:one", "core", "One core")]),
-  ]);
-  assert(host.querySelector('[data-testid="essence-map-canvas"]'), "map canvas is mounted");
-  assert(host.querySelectorAll('[data-testid="essence-map-project"]').length === 2, "both project clusters render");
-  const buttons = host.querySelectorAll<HTMLButtonElement>('[data-testid="essence-map-node"]');
-  assert(buttons.length === 3, `rendered node count comes from maps (${buttons.length})`);
-  assert(buttons[0].getAttribute("aria-label") === "One vector (vector)", "node has an accessible source label");
-  assert(host.querySelector('[data-testid="essence-map-projects"]')?.className.includes("overflow-x-hidden"), "projects hide horizontal overflow");
-  await act(async () => root.unmount());
-});
+  it("keeps a stable layout inside a bounded phone-width cluster", () => {
+    const nodes = [
+      ...Array.from({ length: 7 }, (_, index) => node(`vector:${index}`, "vector", `Vector ${index}`)),
+      node("client:one", "client", "Client"),
+    ];
+    const layout = layoutEssenceMapProject(nodes, 390);
+    const repeat = layoutEssenceMapProject(nodes, 390);
+    expect(layout.width).toBeLessThanOrEqual(390);
+    expect(layout.nodes.every((item) => item.x >= 0 && item.x + item.width <= layout.width)).toBe(true);
+    expect(layout.nodes.map((item) => item.node.id)).toEqual(repeat.nodes.map((item) => item.node.id));
+  });
 
-test("map_canvas node activation opens the exact referenced essence in a side panel", async () => {
-  const calls: string[] = [];
-  const { host, root } = await render(
-    [mapFile("/repo/a", validRecords)],
-    async (projectPath, sourcePath) => {
-      calls.push(`${projectPath}:${sourcePath}`);
-      return "# exact referenced essence\ncapability:workspaces-and-tabs";
-    },
-  );
-  const button = host.querySelector<HTMLButtonElement>('[data-node-id="capability:one"]');
-  assert(button, "capability node is activatable");
-  await act(async () => {
-    button.click();
+  it("collects each workspace project tree once", () => {
+    const paths = projectPathsForWorkspace(workspace, {
+      "tab-a": { cwd: "/repo/a" },
+      "tab-b": { cwd: "/repo/b" },
+    });
+    expect(paths).toEqual(["/repo/a", "/repo/b"]);
+  });
+
+  it("renders multi-project clusters with accessible node names and no horizontal overflow", async () => {
+    const { host } = await renderMap([
+      mapFile("/repo/a", validRecords),
+      mapFile("/repo/b", [node("core:one", "core", "One core")]),
+    ]);
+    expect(host.querySelector('[data-testid="essence-map-canvas"]')).not.toBeNull();
+    expect(host.querySelectorAll('[data-testid="essence-map-project"]')).toHaveLength(2);
+    const buttons = host.querySelectorAll<HTMLButtonElement>('[data-testid="essence-map-node"]');
+    expect(buttons).toHaveLength(3);
+    expect(buttons[0].getAttribute("aria-label")).toBe("One vector (vector)");
+    expect(host.querySelector('[data-testid="essence-map-projects"]')?.className).toContain("overflow-x-hidden");
+  });
+
+  it("exposes the workspace map action beside the menu and activates its callback", async () => {
+    const onOpenMap = vi.fn();
+    const { host } = await renderWorkspaceRow(onOpenMap);
+    const action = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open essence map for Workspace"]',
+    );
+    expect(action).not.toBeNull();
+    expect(action?.getAttribute("type")).toBe("button");
+    expect(action?.parentElement?.querySelector('button[aria-label="Actions for Workspace"]')).not.toBeNull();
+    await act(async () => action?.click());
+    expect(onOpenMap).toHaveBeenCalledWith(workspace);
+  });
+
+  it("opens the exact referenced essence in an accessible side panel", async () => {
+    const exactSource = "# exact referenced essence\ncapability:workspaces-and-tabs";
+    const sourceReader = vi.fn(async (projectPath: string, sourcePath: string) => {
+      expect(projectPath).toBe("/repo/a");
+      expect(sourcePath).toBe("essences/CAPABILITIES.md");
+      return exactSource;
+    });
+    const { host } = await renderMap([mapFile("/repo/a", validRecords)], sourceReader);
+    const button = host.querySelector<HTMLButtonElement>('[data-node-id="capability:one"]');
+    expect(button).not.toBeNull();
+    await act(async () => button?.click());
     await settle();
+    const panel = host.querySelector('[data-testid="essence-source-panel"]');
+    expect(panel?.getAttribute("role")).toBe("dialog");
+    expect(panel?.querySelector("pre")?.textContent).toBe(exactSource);
+    expect(sourceReader).toHaveBeenCalledTimes(1);
   });
-  const panel = host.querySelector('[data-testid="essence-source-panel"]');
-  assert(panel?.getAttribute("role") === "dialog", "source opens in an accessible dialog");
-  assert(panel?.textContent?.includes("# exact referenced essence"), "panel shows exact source content");
-  assert(calls.join(",") === "/repo/a:essences/CAPABILITIES.md", "activation reads the node source reference");
-  await act(async () => root.unmount());
+
+  it("gives explicit empty malformed oversized and unreadable states without nodes", async () => {
+    const oversized = Array.from({ length: ESSENCE_MAP_MAX_NODES + 1 }, (_, index) =>
+      node(`capability:${index}`, "capability", `Capability ${index}`));
+    const { host } = await renderMap([
+      { project_path: "/repo/empty", map_path: "/repo/empty/essences/map.jsonl", status: "empty", content: "" },
+      mapFile("/repo/malformed", ["not an object"]),
+      mapFile("/repo/oversized", oversized),
+      {
+        project_path: "/repo/unreadable",
+        map_path: "/repo/unreadable/essences/map.jsonl",
+        status: "unreadable",
+        error: "permission denied",
+      },
+    ]);
+    await settle();
+    expect(host.querySelector('[data-testid="essence-map-project-empty"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="essence-map-project-malformed"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="essence-map-project-oversized"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="essence-map-project-unreadable"]')).not.toBeNull();
+    expect(host.querySelectorAll('[data-testid="essence-map-node"]')).toHaveLength(0);
+  });
 });
-
-test("map_canvas gives explicit empty malformed and oversized states without nodes", async () => {
-  const oversized = Array.from({ length: ESSENCE_MAP_MAX_NODES + 1 }, (_, index) =>
-    node(`capability:${index}`, "capability", `Capability ${index}`));
-  const { host, root } = await render([
-    { project_path: "/repo/empty", map_path: "/repo/empty/essences/map.jsonl", status: "empty", content: "" },
-    mapFile("/repo/malformed", ["not an object"]),
-    mapFile("/repo/oversized", oversized),
-  ]);
-  await settle();
-  assert(host.querySelector('[data-testid="essence-map-project-empty"]'), "empty map state is explicit");
-  assert(host.querySelector('[data-testid="essence-map-project-malformed"]'), "malformed map state is explicit");
-  assert(host.querySelector('[data-testid="essence-map-project-oversized"]'), "oversized map state is explicit");
-  assert(host.querySelectorAll('[data-testid="essence-map-node"]').length === 0, "invalid maps cannot invent nodes");
-  await act(async () => root.unmount());
-});
-
-async function main() {
-  setupDom();
-  let passed = 0;
-  for (const [name, fn] of tests) {
-    try {
-      await fn();
-      passed++;
-      console.log(`  ✓ ${name}`);
-    } catch (error) {
-      console.error(`  ✗ ${name}`);
-      console.error(error instanceof Error ? error.stack : error);
-      process.exit(1);
-    }
-  }
-  console.log(`\n✓ ${passed}/${tests.length} map_canvas tests passed`);
-}
-
-main();
