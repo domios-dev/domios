@@ -69,6 +69,7 @@ struct RestApiLifecycle {
 #[derive(Clone)]
 pub(crate) struct RestApiControl {
     pub(crate) listeners: listeners::ListenerPublication,
+    transition: Arc<Mutex<()>>,
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
     lifecycle: Arc<Mutex<RestApiLifecycle>>,
     status_events: watch::Sender<RestApiStatus>,
@@ -122,6 +123,7 @@ impl RestApiControl {
         let (recovery_events, recovery_receiver) = mpsc::unbounded_channel();
         Self {
             listeners: listeners::ListenerPublication::default(),
+            transition: Arc::new(Mutex::new(())),
             sender: Arc::new(Mutex::new(None)),
             lifecycle: Arc::new(Mutex::new(RestApiLifecycle {
                 status,
@@ -186,6 +188,7 @@ impl RestApiControl {
     }
 
     fn begin_generation(&self) -> u64 {
+        let _transition = self.transition.lock();
         self.listeners.publish(Vec::new());
         let mut lifecycle = self.lifecycle.lock();
         lifecycle.status.generation += 1;
@@ -235,7 +238,8 @@ impl RestApiControl {
         })
     }
 
-    fn mark_listening(&self, generation: u64) -> Option<RestApiStatus> {
+    fn mark_listening(&self, generation: u64, ready: Vec<SocketAddr>) -> Option<RestApiStatus> {
+        let _transition = self.transition.lock();
         let mut lifecycle = self.lifecycle.lock();
         if lifecycle.status.generation != generation || !lifecycle.listener_owned {
             return None;
@@ -244,6 +248,8 @@ impl RestApiControl {
         if generation > 1 {
             self.publish_recovery_locked(&mut lifecycle, status.clone());
         }
+        drop(lifecycle);
+        self.listeners.publish(ready);
         Some(status)
     }
 
@@ -262,6 +268,7 @@ impl RestApiControl {
         message: String,
         listener_owned: bool,
     ) -> Option<RestApiStatus> {
+        let _transition = self.transition.lock();
         let mut lifecycle = self.lifecycle.lock();
         if lifecycle.status.generation != generation {
             return None;
@@ -279,6 +286,7 @@ impl RestApiControl {
     }
 
     pub(crate) fn record_unanswered_probe(&self) -> RestApiDiagnostic {
+        let _transition = self.transition.lock();
         let mut lifecycle = self.lifecycle.lock();
         let diagnostic = if lifecycle.listener_owned {
             if lifecycle.status.phase != RestApiPhase::Failed
@@ -307,6 +315,7 @@ impl RestApiControl {
     }
 
     pub(crate) fn record_successful_probe(&self) {
+        let _transition = self.transition.lock();
         let mut lifecycle = self.lifecycle.lock();
         if lifecycle.listener_owned
             && lifecycle.status.phase == RestApiPhase::Failed
@@ -321,6 +330,13 @@ impl RestApiControl {
 
     pub(crate) fn status(&self) -> RestApiStatus {
         self.lifecycle.lock().status.clone()
+    }
+
+    fn withdraw_listeners(&self, generation: u64) {
+        let _transition = self.transition.lock();
+        if self.lifecycle.lock().status.generation == generation {
+            self.listeners.publish(Vec::new());
+        }
     }
 
     #[cfg(test)]
@@ -547,7 +563,7 @@ async fn finish_generation<F>(
 where
     F: std::future::Future<Output = Result<(), std::io::Error>>,
 {
-    control.listeners.publish(Vec::new());
+    control.withdraw_listeners(generation);
     if matches!(event, GenerationEvent::ServerExited) {
         return Some(GenerationEvent::Replace);
     }
@@ -814,9 +830,8 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                     let restart_queued = match proof {
                         Ok(()) => {
                             let listening = control
-                                .mark_listening(generation)
+                                .mark_listening(generation, std::iter::once(local_addr).chain(remote_addr).collect())
                                 .expect("health proof belongs to the active bound generation");
-                            control.listeners.publish(std::iter::once(local_addr).chain(remote_addr).collect());
                             if let Some(completed) = pending_completions.pop_front() {
                                 let _ = completed.send(listening);
                             }
