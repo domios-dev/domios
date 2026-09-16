@@ -829,6 +829,7 @@ export function TabSessionChat({
           state={statusRowState}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
+          reasoningEffort={tab?.reasoning_effort_identity}
           className="mx-auto w-full max-w-4xl"
           onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
