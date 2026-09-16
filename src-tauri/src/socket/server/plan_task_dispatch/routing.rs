@@ -122,7 +122,7 @@ pub(super) fn resolve_dispatch_routing(
                     };
                 }
                 return DispatchRouting {
-                    agent: Some(agent),
+                    agent: Some(agent.clone()),
                     model: requested_model,
                     qualified_model: false,
                     explicit_agent_qualified_model: false,
