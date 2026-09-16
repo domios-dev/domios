@@ -15,7 +15,7 @@ fn fixture_root() -> TempDir {
     let temp = tempfile::tempdir().expect("create essence map fixture");
     let essences = temp.path().join("essences");
     fs::create_dir_all(&essences).expect("create fixture essences");
-    for name in ["CAPABILITIES.md", "CORE.md"] {
+    for name in ["capabilities.md", "core.md"] {
         fs::copy(
             source_root().join("essences").join(name),
             essences.join(name),
@@ -113,7 +113,7 @@ fn essence_map_integrity_validator_rejects_hand_authored_self_parent_edges() {
 fn essence_map_integrity_normalizes_crlf_before_parsing_and_hashing() {
     let lf = fixture_root();
     let crlf = fixture_root();
-    for name in ["CAPABILITIES.md", "CORE.md"] {
+    for name in ["capabilities.md", "core.md"] {
         let lf_path = lf.path().join("essences").join(name);
         let crlf_path = crlf.path().join("essences").join(name);
         let text = fs::read_to_string(&lf_path).expect("read fixture source");
