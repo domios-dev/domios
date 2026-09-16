@@ -40,6 +40,5 @@
   "src/lib/refreshGate.test.ts",
   "src/components/Canvas/missionControl/AnimatedNumber.test.tsx",
   "src/components/Canvas/missionControl/teamSpendLiveRefresh.test.tsx",
-  "src/components/Canvas/map_canvas.test.tsx",
-  "src/components/Sidebar/map_canvas_workspace_action.source.test.ts"
+  "src/components/Canvas/map_canvas.test.tsx"
 ]
