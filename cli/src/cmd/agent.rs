@@ -41,7 +41,16 @@ fn resolve_spawn_task_from<R: Read>(
 ) -> Result<Option<String>, String> {
     match (task, task_file) {
         (Some(_), Some(_)) => Err("pass either --task or --task-file, not both".into()),
-        (Some(t), None) => Ok(Some(t)),
+        (Some(t), None) => {
+            if let Some(refusal) = crate::cmd::quoted_handoff::inline_refusal(
+                crate::cmd::quoted_handoff::INLINE_SOURCE,
+                &t,
+                crate::cmd::quoted_handoff::SPAWN_REMEDY,
+            ) {
+                return Err(refusal);
+            }
+            Ok(Some(t))
+        }
         (None, Some(path)) => {
             if path == "-" {
                 let mut buf = String::new();
@@ -628,12 +637,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                 }
             }
-            crate::cmd::payload_source::refuse_oversize_inline(
+            crate::cmd::payload_source::refuse_inline_report_body(
                 text.as_deref().or(message.as_deref()),
             );
             let tab_id = resolve_tab(client, tab);
-            let message =
-                crate::cmd::report_body::read_report_body(message, text, from_pad, doc, json);
+            let message = crate::cmd::report_body::read_report_body(message, text, from_pad, doc);
             if message.is_empty() {
                 eprintln!("Error: report message, --text, or --doc is required");
                 std::process::exit(1);

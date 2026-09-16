@@ -199,6 +199,37 @@ fn parse_watcher_policy_duration_to_seconds() {
     assert_eq!(parse_duration_secs("1h30m", "--interval").unwrap(), 5_400);
 }
 
+/// A spawn brief is the widest coordination handoff there is, so the refusal
+/// sits in the one resolver every spawn path shares — including the Team-add
+/// path, which never had the advisory nudge.
+#[test]
+fn quoted_handoff_inline_spawn_task_is_refused_and_task_file_is_not() {
+    let brief = "You are the Worker.\nRun `./build.ps1 test-one cli quoted_handoff` \
+                 and keep $CARGO_TARGET_DIR untouched.\n";
+    let err = resolve_spawn_task(Some(brief.to_string()), None, None, &mut &b""[..]).unwrap_err();
+    assert!(err.starts_with(crate::cmd::quoted_handoff::REFUSAL_CODE));
+    assert!(err.contains("--task-file"));
+    assert!(
+        !err.contains("--from-pad"),
+        "spawn has no --from-pad to offer"
+    );
+
+    let mut stdin = brief.as_bytes();
+    assert_eq!(
+        resolve_spawn_task(None, Some("-".to_string()), None, &mut stdin).unwrap(),
+        Some(brief.to_string()),
+        "the staged transport delivers the same bytes the shell would have eaten"
+    );
+}
+
+#[test]
+fn quoted_handoff_scalar_spawn_task_still_goes_inline() {
+    assert_eq!(
+        resolve_spawn_task(Some("run tests".to_string()), None, None, &mut &b""[..]).unwrap(),
+        Some("run tests".to_string())
+    );
+}
+
 #[test]
 fn task_and_task_file_together_is_an_error() {
     let err = resolve_spawn_task(
