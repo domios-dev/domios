@@ -9,7 +9,6 @@ pub(super) struct DispatchRouting {
     pub agent: Option<String>,
     pub model: Option<String>,
     qualified_model: bool,
-    explicit_agent_qualified_model: bool,
     qualified_provider_mismatch: Option<(String, String)>,
 }
 
@@ -36,10 +35,7 @@ pub(super) fn unqualified_model_error(
     if let Some(error) = provider_mismatch_error(routing) {
         return Some(error);
     }
-    if routing.qualified_model && !routing.explicit_agent_qualified_model {
-        return None;
-    }
-    if routing.explicit_agent_qualified_model {
+    if routing.qualified_model {
         return Some(JsonRpcError {
             code: -32602,
             message: format!(
@@ -120,7 +116,6 @@ pub(super) fn resolve_dispatch_routing(
                         agent: Some(agent),
                         model: Some(normalized_model),
                         qualified_model: true,
-                        explicit_agent_qualified_model: true,
                         qualified_provider_mismatch: None,
                     };
                 }
@@ -128,7 +123,6 @@ pub(super) fn resolve_dispatch_routing(
                     agent: Some(agent),
                     model: requested_model,
                     qualified_model: false,
-                    explicit_agent_qualified_model: false,
                     qualified_provider_mismatch: Some((requested_provider, agent)),
                 };
             }
@@ -137,7 +131,6 @@ pub(super) fn resolve_dispatch_routing(
             agent: Some(agent),
             model: requested_model,
             qualified_model: false,
-            explicit_agent_qualified_model: false,
             qualified_provider_mismatch: None,
         };
     }
@@ -147,7 +140,6 @@ pub(super) fn resolve_dispatch_routing(
                 agent: Some(agent),
                 model: Some(model),
                 qualified_model: true,
-                explicit_agent_qualified_model: false,
                 qualified_provider_mismatch: None,
             };
         }
@@ -156,7 +148,6 @@ pub(super) fn resolve_dispatch_routing(
                 agent: Some(model),
                 model: None,
                 qualified_model: true,
-                explicit_agent_qualified_model: false,
                 qualified_provider_mismatch: None,
             };
         }
@@ -164,7 +155,6 @@ pub(super) fn resolve_dispatch_routing(
             agent: None,
             model: Some(model),
             qualified_model: false,
-            explicit_agent_qualified_model: false,
             qualified_provider_mismatch: None,
         };
     }
@@ -172,7 +162,6 @@ pub(super) fn resolve_dispatch_routing(
         agent: None,
         model: None,
         qualified_model: false,
-        explicit_agent_qualified_model: false,
         qualified_provider_mismatch: None,
     }
 }
