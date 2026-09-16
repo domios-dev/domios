@@ -81,7 +81,7 @@ if (process.argv[1]?.endsWith("dev-wait-health.mjs")) {
   if (!log || !exitFile || !apiPort) throw new Error("usage: dev-wait-health.mjs --log PATH --exit-file PATH --api-port PORT");
   if (!Number.isSafeInteger(startOffset) || startOffset < 0) throw new Error("dev wait start offset must be a non-negative integer");
   waitForReadiness({ log, exitFile, apiPort, startOffset }).then(({ signal }) => {
-    console.log(`dev readiness signal: ${signal}`);
+    process.stdout.write(`dev readiness signal: ${signal}\n`, () => process.exit(0));
   }).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
