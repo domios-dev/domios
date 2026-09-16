@@ -8,6 +8,54 @@ use crate::{keepawake, mesh, update};
 
 use super::states::AppStates;
 
+fn auto_pair_callback_address(
+    addresses: &[crate::mesh::types::PeerAddress],
+) -> Option<&crate::mesh::types::PeerAddress> {
+    addresses
+        .iter()
+        .find(|address| address.is_tailscale)
+        .or_else(|| addresses.first())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::auto_pair_callback_address;
+    use crate::mesh::types::PeerAddress;
+
+    #[test]
+    fn mesh_reachability_autopair_prefers_tailscale_callback_address() {
+        let addresses = vec![
+            PeerAddress::from_ip("192.168.1.2"),
+            PeerAddress {
+                ip: "100.64.0.1".to_string(),
+                is_tailscale: true,
+            },
+        ];
+
+        assert_eq!(
+            auto_pair_callback_address(&addresses).map(|address| address.ip.as_str()),
+            Some("100.64.0.1")
+        );
+    }
+
+    #[test]
+    fn mesh_reachability_autopair_falls_back_to_first_callback_address() {
+        let addresses = vec![PeerAddress::from_ip("192.168.1.2")];
+
+        assert_eq!(
+            auto_pair_callback_address(&addresses).map(|address| address.ip.as_str()),
+            Some("192.168.1.2")
+        );
+    }
+
+    #[test]
+    fn mesh_reachability_autopair_skips_request_when_no_callback_address_is_live() {
+        let addresses: Vec<PeerAddress> = Vec::new();
+
+        assert!(auto_pair_callback_address(&addresses).is_none());
+    }
+}
+
 /// Start background threads: auto-save, update check, agent idle monitoring.
 pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
     keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
@@ -205,11 +253,12 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                     .or_else(|| addresses.first())
                                     .map(|a| a.ip.clone());
                                 let Some(addr) = addr else { return };
-                                let local_addr = m
-                                    .tailscale_ip
-                                    .clone()
-                                    .or_else(|| m.local_ip.clone())
-                                    .unwrap_or_else(|| "127.0.0.1".to_string());
+                                let from_addresses = m.local_announce_addresses();
+                                let Some(local_addr) =
+                                    auto_pair_callback_address(&from_addresses)
+                                else {
+                                    return;
+                                };
                                 let Some(pk) = m.ident.identity.public_key.clone() else {
                                     return;
                                 };
@@ -221,9 +270,9 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                     request_id: uuid::Uuid::new_v4().to_string(),
                                     from_instance_id: m.ident.identity.instance_id.clone(),
                                     from_instance_name: m.ident.instance_name.clone(),
-                                    from_address: local_addr,
+                                    from_address: local_addr.ip.clone(),
                                     from_port: m.api_port,
-                                    from_addresses: m.local_announce_addresses(),
+                                    from_addresses,
                                     public_key: pk,
                                     timestamp: now,
                                     status: crate::mesh::types::PairingStatus::Pending,
