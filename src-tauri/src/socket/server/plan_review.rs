@@ -106,6 +106,55 @@ fn str_field<'a>(params: Option<&'a Value>, key: &str) -> &'a str {
         .unwrap_or("")
 }
 
+fn finish_continuation_result(
+    finished: bool,
+    delivery: Result<(), String>,
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    review_round: u32,
+) -> Result<(), JsonRpcError> {
+    if !finished {
+        let delivery_error = delivery.as_ref().err().cloned();
+        let mut data = json!({
+            "type": "bounce_continuation_finish_refused",
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "review_round": review_round,
+            "delivery_succeeded": delivery.is_ok(),
+            "uncertain_completion": true,
+        });
+        if let Some(error) = delivery_error {
+            data["delivery_error"] = json!(error);
+        }
+        return Err(JsonRpcError {
+            code: -32603,
+            message: format!(
+                "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation finish refused for {plan_id}/{task_id}/{attempt_id}; delivery outcome does not prove completion"
+            ),
+            data: Some(data),
+        });
+    }
+    if let Err(error) = delivery {
+        return Err(JsonRpcError {
+            code: -32603,
+            message: format!(
+                "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation failed for {plan_id}/{task_id}/{attempt_id}: {error}"
+            ),
+            data: Some(json!({
+                "type": "bounce_continuation_failed",
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "review_round": review_round,
+                "error": error,
+            })),
+        });
+    }
+    Ok(())
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -312,7 +361,7 @@ pub(super) fn dispatch(
                         .map(|_| ())
                     });
                 let delivered = delivery.is_ok();
-                store
+                let finished = store
                     .finish_review_continuation(
                         &plan_id,
                         &task_id,
@@ -323,23 +372,14 @@ pub(super) fn dispatch(
                     )
                     .map_err(plan_rpc_err)?;
                 emit_plan_changed(app, &plan_id);
-                if let Err(error) = delivery {
-                    return Err(JsonRpcError {
-                            code: -32603,
-                            message: format!(
-                                "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation failed for {plan_id}/{task_id}/{}: {error}",
-                                continuation.attempt_id
-                            ),
-                            data: Some(json!({
-                                "type": "bounce_continuation_failed",
-                                "plan_id": plan_id,
-                                "task_id": task_id,
-                                "attempt_id": continuation.attempt_id,
-                                "review_round": continuation.review_round,
-                                "error": error,
-                            })),
-                        });
-                }
+                finish_continuation_result(
+                    finished,
+                    delivery,
+                    &plan_id,
+                    &task_id,
+                    &continuation.attempt_id,
+                    continuation.review_round,
+                )?;
                 continuation.state = "continued".into();
             }
             serde_json::to_value(result).map_err(|e| JsonRpcError {
@@ -417,6 +457,38 @@ mod tests {
         attempt.report = Some(Default::default());
         store.save(&mut stored, 4).unwrap();
         (dir, store, plan.id, task_id, attempt_id)
+    }
+
+    #[test]
+    fn review_bounce_finish_false_is_an_uncertain_completion_refusal() {
+        let error = finish_continuation_result(false, Ok(()), "plan-1", "task-1", "attempt-1", 2)
+            .expect_err("a no-op finish must never serialize success");
+        assert_eq!(error.code, -32603);
+        let data = error.data.unwrap();
+        assert_eq!(data["type"], "bounce_continuation_finish_refused");
+        assert_eq!(data["delivery_succeeded"], true);
+        assert_eq!(data["uncertain_completion"], true);
+    }
+
+    #[test]
+    fn review_bounce_finish_success_and_delivery_failure_keep_distinct_results() {
+        assert!(
+            finish_continuation_result(true, Ok(()), "plan-1", "task-1", "attempt-1", 1,).is_ok()
+        );
+
+        let error = finish_continuation_result(
+            true,
+            Err("delivery unavailable".into()),
+            "plan-1",
+            "task-1",
+            "attempt-1",
+            1,
+        )
+        .expect_err("failed delivery must remain an explicit failure");
+        let data = error.data.unwrap();
+        assert_eq!(data["type"], "bounce_continuation_failed");
+        assert_eq!(data["error"], "delivery unavailable");
+        assert!(data.get("uncertain_completion").is_none());
     }
 
     #[test]

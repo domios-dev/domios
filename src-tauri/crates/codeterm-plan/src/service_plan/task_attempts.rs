@@ -1140,16 +1140,13 @@ impl PlanStore {
                 attachments: vec![],
             });
             let owner_epoch = task.interruption.owner_epoch;
-            if let Some(attempt) = task
-                .execution_attempts
-                .iter_mut()
-                .rposition(|attempt| {
-                    attempt.executor_tab_id == reporter_tab
-                        && attempt.closed_at.is_none()
-                        && (owner_epoch == 0 || attempt.interruption.owner_epoch == owner_epoch)
-                })
-                .map(|index| &mut task.execution_attempts[index])
-            {
+            let report_attempt_index = task.execution_attempts.iter_mut().rposition(|attempt| {
+                attempt.executor_tab_id == reporter_tab
+                    && attempt.closed_at.is_none()
+                    && (owner_epoch == 0 || attempt.interruption.owner_epoch == owner_epoch)
+            });
+            if let Some(index) = report_attempt_index {
+                let attempt = &mut task.execution_attempts[index];
                 attempt.report = Some(TaskExecutionReportSnapshot {
                     id: format!("report_{now_ms}"),
                     message: Some(report.message),
@@ -1172,6 +1169,11 @@ impl PlanStore {
                 task.status = TaskStatus::InReview;
                 task.status_changed_at = now_ms;
                 super::qa::normalize_task_review_fields(task);
+                if let Some(index) = report_attempt_index {
+                    crate::service_plan::review_gate::reset_completed_review_continuation(
+                        task, index,
+                    )?;
+                }
                 crate::service_plan::review_gate::fix_oracle_and_consume_override(task, now_ms);
             }
             task.updated_at = now_ms;
