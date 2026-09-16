@@ -1911,7 +1911,7 @@ EOF
     # dev-dependent API integration tests run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
     # an EXECUTED layer failed (SKIP never fails the run). Behaviour benches and
-    # the suspended Playwright suite are excluded — see essences/TESTING.md.
+    # the suspended Playwright suite are excluded — see essences/testing.md.
     ta_names=(); ta_status=()
     ta_record() { ta_names+=("$1"); ta_status+=("$2"); }
     ta_run() { # name, cmd...

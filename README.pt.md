@@ -78,7 +78,7 @@ Construído com **Tauri v2** (Rust) + **React** + **xterm.js**.
 ### Auto-atualização e resiliência
 - **Auto-atualização** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifestos são assinados com ed25519 e verificados antes de qualquer toque no binário; a auto-instalação executa um desligamento ordenado em 9 etapas (checkpoint do WAL de mem, parada do supervisor, troca do binário assinado), após o que os painéis se auto-retomam — o contexto sobrevive à atualização
 - **Supervisor de subprocessos** — operações pesadas de mem (dreaming, extração do Librarian) rodam como processos filhos com disjuntor (3 falhas em 60 s → aberto). A morte de um worker não derruba a API; timeouts `503` em requisições pesadas mantêm o daemon responsivo
-- **Watchdog externo** — sonda de saúde em `/api/health`; receitas de configuração para Windows Task Scheduler, launchd e systemd em [essences/RESILIENCE.md](essences/RESILIENCE.md)
+- **Watchdog externo** — sonda de saúde em `/api/health`; receitas de configuração para Windows Task Scheduler, launchd e systemd em [essences/resilience.md](essences/resilience.md)
 
 ### Temas
 - **8 temas integrados** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy

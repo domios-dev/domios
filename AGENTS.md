@@ -12,7 +12,7 @@
 
 # CodeTerm
 
-**OS for AI agents.** Cross-platform terminal multiplexer where AI agents live, work, and coordinate. Tauri v2 (Rust) + React/TypeScript + xterm.js. Full vision: `essences/VISION.md`.
+**OS for AI agents.** Cross-platform terminal multiplexer where AI agents live, work, and coordinate. Tauri v2 (Rust) + React/TypeScript + xterm.js. Full vision: `essences/vision.md`.
 
 ## How CodeTerm holds together
 
@@ -20,7 +20,7 @@ Read this first; it is why the project stays whole while agents write almost all
 
 - **The owner works with a black box.** Andrey does not read the code. He sees inputs (a message to an agent, a ring or Telegram event) and outputs (plans, tabs, reports, deliveries) and expects the outputs he knows. That space is huge and dynamic, so no UI suite covers it. What protects it is agents verifying the observable behaviour of whatever they touched.
 - **Hard invariants are guarded mechanically.** This is the first reason the project has not fallen apart. Each lesson that once cost a breakage is cast into a test, a script or a refusal. Examples: the 1200-line file limit; owner approval before any PTY delivery change; lock ordering and no lock held across `.await`; branching on capability, never on provider id; no sleeps; dispatch refusals for unsafe lanes; the embedded docs size boundary. Essences say what must keep working; these guards stop us from breaking what already works.
-- **Essences are the stable foundation; code is volatile.** The product's essences (its vectors and capabilities, each with invariants and a status) change rarely and evolve gradually, while code is rebuilt in pieces. They are the expected inputs and outputs every change must keep, and they say what to verify. Today an agent matches a change to the essences by judgement; a mechanism that maps touched code to essences is on the roadmap. Map: `essences/CAPABILITIES.md`; core parts, clients and the routing spine: `essences/CORE.md`; why the vectors exist: `essences/VISION.md`; when and how to edit docs: `essences/BEGIN_HERE.md`.
+- **Essences are the stable foundation; code is volatile.** The product's essences (its vectors and capabilities, each with invariants and a status) change rarely and evolve gradually, while code is rebuilt in pieces. They are the expected inputs and outputs every change must keep, and they say what to verify. Today an agent matches a change to the essences by judgement; a mechanism that maps touched code to essences is on the roadmap. Map: `essences/capabilities.md`; core parts, clients and the routing spine: `essences/core.md`; why the vectors exist: `essences/vision.md`; when and how to edit docs: `essences/begin_here.md`.
 - **The map is an indirect beacon.** Work is done with an eye on the essences, but real architecture is more complex and is never bent to mirror the map.
 - **Meta-teams do the work.** The Orchestrator coordinates and verifies at speed. The Planner designs each task and gives its Worker a fitted personality: executor role, role guidance, a one-word name, and the model that fits the work. Workers stay source-only in isolated lanes. Lanes land through real merges, and executable proof runs in canonical.
 - **Verification stays proportional.** Each change is proven by the smallest focused oracle of what it touched, and one broad gate runs before a release. Every pinned expectation costs test time, so we balance coverage against speed rather than testing everything.
@@ -49,7 +49,7 @@ When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in
 
 Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to dev and never kills prod.
 
-Choose the operation before running a command: shared development is `essences/BUILD.md#development`; a local production installer for this machine is `essences/BUILD.md#local-production-build-and-self-install`; public publishing is `essences/RELEASE.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
+Choose the operation before running a command: shared development is `essences/build.md#development`; a local production installer for this machine is `essences/build.md#local-production-build-and-self-install`; public publishing is `essences/release.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
 
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
@@ -138,7 +138,7 @@ If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is
 
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
-Full testing guide: `essences/TESTING.md`; authoring contract: `prod-docs/TEST-AUTHORING.md`.
+Full testing guide: `essences/testing.md`; authoring contract: `prod-docs/TEST-AUTHORING.md`.
 
 **Never assert prompt wording.** Test the mechanism — that a recipient receives
 the fragments it should, that placeholders were substituted, that a surface stays
@@ -373,7 +373,7 @@ Prefer cached SCIP indexes for definitions, references, and implementation graph
 
 ## GitHub and release
 
-Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `essences/RELEASE.md`. Never direct-push `master`, move published tags, or release from an unverified head.
+Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `essences/release.md`. Never direct-push `master`, move published tags, or release from an unverified head.
 
 **CLI contract changes require a consumer audit.** Review and update affected docs, prompts, skills, cards/examples, and contract tests; never change Clap syntax, output, or behavior in isolation.
 
@@ -385,13 +385,13 @@ commit that carries the fix and in the PR that merges it. This applies to every
 repository, this one and the plugin repos alike. Referencing an issue you did not
 fix is worse than none: use `Refs #N` for context, never a closing keyword.
 
-PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `essences/RELEASE.md`.
+PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `essences/release.md`.
 
 ## Documentation
 
-Read `essences/BEGIN_HERE.md` before editing any doc. Bump the `<!-- revision: N -->` tag at the bottom of any `prod-docs/` doc you change; essence docs carry no revision tag.
+Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N -->` tag at the bottom of any `prod-docs/` doc you change; essence docs carry no revision tag.
 
-- `essences/` — internal, never ships: `essences/CAPABILITIES.md` (capability map), `essences/CORE.md` (core parts, clients, routing spine), `essences/VISION.md`, `essences/BUILD.md` and `essences/BUILD-REFERENCE.md`, `essences/RELEASE.md` (release map), `essences/TESTING.md` and `essences/E2E-TESTING.md`, `essences/PLUGINS.md` (what is published where: npm `@codeterm/plugin-sdk`, in-repo `plugins/provider-*` → embedded `codeterm-core` channel, external `rollacode/codeterm-plugins` → marketplace channel; read its "Ecosystem at a glance" before touching anything plugin- or npm-related), the generated `essences/CLI.md` and `essences/cli-manifest.json`, and `essences/contributing/` (agents, style, architecture, providers, PTY delivery, per-feature testing recipes).
+- `essences/` — internal, never ships: `essences/capabilities.md` (capability map), `essences/core.md` (core parts, clients, routing spine), `essences/vision.md`, `essences/build.md` and `essences/build-reference.md`, `essences/release.md` (release map), `essences/testing.md` and `essences/e2e-testing.md`, `essences/plugins.md` (what is published where: npm `@codeterm/plugin-sdk`, in-repo `plugins/provider-*` → embedded `codeterm-core` channel, external `rollacode/codeterm-plugins` → marketplace channel; read its "Ecosystem at a glance" before touching anything plugin- or npm-related), the generated `essences/cli.md` and `essences/cli-manifest.json`, and `essences/contributing/` (agents, style, architecture, providers, PTY delivery, per-feature testing recipes).
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/PROMPTS.md`, `prod-docs/TAB-LIFECYCLE.md`.
 - `.agents/skills/` — step-by-step procedures (dev run, dev testing, release, prompt evaluation, lane cleanup); not a docs area.
 

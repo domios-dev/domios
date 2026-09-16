@@ -78,7 +78,7 @@ CodeTerm은 AI 지원 개발을 위해 처음부터 설계된 크로스 플랫�
 ### 자체 업데이트 및 복원력
 - **자체 업데이트** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. 매니페스트는 ed25519로 서명되며 어떤 바이너리든 건드리기 전에 검증됩니다. 자동 설치는 9단계의 정상 종료 (mem WAL 체크포인트, 슈퍼바이저 정지, 서명된 바이너리 교체)를 수행한 후 패널이 자동 재개됩니다 — 컨텍스트는 업그레이드를 살아남습니다
 - **서브프로세스 슈퍼바이저** — 무거운 mem 작업(dreaming, Librarian 추출)이 회로 차단기와 함께 자식 프로세스로 실행됩니다 (60초에 3회 실패 → 개방). 워커 사망이 API를 넘어뜨리지 않으며, 무거운 mem 요청에 대한 `503` 타임아웃이 데몬 반응성을 유지합니다
-- **외부 워치독** — `/api/health`의 헬스 프로브; Windows 작업 스케줄러, launchd, systemd에 대한 설정 레시피는 [essences/RESILIENCE.md](essences/RESILIENCE.md)에 있습니다
+- **외부 워치독** — `/api/health`의 헬스 프로브; Windows 작업 스케줄러, launchd, systemd에 대한 설정 레시피는 [essences/resilience.md](essences/resilience.md)에 있습니다
 
 ### 테마
 - **8개의 내장 테마** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy

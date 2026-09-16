@@ -95,7 +95,7 @@ configure_windows_test_target() {
             # cache hit return an artifact built from a different worktree's sources
             # (codeterm#327). Never set it, and drop it if a parent shell leaked one in.
             unset SCCACHE_BASEDIRS
-            printf '[test-capped] sccache enabled for the isolated Windows test target (basedir rewriting disabled; see essences/BUILD.md).\n'
+            printf '[test-capped] sccache enabled for the isolated Windows test target (basedir rewriting disabled; see essences/build.md).\n'
         fi
     fi
     return 0

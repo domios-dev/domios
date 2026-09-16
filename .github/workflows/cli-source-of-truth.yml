@@ -5,7 +5,7 @@ on:
     paths:
       - 'cli/**'
       - 'essences/cli-manifest.json'
-      - 'essences/CLI.md'
+      - 'essences/cli.md'
       - 'src-tauri/prompts/codeterm_cli.md'
       - 'packages/chat-ui/src/codeterm/**'
       - '.github/workflows/cli-source-of-truth.yml'

@@ -2,7 +2,7 @@
 
 ## What it is
 
-CodeTerm is a **distributed OS for AI agents**. Not a terminal with AI bolted on — it's infrastructure that agents need to live, work, and coordinate, wrapped in a terminal because that's where developers work. What exists today, capability by capability, is mapped in `essences/CAPABILITIES.md`.
+CodeTerm is a **distributed OS for AI agents**. Not a terminal with AI bolted on — it's infrastructure that agents need to live, work, and coordinate, wrapped in a terminal because that's where developers work. What exists today, capability by capability, is mapped in `essences/capabilities.md`.
 
 ## Core metaphor: spinal cord
 
@@ -44,7 +44,7 @@ Tomorrow: the mesh becomes a **unified fabric** where:
 
 ## Plugins
 
-Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/CORE.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. Provider/plugin architecture: `essences/contributing/architecture.md`.
+Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/core.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. Provider/plugin architecture: `essences/contributing/architecture.md`.
 
 ## Future capabilities
 

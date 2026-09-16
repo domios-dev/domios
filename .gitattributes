@@ -1,5 +1,5 @@
 *.sh text eol=lf
-essences/CLI.md text eol=lf
+essences/cli.md text eol=lf
 essences/cli-manifest.json text eol=lf
 
 .codeterm/plans/**/strides.jsonl merge=union

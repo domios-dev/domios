@@ -2,7 +2,7 @@
 
 ## Ownership
 
-The daemon records startup, health, shutdown, and crash classification state, but it never restarts itself after a crash. Restart ownership belongs to `codeterm system supervise`, a CLI process started by OS login/install wrappers. It is a **hidden** clap subcommand — deliberately absent from `codeterm system --help` and from `essences/CLI.md`, because the only supported way to install it is `codeterm system enable-autostart`. Never invoke it by hand; the wrappers are:
+The daemon records startup, health, shutdown, and crash classification state, but it never restarts itself after a crash. Restart ownership belongs to `codeterm system supervise`, a CLI process started by OS login/install wrappers. It is a **hidden** clap subcommand — deliberately absent from `codeterm system --help` and from `essences/cli.md`, because the only supported way to install it is `codeterm system enable-autostart`. Never invoke it by hand; the wrappers are:
 
 - Windows: `codeterm system enable-autostart` installs the `CodeTerm-Autostart` scheduled task. The task starts the CLI supervisor, not the app directly.
 - macOS: the LaunchAgent starts the CLI supervisor with `system supervise --binary <app>`. `KeepAlive=false` prevents duplicate app instances and leaves restart authority in the supervisor loop.

@@ -221,7 +221,7 @@ owning loader module (pub const &str)
 
 ## Related docs
 
-- `essences/GENERAL_AGENT.md` — GA lifecycle and behavior spec (what `general_agent.md` is trying to produce)
+- `essences/general_agent.md` — GA lifecycle and behavior spec (what `general_agent.md` is trying to produce)
 - `prod-docs/MEMORY.md` — memory system including the behavioral protocol from `bridge_mem.md`
 - `prod-docs/API.md` — "Agent Prompts" section lists the same files from an API-consumer angle
 - `prod-docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
