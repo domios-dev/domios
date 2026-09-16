@@ -2090,6 +2090,160 @@
           "subcommands": []
         },
         {
+          "name": "record",
+          "about": "Append one decision explaining the current map to the decisions log",
+          "aliases": [],
+          "args": [
+            {
+              "name": "decisions",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Decisions JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "map",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Map JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "reason",
+              "positional": false,
+              "required": true,
+              "value_name": "TEXT",
+              "possible_values": [],
+              "default": null,
+              "help": "Why the change is correct against the source essences",
+              "aliases": []
+            },
+            {
+              "name": "root",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": ".",
+              "help": "Repository root containing the essences directory",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "required": true,
+              "value_name": "TEXT",
+              "possible_values": [],
+              "default": null,
+              "help": "What changed in the map",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "release-summary",
+          "about": "Summarize the map decisions of a release and offer the revert choice",
+          "aliases": [],
+          "args": [
+            {
+              "name": "decisions",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Decisions JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "map",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Map JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "root",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": ".",
+              "help": "Repository root containing the essences directory",
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "required": false,
+              "value_name": "DECISION_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Baseline decision id; the summary covers every decision after it",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "revert",
+          "about": "Restore the map recorded by an earlier decision and log the revert",
+          "aliases": [],
+          "args": [
+            {
+              "name": "decisions",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Decisions JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "map",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Map JSONL path, relative to --root unless absolute",
+              "aliases": []
+            },
+            {
+              "name": "root",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": ".",
+              "help": "Repository root containing the essences directory",
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "required": true,
+              "value_name": "DECISION_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Decision id whose recorded map is restored",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "validate",
           "about": "Validate a generated essence map and its append-only decisions log",
           "aliases": [],

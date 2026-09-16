@@ -96,6 +96,13 @@ port = 7685
 cors = false
 # cors_allow_origins = ["https://trusted.example"]
 
+[orchestration.map]
+# The workspace essence map. Off until you opt in: with it on, a plan wave
+# closing or a release boundary offers one Cartographer run that regenerates
+# essences/map.jsonl from the source essences and logs its decision. A
+# repository without those source essences is never map-enabled.
+enabled = false
+
 [kpi]
 # Local orchestration-economics ledger behind Mission Control's token and turn
 # figures. It stores plan/task/tab ids, counts and timestamps in

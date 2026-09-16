@@ -96,6 +96,7 @@ pub(crate) fn deliver_exact_role_target<T>(
 
 fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
     let mut out = Vec::new();
+    out.extend(crate::service::cartographer::digest_lines(plan));
     out.extend(queue_pressure_lines(svc, plan, tab_id));
     out.extend(cleanup_pressure_lines(svc, tab_id));
     out.extend(usage_lines(svc));

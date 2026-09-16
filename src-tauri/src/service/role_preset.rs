@@ -115,6 +115,7 @@ pub(crate) fn builtin_guidance(kind_id: &str) -> Option<String> {
         builtins::ORCHESTRATOR => Some(crate::prompts::orchestrator_suffix()),
         builtins::PLANNER | builtins::WATCHER => Some(crate::prompts::planner_suffix()),
         builtins::WORKER => Some(crate::prompts::worker_suffix()),
+        builtins::CARTOGRAPHER => Some(crate::prompts::cartographer_suffix()),
         _ => None,
     }
 }
