@@ -7,6 +7,7 @@ pub struct PairingDelivery {
     target_id: String,
     request_id: String,
     outcome: Mutex<Option<Result<(), String>>>,
+    retained: Mutex<bool>,
     ready: tokio::sync::Notify,
 }
 
@@ -16,6 +17,7 @@ impl PairingDelivery {
             target_id,
             request_id,
             outcome: Mutex::new(None),
+            retained: Mutex::new(false),
             ready: tokio::sync::Notify::new(),
         }
     }
@@ -35,6 +37,22 @@ impl PairingDelivery {
         }
         *stored = Some(outcome);
         true
+    }
+
+    pub fn retain(&self) -> bool {
+        if self.outcome.lock().is_some() {
+            return false;
+        }
+        let mut retained = self.retained.lock();
+        if *retained {
+            return false;
+        }
+        *retained = true;
+        true
+    }
+
+    pub fn is_retained(&self) -> bool {
+        *self.retained.lock()
     }
 
     pub fn outcome(&self) -> Result<(), String> {
@@ -62,6 +80,9 @@ impl PairingDelivery {
             if let Some(outcome) = self.outcome.lock().clone() {
                 return outcome;
             }
+            if self.is_retained() {
+                return Ok(());
+            }
             notified.await;
         }
     }
@@ -75,7 +96,10 @@ use super::types::{
 };
 use super::{crown, discovered, identity, peer_services, peers, transport};
 
+pub const MAX_PAIRING_DELIVERIES: usize = 64;
+
 mod announce;
+mod pairing_correlation;
 pub use announce::PeerAnnounceChange;
 
 /// Central mesh state — composes identity with peer/discovery state.
@@ -436,6 +460,24 @@ impl MeshManager {
             let _ = self.save();
         }
         removed
+    }
+
+    pub fn cancel_outgoing_pairing(&mut self, request_id: &str) -> bool {
+        if !self.pairing_targets.contains_key(request_id) {
+            return false;
+        }
+        let delivery_key = self
+            .pairing_deliveries
+            .iter()
+            .find(|(_, delivery)| delivery.request_id() == request_id)
+            .map(|(target_id, _)| target_id.clone());
+        let delivery = delivery_key.and_then(|target_id| self.pairing_deliveries.remove(&target_id));
+        self.pending_requests.remove(request_id);
+        self.pairing_targets.remove(request_id);
+        if let Some(delivery) = delivery {
+            delivery.complete(Err("Pairing request cancelled".to_string()));
+        }
+        true
     }
 
     pub fn exit_mesh(&mut self) -> Vec<(String, Vec<types::PeerAddress>, u16)> {

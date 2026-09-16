@@ -247,6 +247,9 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         tokio::spawn(async move {
                             let (request, target_addr) = {
                                 let mut m = mesh2.lock();
+                                if m.pairing_targets.len() >= crate::mesh::MAX_PAIRING_DELIVERIES {
+                                    return;
+                                }
                                 let addr = addresses
                                     .iter()
                                     .find(|a| a.is_tailscale)
@@ -295,7 +298,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 "http://{}:{}/api/mesh/pair/request",
                                 target_addr, target_port
                             );
-                            log::info!("[mesh] Auto-pairing vouched peer {} at {}", target_id, url);
+                            log::info!("[mesh] Auto-pairing vouched peer {}", target_id);
                             match client.post(&url).json(&request).send().await {
                                 Ok(r) if r.status().is_success() => {
                                     log::info!("[mesh] Auto-pair request sent to {}", target_id);
@@ -307,20 +310,32 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 }
                                 Ok(r) => {
                                     log::warn!(
-                                        "[mesh] Auto-pair {} rejected: {}",
-                                        target_id,
-                                        r.status()
+                                        "[mesh] Auto-pair {} rejected with HTTP {}",
+                                        target_id, r.status()
                                     );
-                                    // Drop dead pending requests after send failures.
                                     let mut m = mesh2.lock();
                                     m.pending_requests.remove(&request.request_id);
                                     m.pairing_targets.remove(&request.request_id);
                                 }
                                 Err(e) => {
-                                    log::warn!("[mesh] Auto-pair {} failed: {}", target_id, e);
-                                    let mut m = mesh2.lock();
-                                    m.pending_requests.remove(&request.request_id);
-                                    m.pairing_targets.remove(&request.request_id);
+                                    let evidence =
+                                        crate::mesh::transport::TransportError::pairing_send_error(&e);
+                                    if evidence.kind()
+                                        == crate::mesh::transport::TransportErrorKind::NothingSent
+                                    {
+                                        log::warn!(
+                                            "[mesh] Auto-pair {} failed before send: {}",
+                                            target_id, evidence
+                                        );
+                                        let mut m = mesh2.lock();
+                                        m.pending_requests.remove(&request.request_id);
+                                        m.pairing_targets.remove(&request.request_id);
+                                    } else {
+                                        log::warn!(
+                                            "[mesh] Auto-pair {} delivery uncertain: {}",
+                                            target_id, evidence
+                                        );
+                                    }
                                 }
                             }
                         });

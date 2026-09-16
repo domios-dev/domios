@@ -360,6 +360,7 @@ pub fn run() {
             commands_mesh::mesh_list_peers,
             commands_mesh::mesh_refresh_discovery,
             commands_mesh::mesh_connect,
+            commands_mesh::mesh_cancel_pairing,
             commands_mesh::mesh_approve_pairing,
             commands_mesh::mesh_reject_pairing,
             commands_mesh::mesh_disconnect,
