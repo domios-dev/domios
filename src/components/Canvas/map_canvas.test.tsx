@@ -249,8 +249,8 @@ describe("map_canvas workspace essence map", () => {
     const buttons = host.querySelectorAll<HTMLButtonElement>('[data-testid="essence-map-node"]');
     expect(buttons).toHaveLength(3);
     expect(buttons[0].getAttribute("aria-label")).toBe("One vector (vector)");
-    expect(host.querySelectorAll("svg path")).toHaveLength(1);
-    expect(host.querySelector("svg path")?.getAttribute("d")).toContain("C");
+    expect(host.querySelectorAll('[data-testid="essence-map-edge"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="essence-map-edge"]')?.getAttribute("d")).toContain("C");
     expect(buttons[0].getAttribute("data-node-type")).toBe("vector");
     expect(host.querySelector('[data-testid="essence-map-projects"]')?.className).toContain("overflow-x-hidden");
   });
