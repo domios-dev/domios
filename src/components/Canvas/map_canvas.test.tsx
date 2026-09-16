@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../lib/types";
 import { WorkspaceItem } from "../Sidebar/WorkspaceItem";
 import { EssenceMapCanvasInner } from "./EssenceMapCanvas";
+import { extractEssenceSection } from "./essenceSourceSection";
 import {
   ESSENCE_MAP_MAX_NODES,
   layoutEssenceMapProject,
@@ -191,6 +192,35 @@ describe("map_canvas workspace essence map", () => {
     expect(world.projects[0].x).not.toBe(world.projects[1].x);
     expect(world.projects.every((project, index) => world.projects.slice(index + 1).every((other) => project.x + project.layout.width <= other.x || other.x + other.layout.width <= project.x || project.y + project.layout.height <= other.y || other.y + other.layout.height <= project.y))).toBe(true);
     expect(world.projects.every((project) => project.layout.nodes.every((node) => world.projectBounds.has(project.file.project_path) && project.layout.nodeById.has(node.node.id)))).toBe(true);
+  });
+
+  it("map_canvas_source turns the anchored row into bullets instead of the whole document", () => {
+    const doc = [
+      "# CodeTerm capability map",
+      "",
+      "## 1. Agents live and work in tabs",
+      "",
+      "| Capability | What it enables | Status |",
+      "|---|---|---|",
+      "| Workspaces and tabs | Shells grouped by project | stable |",
+      "| Agent providers | Claude and Codex run in a PTY | stable |",
+    ].join("\n");
+    const section = extractEssenceSection(doc, "capability:agent-providers");
+    expect(section).toContain("**Agent providers**");
+    expect(section).toContain("- **What it enables:** Claude and Codex run in a PTY");
+    expect(section).toContain("- **Status:** stable");
+    expect(section).not.toContain("CodeTerm capability map");
+    expect(section).not.toContain("Workspaces and tabs");
+    expect(section).not.toContain("|");
+  });
+
+  it("map_canvas_source returns the vector's own heading section and falls back whole", () => {
+    const doc = ["# Map", "", "## 1. Agents live in tabs", "", "Body A", "", "## 2. Machines join a mesh", "", "Body B"].join("\n");
+    const section = extractEssenceSection(doc, "vector:machines-join-a-mesh");
+    expect(section).toContain("Machines join a mesh");
+    expect(section).toContain("Body B");
+    expect(section).not.toContain("Body A");
+    expect(extractEssenceSection(doc, "capability:nothing-matches-this")).toBe(doc);
   });
 
   it("keeps only valid source-backed records", () => {
