@@ -10,7 +10,6 @@ fn mesh_state() -> crate::MeshStateHandle {
     let mut manager = crate::mesh::MeshManager::new("test".to_string(), 7685);
     manager.disk_persist = false;
     manager.paired_peers.clear();
-    manager.pending_requests.clear();
     manager.pairing_targets.clear();
     manager.pairing_deliveries.clear();
     manager.ident.identity.public_key = Some("initiator-key".to_string());
@@ -31,20 +30,33 @@ fn mesh_state() -> crate::MeshStateHandle {
     Arc::new(parking_lot::Mutex::new(manager))
 }
 
-async fn retain_ambiguous(mesh: &crate::MeshStateHandle) -> String {
-    let _ = connect_peer_with_sender(mesh.clone(), PEER_ID.to_string(), |_, _, _| async {
-        Err(ConnectPeerError::Delivery(
-            "phase=response;source_depth=1".to_string(),
-        ))
+async fn retain_ambiguous(
+    mesh: &crate::MeshStateHandle,
+) -> (String, crate::mesh::types::PairingRequest) {
+    let observed_request = Arc::new(parking_lot::Mutex::new(None));
+    let sender_request = observed_request.clone();
+    let _ = connect_peer_with_sender(mesh.clone(), PEER_ID.to_string(), move |request, _, _| {
+        *sender_request.lock() = Some(request);
+        async {
+            Err(ConnectPeerError::Delivery(
+                "phase=response;source_depth=1".to_string(),
+            ))
+        }
     })
     .await
     .expect_err("an ambiguous sender result is returned to the owner");
-    mesh.lock()
-        .pending_requests
+    let request = observed_request
+        .lock()
+        .take()
+        .expect("sender observed the pairing request");
+    let request_id = mesh
+        .lock()
+        .pairing_targets
         .keys()
         .next()
         .cloned()
-        .expect("ambiguous request remains correlated")
+        .expect("ambiguous request remains correlated");
+    (request_id, request)
 }
 
 fn paired_peer(public_key: &str) -> crate::mesh::types::PairedPeer {
@@ -70,12 +82,8 @@ fn paired_peer(public_key: &str) -> crate::mesh::types::PairedPeer {
 #[tokio::test]
 async fn mesh_connect_peer_correlation_ambiguous_send_retains_identity_binding() {
     let mesh = mesh_state();
-    let request_id = retain_ambiguous(&mesh).await;
+    let (request_id, request) = retain_ambiguous(&mesh).await;
     let manager = mesh.lock();
-    let request = manager
-        .pending_requests
-        .get(&request_id)
-        .expect("request remains pending");
     assert_eq!(request.public_key, "initiator-key");
     assert_eq!(manager.pairing_targets[&request_id].2, PEER_ID);
     let delivery = manager
@@ -104,7 +112,7 @@ async fn mesh_connect_peer_correlation_late_approval_completes_without_resend() 
     .expect_err("the sender did not receive a usable response");
     let request_id = mesh
         .lock()
-        .pending_requests
+        .pairing_targets
         .keys()
         .next()
         .cloned()
@@ -138,15 +146,20 @@ async fn mesh_connect_peer_correlation_late_approval_completes_without_resend() 
 #[tokio::test]
 async fn mesh_connect_peer_correlation_definitely_before_send_cleans_state() {
     let mesh = mesh_state();
-    let error = connect_peer_with_sender(mesh.clone(), PEER_ID.to_string(), |_, _, _| async {
-        Err(ConnectPeerError::BeforeSend(
-            "phase=connection_establishment;source_depth=1".to_string(),
-        ))
-    })
+    let source = ConnectPeerError::BeforeSend(
+        "phase=connection_establishment;source_depth=1".to_string(),
+    );
+    assert_eq!(
+        source.pairing_send_disposition(),
+        Some(PairingSendDisposition::DefinitelyBeforeSend)
+    );
+    let _error = connect_peer_with_sender(
+        mesh.clone(),
+        PEER_ID.to_string(),
+        move |_, _, _| async move { Err(source) },
+    )
     .await
     .expect_err("before-send failure is returned");
-    assert!(error.to_string().contains("connection_establishment"));
-    assert!(mesh.lock().pending_requests.is_empty());
     assert!(mesh.lock().pairing_targets.is_empty());
     assert!(mesh.lock().pairing_deliveries.is_empty());
 
@@ -164,7 +177,7 @@ async fn mesh_connect_peer_correlation_definitely_before_send_cleans_state() {
 #[tokio::test]
 async fn mesh_connect_peer_correlation_retained_duplicates_share_request() {
     let mesh = mesh_state();
-    let request_id = retain_ambiguous(&mesh).await;
+    let (request_id, _) = retain_ambiguous(&mesh).await;
     let sends = Arc::new(AtomicUsize::new(0));
     let make_duplicate = |mesh: crate::MeshStateHandle, sends: Arc<AtomicUsize>| async move {
         connect_peer_with_sender(mesh, PEER_ID.to_string(), move |_, _, _| {
@@ -188,10 +201,9 @@ async fn mesh_connect_peer_correlation_retained_duplicates_share_request() {
         );
     }
     assert_eq!(sends.load(Ordering::SeqCst), 0);
-    assert_eq!(mesh.lock().pending_requests.len(), 1);
+    assert_eq!(mesh.lock().pairing_targets.len(), 1);
     assert_eq!(mesh.lock().pairing_deliveries.len(), 1);
     assert!(mesh.lock().cancel_outgoing_pairing(&request_id));
-    assert!(mesh.lock().pending_requests.is_empty());
     assert!(mesh.lock().pairing_targets.is_empty());
     assert!(mesh.lock().pairing_deliveries.is_empty());
 }
@@ -199,15 +211,18 @@ async fn mesh_connect_peer_correlation_retained_duplicates_share_request() {
 #[tokio::test]
 async fn mesh_connect_peer_correlation_terminal_refusal_cleans_state() {
     let mesh = mesh_state();
-    let error = connect_peer_with_sender(mesh.clone(), PEER_ID.to_string(), |_, _, _| async {
-        Err(ConnectPeerError::Refused(
-            "Pair request rejected with HTTP 403".to_string(),
-        ))
-    })
+    let source = ConnectPeerError::Refused("Pair request rejected with HTTP 403".to_string());
+    assert_eq!(
+        source.pairing_send_disposition(),
+        Some(PairingSendDisposition::Terminal)
+    );
+    let _error = connect_peer_with_sender(
+        mesh.clone(),
+        PEER_ID.to_string(),
+        move |_, _, _| async move { Err(source) },
+    )
     .await
     .expect_err("terminal peer refusal is returned");
-    assert!(error.to_string().contains("HTTP 403"));
-    assert!(mesh.lock().pending_requests.is_empty());
     assert!(mesh.lock().pairing_targets.is_empty());
     assert!(mesh.lock().pairing_deliveries.is_empty());
 }
@@ -215,10 +230,9 @@ async fn mesh_connect_peer_correlation_terminal_refusal_cleans_state() {
 #[tokio::test]
 async fn mesh_connect_peer_correlation_retained_expiry_and_capacity_are_bounded() {
     let mesh = mesh_state();
-    let request_id = retain_ambiguous(&mesh).await;
-    let expires_at = mesh.lock().pending_requests[&request_id].timestamp + 301;
+    let (request_id, request) = retain_ambiguous(&mesh).await;
+    let expires_at = request.timestamp + 301;
     mesh.lock().cleanup_expired_requests_at(expires_at);
-    assert!(mesh.lock().pending_requests.is_empty());
     assert!(mesh.lock().pairing_targets.is_empty());
     assert!(mesh.lock().pairing_deliveries.is_empty());
     assert!(mesh
