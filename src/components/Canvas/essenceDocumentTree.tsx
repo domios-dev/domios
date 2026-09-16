@@ -8,13 +8,21 @@ interface TreeFolder { name: string; folders: Map<string, TreeFolder>; documents
 const emptyFolder = (name = ""): TreeFolder => ({ name, folders: new Map(), documents: [] });
 
 export function essenceDocumentEntries(project: EssenceMapProject): EssenceDocumentEntry[] {
-  const entries = new Map<string, EssenceDocumentEntry>();
+  const nodesByPath = new Map<string, EssenceMapNode>();
   for (const node of project.nodes) {
     const path = node.source.path.replaceAll("\\", "/").replace(/^\/+/, "");
     if (!path || (path !== "essences" && !path.startsWith("essences/")) || path.split("/").some((part) => part === "." || part === "..")) continue;
-    if (!entries.has(path)) entries.set(path, { path, node });
+    if (!nodesByPath.has(path)) nodesByPath.set(path, node);
   }
-  return [...entries.values()];
+  return (project.file.documents ?? []).flatMap((rawPath) => {
+    const path = rawPath.replaceAll("\\", "/").replace(/^\/+/, "");
+    if (!path || (path !== "essences" && !path.startsWith("essences/")) || path.split("/").some((part) => part === "." || part === "..")) return [];
+    const node: EssenceMapNode = nodesByPath.get(path) ?? {
+      kind: "node", id: `document:${path}`, type: "capability", label: path.split("/").pop() ?? path,
+      vector: null, status: "stable", source: { path, anchor: "", sha256: "" },
+    };
+    return [{ path, node }];
+  });
 }
 
 function buildTree(entries: EssenceDocumentEntry[]): TreeFolder {
@@ -41,5 +49,5 @@ function FolderRow({ value, path, onSelect }: { value: TreeFolder; path: string;
 }
 
 export function EssenceDocumentTree({ projects, onSelect }: { projects: EssenceMapProject[]; onSelect: (project: EssenceMapProject, entry: EssenceDocumentEntry) => void }) {
-  return <div className="absolute inset-0 min-w-0 overflow-auto p-3 sm:p-5" data-testid="essence-document-tree" role="tree" aria-label="Essence documents">{projects.map((project) => { const entries = project.status === "valid" ? essenceDocumentEntries(project) : []; const root = buildTree(entries); return <section key={project.file.project_path} className="mb-4 min-w-0 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] p-2" aria-labelledby={`essence-tree-project-${project.file.project_path}`}><h2 id={`essence-tree-project-${project.file.project_path}`} className="truncate px-2 py-1 text-xs font-semibold uppercase tracking-[.14em] text-[var(--ct-muted-fg)]" title={project.file.project_path}>{projectName(project.file.project_path)}</h2>{project.status !== "valid" ? <p className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--ct-muted-fg)]" role={project.status === "malformed" || project.status === "unreadable" ? "alert" : undefined}><AlertTriangle size={14} aria-hidden="true" className="shrink-0 text-[var(--ct-yellow)]" />{project.error ?? `No readable documents (${project.status})`}</p> : entries.length === 0 ? <p className="px-2 py-3 text-xs text-[var(--ct-muted-fg)]" data-testid="essence-document-tree-empty">No source-backed documents found.</p> : <ul>{[...root.folders.values()].sort((a, b) => a.name.localeCompare(b.name)).map((child) => <FolderRow key={child.name} value={child} path={child.name} onSelect={(entry) => onSelect(project, entry)} />)}</ul>}</section>; })}</div>;
+  return <div className="absolute inset-0 min-w-0 overflow-auto p-3 sm:p-5" data-testid="essence-document-tree" role="tree" aria-label="Essence documents">{projects.map((project) => { const entries = essenceDocumentEntries(project); const root = buildTree(entries); return <section key={project.file.project_path} className="mb-4 min-w-0 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] p-2" aria-labelledby={`essence-tree-project-${project.file.project_path}`}><h2 id={`essence-tree-project-${project.file.project_path}`} className="truncate px-2 py-1 text-xs font-semibold uppercase tracking-[.14em] text-[var(--ct-muted-fg)]" title={project.file.project_path}>{projectName(project.file.project_path)}</h2>{entries.length === 0 ? <p className="px-2 py-3 text-xs text-[var(--ct-muted-fg)]" data-testid="essence-document-tree-empty">No essence documents found.</p> : <ul>{[...root.folders.values()].sort((a, b) => a.name.localeCompare(b.name)).map((child) => <FolderRow key={child.name} value={child} path={child.name} onSelect={(entry) => onSelect(project, entry)} />)}</ul>}</section>; })}</div>;
 }
