@@ -91,6 +91,10 @@ pub const ORCH_ROLELESS_DRAFT_REJECTION: &str = "reject any task that names no e
 pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
     "reject any draft whose worker guidance says nothing";
 
+/// Stable Orchestrator delivery token for the opt-in Cartographer boundary.
+pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
+    "Cartographer purpose: regenerate the project's essence map at boundaries only; this map feature is opt-in and off by default, never a continuous cadence.";
+
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
 pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning_compaction.md");
@@ -280,6 +284,10 @@ pub fn orchestrator_suffix() -> String {
         .replace(
             "{planning_compaction_contract}",
             PLANNING_COMPACTION_CONTRACT.trim(),
+        )
+        .replace(
+            "{cartographer_contract_notice}",
+            ORCH_CARTOGRAPHER_CONTRACT_NOTICE,
         )
         .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
     format!(
