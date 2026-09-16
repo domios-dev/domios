@@ -23,7 +23,7 @@ describe("essence_document_tree", () => {
     ], ["essences/CORE.md", "essences/contributing/style.md", "essences/build-machine/README.md"]));
     expect(entries.map((entry) => entry.path)).toEqual([
       "essences/CORE.md", "essences/contributing/style.md", "essences/build-machine/README.md",
-    ]));
+    ]);
     expect(entries[0].node.id).toBe("a");
     expect(entries[2].node.id).toBe("document:essences/build-machine/README.md");
   });

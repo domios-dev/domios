@@ -56,7 +56,12 @@ function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error
     fittedKey.current = key;
     fitAll();
   }, [fitAll, size.height, size.width, world.projects]);
-  useEffect(() => { if (source && !projects.some((project) => project.nodes.some((node) => node.id === source.node.id))) setSource(null); }, [projects, source]);
+  useEffect(() => {
+    if (!source) return;
+    const mapNodeStillExists = projects.some((project) => project.nodes.some((node) => node.id === source.node.id));
+    const documentStillExists = projects.some((project) => project.file.project_path === source.projectPath && project.file.documents?.includes(source.node.source.path));
+    if (!mapNodeStillExists && !documentStillExists) setSource(null);
+  }, [projects, source]);
   const flyTo = useCallback((path: string) => { const bounds = world.projectBounds.get(path); if (bounds) animateToView(bounds); }, [animateToView, world.projectBounds]);
   const activateNode = useCallback((project: EssenceMapProject, node: EssenceMapNode) => { const request = requestRef.current + 1; requestRef.current = request; setSource({ node, projectPath: project.file.project_path, state: "loading" }); void sourceReader(project.file.project_path, node.source.path).then((content) => { if (requestRef.current === request) setSource({ node, projectPath: project.file.project_path, state: "ready", content }); }, (reason) => { if (requestRef.current === request) setSource({ node, projectPath: project.file.project_path, state: "error", error: reason instanceof Error ? reason.message : String(reason) }); }); }, [sourceReader]);
   useEffect(() => { if (!visible && documentSelection) activateNode(documentSelection.project, documentSelection.entry.node); }, [activateNode, documentSelection, visible]);
