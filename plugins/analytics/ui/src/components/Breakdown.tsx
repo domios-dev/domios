@@ -109,6 +109,7 @@ export function Breakdown({
           onChange={onGroupBy}
           aria-label="Group by"
           data-testid="analytics-group-by"
+          className="analytics-seg"
           height={narrow ? 36 : 24}
         />
       }
