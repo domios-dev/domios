@@ -6,7 +6,7 @@ host/bridge. Everything feature-specific — Git, Bitwarden, the Transcriber, an
 agent providers (Claude/Codex/OpenCode) including their UI — is a plugin.
 
 This guide reflects **what exists in the code today**. For what CodeTerm can do
-across every area, not only plugins, start from `essences/CAPABILITIES.md`.
+across every area, not only plugins, start from `essences/capabilities.md`.
 
 ## Ecosystem at a glance
 

@@ -19,10 +19,10 @@ const node = (id: string, path: string): EssenceMapProject["nodes"][number] => (
 describe("essence_document_tree", () => {
   it("essence_tree_source lists the on-disk set and keeps map context", () => {
     const entries = essenceDocumentEntries(project([
-      node("a", "essences/CORE.md"), node("b", "essences/CORE.md"), node("c", "essences/contributing/style.md"),
-    ], ["essences/CORE.md", "essences/contributing/style.md", "essences/build-machine/README.md"]));
+      node("a", "essences/core.md"), node("b", "essences/core.md"), node("c", "essences/contributing/style.md"),
+    ], ["essences/core.md", "essences/contributing/style.md", "essences/build-machine/README.md"]));
     expect(entries.map((entry) => entry.path)).toEqual([
-      "essences/CORE.md", "essences/contributing/style.md", "essences/build-machine/README.md",
+      "essences/core.md", "essences/contributing/style.md", "essences/build-machine/README.md",
     ]);
     expect(entries[0].node.id).toBe("a");
     expect(entries[2].node.id).toBe("document:essences/build-machine/README.md");
@@ -33,8 +33,8 @@ describe("essence_document_tree", () => {
   });
 
   it("essence_tree_source selects an unreferenced document through the exact source panel", async () => {
-    const source = { path: "essences/CORE.md", anchor: "capability:core", sha256: "a".repeat(64) };
-    const map: EssenceMapProject = project([{ kind: "node", id: "capability:core", type: "capability", label: "Core", vector: null, status: "stable", source }], ["essences/CORE.md", "essences/contributing/unreferenced.md"]);
+    const source = { path: "essences/core.md", anchor: "capability:core", sha256: "a".repeat(64) };
+    const map: EssenceMapProject = project([{ kind: "node", id: "capability:core", type: "capability", label: "Core", vector: null, status: "stable", source }], ["essences/core.md", "essences/contributing/unreferenced.md"]);
     const workspace: Workspace = { id: "ws", name: "Workspace", tabs: [], active_tab_id: null, cwd: "/repo" };
     const sourceReader = vi.fn(async () => "# exact core source");
     const host = document.createElement("div");

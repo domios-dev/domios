@@ -1,6 +1,6 @@
 # Writing Tests
 
-This is the canonical "how to write a test here" page. Use `essences/TESTING.md`
+This is the canonical "how to write a test here" page. Use `essences/testing.md`
 for the full layer taxonomy and runbook; use this page for test shape,
 assertion discipline, and review expectations.
 

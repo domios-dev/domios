@@ -1063,7 +1063,34 @@ start_dev_wait_process() {
   local conf
   conf="$(dev_conf_path)"
   local cmd=(pnpm tauri dev --no-watch --config "$conf")
-  node scripts/dev-wait-health.mjs --log "$log" --api-port "$CT_PORT" -- "${cmd[@]}"
+  if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
+    local session="codeterm-dev${CT_SUFFIX}-$$"
+    local root_q log_q conf_q
+    printf -v root_q "%q" "$(pwd)"
+    printf -v log_q "%q" "$log"
+    printf -v conf_q "%q" "$conf"
+    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q >> $log_q 2>&1"
+    echo "screen:$session"
+    return
+  fi
+  local pid spawn_status
+  set +e
+  case "$OSTYPE" in
+    msys*|cygwin*|win32)
+      "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+      ;;
+    *)
+      nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+      ;;
+  esac
+  pid=$!
+  spawn_status=$?
+  set -e
+  if [ -z "$pid" ]; then
+    echo "Failed to spawn dev process (status=$spawn_status)" >&2
+    return "${spawn_status:-1}"
+  fi
+  echo "$pid"
 }
 
 dev_wait_process_alive() {
@@ -1810,9 +1837,13 @@ EOF
     ;;
   dev)
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
-      EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
       HEALTH="$(dev_health_status)"
-      if SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null) && dev_frontend_ready; then
+      HEALTH_FIELDS="$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null || true)"
+      HEALTH_STATUS="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '1p')"
+      HEALTH_SHA="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '2p')"
+      HEALTH_API_PORT="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '4p')"
+      if [ "$HEALTH_STATUS" = "ok" ] && [ "$HEALTH_API_PORT" = "$CT_PORT" ]; then
+        SHA="$HEALTH_SHA"
         echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
         exit 0
       fi
@@ -1856,12 +1887,46 @@ EOF
       LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
       : > "$LOG"
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-      if ! DEV_PID=$(start_dev_wait_process "$LOG"); then
+      DAEMON_LOG="$CT_DATA_DIR/logs/codeterm.log"
+      mkdir -p "$(dirname "$DAEMON_LOG")"
+      touch "$DAEMON_LOG"
+      DAEMON_LOG_OFFSET="$(wc -c < "$DAEMON_LOG" 2>/dev/null || echo 0)"
+      PID_FILE="/tmp/codeterm-dev${CT_SUFFIX}.pid.$$"
+      if ! start_dev_wait_process "$LOG" > "$PID_FILE"; then
         echo "Dev startup failed before the explicit health signal. Last log lines:"
         tail -25 "$LOG"
         exit 1
       fi
+      DEV_PID="$(cat "$PID_FILE")"
+      rm -f "$PID_FILE"
+      EXIT_FILE="/tmp/codeterm-dev${CT_SUFFIX}.exit"
+      rm -f "$EXIT_FILE" "$EXIT_FILE.tmp"
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
+      node scripts/dev-wait-health.mjs --log "$DAEMON_LOG" --exit-file "$EXIT_FILE" --api-port "$CT_PORT" --start-offset "$DAEMON_LOG_OFFSET" &
+      DEV_OBSERVER_PID=$!
+      set +e
+      wait -n -p DEV_WAITED_PID "$DEV_PID" "$DEV_OBSERVER_PID"
+      DEV_WAIT_STATUS=$?
+      set -e
+      if [ "$DEV_WAITED_PID" = "$DEV_PID" ]; then
+        printf '{"code":%s,"signal":null}\n' "$DEV_WAIT_STATUS" > "$EXIT_FILE.tmp"
+        mv -f "$EXIT_FILE.tmp" "$EXIT_FILE"
+        wait "$DEV_OBSERVER_PID" 2>/dev/null || true
+        echo "Dev startup failed before the explicit health signal. Last log lines:"
+        tail -25 "$LOG"
+        exit 1
+      fi
+      if [ "$DEV_WAIT_STATUS" -ne 0 ]; then
+        echo "Dev startup observer failed before the explicit health signal. Last log lines:"
+        tail -25 "$LOG"
+        kill_dev || true
+        exit 1
+      fi
+      if ! dev_wait_process_alive "$DEV_PID"; then
+        echo "Dev process exited immediately after reporting the explicit health signal. Last log lines:"
+        tail -25 "$LOG"
+        exit 1
+      fi
       HEALTH="$(dev_health_status)"
       if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
         echo "$HEALTH"
@@ -1911,7 +1976,7 @@ EOF
     # dev-dependent API integration tests run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
     # an EXECUTED layer failed (SKIP never fails the run). Behaviour benches and
-    # the suspended Playwright suite are excluded — see essences/TESTING.md.
+    # the suspended Playwright suite are excluded — see essences/testing.md.
     ta_names=(); ta_status=()
     ta_record() { ta_names+=("$1"); ta_status+=("$2"); }
     ta_run() { # name, cmd...

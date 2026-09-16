@@ -86,7 +86,7 @@ After `./build.sh build`:
 
 ## Running Tests
 
-Test layers, commands and the runbook: `essences/TESTING.md`.
+Test layers, commands and the runbook: `essences/testing.md`.
 
 ### Test troubleshooting
 
@@ -112,7 +112,7 @@ starts.
 
 ## Release Process
 
-Public releases: the map is `essences/RELEASE.md` and the executable procedure is the
+Public releases: the map is `essences/release.md` and the executable procedure is the
 `github-release` skill (`.agents/skills/github-release/SKILL.md`). Local builds with no
 release use `./build.sh build`, above.
 

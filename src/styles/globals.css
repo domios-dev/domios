@@ -2284,25 +2284,27 @@ button,
   padding: 6px 12px 5px;
 }
 
-.ct-compact-scroll {
+.ct-hover-reveal-scrollbar {
   scrollbar-color: color-mix(in srgb, var(--ct-muted) 52%, transparent) transparent;
   scrollbar-width: thin;
 }
 
-.ct-compact-scroll::-webkit-scrollbar {
+.ct-hover-reveal-scrollbar::-webkit-scrollbar {
   width: 2px;
   height: 2px;
 }
 
-.ct-compact-scroll::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ct-muted) 52%, transparent);
+.ct-hover-reveal-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 99px;
+  transition: background-color 120ms ease;
 }
 
-.ct-compact-scroll::-webkit-scrollbar-thumb:hover {
+.ct-hover-reveal-scrollbar:hover::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--ct-muted) 72%, transparent);
 }
 
-.ct-compact-scroll::-webkit-scrollbar-button {
+.ct-hover-reveal-scrollbar::-webkit-scrollbar-button {
   display: none;
 }
 

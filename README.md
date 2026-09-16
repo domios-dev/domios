@@ -82,7 +82,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 ### Self-update & resilience
 - **Self-update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifests are signed with ed25519 and verified before any binary is touched; auto-install runs a 9-step graceful shutdown (mem WAL checkpoint, supervisor stop, signed binary swap), then tabs auto-resume so context survives the upgrade
 - **Subprocess supervisor** — heavy mem operations (dreaming, librarian extraction) run as child processes with a circuit breaker (3 failures in 60s → open). Worker death does not take the API down; `503` timeouts on heavy mem requests keep the daemon responsive
-- **External watchdog** — health probe at `/api/health`; setup recipes for Windows Task Scheduler, launchd, and systemd live in [essences/RESILIENCE.md](essences/RESILIENCE.md)
+- **External watchdog** — health probe at `/api/health`; setup recipes for Windows Task Scheduler, launchd, and systemd live in [essences/resilience.md](essences/resilience.md)
 
 ### Theming
 - **8 built-in themes** — dark and light options included
