@@ -1,6 +1,43 @@
 use super::*;
 
 #[test]
+fn mesh_reachability_health_phase_and_publication_share_transition_ownership() {
+    let control = RestApiControl::new();
+    let generation = control.begin_generation();
+    let primary = "127.0.0.1:7690".parse().unwrap();
+    control.listener_bound(generation, primary);
+    control.mark_listening(generation, vec![primary]).unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let transition = control.transition.clone();
+    control.listeners.configure(
+        None,
+        Arc::new(move |ready| {
+            assert!(transition.try_lock().is_none());
+            if ready.is_empty() {
+                entered_tx.send(()).unwrap();
+                release_rx
+                    .lock()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+            }
+        }),
+    );
+    let failing = control.clone();
+    let failure = std::thread::spawn(move || failing.record_unanswered_probe());
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let recovering = control.clone();
+    let recovery = std::thread::spawn(move || recovering.record_successful_probe());
+    assert_eq!(control.status().phase, RestApiPhase::Failed);
+    release_tx.send(()).unwrap();
+    assert_eq!(failure.join().unwrap(), RestApiDiagnostic::WorkersBlocked);
+    recovery.join().unwrap();
+    assert_eq!(control.status().phase, RestApiPhase::Listening);
+    assert_eq!(control.listeners.ready(), vec![primary]);
+}
+
+#[test]
 fn mesh_reachability_health_recovery_cannot_resurrect_a_lost_listener() {
     let publication = ListenerPublication::default();
     let primary = "127.0.0.1:7690".parse().unwrap();
