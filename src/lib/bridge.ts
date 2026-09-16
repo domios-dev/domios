@@ -590,6 +590,16 @@ const HTTP_MAP: Record<string, Mapper> = {
     ),
   fs_mkdir: (a) =>
     webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
+  read_workspace_essence_maps: (a) => {
+    const paths = Array.isArray(a.projectPaths) ? a.projectPaths : [];
+    const query = paths.map((path) => `path=${enc(String(path))}`).join("&");
+    return webJson("GET", `/api/essence-maps${query ? `?${query}` : ""}`);
+  },
+  read_workspace_essence_source: (a) =>
+    webJson(
+      "GET",
+      `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
+    ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),

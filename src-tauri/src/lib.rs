@@ -225,6 +225,8 @@ pub fn run() {
             commands::save_temp_file,
             commands::read_html_preview_file,
             commands::read_local_preview_file,
+            commands::read_workspace_essence_maps,
+            commands::read_workspace_essence_source,
             commands::copy_image_to_clipboard,
             commands::check_for_update,
             commands::install_app_update,

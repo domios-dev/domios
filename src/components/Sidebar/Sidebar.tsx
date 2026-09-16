@@ -85,6 +85,7 @@ interface SidebarProps {
   config?: AppConfig;
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
+  onOpenWorkspaceMap?: (workspaceId: string) => void;
   teamActions?: Partial<SidebarTeamActions>;
 }
 
@@ -98,6 +99,7 @@ export function Sidebar({
   config,
   uiFontScale,
   workspaceCanvasActive = false,
+  onOpenWorkspaceMap,
   teamActions,
 }: SidebarProps) {
   const {
@@ -741,6 +743,7 @@ export function Sidebar({
                       onRename={(name) => renameWorkspace(ws.id, name)}
                       onNewTerminal={() => createTab(ws.id)}
                       onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                      onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
                       newSessionDisabled={firstRunActive}
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
