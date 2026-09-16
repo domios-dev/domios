@@ -31,6 +31,22 @@ The hub. One service owns every operation on workspaces, tabs, agents and plans,
 - Invariants: production listens on 7685 and is never killed by development, which uses 7686 or a named instance with its own data; an outdated or versionless protocol is refused; hot paths stay cheap and bounded, and blocking work never runs on the shared async runtime; coordination waits on observed events, never on sleeps; subsystems stop and start without restarting the daemon where they can.
 - Dependent capabilities: workspaces and tabs, health and diagnostics, updates, and the web UI.
 
+### General Agent
+
+The protected, always-on agent singleton for one installation. It owns the General workspace identity, receives bridge and mesh traffic, and coordinates project agents.
+
+- Part of: agents and providers.
+- Invariants: exactly one protected General workspace and tab exist; routing reaches the singleton through its own tab; its provider session is resumed only from explicit ownership evidence.
+- Dependent capabilities: workspaces and tabs, agent providers, session continuity, Telegram bridge, and remote work.
+
+### Crash-recovery supervisor
+
+The external CLI supervisor that observes daemon epochs and owns crash recovery launches without duplicating a live daemon or resuming workers itself.
+
+- Part of: host state.
+- Invariants: durable crash markers precede recovery decisions; clean exits and requested handoffs are not treated as crashes; recovery never resumes workers or creates duplicate app instances.
+- Dependent capabilities: session continuity, health and diagnostics, and updates and local install.
+
 ### Host state
 
 What one CodeTerm instance remembers across restarts: configuration, the workspace and tab snapshot with its lifecycle journal, schedules, the secret store, the usage ledger and the kept notification records.

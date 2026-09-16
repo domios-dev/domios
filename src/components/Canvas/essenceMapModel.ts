@@ -16,6 +16,7 @@ export interface EssenceMapNode {
   label: string;
   vector: string | null;
   source: EssenceMapSource;
+  status?: string;
   runs_on_reason?: string;
 }
 
@@ -70,6 +71,10 @@ function sourceValue(value: unknown): value is EssenceMapSource {
 
 function nodeValue(value: unknown): value is EssenceMapNode {
   const node = recordObject(value);
+  if (node === null) return false;
+  const allowed = new Set(["kind", "id", "type", "label", "vector", "source", "status", "runs_on_reason"]);
+  if (Object.keys(node).some((key) => !allowed.has(key))) return false;
+  const hasStatus = node.status === undefined || stringValue(node.status);
   return node !== null
     && node.kind === "node"
     && stringValue(node.id)
@@ -77,6 +82,8 @@ function nodeValue(value: unknown): value is EssenceMapNode {
     && stringValue(node.label)
     && (node.vector === null || stringValue(node.vector))
     && sourceValue(node.source)
+    && hasStatus
+    && (node.type === "capability" ? node.status !== undefined : node.status === undefined)
     && (node.runs_on_reason === undefined || stringValue(node.runs_on_reason));
 }
 
