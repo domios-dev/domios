@@ -2,6 +2,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { NeedsYouNotificationRow } from "./NeedsYouNotificationRow";
 import type { NeedsYouNotificationItem } from "../../lib/notificationDeepLink";
 
@@ -50,7 +51,10 @@ describe("notification status row truncation", () => {
   });
 
   it("notification_status_row_truncation stylesheet declares single-line ellipsis", () => {
-    const stylesheet = readFileSync(new URL("../Canvas/missionControl/missionControlBoard.css", import.meta.url), "utf8");
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), "src/components/Canvas/missionControl/missionControlBoard.css"),
+      "utf8",
+    );
     const rule = stylesheet.match(/\.mc-board-needs-title\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(rule).toMatch(/white-space:\s*nowrap/);
