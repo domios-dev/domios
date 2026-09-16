@@ -135,7 +135,7 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
             && (input.byte_idle_ms < STUCK_WORKING_IDLE_MS
                 || input.semantic_idle_ms < STUCK_WORKING_IDLE_MS));
     let live_turn = (live_status_widget || active_footer)
-        && (input.byte_idle_ms < WORKING_GRACE_MS || elapsed_progress_live)
+        && (input.semantic_idle_ms < WORKING_GRACE_MS || elapsed_progress_live)
         && extract_completion_summary(input.screen_lines).is_none()
         && !completed_status_repaint;
     let stale_working_status_at_prompt =
