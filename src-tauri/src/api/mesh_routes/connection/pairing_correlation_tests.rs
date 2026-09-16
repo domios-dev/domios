@@ -13,6 +13,12 @@ fn mesh_state() -> crate::MeshStateHandle {
     manager.pairing_targets.clear();
     manager.pairing_deliveries.clear();
     manager.ident.identity.public_key = Some("initiator-key".to_string());
+    // prepare_connect refuses mesh_listener_not_remotely_ready unless a
+    // non-loopback listener is also ready (see reachability_tests.rs).
+    manager.ready_listeners = vec![
+        "127.0.0.1:7685".parse().unwrap(),
+        "100.64.0.1:7685".parse().unwrap(),
+    ];
     manager.discovered_peers.insert(
         PEER_ID.to_string(),
         crate::mesh::types::DiscoveredPeer {
