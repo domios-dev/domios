@@ -392,7 +392,11 @@ pub async fn connect_peer(
             .await
             .map_err(|error| {
                 let detail = delivery::safe_reqwest_detail(&error);
-                match delivery::classify_reqwest_error(error.is_timeout(), error.is_connect()) {
+                match delivery::classify_reqwest_error(
+                    error.is_timeout(),
+                    error.is_connect(),
+                    error.is_body() || error.is_decode(),
+                ) {
                     PairingSendDisposition::DefinitelyBeforeSend => {
                         ConnectPeerError::BeforeSend(detail)
                     }
