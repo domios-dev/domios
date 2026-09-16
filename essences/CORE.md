@@ -69,7 +69,6 @@ What makes a tab an agent: provider capabilities, launch and resume, detection, 
 
 - Part of: the service layer.
 - Invariants: core asks capabilities, never provider identities; a session is bound only from the provider's own report or an explicit launch choice, never inferred; model, status and transcript are read only from the tab's own session, and unknown stays unknown; detection keys on structure, never on vendor copy; native and plugin providers agree on shared fixtures.
-- Dependent capabilities: agent providers, session continuity, provider integrations, setup helpers and the team observer.
 
 ### Prompts
 
@@ -85,7 +84,6 @@ Durable intent and the team that carries it out: goals, specs, plans, tasks and 
 
 - Part of: the service layer.
 - Invariants: planner state is the source of truth; only two hierarchy levels exist, and Workers never spawn; only the Orchestrator approves a plan and closes a task; every Worker turn ends in a report; a mutating Worker writes only its own lane, never canonical unless the Orchestrator opts one Worker in; lanes land by real merges and executable proof runs only in canonical.
-- Dependent capabilities: the whole meta-team vector and the lane vector up to integration and canonical verification.
 
 ### Message gateway and bridges
 
@@ -93,7 +91,6 @@ The routing spine. Every message that enters a tab from anywhere other than its 
 
 - Part of: the service layer.
 - Invariants: the host stamps a return-address marker at the leading frame of every routed message, and only a leading marker is authentic; a report or system event is input, never something to reply to; a message routed from a bridge is answered through that bridge, never only in the tab; one poller per bot token; text hooks act before the agent sees inbound text and agents trust their metadata; every notification is kept, and its level alone decides whether it interrupts.
-- Dependent capabilities: message delivery, dispatch and reports, reminders, scheduling, Telegram and future bridges, webhook receivers, text hooks, notifications and voice.
 
 ### Mesh
 
@@ -101,7 +98,6 @@ One flat, trusted fabric of the owner's machines, and the relay that carries com
 
 - Part of: the service layer.
 - Invariants: paired is trusted and unpaired does not exist; unpair is a ban; each machine decides locally what a peer may do; a machine belongs to one mesh; hard rules bind on every peer; secrets never cross the mesh.
-- Dependent capabilities: pairing and trust, remote work, service registry and bridge migration.
 
 ### Plugin host
 
@@ -117,7 +113,6 @@ Durable knowledge for every agent on the machine: facts, notes, preferences and 
 
 - Part of: the service layer.
 - Invariants: persistent memory lives here and never in provider side stores; it is English and its bodies carry no dates; skills are registered here, never written into provider skill directories; conversations are searched as sessions, durable facts as memory.
-- Dependent capabilities: memory and skills, and the General Agent's wake-up context.
 
 ## The routing spine: where messages and reports flow
 
