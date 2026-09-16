@@ -25,7 +25,86 @@
   },
   "jcs": {
     "value": {"z": "雪", "n": 1, "a": "line\n"},
-    "expected": "{\"a\":\"line\\n\",\"n\":1,\"z\":\"雪\"}"
+    "expected": "{\"a\":\"line\\n\",\"n\":1,\"z\":\"雪\"}",
+    "canonicalization": [
+      {
+        "name": "number-representation",
+        "input": "{\"whole\":1.0,\"minus_zero\":-0.0,\"fraction\":1.5}",
+        "expected": "{\"fraction\":1.5,\"minus_zero\":0,\"whole\":1}"
+      },
+      {
+        "name": "escaping",
+        "input": "{\"slash\":\"/\",\"controls\":\"\\b\\t\\n\\f\\r\\u000f\",\"quote\":\"\\\"\\\\\"}",
+        "expected": "{\"controls\":\"\\b\\t\\n\\f\\r\\u000f\",\"quote\":\"\\\"\\\\\",\"slash\":\"/\"}"
+      },
+      {
+        "name": "utf16-key-order",
+        "input": "{\"\":1,\"😀\":2}",
+        "expected": "{\"😀\":2,\"\":1}"
+      }
+    ],
+    "refusals": [
+      {
+        "name": "duplicate-key",
+        "input": "{\"a\":1,\"a\":2}",
+        "error": "duplicate_key"
+      },
+      {
+        "name": "nested-duplicate-key",
+        "input": "{\"outer\":{\"x\":1,\"x\":2}}",
+        "error": "duplicate_key"
+      },
+      {
+        "name": "malformed-json",
+        "input": "{\"a\":]",
+        "error": "malformed_json"
+      }
+    ],
+    "noncanonical": [
+      "{\"whole\":1.0}",
+      "{\"slash\":\"\\/\"}",
+      "{\"\":1,\"😀\":2}"
+    ]
+  },
+  "target_canonicalization": {
+    "accepted": [
+      {
+        "name": "percent-dot-and-query",
+        "input": "/a/%7e/./b/../雪%20x?b=&a=x/y&a=x%20y",
+        "expected": "/a/~/雪%20x?a=x%20y&a=x%2Fy&b="
+      },
+      {
+        "name": "decode-once",
+        "input": "/literal/%252F?q=%257E",
+        "expected": "/literal/%252F?q=%257E"
+      }
+    ],
+    "refusals": [
+      {
+        "name": "relative-path",
+        "input": "api/mobile/v1",
+        "error": "invalid_target"
+      },
+      {
+        "name": "malformed-percent",
+        "input": "/a/%GG",
+        "error": "invalid_percent_encoding"
+      },
+      {
+        "name": "root-escape",
+        "input": "/../secret",
+        "error": "dot_segment_above_root"
+      },
+      {
+        "name": "fragment",
+        "input": "/a#fragment",
+        "error": "fragment_not_allowed"
+      }
+    ],
+    "noncanonical": [
+      "/a/%7e/./b/../雪%20x?b=&a=x/y&a=x%20y",
+      "/api/mobile/v1/test?b=&a=x%2Fy&a=x%20y"
+    ]
   },
   "authority": {
     "session_binding_nonce": "binding-live-29",
@@ -48,6 +127,74 @@
     "route": "/api/mobile/v1/gateways/gateway-a/targets/remote-b/tabs/tab-17/sends",
     "body_jcs": "{\"client_request_id\":\"send-01\",\"correlation_id\":\"correlation-41\",\"reply_mode\":\"accepted_only\",\"run_id\":\"run-01\",\"target\":{\"binding_nonce_digest_hex\":\"a89a898c8d3d4b0312d5e7b5bd8d2ac3f170b8491ae0c5cb708de6920f98ff79\",\"gateway_instance_id\":\"gateway-a\",\"kind\":\"tab\",\"lifecycle_epoch\":42,\"peer_id\":\"peer-ab\",\"session_id\":\"session-23\",\"tab_id\":\"tab-17\",\"target_instance_id\":\"remote-b\"},\"text\":\"hello\"}",
     "receipt_status": 202
+  },
+  "contract": {
+    "grants": [
+      "directory.read",
+      "conversation.read",
+      "theme.read",
+      "events.subscribe",
+      "chat.send"
+    ],
+    "routes": {
+      "pairing_create": {
+        "method": "POST",
+        "path": "/api/mobile/v1/pairing/requests",
+        "body_jcs": "{\"client_key_fingerprint\":\"sha256:client-key\",\"client_public_key\":\"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw\",\"client_signature\":\"c2lnbmF0dXJl\",\"display_name\":\"Phone\",\"endpoint_id\":\"https_main\",\"expires_at_ms\":1700000600000,\"grants\":[\"chat.send\",\"conversation.read\",\"directory.read\",\"events.subscribe\",\"theme.read\"],\"issued_at_ms\":1700000000000,\"protocol_version\":1,\"server_instance_id\":\"gateway-a\",\"target_selection\":\"owner_select\"}"
+      },
+      "pairing_status": {
+        "method": "GET",
+        "path": "/api/mobile/v1/pairing/requests/pair-01",
+        "body_jcs": "{\"endpoint_id\":\"https_main\",\"expires_at_ms\":1700000600000,\"server_instance_id\":\"gateway-a\",\"state\":\"pending\",\"target\":{\"kind\":\"none\"}}"
+      },
+      "pairing_approve": {
+        "method": "POST",
+        "path": "/api/mobile/v1/pairing/requests/pair-01/approve",
+        "body_jcs": "{\"grant_revision\":1,\"grants\":[\"chat.send\",\"conversation.read\",\"directory.read\",\"events.subscribe\",\"theme.read\"],\"owner_target\":{\"kind\":\"none\"},\"request_id\":\"pair-01\"}"
+      },
+      "pairing_reject": {
+        "method": "POST",
+        "path": "/api/mobile/v1/pairing/requests/pair-01/reject",
+        "body_jcs": "{\"reason\":\"owner_rejected\",\"request_id\":\"pair-01\"}"
+      },
+      "client_revoke": {
+        "method": "POST",
+        "path": "/api/mobile/v1/clients/mc_alpha/revoke",
+        "body_jcs": "{\"client_id\":\"mc_alpha\",\"reason\":\"owner_revoked\"}"
+      },
+      "grant_replace": {
+        "method": "PUT",
+        "path": "/api/mobile/v1/clients/mc_alpha/grants",
+        "body_jcs": "{\"expected_grant_revision\":1,\"grants\":[\"directory.read\",\"theme.read\"]}"
+      },
+      "directory_read": {
+        "method": "GET",
+        "path": "/api/mobile/v1/directory?cursor=&limit=64",
+        "body_jcs": "{\"cursor\":null,\"limit\":64}"
+      },
+      "conversation_read": {
+        "method": "GET",
+        "path": "/api/mobile/v1/gateways/gateway-a/targets/remote-b/tabs/tab-17/messages?cursor=&limit=100",
+        "body_jcs": "{\"cursor\":null,\"limit\":100,\"target\":{\"binding_nonce_digest_hex\":\"a89a898c8d3d4b0312d5e7b5bd8d2ac3f170b8491ae0c5cb708de6920f98ff79\",\"gateway_instance_id\":\"gateway-a\",\"kind\":\"tab\",\"lifecycle_epoch\":42,\"peer_id\":\"peer-ab\",\"session_id\":\"session-23\",\"tab_id\":\"tab-17\",\"target_instance_id\":\"remote-b\"}}"
+      },
+      "theme_read": {
+        "method": "GET",
+        "path": "/api/mobile/v1/theme",
+        "body_jcs": "{\"target\":{\"kind\":\"none\"}}"
+      },
+      "request_status": {
+        "method": "GET",
+        "path": "/api/mobile/v1/requests/send-01",
+        "body_jcs": "{\"client_request_id\":\"send-01\"}"
+      }
+    },
+    "ownership": {
+      "owner": "mc_alpha",
+      "foreign": "mc_beta",
+      "foreign_status_error": "request_not_found",
+      "removed_grant_error": "grant_denied",
+      "revoked_client_error": "client_revoked"
+    }
   },
   "request": {
     "proof_type": "active",
@@ -96,6 +243,13 @@
     "response_body_sha256": "sha256:d1382e6772575af6a259370281ca65285b84f8b831e539502a615f6ca20a1dc6",
     "response_nonce": "EBESExQVFhcYGRobHB0eHw",
     "server_time_ms": 1700000000100,
+    "transmitted_headers": {
+      "X-CodeTerm-Mobile-Response-Key": "server-key-01",
+      "X-CodeTerm-Mobile-Response-Nonce": "EBESExQVFhcYGRobHB0eHw",
+      "X-CodeTerm-Mobile-Response-Signature": "7CDo-lM2QF0GftB3Vhh0eQgsmCUNm43UfhGEL4gYf9DQ0XHBbeEVXNyfnzeXiT6V_f6kKJXpxpmuXMsWIzRxDg",
+      "X-CodeTerm-Mobile-Request-Id": "request-01",
+      "X-CodeTerm-Mobile-Server-Time-Ms": "1700000000100"
+    },
     "expected_hex": "43544d43312d524553504f4e5345000000000332303200000004504f5354000000442f6170692f6d6f62696c652f76312f67617465776179732f676174657761792d612f746172676574732f72656d6f74652d622f746162732f7461622d31372f73656e6473000102030405060708090a0b0c0d0e0f0000000a726571756573742d3031000000086d635f616c70686100000009676174657761792d610000000d7365727665722d6b65792d30317024ce0d1df3a789f86ee82f3e8cec6be7e1fdc1bd81c3f48ee34fcb3429639cd1382e6772575af6a259370281ca65285b84f8b831e539502a615f6ca20a1dc6101112131415161718191a1b1c1d1e1f0000018bcfe56864",
     "expected_signature_hex": "ec20e8fa5336405d067ed07756187479082c98250d9b8dd47e11842f88187fd0d0d171c16de1155cdc9f9f3797893e95fdfea42895e9c699ae5ccb162334710e"
   },
@@ -121,8 +275,12 @@
         "client_id": "mc_alpha",
         "server_instance_id": "gateway-a",
         "endpoint_id": "https_main",
-        "data_jcs": "{\"boot_id\":\"boot-01\",\"correlation_id\":null,\"delivery\":null,\"directory_revision\":17,\"event_type\":\"message.created\",\"payload\":{\"message_id\":\"message-01\"},\"protocol_version\":1,\"run_id\":\"run-01\",\"sequence\":8,\"target\":null}",
+        "signed_payload_jcs": "{\"boot_id\":\"boot-01\",\"correlation_id\":null,\"delivery\":null,\"directory_revision\":17,\"event_type\":\"message.created\",\"payload\":{\"message_id\":\"message-01\"},\"protocol_version\":1,\"run_id\":\"run-01\",\"sequence\":8,\"target\":null}",
+        "previous_frame_hash": "sha256:f2c9621364dacfbdd88af445e34ebf1dbac1c484127b85335e5da5b7588a117f",
+        "key_id": "server-key-01",
         "response_nonce": "ICEiIyQlJicoKSorLC0uLw",
+        "signature": "-TlpfehRao6O3fokrqeFpPg1nXY9venaSDt9dUGNC9F2gnot1nl31XY3fTCLpXMQP5mbqRljRNSSnXDt4X2zCg",
+        "expected_envelope_jcs": "{\"key_id\":\"server-key-01\",\"previous_frame_hash\":\"sha256:f2c9621364dacfbdd88af445e34ebf1dbac1c484127b85335e5da5b7588a117f\",\"response_nonce\":\"ICEiIyQlJicoKSorLC0uLw\",\"signature\":\"-TlpfehRao6O3fokrqeFpPg1nXY9venaSDt9dUGNC9F2gnot1nl31XY3fTCLpXMQP5mbqRljRNSSnXDt4X2zCg\",\"signed_payload\":{\"boot_id\":\"boot-01\",\"correlation_id\":null,\"delivery\":null,\"directory_revision\":17,\"event_type\":\"message.created\",\"payload\":{\"message_id\":\"message-01\"},\"protocol_version\":1,\"run_id\":\"run-01\",\"sequence\":8,\"target\":null}}",
         "expected_frame_hex": "43544d43312d5353452d4652414d45000000000000000008f2c9621364dacfbdd88af445e34ebf1dbac1c484127b85335e5da5b7588a117f000000067375622d3031000000086d635f616c70686100000009676174657761792d610000000a68747470735f6d61696e000000da7b22626f6f745f6964223a22626f6f742d3031222c22636f7272656c6174696f6e5f6964223a6e756c6c2c2264656c6976657279223a6e756c6c2c226469726563746f72795f7265766973696f6e223a31372c226576656e745f74797065223a226d6573736167652e63726561746564222c227061796c6f6164223a7b226d6573736167655f6964223a226d6573736167652d3031227d2c2270726f746f636f6c5f76657273696f6e223a312c2272756e5f6964223a2272756e2d3031222c2273657175656e6365223a382c22746172676574223a6e756c6c7d",
         "expected_signature_hex": "f939697de8516a8e8eddfa24aea785a4f8359d763dbde9da483b7d75418d0bd176827a2dd67977d576377d308ba573103f999ba9196344d4929d70ede17db30a"
       },
@@ -132,8 +290,12 @@
         "client_id": "mc_alpha",
         "server_instance_id": "gateway-a",
         "endpoint_id": "https_main",
-        "data_jcs": "{\"boot_id\":\"boot-01\",\"correlation_id\":\"correlation-41\",\"delivery\":{\"state\":\"confirmed\"},\"directory_revision\":17,\"event_type\":\"message.completed\",\"payload\":{},\"protocol_version\":1,\"run_id\":\"run-01\",\"sequence\":9,\"target\":null}",
+        "signed_payload_jcs": "{\"boot_id\":\"boot-01\",\"correlation_id\":\"correlation-41\",\"delivery\":{\"state\":\"confirmed\"},\"directory_revision\":17,\"event_type\":\"message.completed\",\"payload\":{},\"protocol_version\":1,\"run_id\":\"run-01\",\"sequence\":9,\"target\":null}",
+        "previous_frame_hash": "sha256:8d2d07d954538e769e9893521cc0bf87f97c8a7cf7c7c066b2fef1e816355d09",
+        "key_id": "server-key-01",
         "response_nonce": "MDEyMzQ1Njc4OTo7PD0-Pw",
+        "signature": "ID9vx2YyoAl-ybzfH2B92pIcDRiKBhZJLbTuxhH3Tt-F3Fi76tKCipCOtw-9boqd2xX4A8GCnzxC2NOGY9KqAA",
+        "expected_envelope_jcs": "{\"key_id\":\"server-key-01\",\"previous_frame_hash\":\"sha256:8d2d07d954538e769e9893521cc0bf87f97c8a7cf7c7c066b2fef1e816355d09\",\"response_nonce\":\"MDEyMzQ1Njc4OTo7PD0-Pw\",\"signature\":\"ID9vx2YyoAl-ybzfH2B92pIcDRiKBhZJLbTuxhH3Tt-F3Fi76tKCipCOtw-9boqd2xX4A8GCnzxC2NOGY9KqAA\",\"signed_payload\":{\"boot_id\":\"boot-01\",\"correlation_id\":\"correlation-41\",\"delivery\":{\"state\":\"confirmed\"},\"directory_revision\":17,\"event_type\":\"message.completed\",\"payload\":{},\"protocol_version\":1,\"run_id\":\"run-01\",\"sequence\":9,\"target\":null}}",
         "expected_frame_hex": "43544d43312d5353452d4652414d450000000000000000098d2d07d954538e769e9893521cc0bf87f97c8a7cf7c7c066b2fef1e816355d09000000067375622d3031000000086d635f616c70686100000009676174657761792d610000000a68747470735f6d61696e000000e07b22626f6f745f6964223a22626f6f742d3031222c22636f7272656c6174696f6e5f6964223a22636f7272656c6174696f6e2d3431222c2264656c6976657279223a7b227374617465223a22636f6e6669726d6564227d2c226469726563746f72795f7265766973696f6e223a31372c226576656e745f74797065223a226d6573736167652e636f6d706c65746564222c227061796c6f6164223a7b7d2c2270726f746f636f6c5f76657273696f6e223a312c2272756e5f6964223a2272756e2d3031222c2273657175656e6365223a392c22746172676574223a6e756c6c7d",
         "expected_signature_hex": "203f6fc76632a0097ec9bcdf1f607dda921c0d188a0616492db4eec611f74edf85dc58bbead2828a908eb70fbd6e8a9ddb15f803c1829f3c42d8d38663d2aa00"
       }
