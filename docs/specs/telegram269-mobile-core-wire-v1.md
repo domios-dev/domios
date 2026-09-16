@@ -1,6 +1,6 @@
 # CTMC1 Mobile Core Wire V1
 
-Status: authored native-core/iOS compatibility contract, replacing the proposed text in Spec `sp_b9ta7i/sec_3z5l9j`. The reviewed prerequisite is the integrate/integration 1.10.23 lineage, present here as `integrate/1.10.23` at `01b9aa891`. Executable vectors live in `src-tauri/tests/fixtures/telegram269-mobile-core-wire-v1.json` and `src-tauri/src/telegram269_wire_contract.rs`.
+Status: authored native-core/iOS compatibility contract, replacing the proposed text in Spec `sp_b9ta7i/sec_3z5l9j`. The preserved reviewed merge is `9f8e896c8ffc53ec7b0c0644c51afcc7645eccf7` on the integrate/integration 1.10.23 lineage. Executable vectors live in `src-tauri/tests/fixtures/telegram269-mobile-core-wire-v1.json`, `src-tauri/src/telegram269_wire_contract.rs`, and the standalone macOS Swift project at `tools/MobileWireVectors/`.
 
 This contract does not authorize dependent routes or iOS source until review. It excludes release, APNs, default/plugin packaging, production, and App Store work. It does not change PTY delivery, submit recovery, delivery evidence, the delivery ledger, or protected hooks. Mobile routes never accept or return a daemon bearer token.
 
@@ -24,7 +24,7 @@ The proof object has exactly:
 
 Remove `signature` before signing; unknown members reject. `nonce_128` decodes to 16 bytes. Method is uppercase. Lifetime is at most 300 seconds with at most 300 seconds clock skew. Nonces are single-use and retained at least 24 hours.
 
-Canonical targets contain only absolute path and query. Paths have no dot segments. Decode existing escapes once, then percent-encode UTF-8 with uppercase hex except RFC 3986 unreserved bytes and `/`. Query pairs retain duplicates, sort by encoded key then value, use `%20` for spaces, and retain empty values.
+Canonical targets contain only absolute path and query. Paths have no dot segments. Decode existing escapes once, remove `.` segments and resolve `..` without allowing traversal above root, then percent-encode UTF-8 with uppercase hex except RFC 3986 unreserved bytes and path separators. Query pairs retain duplicates, sort by encoded key then value, use `%20` for spaces, and retain empty values. A decoder recomputes the canonical target and rejects noncanonical alternatives rather than accepting lowercase escapes, dot segments, unsorted pairs, malformed escapes, fragments, or relative paths.
 
 Let `B(x)` be big-endian u32 byte length followed by bytes and `U64` unsigned big-endian. Exact request signature bytes are:
 
@@ -78,6 +78,8 @@ Every authenticated body is JCS and contains no signature member. Headers are:
 X-CodeTerm-Mobile-Response-Key: <server key id>
 X-CodeTerm-Mobile-Response-Nonce: <base64url 16 bytes>
 X-CodeTerm-Mobile-Response-Signature: <base64url 64 bytes>
+X-CodeTerm-Mobile-Request-Id: <request id>
+X-CodeTerm-Mobile-Server-Time-Ms: <unsigned decimal>
 ```
 
 Exact signature bytes are:
@@ -89,7 +91,7 @@ B(server_instance_id) || B(server_key_id) || request_body_sha256:32 ||
 response_body_sha256:32 || response_nonce:16 || U64(server_time_ms)
 ```
 
-Request nonce and id appear exactly once. Request and response digests occupy distinct fixed positions. The response signature and all signature headers are excluded from the body digest and signature input, preventing a cycle. Errors have exactly `error_code`, `message`, `request_id`, `details`, and `server_time_ms`, and use the same detached framing.
+Request nonce and id appear exactly once in the signed input. Request and response digests occupy distinct fixed positions. The response signature and all signature headers are excluded from the body digest and signature input, preventing a cycle. On every successful response, request id and server time are transmitted in the named headers; key id and response nonce are transmitted alongside them, while method, canonical target, request nonce, request body digest, client id, and server instance are already bound request/connection inputs. Thus a verifier receives or already possesses every signature input. Errors have exactly `error_code`, `message`, `request_id`, `details`, and `server_time_ms`, and use the same detached framing.
 
 ## Send, status, and durable suppression
 
@@ -107,7 +109,7 @@ Before any PTY operation, core durably reserves `(client_id, client_request_id)`
 
 `GET /api/mobile/v1/requests/{client_request_id}` requires the owning active client and current `chat.send` for the exact target. Another client gets `404 request_not_found`; removed grant `403 grant_denied`; revoked client `401 client_revoked`. It returns stored receipt plus `state`, `evidence`, and `updated_at_ms`.
 
-At 24 hours, the record becomes a durable `expired` tombstone retaining client/request ids, body digest, target digest, and state. It survives restart and normal cleanup and is never reused. Same digest returns `409 reservation_expired`; different digest returns `409 client_request_reuse`. This wrapper does not alter PTY write, recovery, evidence, or ledger behavior and makes no exactly-once claim about them.
+At 24 hours, the required implementation turns the record into a durable `expired` tombstone retaining client/request ids, body digest, target digest, and state. It survives restart and normal cleanup and is never reused. Same digest returns `409 reservation_expired`; different digest returns `409 client_request_reuse`. The `ReservationStore` clone/`HashMap` exercised by the COD-1 Rust vectors is explicitly a model of these transitions only; it is not evidence of durable storage, restart recovery, or concurrency behavior. Durable storage and real route enforcement are COD-2/COD-3 implementation acceptance. This wrapper does not alter PTY write, recovery, evidence, or ledger behavior and makes no exactly-once claim about them.
 
 ## Subscriptions and SSE chain
 
@@ -117,7 +119,7 @@ The compact stream target is `GET /api/mobile/v1/events/stream/{subscription_id}
 
 The stream ends at the earliest proof, grant, subscription, or 30-minute expiry. It emits `auth.expiring` when possible, then closes. Grant narrowing closes affected streams; revoke closes all. Reconnect requires fresh proof and rechecks owner, endpoint, grants, full targets at receivers, target-set digest, boot, cursor, and stored predecessor hash. A new subscription starts a new chain.
 
-SSE `data` is JCS with exactly `protocol_version`, `boot_id`, `sequence`, `directory_revision`, `event_type`, `target`, `run_id`, `correlation_id`, `delivery`, and `payload`; nullable values are explicit null. It contains no signature or previous hash. Event types are `message.created`, `message.updated`, `message.completed`, `theme.changed`, `directory.changed`, `accessory.changed`, `grant.changed`, `client.revoked`, and `auth.expiring`.
+Each SSE event has one `data:` value containing a JCS envelope with exactly `key_id`, `response_nonce`, `previous_frame_hash`, `signature`, and `signed_payload`. SSE cannot attach new HTTP headers per event. `signed_payload` is a separate JSON object with exactly `protocol_version`, `boot_id`, `sequence`, `directory_revision`, `event_type`, `target`, `run_id`, `correlation_id`, `delivery`, and `payload`; nullable values are explicit null. It contains no signature, nonce, key id, or previous hash. The envelope `previous_frame_hash` is lowercase `sha256:<64 hex>`, nonce and signature are canonical base64url, and `key_id` selects the pinned server key. Event types are `message.created`, `message.updated`, `message.completed`, `theme.changed`, `directory.changed`, `accessory.changed`, `grant.changed`, `client.revoked`, and `auth.expiring`.
 
 ```text
 seed_input = ASCII("CTMC1-SSE-SEED\0") || B(subscription_id) || B(boot_id) ||
@@ -125,14 +127,20 @@ seed_input = ASCII("CTMC1-SSE-SEED\0") || B(subscription_id) || B(boot_id) ||
   target_set_sha256:32 || U64(grant_revision)
 chain_seed = SHA256(seed_input)
 
-frame = ASCII("CTMC1-SSE-FRAME\0") || U64(sequence) || previous_frame_hash:32 ||
+frame = ASCII("CTMC1-SSE-FRAME\0") || U64(signed_payload.sequence) || previous_frame_hash:32 ||
   B(subscription_id) || B(client_id) || B(server_instance_id) || B(endpoint_id) ||
-  B(JCS(data))
+  B(JCS(signed_payload))
 
 signature_input = ASCII("CTMC1-SSE-SIGNATURE\0") || frame || response_nonce:16
 ```
 
-The first previous hash is the seed; later previous hashes are `SHA256(complete prior unsigned frame)`. The signature is Ed25519 over `signature_input` and excluded from `frame`. Per-frame headers use the response key/nonce/signature names from the response section. Clients verify key, subscription/client/endpoint, boot/sequence, predecessor, and signature before exposing the event.
+The first previous hash is the seed; later previous hashes are `SHA256(complete prior unsigned frame)`. The signature is Ed25519 over `signature_input`; the entire envelope, including signature, is excluded from `frame`. Reconnect presents the last verified `boot_id.sequence`, and the server binds the new proof to the stored hash of that exact frame before emitting its successor. Clients verify envelope key/nonce/hash syntax, subscription/client/endpoint, boot/sequence, predecessor, canonical signed-payload bytes, and signature before exposing the event.
+
+## Exact route bodies and ownership
+
+The shared corpus `contract.routes` is the machine-readable registry for pairing create/status/approve/reject, client revoke, grant replacement, directory read, conversation read, theme read, and request status. Every entry fixes method, path, and emitted JCS body bytes. Implementations canonicalize those bodies and compare the emitted UTF-8 bytes, not parsed object equality. The pairing status body exposes `none`, never inventory. Approval and rejection are local-owner operations. Grant replacement uses `expected_grant_revision`; removing a grant takes effect immediately and closes affected streams.
+
+The five and only five grant names are `directory.read`, `conversation.read`, `theme.read`, `events.subscribe`, and `chat.send`. Request-status ownership is opaque: a foreign client receives `request_not_found`, the owner after `chat.send` removal receives `grant_denied`, and a revoked owner receives `client_revoked`. Receiver authorization compares `tab_id` and `session_id` as distinct fields and rejects a mismatch in either. An `unknown` reservation is terminal and never suggests, queues, or performs automatic resend.
 
 ## Source-normalized safe surfaces
 
@@ -156,14 +164,22 @@ Limits: request line 2048 bytes; stream cursor 128; other query 4096; ordinary J
 
 Stable errors include `invalid_signature`, `unknown_proof_field`, `unsupported_version`, `body_digest_mismatch`, `replayed_nonce`, `stale_timestamp`, `proof_expired`, `server_binding_mismatch`, `endpoint_binding_mismatch`, `prospective_key_not_allowed`, `pairing_expired`, `pairing_rejected`, `owner_guard_denied`, `grant_denied`, `grant_revision_conflict`, `client_revoked`, `target_not_found`, `target_session_mismatch`, `target_lifecycle_mismatch`, `target_binding_mismatch`, `request_not_found`, `client_request_reuse`, `reservation_unknown`, `reservation_expired`, `cursor_reset`, `body_too_large`, `unsupported_theme`, `unsupported_message_family`, and `rate_limited`.
 
-Canonical Rust QA is:
+The preserved canonical Rust QA result for merge `9f8e896c8ffc53ec7b0c0644c51afcc7645eccf7` is `1 passed, 0 failed` from:
 
 ```bash
 ./build.sh test-one app telegram269_wire_contract
 ```
 
-The test consumes shared fixture bytes, constructs request/discovery/target/response/SSE inputs, compares exact emitted bytes and deterministic Ed25519 signatures, mutates signed bytes and chain/grant state, and executes base64url, target receiver, send/reservation/crash/tombstone, grant removal, safe schema, page-limit, wrong-boot, and Watch-parent behavior. It does not compare labels.
+The Rust test consumes shared fixture bytes, constructs request/discovery/target/response/SSE inputs, compares exact emitted canonical bytes and deterministic Ed25519 signatures, mutates signed bytes and chain/grant state, and executes base64url, target receiver, send/reservation/crash/tombstone model, grant removal, safe schema, page-limit, wrong-boot, and Watch-parent behavior. It also emits canonical JSON and targets for number representation, escaping, UTF-16/non-BMP key ordering, percent escaping, dot segments, and sorted encoded query pairs, and rejects duplicate keys, malformed JSON/percent escapes, and noncanonical alternatives. It does not compare labels.
 
-There is intentionally no Swift project in this checkout. A future standalone harness may run only when a real committed project, manifest, and scheme exist, using exactly `xcodebuild -project tools/MobileWireVectors/MobileWireVectors.xcodeproj -scheme MobileWireVectors test`. It must consume these same bytes, compare byte/signature/mutation behavior, not edit an iOS app checkout, and is cross-language proof only—not native-app proof.
+The committed standalone Swift oracle consumes that same corpus directly and runs with exactly:
 
-<!-- revision: 1 -->
+```bash
+xcodebuild -project tools/MobileWireVectors/MobileWireVectors.xcodeproj -scheme MobileWireVectors -destination 'platform=macOS' test
+```
+
+The Swift harness compares emitted canonical bytes, binary framing, deterministic CryptoKit Ed25519 signatures, and decoder refusal behavior. It does not edit or build the iOS app checkout. It is cross-language codec/vector evidence only, not native-app proof. CryptoKit on this macOS harness belongs to the same Apple API family expected on iOS, but a macOS unit-test pass does not prove iOS deployment-target availability, Keychain policy, networking/SSE behavior, lifecycle integration, or native UI behavior.
+
+The artifact, Rust result, and any standalone Swift result do not prove durable restart/concurrency persistence, live authorization, or enforcement in real receiving routes. Those remain dependent COD-2/COD-3 implementation acceptance and must be demonstrated against durable storage and the actual gateway/peer/receiver paths.
+
+<!-- revision: 2 -->
