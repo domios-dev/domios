@@ -110,6 +110,28 @@ The build.sh bg task's own output stream also contains the Rust compile log and 
 
 ## Dev data location
 
+### Explicit named-dev tailnet access
+
+Keep `api.host` on loopback. A named development instance may opt into an
+additional listener with `api.mesh_tailnet_host` set to its locally assigned
+Tailscale IPv4 address. Use the named instance and port with the dev wrapper
+for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI
+inheriting production routing. Confirm identity before changing that instance.
+Restart only that named instance through the documented launcher. Verify both
+loopback health and tailnet health, the build identity, and
+`dc config get api_listener.ready_addresses` before `dc mesh broadcast`.
+Removing the opt-in uses JSON `null` and another scoped restart.
+
+A failed secondary bind starts neither listener; no wildcard or LAN fallback
+is allowed. A later secondary listener exit keeps local HTTP serving but clears
+remote readiness and stops broadcast. Recovery is an explicit scoped restart,
+not a retry loop. Preserve a failed trial's state and distinguish a new trial.
+
+Troubleshooting: `mesh_listener_not_remotely_ready` means no health-proven remote
+listener can serve the announcement. A configured host is not live evidence.
+Do not widen the default bind or repeatedly connect to a stale discovered
+address; verify the named instance's live listener set first.
+
 - `~/.codeterm-dev/` — config, mem DB, sessions, logs, mesh identity
 - `~/.codeterm-dev/config.toml` — themes, keybindings, api section
 - `~/.codeterm-dev/mem/` — mem SQLite + FTS + vectors
@@ -208,3 +230,5 @@ Claude Code should auto-load this skill whenever the user mentions:
 - anything that implies running or diagnosing the local CodeTerm dev instance
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
+
+<!-- revision: 1 -->
