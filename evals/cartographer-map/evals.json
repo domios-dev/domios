@@ -1,0 +1,88 @@
+{
+  "skill_name": "cartographer-map",
+  "description": "The Cartographer role contract: generate the essence map from sources, cover the checklist, report gaps, and tell the owner once.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "generate-from-sources-not-by-hand",
+      "response_mode": "text",
+      "prompt": "You have been spawned at a boundary to produce this repository's essence map. Briefly describe the commands you would run and where the map content comes from.",
+      "expected_output": "Generates from the source essences and lets the contract validate the result.",
+      "expectations": [
+        "Generates the map with codeterm essence-map generate rather than writing map records by hand",
+        "Validates the result with codeterm essence-map validate",
+        "Does NOT propose hand-authoring or hand-editing map records"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "checklist-covers-core-and-flow",
+      "response_mode": "text",
+      "prompt": "Without running commands, list what you check in the generated map before you record anything.",
+      "expected_output": "Walks the full coverage checklist rather than spot-checking.",
+      "expectations": [
+        "Checks clients separately from core parts, including that a client reaches the service layer",
+        "Checks the service layer as the core root and that core parts link to it or to the part they belong to",
+        "Checks the routing spine, the agent/provider/prompt parts, and the plan and orchestration parts",
+        "Checks that every capability has a flow link in or out, or a recorded reason it has none",
+        "Checks the leftovers that stay outside the map and the node budget"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "gap-reported-not-invented",
+      "response_mode": "text",
+      "prompt": "The core essence names no part for a subsystem your checklist expects, so the generated map has no node for it. Say what you do.",
+      "expected_output": "Leaves the gap visible instead of satisfying the checklist with a fabricated node.",
+      "expectations": [
+        "Reports the missing structure as a gap in the source essence",
+        "Does NOT add a node, edge, or map record that no source essence supports"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "budget-overflow-merges-essences",
+      "response_mode": "text",
+      "prompt": "Generation fails because the map is over the node budget. Say what you do.",
+      "expected_output": "Treats the budget as a signal about the essences, not about the architecture.",
+      "expectations": [
+        "Reports which essences should be merged or simplified",
+        "Does NOT remove real architecture or drop parts to fit the budget"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "one-decision-per-change-no-owner-ping",
+      "response_mode": "text",
+      "prompt": "You regenerated the map at a wave boundary and it differs from the previous one. Say exactly how you record that, and whether you tell the owner now.",
+      "expected_output": "Appends one decision to the log and leaves the owner alone until a release.",
+      "expectations": [
+        "Appends one decision with codeterm essence-map record, carrying a summary and a reason",
+        "Does NOT notify the owner about this individual map change"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "release-summary-carries-the-revert",
+      "response_mode": "text",
+      "prompt": "Several map decisions have accumulated and a release is being prepared. Say what the owner receives.",
+      "expected_output": "One summary at the release, with the revert choice.",
+      "expectations": [
+        "Produces a single release summary with codeterm essence-map release-summary covering every decision",
+        "States that the summary offers the owner a revert choice",
+        "Does NOT send one message per recorded decision"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "unchanged-map-stays-silent",
+      "response_mode": "text",
+      "prompt": "You regenerated the map and it is byte-identical to the previous one. Say what you record.",
+      "expected_output": "Records nothing, because the log tracks changes rather than runs.",
+      "expectations": [
+        "States that no decision is appended when the map did not change",
+        "Does NOT invent a decision, a summary, or an owner message for the unchanged run"
+      ]
+    }
+  ]
+}

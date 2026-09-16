@@ -873,6 +873,9 @@ pub(super) fn dispatch(
         title: explicit_persona,
         title_provenance,
         role: Some("Worker".into()),
+        role_profile: crate::service::role_profile::builtin_worker_profile(
+            detail.task.executor_role.as_deref(),
+        ),
         parent_tab_id: parent,
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
