@@ -519,10 +519,7 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     name: sender_name.clone(),
                     port: api_port,
                     dev: cfg!(debug_assertions),
-                    addresses: match remote_addresses(&mesh_for_sender.lock()) {
-                        Ok(addresses) => addresses,
-                        Err(_) => Vec::new(),
-                    },
+                    addresses: remote_addresses(&mesh_for_sender.lock()).unwrap_or_default(),
                     mesh_id,
                 };
                 if let (false, Ok(json)) =
