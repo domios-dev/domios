@@ -1163,4 +1163,6 @@ fn print_release(release: &journal::ReleaseSummary) {
 #[cfg(test)]
 mod cartographer_tests;
 #[cfg(test)]
+mod coverage_tests;
+#[cfg(test)]
 mod tests;
