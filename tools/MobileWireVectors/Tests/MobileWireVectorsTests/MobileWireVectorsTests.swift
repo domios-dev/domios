@@ -113,8 +113,8 @@ final class MobileWireVectorsTests: XCTestCase {
         let request = dict(vectors, "request")
         let requestWire = try requestBytes(request)
         XCTAssertEqual(hex(requestWire), string(request, "expected_hex"))
-        XCTAssertEqual(hex(try privateKey.signature(for: requestWire)), string(request, "expected_signature_hex"))
-        let requestSignature = try privateKey.signature(for: requestWire)
+        try assertCrossLanguageSignature(privateKey, data: requestWire, expectedHex: string(request, "expected_signature_hex"))
+        let requestSignature = unhex(string(request, "expected_signature_hex"))
         var changedRequest = requestWire
         changedRequest[changedRequest.index(before: changedRequest.endIndex)] ^= 1
         XCTAssertFalse(privateKey.publicKey.isValidSignature(requestSignature, for: changedRequest))
@@ -124,21 +124,21 @@ final class MobileWireVectorsTests: XCTestCase {
         let discovery = dict(vectors, "discovery")
         let discoveryWire = discoveryBytes(discovery)
         XCTAssertEqual(hex(discoveryWire), string(discovery, "expected_hex"))
-        XCTAssertEqual(hex(try privateKey.signature(for: discoveryWire)), string(discovery, "expected_signature_hex"))
+        try assertCrossLanguageSignature(privateKey, data: discoveryWire, expectedHex: string(discovery, "expected_signature_hex"))
 
         let response = dict(vectors, "response")
         let body = Data(string(response, "body_jcs").utf8)
         XCTAssertEqual("sha256:" + hex(Data(SHA256.hash(data: body))), string(response, "response_body_sha256"))
         let responseWire = try responseBytes(response)
         XCTAssertEqual(hex(responseWire), string(response, "expected_hex"))
-        XCTAssertEqual(hex(try privateKey.signature(for: responseWire)), string(response, "expected_signature_hex"))
+        try assertCrossLanguageSignature(privateKey, data: responseWire, expectedHex: string(response, "expected_signature_hex"))
         XCTAssertFalse(string(response, "body_jcs").contains("signature"))
         XCTAssertFalse(string(response, "request_id").isEmpty)
         XCTAssertGreaterThan(uint64(response, "server_time_ms"), 0)
         let headers = dict(response, "transmitted_headers")
         XCTAssertEqual(string(headers, "X-CodeTerm-Mobile-Response-Key"), string(response, "server_key_id"))
         XCTAssertEqual(string(headers, "X-CodeTerm-Mobile-Response-Nonce"), string(response, "response_nonce"))
-        XCTAssertEqual(try decodeBase64URL(string(headers, "X-CodeTerm-Mobile-Response-Signature")), try privateKey.signature(for: responseWire))
+        XCTAssertEqual(try decodeBase64URL(string(headers, "X-CodeTerm-Mobile-Response-Signature")), unhex(string(response, "expected_signature_hex")))
         XCTAssertEqual(string(headers, "X-CodeTerm-Mobile-Request-Id"), string(response, "request_id"))
         XCTAssertEqual(string(headers, "X-CodeTerm-Mobile-Server-Time-Ms"), String(uint64(response, "server_time_ms")))
 
@@ -155,9 +155,8 @@ final class MobileWireVectorsTests: XCTestCase {
             XCTAssertEqual(hex(frame), string(vector, "expected_frame_hex"))
             let nonce = try decodeBase64URL(string(vector, "response_nonce"))
             let signatureInput = Data("CTMC1-SSE-SIGNATURE\0".utf8) + frame + nonce
-            let signature = try privateKey.signature(for: signatureInput)
-            XCTAssertEqual(hex(signature), string(vector, "expected_signature_hex"))
-            XCTAssertEqual(try decodeBase64URL(string(vector, "signature")), signature)
+            try assertCrossLanguageSignature(privateKey, data: signatureInput, expectedHex: string(vector, "expected_signature_hex"))
+            XCTAssertEqual(try decodeBase64URL(string(vector, "signature")), unhex(string(vector, "expected_signature_hex")))
             XCTAssertEqual(string(vector, "key_id"), string(response, "server_key_id"))
             XCTAssertFalse(string(vector, "signed_payload_jcs").contains("signature"))
             XCTAssertFalse(string(vector, "signed_payload_jcs").contains("previous_frame_hash"))
@@ -253,6 +252,19 @@ final class MobileWireVectorsTests: XCTestCase {
         if caller != owner { return "request_not_found" }
         if !grant { return "grant_denied" }
         return nil
+    }
+
+    private func assertCrossLanguageSignature(
+        _ privateKey: Curve25519.Signing.PrivateKey,
+        data: Data,
+        expectedHex: String
+    ) throws {
+        let corpusSignature = unhex(expectedHex)
+        XCTAssertEqual(corpusSignature.count, 64)
+        XCTAssertTrue(privateKey.publicKey.isValidSignature(corpusSignature, for: data))
+        let generatedSignature = try privateKey.signature(for: data)
+        XCTAssertEqual(generatedSignature.count, 64)
+        XCTAssertTrue(privateKey.publicKey.isValidSignature(generatedSignature, for: data))
     }
 
     private func appendField(_ data: inout Data, _ text: String) {
