@@ -976,6 +976,10 @@ impl AgentProvider for JsProvider {
         self.manifest.installer.get(platform).cloned()
     }
 
+    fn badge(&self) -> Option<&str> {
+        self.manifest.badge.as_deref()
+    }
+
     fn update_command(&self, platform: &str) -> Option<String> {
         self.manifest.updater.get(platform).cloned()
     }
