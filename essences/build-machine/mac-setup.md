@@ -186,4 +186,3 @@ engines must each be self-starting:
    provision those separately per `.codeterm/build-machine/README.md` — nothing to do on the Mac.
 6. Push a `release-0.0.0`-style test tag to validate plumbing, then a real `release-X.Y.Z`.
 
-<!-- revision: 6 -->

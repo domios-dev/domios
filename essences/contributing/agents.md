@@ -171,4 +171,3 @@ be captured as a bug, follow-up, or docs gap when it affects the work.
 Prompt templates compiled into the binary live under `src-tauri/prompts/`; the
 full source and loader map is `prod-docs/PROMPTS.md`.
 
-<!-- revision: 14 -->

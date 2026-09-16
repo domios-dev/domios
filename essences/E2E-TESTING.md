@@ -162,4 +162,3 @@ Behaviour rules locked in code:
 - A non-empty native clipboard file list wins over any plain text on
   the clipboard — paste behaves "as if you dragged the files".
 
-<!-- revision: 2 -->

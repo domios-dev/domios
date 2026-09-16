@@ -138,4 +138,3 @@ Files that ship as content (skills, docs, bundled prompts) carry a `<!-- revisio
 
 GA prompt and codeterm_cli.md don't carry revision tags — they're not user-facing and get rebuilt on every binary release.
 
-<!-- revision: 6 -->

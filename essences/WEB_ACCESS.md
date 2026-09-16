@@ -114,4 +114,3 @@ proxy to `http://127.0.0.1:<api-port>`** — two distinct ports.
 3. **Open** the link from your phone:
    `codeterm web link` → tap the `https://…ts.net/#token=…` URL.
 
-<!-- revision: 3 -->

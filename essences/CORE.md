@@ -120,4 +120,3 @@ Durable knowledge for every agent on the machine: facts, notes, preferences and 
 - **External engines.** Speech recognition, provider CLIs and model APIs sit behind contracts the core owns; the core never absorbs them.
 - **Views without authority.** Mission Control, the plan canvas, Analytics and the Mesh tab are presentations inside the UI client; the authority behind them stays in plans, host state and the mesh.
 
-<!-- revision: 1 -->

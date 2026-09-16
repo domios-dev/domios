@@ -187,4 +187,3 @@ Example: `tests/playwright/suites/03-agents/agents.spec.ts`.
   failure.
 - LLM/golden markers are explicit. WHY: reviewers can control token spend.
 
-<!-- revision: 4 -->

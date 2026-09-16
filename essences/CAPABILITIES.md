@@ -102,4 +102,3 @@ Detail: API-STATE, TAB-LIFECYCLE; internal essences RESILIENCE and RELEASE.
 | Health and diagnostics | Liveness, running build identity, orchestration and plan consistency | Health API; CLI `identify`, `tab inspect`, `orchestrator status`, `plan doctor` | Debugging starts by confirming the running build matches the source | stable | Service layer | Session continuity |
 | Updates and local install | Signed updates checked, installed and relaunched; a local production build installed on this machine resumes the calling tab | Update UI; CLI `update check`, `update install`; build script local install | A client is offered only an artifact for its own platform; manifests are signature-verified; channel switching is disabled; local install is an explicit operation and development commands never touch production's port or CLI | stable | Service layer, CLI | Session continuity |
 
-<!-- revision: 6 -->
