@@ -73,11 +73,15 @@ pub async fn mesh_start_broadcast(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let duration = state.config.lock().mesh.broadcast_duration_secs;
-    crate::mesh::discovery::start_broadcast(state.mesh.clone(), duration).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to start broadcast",
-        )
+    crate::mesh::discovery::start_broadcast(state.mesh.clone(), duration).map_err(|error| {
+        if error == "mesh_listener_not_remotely_ready" {
+            (StatusCode::CONFLICT, "mesh_listener_not_remotely_ready")
+        } else {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to start broadcast",
+            )
+        }
     })?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,

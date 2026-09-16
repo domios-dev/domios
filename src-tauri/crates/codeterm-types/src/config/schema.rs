@@ -137,6 +137,7 @@ pub const INTEGRATION_CONSENT_GRANTED: &str = "integration_consent_granted";
 pub struct ApiConfig {
     pub enabled: bool,
     pub host: String,
+    pub mesh_tailnet_host: Option<String>,
     pub port: u16,
     pub token: Option<String>,
     pub cors: bool,
@@ -148,6 +149,7 @@ impl Default for ApiConfig {
         Self {
             enabled: true,
             host: "127.0.0.1".to_string(),
+            mesh_tailnet_host: None,
             #[cfg(debug_assertions)]
             port: std::env::var("CODETERM_API_PORT")
                 .ok()

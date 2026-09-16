@@ -62,7 +62,7 @@ Detail: MESH, MESH-SERVICES, MESH-BRIDGE; internal essence WEB_ACCESS.
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
-| Pairing and trust | A flat mesh of the owner's machines | Mesh tab; CLI `mesh` | Paired is trusted and unpaired does not exist; unpair is a ban; access level is per peer and decided locally; one machine belongs to one mesh | stable | Mesh | Remote work |
+| Pairing and trust | A flat mesh of the owner's machines | Mesh tab; CLI `mesh` | Paired is trusted and unpaired does not exist; unpair is a ban; access level is per peer and decided locally; one machine belongs to one mesh; discovery advertises only health-proven listener addresses, with explicit named-dev tailnet opt-in preserving loopback | stable | Mesh | Remote work |
 | Remote work | Tabs, agents and plan commands on another machine; remote Workers report back across the mesh; payloads handed between machines by short id | `--mesh PEER` on CLI commands; CLI `paste`; mesh relay API | Hard rules bind on every peer; secrets never cross the mesh; pasted payloads are ephemeral, with a time to live | stable | Mesh, Message gateway and bridges, General Agent | Dispatch and reports, Message delivery |
 | Service registry | Daemons with health probes, push tokens and an activity log; a daemon pushes text into a tab with its own token | Mesh tab; CLI `service` | A push token is shown once; rotation invalidates the old token; a peer's services are read from that peer, never gossiped | stable | Mesh, Host state | Message delivery |
 
@@ -102,3 +102,4 @@ Detail: API-STATE, TAB-LIFECYCLE; internal essences RESILIENCE and RELEASE.
 | Health and diagnostics | Liveness, running build identity, orchestration and plan consistency | Health API; CLI `identify`, `tab inspect`, `orchestrator status`, `plan doctor` | Debugging starts by confirming the running build matches the source | stable | Service layer, Crash-recovery supervisor | Session continuity |
 | Updates and local install | Signed updates checked, installed and relaunched; a local production build installed on this machine resumes the calling tab | Update UI; CLI `update check`, `update install`; build script local install | A client is offered only an artifact for its own platform; manifests are signature-verified; channel switching is disabled; local install is an explicit operation and development commands never touch production's port or CLI | stable | Service layer, CLI, Crash-recovery supervisor | Session continuity |
 
+<!-- revision: 1 -->
