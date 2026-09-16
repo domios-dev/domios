@@ -168,6 +168,15 @@ final class MobileWireVectorsTests: XCTestCase {
         var brokenPrevious = seed
         brokenPrevious[brokenPrevious.startIndex] ^= 1
         XCTAssertNotEqual(sseFrameBytes(frames[0], previous: brokenPrevious), sseFrameBytes(frames[0], previous: seed))
+
+        let generatedSignature = try privateKey.signature(for: requestWire)
+        let bridge: [String: Any] = [
+            "public_key_hex": hex(privateKey.publicKey.rawRepresentation),
+            "message_hex": hex(requestWire),
+            "signature_hex": hex(generatedSignature)
+        ]
+        let bridgeURL = URL(fileURLWithPath: "/tmp/codeterm-mobile-wire-v1-swift-interop.json")
+        try JSONSerialization.data(withJSONObject: bridge, options: [.sortedKeys]).write(to: bridgeURL, options: .atomic)
     }
 
     private func requestBytes(_ vector: [String: Any]) throws -> Data {
