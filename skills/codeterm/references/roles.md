@@ -33,15 +33,30 @@ Answer these in order. The first "yes" picks the role.
 ```bash
 WS=$(codeterm workspace create "Task Name" --cwd /absolute/project/path --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
 codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn \
-  --task "You are the orchestrator. [full user request]. Spawn workers as needed, collect reports, notify when done."
+  --task-file - <<'BRIEF'
+You are the orchestrator. [full user request].
+Spawn workers as needed, collect reports, notify when done.
+BRIEF
 ```
+
+A brief goes through `--task-file` (a path, or `-` with a **single-quoted**
+heredoc), never `--task "..."`. An inline brief is expanded by your shell before
+the CLI sees it, so backticks, `$`, quotes and newlines are already gone; the CLI
+refuses a multiline or over-240-character `--task` instead of spawning a Worker
+with a silently truncated assignment. `--task "run tests"` — a short scalar
+command — stays fine.
 
 **2. Is this a concrete task that can finish without further decomposition?**
 → Spawn as **Worker** under yourself (you must be the Orchestrator).
 
 ```bash
 codeterm agent spawn claude --title "Scout" --role Worker --parent-tab $CODETERM_TAB_ID \
-  --task "Run `codeterm mem get <role_skill_id>` first. Then: TASK: list .rs files in src-tauri/src/service/. Do not spawn. Run: codeterm agent report 'found N files: ...'"
+  --task-file - <<'BRIEF'
+Run `codeterm mem get <role_skill_id>` first.
+TASK: list .rs files in src-tauri/src/service/. Do not spawn.
+When done: write the summary to your pad and run
+`codeterm agent report --from-pad report.md`.
+BRIEF
 ```
 
 ## Rules per role
