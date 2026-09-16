@@ -24,7 +24,7 @@ The proof object has exactly:
 
 Remove `signature` before signing; unknown members reject. `nonce_128` decodes to 16 bytes. Method is uppercase. Lifetime is at most 300 seconds with at most 300 seconds clock skew. Nonces are single-use and retained at least 24 hours.
 
-Canonical targets contain only absolute path and query. Paths have no dot segments. Decode existing escapes once, remove `.` segments and resolve `..` without allowing traversal above root, then percent-encode UTF-8 with uppercase hex except RFC 3986 unreserved bytes and path separators. Query pairs retain duplicates, sort by encoded key then value, use `%20` for spaces, and retain empty values. A decoder recomputes the canonical target and rejects noncanonical alternatives rather than accepting lowercase escapes, dot segments, unsorted pairs, malformed escapes, fragments, or relative paths.
+Canonical targets contain only absolute path and query. Paths have no dot segments. Decode existing escapes once, remove `.` segments and resolve `..` without allowing traversal above root, then percent-encode UTF-8 with uppercase hex except RFC 3986 unreserved bytes and path separators. Every non-ASCII path or query byte is percent-encoded; for example, `雪` is `%E9%9B%AA`, never raw Unicode in a canonical target. Query pairs retain duplicates, sort by encoded key then value, use `%20` for spaces, and retain empty values. A decoder recomputes the canonical target and rejects noncanonical alternatives rather than accepting raw non-ASCII, lowercase escapes, dot segments, unsorted pairs, malformed escapes, fragments, or relative paths.
 
 Let `B(x)` be big-endian u32 byte length followed by bytes and `U64` unsigned big-endian. Exact request signature bytes are:
 
@@ -182,4 +182,4 @@ The Swift harness compares emitted canonical bytes, binary framing, deterministi
 
 The artifact, Rust result, and any standalone Swift result do not prove durable restart/concurrency persistence, live authorization, or enforcement in real receiving routes. Those remain dependent COD-2/COD-3 implementation acceptance and must be demonstrated against durable storage and the actual gateway/peer/receiver paths.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
