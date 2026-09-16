@@ -474,6 +474,20 @@ impl ServiceContext {
     /// Deliver a parked user send, once. A send that fails again is reconciled
     /// and left alone rather than retried, so one park yields at most one write.
     pub(crate) fn deliver_parked_user_send(&self, tab_id: &str) {
+        // `Unconfirmed` means the payload already reached this PTY and only its
+        // acknowledgement is missing, so delivering it here would write the same
+        // text twice. Restore replays a genuinely undelivered payload elsewhere.
+        let already_written = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
+            .is_some_and(|record| {
+                record.state() == crate::multiplexer::types::PendingDeliveryState::Unconfirmed
+            });
+        if already_written {
+            return;
+        }
         let Ok(Some(text)) = self.resolve_pending_delivery(tab_id) else {
             return;
         };

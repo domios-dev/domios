@@ -263,11 +263,11 @@ impl PasteEncodingCapability {
 }
 
 fn xterm_paste(text: &str, live_mode: Option<bool>, capability: PasteEncodingCapability) -> String {
-    let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
     if capability.bracketed(text, live_mode) {
+        let normalized = text.replace("\r\n", "\n");
         format!("{BRACKETED_PASTE_START}{normalized}{BRACKETED_PASTE_END}")
     } else {
-        normalized
+        text.replace("\r\n", "\r").replace('\n', "\r")
     }
 }
 
