@@ -7,6 +7,7 @@ import { EssenceMapCanvasInner } from "./EssenceMapCanvas";
 import {
   ESSENCE_MAP_MAX_NODES,
   layoutEssenceMapProject,
+  layoutEssenceMapWorld,
   parseEssenceMapJsonl,
   projectPathsForWorkspace,
   type EssenceMapEdge,
@@ -177,6 +178,20 @@ function rectanglesOverlap(
 }
 
 describe("map_canvas workspace essence map", () => {
+  it("map_canvas_world places project regions deterministically without overlap", () => {
+    const projects = [
+      parseEssenceMapProject(mapFile("/repo/a", validRecords)),
+      parseEssenceMapProject(mapFile("/repo/b", graphNodes)),
+      parseEssenceMapProject(mapFile("/repo/c", validRecords)),
+    ];
+    const world = layoutEssenceMapWorld(projects, 1200);
+    const repeat = layoutEssenceMapWorld(projects, 1200);
+    expect(world.projects.map(({ file, x, y }) => [file.project_path, x, y])).toEqual(repeat.projects.map(({ file, x, y }) => [file.project_path, x, y]));
+    expect(world.projects[0].x).not.toBe(world.projects[1].x);
+    expect(world.projects.every((project, index) => world.projects.slice(index + 1).every((other) => project.x + project.layout.width <= other.x || other.x + other.layout.width <= project.x || project.y + project.layout.height <= other.y || other.y + other.layout.height <= project.y))).toBe(true);
+    expect(world.projects.every((project) => project.layout.nodes.every((node) => world.projectBounds.has(project.file.project_path) && project.layout.nodeById.has(node.node.id)))).toBe(true);
+  });
+
   it("keeps only valid source-backed records", () => {
     const parsed = parseEssenceMapJsonl(validRecords.map((record) => JSON.stringify(record)).join("\n"));
     expect(parsed.status).toBe("valid");

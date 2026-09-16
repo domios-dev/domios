@@ -212,6 +212,19 @@ export interface EssenceMapProjectLayout {
   regions: EssenceMapRegionLayout[];
 }
 
+export interface EssenceMapWorldProject extends EssenceMapProject {
+  layout: EssenceMapProjectLayout;
+  x: number;
+  y: number;
+}
+
+export interface EssenceMapWorldLayout {
+  width: number;
+  height: number;
+  projects: EssenceMapWorldProject[];
+  projectBounds: Map<string, { x: number; y: number; width: number; height: number }>;
+}
+
 const NODE_HEIGHT = 84;
 const NODE_GAP = 12;
 const SECTION_GAP = 32;
@@ -416,5 +429,36 @@ export function layoutEssenceMapProject(
     nodeById: new Map(layouts.map((item) => [item.node.id, item])),
     clusters,
     regions,
+  };
+}
+
+export function layoutEssenceMapWorld(
+  projects: EssenceMapProject[],
+  availableWidth: number,
+): EssenceMapWorldLayout {
+  const viewportWidth = Math.max(280, Math.floor(availableWidth));
+  const mapWidth = Math.max(560, Math.min(900, viewportWidth - 48));
+  const columns = viewportWidth >= 1100 ? 2 : 1;
+  const gap = 72;
+  const projectHeaderHeight = 58;
+  const laidOut = projects.map((project) => ({ project, layout: layoutEssenceMapProject(project.nodes, mapWidth, project.edges) }));
+  const rowHeights: number[] = [];
+  for (let index = 0; index < laidOut.length; index += columns) {
+    rowHeights.push(Math.max(...laidOut.slice(index, index + columns).map(({ layout }) => layout.height + projectHeaderHeight), 220));
+  }
+  const worldProjects: EssenceMapWorldProject[] = laidOut.map(({ project, layout }, index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const x = column * (mapWidth + gap);
+    const y = rowHeights.slice(0, row).reduce((sum, height) => sum + height + gap, 0);
+    return { ...project, layout, x, y };
+  });
+  const width = Math.max(mapWidth, columns * mapWidth + Math.max(0, columns - 1) * gap);
+  const height = Math.max(220, rowHeights.reduce((sum, value) => sum + value, 0) + Math.max(0, rowHeights.length - 1) * gap);
+  return {
+    width,
+    height,
+    projects: worldProjects,
+    projectBounds: new Map(worldProjects.map(({ file, x, y, layout }) => [file.project_path, { x, y, width: layout.width, height: layout.height + projectHeaderHeight }])),
   };
 }
