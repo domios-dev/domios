@@ -288,6 +288,52 @@ fn claude_recent_status_near_ready_prompt_stays_working_during_grace() {
     );
 }
 
+#[test]
+fn codex_animation_activity_idle_composer_repaint_stays_idle() {
+    let screen = lines(&[
+        "OpenAI Codex",
+        "  Completed the requested work.",
+        "",
+        "✳ Working…",
+        "────────────────────────────────────────────────────────",
+        "›",
+        "────────────────────────────────────────────────────────",
+        "ctrl+c to cancel",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.byte_idle_ms = 0;
+    input.semantic_idle_ms = 6_000;
+
+    assert_eq!(
+        classify_state(&input, working()).state,
+        TimelineState::Idle,
+        "cosmetic composer repaint must not promote an idle Codex turn"
+    );
+}
+
+#[test]
+fn codex_animation_activity_real_turn_remains_working() {
+    let screen = lines(&[
+        "OpenAI Codex",
+        "Reading src/main.rs",
+        "",
+        "✳ Working…",
+        "────────────────────────────────────────────────────────",
+        "›",
+        "────────────────────────────────────────────────────────",
+        "ctrl+c to cancel",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.byte_idle_ms = 200;
+    input.semantic_idle_ms = 200;
+
+    assert_eq!(
+        classify_state(&input, working()).state,
+        TimelineState::Working,
+        "real Codex turn activity remains Working"
+    );
+}
+
 // bottom input region of an alt-screen ⇒ composer_ready ⇒ Idle promptly.
 #[test]
 fn opencode_visible_cursor_in_composer_returns_idle_promptly() {
