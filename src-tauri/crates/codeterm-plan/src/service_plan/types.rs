@@ -68,6 +68,16 @@ pub enum PlanError {
     ReviewContinuationAttemptNotFound {
         task_id: String,
     },
+    ReviewContinuationDeliveryRefused {
+        task_id: String,
+        attempt_id: String,
+        expected_epoch: u32,
+        actual_epoch: Option<u32>,
+        task_status: String,
+        task_status_label: Option<String>,
+        continuation_state: Option<String>,
+        attempt_closed: Option<bool>,
+    },
     GateNotFound,
     GateAlreadyAnswered,
     GateRequiresQuestion,
@@ -279,6 +289,19 @@ impl fmt::Display for PlanError {
                 f,
                 "task '{task_id}' was found but has no single resolvable execution attempt to bounce; inspect its attempts with `codeterm plan task show <plan_id> {task_id}` before retrying"
             ),
+            PlanError::ReviewContinuationDeliveryRefused {
+                task_id,
+                attempt_id,
+                expected_epoch,
+                actual_epoch,
+                task_status,
+                task_status_label,
+                continuation_state,
+                attempt_closed,
+            } => write!(
+                f,
+                "review continuation delivery refused for task '{task_id}' attempt '{attempt_id}': expected epoch {expected_epoch}, actual epoch {actual_epoch:?}; task state status={task_status}, label={task_status_label:?}; continuation state={continuation_state:?}; attempt closed={attempt_closed:?}"
+            ),
             PlanError::GateNotFound => write!(f, "decision gate not found"),
             PlanError::GateAlreadyAnswered => {
                 write!(f, "gate is already answered; answers are immutable")
@@ -473,6 +496,26 @@ impl PlanError {
             PlanError::ReviewContinuationAttemptNotFound { task_id } => serde_json::json!({
                 "type": "review_continuation_attempt_not_found",
                 "task_id": task_id
+            }),
+            PlanError::ReviewContinuationDeliveryRefused {
+                task_id,
+                attempt_id,
+                expected_epoch,
+                actual_epoch,
+                task_status,
+                task_status_label,
+                continuation_state,
+                attempt_closed,
+            } => serde_json::json!({
+                "type": "review_continuation_delivery_refused",
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "expected_epoch": expected_epoch,
+                "actual_epoch": actual_epoch,
+                "task_status": task_status,
+                "task_status_label": task_status_label,
+                "continuation_state": continuation_state,
+                "attempt_closed": attempt_closed
             }),
             PlanError::GateNotFound => serde_json::json!({ "type": "gate_not_found" }),
             PlanError::GateAlreadyAnswered => {
