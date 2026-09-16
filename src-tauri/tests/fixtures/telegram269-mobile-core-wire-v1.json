@@ -69,14 +69,19 @@
   "target_canonicalization": {
     "accepted": [
       {
-        "name": "percent-dot-and-query",
+        "name": "non-ascii-percent-dot-and-query",
         "input": "/a/%7e/./b/../雪%20x?b=&a=x/y&a=x%20y",
-        "expected": "/a/~/雪%20x?a=x%20y&a=x%2Fy&b="
+        "expected": "/a/~/%E9%9B%AA%20x?a=x%20y&a=x%2Fy&b="
       },
       {
         "name": "decode-once",
         "input": "/literal/%252F?q=%257E",
         "expected": "/literal/%252F?q=%257E"
+      },
+      {
+        "name": "non-ascii-path-query-and-sort",
+        "input": "/lookup/雪?q=雪&é=ok",
+        "expected": "/lookup/%E9%9B%AA?%C3%A9=ok&q=%E9%9B%AA"
       }
     ],
     "refusals": [
@@ -103,6 +108,8 @@
     ],
     "noncanonical": [
       "/a/%7e/./b/../雪%20x?b=&a=x/y&a=x%20y",
+      "/a/~/雪%20x?a=x%20y&a=x%2Fy&b=",
+      "/lookup/雪?q=雪&é=ok",
       "/api/mobile/v1/test?b=&a=x%2Fy&a=x%20y"
     ]
   },
