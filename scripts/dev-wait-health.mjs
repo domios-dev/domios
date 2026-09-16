@@ -21,12 +21,12 @@ const exitResult = (path) => {
   }
 };
 
-export function waitForReadiness({ log, exitFile, apiPort, deadlineMs = 600_000 }) {
+export function waitForReadiness({ log, exitFile, apiPort, deadlineMs = 600_000, startOffset = 0 }) {
   if (!log || !exitFile || !apiPort) throw new Error("dev wait log, exit file, and API port are required");
   return new Promise((resolve, reject) => {
     let settled = false;
     let partial = "";
-    let logOffset = 0;
+    let logOffset = startOffset;
     let logWatcher;
     let exitWatcher;
     let deadline;
@@ -46,8 +46,10 @@ export function waitForReadiness({ log, exitFile, apiPort, deadlineMs = 600_000 
       }
     };
     const inspectLog = () => {
-      const content = readFileSync(log, "utf8");
-      const delta = content.slice(logOffset);
+      if (!existsSync(log)) return;
+      const content = readFileSync(log);
+      if (content.length < logOffset) logOffset = 0;
+      const delta = content.subarray(logOffset).toString("utf8");
       logOffset = content.length;
       const lines = `${partial}${delta}`.split(/\r?\n/);
       partial = lines.pop() ?? "";
@@ -75,8 +77,10 @@ if (process.argv[1]?.endsWith("dev-wait-health.mjs")) {
   const log = option("--log");
   const exitFile = option("--exit-file");
   const apiPort = option("--api-port");
+  const startOffset = Number(option("--start-offset") ?? 0);
   if (!log || !exitFile || !apiPort) throw new Error("usage: dev-wait-health.mjs --log PATH --exit-file PATH --api-port PORT");
-  waitForReadiness({ log, exitFile, apiPort }).then(({ signal }) => {
+  if (!Number.isSafeInteger(startOffset) || startOffset < 0) throw new Error("dev wait start offset must be a non-negative integer");
+  waitForReadiness({ log, exitFile, apiPort, startOffset }).then(({ signal }) => {
     console.log(`dev readiness signal: ${signal}`);
   }).catch((error) => {
     console.error(error.message);

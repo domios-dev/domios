@@ -1887,6 +1887,10 @@ EOF
       LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
       : > "$LOG"
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+      DAEMON_LOG="$CT_DATA_DIR/logs/codeterm.log"
+      mkdir -p "$(dirname "$DAEMON_LOG")"
+      touch "$DAEMON_LOG"
+      DAEMON_LOG_OFFSET="$(wc -c < "$DAEMON_LOG" 2>/dev/null || echo 0)"
       PID_FILE="/tmp/codeterm-dev${CT_SUFFIX}.pid.$$"
       if ! start_dev_wait_process "$LOG" > "$PID_FILE"; then
         echo "Dev startup failed before the explicit health signal. Last log lines:"
@@ -1898,7 +1902,7 @@ EOF
       EXIT_FILE="/tmp/codeterm-dev${CT_SUFFIX}.exit"
       rm -f "$EXIT_FILE" "$EXIT_FILE.tmp"
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
-      node scripts/dev-wait-health.mjs --log "$LOG" --exit-file "$EXIT_FILE" --api-port "$CT_PORT" &
+      node scripts/dev-wait-health.mjs --log "$DAEMON_LOG" --exit-file "$EXIT_FILE" --api-port "$CT_PORT" --start-offset "$DAEMON_LOG_OFFSET" &
       DEV_OBSERVER_PID=$!
       set +e
       wait -n -p DEV_WAITED_PID "$DEV_PID" "$DEV_OBSERVER_PID"
