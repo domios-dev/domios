@@ -36,7 +36,7 @@ function statusLabel(project: EssenceMapProject): string {
   return "Essence map could not be read";
 }
 
-function projectName(path: string): string { return path.replaceAll("\\", "/").replace(/\/+$/, "").split("/").pop() || "Project"; }
+export function projectName(path: string): string { return path.replaceAll("\\", "/").replace(/\/+$/, "").split("/").pop() || "Project"; }
 
 export function EssenceMapProjectView({ project, onActivate }: { project: EssenceMapWorldProject; onActivate: (project: EssenceMapProject, node: EssenceMapNode) => void }) {
   const { layout } = project;
