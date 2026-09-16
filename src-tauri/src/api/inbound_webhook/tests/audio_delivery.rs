@@ -438,7 +438,7 @@ async fn pebble_audio_receiver_unauthenticated_audio_is_never_parsed_stored_or_t
         let mut scenario = Scenario::new(true, Some(Engine::Says("x")), body);
         scenario.headers = headers("Bearer wrong");
         let run = scenario.run().await;
-        let error = run.response.as_ref().err().expect("rejected");
+        let error = run.response.as_ref().unwrap_err();
         assert_eq!(error.status, StatusCode::UNAUTHORIZED);
         assert_eq!(run.receiver.calls.load(Ordering::SeqCst), 0);
         assert!(run.uploads.files().is_empty());
@@ -480,7 +480,7 @@ async fn pebble_audio_receiver_non_audio_receiver_keeps_the_one_mebibyte_limit()
     .run()
     .await;
     assert_eq!(
-        run.response.as_ref().err().expect("rejected").status,
+        run.response.as_ref().unwrap_err().status,
         StatusCode::PAYLOAD_TOO_LARGE
     );
     assert_eq!(run.receiver.calls.load(Ordering::SeqCst), 0);
@@ -497,7 +497,7 @@ async fn pebble_audio_receiver_audio_over_the_cap_is_rejected_before_the_plugin(
     .run()
     .await;
     assert_eq!(
-        run.response.as_ref().err().expect("rejected").status,
+        run.response.as_ref().unwrap_err().status,
         StatusCode::PAYLOAD_TOO_LARGE
     );
     assert_eq!(run.receiver.calls.load(Ordering::SeqCst), 0);
