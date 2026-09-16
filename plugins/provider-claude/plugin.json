@@ -93,7 +93,7 @@
   "installer": {
     "macos": "curl -fsSL https://claude.ai/install.sh | bash",
     "linux": "curl -fsSL https://claude.ai/install.sh | bash",
-    "windows": "powershell -Command \"irm https://claude.ai/install.ps1 | iex\""
+    "windows": "$s = Join-Path $env:TEMP 'codeterm-claude-install.ps1'; Invoke-WebRequest -Uri 'https://claude.ai/install.ps1' -OutFile $s -UseBasicParsing; try { & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
   },
   "updater": {
     "macos": "claude update",
