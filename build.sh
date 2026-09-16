@@ -1837,9 +1837,13 @@ EOF
     ;;
   dev)
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
-      EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
       HEALTH="$(dev_health_status)"
-      if SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null) && dev_frontend_ready; then
+      HEALTH_FIELDS="$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null || true)"
+      HEALTH_STATUS="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '1p')"
+      HEALTH_SHA="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '2p')"
+      HEALTH_API_PORT="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '4p')"
+      if [ "$HEALTH_STATUS" = "ok" ] && [ "$HEALTH_API_PORT" = "$CT_PORT" ]; then
+        SHA="$HEALTH_SHA"
         echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
         exit 0
       fi
