@@ -36,6 +36,7 @@ export interface EssenceMapFile {
   status: "missing" | "empty" | "ready" | "oversized" | "unreadable";
   content?: string | null;
   error?: string | null;
+  documents?: string[];
 }
 
 export type EssenceMapProjectStatus = "valid" | "empty" | "malformed" | "oversized" | "missing" | "unreadable";
