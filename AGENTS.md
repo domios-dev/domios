@@ -90,6 +90,8 @@ Parallel writers always use separate worktrees/lanes; the canonical checkout has
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
 
+Run builds and dev restarts in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --cmd "..."`), never inline in the agent's own call.
+
 If foreground dev owns the gateway, stop dev before canonical QA and restart it
 afterward. Never move the check into a lane, compose a private
 `CARGO_TARGET_DIR`, or wait behind dev.
