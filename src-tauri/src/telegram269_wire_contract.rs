@@ -696,6 +696,7 @@ fn telegram269_wire_contract() {
     }
     let targets = &vectors["target_canonicalization"];
     for vector in targets["accepted"].as_array().unwrap() {
+        assert!(vector["expected"].as_str().unwrap().is_ascii());
         assert_eq!(
             canonicalize_target(vector["input"].as_str().unwrap()).unwrap(),
             vector["expected"]
