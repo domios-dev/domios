@@ -58,6 +58,8 @@ Detail: LANES, TESTING, TEST-AUTHORING; internal essences BUILD, RELEASE and the
 
 ## 4. Machines join a mesh
 
+The mesh assumes a closed private network, typically a tailnet, and deploying it that way is the recommendation: peers reach each other over a private subnet rather than the open internet. Wider reach is never wildcard — it is authenticated, explicitly opted into and scoped to one chosen private address, with loopback staying primary.
+
 Detail: MESH, MESH-SERVICES, MESH-BRIDGE; internal essence WEB_ACCESS.
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
