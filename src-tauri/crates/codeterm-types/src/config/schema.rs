@@ -607,6 +607,8 @@ pub struct OrchestrationConfig {
     pub reflect: ReflectConfig,
     pub digests: OrchestrationDigestsConfig,
     pub refresh: RefreshConfig,
+    #[serde(default)]
+    pub map: MapConfig,
 }
 
 impl Default for OrchestrationConfig {
@@ -617,8 +619,17 @@ impl Default for OrchestrationConfig {
             reflect: ReflectConfig::default(),
             digests: OrchestrationDigestsConfig::default(),
             refresh: RefreshConfig::default(),
+            map: MapConfig::default(),
         }
     }
+}
+
+/// The workspace essence map. Section `[orchestration.map]`. Off until the
+/// owner opts in: a project without a map wants no Cartographer at all.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MapConfig {
+    pub enabled: bool,
 }
 
 fn default_refresh_handoff_timeout_secs() -> u64 {

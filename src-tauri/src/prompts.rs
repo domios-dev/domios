@@ -172,6 +172,10 @@ pub const NOTIFY_VERBOSE_COMPLETION_CLAUSE: &str = "A short completion or progre
 /// information rather than an error and does not retry a recorded notification.
 pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried.";
 
+/// Map-authoring contract for the Cartographer leaf. Layered on the Worker
+/// suffix, which still owns lane discipline and the report handoff.
+pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../prompts/cartographer_suffix.md");
+
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codeterm_context.md");
 
@@ -341,6 +345,16 @@ pub fn planner_suffix() -> String {
         "{}\n\n## Canonical Planner manual\n\n{}",
         role_prompt.trim(),
         PLANNER_DOC.trim()
+    )
+}
+
+/// The Cartographer contract: Worker discipline first, then the map-authoring
+/// checklist this kind adds to it.
+pub fn cartographer_suffix() -> String {
+    format!(
+        "{}\n\n{}",
+        worker_suffix().trim(),
+        CARTOGRAPHER_SUFFIX.trim()
     )
 }
 

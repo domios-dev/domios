@@ -1,6 +1,8 @@
+use codeterm_types::agent::role_kind;
 use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER, WATCHER};
 
 use super::{json_str, orchestrator::SpawnAgentParams};
+use crate::multiplexer::types::AgentRole;
 use crate::service::SpawnIdentityProvenance;
 
 impl SpawnAgentParams {
@@ -153,13 +155,7 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
         }
         Some("Worker") => {
             params.role = Some("Worker".into());
-            if profile.is_some() {
-                return Err(format!(
-                    "Worker does not accept role_profile {:?}; use role Manager for planner|watcher",
-                    profile
-                ));
-            }
-            params.role_profile = None;
+            params.role_profile = profile.map(normalize_worker_profile).transpose()?;
         }
         Some(other) => {
             return Err(format!(
@@ -177,6 +173,32 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
         }
     }
     Ok(())
+}
+
+/// The Worker subtype a task's executor role names, when it names a builtin
+/// leaf kind. Only a builtin is promoted: a free-text executor role stays a
+/// plain Worker rather than silently minting a kind nothing declares.
+pub(crate) fn builtin_worker_profile(executor_role: Option<&str>) -> Option<String> {
+    let role = executor_role
+        .map(str::trim)
+        .filter(|role| !role.is_empty())?;
+    let descriptor = role_kind::builtin_kind(&role.to_ascii_lowercase())?;
+    (!descriptor.anchors_team() && !descriptor.has_team_authority())
+        .then(|| descriptor.id().to_string())
+}
+
+/// A Worker subtype narrows within leaf capability, so a subtype id is kept
+/// verbatim — overlay kinds are hyphenated and must still match their file.
+/// A managing kind's id is refused here rather than silently downgraded, so a
+/// caller never believes it spawned a Planner.
+fn normalize_worker_profile(profile: &str) -> Result<String, String> {
+    let profile = profile.trim();
+    if role_kind::kind_id(Some(AgentRole::Worker), Some(profile)) != Some(profile) {
+        return Err(format!(
+            "Worker does not accept role_profile {profile:?}; use role Manager for planner|watcher"
+        ));
+    }
+    Ok(profile.to_string())
 }
 
 fn normalize_manager_profile(profile: &str) -> Result<String, String> {
@@ -213,6 +235,8 @@ fn json_string_list(params: &serde_json::Value, key: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod normalization_tests {
+    use codeterm_types::agent::role_kind::builtins::{CARTOGRAPHER, GENERAL_AGENT};
+
     use super::*;
     use crate::service::orchestrator::SpawnAgentParams;
 
@@ -282,6 +306,50 @@ mod normalization_tests {
             assert_ne!(role.as_deref(), Some("Orchestrator"), "{literal}");
             assert_ne!(role.as_deref(), Some("Conductor"), "{literal}");
         }
+    }
+
+    /// A Worker may narrow to a leaf subtype, and only to a leaf: a managing
+    /// kind is refused rather than quietly downgraded to a plain Worker.
+    #[test]
+    fn cartographer_map_worker_narrows_to_a_leaf_subtype_only() {
+        assert_eq!(
+            normalized("Worker", Some("cartographer")),
+            (Some("Worker".into()), Some(CARTOGRAPHER.into()))
+        );
+        assert_eq!(
+            normalized("Worker", Some("rust-backend-dev")),
+            (Some("Worker".into()), Some("rust-backend-dev".into())),
+            "an overlay kind id is kept verbatim so it still matches its file"
+        );
+        assert_eq!(normalized("Worker", None), (Some("Worker".into()), None));
+        for stolen in [PLANNER, WATCHER, ORCHESTRATOR, GENERAL_AGENT] {
+            let mut params = SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(stolen.into()),
+                ..Default::default()
+            };
+            assert!(params.normalize_role_profile().is_err(), "{stolen}");
+        }
+    }
+
+    /// Dispatch promotes a task's executor role to a role kind only when that
+    /// role names a builtin leaf; free text stays a plain Worker.
+    #[test]
+    fn cartographer_map_executor_role_promotes_only_a_builtin_leaf() {
+        for spelling in ["cartographer", "  Cartographer  "] {
+            assert_eq!(
+                builtin_worker_profile(Some(spelling)).as_deref(),
+                Some(CARTOGRAPHER),
+                "{spelling}"
+            );
+        }
+        for free_text in ["rust-platform-dev", "prompt-contract-editor", "", "   "] {
+            assert_eq!(builtin_worker_profile(Some(free_text)), None, "{free_text}");
+        }
+        for managing in [PLANNER, WATCHER, ORCHESTRATOR, GENERAL_AGENT] {
+            assert_eq!(builtin_worker_profile(Some(managing)), None, "{managing}");
+        }
+        assert_eq!(builtin_worker_profile(None), None);
     }
 
     #[test]

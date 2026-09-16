@@ -466,6 +466,34 @@ Generate essences/map.jsonl from the capability and core essences
 - `--map` — Map JSONL path, relative to --root unless absolute
 - `--root` — Repository root containing the essences directory
 
+#### `codeterm essence-map record`
+
+Append one decision explaining the current map to the decisions log
+
+- `--decisions` — Decisions JSONL path, relative to --root unless absolute
+- `--map` — Map JSONL path, relative to --root unless absolute
+- `--reason` — Why the change is correct against the source essences
+- `--root` — Repository root containing the essences directory
+- `--summary` — What changed in the map
+
+#### `codeterm essence-map release-summary`
+
+Summarize the map decisions of a release and offer the revert choice
+
+- `--decisions` — Decisions JSONL path, relative to --root unless absolute
+- `--map` — Map JSONL path, relative to --root unless absolute
+- `--root` — Repository root containing the essences directory
+- `--since` — Baseline decision id; the summary covers every decision after it
+
+#### `codeterm essence-map revert`
+
+Restore the map recorded by an earlier decision and log the revert
+
+- `--decisions` — Decisions JSONL path, relative to --root unless absolute
+- `--map` — Map JSONL path, relative to --root unless absolute
+- `--root` — Repository root containing the essences directory
+- `--to` — Decision id whose recorded map is restored
+
 #### `codeterm essence-map validate`
 
 Validate a generated essence map and its append-only decisions log
