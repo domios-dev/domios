@@ -434,28 +434,32 @@ function layoutEssenceMapProjectGrid(
 
 function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidth: number): EssenceMapProjectLayout {
   const width = Math.max(560, Math.floor(availableWidth));
-  const cardWidth = Math.min(180, width - 32);
-  // Grow with node count so the separation pass below always has room to resolve collisions.
-  const height = Math.max(900, Math.ceil((nodes.length * (cardWidth + 14) * (NODE_HEIGHT + 14) * 2.2) / width));
+  // Nodes are dots with labels beside them, not cards: a card-sized footprint tiles
+  // instead of clustering, which is what made every earlier arrangement a wall of boxes.
+  const cardWidth = 14;
+  const nodeH = 14;
+  const height = Math.max(640, Math.min(1000, 420 + nodes.length * 6));
   const center = { x: width / 2, y: height / 2 };
   const vectors = sortedNodes(nodes.filter((node) => node.type === "vector"));
   const capabilities = sortedNodes(nodes.filter((node) => node.type === "capability"));
   const core = sortedNodes(nodes.filter((node) => node.type === "core"));
   const clients = sortedNodes(nodes.filter((node) => node.type === "client"));
-  const vectorRadius = Math.min(270, width / 2 - cardWidth / 2 - 18);
-  const clientRadius = Math.min(380, width / 2 - cardWidth / 2 - 18);
+  const vectorRadius = Math.min(250, Math.min(width, height) / 2 - 90);
+  const clientRadius = Math.min(330, Math.min(width, height) / 2 - 40);
   const positions = new Map<string, { x: number; y: number }>();
   const put = (node: EssenceMapNode, x: number, y: number) => positions.set(node.id, { x: Math.max(cardWidth / 2 + 4, Math.min(width - cardWidth / 2 - 4, x)), y: Math.max(48, Math.min(height - 48, y)) });
   vectors.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(vectors.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * vectorRadius, center.y + Math.sin(angle) * vectorRadius); });
   const byVector = new Map<string, EssenceMapNode[]>();
   for (const node of capabilities) { const group = byVector.get(node.vector ?? "") ?? []; group.push(node); byVector.set(node.vector ?? "", group); }
-  vectors.forEach((vector) => { const group = byVector.get(vector.id) ?? []; const anchor = positions.get(vector.id)!; const spread = group.length === 2 ? 1.8 : 0.62; group.forEach((node, index) => { const angle = Math.atan2(anchor.y - center.y, anchor.x - center.x) + (index - (group.length - 1) / 2) * spread; put(node, anchor.x + Math.cos(angle) * 112, anchor.y + Math.sin(angle) * 112); }); });
+  // Fan each hub's capabilities on a short arc pointing away from the centre: the
+  // spread shrinks as the group grows so a large cluster stays a cluster.
+  vectors.forEach((vector) => { const group = byVector.get(vector.id) ?? []; const anchor = positions.get(vector.id)!; const spread = Math.min(0.5, 2 / Math.max(group.length, 1)); const reach = 58 + group.length * 7; const outward = Math.atan2(anchor.y - center.y, anchor.x - center.x); group.forEach((node, index) => { const angle = outward + (index - (group.length - 1) / 2) * spread; put(node, anchor.x + Math.cos(angle) * reach, anchor.y + Math.sin(angle) * reach); }); });
   for (const node of capabilities) if (!positions.has(node.id)) put(node, center.x, center.y - 112);
   core.forEach((node, index) => { const angle = index * 2.4; const radius = Math.min(112, 50 + core.length * 30); put(node, center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius); });
   clients.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(clients.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * clientRadius, center.y + Math.sin(angle) * clientRadius); });
   const order = [...vectors, ...capabilities, ...core, ...clients];
   const clampPoint = (point: { x: number; y: number }) => { point.x = Math.max(cardWidth / 2 + 4, Math.min(width - cardWidth / 2 - 4, point.x)); point.y = Math.max(48, Math.min(height - 48, point.y)); };
-  const minGapX = cardWidth + 14; const minGapY = NODE_HEIGHT + 14;
+  const minGapX = cardWidth + 12; const minGapY = nodeH + 12;
   // Fixed-iteration separation pass: deterministic, converges, leaves no loop running.
   for (let pass = 0; pass < 320; pass += 1) {
     let moved = false;
@@ -472,7 +476,7 @@ function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidt
     }
     if (!moved) break;
   }
-  const layouts = order.map((node) => { const point = positions.get(node.id) ?? center; return { node, x: point.x - cardWidth / 2, y: point.y - NODE_HEIGHT / 2, width: cardWidth, height: NODE_HEIGHT }; });
+  const layouts = order.map((node) => { const point = positions.get(node.id) ?? center; return { node, x: point.x - cardWidth / 2, y: point.y - nodeH / 2, width: cardWidth, height: nodeH }; });
   const nodeById = new Map(layouts.map((item) => [item.node.id, item]));
   const boundsFor = (items: EssenceMapNodeLayout[]) => { const minX = Math.max(8, Math.min(...items.map((item) => item.x)) - 18); const minY = Math.max(8, Math.min(...items.map((item) => item.y)) - 28); const maxX = Math.min(width - 8, Math.max(...items.map((item) => item.x + item.width)) + 18); const maxY = Math.min(height - 8, Math.max(...items.map((item) => item.y + item.height)) + 28); return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }; };
   const clusters: EssenceMapClusterLayout[] = vectors.map((vector, index) => { const items = layouts.filter((item) => item.node.id === vector.id || item.node.vector === vector.id); const bounds = boundsFor(items); return { vectorId: vector.id, vector, colorIndex: index, ...bounds, nodeIds: items.map((item) => item.node.id) }; });
