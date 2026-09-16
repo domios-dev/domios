@@ -206,14 +206,7 @@ export default function AddPeerPanel() {
             title="Scan for peers now"
             className={`${ACTION_BTN_CLASS} text-[var(--ct-muted)] disabled:opacity-40`}
           >
-            {scanning ? (
-              <BusySpinner size={10} />
-            ) : (
-              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M13.5 2.5A6.5 6.5 0 1 1 2.5 8" strokeLinecap="round" />
-                <path d="M13.5 2.5V6h-3.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
+            <BusySpinner icon={RefreshCw} size={12} spinning={scanning} />
             {scanning ? "Scanning…" : "Refresh"}
           </button>
         }
