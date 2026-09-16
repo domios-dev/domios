@@ -59,6 +59,7 @@ mod store_watch;
 pub mod stride_context;
 pub mod stride_log;
 pub mod tag_model;
+pub mod task_assignment;
 mod task_attempt_gates;
 pub mod task_attempts;
 pub mod task_brief;

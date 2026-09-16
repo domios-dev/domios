@@ -61,6 +61,7 @@ pub(crate) mod permission_auto_confirm;
 pub(crate) mod permission_policy;
 pub(crate) mod persona;
 pub mod plan;
+pub(crate) mod task_assignment;
 mod plan_authority;
 pub(crate) mod plan_batch_authority;
 mod plan_pause;
