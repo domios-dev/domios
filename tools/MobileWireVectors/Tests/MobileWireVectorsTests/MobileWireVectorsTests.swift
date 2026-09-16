@@ -34,6 +34,7 @@ final class MobileWireVectorsTests: XCTestCase {
 
         let targets = dict(vectors, "target_canonicalization")
         for vector in dictionaries(targets, "accepted") {
+            XCTAssertTrue(string(vector, "expected").canBeConverted(to: .ascii))
             XCTAssertEqual(try WireCodec.canonicalTarget(string(vector, "input")), string(vector, "expected"))
             XCTAssertNoThrow(try WireCodec.requireCanonicalTarget(string(vector, "expected")))
         }
