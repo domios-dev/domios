@@ -335,6 +335,10 @@ pub struct ProviderDescriptor {
     /// pipes it into a fresh terminal tab when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// Short provider-declared note picker surfaces render beside the name,
+    /// e.g. a free-tier offer. Keeps the claim with the provider that owns it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
     /// Shell command for updating the CLI on the current platform.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_command: Option<String>,
@@ -1043,6 +1047,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Short note picker surfaces show beside this provider's name, such as a
+    /// free-tier offer. `None` means the provider makes no such claim.
+    fn badge(&self) -> Option<&str> {
+        None
+    }
+
     /// Declarative settings panel for the per-provider Settings → Agents tab.
     /// Frontend renders generically via `<SchemaRenderer />`.
     fn settings_schema(&self) -> Vec<SettingField> {
@@ -1090,6 +1100,7 @@ pub trait AgentProvider: Send + Sync {
             supports_permission_bypass: !self.auto_approve_flags().is_empty(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
+            badge: self.badge().map(|s| s.to_string()),
             update_command: self.update_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),

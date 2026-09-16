@@ -942,6 +942,9 @@ export interface ProviderDescriptor {
   /// Shell command that installs the CLI for the current platform. Used by
   /// the Install card on the per-provider Settings screen.
   install_command?: string | null;
+  /// Short provider-declared note shown beside the name in pickers, e.g. a
+  /// free-tier offer. Absent means the provider claims nothing.
+  badge?: string | null;
   /** Provider-declared shell command that updates the CLI on this platform. */
   update_command?: string | null;
   /// Provider-declared in-agent model switch template. `{model}` is replaced

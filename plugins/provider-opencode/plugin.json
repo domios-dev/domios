@@ -6,6 +6,7 @@
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",
+  "badge": "free tokens",
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
   "spawn": {
