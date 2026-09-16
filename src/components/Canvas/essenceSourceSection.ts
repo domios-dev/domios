@@ -44,10 +44,50 @@ function tableRow(lines: string[], target: string): string | null {
   return null;
 }
 
+function splitRow(line: string): string[] {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function isSeparator(line: string): boolean {
+  if (!line.trimStart().startsWith("|")) return false;
+  const cells = splitRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-+:?$/.test(cell));
+}
+
+/**
+ * A seven-column table is unreadable in a drawer, so each row becomes its own
+ * heading plus one bullet per column. Empty cells and "—" sinks are dropped.
+ */
+function tablesToBullets(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].trimStart().startsWith("|") || !isSeparator(lines[i + 1] ?? "")) {
+      out.push(lines[i]);
+      continue;
+    }
+    const headers = splitRow(lines[i]);
+    let row = i + 2;
+    while (row < lines.length && lines[row].trimStart().startsWith("|") && !isSeparator(lines[row])) {
+      const cells = splitRow(lines[row]);
+      out.push(`**${cells[0]}**`, "");
+      for (let column = 1; column < headers.length; column += 1) {
+        const value = cells[column] ?? "";
+        if (value && value !== "—") out.push(`- **${headers[column]}:** ${value}`);
+      }
+      out.push("");
+      row += 1;
+    }
+    i = row - 1;
+  }
+  return out.join("\n").trim();
+}
+
 /** Returns the section an anchor names, or the whole document when nothing matches. */
 export function extractEssenceSection(markdown: string, anchor: string): string {
   const target = slug(anchor.replace(/^[a-z]+:/i, ""));
   if (!target || !markdown) return markdown;
   const lines = markdown.split(/\r?\n/);
-  return headingSection(lines, target) ?? tableRow(lines, target) ?? markdown;
+  const section = headingSection(lines, target) ?? tableRow(lines, target) ?? markdown;
+  return tablesToBullets(section);
 }
