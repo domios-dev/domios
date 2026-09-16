@@ -361,6 +361,31 @@ fn exact_review_continuation_attempt(task: &Task) -> Option<usize> {
     Some(*index)
 }
 
+pub(crate) fn reset_completed_review_continuation(
+    task: &mut Task,
+    attempt_index: usize,
+) -> Result<(), PlanError> {
+    let Some(attempt) = task.execution_attempts.get_mut(attempt_index) else {
+        return Err(PlanError::ReviewContinuationAttemptNotFound {
+            task_id: task.id.clone(),
+        });
+    };
+    if attempt.continuation.state.as_deref() != Some("continued") {
+        return Ok(());
+    }
+    attempt.continuation.epoch = attempt
+        .continuation
+        .epoch
+        .checked_add(1)
+        .ok_or_else(|| PlanError::Io("review continuation epoch exhausted".into()))?;
+    attempt.continuation.review_round = None;
+    attempt.continuation.state = None;
+    attempt.continuation.milestone_id = None;
+    attempt.continuation.delivered_at = None;
+    task.status_label = None;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ReviewCreditReconcileResult {
     pub plan_id: String,
@@ -788,9 +813,15 @@ impl PlanStore {
                     changed_executable_surfaces,
                     distinct_oracle,
                 });
-                task.review_round += 1;
+                task.review_round = task
+                    .review_round
+                    .checked_add(1)
+                    .ok_or_else(|| PlanError::Io("review round exhausted".into()))?;
                 let attempt = &mut task.execution_attempts[attempt_index];
-                attempt.continuation.epoch += 1;
+                attempt.continuation.epoch =
+                    attempt.continuation.epoch.checked_add(1).ok_or_else(|| {
+                        PlanError::Io("review continuation epoch exhausted".into())
+                    })?;
                 attempt.continuation.review_round = Some(task.review_round);
                 attempt.continuation.state = Some("awaiting_continuation".into());
                 attempt.continuation.milestone_id = Some(mid.clone());
