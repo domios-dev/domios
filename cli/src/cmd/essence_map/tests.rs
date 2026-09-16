@@ -72,9 +72,112 @@ fn essence_map_contract_accepts_current_source_inventory() {
     assert_eq!(summary.clients, 2);
     assert_eq!(summary.runs_on, 59);
     assert_eq!(summary.feeds, 50);
-    assert_eq!(summary.part_of, 10);
+    assert_eq!(summary.part_of, 9);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
+}
+
+#[test]
+fn essence_map_integrity_rejects_service_layer_self_parent_edges() {
+    let fixture = fixture_root();
+    let map = fixture.path().join("essences/map.jsonl");
+
+    let summary = generate(fixture.path(), &map).expect("generate map without self-parent");
+    let records = super::read_map(&map).expect("read generated map");
+
+    assert_eq!(summary.part_of, 9);
+    assert!(!records.iter().any(|record| matches!(
+        record,
+        super::MapRecord::Edge(edge)
+            if edge.edge_type == super::EdgeType::PartOf && edge.from == edge.to
+    )));
+}
+
+#[test]
+fn essence_map_integrity_validator_rejects_hand_authored_self_parent_edges() {
+    let fixture = fixture_root();
+    let (map, decisions, _) = valid_map(fixture.path());
+    let original = fs::read_to_string(&map).expect("read generated map");
+    let malformed = original.replacen(
+        "\"from\":\"core:host-state\",\"to\":\"core:service-layer\"",
+        "\"from\":\"core:host-state\",\"to\":\"core:host-state\"",
+        1,
+    );
+    fs::write(&map, malformed).expect("write self-parent map");
+
+    let error = validate(fixture.path(), &map, &decisions).expect_err("self-parent fails");
+    assert!(error.contains("self-parent cycle"));
+}
+
+#[test]
+fn essence_map_integrity_normalizes_crlf_before_parsing_and_hashing() {
+    let lf = fixture_root();
+    let crlf = fixture_root();
+    for name in ["CAPABILITIES.md", "CORE.md"] {
+        let path = crlf.path().join("essences").join(name);
+        let text = fs::read_to_string(&path).expect("read CRLF fixture source");
+        fs::write(path, text.replace('\n', "\r\n")).expect("write CRLF fixture source");
+    }
+
+    let lf_map = lf.path().join("essences/map.jsonl");
+    let crlf_map = crlf.path().join("essences/map.jsonl");
+    generate(lf.path(), &lf_map).expect("generate LF map");
+    generate(crlf.path(), &crlf_map).expect("generate CRLF map");
+
+    assert_eq!(
+        fs::read(lf_map).expect("read LF map"),
+        fs::read(crlf_map).expect("read CRLF map")
+    );
+}
+
+#[test]
+fn essence_map_integrity_refreshes_stale_digests_without_changing_semantic_links() {
+    let fixture = fixture_root();
+    let map = fixture.path().join("essences/map.jsonl");
+    generate(fixture.path(), &map).expect("generate initial map");
+    let before = super::read_map(&map).expect("read initial map");
+    let core = fixture.path().join("essences/CORE.md");
+    let source = fs::read_to_string(&core).expect("read core source");
+    fs::write(&core, format!("{source}\n<!-- integrity fixture -->\n"))
+        .expect("change core source");
+
+    generate(fixture.path(), &map).expect("refresh stale digests");
+    let after = super::read_map(&map).expect("read refreshed map");
+    let before_keys: std::collections::BTreeSet<_> = before
+        .iter()
+        .map(|record| match record {
+            super::MapRecord::Node(node) => format!("node:{}", node.id),
+            super::MapRecord::Edge(edge) => format!("edge:{}", super::edge_key(edge)),
+        })
+        .collect();
+    let after_keys: std::collections::BTreeSet<_> = after
+        .iter()
+        .map(|record| match record {
+            super::MapRecord::Node(node) => format!("node:{}", node.id),
+            super::MapRecord::Edge(edge) => format!("edge:{}", super::edge_key(edge)),
+        })
+        .collect();
+
+    assert_eq!(before_keys, after_keys);
+    let before_core_digest = before
+        .iter()
+        .find_map(|record| match record {
+            super::MapRecord::Node(node) if node.id == "core:service-layer" => {
+                Some(node.source.sha256.clone())
+            }
+            _ => None,
+        })
+        .expect("initial service-layer node");
+    let after_core_digest = after
+        .iter()
+        .find_map(|record| match record {
+            super::MapRecord::Node(node) if node.id == "core:service-layer" => {
+                Some(node.source.sha256.clone())
+            }
+            _ => None,
+        })
+        .expect("refreshed service-layer node");
+    assert_ne!(before_core_digest, after_core_digest, "source digest must refresh");
 }
 
 #[test]

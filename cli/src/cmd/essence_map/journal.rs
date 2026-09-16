@@ -153,7 +153,9 @@ pub(crate) fn validate_decisions(path: &Path) -> Result<(), String> {
 fn map_digest(map_path: &Path) -> Result<String, String> {
     let bytes = fs::read(map_path)
         .map_err(|error| format!("cannot read map {}: {error}", map_path.display()))?;
-    Ok(sha256(&bytes))
+    let text = String::from_utf8(bytes)
+        .map_err(|error| format!("map {} is not UTF-8: {error}", map_path.display()))?;
+    Ok(sha256(text.replace("\r\n", "\n").as_bytes()))
 }
 
 fn history_dir(map_path: &Path) -> PathBuf {
@@ -174,7 +176,12 @@ pub(crate) fn retain_superseded_map(map_path: &Path, next_contents: &str) -> Res
     let Ok(existing) = fs::read(map_path) else {
         return Ok(());
     };
-    let digest = sha256(&existing);
+    let digest = sha256(
+        String::from_utf8(existing.clone())
+            .map_err(|error| format!("superseded map {} is not UTF-8: {error}", map_path.display()))?
+            .replace("\r\n", "\n")
+            .as_bytes(),
+    );
     if digest == sha256(next_contents.as_bytes()) {
         return Ok(());
     }

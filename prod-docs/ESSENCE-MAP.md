@@ -10,7 +10,7 @@ The map is JSONL. A node has `kind: "node"`, a `type` of `vector`, `capability`,
 
 Validation rejects malformed records, unknown fields and kinds, missing capability statuses, dangling links, stale source digests, missing source-derived nodes, and maps over the 100-node project budget. A capability must have a runs-on edge or an explicit `runs_on_reason`; its flow may be inbound or outbound, so sink capabilities remain valid when another capability feeds them.
 
-The service layer is the core root. Its source `Part of` statement is retained as a self `part_of` marker; no repository toolchain or daemon node is added to the product map.
+The service layer is the core root. Its source `Part of` statement is a containment root and produces no self `part_of` edge; no repository toolchain or daemon node is added to the product map. The five CORE dependent-capability claims that cannot be matched to capability source rows are omitted; generated capability links are authoritative.
 
 `essences/decisions.jsonl` is an append-only JSONL log. Each decision explains a map change with a monotonic `decision-N` id, the affected map digest, a summary, and a reason. Add a new record; do not rewrite old decisions.
 

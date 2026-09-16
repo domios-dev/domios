@@ -129,6 +129,20 @@ fn cartographer_map_records_a_decision_only_when_the_map_changed() {
 }
 
 #[test]
+fn essence_map_integrity_journal_treats_crlf_map_as_the_same_semantic_map() {
+    let temp = fixture_root();
+    let root = temp.path();
+    let (map, decisions) = seeded(root);
+    let lf = fs::read_to_string(&map).expect("read generated LF map");
+    fs::write(&map, lf.replace('\n', "\r\n")).expect("rewrite map as CRLF");
+
+    let outcome = journal::record(&map, &decisions, "line ending only", "same semantic map")
+        .expect("record CRLF map");
+    assert!(matches!(outcome, RecordOutcome::Unchanged { .. }));
+    assert_eq!(journal::read(&decisions).expect("read decisions").len(), 1);
+}
+
+#[test]
 fn cartographer_map_release_summary_is_one_summary_with_one_revert_choice() {
     let temp = fixture_root();
     let root = temp.path();
