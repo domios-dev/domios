@@ -1192,7 +1192,12 @@ fn routing_never_silently_substitutes_an_unqualified_model() {
     );
 
     let qualified = resolve_dispatch_routing(None, Some("claude:opus".into()), None, &providers());
-    assert!(unqualified_model_error(&qualified, "claude", &notice).is_none());
+    let qualified_error = unqualified_model_error(&qualified, "claude", &notice).unwrap();
+    assert_eq!(qualified_error.code, -32602);
+    assert_eq!(
+        qualified_error.data.unwrap()["type"],
+        "qualified_model_unavailable"
+    );
 }
 
 #[test]
