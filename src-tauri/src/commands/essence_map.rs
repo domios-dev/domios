@@ -4,6 +4,8 @@ use std::path::{Component, Path, PathBuf};
 
 const MAP_FILE_LIMIT: u64 = 2 * 1024 * 1024;
 const SOURCE_FILE_LIMIT: u64 = 1024 * 1024;
+const ESSENCE_DOCUMENT_LIMIT: usize = 512;
+const ESSENCE_DOCUMENT_DEPTH_LIMIT: usize = 32;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceEssenceMapFile {
@@ -12,20 +14,76 @@ pub struct WorkspaceEssenceMapFile {
     pub status: &'static str,
     pub content: Option<String>,
     pub error: Option<String>,
+    pub documents: Vec<String>,
 }
 
 fn display_path(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn unavailable(project_path: String, map_path: String, error: String) -> WorkspaceEssenceMapFile {
+fn unavailable(
+    project_path: String,
+    map_path: String,
+    error: String,
+    documents: Vec<String>,
+) -> WorkspaceEssenceMapFile {
     WorkspaceEssenceMapFile {
         project_path,
         map_path,
         status: "unreadable",
         content: None,
         error: Some(error),
+        documents,
     }
+}
+
+fn essence_documents(project_path: &Path) -> Vec<String> {
+    let Ok(root) = project_path.join("essences").canonicalize() else {
+        return Vec::new();
+    };
+    if !root.is_dir() {
+        return Vec::new();
+    }
+    let mut documents = Vec::new();
+    let mut pending = vec![(root.clone(), 0usize)];
+    while let Some((directory, depth)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if documents.len() >= ESSENCE_DOCUMENT_LIMIT {
+                return documents;
+            }
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                if depth < ESSENCE_DOCUMENT_DEPTH_LIMIT {
+                    if let Ok(canonical) = path.canonicalize() {
+                        if canonical.starts_with(&root) {
+                            pending.push((canonical, depth + 1));
+                        }
+                    }
+                }
+                continue;
+            }
+            if !file_type.is_file()
+                || path.extension().and_then(|extension| extension.to_str())
+                    .is_none_or(|extension| !extension.eq_ignore_ascii_case("md"))
+            {
+                continue;
+            }
+            let Ok(canonical) = path.canonicalize() else {
+                continue;
+            };
+            if let Ok(relative) = canonical.strip_prefix(project_path) {
+                documents.push(relative.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    documents.sort();
+    documents
 }
 
 fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
@@ -33,12 +91,14 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
     let map_path = project_path.join("essences").join("map.jsonl");
     let project_display = display_path(&project_path);
     let map_display = display_path(&map_path);
+    let documents = essence_documents(&project_path);
 
     if !project_path.is_dir() {
         return unavailable(
             project_display,
             map_display,
             "Project tree is not a directory".into(),
+            documents,
         );
     }
 
@@ -49,6 +109,7 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
                 project_display,
                 map_display,
                 "essences/map.jsonl is not a file".into(),
+                documents,
             )
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -58,9 +119,10 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
                 status: "missing",
                 content: None,
                 error: None,
+                documents,
             }
         }
-        Err(error) => return unavailable(project_display, map_display, error.to_string()),
+        Err(error) => return unavailable(project_display, map_display, error.to_string(), documents),
     };
 
     if metadata.len() > MAP_FILE_LIMIT {
@@ -70,6 +132,7 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
             status: "oversized",
             content: None,
             error: Some(format!("Map exceeds {MAP_FILE_LIMIT} bytes")),
+            documents,
         };
     }
 
@@ -84,8 +147,9 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
             },
             content: Some(content),
             error: None,
+            documents,
         },
-        Err(error) => unavailable(project_display, map_display, error.to_string()),
+        Err(error) => unavailable(project_display, map_display, error.to_string(), documents),
     }
 }
 
