@@ -9,6 +9,9 @@ use std::{future::Future, sync::Arc};
 
 use crate::api::routes::{check_auth, AppState};
 
+#[cfg(test)]
+mod reachability_tests;
+
 #[derive(Debug, PartialEq)]
 pub enum ConnectPeerResult {
     Pending { request_id: String, existing: bool },
@@ -152,17 +155,20 @@ fn prepare_connect(
         .public_key
         .clone()
         .ok_or_else(|| ConnectPeerError::Internal("No identity keypair".to_string()))?;
+    let from_addresses =
+        crate::mesh::discovery::remote_addresses(mesh).map_err(ConnectPeerError::BadRequest)?;
     let request = crate::mesh::types::PairingRequest {
         request_id: uuid::Uuid::new_v4().to_string(),
         from_instance_id: mesh.ident.identity.instance_id.clone(),
         from_instance_name: mesh.ident.instance_name.clone(),
-        from_address: mesh
-            .tailscale_ip
-            .clone()
-            .or_else(|| mesh.local_ip.clone())
-            .unwrap_or_else(|| "127.0.0.1".to_string()),
+        from_address: from_addresses
+            .iter()
+            .find(|address| address.is_tailscale)
+            .unwrap_or(&from_addresses[0])
+            .ip
+            .clone(),
         from_port: mesh.api_port,
-        from_addresses: mesh.local_announce_addresses(),
+        from_addresses,
         public_key,
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -408,6 +414,7 @@ mod tests {
 
     fn mesh_state() -> crate::MeshStateHandle {
         let mut manager = crate::mesh::MeshManager::new("test".to_string(), 7685);
+        manager.ready_listeners = vec!["100.64.0.1:7685".parse().unwrap()];
         manager.disk_persist = false;
         manager.ident.identity.public_key = Some("key".to_string());
         manager.discovered_peers.insert(

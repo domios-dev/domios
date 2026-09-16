@@ -100,6 +100,7 @@ pub struct MeshManager {
     pub mdns_service_fullname: Option<String>,
     pub udp_started: bool,
     pub local_http_healthy: bool,
+    pub ready_listeners: Vec<std::net::SocketAddr>,
     pub disk_persist: bool,
     pub seen_nonces: HashMap<String, u64>,
     gossip_generations: HashMap<String, u64>,
@@ -236,6 +237,7 @@ impl MeshManager {
             mdns_service_fullname: None,
             udp_started: false,
             local_http_healthy: true,
+            ready_listeners: Vec::new(),
             disk_persist: true,
             seen_nonces: HashMap::new(),
             gossip_generations: HashMap::new(),
@@ -1071,6 +1073,7 @@ mod tests {
     #[test]
     fn build_announce_includes_tailscale_and_lan() {
         let mut m = MeshManager::new("test-host".into(), 7685);
+        m.ready_listeners = vec!["0.0.0.0:7685".parse().unwrap()];
         m.disk_persist = false;
         m.tailscale_ip = Some("100.65.0.30".into());
         m.local_ip = Some("192.168.1.5".into());
@@ -1091,6 +1094,22 @@ mod tests {
         m.local_ip = Some("8.8.8.8".into());
         let ann = m.build_announce();
         assert!(ann.addresses.is_empty(), "public IPs are not advertised");
+    }
+
+    #[test]
+    fn mesh_reachability_remote_loss_withdraws_paired_cached_addresses() {
+        let mut sender = MeshManager::new("sender".into(), 7690);
+        sender.disk_persist = false;
+        sender.local_http_healthy = true;
+        sender.ready_listeners = vec!["127.0.0.1:7690".parse().unwrap()];
+        let id = sender.ident.identity.instance_id.clone();
+        let mut receiver = make_mesh_with_peer(&id, vec!["100.64.0.1"]);
+        let announcement = sender.build_announce();
+        assert!(!announcement.online);
+        assert!(announcement.addresses.is_empty());
+        receiver.apply_announce(&id, &announcement).unwrap();
+        assert!(receiver.paired_peers[&id].addresses.is_empty());
+        assert!(!receiver.paired_peers[&id].online);
     }
 
     #[test]

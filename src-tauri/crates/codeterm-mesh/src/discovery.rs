@@ -6,6 +6,9 @@ use parking_lot::Mutex;
 use super::types::{DiscoveryMethod, PeerAddress};
 use super::MeshManager;
 
+#[cfg(test)]
+mod reachability_tests;
+
 const SERVICE_TYPE: &str = "_codeterm._tcp.local.";
 const PEER_TTL_SECS: u64 = 300;
 /// How often the background loop actively pulls gossip from each paired
@@ -91,7 +94,7 @@ pub fn init_mdns_daemon(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                         addresses,
                         api_port: port,
                         method: DiscoveryMethod::Mdns,
-                        dev: false,
+                        dev: info.get_property_val_str("dev") == Some("true"),
                         mesh_id: None,
                         voucher: None,
                     };
@@ -126,7 +129,7 @@ pub fn init_mdns_daemon(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
 
 /// Register our mDNS service so other peers can discover us.
 pub fn register_mdns_service(mesh: &Arc<Mutex<MeshManager>>) -> Result<(), String> {
-    let m = mesh.lock();
+    let mut m = mesh.lock();
     let daemon = m
         .mdns_daemon
         .as_ref()
@@ -136,35 +139,17 @@ pub fn register_mdns_service(mesh: &Arc<Mutex<MeshManager>>) -> Result<(), Strin
     let instance_id = m.ident.identity.instance_id.clone();
     let instance_name = m.ident.instance_name.clone();
     let api_port = m.api_port;
-    let local_ip = m.local_ip.clone().unwrap_or_default();
-    drop(m);
-
-    let bind_ip = if local_ip.is_empty() {
-        let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok();
-        sock.and_then(|s| {
-            s.connect("8.8.8.8:80").ok()?;
-            s.local_addr().ok()
-        })
-        .map(|a| a.ip().to_string())
-        .unwrap_or_default()
-    } else {
-        local_ip
-    };
+    let addresses = remote_addresses(&m)?;
+    let bind_ip = addresses
+        .iter()
+        .map(|address| address.ip.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
 
     let service_name = format!("codeterm-{}", &instance_id[..8]);
-    let mut properties = HashMap::new();
-    properties.insert("id".to_string(), instance_id);
-    properties.insert("name".to_string(), instance_name);
-    properties.insert("port".to_string(), api_port.to_string());
-
-    let raw_hostname = hostname::get()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-    let clean_host = raw_hostname
-        .trim_end_matches(".local")
-        .trim_end_matches('.');
-    let host_fqdn = format!("{}.local.", clean_host);
+    // Separate instance hostnames prevent another local daemon's A records leaking into this service.
+    let host_fqdn = format!("codeterm-{instance_id}.local.");
+    let properties = mdns_properties(instance_id, instance_name, api_port, cfg!(debug_assertions));
 
     log::info!(
         "[mesh/mdns] Registering service: name={}, host={}, ip={}, port={}",
@@ -182,34 +167,31 @@ pub fn register_mdns_service(mesh: &Arc<Mutex<MeshManager>>) -> Result<(), Strin
         api_port,
         properties,
     )
-    .map_err(|e| format!("mDNS service info error: {}", e))?
-    .enable_addr_auto();
+    .map_err(|e| format!("mDNS service info error: {}", e))?;
 
     let fullname = my_service.get_fullname().to_string();
     daemon
         .register(my_service)
         .map_err(|e| format!("mDNS register error: {}", e))?;
 
-    mesh.lock().mdns_service_fullname = Some(fullname.clone());
+    m.mdns_service_fullname = Some(fullname.clone());
     log::info!("[mesh/mdns] Advertising as {}", fullname);
     Ok(())
 }
 
 /// Unregister our mDNS service (stop advertising).
 pub fn unregister_mdns_service(mesh: &Arc<Mutex<MeshManager>>) {
-    let m = mesh.lock();
+    let mut m = mesh.lock();
     let (daemon, fullname) = match (m.mdns_daemon.as_ref(), m.mdns_service_fullname.as_ref()) {
         (Some(d), Some(f)) => (d.clone(), f.clone()),
         _ => return,
     };
-    drop(m);
-
     if let Err(e) = daemon.unregister(&fullname) {
         log::warn!("[mesh/mdns] Unregister failed: {}", e);
     } else {
         log::info!("[mesh/mdns] Unregistered service {}", fullname);
     }
-    mesh.lock().mdns_service_fullname = None;
+    m.mdns_service_fullname = None;
 }
 
 // ── Tailscale / Local IP ───────────────────────────────────────────────
@@ -486,6 +468,7 @@ struct Beacon {
     port: u16,
     #[serde(default)]
     dev: bool,
+    addresses: Vec<PeerAddress>,
     #[serde(default)]
     mesh_id: Option<String>,
 }
@@ -536,9 +519,15 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     name: sender_name.clone(),
                     port: api_port,
                     dev: cfg!(debug_assertions),
+                    addresses: match remote_addresses(&mesh_for_sender.lock()) {
+                        Ok(addresses) => addresses,
+                        Err(_) => Vec::new(),
+                    },
                     mesh_id,
                 };
-                if let Ok(json) = serde_json::to_vec(&beacon) {
+                if let (false, Ok(json)) =
+                    (beacon.addresses.is_empty(), serde_json::to_vec(&beacon))
+                {
                     let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
                     packet.extend_from_slice(BROADCAST_MAGIC);
                     packet.extend_from_slice(&json);
@@ -589,10 +578,13 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     if beacon.id == instance_id {
                         continue;
                     }
+                    let Some(addresses) = udp_source_addresses(&beacon, src_addr.ip()) else {
+                        continue;
+                    };
                     let sighting = crate::discovered::DiscoverySighting {
                         instance_id: beacon.id.clone(),
                         instance_name: beacon.name,
-                        addresses: vec![PeerAddress::from_ip(&src_addr.ip().to_string())],
+                        addresses,
                         api_port: beacon.port,
                         method: DiscoveryMethod::Udp,
                         dev: beacon.dev,
@@ -642,21 +634,29 @@ pub fn start_listeners(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
 /// Listeners are started if not already running.
 /// After the duration, broadcasting stops automatically.
 pub fn start_broadcast(mesh: Arc<Mutex<MeshManager>>, duration_secs: u64) -> Result<(), String> {
+    let addresses = remote_addresses(&mesh.lock())?;
     let expires_at = now_secs() + duration_secs;
+    init_mdns_daemon(mesh.clone())?;
+    register_mdns_service(&mesh)?;
+    if let Err(e) = start_udp_threads(mesh.clone()) {
+        unregister_mdns_service(&mesh);
+        return Err(e);
+    }
     {
         let mut m = mesh.lock();
+        let unchanged = remote_addresses(&m).is_ok_and(|current| {
+            current
+                .iter()
+                .map(|address| &address.ip)
+                .eq(addresses.iter().map(|address| &address.ip))
+        });
+        if !unchanged || m.mdns_service_fullname.is_none() {
+            drop(m);
+            unregister_mdns_service(&mesh);
+            return Err("mesh_listener_not_remotely_ready".into());
+        }
         m.broadcast_active = true;
         m.broadcast_expires_at = Some(expires_at);
-    }
-
-    if let Err(e) = init_mdns_daemon(mesh.clone()) {
-        log::error!("[mesh] mDNS daemon init failed: {}", e);
-    }
-    if let Err(e) = register_mdns_service(&mesh) {
-        log::error!("[mesh] mDNS register failed: {}", e);
-    }
-    if let Err(e) = start_udp_threads(mesh.clone()) {
-        log::error!("[mesh] UDP start failed: {}", e);
     }
 
     let mesh_for_timer = mesh.clone();
@@ -684,9 +684,6 @@ pub fn start_broadcast(mesh: Arc<Mutex<MeshManager>>, duration_secs: u64) -> Res
 pub fn stop_broadcast(mesh: &Arc<Mutex<MeshManager>>) {
     {
         let mut m = mesh.lock();
-        if !m.broadcast_active {
-            return;
-        }
         m.broadcast_active = false;
         m.broadcast_expires_at = None;
     }
@@ -718,6 +715,10 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
         name: instance_name,
         port: api_port,
         dev: cfg!(debug_assertions),
+        addresses: match remote_addresses(&mesh.lock()) {
+            Ok(addresses) => addresses,
+            Err(_) => return,
+        },
         mesh_id,
     };
     let Ok(json) = serde_json::to_vec(&beacon) else {
@@ -745,6 +746,43 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
             log::debug!("[mesh/udp] Immediate beacon unicast → {}", ip);
         }
     }
+}
+
+pub fn remote_addresses(mesh: &MeshManager) -> Result<Vec<PeerAddress>, String> {
+    let addresses = crate::reachability::advertised_addresses(
+        &mesh.ready_listeners,
+        &mesh.local_announce_addresses(),
+        mesh.api_port,
+    );
+    if addresses.is_empty() {
+        Err("mesh_listener_not_remotely_ready".into())
+    } else {
+        Ok(addresses)
+    }
+}
+
+fn udp_source_addresses(beacon: &Beacon, source: std::net::IpAddr) -> Option<Vec<PeerAddress>> {
+    if beacon.port == 0 || beacon.addresses.is_empty() || beacon.addresses.len() > 16 {
+        return None;
+    }
+    let mut source_advertised = false;
+    for address in &beacon.addresses {
+        let ip = address.ip.parse::<std::net::IpAddr>().ok()?;
+        if !crate::reachability::eligible(ip) {
+            return None;
+        }
+        source_advertised |= ip == source;
+    }
+    source_advertised.then(|| vec![PeerAddress::from_ip(&source.to_string())])
+}
+
+fn mdns_properties(id: String, name: String, port: u16, dev: bool) -> HashMap<String, String> {
+    HashMap::from([
+        ("id".into(), id),
+        ("name".into(), name),
+        ("port".into(), port.to_string()),
+        ("dev".into(), dev.to_string()),
+    ])
 }
 
 #[cfg(test)]

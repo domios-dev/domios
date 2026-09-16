@@ -33,11 +33,26 @@ fn api_listener_disclosure(
     state: &AppState,
     cfg: &crate::config::schema::AppConfig,
 ) -> serde_json::Value {
-    api_listener_value(
+    let mut value = api_listener_value(
         state.rest_api.bound_addr(),
         state.rest_api.runtime_policy(),
         cfg,
-    )
+    );
+    value["ready_addresses"] = serde_json::json!(state.rest_api.listeners.ready());
+    value["configured_mesh_tailnet_host"] = serde_json::json!(cfg.api.mesh_tailnet_host);
+    value["requested_mesh_tailnet_address"] =
+        serde_json::json!(state.rest_api.listeners.remote_bind());
+    value["restart_required"] = serde_json::json!(
+        value["restart_required"].as_bool().unwrap_or(true)
+            || cfg.api.mesh_tailnet_host.as_deref()
+                != state
+                    .rest_api
+                    .listeners
+                    .remote_bind()
+                    .map(|addr| addr.ip().to_string())
+                    .as_deref()
+    );
+    value
 }
 
 fn api_listener_value(

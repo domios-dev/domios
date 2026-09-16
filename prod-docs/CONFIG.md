@@ -142,6 +142,16 @@ the listener policy the process actually owns. `localhost`, `::1`, and `[::1]`
 are canonicalized to bindable loopback socket addresses; other hostnames are
 rejected in favor of an explicit numeric address.
 
+Named development instances may explicitly set `api.mesh_tailnet_host` to a
+locally assigned Tailscale IPv4 address. This adds an authenticated listener
+while retaining the loopback primary; the default is absent. Production and
+unnamed instances refuse this option. A restart is required. Both sockets must
+bind and pass health checks before remote readiness is published; startup never
+falls back to a LAN or wildcard bind. If the extra listener exits after readiness,
+loopback remains serving, remote readiness is withdrawn, and broadcasting stops.
+`api_listener.ready_addresses` is the live health-proven set, not the configured
+request; `requested_mesh_tailnet_address` records the startup request only.
+
 Agent access is one global choice. `agent.full_access = true` applies the
 provider's permission-bypass capability whenever any agent starts or restarts,
 including General Agent; `false` keeps provider permission prompts everywhere.
@@ -210,4 +220,4 @@ agent command. Source-only workers do not build or test in their lane.
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->
