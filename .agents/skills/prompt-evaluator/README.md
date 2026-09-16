@@ -4,21 +4,21 @@ Maintainer skill for testing CodeTerm prompt files (system prompts, suffixes,
 rules, agent definitions) without manually spawning agents.
 
 This is a **Claude Code skill**, not a CodeTerm feature. It lives in
-`.claude/skills/` of the codeterm repo and is loaded automatically by Claude
-Code (or any other agent that respects `.claude/skills/`) when working in
+`.agents/skills/` of the codeterm repo, which is the single source. A pointer in
+`.claude/skills/` lets Claude Code discover it; the pointer never carries procedure.
 this project. It is **not** bundled into the CodeTerm binary.
 
 ## TL;DR
 
 ```bash
 # Single prompt — does it pass its eval set?
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-file src-tauri/prompts/general_agent.md \
   --eval-set evals/general-agent/evals.json \
   --runs 3
 
 # A/B compare with the previous git revision
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-a HEAD~1:src-tauri/prompts/general_agent.md \
   --prompt-b src-tauri/prompts/general_agent.md \
   --eval-set evals/general-agent/evals.json \

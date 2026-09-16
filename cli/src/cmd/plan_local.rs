@@ -30,32 +30,6 @@ fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
     Some(root.canonicalize().unwrap_or(root))
 }
 
-#[cfg(test)]
-pub(crate) fn plan_files(plans_dir: &Path, plan_id: Option<&str>) -> Result<Vec<PathBuf>, String> {
-    if let Some(id) = plan_id {
-        return Ok(["active", "archive"]
-            .into_iter()
-            .map(|bucket| plans_dir.join(bucket).join(plan_stem(id)).join("plan.yaml"))
-            .filter(|path| path.is_file())
-            .collect());
-    }
-    let mut files = Vec::new();
-    for bucket in ["active", "archive"] {
-        let bucket_dir = plans_dir.join(bucket);
-        let Ok(entries) = std::fs::read_dir(&bucket_dir) else {
-            continue;
-        };
-        for entry in entries {
-            let path = entry.map_err(|e| e.to_string())?.path().join("plan.yaml");
-            if path.is_file() {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
 /// Load a plan.yaml as a json Value with its per-file tasks assembled back in,
 /// so local tools (doctor, prune) see the same shape the daemon serves.
 #[cfg(test)]

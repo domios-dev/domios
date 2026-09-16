@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use crate::client::{RpcClient, SocketCallError};
-#[cfg(test)]
-use crate::cmd::plan_local::plan_files;
 use crate::cmd::plan_local::{plan_id_from, project_root};
 
 #[cfg(test)]
@@ -142,53 +140,6 @@ fn render_quality_approval_error(plan_id: &str, report: &Value) -> String {
         "✗ plan approval blocked by quality doctor\n\n{}fix:\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}",
         render_doctor(report)
     )
-}
-
-#[cfg(test)]
-fn doctor_report(
-    plan_id: Option<String>,
-    project: Option<String>,
-    kind: &str,
-) -> Result<Value, String> {
-    let project_root = project_root(project)?;
-    let plans_dir = project_root.join(".codeterm").join("plans");
-    let files = plan_files(&plans_dir, plan_id.as_deref())?;
-    let mut findings = Vec::new();
-    let mut checked = 0usize;
-    for path in files {
-        checked += 1;
-        match crate::cmd::plan_local::load_plan_value(&path) {
-            Ok(plan) => {
-                findings.extend(inspect_plan(&path, &plan, kind));
-                if matches!(kind, "all" | "storage") {
-                    findings.extend(inspect_stray_sidecars(&project_root, &path, &plan));
-                }
-            }
-            Err(err) => findings.push(Finding {
-                severity: "error",
-                kind: "malformed_plan",
-                plan_id: path
-                    .parent()
-                    .and_then(|d| d.file_name())
-                    .and_then(|s| s.to_str())
-                    .map(str::to_string),
-                path: path.display().to_string(),
-                task_id: None,
-                detail: err,
-                fix: "open the yaml, repair syntax/indentation, then rerun plan doctor".into(),
-            }),
-        }
-    }
-    let error_count = findings.iter().filter(|f| f.severity == "error").count();
-    Ok(json!({
-        "ok": error_count == 0,
-        "project": project_root.display().to_string(),
-        "kind": kind,
-        "checked_plans": checked,
-        "error_count": error_count,
-        "warning_count": findings.iter().filter(|f| f.severity == "warning").count(),
-        "findings": findings.iter().map(Finding::json).collect::<Vec<_>>(),
-    }))
 }
 
 fn doctor_report_authoritative(
