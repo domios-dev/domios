@@ -19,7 +19,7 @@
 //!
 //! ## User override format
 //!
-//! See `essences/MODELS.md`. README is auto-installed to
+//! See `essences/models.md`. README is auto-installed to
 //! `<data_dir>/models/README.md` on first run.
 
 use std::collections::HashMap;
@@ -1151,7 +1151,7 @@ and falls back to built-ins — the picker never goes empty.
 
 ## Full docs
 
-See `essences/MODELS.md` in the CodeTerm repository for the long-form reference
+See `essences/models.md` in the CodeTerm repository for the long-form reference
 (plugin contract, how to add a new provider, etc.).
 "#;
 

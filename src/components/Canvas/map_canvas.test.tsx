@@ -41,7 +41,7 @@ const workspace: Workspace = {
 };
 
 const source = {
-  path: "essences/CAPABILITIES.md",
+  path: "essences/capabilities.md",
   anchor: "capability:workspaces-and-tabs",
   sha256: "a".repeat(64),
 };
@@ -328,7 +328,7 @@ describe("map_canvas workspace essence map", () => {
     const exactSource = "# exact referenced essence\ncapability:workspaces-and-tabs";
     const sourceReader = vi.fn(async (projectPath: string, sourcePath: string) => {
       expect(projectPath).toBe("/repo/a");
-      expect(sourcePath).toBe("essences/CAPABILITIES.md");
+      expect(sourcePath).toBe("essences/capabilities.md");
       return exactSource;
     });
     const { host } = await renderMap([mapFile("/repo/a", validRecords)], sourceReader);

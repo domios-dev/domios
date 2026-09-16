@@ -18,7 +18,7 @@ const NODE_PREFIXES: [&str; 4] = ["vector:", "capability:", "core:", "client:"];
 
 /// The two documents the generator parses. They anchor every node by
 /// construction, so they are excluded from the per-node document budget below.
-const GENERATOR_SOURCES: [&str; 2] = ["essences/CAPABILITIES.md", "essences/CORE.md"];
+const GENERATOR_SOURCES: [&str; 2] = ["essences/capabilities.md", "essences/core.md"];
 
 /// How many detail documents one node may carry before the audit is attaching
 /// documents in bulk instead of judging them one by one.

@@ -141,7 +141,7 @@ lane_diagnostics_gates() {
     lane_diagnostics_tool webforks-gate node scripts/run-ts-unit-tests.mjs src/lib/webForks.test.ts
   fi
   if lane_diagnostics_changed '^cli/src/(args|main\.rs)' || lane_diagnostics_changed '^cli/src/args/'; then
-    if git diff --quiet -- essences/cli-manifest.json essences/CLI.md packages/chat-ui/src/codeterm/commandPaths.ts; then
+    if git diff --quiet -- essences/cli-manifest.json essences/cli.md packages/chat-ui/src/codeterm/commandPaths.ts; then
       lane_diagnostics_tool cli-manifest-gate bash -c 'printf "%s\n" "CLI manifest artifacts are stale; run codeterm cli-manifest --write in canonical QA"; exit 1'
     else
       lane_diagnostics_note 'CLI manifest artifacts changed with the lane; canonical freshness test remains authoritative'

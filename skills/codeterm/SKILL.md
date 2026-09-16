@@ -52,7 +52,7 @@ Specialized reference docs alongside this skill:
 - `references/cron.md` — full cron flag set, oneshot schedules, lifecycle
 - `references/telegram.md` — bridge setup, media types, formatting, per-tab topic threads (`codeterm bridge thread open [--tab ID]`), migration orchestration
 - `references/themes.md` — custom theme TOML format
-- `essences/MODELS.md` (in the CodeTerm repo) — agent model catalog: how the per-provider model list works, how to override or update entries without rebuilding (`<data_dir>/models/<provider>.toml`)
+- `essences/models.md` (in the CodeTerm repo) — agent model catalog: how the per-provider model list works, how to override or update entries without rebuilding (`<data_dir>/models/<provider>.toml`)
 - `prod-docs/ESSENCE-MAP.md` (read with `codeterm docs ESSENCE-MAP`) — source-backed map generation, validation, and decision records
 
 ## Memory protocol (always-on)

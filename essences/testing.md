@@ -235,5 +235,5 @@ Git for Windows at its standard location and rerun the same command.
 
 ## Related documents
 
-End-to-end and cross-platform verification: `essences/E2E-TESTING.md`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
+End-to-end and cross-platform verification: `essences/e2e-testing.md`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
 

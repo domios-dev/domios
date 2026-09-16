@@ -17,7 +17,7 @@ pub(crate) const MAP_GENERATED_KIND: &str = "map_generated";
 
 /// Source essences the map is generated from. A workspace without them has no
 /// map to author, whatever the config says.
-const SOURCE_ESSENCES: [&str; 2] = ["essences/CAPABILITIES.md", "essences/CORE.md"];
+const SOURCE_ESSENCES: [&str; 2] = ["essences/capabilities.md", "essences/core.md"];
 
 /// Stable lead of the heartbeat line, so a caller can find the offer without
 /// matching its prose.

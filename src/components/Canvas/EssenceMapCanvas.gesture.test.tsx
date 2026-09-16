@@ -25,7 +25,7 @@ const mapFile: EssenceMapFile = {
     type: "vector",
     label: "Gesture vector",
     vector: null,
-    source: { path: "essences/CAPABILITIES.md", anchor: "vector:gesture", sha256: "a".repeat(64) },
+    source: { path: "essences/capabilities.md", anchor: "vector:gesture", sha256: "a".repeat(64) },
   }),
 };
 
