@@ -412,7 +412,7 @@ pub async fn connect_peer(
             .json::<serde_json::Value>()
             .await
             .map_err(|error| {
-                ConnectPeerError::Delivery(format!("{}", delivery::safe_reqwest_detail(&error)))
+                ConnectPeerError::Delivery(delivery::safe_reqwest_detail(&error).to_string())
             })?["instance_id"]
             .as_str()
             .map(str::to_string)
