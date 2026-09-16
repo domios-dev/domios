@@ -438,7 +438,7 @@ function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidt
   // instead of clustering, which is what made every earlier arrangement a wall of boxes.
   const cardWidth = 14;
   const nodeH = 14;
-  const height = Math.max(640, Math.min(1000, 420 + nodes.length * 6));
+  const height = Math.max(720, Math.min(1180, 470 + nodes.length * 9));
   const center = { x: width / 2, y: height / 2 };
   const vectors = sortedNodes(nodes.filter((node) => node.type === "vector"));
   const capabilities = sortedNodes(nodes.filter((node) => node.type === "capability"));
@@ -499,18 +499,35 @@ function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidt
   clients.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(clients.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * clientRadius, center.y + Math.sin(angle) * clientRadius); });
   const order = [...vectors, ...capabilities, ...core, ...clients];
   const clampPoint = (point: { x: number; y: number }) => { point.x = Math.max(cardWidth / 2 + 4, Math.min(width - cardWidth / 2 - 4, point.x)); point.y = Math.max(48, Math.min(height - 48, point.y)); };
-  const minGapX = cardWidth + 12; const minGapY = nodeH + 12;
+  // Separation reasons about the label, not the dot. A 14px dot with a 120px label
+  // beside it clears a dot-sized gap while its text lies across its neighbour's,
+  // which is what put a whole cluster's names on one unreadable line.
+  const labelWidth = (node: EssenceMapNode): number => Math.min(150, node.label.length * 5.4 + 8);
+  const boxOf = (node: EssenceMapNode, point: { x: number; y: number }) => {
+    const half = cardWidth / 2;
+    if (node.type === "capability") {
+      const toLeft = point.x < width / 2;
+      const label = labelWidth(node);
+      return { x0: point.x - half - (toLeft ? label : 0), x1: point.x + half + (toLeft ? 0 : label), y0: point.y - nodeH / 2, y1: point.y + nodeH / 2 };
+    }
+    const box = node.type === "vector" ? 150 : 96;
+    const lines = Math.max(1, Math.ceil((node.label.length * 5.6) / box));
+    return { x0: point.x - box / 2, x1: point.x + box / 2, y0: point.y - nodeH / 2, y1: point.y + nodeH / 2 + 6 + lines * 13 };
+  };
   // Fixed-iteration separation pass: deterministic, converges, leaves no loop running.
-  for (let pass = 0; pass < 320; pass += 1) {
+  for (let pass = 0; pass < 260; pass += 1) {
     let moved = false;
     for (let i = 0; i < order.length; i += 1) {
       for (let j = i + 1; j < order.length; j += 1) {
         const a = positions.get(order[i].id)!; const b = positions.get(order[j].id)!;
-        const overlapX = minGapX - Math.abs(b.x - a.x); const overlapY = minGapY - Math.abs(b.y - a.y);
+        const boxA = boxOf(order[i], a); const boxB = boxOf(order[j], b);
+        const overlapX = Math.min(boxA.x1, boxB.x1) - Math.max(boxA.x0, boxB.x0);
+        const overlapY = Math.min(boxA.y1, boxB.y1) - Math.max(boxA.y0, boxB.y0);
         if (overlapX <= 0 || overlapY <= 0) continue;
         moved = true;
-        if (overlapX / minGapX < overlapY / minGapY) { const push = (overlapX / 2 + 0.5) * (b.x - a.x < 0 ? -1 : 1); a.x -= push; b.x += push; }
-        else { const push = (overlapY / 2 + 0.5) * (b.y - a.y < 0 ? -1 : 1); a.y -= push; b.y += push; }
+        // Cap the shove so one huge label cannot fling a node across the map.
+        if (overlapX < overlapY) { const push = (Math.min(overlapX, 24) / 2 + 0.5) * (b.x - a.x < 0 ? -1 : 1); a.x -= push; b.x += push; }
+        else { const push = (Math.min(overlapY, 24) / 2 + 0.5) * (b.y - a.y < 0 ? -1 : 1); a.y -= push; b.y += push; }
         clampPoint(a); clampPoint(b);
       }
     }
