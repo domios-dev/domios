@@ -9,6 +9,7 @@ pub(super) struct DispatchRouting {
     pub agent: Option<String>,
     pub model: Option<String>,
     qualified_model: bool,
+    qualified_provider_mismatch: Option<String>,
 }
 
 pub(super) fn qualified_provider_model(
@@ -33,6 +34,20 @@ pub(super) fn unqualified_model_error(
 ) -> Option<JsonRpcError> {
     if routing.qualified_model {
         return None;
+    }
+    if let Some(requested_provider) = routing.qualified_provider_mismatch.as_deref() {
+        return Some(JsonRpcError {
+            code: -32602,
+            message: format!(
+                "model provider '{}' does not match explicitly selected provider '{}'",
+                requested_provider, provider
+            ),
+            data: Some(json!({
+                "type": "model_provider_mismatch",
+                "requested_provider": requested_provider,
+                "selected_provider": provider,
+            })),
+        });
     }
     Some(JsonRpcError {
         code: -32602,
@@ -60,10 +75,10 @@ pub(super) fn dispatch_worker_identity(
 }
 
 /// Resolve the provider and model a dispatch should spawn. Precedence: an explicit
-/// `agent` provider wins (any model rides along verbatim); otherwise a requested
-/// `<provider>:<model>` prefix is resolved against the live registry. A bare provider
-/// name selects its default model; a bare model remains a request for the default
-/// provider and is rejected if that provider cannot resolve it.
+/// `agent` provider wins; a matching `<provider>:<model>` prefix is
+/// normalized before provider resolution. Otherwise a requested qualified model
+/// prefix selects its provider. A bare provider name selects its default model;
+/// an unavailable model remains a refusal rather than a silent substitution.
 pub(super) fn resolve_dispatch_routing(
     explicit_agent: Option<String>,
     rpc_model: Option<String>,
@@ -73,10 +88,31 @@ pub(super) fn resolve_dispatch_routing(
     let clean = |s: Option<String>| s.filter(|v| !v.trim().is_empty());
     let requested_model = clean(rpc_model).or_else(|| clean(task_model));
     if let Some(agent) = clean(explicit_agent) {
+        if let Some(model) = requested_model.as_deref() {
+            if let Some((requested_provider, normalized_model)) =
+                qualified_provider_model(model, provider_ids)
+            {
+                if requested_provider.eq_ignore_ascii_case(&agent) {
+                    return DispatchRouting {
+                        agent: Some(agent),
+                        model: Some(normalized_model),
+                        qualified_model: true,
+                        qualified_provider_mismatch: None,
+                    };
+                }
+                return DispatchRouting {
+                    agent: Some(agent),
+                    model: requested_model,
+                    qualified_model: false,
+                    qualified_provider_mismatch: Some(requested_provider),
+                };
+            }
+        }
         return DispatchRouting {
             agent: Some(agent),
             model: requested_model,
             qualified_model: false,
+            qualified_provider_mismatch: None,
         };
     }
     if let Some(model) = requested_model {
@@ -85,6 +121,7 @@ pub(super) fn resolve_dispatch_routing(
                 agent: Some(agent),
                 model: Some(model),
                 qualified_model: true,
+                qualified_provider_mismatch: None,
             };
         }
         if provider_ids.iter().any(|p| p.eq_ignore_ascii_case(&model)) {
@@ -92,17 +129,20 @@ pub(super) fn resolve_dispatch_routing(
                 agent: Some(model),
                 model: None,
                 qualified_model: true,
+                qualified_provider_mismatch: None,
             };
         }
         return DispatchRouting {
             agent: None,
             model: Some(model),
             qualified_model: false,
+            qualified_provider_mismatch: None,
         };
     }
     DispatchRouting {
         agent: None,
         model: None,
         qualified_model: false,
+        qualified_provider_mismatch: None,
     }
 }

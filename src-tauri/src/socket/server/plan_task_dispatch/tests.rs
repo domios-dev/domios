@@ -1060,6 +1060,60 @@ fn routing_explicit_agent_wins_and_keeps_model() {
 }
 
 #[test]
+fn routing_explicit_agent_normalizes_matching_qualified_model() {
+    let r = resolve_dispatch_routing(
+        Some("codex".into()),
+        Some("codex:gpt-5.6-sol".into()),
+        None,
+        &providers(),
+    );
+    assert_eq!(r.agent.as_deref(), Some("codex"));
+    assert_eq!(r.model.as_deref(), Some("gpt-5.6-sol"));
+    assert!(r.qualified_model);
+    assert!(r.qualified_provider_mismatch.is_none());
+}
+
+#[test]
+fn routing_explicit_agent_rejects_mismatched_qualified_model() {
+    let r = resolve_dispatch_routing(
+        Some("codex".into()),
+        Some("claude:opus".into()),
+        None,
+        &providers(),
+    );
+    assert_eq!(r.agent.as_deref(), Some("codex"));
+    assert_eq!(r.model.as_deref(), Some("claude:opus"));
+    assert_eq!(r.qualified_provider_mismatch.as_deref(), Some("claude"));
+
+    let notice = crate::service::spawn::ModelFallbackNotice {
+        planned_model: Some("claude:opus".into()),
+        requested_model: "claude:opus".into(),
+        provider_resolved_model: "gpt-5.5".into(),
+        actual_model: None,
+        reason: "requested_model_unavailable".into(),
+    };
+    let error = unqualified_model_error(&r, "codex", &notice).unwrap();
+    assert_eq!(error.code, -32602);
+    let data = error.data.expect("provider mismatch data");
+    assert_eq!(data["type"], "model_provider_mismatch");
+    assert_eq!(data["requested_provider"], "claude");
+    assert_eq!(data["selected_provider"], "codex");
+    assert!(error.message.contains("does not match"));
+}
+
+#[test]
+fn routing_explicit_agent_preserves_malformed_qualified_models_for_refusal() {
+    for model in ["codex:", ":gpt-5.6-sol", "codex"] {
+        let r =
+            resolve_dispatch_routing(Some("codex".into()), Some(model.into()), None, &providers());
+        assert_eq!(r.agent.as_deref(), Some("codex"));
+        assert_eq!(r.model.as_deref(), Some(model));
+        assert!(!r.qualified_model);
+        assert!(r.qualified_provider_mismatch.is_none());
+    }
+}
+
+#[test]
 fn routing_model_naming_a_provider_becomes_that_provider() {
     // This is the exact BUG A repro: `--model codex` must route to the codex
     // provider at its default model, not to the default provider.
