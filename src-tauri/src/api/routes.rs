@@ -12,7 +12,8 @@ use tower_http::{
 
 use super::{
     agent_done_routes, agent_routes, ai_helper_routes, bridge_routes, clipboard_routes,
-    config_routes, cron_routes, debug_routes, fs_routes, health_routes, inbound_webhook,
+    config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
+    inbound_webhook,
     logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes, notification_routes,
     output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes, pty_routes,
     services_routes, session_routes, tab_agent_routes, tab_routes, task_routes,
@@ -120,6 +121,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/identify", get(health_routes::identify))
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
+        .route(
+            "/api/essence-maps",
+            get(essence_map_routes::list_essence_maps),
+        )
+        .route(
+            "/api/essence-source",
+            get(essence_map_routes::read_essence_source),
+        )
         .route(
             "/api/teams/{team_id}/rename",
             post(team_routes::rename_team),
