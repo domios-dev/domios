@@ -100,9 +100,39 @@ fn roundtrip(authorized: bool) {
     let continuation = bounce.continuation.unwrap();
     assert_eq!(continuation.attempt_id, attempt.id);
     assert_eq!(continuation.session_id, "verified-session");
-    assert!(store
+    store
         .claim_review_continuation_delivery(&plan, &task, &attempt.id, continuation.epoch, 7)
-        .unwrap());
+        .expect("valid continuation must be claimed");
+    let claimed = store.show_task(&task).unwrap().task;
+    assert_eq!(claimed.status, TaskStatus::InReview);
+    let claimed_attempt = claimed
+        .execution_attempts
+        .iter()
+        .find(|current| current.id == attempt.id)
+        .expect("same attempt remains persisted");
+    assert_eq!(
+        claimed_attempt.session_id.as_deref(),
+        Some("verified-session")
+    );
+    assert_eq!(claimed_attempt.continuation.epoch, continuation.epoch);
+    assert_eq!(
+        claimed_attempt.continuation.state.as_deref(),
+        Some("continuation_delivering")
+    );
+    assert_eq!(claimed_attempt.acknowledged_at, Some(4));
+    assert_eq!(claimed_attempt.reported_at, Some(5));
+    let before_refusal = serde_json::to_value(store.get(&plan).unwrap()).unwrap();
+    let refusal = store
+        .claim_review_continuation_delivery(&plan, &task, &attempt.id, continuation.epoch, 7)
+        .expect_err("a claimed continuation cannot be claimed twice");
+    assert!(matches!(
+        refusal,
+        PlanError::ReviewContinuationDeliveryRefused { .. }
+    ));
+    assert_eq!(
+        serde_json::to_value(store.get(&plan).unwrap()).unwrap(),
+        before_refusal
+    );
     assert!(store
         .finish_review_continuation(&plan, &task, &attempt.id, continuation.epoch, true, 8)
         .unwrap());
