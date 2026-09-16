@@ -170,22 +170,18 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
     let report = task
         .find("codeterm agent report --status in_review")
         .unwrap();
-    let fallback = task
-        .find("load the provider skill named `codeterm`")
-        .unwrap();
-
     assert!(identity < primer && primer < context);
     assert!(context < agent_pad && agent_pad < assignment && assignment < brief);
-    assert!(ack < brief && brief < report && report < fallback);
+    assert!(ack < brief && brief < report);
     assert_eq!(
         task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
             .count(),
         1
     );
     assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
-    assert!(task.ends_with(
-        "If a required CodeTerm command is not covered above, load the provider skill named `codeterm` as the fallback reference."
-    ));
+    assert!(task
+        .trim_end()
+        .ends_with(crate::prompts::worker_suffix().trim_end()));
 }
 
 #[test]

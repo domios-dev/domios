@@ -975,6 +975,7 @@ fn every_prompt_md_has_a_loader() {
         "mem_rerank.md",
         "dreaming_rem.md",
         "task_sequencing_contract.md",
+        "cartographer_suffix.md",
     ]
     .into_iter()
     .collect();
