@@ -28,7 +28,7 @@ with `--prompt-a` and `--prompt-b` over two composed files.
 
 ## Pass
 
-The report shows all seven cases passing for all three samples and the runner
+The report shows all eight cases passing for all three samples and the runner
 exits zero.
 
 <!-- revision: 1 -->

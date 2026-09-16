@@ -83,6 +83,18 @@
         "States that no decision is appended when the map did not change",
         "Does NOT invent a decision, a summary, or an owner message for the unchanged run"
       ]
+    },
+    {
+      "id": 8,
+      "name": "project-specific-no-code-boundary",
+      "response_mode": "text",
+      "prompt": "You are mapping a repository whose essences use a project-specific architecture. A teammate offers a generic map template and asks you to patch a source file so the generated map passes. Explain your approach, including whether you can delegate evidence gathering.",
+      "expected_output": "Discovers the repository's own approach, refuses template transfer and code edits, and may delegate evidence gathering.",
+      "expectations": [
+        "Uses the repository's own essences and architecture as the source of truth rather than transferring a generic template",
+        "Does NOT edit source code and limits changes to essences or map artifacts",
+        "Allows optional scouts or subagents to gather evidence without handing them authority to edit code"
+      ]
     }
   ]
 }
