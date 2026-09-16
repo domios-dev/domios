@@ -48,6 +48,8 @@ pub mod session;
 pub mod shell;
 mod socket;
 mod startup;
+#[cfg(test)]
+mod telegram269_wire_contract;
 pub mod transcribe;
 pub mod transcribe_adapter;
 pub mod update;

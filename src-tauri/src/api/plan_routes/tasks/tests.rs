@@ -185,7 +185,7 @@ fn rest_update_external_refs_round_trips_non_null() {
 }
 
 #[test]
-fn rest_respawn_persists_spawned_attempt_title_and_session() {
+fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
     let dir = tempfile::tempdir().unwrap();
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mux_state, _) = MultiplexerState::new();
@@ -278,7 +278,10 @@ fn rest_respawn_persists_spawned_attempt_title_and_session() {
         .find(|attempt| attempt.id == persisted.attempt.id)
         .unwrap();
     assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
-    assert_eq!(attempt.session_id.as_deref(), Some("rest-session"));
+    assert!(attempt.session_id.is_none());
+    assert!(attempt.session_binding_nonce.is_none());
+    assert!(attempt.acknowledged_at.is_none());
+    assert_eq!(task.task.status_label.as_deref(), Some("starting"));
 }
 
 // The ack-deadline hint is offered to an Orchestrator as a runnable recovery

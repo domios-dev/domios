@@ -730,11 +730,8 @@ impl ServiceContext {
 
     fn authenticated_worker_binding(&self, tab_id: &str) -> Option<(String, String)> {
         self.mux.read().get_tab(tab_id).and_then(|tab| {
-            let session_id = tab.agent_session_id.clone()?.trim().to_string();
-            let nonce = tab.session_binding_nonce.clone()?;
-            (!session_id.is_empty()
-                && tab.reported_session_binding_nonce.as_deref() == Some(nonce.as_str()))
-            .then_some((session_id, nonce))
+            super::task_assignment::authenticated_tab_binding(tab)
+                .map(|binding| (binding.session_id, binding.session_binding_nonce))
         })
     }
 
