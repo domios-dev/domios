@@ -337,7 +337,7 @@ function placeRegion(
   };
 }
 
-export function layoutEssenceMapProject(
+function layoutEssenceMapProjectGrid(
   nodes: EssenceMapNode[],
   availableWidth: number,
   edges: EssenceMapEdge[] = [],
@@ -432,12 +432,45 @@ export function layoutEssenceMapProject(
   };
 }
 
+function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidth: number): EssenceMapProjectLayout {
+  const width = Math.max(560, Math.floor(availableWidth));
+  const height = 900;
+  const cardWidth = Math.min(180, width - 32);
+  const center = { x: width / 2, y: 430 };
+  const vectors = sortedNodes(nodes.filter((node) => node.type === "vector"));
+  const capabilities = sortedNodes(nodes.filter((node) => node.type === "capability"));
+  const core = sortedNodes(nodes.filter((node) => node.type === "core"));
+  const clients = sortedNodes(nodes.filter((node) => node.type === "client"));
+  const vectorRadius = Math.min(270, width / 2 - cardWidth / 2 - 18);
+  const clientRadius = Math.min(380, width / 2 - cardWidth / 2 - 18);
+  const positions = new Map<string, { x: number; y: number }>();
+  const put = (node: EssenceMapNode, x: number, y: number) => positions.set(node.id, { x: Math.max(cardWidth / 2 + 4, Math.min(width - cardWidth / 2 - 4, x)), y: Math.max(48, Math.min(height - 48, y)) });
+  vectors.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(vectors.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * vectorRadius, center.y + Math.sin(angle) * vectorRadius); });
+  const byVector = new Map<string, EssenceMapNode[]>();
+  for (const node of capabilities) { const group = byVector.get(node.vector ?? "") ?? []; group.push(node); byVector.set(node.vector ?? "", group); }
+  vectors.forEach((vector) => { const group = byVector.get(vector.id) ?? []; const anchor = positions.get(vector.id)!; const spread = group.length === 2 ? 1.8 : 0.62; group.forEach((node, index) => { const angle = Math.atan2(anchor.y - center.y, anchor.x - center.x) + (index - (group.length - 1) / 2) * spread; put(node, anchor.x + Math.cos(angle) * 112, anchor.y + Math.sin(angle) * 112); }); });
+  for (const node of capabilities) if (!positions.has(node.id)) put(node, center.x, center.y - 112);
+  core.forEach((node, index) => { const angle = index * 2.4; const radius = Math.min(112, 50 + core.length * 30); put(node, center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius); });
+  clients.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(clients.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * clientRadius, center.y + Math.sin(angle) * clientRadius); });
+  const layouts = [...vectors, ...capabilities, ...core, ...clients].map((node) => { const point = positions.get(node.id) ?? center; return { node, x: point.x - cardWidth / 2, y: point.y - NODE_HEIGHT / 2, width: cardWidth, height: NODE_HEIGHT }; });
+  const nodeById = new Map(layouts.map((item) => [item.node.id, item]));
+  const boundsFor = (items: EssenceMapNodeLayout[]) => { const minX = Math.max(8, Math.min(...items.map((item) => item.x)) - 18); const minY = Math.max(8, Math.min(...items.map((item) => item.y)) - 28); const maxX = Math.min(width - 8, Math.max(...items.map((item) => item.x + item.width)) + 18); const maxY = Math.min(height - 8, Math.max(...items.map((item) => item.y + item.height)) + 28); return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }; };
+  const clusters = vectors.map((vector, index) => { const items = layouts.filter((item) => item.node.id === vector.id || item.node.vector === vector.id); const bounds = boundsFor(items); return { vectorId: vector.id, vector, colorIndex: index, ...bounds, nodeIds: items.map((item) => item.node.id) }; });
+  const unassigned = layouts.filter((item) => item.node.type === "capability" && !item.node.vector); if (unassigned.length) clusters.push({ vectorId: null, vector: null, colorIndex: vectors.length, ...boundsFor(unassigned), nodeIds: unassigned.map((item) => item.node.id) });
+  const regions = ([{ type: "core" as const, label: "Core parts", items: core }, { type: "client" as const, label: "Clients", items: clients }]).filter(({ items }) => items.length > 0).map(({ type, label, items }) => ({ type, label, ...boundsFor(items), nodeIds: items.map((node) => node.id) }));
+  return { width, height, nodes: layouts, nodeById, clusters, regions };
+}
+
+export function layoutEssenceMapProject(nodes: EssenceMapNode[], availableWidth: number, edges: EssenceMapEdge[] = []): EssenceMapProjectLayout {
+  return availableWidth < 560 ? layoutEssenceMapProjectGrid(nodes, availableWidth, edges) : layoutEssenceMapProjectClustered(nodes, availableWidth);
+}
+
 export function layoutEssenceMapWorld(
   projects: EssenceMapProject[],
   availableWidth: number,
 ): EssenceMapWorldLayout {
   const viewportWidth = Math.max(280, Math.floor(availableWidth));
-  const mapWidth = Math.max(560, Math.min(900, viewportWidth - 48));
+  const mapWidth = Math.max(760, Math.min(900, viewportWidth - 48));
   const columns = viewportWidth >= 1100 ? 2 : 1;
   const gap = 72;
   const projectHeaderHeight = 58;

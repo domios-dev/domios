@@ -267,7 +267,8 @@ describe("map_canvas workspace essence map", () => {
     expect(host.querySelectorAll('[data-testid="essence-map-edge"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="essence-map-edge"]')?.getAttribute("d")).toContain("C");
     expect(buttons[0].getAttribute("data-node-type")).toBe("vector");
-    expect(host.querySelector('[data-testid="essence-map-projects"]')?.className).toContain("overflow-x-hidden");
+    expect(host.querySelector('[data-testid="essence-map-projects"]')?.className).toContain("overflow-hidden");
+    expect(host.querySelector('[data-testid="essence-map-project-world"]')?.getAttribute("style")).toContain("height");
   });
 
   it("exposes the workspace map action beside the menu and activates its callback", async () => {
