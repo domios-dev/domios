@@ -182,46 +182,239 @@ export interface EssenceMapNodeLayout {
   height: number;
 }
 
+export interface EssenceMapClusterLayout {
+  vectorId: string | null;
+  vector: EssenceMapNode | null;
+  colorIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  nodeIds: string[];
+}
+
+export interface EssenceMapRegionLayout {
+  type: "core" | "client";
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  nodeIds: string[];
+}
+
 export interface EssenceMapProjectLayout {
   width: number;
   height: number;
   nodes: EssenceMapNodeLayout[];
   nodeById: Map<string, EssenceMapNodeLayout>;
+  clusters: EssenceMapClusterLayout[];
+  regions: EssenceMapRegionLayout[];
 }
 
-const NODE_HEIGHT = 76;
-const NODE_GAP = 10;
-const ROW_GAP = 20;
-const CLUSTER_PADDING = 18;
+const NODE_HEIGHT = 84;
+const NODE_GAP = 12;
+const SECTION_GAP = 32;
+const CLUSTER_GAP = 16;
+const CANVAS_PADDING = 18;
+const CLUSTER_PADDING = 12;
+const CLUSTER_HEADER_HEIGHT = 26;
+const REGION_HEADER_HEIGHT = 28;
+const REGION_PADDING = 14;
+
+function layoutColumns(width: number): number {
+  if (width >= 1080) return 7;
+  if (width >= 800) return 4;
+  if (width >= 560) return 3;
+  if (width >= 460) return 2;
+  return 1;
+}
+
+function sortedNodes(nodes: EssenceMapNode[]): EssenceMapNode[] {
+  return [...nodes].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function gridHeight(count: number, columns: number): number {
+  if (count === 0) return 0;
+  const rows = Math.ceil(count / columns);
+  return rows * NODE_HEIGHT + Math.max(0, rows - 1) * NODE_GAP;
+}
+
+function gridX(index: number, columns: number, cardWidth: number, gap: number, width: number): number {
+  const contentWidth = columns * cardWidth + Math.max(0, columns - 1) * gap;
+  return Math.floor((width - contentWidth) / 2) + index * (cardWidth + gap);
+}
+
+function edgeSignature(nodeId: string, edges: EssenceMapEdge[]): string {
+  return edges
+    .filter((edge) => edge.from === nodeId)
+    .map((edge) => `${edge.type}:${edge.to}`)
+    .sort()
+    .join("|");
+}
+
+function orderedCapabilities(
+  nodes: EssenceMapNode[],
+  edges: EssenceMapEdge[],
+  targetIndexes: Map<string, number>,
+): EssenceMapNode[] {
+  return [...nodes].sort((a, b) => {
+    const aTargets = edges.filter((edge) => edge.from === a.id).map((edge) => targetIndexes.get(edge.to) ?? Number.POSITIVE_INFINITY);
+    const bTargets = edges.filter((edge) => edge.from === b.id).map((edge) => targetIndexes.get(edge.to) ?? Number.POSITIVE_INFINITY);
+    const aScore = aTargets.length === 0 ? Number.POSITIVE_INFINITY : aTargets.reduce((sum, index) => sum + index, 0) / aTargets.length;
+    const bScore = bTargets.length === 0 ? Number.POSITIVE_INFINITY : bTargets.reduce((sum, index) => sum + index, 0) / bTargets.length;
+    const scoreOrder = aScore - bScore;
+    const signatureOrder = edgeSignature(a.id, edges).localeCompare(edgeSignature(b.id, edges));
+    return scoreOrder || signatureOrder || a.id.localeCompare(b.id);
+  });
+}
+
+function orderedCoreNodes(
+  nodes: EssenceMapNode[],
+  edges: EssenceMapEdge[],
+  vectorIndexes: Map<string, number>,
+): EssenceMapNode[] {
+  const scores = new Map<string, number>();
+  for (const core of nodes) {
+    const incoming = edges
+      .filter((edge) => edge.to === core.id)
+      .map((edge) => vectorIndexes.get(edge.from) ?? -1)
+      .filter((index) => index >= 0);
+    scores.set(core.id, incoming.length === 0 ? Number.POSITIVE_INFINITY : incoming.reduce((sum, index) => sum + index, 0) / incoming.length);
+  }
+  return [...nodes].sort((a, b) => (scores.get(a.id)! - scores.get(b.id)!) || a.id.localeCompare(b.id));
+}
+
+function placeNode(
+  layouts: EssenceMapNodeLayout[],
+  node: EssenceMapNode,
+  x: number,
+  y: number,
+  width: number,
+): EssenceMapNodeLayout {
+  const layout = { node, x, y, width, height: NODE_HEIGHT };
+  layouts.push(layout);
+  return layout;
+}
+
+function placeRegion(
+  layouts: EssenceMapNodeLayout[],
+  type: "core" | "client",
+  nodes: EssenceMapNode[],
+  y: number,
+  contentWidth: number,
+  columns: number,
+): EssenceMapRegionLayout {
+  const cardWidth = Math.floor((contentWidth - Math.max(0, columns - 1) * CLUSTER_GAP) / columns);
+  const contentY = y + REGION_HEADER_HEIGHT;
+  for (const [index, node] of nodes.entries()) {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    placeNode(layouts, node, CANVAS_PADDING + gridX(column, columns, cardWidth, CLUSTER_GAP, contentWidth), contentY + row * (NODE_HEIGHT + NODE_GAP), cardWidth);
+  }
+  const height = REGION_HEADER_HEIGHT + gridHeight(nodes.length, columns) + REGION_PADDING;
+  return {
+    type,
+    label: type === "core" ? "Core parts" : "Clients",
+    x: CANVAS_PADDING,
+    y,
+    width: contentWidth,
+    height,
+    nodeIds: nodes.map((node) => node.id),
+  };
+}
 
 export function layoutEssenceMapProject(
   nodes: EssenceMapNode[],
   availableWidth: number,
+  edges: EssenceMapEdge[] = [],
 ): EssenceMapProjectLayout {
   const width = Math.max(280, Math.floor(availableWidth));
-  const columns = width >= 720 ? 4 : width >= 500 ? 3 : 2;
-  const cardWidth = Math.max(124, Math.floor((width - (columns - 1) * NODE_GAP - CLUSTER_PADDING * 2) / columns));
-  const byType = new Map<EssenceMapNodeType, EssenceMapNode[]>();
-  for (const type of NODE_TYPES) byType.set(type, []);
-  for (const node of nodes) byType.get(node.type)?.push(node);
-  for (const group of byType.values()) group.sort((a, b) => a.id.localeCompare(b.id));
-
-  const layouts: EssenceMapNodeLayout[] = [];
-  let y = CLUSTER_PADDING;
-  for (const type of NODE_TYPES) {
-    const group = byType.get(type) ?? [];
-    if (group.length === 0) continue;
-    for (const [index, node] of group.entries()) {
-      layouts.push({
-        node,
-        x: CLUSTER_PADDING + (index % columns) * (cardWidth + NODE_GAP),
-        y: y + Math.floor(index / columns) * (NODE_HEIGHT + NODE_GAP),
-        width: cardWidth,
-        height: NODE_HEIGHT,
-      });
-    }
-    y += Math.ceil(group.length / columns) * (NODE_HEIGHT + NODE_GAP) + ROW_GAP;
+  const columns = layoutColumns(width);
+  const contentWidth = width - CANVAS_PADDING * 2;
+  const clusterWidth = Math.floor((contentWidth - Math.max(0, columns - 1) * CLUSTER_GAP) / columns);
+  const vectorNodes = sortedNodes(nodes.filter((node) => node.type === "vector"));
+  const vectorIndexes = new Map(vectorNodes.map((node, index) => [node.id, index]));
+  const capabilityVectorIndexes = new Map(
+    nodes
+      .filter((node) => node.type === "capability" && node.vector !== null && vectorIndexes.has(node.vector))
+      .map((node) => [node.id, vectorIndexes.get(node.vector!)!]),
+  );
+  const coreNodes = orderedCoreNodes(nodes.filter((node) => node.type === "core"), edges, capabilityVectorIndexes);
+  const coreIndexes = new Map(coreNodes.map((node, index) => [node.id, index]));
+  const capabilitiesByVector = new Map<string | null, EssenceMapNode[]>();
+  for (const node of nodes.filter((candidate) => candidate.type === "capability")) {
+    const key = vectorIndexes.has(node.vector ?? "") ? node.vector : null;
+    const group = capabilitiesByVector.get(key) ?? [];
+    group.push(node);
+    capabilitiesByVector.set(key, group);
   }
-  const height = Math.max(150, y - ROW_GAP + CLUSTER_PADDING);
-  return { width, height, nodes: layouts, nodeById: new Map(layouts.map((item) => [item.node.id, item])) };
+  const clusterKeys = vectorNodes.map((node) => node.id);
+  if (capabilitiesByVector.has(null)) clusterKeys.push("__unassigned__");
+  const layouts: EssenceMapNodeLayout[] = [];
+  const clusters: EssenceMapClusterLayout[] = [];
+  let y = CANVAS_PADDING;
+  for (let rowStart = 0; rowStart < clusterKeys.length; rowStart += columns) {
+    const rowKeys = clusterKeys.slice(rowStart, rowStart + columns);
+    const rowClusters: EssenceMapClusterLayout[] = [];
+    for (const [column, key] of rowKeys.entries()) {
+      const vector = vectorNodes.find((node) => node.id === key) ?? null;
+      const capabilities = orderedCapabilities(capabilitiesByVector.get(vector?.id ?? null) ?? [], edges, coreIndexes);
+      const clusterHeight = CLUSTER_HEADER_HEIGHT
+        + (vector ? NODE_HEIGHT + (capabilities.length > 0 ? NODE_GAP : 0) : 0)
+        + gridHeight(capabilities.length, 1)
+        + CLUSTER_PADDING;
+      const x = CANVAS_PADDING + column * (clusterWidth + CLUSTER_GAP);
+      const cluster = {
+        vectorId: vector?.id ?? null,
+        vector,
+        colorIndex: rowStart + column,
+        x,
+        y,
+        width: clusterWidth,
+        height: clusterHeight,
+        nodeIds: [] as string[],
+      };
+      const cardWidth = clusterWidth - CLUSTER_PADDING * 2;
+      let nodeY = y + CLUSTER_HEADER_HEIGHT;
+      if (vector) {
+        placeNode(layouts, vector, x + CLUSTER_PADDING, nodeY, cardWidth);
+        cluster.nodeIds.push(vector.id);
+        nodeY += NODE_HEIGHT + NODE_GAP;
+      }
+      if (capabilities.length > 0) {
+        for (const capability of capabilities) {
+          placeNode(layouts, capability, x + CLUSTER_PADDING, nodeY, cardWidth);
+          cluster.nodeIds.push(capability.id);
+          nodeY += NODE_HEIGHT + NODE_GAP;
+        }
+      }
+      rowClusters.push(cluster);
+    }
+    clusters.push(...rowClusters);
+    y += Math.max(...rowClusters.map((cluster) => cluster.height)) + SECTION_GAP;
+  }
+
+  const clientNodes = sortedNodes(nodes.filter((node) => node.type === "client"));
+  const regions: EssenceMapRegionLayout[] = [];
+  if (coreNodes.length > 0) {
+    const region = placeRegion(layouts, "core", coreNodes, y, contentWidth, columns);
+    regions.push(region);
+    y += region.height + SECTION_GAP;
+  }
+  if (clientNodes.length > 0) {
+    const clientColumns = Math.min(2, columns);
+    const region = placeRegion(layouts, "client", clientNodes, y, contentWidth, clientColumns);
+    regions.push(region);
+    y += region.height + SECTION_GAP;
+  }
+  const height = Math.max(150, y - SECTION_GAP + CANVAS_PADDING);
+  return {
+    width,
+    height,
+    nodes: layouts,
+    nodeById: new Map(layouts.map((item) => [item.node.id, item])),
+    clusters,
+    regions,
+  };
 }

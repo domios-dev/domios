@@ -9,6 +9,7 @@ import {
   layoutEssenceMapProject,
   parseEssenceMapJsonl,
   projectPathsForWorkspace,
+  type EssenceMapEdge,
   type EssenceMapFile,
   type EssenceMapNode,
 } from "./essenceMapModel";
@@ -42,12 +43,20 @@ const source = {
   sha256: "a".repeat(64),
 };
 
-const node = (id: string, type: EssenceMapNode["type"], label: string): EssenceMapNode => ({
+const node = (id: string, type: EssenceMapNode["type"], label: string, vector: string | null = null): EssenceMapNode => ({
   kind: "node",
   id,
   type,
   label,
-  vector: null,
+  vector,
+  source,
+});
+
+const edge = (from: string, to: string, type: EssenceMapEdge["type"]): EssenceMapEdge => ({
+  kind: "edge",
+  from,
+  to,
+  type,
   source,
 });
 
@@ -137,6 +146,36 @@ const validRecords = [
   },
 ];
 
+const graphVectors = Array.from({ length: 7 }, (_, index) => node(`vector:${index}`, "vector", `Vector ${index}`));
+const graphCapabilities = graphVectors.flatMap((vector, vectorIndex) => [
+  node(`capability:${vectorIndex}:a`, "capability", `Capability ${vectorIndex} A`, vector.id),
+  node(`capability:${vectorIndex}:b`, "capability", `Capability ${vectorIndex} B`, vector.id),
+]);
+const graphCore = [
+  node("core:agents", "core", "Agents and providers"),
+  node("core:plans", "core", "Plans and orchestration"),
+  node("core:host", "core", "Host state"),
+];
+const graphClients = [node("client:cli", "client", "CLI"), node("client:ui", "client", "UI")];
+const graphNodes = [...graphVectors, ...graphCapabilities, ...graphCore, ...graphClients];
+const graphEdges = [
+  ...graphCapabilities.map((capability, index) => edge(capability.id, graphCore[index % graphCore.length].id, "runs_on")),
+  edge("capability:0:a", "capability:0:b", "feeds"),
+  edge("core:agents", "core:plans", "part_of"),
+  edge("client:cli", "core:host", "client_of"),
+  edge("client:ui", "core:agents", "client_of"),
+];
+
+function rectanglesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+): boolean {
+  return first.x < second.x + second.width
+    && first.x + first.width > second.x
+    && first.y < second.y + second.height
+    && first.y + first.height > second.y;
+}
+
 describe("map_canvas workspace essence map", () => {
   it("keeps only valid source-backed records", () => {
     const parsed = parseEssenceMapJsonl(validRecords.map((record) => JSON.stringify(record)).join("\n"));
@@ -157,6 +196,41 @@ describe("map_canvas workspace essence map", () => {
     expect(layout.nodes.map((item) => item.node.id)).toEqual(repeat.nodes.map((item) => item.node.id));
   });
 
+  it("map_canvas_layout groups each capability beside its vector hub", () => {
+    const layout = layoutEssenceMapProject(graphNodes, 1180, graphEdges);
+    expect(layout.clusters.filter((cluster) => cluster.vector !== null)).toHaveLength(7);
+    expect(layout.clusters.every((cluster) => cluster.nodeIds.includes(cluster.vector?.id ?? ""))).toBe(true);
+    for (const capability of graphCapabilities) {
+      const cluster = layout.clusters.find((candidate) => candidate.nodeIds.includes(capability.id));
+      expect(cluster?.vectorId).toBe(capability.vector);
+      expect(cluster && cluster.y < layout.nodeById.get(capability.id)!.y).toBe(true);
+    }
+    expect(layout.regions.map((region) => region.label)).toEqual(["Core parts", "Clients"]);
+  });
+
+  it("map_canvas_layout is deterministic, bounded, non-overlapping, and complete", () => {
+    const layout = layoutEssenceMapProject(graphNodes, 1180, graphEdges);
+    const repeat = layoutEssenceMapProject(graphNodes, 1180, graphEdges);
+    expect(layout.nodes.map(({ node, x, y, width, height }) => [node.id, x, y, width, height])).toEqual(
+      repeat.nodes.map(({ node, x, y, width, height }) => [node.id, x, y, width, height]),
+    );
+    expect(layout.nodes.every((item) => item.x >= 0 && item.y >= 0 && item.x + item.width <= layout.width)).toBe(true);
+    expect(layout.nodes.every((item, index) => layout.nodes.slice(index + 1).every((other) => !rectanglesOverlap(item, other)))).toBe(true);
+    expect(graphEdges).toHaveLength(18);
+    expect(graphEdges.every((item) => layout.nodeById.has(item.from) && layout.nodeById.has(item.to))).toBe(true);
+  });
+
+  it("map_canvas_layout simplifies phone placement without horizontal overflow", () => {
+    const layout = layoutEssenceMapProject(graphNodes, 390, graphEdges);
+    const core = layout.regions.find((region) => region.type === "core");
+    const clients = layout.regions.find((region) => region.type === "client");
+    expect(layout.width).toBeLessThanOrEqual(390);
+    expect(layout.nodes.every((item) => item.x >= 0 && item.x + item.width <= layout.width)).toBe(true);
+    expect(layout.nodes.every((item, index) => layout.nodes.slice(index + 1).every((other) => !rectanglesOverlap(item, other)))).toBe(true);
+    expect(new Set(layout.nodes.filter((item) => item.node.type === "vector").map((item) => item.x)).size).toBe(1);
+    expect(clients && core && clients.y > core.y + core.height).toBe(true);
+  });
+
   it("collects each workspace project tree once", () => {
     const paths = projectPathsForWorkspace(workspace, {
       "tab-a": { cwd: "/repo/a" },
@@ -175,6 +249,9 @@ describe("map_canvas workspace essence map", () => {
     const buttons = host.querySelectorAll<HTMLButtonElement>('[data-testid="essence-map-node"]');
     expect(buttons).toHaveLength(3);
     expect(buttons[0].getAttribute("aria-label")).toBe("One vector (vector)");
+    expect(host.querySelectorAll("svg path")).toHaveLength(1);
+    expect(host.querySelector("svg path")?.getAttribute("d")).toContain("C");
+    expect(buttons[0].getAttribute("data-node-type")).toBe("vector");
     expect(host.querySelector('[data-testid="essence-map-projects"]')?.className).toContain("overflow-x-hidden");
   });
 
