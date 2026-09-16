@@ -62,6 +62,28 @@ pub fn render_reconcile(val: &Value) -> String {
     out
 }
 
+pub fn annotate_reconcile_json(val: &mut Value) {
+    let Some(items) = val.get_mut("drift").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for item in items {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        let plan_id = object.get("plan_id").and_then(Value::as_str).unwrap_or("?");
+        let task_id = object.get("task_id").and_then(Value::as_str).unwrap_or("?");
+        let kind = object.get("kind").and_then(Value::as_str).unwrap_or("");
+        object.insert(
+            "suggested_guidance".into(),
+            serde_json::json!({
+                "kind": "executable_command",
+                "command": reconcile_command(plan_id, task_id, kind),
+                "fix_label": object.get("suggested_fix").cloned().unwrap_or(Value::Null)
+            }),
+        );
+    }
+}
+
 fn reconcile_command(plan_id: &str, task_id: &str, kind: &str) -> String {
     match kind {
         "stale_in_review" | "accepted_but_not_done" => {
@@ -78,7 +100,7 @@ fn reconcile_command(plan_id: &str, task_id: &str, kind: &str) -> String {
 mod tests {
     use serde_json::json;
 
-    use super::render_reconcile;
+    use super::{annotate_reconcile_json, render_reconcile};
 
     #[test]
     fn render_reconcile_includes_exact_plan_and_task_commands() {
@@ -107,5 +129,26 @@ mod tests {
         assert!(rendered.contains(
             "codeterm task show task_b && codeterm plan task update pl_1 task_b --status blocked --status-label needs-reassign"
         ));
+    }
+
+    #[test]
+    fn failclosed_exit_reconcile_json_labels_command_guidance() {
+        let mut value = json!({
+            "drift": [{
+                "plan_id": "pl_1",
+                "task_id": "task_a",
+                "kind": "stale_in_review",
+                "suggested_fix": "stale-review"
+            }]
+        });
+        annotate_reconcile_json(&mut value);
+        let guidance = &value["drift"][0]["suggested_guidance"];
+        assert_eq!(guidance["kind"], "executable_command");
+        assert_eq!(guidance["fix_label"], "stale-review");
+        assert_eq!(
+            guidance["command"],
+            "codeterm task show task_a && codeterm plan task close pl_1 task_a"
+        );
+        assert!(!guidance["command"].as_str().unwrap().contains("stale-review"));
     }
 }
