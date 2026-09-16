@@ -15,7 +15,7 @@ fn fixture_root() -> TempDir {
     let temp = tempfile::tempdir().expect("create essence map fixture");
     let essences = temp.path().join("essences");
     fs::create_dir_all(&essences).expect("create fixture essences");
-    for name in ["CAPABILITIES.md", "CORE.md"] {
+    for name in ["capabilities.md", "core.md"] {
         fs::copy(
             source_root().join("essences").join(name),
             essences.join(name),
@@ -113,7 +113,7 @@ fn essence_map_integrity_validator_rejects_hand_authored_self_parent_edges() {
 fn essence_map_integrity_normalizes_crlf_before_parsing_and_hashing() {
     let lf = fixture_root();
     let crlf = fixture_root();
-    for name in ["CAPABILITIES.md", "CORE.md"] {
+    for name in ["capabilities.md", "core.md"] {
         let lf_path = lf.path().join("essences").join(name);
         let crlf_path = crlf.path().join("essences").join(name);
         let text = fs::read_to_string(&lf_path).expect("read fixture source");
@@ -140,7 +140,7 @@ fn essence_map_integrity_refreshes_stale_digests_without_changing_semantic_links
     let map = fixture.path().join("essences/map.jsonl");
     generate(fixture.path(), &map).expect("generate initial map");
     let before = super::read_map(&map).expect("read initial map");
-    let core = fixture.path().join("essences/CORE.md");
+    let core = fixture.path().join("essences/core.md");
     let source = fs::read_to_string(&core).expect("read core source");
     fs::write(&core, format!("{source}\n<!-- integrity fixture -->\n"))
         .expect("change core source");
@@ -292,7 +292,7 @@ fn essence_map_contract_rejects_budget_overflow() {
 fn essence_map_contract_rejects_stale_source_references() {
     let fixture = fixture_root();
     let (map, decisions, _) = valid_map(fixture.path());
-    let capabilities = fixture.path().join("essences/CAPABILITIES.md");
+    let capabilities = fixture.path().join("essences/capabilities.md");
     let mut source = fs::read_to_string(&capabilities).expect("read capabilities");
     source.push_str("\n<!-- source changed -->\n");
     fs::write(&capabilities, source).expect("change source essence");

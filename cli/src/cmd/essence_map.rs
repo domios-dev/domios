@@ -11,8 +11,8 @@ use crate::args::essence_map::{EssenceMapAction, EssenceMapPaths};
 pub(crate) mod journal;
 
 pub(crate) const MAX_NODE_COUNT: usize = 100;
-const CAPABILITIES_PATH: &str = "essences/CAPABILITIES.md";
-const CORE_PATH: &str = "essences/CORE.md";
+const CAPABILITIES_PATH: &str = "essences/capabilities.md";
+const CORE_PATH: &str = "essences/core.md";
 const MAP_PATH: &str = "essences/map.jsonl";
 const DECISIONS_PATH: &str = "essences/decisions.jsonl";
 

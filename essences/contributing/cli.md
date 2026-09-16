@@ -6,10 +6,10 @@ When you add/rename/remove a command or flag:
 
 1. Edit the clap definition in `cli/src/args/`.
 2. In canonical, regenerate `essences/cli-manifest.json`, the auto-block of
-   `essences/CLI.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` with
+   `essences/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` with
    `cli-manifest --write` run by the CLI built from this checkout (`./build.sh cli`
    does both, and also installs into the active dev data directory; see
-   `essences/BUILD.md` for regenerating without installing). Never hand-edit these
+   `essences/build.md` for regenerating without installing). Never hand-edit these
    three files, and never regenerate them with the installed `codeterm`.
 3. If agent-facing behavior changed, update the wording in
    `src-tauri/prompts/codeterm_cli.md` (it is validated, not generated). For
@@ -37,7 +37,7 @@ CI (`.github/workflows/cli-source-of-truth.yml`) runs all of the above.
   surface offers as a runnable `codeterm …` command resolves to a real
   subcommand chain, and every `--long` on it is an option of that leaf or an
   inherited global. Corpus: the embedded `DOCS`, `skills/**`,
-  `src-tauri/prompts/**`, `essences/CLI.md`, and all clap help text.
+  `src-tauri/prompts/**`, `essences/cli.md`, and all clap help text.
 - `every_docs_md_is_embedded_or_explicitly_excluded` — a new `docs/*.md` must
   either join `cmd::docs::DOCS` or be named in `DOCS_EXCLUDED_FROM_EMBEDDING`
   with a reason. Coverage is a decision, never a default.
@@ -90,7 +90,7 @@ must run without the daemon (filesystem-local: `plugin`, `docs`, `system`,
 `config`, `cli-manifest`, `essence-map`) are short-circuited early in
 `cli/src/main.rs` before socket discovery — but they are still real clap
 variants, so they appear in the manifest and docs. The `essence-map` command
-reads only `essences/CAPABILITIES.md` and `essences/CORE.md`; its JSONL contract
+reads only `essences/capabilities.md` and `essences/core.md`; its JSONL contract
 and source-digest checks are documented in `codeterm docs ESSENCE-MAP`. Do not
 reintroduce a separate hand-rolled arg parser.
 
