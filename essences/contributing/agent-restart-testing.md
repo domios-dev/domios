@@ -175,4 +175,3 @@ the tab `absent`, then run `codeterm agent restart --tab $TAB`. It returns
 dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
 PTY, and a Chat UI send is delivered without `tab_busy_refused`.
 
-<!-- revision: 7 -->

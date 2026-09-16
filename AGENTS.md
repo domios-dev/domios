@@ -387,7 +387,7 @@ PRs that target a non-default integration branch declare each fixed source-repo 
 
 ## Documentation
 
-Read `essences/BEGIN_HERE.md` before editing any doc, and bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
+Read `essences/BEGIN_HERE.md` before editing any doc. Bump the `<!-- revision: N -->` tag at the bottom of any `prod-docs/` doc you change; essence docs carry no revision tag.
 
 - `essences/` — internal, never ships: `essences/CAPABILITIES.md` (capability map), `essences/CORE.md` (core parts, clients, routing spine), `essences/VISION.md`, `essences/BUILD.md` and `essences/BUILD-REFERENCE.md`, `essences/RELEASE.md` (release map), `essences/TESTING.md` and `essences/E2E-TESTING.md`, `essences/PLUGINS.md` (what is published where: npm `@codeterm/plugin-sdk`, in-repo `plugins/provider-*` → embedded `codeterm-core` channel, external `rollacode/codeterm-plugins` → marketplace channel; read its "Ecosystem at a glance" before touching anything plugin- or npm-related), the generated `essences/CLI.md` and `essences/cli-manifest.json`, and `essences/contributing/` (agents, style, architecture, providers, PTY delivery, per-feature testing recipes).
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/PROMPTS.md`, `prod-docs/TAB-LIFECYCLE.md`.

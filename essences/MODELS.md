@@ -360,4 +360,3 @@ codeterm agent providers --json | jq '.providers[] | {id, default_model, models:
 - `~/.codeterm/models/README.md` — short user-facing pointer (auto-installed)
 - `src-tauri/crates/codeterm-plugin/src/model_catalog.rs` — override/catalog implementation
 - `essences/contributing/architecture.md` — plugin architecture overview
-<!-- revision: 6 -->

@@ -62,4 +62,3 @@ Core stays small: one service layer over PTY, agents, plans, the message gateway
 6. **Terminal-native** — the terminal is the universal interface; don't fight it, enhance it
 7. **Progressive capability** — works standalone, gets better with mesh, gets smarter with memory
 
-<!-- revision: 1 -->

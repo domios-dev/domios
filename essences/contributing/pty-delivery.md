@@ -125,4 +125,3 @@ refusal never re-writes the payload: the single write already happened upstream.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 12 -->

@@ -94,4 +94,3 @@ reads only `essences/CAPABILITIES.md` and `essences/CORE.md`; its JSONL contract
 and source-digest checks are documented in `codeterm docs ESSENCE-MAP`. Do not
 reintroduce a separate hand-rolled arg parser.
 
-<!-- revision: 9 -->

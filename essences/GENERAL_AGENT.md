@@ -137,4 +137,3 @@ Skills are documented in the injected CLI reference. The GA prompt does not dupl
 - Claude rule install: `src-tauri/src/plugin/agent_claude/provider/integration.rs`
 - Secrets implementation: `src-tauri/src/secrets/`
 
-<!-- revision: 8 -->

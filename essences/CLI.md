@@ -1,6 +1,5 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 66 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —

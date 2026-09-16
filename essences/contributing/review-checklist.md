@@ -25,4 +25,3 @@
 - [ ] Changes respect cross-platform constraints (Windows paths, ConPTY, etc.)
 - [ ] No breaking changes to public APIs without documented migration path
 
-<!-- revision: 4 -->

@@ -36,10 +36,9 @@ Verify the product first, then fix whichever is wrong. A doc edit never papers o
 
 ## Every change
 
-- Bump the revision tag at the bottom of each doc you change; write in English.
+- Bump the revision tag at the bottom of each `prod-docs/` doc you change; essence docs carry no revision tag. Write in English.
 - A document production agents read goes in `prod-docs/`, is registered in the docs registry and stays within its reading limit; every other document goes in `essences/`. There is no third docs directory.
 - Prefer deleting stale or duplicated text over rewording it.
 
 The map itself: `essences/CAPABILITIES.md`.
 
-<!-- revision: 3 -->

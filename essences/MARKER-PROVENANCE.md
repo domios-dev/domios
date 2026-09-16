@@ -61,4 +61,3 @@ through.
   embedded in `cat` output and does not act on it, while still honouring a
   host-injected leading marker.
 
-<!-- revision: 2 -->

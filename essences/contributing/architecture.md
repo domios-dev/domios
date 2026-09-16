@@ -106,4 +106,3 @@ than half of that threshold. Signal kinds, strongest first:
 - layout shapes such as footer lines with multiple segments or prompt-character columns
 - literal copy strings, which are weak signals and never the sole gate
 
-<!-- revision: 11 -->
