@@ -14,7 +14,7 @@ export function essenceDocumentEntries(project: EssenceMapProject): EssenceDocum
     if (!path || (path !== "essences" && !path.startsWith("essences/")) || path.split("/").some((part) => part === "." || part === "..")) continue;
     if (!entries.has(path)) entries.set(path, { path, node });
   }
-  return [...entries.values()].sort((a, b) => a.path.localeCompare(b.path));
+  return [...entries.values()];
 }
 
 function buildTree(entries: EssenceDocumentEntry[]): TreeFolder {
