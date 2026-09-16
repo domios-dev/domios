@@ -433,7 +433,7 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         message: &str,
-        mut details: ReportDetails,
+        details: ReportDetails,
         plan_id: Option<&str>,
         task_id: Option<&str>,
         milestone_kind: Option<&str>,

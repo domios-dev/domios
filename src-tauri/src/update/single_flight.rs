@@ -7,7 +7,9 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::apply::{ApplyOptions, ApplyResult};
-use super::{UpdatePhase, UpdateState};
+use super::UpdateState;
+#[cfg(test)]
+use super::UpdatePhase;
 
 /// Wire discriminants. A refused second request must never read as "nothing to
 /// install", so `ALREADY_IN_FLIGHT` is distinct from `NO_UPDATE`.
