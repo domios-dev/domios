@@ -22,6 +22,28 @@ impl PlanStore {
         authority: Option<&TaskMutationAuthority>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if peer.is_none() && binding.is_none() {
+            return Err(PlanError::Io(
+                "local assignment requires verified runtime binding".into(),
+            ));
+        }
+        self.assign_task_with_optional_binding(
+            plan_id, task_id, tab, peer, role, binding, authority, now_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn assign_task_with_optional_binding(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab: &str,
+        peer: Option<&str>,
+        role: Option<&str>,
+        binding: Option<&AssignmentRuntimeBinding>,
+        authority: Option<&TaskMutationAuthority>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
         if binding.is_some_and(|binding| {
             peer.is_some()
                 || binding.session_id.trim().is_empty()
@@ -34,6 +56,9 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             if let Some(authority) = authority {
                 authorize_task_mutation(plan, &plan.tasks[index], authority)?;
+            }
+            if binding.is_some() && plan.tasks[index].status != TaskStatus::Pending {
+                return Err(PlanError::Io("local reassignment requires a pending task; use review continuation or respawn".into()));
             }
             let task = &mut plan.tasks[index];
             task.assigned_tab_id = Some(tab.into());
@@ -50,8 +75,6 @@ impl PlanStore {
                 task.interruption.owner_session_id = Some(binding.session_id.clone());
                 task.interruption.handoff_required = false;
                 attempt.interruption.owner_epoch = task.interruption.owner_epoch;
-                task.status = TaskStatus::Pending;
-                task.status_changed_at = now_ms;
                 task.status_label = Some("awaiting_worker_ack".into());
             }
             record_noncompetitive_replacement_attempt(

@@ -503,6 +503,7 @@ impl PlanStore {
         })
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn assign_task(
         &self,
         plan_id: &str,
@@ -514,6 +515,7 @@ impl PlanStore {
         self.assign_task_with_role(plan_id, task_id, tab, peer, None, now_ms)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn assign_task_with_role(
         &self,
         plan_id: &str,
@@ -523,7 +525,7 @@ impl PlanStore {
         role: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.assign_task_with_runtime_binding(
+        self.assign_task_with_optional_binding(
             plan_id, task_id, tab, peer, role, None, None, now_ms,
         )
     }

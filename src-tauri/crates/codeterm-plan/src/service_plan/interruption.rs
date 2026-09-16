@@ -79,6 +79,7 @@ pub fn provider_allowance_preflight(
 
 impl PlanStore {
     #[allow(clippy::too_many_arguments)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn assign_task_with_role_authorized(
         &self,
         plan_id: &str,
@@ -89,7 +90,7 @@ impl PlanStore {
         authority: &TaskMutationAuthority,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.assign_task_with_runtime_binding(
+        self.assign_task_with_optional_binding(
             plan_id, task_id, tab, peer, role, None, Some(authority), now_ms,
         )
     }
