@@ -18,6 +18,7 @@ import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
+import { CursorTooltip } from "../shared/CursorTooltip";
 import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
@@ -481,18 +482,24 @@ export function SidebarWorkspaceTabs({
         {rows}
       </SortableContext>
       <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
-        <button
-          type="button"
-          data-testid="sidebar-new-session"
-          onClick={onNewSession}
-          disabled={newSessionDisabled}
-          aria-disabled={newSessionDisabled}
-          className={`sidebar-new-session flex min-w-0 flex-1 items-center gap-2 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
-          title={newSessionDisabled ? "Finish Get started before creating another session" : "New session in this workspace"}
+        <CursorTooltip
+          active={newSessionDisabled}
+          content="Finish Get started first"
+          className="flex min-w-0 flex-1"
         >
-          <Plus size={10} strokeWidth={1.5} className="shrink-0" />
-          <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
-        </button>
+          <button
+            type="button"
+            data-testid="sidebar-new-session"
+            onClick={onNewSession}
+            disabled={newSessionDisabled}
+            aria-disabled={newSessionDisabled}
+            className={`sidebar-new-session flex min-w-0 flex-1 items-center gap-2 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
+            title={newSessionDisabled ? undefined : "New session in this workspace"}
+          >
+            <Plus size={10} strokeWidth={1.5} className="shrink-0" />
+            <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
+          </button>
+        </CursorTooltip>
         {onOpenRemoteTab && (
           <button type="button" onClick={onOpenRemoteTab} aria-label="Open remote Tab" title="Open remote Tab" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
             <MonitorUp size={12} strokeWidth={1.5} />
