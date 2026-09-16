@@ -432,7 +432,7 @@ function layoutEssenceMapProjectGrid(
   };
 }
 
-function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidth: number): EssenceMapProjectLayout {
+function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidth: number, edges: EssenceMapEdge[] = []): EssenceMapProjectLayout {
   const width = Math.max(560, Math.floor(availableWidth));
   // Nodes are dots with labels beside them, not cards: a card-sized footprint tiles
   // instead of clustering, which is what made every earlier arrangement a wall of boxes.
@@ -448,7 +448,47 @@ function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidt
   const clientRadius = Math.min(330, Math.min(width, height) / 2 - 40);
   const positions = new Map<string, { x: number; y: number }>();
   const put = (node: EssenceMapNode, x: number, y: number) => positions.set(node.id, { x: Math.max(cardWidth / 2 + 4, Math.min(width - cardWidth / 2 - 4, x)), y: Math.max(48, Math.min(height - 48, y)) });
-  vectors.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(vectors.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * vectorRadius, center.y + Math.sin(angle) * vectorRadius); });
+  // Seat strongly connected clusters next to each other on the ring, so their edges
+  // stay short instead of crossing the middle. Seven hubs is 720 orders: test them all.
+  const clusterOf = new Map<string, string>();
+  vectors.forEach((vector) => clusterOf.set(vector.id, vector.id));
+  capabilities.forEach((node) => { if (node.vector) clusterOf.set(node.id, node.vector); });
+  const pairWeight = new Map<string, number>();
+  for (const edge of edges) {
+    const from = clusterOf.get(edge.from); const to = clusterOf.get(edge.to);
+    if (!from || !to || from === to) continue;
+    const key = from < to ? `${from}|${to}` : `${to}|${from}`;
+    pairWeight.set(key, (pairWeight.get(key) ?? 0) + 1);
+  }
+  const ringCost = (candidate: EssenceMapNode[]): number => {
+    const slot = new Map(candidate.map((vector, index) => [vector.id, index]));
+    let cost = 0;
+    for (const [key, weight] of pairWeight) {
+      const [a, b] = key.split("|");
+      const ia = slot.get(a); const ib = slot.get(b);
+      if (ia === undefined || ib === undefined) continue;
+      const gap = Math.abs(ia - ib);
+      cost += weight * Math.min(gap, candidate.length - gap);
+    }
+    return cost;
+  };
+  const ringOrder = ((): EssenceMapNode[] => {
+    if (vectors.length < 4 || vectors.length > 8 || pairWeight.size === 0) return vectors;
+    const [head, ...rest] = vectors;
+    let best = vectors; let bestCost = Number.POSITIVE_INFINITY;
+    const walk = (remaining: EssenceMapNode[], prefix: EssenceMapNode[]) => {
+      if (remaining.length === 0) {
+        const candidate = [head, ...prefix];
+        const cost = ringCost(candidate);
+        if (cost < bestCost) { bestCost = cost; best = candidate; }
+        return;
+      }
+      for (let i = 0; i < remaining.length; i += 1) walk([...remaining.slice(0, i), ...remaining.slice(i + 1)], [...prefix, remaining[i]]);
+    };
+    walk(rest, []);
+    return best;
+  })();
+  ringOrder.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(ringOrder.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * vectorRadius, center.y + Math.sin(angle) * vectorRadius); });
   const byVector = new Map<string, EssenceMapNode[]>();
   for (const node of capabilities) { const group = byVector.get(node.vector ?? "") ?? []; group.push(node); byVector.set(node.vector ?? "", group); }
   // Fan each hub's capabilities on a short arc pointing away from the centre: the
@@ -486,7 +526,7 @@ function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidt
 }
 
 export function layoutEssenceMapProject(nodes: EssenceMapNode[], availableWidth: number, edges: EssenceMapEdge[] = []): EssenceMapProjectLayout {
-  return availableWidth < 560 ? layoutEssenceMapProjectGrid(nodes, availableWidth, edges) : layoutEssenceMapProjectClustered(nodes, availableWidth);
+  return availableWidth < 560 ? layoutEssenceMapProjectGrid(nodes, availableWidth, edges) : layoutEssenceMapProjectClustered(nodes, availableWidth, edges);
 }
 
 export function layoutEssenceMapWorld(

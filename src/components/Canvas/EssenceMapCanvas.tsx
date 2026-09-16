@@ -31,7 +31,7 @@ export function EssenceMapCanvasInner({ workspace, mapFiles, loading = false, er
   const projects = useMemo(() => mapFiles.map(parseEssenceMapProject), [mapFiles]);
   const world = useMemo(() => layoutEssenceMapWorld(projects, size.width), [projects, size.width]);
   const hasContent = projects.some((project) => project.status === "valid" && project.nodes.length > 0);
-  const viewport = useCanvasViewport({ width: size.width, height: size.height, minScale: 0.2, maxScale: 2.5, fitPadding: 48, ignoreSelector: "[data-essence-map-control], [data-essence-map-node]" });
+  const viewport = useCanvasViewport({ width: size.width, height: size.height, minScale: 0.2, maxScale: 2.5, fitPadding: 48, ignoreSelector: "[data-essence-map-control]", wheelBehavior: "zoom" });
   const { fitToView, animateToView } = viewport;
   const fitAll = useCallback(() => fitToView({ x: 0, y: 0, width: world.width, height: world.height }), [fitToView, world.width, world.height]);
   useLayoutEffect(() => { const element = viewportRef.current; if (!element) return; const update = () => { if (element.clientWidth > 0 && element.clientHeight > 0) setSize({ width: element.clientWidth, height: element.clientHeight }); }; update(); if (typeof ResizeObserver === "undefined") return; const observer = new ResizeObserver(update); observer.observe(element); return () => observer.disconnect(); }, []);
