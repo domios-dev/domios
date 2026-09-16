@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, ChevronRight, FileText, Folder } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Folder } from "lucide-react";
 import { useState } from "react";
 import type { EssenceMapNode, EssenceMapProject } from "./essenceMapModel";
 import { projectName } from "./EssenceMapProjectView";
