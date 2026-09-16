@@ -186,7 +186,7 @@ impl TransportError {
 }
 
 pub fn safe_reqwest_error_detail(error: &reqwest::Error, phase: &str) -> String {
-    let causes = std::iter::successors(error.source(), |source| source.source())
+    let causes = std::iter::successors(error.source(), |&source| source.source())
         .map(|source| {
             let text = source.to_string().to_ascii_lowercase();
             if text.contains("refused") {
