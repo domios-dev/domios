@@ -244,8 +244,20 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
 #[test]
 fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
     let (_dir, store, plan, task) = fixture();
-    let old_id = assigned_review(&store, &plan, &task, false);
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            Some("worker"),
+            Some(&binding("worker-session")),
+            None,
+            3,
+        )
+        .unwrap();
     let old = store.show_task(&task).unwrap().task;
+    let old_id = old.execution_attempts[0].id.clone();
     let owner = TaskMutationAuthority {
         tab_id: "owner".into(),
         owner_epoch: old.interruption.owner_epoch,
@@ -296,6 +308,13 @@ fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
 fn lifecycle_reassignment_invalid_binding_and_remote_binding_do_not_mutate() {
     let (_dir, store, plan, task) = fixture();
     let before = serde_json::to_value(store.get(&plan).unwrap()).unwrap();
+    assert!(store
+        .assign_task_with_runtime_binding(&plan, &task, "worker", None, None, None, None, 3)
+        .is_err());
+    assert_eq!(
+        serde_json::to_value(store.get(&plan).unwrap()).unwrap(),
+        before
+    );
     for (session, peer) in [("", None), ("local-session", Some("peer"))] {
         assert!(store
             .assign_task_with_runtime_binding(
@@ -307,6 +326,66 @@ fn lifecycle_reassignment_invalid_binding_and_remote_binding_do_not_mutate() {
                 Some(&binding(session)),
                 None,
                 3
+            )
+            .is_err());
+        assert_eq!(
+            serde_json::to_value(store.get(&plan).unwrap()).unwrap(),
+            before
+        );
+    }
+}
+
+#[test]
+fn lifecycle_reassignment_assignment_cannot_clear_review_or_active_state() {
+    let (_dir, store, plan, task) = fixture();
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&binding("worker-session")),
+            None,
+            3,
+        )
+        .unwrap();
+    let initial = store.show_task(&task).unwrap().task;
+    store
+        .acknowledge_task_attempt(&plan, &task, "worker", &initial.execution_attempts[0].id, 4)
+        .unwrap();
+    for in_review in [false, true] {
+        if in_review {
+            store
+                .ingest_bound_worker_report(
+                    &plan,
+                    &task,
+                    &AgentRef::from_tab("worker"),
+                    report(authority(&initial, "worker")),
+                    5,
+                )
+                .unwrap();
+            store
+                .hold_review(
+                    &plan,
+                    &task,
+                    "held candidate",
+                    AgentRef::from_tab("owner"),
+                    6,
+                )
+                .unwrap();
+        }
+        let before = serde_json::to_value(store.get(&plan).unwrap()).unwrap();
+        assert!(store
+            .assign_task_with_runtime_binding(
+                &plan,
+                &task,
+                "replacement",
+                None,
+                None,
+                Some(&binding("replacement-session")),
+                None,
+                7
             )
             .is_err());
         assert_eq!(

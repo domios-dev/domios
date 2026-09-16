@@ -32,23 +32,19 @@ pub(crate) fn persist_attempt_executor_identity_for_mux(
     title: &str,
     now: u64,
 ) -> Result<(), PlanError> {
-    let (session_id, session_binding_nonce) = mux
-        .read()
+    let mux = mux.read();
+    let binding = mux
         .get_tab(tab_id)
-        .map(|tab| {
-            (
-                tab.agent_session_id.clone(),
-                tab.session_binding_nonce.clone(),
-            )
-        })
-        .unwrap_or_default();
+        .and_then(super::task_assignment::authenticated_tab_binding);
     store.update_attempt_executor_identity(
         plan_id,
         task_id,
         tab_id,
         Some(title),
-        session_id.as_deref(),
-        session_binding_nonce.as_deref(),
+        binding.as_ref().map(|binding| binding.session_id.as_str()),
+        binding
+            .as_ref()
+            .map(|binding| binding.session_binding_nonce.as_str()),
         now,
     )
 }
@@ -76,7 +72,7 @@ mod tests {
     }
 
     #[test]
-    fn persist_attempt_executor_identity_updates_title_and_session() {
+    fn lifecycle_reassignment_respawn_identity_requires_verified_binding() {
         let dir = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(dir.path());
         let (state, _) = MultiplexerState::new();
@@ -125,11 +121,35 @@ mod tests {
             .id;
         let tab_id = mux.write().create_tab(&ws).unwrap();
         mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("sess-1".into());
+        mux.write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .session_binding_nonce = Some("test-nonce".into());
         store
             .record_task_respawn_attempt(&plan.id, &task_id, &tab_id, &draft, Some("worker"), 3)
             .unwrap();
+        for reported in [None, Some("other-nonce")] {
+            mux.write()
+                .get_tab_mut(&tab_id)
+                .unwrap()
+                .reported_session_binding_nonce = reported.map(str::to_string);
+            persist_attempt_executor_identity_for_mux(
+                &store, &mux, &plan.id, &task_id, &tab_id, "Ada", 4,
+            )
+            .unwrap();
+            let task = store.show_task(&task_id).unwrap().task;
+            let attempt = task.execution_attempts.last().unwrap();
+            assert!(attempt.session_id.is_none());
+            assert!(attempt.session_binding_nonce.is_none());
+            assert!(attempt.acknowledged_at.is_none());
+            assert_eq!(task.status_label.as_deref(), Some("starting"));
+        }
+        mux.write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .reported_session_binding_nonce = Some("test-nonce".into());
         persist_attempt_executor_identity_for_mux(
-            &store, &mux, &plan.id, &task_id, &tab_id, "Ada", 4,
+            &store, &mux, &plan.id, &task_id, &tab_id, "Ada", 5,
         )
         .unwrap();
         let task = store.show_task(&task_id).unwrap();
@@ -141,5 +161,29 @@ mod tests {
             .unwrap();
         assert_eq!(attempt.executor_title.as_deref(), Some("Ada"));
         assert_eq!(attempt.session_id.as_deref(), Some("sess-1"));
+        assert_eq!(attempt.session_binding_nonce.as_deref(), Some("test-nonce"));
+        assert!(attempt.acknowledged_at.is_none());
+        assert_eq!(task.task.status_label.as_deref(), Some("starting"));
+        store
+            .finish_task_dispatch(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                &attempt.id,
+                "sess-1",
+                "test-nonce",
+                task.task.lane.clone(),
+                6,
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .show_task(&task_id)
+                .unwrap()
+                .task
+                .status_label
+                .as_deref(),
+            Some("awaiting_worker_ack")
+        );
     }
 }

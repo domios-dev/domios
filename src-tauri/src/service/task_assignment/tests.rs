@@ -207,3 +207,47 @@ fn lifecycle_reassignment_remote_never_copies_colliding_local_identity() {
     assert!(attempt.session_binding_nonce.is_none());
     assert!(attempt.acknowledged_at.is_none());
 }
+
+#[test]
+fn lifecycle_reassignment_local_assignment_preserves_active_and_held_review() {
+    let (_dir, store, mux, plan, task, tab) = fixture();
+    assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
+    let initial = store.show_task(&task).unwrap().task;
+    store
+        .acknowledge_task_attempt(&plan, &task, &tab, &initial.execution_attempts[0].id, 4)
+        .unwrap();
+    for in_review in [false, true] {
+        if in_review {
+            let authority = TaskMutationAuthority {
+                tab_id: tab.clone(),
+                session_id: "verified-session".into(),
+                session_binding_nonce: "test-nonce".into(),
+                owner_epoch: initial.interruption.owner_epoch,
+            };
+            store
+                .ingest_bound_worker_report(
+                    &plan,
+                    &task,
+                    &AgentRef::from_tab(&tab),
+                    BoundWorkerReport {
+                        message: "candidate".into(),
+                        status: Some(ReportStatus::InReview),
+                        sha: Some("abcdef123456".into()),
+                        authority: Some(authority),
+                        ..Default::default()
+                    },
+                    5,
+                )
+                .unwrap();
+            store
+                .hold_review(&plan, &task, "held candidate", AgentRef::from_tab(&tab), 6)
+                .unwrap();
+        }
+        let before = serde_json::to_value(store.get(&plan).unwrap()).unwrap();
+        assert!(assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 7).is_err());
+        assert_eq!(
+            serde_json::to_value(store.get(&plan).unwrap()).unwrap(),
+            before
+        );
+    }
+}
