@@ -128,13 +128,14 @@ pub async fn do_approve(
             use crate::mesh::transport::TryNext;
             let resp = match client.post(&url).json(&accept).send().await {
                 Ok(r) => r,
-                Err(e) => return TryNext::Retry(e.to_string()),
+                Err(e) => return TryNext::Retry(
+                    crate::mesh::transport::TransportError::pairing_send_error(&e).to_string(),
+                ),
             };
             if resp.status().is_success() {
                 TryNext::Success(())
             } else {
-                let body = resp.text().await.unwrap_or_default();
-                TryNext::Stop(body)
+                TryNext::Stop(format!("HTTP {}", resp.status()))
             }
         }
     })
@@ -200,7 +201,8 @@ pub async fn mesh_pair_accept(
     Json(accept): Json<crate::mesh::types::PairingAccept>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let (b_address, b_port, b_instance_id) = {
-        let mesh = state.mesh.lock();
+        let mut mesh = state.mesh.lock();
+        mesh.cleanup_expired_requests();
         mesh.pairing_targets
             .get(&accept.request_id)
             .cloned()
@@ -261,9 +263,8 @@ pub async fn mesh_pair_accept(
             consecutive_misses: 0,
             last_active_ms: None,
         };
-        mesh.complete_explicit_pairing(peer);
-        mesh.pending_requests.remove(&accept.request_id);
-        mesh.pairing_targets.remove(&accept.request_id);
+        mesh.complete_pairing_accept(&accept.request_id, peer)
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
         let _ = mesh.save();
     }
 

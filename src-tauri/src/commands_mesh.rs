@@ -38,6 +38,23 @@ pub async fn mesh_connect(
 }
 
 #[tauri::command]
+pub fn mesh_cancel_pairing(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    request_id: String,
+) -> Result<(), String> {
+    if !mesh.inner().lock().cancel_outgoing_pairing(&request_id) {
+        return Err("Outgoing pairing request not found".to_string());
+    }
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn mesh_approve_pairing(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,

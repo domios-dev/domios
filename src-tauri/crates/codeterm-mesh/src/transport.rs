@@ -1,6 +1,8 @@
 //! HTTP transport for peer-to-peer communication.
 //! All authenticated requests use Ed25519 signed JWTs.
 
+use std::error::Error;
+
 use super::types::{address_tier, PeerAddress};
 
 /// Outcome of one attempt against a peer address.
@@ -118,6 +120,28 @@ impl TransportError {
         Self::new(kind, error.to_string())
     }
 
+    pub fn pairing_send_error(error: &reqwest::Error) -> Self {
+        let kind = if error.is_timeout() || error.is_body() || error.is_decode() {
+            TransportErrorKind::SubmitUnconfirmed
+        } else if error.is_connect() {
+            TransportErrorKind::NothingSent
+        } else {
+            TransportErrorKind::SubmitUnconfirmed
+        };
+        let phase = if error.is_timeout() {
+            "timeout"
+        } else if error.is_body() {
+            "response_body"
+        } else if error.is_decode() {
+            "response_decode"
+        } else if error.is_connect() {
+            "connection_establishment"
+        } else {
+            "unknown"
+        };
+        Self::new(kind, safe_reqwest_error_detail(error, phase))
+    }
+
     pub fn kind(&self) -> TransportErrorKind {
         self.kind
     }
@@ -159,6 +183,34 @@ impl TransportError {
             _ => 502,
         }
     }
+}
+
+pub fn safe_reqwest_error_detail(error: &reqwest::Error, phase: &str) -> String {
+    let causes = std::iter::successors(error.source(), |source| source.source())
+        .map(|source| {
+            let text = source.to_string().to_ascii_lowercase();
+            if text.contains("refused") {
+                "connection_refused"
+            } else if text.contains("reset") {
+                "connection_reset"
+            } else if text.contains("dns")
+                || text.contains("name or service")
+                || text.contains("resolve")
+            {
+                "resolution"
+            } else if text.contains("timed out") || text.contains("timeout") {
+                "timeout"
+            } else {
+                "other"
+            }
+        })
+        .collect::<Vec<_>>();
+    let cause_chain = if causes.is_empty() {
+        "none".to_string()
+    } else {
+        causes.join(",")
+    };
+    format!("phase={phase};source_depth={};causes={cause_chain}", causes.len())
 }
 
 impl std::fmt::Display for TransportError {
