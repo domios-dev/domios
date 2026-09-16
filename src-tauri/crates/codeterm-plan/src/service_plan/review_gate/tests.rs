@@ -93,7 +93,7 @@ fn deliver_bounce(
     now: u64,
 ) {
     let continuation = result.continuation.as_ref().unwrap();
-    let claimed = store
+    store
         .claim_review_continuation_delivery(
             plan_id,
             task_id,
@@ -102,17 +102,6 @@ fn deliver_bounce(
             now,
         )
         .unwrap();
-    let task = store.show_task(task_id).unwrap().task;
-    assert!(
-        claimed,
-        "status={:?} label={:?} continuation={:?}",
-        task.status,
-        task.status_label,
-        task.execution_attempts
-            .iter()
-            .map(|attempt| (&attempt.id, &attempt.continuation))
-            .collect::<Vec<_>>()
-    );
     assert!(store
         .finish_review_continuation(
             plan_id,

@@ -251,7 +251,7 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
             if let Some(continuation) = result.continuation.as_mut() {
-                let claimed = store
+                store
                     .claim_review_continuation_delivery(
                         &plan_id,
                         &task_id,
@@ -260,73 +260,71 @@ pub(super) fn dispatch(
                         now,
                     )
                     .map_err(plan_rpc_err)?;
-                if claimed {
-                    svc.record_kpi_review_verdict(
-                        from.tab_id.as_deref().unwrap_or("unknown"),
+                svc.record_kpi_review_verdict(
+                    from.tab_id.as_deref().unwrap_or("unknown"),
+                    &plan_id,
+                    &task_id,
+                    crate::agent::kpi_ledger::KpiEventKind::Bounce,
+                    result.review_round,
+                    note(p).len(),
+                );
+                let binding_nonce = {
+                    let mux = svc.mux.read();
+                    mux.get_tab(&continuation.executor_tab_id).and_then(|tab| {
+                        (tab.agent_session_id.as_deref() == Some(continuation.session_id.as_str())
+                            && tab.session_binding_nonce.is_some()
+                            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
+                            .then(|| tab.session_binding_nonce.clone())
+                            .flatten()
+                    })
+                };
+                let delivery = binding_nonce
+                    .as_deref()
+                    .ok_or_else(|| {
+                        "authenticated Worker continuation binding is unavailable".to_string()
+                    })
+                    .and_then(|nonce| {
+                        let envelope =
+                            crate::service::messenger::MessageEnvelope::codeterm_reminder(
+                                "review-bounce",
+                            )
+                            .id(Some(format!(
+                                "{}:{}:{}",
+                                continuation.attempt_id,
+                                continuation.review_round,
+                                continuation.epoch
+                            )));
+                        crate::service::messenger::Messenger::deliver_planner_session(
+                            svc,
+                            &continuation.executor_tab_id,
+                            &continuation.session_id,
+                            nonce,
+                            envelope,
+                            note(p),
+                            format!(
+                                "review-bounce:{}:{}:{}:{}",
+                                plan_id,
+                                task_id,
+                                continuation.attempt_id,
+                                continuation.review_round
+                            ),
+                        )
+                        .map(|_| ())
+                    });
+                let delivered = delivery.is_ok();
+                store
+                    .finish_review_continuation(
                         &plan_id,
                         &task_id,
-                        crate::agent::kpi_ledger::KpiEventKind::Bounce,
-                        result.review_round,
-                        note(p).len(),
-                    );
-                    let binding_nonce = {
-                        let mux = svc.mux.read();
-                        mux.get_tab(&continuation.executor_tab_id).and_then(|tab| {
-                            (tab.agent_session_id.as_deref()
-                                == Some(continuation.session_id.as_str())
-                                && tab.session_binding_nonce.is_some()
-                                && tab.session_binding_nonce == tab.reported_session_binding_nonce)
-                                .then(|| tab.session_binding_nonce.clone())
-                                .flatten()
-                        })
-                    };
-                    let delivery = binding_nonce
-                        .as_deref()
-                        .ok_or_else(|| {
-                            "authenticated Worker continuation binding is unavailable".to_string()
-                        })
-                        .and_then(|nonce| {
-                            let envelope =
-                                crate::service::messenger::MessageEnvelope::codeterm_reminder(
-                                    "review-bounce",
-                                )
-                                .id(Some(format!(
-                                    "{}:{}:{}",
-                                    continuation.attempt_id,
-                                    continuation.review_round,
-                                    continuation.epoch
-                                )));
-                            crate::service::messenger::Messenger::deliver_planner_session(
-                                svc,
-                                &continuation.executor_tab_id,
-                                &continuation.session_id,
-                                nonce,
-                                envelope,
-                                note(p),
-                                format!(
-                                    "review-bounce:{}:{}:{}:{}",
-                                    plan_id,
-                                    task_id,
-                                    continuation.attempt_id,
-                                    continuation.review_round
-                                ),
-                            )
-                            .map(|_| ())
-                        });
-                    let delivered = delivery.is_ok();
-                    store
-                        .finish_review_continuation(
-                            &plan_id,
-                            &task_id,
-                            &continuation.attempt_id,
-                            continuation.epoch,
-                            delivered,
-                            epoch_ms(),
-                        )
-                        .map_err(plan_rpc_err)?;
-                    emit_plan_changed(app, &plan_id);
-                    if let Err(error) = delivery {
-                        return Err(JsonRpcError {
+                        &continuation.attempt_id,
+                        continuation.epoch,
+                        delivered,
+                        epoch_ms(),
+                    )
+                    .map_err(plan_rpc_err)?;
+                emit_plan_changed(app, &plan_id);
+                if let Err(error) = delivery {
+                    return Err(JsonRpcError {
                             code: -32603,
                             message: format!(
                                 "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation failed for {plan_id}/{task_id}/{}: {error}",
@@ -341,9 +339,8 @@ pub(super) fn dispatch(
                                 "error": error,
                             })),
                         });
-                    }
-                    continuation.state = "continued".into();
                 }
+                continuation.state = "continued".into();
             }
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
@@ -441,10 +438,19 @@ mod tests {
         assert_eq!(continuation.attempt_id, attempt_id);
         assert!(store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 6)
-            .unwrap());
-        assert!(!store
+            .is_ok());
+        let refusal = store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 7)
-            .unwrap());
+            .expect_err("second claim must be an explicit refusal");
+        assert!(matches!(
+            refusal,
+            crate::plan::PlanError::ReviewContinuationDeliveryRefused {
+                expected_epoch: 1,
+                actual_epoch: Some(1),
+                continuation_state: Some(ref state),
+                ..
+            } if state == "continuation_delivering"
+        ));
         assert!(store
             .finish_review_continuation(&plan_id, &task_id, &attempt_id, 1, true, 8)
             .unwrap());
@@ -477,7 +483,7 @@ mod tests {
             .unwrap();
         assert!(store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 6)
-            .unwrap());
+            .is_ok());
         assert!(store
             .finish_review_continuation(&plan_id, &task_id, &attempt_id, 1, false, 7)
             .unwrap());
@@ -548,9 +554,13 @@ mod tests {
         assert_eq!(first.continuation, replay.continuation);
         assert!(store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 7)
-            .unwrap());
-        assert!(!store
+            .is_ok());
+        let refusal = store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 8)
-            .unwrap());
+            .expect_err("replayed claim must be an explicit refusal");
+        assert!(matches!(
+            refusal,
+            crate::plan::PlanError::ReviewContinuationDeliveryRefused { .. }
+        ));
     }
 }
