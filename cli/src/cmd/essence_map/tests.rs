@@ -272,11 +272,12 @@ fn essence_map_contract_rejects_dangling_edges() {
 #[test]
 fn essence_map_contract_rejects_budget_overflow() {
     let fixture = fixture_root();
-    let (map, decisions, _) = valid_map(fixture.path());
+    let (map, decisions, summary) = valid_map(fixture.path());
     let original = fs::read_to_string(&map).expect("read map");
     let first_node = original.lines().next().expect("generated node").to_string();
     let mut overflow = original;
-    for _ in 0..46 {
+    // Derived from the live map so this case cannot drift as the essences grow.
+    for _ in 0..(101 - summary.nodes) {
         overflow.push_str(&first_node);
         overflow.push('\n');
     }
