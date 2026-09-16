@@ -53,6 +53,7 @@ const node = (id: string, type: EssenceMapNode["type"], label: string, vector: s
   label,
   vector,
   source,
+  ...(type === "capability" ? { status: "stable" } : {}),
 });
 
 const edge = (from: string, to: string, type: EssenceMapEdge["type"]): EssenceMapEdge => ({
@@ -228,6 +229,14 @@ describe("map_canvas workspace essence map", () => {
     expect(parsed.status).toBe("valid");
     expect(parsed.nodes).toHaveLength(2);
     expect(parsed.edges).toHaveLength(1);
+  });
+
+  it("essence_truth_model preserves lifecycle status and rejects unknown fields", () => {
+    const capability = { ...node("capability:planned", "capability", "Planned"), status: "planned" };
+    const valid = parseEssenceMapJsonl(JSON.stringify(capability));
+    expect(valid.status).toBe("valid");
+    const malformed = parseEssenceMapJsonl(JSON.stringify({ ...capability, unexpected: true }));
+    expect(malformed.status).toBe("malformed");
   });
 
   it("keeps a stable layout inside a bounded phone-width cluster", () => {
