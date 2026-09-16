@@ -10,9 +10,9 @@ use std::{future::Future, sync::Arc};
 use crate::api::routes::{check_auth, AppState};
 
 #[cfg(test)]
-mod reachability_tests;
-#[cfg(test)]
 mod pairing_correlation_tests;
+#[cfg(test)]
+mod reachability_tests;
 
 mod delivery;
 use delivery::PairingSendDisposition;
@@ -71,10 +71,7 @@ impl ConnectPeerError {
             Self::BeforeSend(_) => Some(PairingSendDisposition::DefinitelyBeforeSend),
             Self::Refused(_) => Some(PairingSendDisposition::Terminal),
             Self::Delivery(_) => Some(PairingSendDisposition::Uncertain),
-            Self::NotFound(_)
-            | Self::Conflict(_)
-            | Self::BadRequest(_)
-            | Self::Internal(_) => None,
+            Self::NotFound(_) | Self::Conflict(_) | Self::BadRequest(_) | Self::Internal(_) => None,
         }
     }
 }
@@ -414,10 +411,9 @@ pub async fn connect_peer(
         response
             .json::<serde_json::Value>()
             .await
-            .map_err(|error| ConnectPeerError::Delivery(format!(
-                "{}",
-                delivery::safe_reqwest_detail(&error)
-            )))?["instance_id"]
+            .map_err(|error| {
+                ConnectPeerError::Delivery(format!("{}", delivery::safe_reqwest_detail(&error)))
+            })?["instance_id"]
             .as_str()
             .map(str::to_string)
             .ok_or_else(|| {

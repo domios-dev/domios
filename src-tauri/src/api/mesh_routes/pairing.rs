@@ -128,9 +128,11 @@ pub async fn do_approve(
             use crate::mesh::transport::TryNext;
             let resp = match client.post(&url).json(&accept).send().await {
                 Ok(r) => r,
-                Err(e) => return TryNext::Retry(
-                    crate::mesh::transport::TransportError::pairing_send_error(&e).to_string(),
-                ),
+                Err(e) => {
+                    return TryNext::Retry(
+                        crate::mesh::transport::TransportError::pairing_send_error(&e).to_string(),
+                    )
+                }
             };
             if resp.status().is_success() {
                 TryNext::Success(())

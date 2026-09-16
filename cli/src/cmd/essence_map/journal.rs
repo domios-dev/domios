@@ -178,7 +178,12 @@ pub(crate) fn retain_superseded_map(map_path: &Path, next_contents: &str) -> Res
     };
     let digest = sha256(
         String::from_utf8(existing.clone())
-            .map_err(|error| format!("superseded map {} is not UTF-8: {error}", map_path.display()))?
+            .map_err(|error| {
+                format!(
+                    "superseded map {} is not UTF-8: {error}",
+                    map_path.display()
+                )
+            })?
             .replace("\r\n", "\n")
             .as_bytes(),
     );

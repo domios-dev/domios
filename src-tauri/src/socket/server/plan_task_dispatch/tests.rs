@@ -4,10 +4,9 @@ use super::{
     build_brief_with_personality, checkout_required, cleanup_succeeded,
     complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
-    preflight_dispatch_task_status, preflight_review_capacity,
-    regression_blocked_error, resolve_dispatch_lane,
-    roll_back_dispatch_attempt, rollback_failed_dispatch, task_launch_authority_for_dispatch,
-    verify_dispatched_task_binding, worker_ack_timeout_event,
+    preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
+    resolve_dispatch_lane, roll_back_dispatch_attempt, rollback_failed_dispatch,
+    task_launch_authority_for_dispatch, verify_dispatched_task_binding, worker_ack_timeout_event,
     DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
 };
 use crate::multiplexer::state::MultiplexerState;
@@ -1043,7 +1042,6 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
         .trim()
         .is_empty());
 }
-
 
 fn task(value: serde_json::Value) -> Task {
     serde_json::from_value(value).expect("task fixture")

@@ -1,6 +1,4 @@
-use super::super::{
-    provider_mismatch_error, resolve_dispatch_routing, unqualified_model_error,
-};
+use super::super::{provider_mismatch_error, resolve_dispatch_routing, unqualified_model_error};
 
 fn providers() -> Vec<String> {
     vec!["claude".into(), "codex".into(), "opencode".into()]

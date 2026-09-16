@@ -119,8 +119,7 @@ fn essence_map_integrity_normalizes_crlf_before_parsing_and_hashing() {
         let text = fs::read_to_string(&lf_path).expect("read fixture source");
         let normalized = text.replace("\r\n", "\n");
         fs::write(&lf_path, &normalized).expect("write LF fixture source");
-        fs::write(crlf_path, normalized.replace('\n', "\r\n"))
-            .expect("write CRLF fixture source");
+        fs::write(crlf_path, normalized.replace('\n', "\r\n")).expect("write CRLF fixture source");
     }
 
     let lf_map = lf.path().join("essences/map.jsonl");
@@ -181,7 +180,10 @@ fn essence_map_integrity_refreshes_stale_digests_without_changing_semantic_links
             _ => None,
         })
         .expect("refreshed service-layer node");
-    assert_ne!(before_core_digest, after_core_digest, "source digest must refresh");
+    assert_ne!(
+        before_core_digest, after_core_digest,
+        "source digest must refresh"
+    );
 }
 
 #[test]
@@ -222,8 +224,16 @@ fn essence_truth_model_preserves_capability_statuses_and_shipped_core_nodes() {
             super::MapRecord::Edge(_) => None,
         })
         .collect();
-    assert_eq!(nodes["capability:essence-anchored-code-map"].status.as_deref(), Some("planned"));
-    assert_eq!(nodes["capability:agent-providers"].status.as_deref(), Some("stable; Cursor in rollout; Aider and Goose planned"));
+    assert_eq!(
+        nodes["capability:essence-anchored-code-map"]
+            .status
+            .as_deref(),
+        Some("planned")
+    );
+    assert_eq!(
+        nodes["capability:agent-providers"].status.as_deref(),
+        Some("stable; Cursor in rollout; Aider and Goose planned")
+    );
     assert!(nodes.contains_key("core:general-agent"));
     assert!(nodes.contains_key("core:crash-recovery-supervisor"));
     assert!(records.iter().any(|record| matches!(record, super::MapRecord::Edge(edge) if edge.from == "capability:session-continuity" && edge.to == "core:crash-recovery-supervisor")));
@@ -234,8 +244,11 @@ fn essence_truth_model_rejects_renamed_capability_slug() {
     let fixture = fixture_root();
     let (map, decisions, _) = valid_map(fixture.path());
     let original = fs::read_to_string(&map).expect("read map");
-    fs::write(&map, original.replace("capability:agent-providers", "capability:renamed-providers"))
-        .expect("write renamed map");
+    fs::write(
+        &map,
+        original.replace("capability:agent-providers", "capability:renamed-providers"),
+    )
+    .expect("write renamed map");
     let error = validate(fixture.path(), &map, &decisions).expect_err("renamed slug fails");
     assert!(error.contains("missing node") || error.contains("dangling"));
 }

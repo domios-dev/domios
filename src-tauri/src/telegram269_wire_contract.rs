@@ -69,7 +69,10 @@ fn verify_swift_interop_artifact(path: &str, vectors: &Value) {
     let mut changed_signature = signature.to_bytes();
     changed_signature[0] ^= 1;
     assert!(verifying_key
-        .verify(&message, &ed25519_dalek::Signature::from_bytes(&changed_signature))
+        .verify(
+            &message,
+            &ed25519_dalek::Signature::from_bytes(&changed_signature)
+        )
         .is_err());
 
     let mut changed_key = public_key;

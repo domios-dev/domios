@@ -20,8 +20,8 @@ fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
 
 #[test]
 fn cartographer_prompt_orchestrator_composition_delivers_boundary_notice() {
-    let prompt = spawn_onboarding_task(&orchestrator_params(None))
-        .expect("orchestrator system prompt");
+    let prompt =
+        spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
     let notice = crate::prompts::ORCH_CARTOGRAPHER_CONTRACT_NOTICE;
     assert_eq!(prompt.matches(notice).count(), 1);
     assert!(!prompt.contains("{cartographer_contract_notice}"));
@@ -31,12 +31,9 @@ fn cartographer_prompt_orchestrator_composition_delivers_boundary_notice() {
 #[test]
 fn cartographer_prompt_cartographer_composition_delivers_contract_and_assignment_once() {
     const ASSIGNMENT_TOKEN: &str = "OPAQUE-CARTOGRAPHER-DELIVERY-2c6e1";
-    let prompt = super::role_onboarding_task(
-        Some(ASSIGNMENT_TOKEN),
-        Some("Worker"),
-        Some("cartographer"),
-    )
-    .expect("cartographer system prompt");
+    let prompt =
+        super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), Some("Worker"), Some("cartographer"))
+            .expect("cartographer system prompt");
     let contract = crate::prompts::CARTOGRAPHER_SUFFIX.trim();
     assert_eq!(prompt.matches(contract).count(), 1);
     assert_eq!(prompt.matches(ASSIGNMENT_TOKEN).count(), 1);

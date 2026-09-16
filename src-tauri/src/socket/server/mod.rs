@@ -731,7 +731,9 @@ mod tests {
         ] {
             assert!(is_disconnected_client(&io::Error::from(kind)));
         }
-        assert!(!is_disconnected_client(&io::Error::from(io::ErrorKind::PermissionDenied)));
+        assert!(!is_disconnected_client(&io::Error::from(
+            io::ErrorKind::PermissionDenied
+        )));
     }
 
     #[test]

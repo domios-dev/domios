@@ -82,7 +82,8 @@ impl Serialize for MapRecord {
             MapRecord::Node(node) => {
                 let mut state = serializer.serialize_struct(
                     "MapRecord",
-                    6 + usize::from(node.runs_on_reason.is_some()) + usize::from(node.status.is_some()),
+                    6 + usize::from(node.runs_on_reason.is_some())
+                        + usize::from(node.status.is_some()),
                 )?;
                 state.serialize_field("kind", "node")?;
                 state.serialize_field("id", &node.id)?;
@@ -887,7 +888,10 @@ fn validate_node_shape(node: &NodeRecord, inventory: &Inventory) -> Result<(), S
         ));
     }
     if node.node_type != NodeType::Capability && node.status.is_some() {
-        return Err(format!("node `{}` carries status but is not a capability", node.id));
+        return Err(format!(
+            "node `{}` carries status but is not a capability",
+            node.id
+        ));
     }
     if node.node_type == NodeType::Capability
         && node

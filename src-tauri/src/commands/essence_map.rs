@@ -69,7 +69,9 @@ fn essence_documents(project_path: &Path) -> Vec<String> {
                 continue;
             }
             if !file_type.is_file()
-                || path.extension().and_then(|extension| extension.to_str())
+                || path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
                     .is_none_or(|extension| !extension.eq_ignore_ascii_case("md"))
             {
                 continue;
@@ -122,7 +124,9 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
                 documents,
             }
         }
-        Err(error) => return unavailable(project_display, map_display, error.to_string(), documents),
+        Err(error) => {
+            return unavailable(project_display, map_display, error.to_string(), documents)
+        }
     };
 
     if metadata.len() > MAP_FILE_LIMIT {

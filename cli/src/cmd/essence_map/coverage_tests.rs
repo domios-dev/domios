@@ -46,7 +46,12 @@ fn coverage_rows() -> Vec<CoverageRow> {
         .map(|(index, line)| {
             let row: CoverageRow = serde_json::from_str(line)
                 .unwrap_or_else(|error| panic!("coverage line {}: {error}", index + 1));
-            assert_eq!(row.kind, "coverage", "line {} is not a coverage record", index + 1);
+            assert_eq!(
+                row.kind,
+                "coverage",
+                "line {} is not a coverage record",
+                index + 1
+            );
             row
         })
         .collect()
@@ -99,15 +104,25 @@ fn cartographer_document_coverage_gives_every_essence_document_one_verdict() {
 
     let missing: Vec<&String> = documents.difference(&audited).collect();
     let orphaned: Vec<&String> = audited.difference(&documents).collect();
-    assert!(missing.is_empty(), "essence documents without a verdict: {missing:?}");
-    assert!(orphaned.is_empty(), "verdicts without an essence document: {orphaned:?}");
+    assert!(
+        missing.is_empty(),
+        "essence documents without a verdict: {missing:?}"
+    );
+    assert!(
+        orphaned.is_empty(),
+        "verdicts without an essence document: {orphaned:?}"
+    );
     assert_eq!(rows.len(), documents.len());
 }
 
 #[test]
 fn cartographer_document_coverage_mapped_documents_point_at_generated_nodes() {
     let inventory = build_inventory(&source_root()).expect("build the source inventory");
-    let node_ids: BTreeSet<&str> = inventory.nodes.iter().map(|node| node.id.as_str()).collect();
+    let node_ids: BTreeSet<&str> = inventory
+        .nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect();
 
     let mapped: Vec<CoverageRow> = coverage_rows()
         .into_iter()
@@ -124,7 +139,9 @@ fn cartographer_document_coverage_mapped_documents_point_at_generated_nodes() {
         let mut seen = BTreeSet::new();
         for anchor in &row.anchors {
             assert!(
-                NODE_PREFIXES.iter().any(|prefix| anchor.starts_with(prefix)),
+                NODE_PREFIXES
+                    .iter()
+                    .any(|prefix| anchor.starts_with(prefix)),
                 "{} anchors `{anchor}`, which names no vector, capability, core part or client",
                 row.document
             );
@@ -186,7 +203,10 @@ fn cartographer_document_coverage_never_bulk_attaches_documents_to_one_node() {
         .filter(|row| !GENERATOR_SOURCES.contains(&row.document.as_str()))
     {
         for anchor in row.anchors {
-            per_anchor.entry(anchor).or_default().push(row.document.clone());
+            per_anchor
+                .entry(anchor)
+                .or_default()
+                .push(row.document.clone());
         }
     }
     for (anchor, documents) in &per_anchor {

@@ -152,9 +152,8 @@ async fn mesh_connect_peer_correlation_late_approval_completes_without_resend() 
 #[tokio::test]
 async fn mesh_connect_peer_correlation_definitely_before_send_cleans_state() {
     let mesh = mesh_state();
-    let source = ConnectPeerError::BeforeSend(
-        "phase=connection_establishment;source_depth=1".to_string(),
-    );
+    let source =
+        ConnectPeerError::BeforeSend("phase=connection_establishment;source_depth=1".to_string());
     assert_eq!(
         source.pairing_send_disposition(),
         Some(PairingSendDisposition::DefinitelyBeforeSend)
@@ -176,7 +175,10 @@ async fn mesh_connect_peer_correlation_definitely_before_send_cleans_state() {
     .expect("cleanup allows a fresh request");
     assert!(matches!(
         retry,
-        ConnectPeerResult::Pending { existing: false, .. }
+        ConnectPeerResult::Pending {
+            existing: false,
+            ..
+        }
     ));
 }
 
