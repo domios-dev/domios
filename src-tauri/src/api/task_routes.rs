@@ -69,6 +69,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::TeamAlreadyHasActivePlan { .. }
         | PlanError::PlanAlreadyBoundToTeam { .. }
         | PlanError::PlanSkillAlreadyExists { .. }
+        | PlanError::ReviewContinuationDeliveryRefused { .. }
         | PlanError::ReviewHoldRequired => StatusCode::CONFLICT,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
