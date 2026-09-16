@@ -434,9 +434,10 @@ function layoutEssenceMapProjectGrid(
 
 function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidth: number): EssenceMapProjectLayout {
   const width = Math.max(560, Math.floor(availableWidth));
-  const height = 900;
   const cardWidth = Math.min(180, width - 32);
-  const center = { x: width / 2, y: 430 };
+  // Grow with node count so the separation pass below always has room to resolve collisions.
+  const height = Math.max(900, Math.ceil((nodes.length * (cardWidth + 14) * (NODE_HEIGHT + 14) * 2.2) / width));
+  const center = { x: width / 2, y: height / 2 };
   const vectors = sortedNodes(nodes.filter((node) => node.type === "vector"));
   const capabilities = sortedNodes(nodes.filter((node) => node.type === "capability"));
   const core = sortedNodes(nodes.filter((node) => node.type === "core"));
@@ -452,12 +453,31 @@ function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidt
   for (const node of capabilities) if (!positions.has(node.id)) put(node, center.x, center.y - 112);
   core.forEach((node, index) => { const angle = index * 2.4; const radius = Math.min(112, 50 + core.length * 30); put(node, center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius); });
   clients.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(clients.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * clientRadius, center.y + Math.sin(angle) * clientRadius); });
-  const layouts = [...vectors, ...capabilities, ...core, ...clients].map((node) => { const point = positions.get(node.id) ?? center; return { node, x: point.x - cardWidth / 2, y: point.y - NODE_HEIGHT / 2, width: cardWidth, height: NODE_HEIGHT }; });
+  const order = [...vectors, ...capabilities, ...core, ...clients];
+  const clampPoint = (point: { x: number; y: number }) => { point.x = Math.max(cardWidth / 2 + 4, Math.min(width - cardWidth / 2 - 4, point.x)); point.y = Math.max(48, Math.min(height - 48, point.y)); };
+  const minGapX = cardWidth + 14; const minGapY = NODE_HEIGHT + 14;
+  // Fixed-iteration separation pass: deterministic, converges, leaves no loop running.
+  for (let pass = 0; pass < 320; pass += 1) {
+    let moved = false;
+    for (let i = 0; i < order.length; i += 1) {
+      for (let j = i + 1; j < order.length; j += 1) {
+        const a = positions.get(order[i].id)!; const b = positions.get(order[j].id)!;
+        const overlapX = minGapX - Math.abs(b.x - a.x); const overlapY = minGapY - Math.abs(b.y - a.y);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        moved = true;
+        if (overlapX / minGapX < overlapY / minGapY) { const push = (overlapX / 2 + 0.5) * (b.x - a.x < 0 ? -1 : 1); a.x -= push; b.x += push; }
+        else { const push = (overlapY / 2 + 0.5) * (b.y - a.y < 0 ? -1 : 1); a.y -= push; b.y += push; }
+        clampPoint(a); clampPoint(b);
+      }
+    }
+    if (!moved) break;
+  }
+  const layouts = order.map((node) => { const point = positions.get(node.id) ?? center; return { node, x: point.x - cardWidth / 2, y: point.y - NODE_HEIGHT / 2, width: cardWidth, height: NODE_HEIGHT }; });
   const nodeById = new Map(layouts.map((item) => [item.node.id, item]));
   const boundsFor = (items: EssenceMapNodeLayout[]) => { const minX = Math.max(8, Math.min(...items.map((item) => item.x)) - 18); const minY = Math.max(8, Math.min(...items.map((item) => item.y)) - 28); const maxX = Math.min(width - 8, Math.max(...items.map((item) => item.x + item.width)) + 18); const maxY = Math.min(height - 8, Math.max(...items.map((item) => item.y + item.height)) + 28); return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }; };
-  const clusters = vectors.map((vector, index) => { const items = layouts.filter((item) => item.node.id === vector.id || item.node.vector === vector.id); const bounds = boundsFor(items); return { vectorId: vector.id, vector, colorIndex: index, ...bounds, nodeIds: items.map((item) => item.node.id) }; });
+  const clusters: EssenceMapClusterLayout[] = vectors.map((vector, index) => { const items = layouts.filter((item) => item.node.id === vector.id || item.node.vector === vector.id); const bounds = boundsFor(items); return { vectorId: vector.id, vector, colorIndex: index, ...bounds, nodeIds: items.map((item) => item.node.id) }; });
   const unassigned = layouts.filter((item) => item.node.type === "capability" && !item.node.vector); if (unassigned.length) clusters.push({ vectorId: null, vector: null, colorIndex: vectors.length, ...boundsFor(unassigned), nodeIds: unassigned.map((item) => item.node.id) });
-  const regions = ([{ type: "core" as const, label: "Core parts", items: core }, { type: "client" as const, label: "Clients", items: clients }]).filter(({ items }) => items.length > 0).map(({ type, label, items }) => ({ type, label, ...boundsFor(items), nodeIds: items.map((node) => node.id) }));
+  const regions = ([{ type: "core" as const, label: "Core parts", items: layouts.filter((item) => item.node.type === "core") }, { type: "client" as const, label: "Clients", items: layouts.filter((item) => item.node.type === "client") }]).filter(({ items }) => items.length > 0).map(({ type, label, items }) => ({ type, label, ...boundsFor(items), nodeIds: items.map((item) => item.node.id) }));
   return { width, height, nodes: layouts, nodeById, clusters, regions };
 }
 

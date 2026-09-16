@@ -9,6 +9,7 @@ import {
   layoutEssenceMapProject,
   layoutEssenceMapWorld,
   parseEssenceMapJsonl,
+  parseEssenceMapProject,
   projectPathsForWorkspace,
   type EssenceMapEdge,
   type EssenceMapFile,
