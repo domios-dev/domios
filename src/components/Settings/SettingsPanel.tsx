@@ -22,6 +22,7 @@ import { KeybindGroup } from "./KeybindGroup";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
+import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
@@ -231,8 +232,13 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "general" && (
-              <SettingsPage title="General" subtitle="Theme, fonts, cursor, behavior, and keybindings.">
+              <SettingsPage
+                title="General"
+                subtitle="General Agent, theme, fonts, cursor, behavior, and keybindings."
+              >
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
+
+                <GeneralAgentCard config={localConfig} onUpdate={update} />
 
                 <SettingsCard icon={<Palette size={16} />} title="Color Theme">
                   <label className="block">

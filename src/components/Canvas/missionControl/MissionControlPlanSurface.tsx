@@ -245,9 +245,14 @@ export function MissionControlPlanSurface({
           />
         )}
         {showsData && !selectedPlan && !team && (
-          <p data-testid="mission-control-empty" className="p-4 text-sm" style={{ color: "var(--ct-muted-fg)" }}>
-            No active plans in this workspace.
-          </p>
+          <div
+            data-testid="mission-control-empty"
+            className="flex h-full items-center justify-center p-8"
+          >
+            <p className="text-center text-[15px] text-[var(--ct-muted-fg)]">
+              No active plans in this workspace.
+            </p>
+          </div>
         )}
         {showsData && selectedPlan && (
           <MissionControlBoard
