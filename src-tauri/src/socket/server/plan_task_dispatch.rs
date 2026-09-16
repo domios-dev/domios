@@ -52,7 +52,10 @@ use lane_safety::{
     refuse_unsafe_mutating_write,
 };
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
-use routing::{dispatch_worker_identity, resolve_dispatch_routing, unqualified_model_error};
+use routing::{
+    dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing,
+    unqualified_model_error,
+};
 use workspace_admission::preflight_dispatch_workspace;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
@@ -669,6 +672,9 @@ pub(super) fn dispatch(
         detail.task.model.clone(),
         &svc.agent_registry.provider_ids(),
     );
+    if let Some(error) = provider_mismatch_error(&routing) {
+        return Err(error);
+    }
 
     // Surface an unknown-model fallback loudly instead of silently downgrading.
     let resolved_provider = routing

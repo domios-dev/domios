@@ -849,6 +849,8 @@ impl PlanStore {
             task.lane.tab_id = Some(tab_id.into());
             task.taken_by_role = role.map(str::to_string);
             task.peer = None;
+            task.status = TaskStatus::Pending;
+            task.status_changed_at = now_ms;
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
             let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);

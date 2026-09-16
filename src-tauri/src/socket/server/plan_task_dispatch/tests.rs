@@ -4,11 +4,11 @@ use super::{
     build_brief_with_personality, checkout_required, cleanup_succeeded,
     complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
-    preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
-    resolve_dispatch_lane, resolve_dispatch_routing, roll_back_dispatch_attempt,
-    rollback_failed_dispatch, task_launch_authority_for_dispatch, unqualified_model_error,
-    verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
-    DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
+    preflight_dispatch_task_status, preflight_review_capacity, provider_mismatch_error,
+    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
+    roll_back_dispatch_attempt, rollback_failed_dispatch, task_launch_authority_for_dispatch,
+    unqualified_model_error, verify_dispatched_task_binding, worker_ack_timeout_event,
+    DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -1060,6 +1060,83 @@ fn routing_explicit_agent_wins_and_keeps_model() {
 }
 
 #[test]
+fn routing_explicit_agent_normalizes_matching_qualified_model() {
+    let r = resolve_dispatch_routing(
+        Some("codex".into()),
+        Some("codex:gpt-5.6-sol".into()),
+        None,
+        &providers(),
+    );
+    assert_eq!(r.agent.as_deref(), Some("codex"));
+    assert_eq!(r.model.as_deref(), Some("gpt-5.6-sol"));
+    assert!(r.qualified_model);
+    assert!(r.qualified_provider_mismatch.is_none());
+}
+
+#[test]
+fn routing_explicit_agent_rejects_unavailable_matching_qualified_task_model() {
+    let routing = resolve_dispatch_routing(
+        Some("codex".into()),
+        None,
+        Some("CoDeX:missing-model".into()),
+        &providers(),
+    );
+    assert_eq!(routing.agent.as_deref(), Some("codex"));
+    assert_eq!(routing.model.as_deref(), Some("missing-model"));
+    assert!(routing.qualified_model);
+
+    let notice = crate::service::spawn::ModelFallbackNotice {
+        planned_model: Some("CoDeX:missing-model".into()),
+        requested_model: "missing-model".into(),
+        provider_resolved_model: "gpt-5.5".into(),
+        actual_model: None,
+        reason: "requested_model_unavailable".into(),
+    };
+    let error = unqualified_model_error(&routing, "codex", &notice)
+        .expect("explicit qualified unavailable model must be refused");
+    assert_eq!(error.code, -32602);
+    assert_eq!(error.data.unwrap()["type"], "qualified_model_unavailable");
+}
+
+#[test]
+fn routing_explicit_agent_rejects_mismatched_qualified_model() {
+    let r = resolve_dispatch_routing(
+        Some("codex".into()),
+        Some("claude:opus".into()),
+        None,
+        &providers(),
+    );
+    assert_eq!(r.agent.as_deref(), Some("codex"));
+    assert_eq!(r.model.as_deref(), Some("claude:opus"));
+    assert_eq!(
+        r.qualified_provider_mismatch
+            .as_ref()
+            .map(|(provider, _)| provider.as_str()),
+        Some("claude")
+    );
+
+    let error = provider_mismatch_error(&r).unwrap();
+    assert_eq!(error.code, -32602);
+    let data = error.data.expect("provider mismatch data");
+    assert_eq!(data["type"], "model_provider_mismatch");
+    assert_eq!(data["requested_provider"], "claude");
+    assert_eq!(data["selected_provider"], "codex");
+    assert!(error.message.contains("does not match"));
+}
+
+#[test]
+fn routing_explicit_agent_preserves_malformed_qualified_models_for_refusal() {
+    for model in ["codex:", ":gpt-5.6-sol", "codex"] {
+        let r =
+            resolve_dispatch_routing(Some("codex".into()), Some(model.into()), None, &providers());
+        assert_eq!(r.agent.as_deref(), Some("codex"));
+        assert_eq!(r.model.as_deref(), Some(model));
+        assert!(!r.qualified_model);
+        assert!(r.qualified_provider_mismatch.is_none());
+    }
+}
+
+#[test]
 fn routing_model_naming_a_provider_becomes_that_provider() {
     // This is the exact BUG A repro: `--model codex` must route to the codex
     // provider at its default model, not to the default provider.
@@ -1115,7 +1192,12 @@ fn routing_never_silently_substitutes_an_unqualified_model() {
     );
 
     let qualified = resolve_dispatch_routing(None, Some("claude:opus".into()), None, &providers());
-    assert!(unqualified_model_error(&qualified, "claude", &notice).is_none());
+    let qualified_error = unqualified_model_error(&qualified, "claude", &notice).unwrap();
+    assert_eq!(qualified_error.code, -32602);
+    assert_eq!(
+        qualified_error.data.unwrap()["type"],
+        "qualified_model_unavailable"
+    );
 }
 
 #[test]

@@ -503,6 +503,7 @@ impl PlanStore {
         })
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn assign_task(
         &self,
         plan_id: &str,
@@ -514,6 +515,7 @@ impl PlanStore {
         self.assign_task_with_role(plan_id, task_id, tab, peer, None, now_ms)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn assign_task_with_role(
         &self,
         plan_id: &str,
@@ -523,23 +525,8 @@ impl PlanStore {
         role: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let write = self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            task.assigned_tab_id = Some(tab.into());
-            task.lane.tab_id = Some(tab.into());
-            task.taken_by_role = role.map(str::to_string);
-            task.peer = peer.map(|s| s.into());
-            task.updated_at = now_ms;
-            let attempt =
-                super::task_attempts::new_assignment_attempt(task, tab, peer, role, now_ms);
-            task.execution_attempts.push(attempt);
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_assigned(plan_id, task_id, tab, peer),
-            Some(task_id.to_string()),
+        self.assign_task_with_optional_binding(
+            plan_id, task_id, tab, peer, role, None, None, now_ms,
         )
     }
 
