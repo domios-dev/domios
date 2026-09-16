@@ -31,7 +31,8 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           // GFM table overrides — without them tables fall back to unstyled browser defaults.
           table: ({ children }) => (
             <div style={{ overflowX: "auto", margin: "0 0 12px" }}>
-              <table style={{ borderCollapse: "collapse", fontSize: 12.5, width: "100%" }}>{children}</table>
+              {/* minWidth over width:100% — a narrow drawer otherwise crushes columns to one letter instead of scrolling. */}
+              <table style={{ borderCollapse: "collapse", fontSize: 12.5, minWidth: "max-content" }}>{children}</table>
             </div>
           ),
           thead: ({ children }) => (

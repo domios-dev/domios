@@ -44,7 +44,11 @@ export function EssenceMapProjectView({ project, onActivate }: { project: Essenc
   const colorByNodeId = new Map(layout.clusters.flatMap((cluster) => cluster.nodeIds.map((id) => [id, vectorColor(cluster.colorIndex)] as const)));
   // Fifty-five nodes and a hundred edges overwhelm at a glance; lighting one
   // neighbourhood at a time is what makes an essence and its connections readable.
-  const [active, setActive] = useState<string | null>(null);
+  // Click pins a neighbourhood so it stays lit while the source panel is read;
+  // hover is the transient preview on top of it.
+  const [pinned, setPinned] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const active = pinned ?? hovered;
   const related = useMemo(() => {
     if (!active) return null;
     const set = new Set<string>([active]);
@@ -76,7 +80,7 @@ export function EssenceMapProjectView({ project, onActivate }: { project: Essenc
           : type === "core" ? { width: 22, height: 22, borderRadius: 5, background: "var(--ct-surface)", border: `1.5px solid var(--ct-muted-fg)` }
           : { width: 30, height: 18, borderRadius: "9999px", background: "transparent", border: `1.5px solid var(--ct-fg)` };
         const below = type !== "capability";
-        return <button key={item.node.id} type="button" data-testid="essence-map-node" data-node-id={item.node.id} data-node-type={type} data-node-vector={item.node.vector ?? undefined} aria-label={`${item.node.label} (${type})`} title={item.node.label} className="group absolute flex items-center justify-center transition-opacity focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" style={{ left: item.x, top: item.y, width: item.width, height: item.height, opacity: nodeOpacity(item.node.id), zIndex: related?.has(item.node.id) ? 5 : undefined }} onMouseEnter={() => setActive(item.node.id)} onMouseLeave={() => setActive(null)} onFocus={() => setActive(item.node.id)} onBlur={() => setActive(null)} onClick={() => onActivate(project, item.node)}>
+        return <button key={item.node.id} type="button" data-testid="essence-map-node" data-node-id={item.node.id} data-node-type={type} data-node-vector={item.node.vector ?? undefined} aria-label={`${item.node.label} (${type})`} title={item.node.label} className="group absolute flex items-center justify-center transition-opacity focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" style={{ left: item.x, top: item.y, width: item.width, height: item.height, opacity: nodeOpacity(item.node.id), zIndex: related?.has(item.node.id) ? 5 : undefined }} onMouseEnter={() => setHovered(item.node.id)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(item.node.id)} onBlur={() => setHovered(null)} onClick={() => { setPinned((current) => (current === item.node.id ? null : item.node.id)); onActivate(project, item.node); }}>
           <span aria-hidden="true" className="flex shrink-0 items-center justify-center transition-transform group-hover:scale-110" style={shape}>{hubNumber !== null && <span className="text-[13px] font-medium leading-none text-[var(--ct-bg)]">{hubNumber}</span>}</span>
           <span className={`pointer-events-none absolute ${below ? "left-1/2 top-full mt-1.5 -translate-x-1/2 text-center" : "left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap"} ${type === "vector" ? "w-[150px] text-[10px] font-semibold uppercase leading-[1.25] tracking-[.09em] text-[var(--ct-fg)]" : `leading-none text-[10px] text-[var(--ct-muted-fg)] group-hover:text-[var(--ct-fg)] ${below ? "w-[90px]" : ""}`}`} style={{ textShadow: "0 0 4px var(--ct-bg), 0 0 4px var(--ct-bg), 0 0 4px var(--ct-bg)" }}>{item.node.label}</span>
           <span className="sr-only">Source {item.node.source.path}, anchor {item.node.source.anchor}</span>
