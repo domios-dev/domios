@@ -1,0 +1,153 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000001 /* WireCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* WireCodec.swift */; };
+		100000000000000000000002 /* MobileWireVectorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* MobileWireVectorsTests.swift */; };
+		100000000000000000000003 /* MobileWireVectors.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* MobileWireVectors.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		300000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 400000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 500000000000000000000001;
+			remoteInfo = MobileWireVectors;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		200000000000000000000001 /* WireCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireCodec.swift; sourceTree = "<group>"; };
+		200000000000000000000002 /* MobileWireVectorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWireVectorsTests.swift; sourceTree = "<group>"; };
+		200000000000000000000003 /* MobileWireVectors.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = MobileWireVectors.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		200000000000000000000004 /* MobileWireVectorsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MobileWireVectorsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		600000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000002 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000003 /* MobileWireVectors.framework in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		700000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				700000000000000000000002 /* MobileWireVectors */,
+				700000000000000000000003 /* MobileWireVectorsTests */,
+				700000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		700000000000000000000002 /* MobileWireVectors */ = {
+			isa = PBXGroup;
+			children = (200000000000000000000001 /* WireCodec.swift */,);
+			path = Sources/MobileWireVectors;
+			sourceTree = "<group>";
+		};
+		700000000000000000000003 /* MobileWireVectorsTests */ = {
+			isa = PBXGroup;
+			children = (200000000000000000000002 /* MobileWireVectorsTests.swift */,);
+			path = Tests/MobileWireVectorsTests;
+			sourceTree = "<group>";
+		};
+		700000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000003 /* MobileWireVectors.framework */,
+				200000000000000000000004 /* MobileWireVectorsTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		500000000000000000000001 /* MobileWireVectors */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 800000000000000000000001 /* Build configuration list */;
+			buildPhases = (
+				900000000000000000000001 /* Sources */,
+				600000000000000000000001 /* Frameworks */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = MobileWireVectors;
+			productName = MobileWireVectors;
+			productReference = 200000000000000000000003 /* MobileWireVectors.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		500000000000000000000002 /* MobileWireVectorsTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 800000000000000000000002 /* Build configuration list */;
+			buildPhases = (
+				900000000000000000000002 /* Sources */,
+				600000000000000000000002 /* Frameworks */,
+			);
+			buildRules = ();
+			dependencies = (A00000000000000000000001 /* PBXTargetDependency */,);
+			name = MobileWireVectorsTests;
+			productName = MobileWireVectorsTests;
+			productReference = 200000000000000000000004 /* MobileWireVectorsTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		400000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					500000000000000000000001 = {CreatedOnToolsVersion = 16.0;};
+					500000000000000000000002 = {CreatedOnToolsVersion = 16.0; TestTargetID = 500000000000000000000001;};
+				};
+			};
+			buildConfigurationList = 800000000000000000000003 /* Build configuration list */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = 700000000000000000000001;
+			productRefGroup = 700000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				500000000000000000000001 /* MobileWireVectors */,
+				500000000000000000000002 /* MobileWireVectorsTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		900000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000001 /* WireCodec.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		900000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000002 /* MobileWireVectorsTests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A00000000000000000000001 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = 500000000000000000000001 /* MobileWireVectors */; targetProxy = 300000000000000000000001 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B00000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; DEFINES_MODULE = YES; DYLIB_INSTALL_NAME_BASE = "@rpath"; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; PRODUCT_BUNDLE_IDENTIFIER = com.codeterm.MobileWireVectors; PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)"; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0;}; name = Debug;};
+		B00000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; DEFINES_MODULE = YES; DYLIB_INSTALL_NAME_BASE = "@rpath"; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; PRODUCT_BUNDLE_IDENTIFIER = com.codeterm.MobileWireVectors; PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)"; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0;}; name = Release;};
+		B00000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; PRODUCT_BUNDLE_IDENTIFIER = com.codeterm.MobileWireVectorsTests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0;}; name = Debug;};
+		B00000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; PRODUCT_BUNDLE_IDENTIFIER = com.codeterm.MobileWireVectorsTests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0;}; name = Release;};
+		B00000000000000000000005 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SWIFT_VERSION = 5.0;}; name = Debug;};
+		B00000000000000000000006 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 5.0;}; name = Release;};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		800000000000000000000001 /* Build configuration list */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000001 /* Debug */, B00000000000000000000002 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+		800000000000000000000002 /* Build configuration list */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000003 /* Debug */, B00000000000000000000004 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+		800000000000000000000003 /* Build configuration list */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000005 /* Debug */, B00000000000000000000006 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+/* End XCConfigurationList section */
+	};
+	rootObject = 400000000000000000000001 /* Project object */;
+}

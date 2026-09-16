@@ -4,6 +4,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
+mod canonical;
+use canonical::{canonicalize_jcs, require_canonical_jcs};
+
 const VECTORS: &str = include_str!("../tests/fixtures/telegram269-mobile-core-wire-v1.json");
 const DAY_MS: u64 = 86_400_000;
 
@@ -193,7 +196,10 @@ fn sse_frame_bytes(vector: &Value, previous_hash: &[u8; 32]) -> Vec<u8> {
     ] {
         b(&mut out, &field(vector, key));
     }
-    b(&mut out, vector["data_jcs"].as_str().unwrap().as_bytes());
+    b(
+        &mut out,
+        vector["signed_payload_jcs"].as_str().unwrap().as_bytes(),
+    );
     out
 }
 
@@ -305,20 +311,20 @@ impl ReservationStore {
 fn receiver_authorizes(
     target: &Value,
     instance: &str,
+    tab_id: &str,
+    session_id: &str,
     epoch: u64,
     configured: &str,
     reported: &str,
 ) -> bool {
     target["kind"] == "tab"
         && target["target_instance_id"] == instance
+        && target["tab_id"] == tab_id
+        && target["session_id"] == session_id
         && target["lifecycle_epoch"] == epoch
         && configured == reported
         && unhex(target["binding_nonce_digest_hex"].as_str().unwrap())
             == sha256(configured.as_bytes())
-}
-
-fn canonical_jcs(text: &str) -> bool {
-    serde_json::to_string(&serde_json::from_str::<Value>(text).unwrap()).unwrap() == text
 }
 
 fn percent_encode(value: &str) -> String {
@@ -349,6 +355,67 @@ fn canonical_target(path: &str, pairs: &[(String, String)]) -> String {
         path.to_owned()
     } else {
         format!("{path}?{query}")
+    }
+}
+
+fn percent_decode(value: &str) -> Result<String, &'static str> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err("invalid_percent_encoding");
+            }
+            let encoded = std::str::from_utf8(&bytes[index + 1..index + 3])
+                .map_err(|_| "invalid_percent_encoding")?;
+            decoded.push(u8::from_str_radix(encoded, 16).map_err(|_| "invalid_percent_encoding")?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).map_err(|_| "invalid_percent_encoding")
+}
+
+fn canonicalize_target(input: &str) -> Result<String, &'static str> {
+    if input.contains('#') {
+        return Err("fragment_not_allowed");
+    }
+    let (raw_path, raw_query) = input.split_once('?').unwrap_or((input, ""));
+    if !raw_path.starts_with('/') {
+        return Err("invalid_target");
+    }
+    let decoded_path = percent_decode(raw_path)?;
+    let mut segments = Vec::new();
+    for segment in decoded_path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.pop().is_none() {
+                    return Err("dot_segment_above_root");
+                }
+            }
+            value => segments.push(percent_encode(value)),
+        }
+    }
+    let path = format!("/{}", segments.join("/"));
+    let mut pairs = Vec::new();
+    if !raw_query.is_empty() {
+        for pair in raw_query.split('&') {
+            let (key, value) = pair.split_once('=').ok_or("invalid_target")?;
+            pairs.push((percent_decode(key)?, percent_decode(value)?));
+        }
+    }
+    Ok(canonical_target(&path, &pairs))
+}
+
+fn require_canonical_target(input: &str) -> Result<(), &'static str> {
+    if canonicalize_target(input)? == input {
+        Ok(())
+    } else {
+        Err("noncanonical_target")
     }
 }
 
@@ -507,6 +574,8 @@ fn telegram269_wire_contract() {
     assert!(receiver_authorizes(
         target,
         "remote-b",
+        "tab-17",
+        "session-23",
         42,
         "binding-live-29",
         "binding-live-29"
@@ -514,6 +583,8 @@ fn telegram269_wire_contract() {
     assert!(!receiver_authorizes(
         target,
         "gateway-a",
+        "tab-17",
+        "session-23",
         42,
         "binding-live-29",
         "binding-live-29"
@@ -521,6 +592,8 @@ fn telegram269_wire_contract() {
     assert!(!receiver_authorizes(
         target,
         "remote-b",
+        "tab-17",
+        "session-23",
         43,
         "binding-live-29",
         "binding-live-29"
@@ -528,19 +601,41 @@ fn telegram269_wire_contract() {
     assert!(!receiver_authorizes(
         target,
         "remote-b",
+        "tab-17",
+        "session-23",
         42,
         "binding-live-29",
         "binding-old"
     ));
+    assert!(!receiver_authorizes(
+        target,
+        "remote-b",
+        "tab-other",
+        "session-23",
+        42,
+        "binding-live-29",
+        "binding-live-29"
+    ));
+    assert!(!receiver_authorizes(
+        target,
+        "remote-b",
+        "tab-17",
+        "session-other",
+        42,
+        "binding-live-29",
+        "binding-live-29"
+    ));
     assert_eq!(target_bytes(&vectors["none_target"]), b"CTMC1-TARGET\0\0");
 
     let request = &vectors["request"];
-    assert!(canonical_jcs(
-        request["unsigned_proof_jcs"].as_str().unwrap()
-    ));
-    assert!(!canonical_jcs(
-        request["noncanonical_proof_jcs"].as_str().unwrap()
-    ));
+    assert_eq!(
+        require_canonical_jcs(request["unsigned_proof_jcs"].as_str().unwrap()),
+        Ok(())
+    );
+    assert_eq!(
+        require_canonical_jcs(request["noncanonical_proof_jcs"].as_str().unwrap()),
+        Err("noncanonical_json")
+    );
     let request_wire = request_signature_bytes(request);
     assert_eq!(hex(&request_wire), request["expected_hex"]);
     let request_signature = key.sign(&request_wire);
@@ -581,6 +676,47 @@ fn telegram269_wire_contract() {
         serde_json::to_string(&vectors["jcs"]["value"]).unwrap(),
         vectors["jcs"]["expected"]
     );
+    for vector in vectors["jcs"]["canonicalization"].as_array().unwrap() {
+        assert_eq!(
+            canonicalize_jcs(vector["input"].as_str().unwrap()).unwrap(),
+            vector["expected"]
+        );
+    }
+    for vector in vectors["jcs"]["refusals"].as_array().unwrap() {
+        assert_eq!(
+            canonicalize_jcs(vector["input"].as_str().unwrap()),
+            Err(vector["error"].as_str().unwrap())
+        );
+    }
+    for input in vectors["jcs"]["noncanonical"].as_array().unwrap() {
+        assert_eq!(
+            require_canonical_jcs(input.as_str().unwrap()),
+            Err("noncanonical_json")
+        );
+    }
+    let targets = &vectors["target_canonicalization"];
+    for vector in targets["accepted"].as_array().unwrap() {
+        assert_eq!(
+            canonicalize_target(vector["input"].as_str().unwrap()).unwrap(),
+            vector["expected"]
+        );
+        assert_eq!(
+            require_canonical_target(vector["expected"].as_str().unwrap()),
+            Ok(())
+        );
+    }
+    for vector in targets["refusals"].as_array().unwrap() {
+        assert_eq!(
+            canonicalize_target(vector["input"].as_str().unwrap()),
+            Err(vector["error"].as_str().unwrap())
+        );
+    }
+    for input in targets["noncanonical"].as_array().unwrap() {
+        assert_eq!(
+            require_canonical_target(input.as_str().unwrap()),
+            Err("noncanonical_target")
+        );
+    }
 
     let discovery = &vectors["discovery"];
     let discovery_wire = discovery_bytes(discovery);
@@ -595,7 +731,10 @@ fn telegram269_wire_contract() {
         .unwrap();
 
     let response = &vectors["response"];
-    assert!(canonical_jcs(response["body_jcs"].as_str().unwrap()));
+    assert_eq!(
+        require_canonical_jcs(response["body_jcs"].as_str().unwrap()),
+        Ok(())
+    );
     assert!(!response["body_jcs"].as_str().unwrap().contains("signature"));
     assert_eq!(
         hex(&sha256(response["body_jcs"].as_str().unwrap().as_bytes())),
@@ -611,6 +750,29 @@ fn telegram269_wire_contract() {
     assert_eq!(
         hex(&response_signature.to_bytes()),
         response["expected_signature_hex"]
+    );
+    let headers = &response["transmitted_headers"];
+    assert_eq!(
+        headers["X-CodeTerm-Mobile-Response-Key"],
+        response["server_key_id"]
+    );
+    assert_eq!(
+        headers["X-CodeTerm-Mobile-Response-Nonce"],
+        response["response_nonce"]
+    );
+    assert_eq!(
+        headers["X-CodeTerm-Mobile-Response-Signature"]
+            .as_str()
+            .unwrap(),
+        URL_SAFE_NO_PAD.encode(response_signature.to_bytes())
+    );
+    assert_eq!(
+        headers["X-CodeTerm-Mobile-Request-Id"],
+        response["request_id"]
+    );
+    assert_eq!(
+        headers["X-CodeTerm-Mobile-Server-Time-Ms"],
+        response["server_time_ms"].as_u64().unwrap().to_string()
     );
     key.verifying_key()
         .verify(&response_wire, &response_signature)
@@ -661,24 +823,56 @@ fn telegram269_wire_contract() {
         hex(&first_signature.to_bytes()),
         sse["frames"][0]["expected_signature_hex"]
     );
+    assert_eq!(
+        decode_base64url(sse["frames"][0]["signature"].as_str().unwrap()).unwrap(),
+        first_signature.to_bytes().to_vec()
+    );
     key.verifying_key()
         .verify(&first_signature_input, &first_signature)
         .unwrap();
-    assert!(!sse["frames"][0]["data_jcs"]
+    assert!(!sse["frames"][0]["signed_payload_jcs"]
         .as_str()
         .unwrap()
         .contains("signature"));
-    assert!(!sse["frames"][0]["data_jcs"]
+    assert!(!sse["frames"][0]["signed_payload_jcs"]
         .as_str()
         .unwrap()
         .contains("previous_frame_hash"));
+    assert_eq!(
+        sse["frames"][0]["previous_frame_hash"],
+        format!("sha256:{}", hex(&seed))
+    );
+    assert_eq!(sse["frames"][0]["key_id"], response["server_key_id"]);
+    let envelope = format!(
+        "{{\"key_id\":\"{}\",\"previous_frame_hash\":\"{}\",\"response_nonce\":\"{}\",\"signature\":\"{}\",\"signed_payload\":{}}}",
+        sse["frames"][0]["key_id"].as_str().unwrap(),
+        sse["frames"][0]["previous_frame_hash"].as_str().unwrap(),
+        sse["frames"][0]["response_nonce"].as_str().unwrap(),
+        sse["frames"][0]["signature"].as_str().unwrap(),
+        sse["frames"][0]["signed_payload_jcs"].as_str().unwrap()
+    );
+    assert_eq!(
+        envelope,
+        sse["frames"][0]["expected_envelope_jcs"].as_str().unwrap()
+    );
+    assert_eq!(canonicalize_jcs(&envelope), Ok(envelope));
     let previous_hash = sha256(&first);
+    assert_eq!(
+        sse["frames"][1]["previous_frame_hash"],
+        format!("sha256:{}", hex(&previous_hash))
+    );
     let second = sse_frame_bytes(&sse["frames"][1], &previous_hash);
     assert_eq!(hex(&second), sse["frames"][1]["expected_frame_hex"]);
     let nonce = decode_base64url(sse["frames"][1]["response_nonce"].as_str().unwrap()).unwrap();
     assert_eq!(
         hex(&key.sign(&sse_signature_input(&second, &nonce)).to_bytes()),
         sse["frames"][1]["expected_signature_hex"]
+    );
+    assert_eq!(
+        decode_base64url(sse["frames"][1]["signature"].as_str().unwrap()).unwrap(),
+        key.sign(&sse_signature_input(&second, &nonce))
+            .to_bytes()
+            .to_vec()
     );
     let mut broken = previous_hash;
     broken[0] ^= 1;
@@ -697,7 +891,39 @@ fn telegram269_wire_contract() {
         send["route"],
         "/api/mobile/v1/gateways/gateway-a/targets/remote-b/tabs/tab-17/sends"
     );
-    assert!(canonical_jcs(send["body_jcs"].as_str().unwrap()));
+    assert_eq!(
+        require_canonical_jcs(send["body_jcs"].as_str().unwrap()),
+        Ok(())
+    );
+    let contract = &vectors["contract"];
+    assert_eq!(contract["grants"].as_array().unwrap().len(), 5);
+    let routes = contract["routes"].as_object().unwrap();
+    for (name, method, path) in [
+        ("pairing_create", "POST", "/api/mobile/v1/pairing/requests"),
+        (
+            "pairing_status",
+            "GET",
+            "/api/mobile/v1/pairing/requests/pair-01",
+        ),
+        (
+            "pairing_approve",
+            "POST",
+            "/api/mobile/v1/pairing/requests/pair-01/approve",
+        ),
+        (
+            "pairing_reject",
+            "POST",
+            "/api/mobile/v1/pairing/requests/pair-01/reject",
+        ),
+        ("request_status", "GET", "/api/mobile/v1/requests/send-01"),
+    ] {
+        assert_eq!(routes[name]["method"], method);
+        assert_eq!(routes[name]["path"], path);
+    }
+    for route in routes.values() {
+        let body = route["body_jcs"].as_str().unwrap();
+        assert_eq!(canonicalize_jcs(body).unwrap().as_bytes(), body.as_bytes());
+    }
     let digest = sha256(send["body_jcs"].as_str().unwrap().as_bytes());
     let target_digest = sha256(&target_bytes(target));
     let mut store = ReservationStore::default();
@@ -751,9 +977,9 @@ fn telegram269_wire_contract() {
         store.reserve("mc_alpha", "send-01", digest, target_digest, 1_000 + DAY_MS),
         Err("reservation_expired")
     );
-    let mut restored = store.clone();
+    let mut model_clone = store.clone();
     assert_eq!(
-        restored.reserve(
+        model_clone.reserve(
             "mc_alpha",
             "send-01",
             digest,
