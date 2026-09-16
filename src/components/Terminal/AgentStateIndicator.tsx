@@ -1,5 +1,6 @@
 import { Square, Terminal, X } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
+import type { Tab } from "../../lib/types";
 
 export type AgentStateKind = "working" | "idle" | "quiet" | "question";
 
@@ -57,6 +58,7 @@ export function AgentStateIndicator({
   state,
   providerName,
   model,
+  reasoningEffort,
   className,
   onStop,
   onCancel,
@@ -66,6 +68,7 @@ export function AgentStateIndicator({
   state: AgentState;
   providerName?: string | null;
   model?: string | null;
+  reasoningEffort?: Tab["reasoning_effort_identity"] | null;
   className?: string;
   onStop?: () => void;
   onCancel?: () => void;
@@ -78,7 +81,10 @@ export function AgentStateIndicator({
   const phase = workPhaseOf(state.phase);
   const status = state.status_line?.trim()
     || (isWorking ? "Working" : isQuiet ? "Session quiet — rebind to continue" : isQuestion ? questionStatus(state.subtype) : "");
-  const text = [providerName?.trim(), model?.trim(), status].filter(Boolean).join(" · ");
+  const actualEffort = reasoningEffort?.actual_source === "session-owned"
+    ? reasoningEffort.actual?.trim()
+    : null;
+  const text = [providerName?.trim(), model?.trim(), actualEffort, status].filter(Boolean).join(" · ");
 
   return (
     <div
