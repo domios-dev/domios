@@ -106,8 +106,11 @@ codeterm plan task assign <plan> <task> --tab <tab-id> [--mesh <peer>]
 ```
 
 This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and
-reads them back; there is no local-liveness requirement on the target tab, so a
-mesh tab is a valid executor. `codeterm plan task show` renders them as an
+reads them back. An explicit remote peer has no local-liveness requirement and
+never inherits the identity of a same-named local tab. A local assignment requires
+the target's verified live session binding before creating its attempt; missing
+or unverified binding refuses without changing the assignment. A fresh attempt
+still requires its own task ACK. `codeterm plan task show` renders them as an
 `executor: tab <id> on peer <peer> (role <role>)` line. Do **not** record an
 executor in a pause reason or any other free text — that is a record with no
 reader.
@@ -137,6 +140,10 @@ hold. A verb asserting the *caller's own* task binding, such as a Worker report,
 is on neither list and can never ride the recovery hatch. Refusals carry a stable
 `data.type` naming the blocking state, so a tab-gone task is never reported as a
 stale epoch.
+
+A genuine respawn preserves predecessor reports and review evidence, retires the
+prior attempt, and enters pending startup. Runtime readiness precedes the
+awaiting-ACK label; only the fresh Worker's ACK starts execution.
 
 ### Review credit repair and evidence reporters
 
@@ -171,4 +178,4 @@ mandatory skills as soon as it launches, before any session id exists, while
 stale, mismatched, partial, or foreign identities are refused. Reading a plan
 skill as evidence still requires a current task binding for that plan.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
