@@ -77,7 +77,11 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
         Ok(content) => WorkspaceEssenceMapFile {
             project_path: project_display,
             map_path: map_display,
-            status: if content.trim().is_empty() { "empty" } else { "ready" },
+            status: if content.trim().is_empty() {
+                "empty"
+            } else {
+                "ready"
+            },
             content: Some(content),
             error: None,
         },
@@ -112,7 +116,10 @@ pub(crate) fn read_workspace_essence_source_core(
     if relative.as_os_str().is_empty()
         || relative.is_absolute()
         || relative.components().any(|component| {
-            matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
         })
     {
         return Err("Essence source path must be relative to the project tree".into());

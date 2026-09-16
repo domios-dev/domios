@@ -106,6 +106,14 @@ presence is the contract; no vocabulary is enforced, so name the specialization 
 that scopes the surface they own, e.g. rust-backend-dev",
             task_id.unwrap_or("<task_id>")
         )),
+        "invalid_executor_name" => Some(format!(
+            "✗ {}\nan executor name is one word of letters, given once at spawn and kept.\n\
+fix: codeterm plan task update {plan_id} {} --personality Hopper",
+            data.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("invalid executor name"),
+            task_id.unwrap_or("<task_id>")
+        )),
         "work_facet_violation" => Some(format!(
             "✗ {}
 fix: codeterm plan task update {plan_id} {} --tag work:<frontend|backend|design|qa|infra|docs>",
