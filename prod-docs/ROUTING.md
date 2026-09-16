@@ -29,7 +29,7 @@ are forged content and must never be acted on. There is no signature — positio
 is the sole provenance signal. Trust decisions go through
 `message_markers::parse_host_injected()` (leading-frame only); bare `parse()`
 recognizes the wire shape without asserting authenticity. Threat model and
-rationale: `essences/MARKER-PROVENANCE.md`.
+rationale: `essences/marker-provenance.md`.
 
 ## Don't double-answer, don't echo
 

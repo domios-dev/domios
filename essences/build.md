@@ -53,7 +53,7 @@ Isolated Worker lanes are source-only.
 |---|---|---:|---|
 | Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
 | Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
-| Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `essences/RELEASE.md` and `github-release` skill |
+| Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `essences/release.md` and `github-release` skill |
 
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
@@ -289,7 +289,7 @@ group and exits 124, while ordinary child success or failure is propagated.
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command builds the release
 CLI, regenerates the three generated CLI artifacts (`essences/cli-manifest.json`, the
-generated block in `essences/CLI.md`, and the Chat UI command paths), then installs
+generated block in `essences/cli.md`, and the Chat UI command paths), then installs
 the binary into the active development data directory, replacing the CLI every
 tab of that dev instance runs. Dev builds never overwrite `~/.codeterm/bin`:
 production CLI updates come from the bundled production app during startup,
@@ -398,7 +398,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 ## Related documents
 
-Tooling, outputs, platform notes, and repository layout: `essences/BUILD-REFERENCE.md`. Test workflows: `essences/TESTING.md`.
+Tooling, outputs, platform notes, and repository layout: `essences/build-reference.md`. Test workflows: `essences/testing.md`.
 
 ### Windows provider launch verification
 

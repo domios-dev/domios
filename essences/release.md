@@ -10,7 +10,7 @@ command, every secret, every retry) lives in the `github-release` skill:
 never from `develop`, never from an untagged tree.
 
 This is the public-release operation only. For a local production installer use
-`essences/BUILD.md#local-production-build-and-self-install`; for a dev window use
+`essences/build.md#local-production-build-and-self-install`; for a dev window use
 the `dev-run` skill. Do not substitute either for this workflow.
 
 When a new release failure is discovered, repair the owning workflow or script
