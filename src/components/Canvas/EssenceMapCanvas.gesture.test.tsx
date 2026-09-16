@@ -49,7 +49,7 @@ async function renderMap() {
 }
 
 function scaleOf(viewport: HTMLElement): number {
-  const match = viewport.querySelector<HTMLElement>('[data-testid="essence-map-project-world"]')?.style.transform.match(/scale\(([^)]+)\)/);
+  const match = viewport.querySelector<HTMLElement>('[data-testid="essence-map-transform-layer"]')?.style.transform.match(/scale\(([^)]+)\)/);
   if (!match) throw new Error("map world transform was not painted");
   return Number(match[1]);
 }
