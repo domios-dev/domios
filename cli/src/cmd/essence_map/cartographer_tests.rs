@@ -59,7 +59,7 @@ fn seeded(root: &Path) -> (PathBuf, PathBuf) {
 /// A source edit the generator must notice: every node carries the source
 /// digest, so the map bytes change.
 fn touch_source(root: &Path) {
-    let core = root.join("essences/CORE.md");
+    let core = root.join("essences/core.md");
     let text = fs::read_to_string(&core).expect("read fixture core essence");
     fs::write(&core, format!("{text}\n<!-- cartographer fixture -->\n")).expect("edit fixture");
 }

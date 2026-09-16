@@ -140,7 +140,7 @@ fn essence_map_integrity_refreshes_stale_digests_without_changing_semantic_links
     let map = fixture.path().join("essences/map.jsonl");
     generate(fixture.path(), &map).expect("generate initial map");
     let before = super::read_map(&map).expect("read initial map");
-    let core = fixture.path().join("essences/CORE.md");
+    let core = fixture.path().join("essences/core.md");
     let source = fs::read_to_string(&core).expect("read core source");
     fs::write(&core, format!("{source}\n<!-- integrity fixture -->\n"))
         .expect("change core source");
@@ -292,7 +292,7 @@ fn essence_map_contract_rejects_budget_overflow() {
 fn essence_map_contract_rejects_stale_source_references() {
     let fixture = fixture_root();
     let (map, decisions, _) = valid_map(fixture.path());
-    let capabilities = fixture.path().join("essences/CAPABILITIES.md");
+    let capabilities = fixture.path().join("essences/capabilities.md");
     let mut source = fs::read_to_string(&capabilities).expect("read capabilities");
     source.push_str("\n<!-- source changed -->\n");
     fs::write(&capabilities, source).expect("change source essence");
