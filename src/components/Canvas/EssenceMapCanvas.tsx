@@ -198,7 +198,6 @@ function EssenceMapProjectView({
                     fill="var(--ct-muted-fg)"
                     fontSize="9"
                     letterSpacing="1.4"
-                    textTransform="uppercase"
                   >
                     {cluster.vector ? "VECTOR CLUSTER" : "UNASSIGNED CAPABILITIES"}
                   </text>
@@ -236,6 +235,7 @@ function EssenceMapProjectView({
               return (
                 <path
                   key={`${edge.type}:${edge.from}:${edge.to}`}
+                  data-testid="essence-map-edge"
                   d={edgePath(source, target)}
                   fill="none"
                   stroke={style.stroke}
