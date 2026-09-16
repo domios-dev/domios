@@ -10,6 +10,8 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
+pub(crate) mod listeners;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RestApiPhase {
@@ -66,6 +68,7 @@ struct RestApiLifecycle {
 
 #[derive(Clone)]
 pub(crate) struct RestApiControl {
+    pub(crate) listeners: listeners::ListenerPublication,
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
     lifecycle: Arc<Mutex<RestApiLifecycle>>,
     status_events: watch::Sender<RestApiStatus>,
@@ -118,6 +121,7 @@ impl RestApiControl {
         let (lifecycle_events, _) = broadcast::channel(32);
         let (recovery_events, recovery_receiver) = mpsc::unbounded_channel();
         Self {
+            listeners: listeners::ListenerPublication::default(),
             sender: Arc::new(Mutex::new(None)),
             lifecycle: Arc::new(Mutex::new(RestApiLifecycle {
                 status,
@@ -182,6 +186,7 @@ impl RestApiControl {
     }
 
     fn begin_generation(&self) -> u64 {
+        self.listeners.publish(Vec::new());
         let mut lifecycle = self.lifecycle.lock();
         lifecycle.status.generation += 1;
         lifecycle.listener_owned = false;
@@ -262,17 +267,20 @@ impl RestApiControl {
             return None;
         }
         lifecycle.listener_owned = listener_owned;
-        Some(self.publish_locked(
+        let status = self.publish_locked(
             &mut lifecycle,
             RestApiPhase::Failed,
             Some(diagnostic),
             Some(message),
-        ))
+        );
+        drop(lifecycle);
+        self.listeners.publish(Vec::new());
+        Some(status)
     }
 
     pub(crate) fn record_unanswered_probe(&self) -> RestApiDiagnostic {
         let mut lifecycle = self.lifecycle.lock();
-        if lifecycle.listener_owned {
+        let diagnostic = if lifecycle.listener_owned {
             if lifecycle.status.phase != RestApiPhase::Failed
                 || lifecycle.status.diagnostic != Some(RestApiDiagnostic::WorkersBlocked)
             {
@@ -292,7 +300,10 @@ impl RestApiControl {
                 .status
                 .diagnostic
                 .unwrap_or(RestApiDiagnostic::ListenerExited)
-        }
+        };
+        drop(lifecycle);
+        self.listeners.suspend();
+        diagnostic
     }
 
     pub(crate) fn record_successful_probe(&self) {
@@ -303,6 +314,8 @@ impl RestApiControl {
         {
             let status = self.publish_locked(&mut lifecycle, RestApiPhase::Listening, None, None);
             self.publish_recovery_locked(&mut lifecycle, status);
+            drop(lifecycle);
+            self.listeners.resume();
         }
     }
 
@@ -534,6 +547,7 @@ async fn finish_generation<F>(
 where
     F: std::future::Future<Output = Result<(), std::io::Error>>,
 {
+    control.listeners.publish(Vec::new());
     if matches!(event, GenerationEvent::ServerExited) {
         return Some(GenerationEvent::Replace);
     }
@@ -662,6 +676,10 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
         #[cfg(not(test))]
         let listener = bind_listener(&bind_addr).await;
         let listener = match listener {
+            Ok(primary) => listeners::bind_remote(primary, control.listeners.remote_bind()).await,
+            Err(error) => Err(error),
+        };
+        let (listener, remote_listener) = match listener {
             Ok(listener) => listener,
             Err(error) => {
                 let message =
@@ -739,20 +757,29 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
             }
         };
         control.listener_bound(generation, local_addr);
+        let remote_addr = remote_listener
+            .as_ref()
+            .map(|listener| listener.local_addr())
+            .transpose()
+            .expect("successfully bound tailnet listener has an address");
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let mut server = Box::pin(
-            axum::serve(
-                listener,
-                router
-                    .clone()
-                    .into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .into_future(),
-        );
-        let health = prove_health(local_addr);
+        let primary = axum::serve(
+            listener,
+            router
+                .clone()
+                .into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async {
+            let _ = shutdown_rx.await;
+        })
+        .into_future();
+        let mut server = Box::pin(listeners::serve(
+            primary,
+            remote_listener,
+            router.clone(),
+            control.listeners.clone(),
+        ));
+        let health = listeners::prove_set(local_addr, remote_addr);
         tokio::pin!(health);
 
         let event = loop {
@@ -789,6 +816,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                             let listening = control
                                 .mark_listening(generation)
                                 .expect("health proof belongs to the active bound generation");
+                            control.listeners.publish(std::iter::once(local_addr).chain(remote_addr).collect());
                             if let Some(completed) = pending_completions.pop_front() {
                                 let _ = completed.send(listening);
                             }
