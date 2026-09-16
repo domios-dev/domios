@@ -14,7 +14,7 @@ fn map_root(with_sources: bool) -> TempDir {
     if with_sources {
         let essences = temp.path().join("essences");
         fs::create_dir_all(&essences).expect("create fixture essences");
-        for name in ["CAPABILITIES.md", "CORE.md"] {
+        for name in ["capabilities.md", "core.md"] {
             fs::write(essences.join(name), "# fixture\n").expect("write fixture essence");
         }
     }

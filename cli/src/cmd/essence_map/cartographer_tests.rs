@@ -19,7 +19,7 @@ fn fixture_root() -> TempDir {
     let temp = tempfile::tempdir().expect("create cartographer map fixture");
     let essences = temp.path().join("essences");
     fs::create_dir_all(&essences).expect("create fixture essences");
-    for name in ["CAPABILITIES.md", "CORE.md"] {
+    for name in ["capabilities.md", "core.md"] {
         fs::copy(
             source_root().join("essences").join(name),
             essences.join(name),
