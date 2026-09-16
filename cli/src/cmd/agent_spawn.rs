@@ -259,11 +259,6 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         );
         return;
     }
-    if task_file.is_none() {
-        if let Some(t) = task.as_deref() {
-            crate::cmd::send_text::nudge_spawn_task(json, t);
-        }
-    }
     let task = match crate::cmd::agent::resolve_spawn_task(
         task,
         task_file,

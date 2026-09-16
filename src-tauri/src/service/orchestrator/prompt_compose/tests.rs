@@ -86,6 +86,47 @@ fn every_launch_composition() -> Vec<(&'static str, String)> {
     ]
 }
 
+/// A quoted coordination payload that survived the caller's shell only because
+/// it was staged in a file still has to reach the receiver unchanged. Composition
+/// is concatenation, never templating, so an opaque test-supplied payload holding
+/// backticks, `$` expansions, command substitution, both quote kinds, a tab and
+/// non-ASCII must appear once and verbatim in every recipient's brief.
+#[test]
+fn quoted_handoff_payload_reaches_every_recipient_brief_byte_exact() {
+    const PAYLOAD: &str = "QUOTED-HANDOFF-7ac91 goal: keep `plan handoff` intact.\n\n\
+                           - dollars: $CARGO_TARGET_DIR and ${HOME}\n\
+                           - substitution: $(rm -rf /) and `whoami`\n\
+                           - quotes: \"double\" and 'single'\n\
+                           - tab:\tkept\n\
+                           - unicode: Привіт — ok";
+
+    let recipients = [
+        (
+            "spawned orchestrator",
+            spawn_onboarding_task(&orchestrator_params(Some(PAYLOAD)))
+                .expect("orchestrator system prompt"),
+        ),
+        (
+            "spawned planner",
+            super::role_onboarding_task(Some(PAYLOAD), Some("Manager"), Some("planner"))
+                .expect("planner system prompt"),
+        ),
+        (
+            "spawned worker",
+            super::role_onboarding_task(Some(PAYLOAD), Some("Worker"), None)
+                .expect("worker system prompt"),
+        ),
+    ];
+
+    for (recipient, composed) in recipients {
+        assert_eq!(
+            composed.matches(PAYLOAD).count(),
+            1,
+            "{recipient} must receive the staged payload once, byte for byte"
+        );
+    }
+}
+
 /// The delivery half of the AgentPad invariant. The pre-existing prompt test
 /// only forbade duplication, so a recipient that never received the rule was
 /// invisible — which is exactly how spawned agents went without it.
