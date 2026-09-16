@@ -149,6 +149,9 @@ mod tests {
             guidance["command"],
             "codeterm task show task_a && codeterm plan task close pl_1 task_a"
         );
-        assert!(!guidance["command"].as_str().unwrap().contains("stale-review"));
+        assert!(!guidance["command"]
+            .as_str()
+            .unwrap()
+            .contains("stale-review"));
     }
 }

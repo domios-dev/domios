@@ -7,7 +7,8 @@ use crate::paths;
 /// generation without any bound — this is how a 95 MB rotated log happened.
 const MAX_LOG_BYTES: u64 = 50 * 1024 * 1024;
 const LOG_GENERATIONS: usize = 3;
-const THIRD_PARTY_WARN_TARGETS: &[&str] = &["hyper_util", "reqwest", "tungstenite", "tokio", "mdns_sd"];
+const THIRD_PARTY_WARN_TARGETS: &[&str] =
+    &["hyper_util", "reqwest", "tungstenite", "tokio", "mdns_sd"];
 
 fn rotate(log_dir: &std::path::Path) {
     use std::fs;

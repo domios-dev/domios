@@ -257,8 +257,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                     .map(|a| a.ip.clone());
                                 let Some(addr) = addr else { return };
                                 let from_addresses = m.local_announce_addresses();
-                                let Some(local_addr) =
-                                    auto_pair_callback_address(&from_addresses)
+                                let Some(local_addr) = auto_pair_callback_address(&from_addresses)
                                 else {
                                     return;
                                 };
@@ -311,7 +310,8 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 Ok(r) => {
                                     log::warn!(
                                         "[mesh] Auto-pair {} rejected with HTTP {}",
-                                        target_id, r.status()
+                                        target_id,
+                                        r.status()
                                     );
                                     let mut m = mesh2.lock();
                                     m.pending_requests.remove(&request.request_id);
@@ -319,13 +319,16 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 }
                                 Err(e) => {
                                     let evidence =
-                                        crate::mesh::transport::TransportError::pairing_send_error(&e);
+                                        crate::mesh::transport::TransportError::pairing_send_error(
+                                            &e,
+                                        );
                                     if evidence.kind()
                                         == crate::mesh::transport::TransportErrorKind::NothingSent
                                     {
                                         log::warn!(
                                             "[mesh] Auto-pair {} failed before send: {}",
-                                            target_id, evidence
+                                            target_id,
+                                            evidence
                                         );
                                         let mut m = mesh2.lock();
                                         m.pending_requests.remove(&request.request_id);
@@ -333,7 +336,8 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                     } else {
                                         log::warn!(
                                             "[mesh] Auto-pair {} delivery uncertain: {}",
-                                            target_id, evidence
+                                            target_id,
+                                            evidence
                                         );
                                     }
                                 }
