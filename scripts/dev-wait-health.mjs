@@ -3,7 +3,7 @@ import { watch } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const readinessSignal = (line, apiPort) =>
   line.includes("REST API generation ") &&
@@ -15,11 +15,25 @@ const tail = (path) => {
   return readFileSync(path, "utf8").split(/\r?\n/).slice(-25).join("\n");
 };
 
+export function resolveLaunchCommand(command, env = process.env) {
+  if (process.platform !== "win32" || command[0] !== "pnpm") return command;
+  const result = spawnSync("where.exe", ["pnpm.cmd"], { env, encoding: "utf8" });
+  const commandPath = result.status === 0 ? result.stdout.split(/\r?\n/).find(Boolean) : undefined;
+  if (!commandPath) throw new Error("could not locate pnpm.cmd on PATH");
+  const resolvedCommandPath = commandPath.trim();
+  const batch = readFileSync(resolvedCommandPath, "utf8");
+  const match = batch.match(/((?:%~dp0[\\/])?[^\s"]*pnpm\.cjs)/i);
+  const relativeScript = match?.[1]?.replace(/^%~dp0[\\/]/i, "") ?? "pnpm.cjs";
+  const scriptPath = resolve(dirname(resolvedCommandPath), relativeScript);
+  if (!existsSync(scriptPath)) throw new Error(`pnpm.cjs is absent for ${resolvedCommandPath}`);
+  return [process.execPath, scriptPath, ...command.slice(1)];
+}
+
 export function waitForReadiness({ log, apiPort, command, cwd = process.cwd(), env = process.env, deadlineMs = 600_000 }) {
   if (!Array.isArray(command) || command.length === 0) throw new Error("dev wait command is required");
+  const launch = resolveLaunchCommand(command, env);
   const logFd = openSync(log, "a");
-  const executable = process.platform === "win32" && command[0] === "pnpm" ? "pnpm.cmd" : command[0];
-  const child = spawn(executable, command.slice(1), {
+  const child = spawn(launch[0], launch.slice(1), {
     cwd,
     env,
     detached: true,
