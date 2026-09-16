@@ -138,7 +138,10 @@ impl LaneDiagnosticsSummary {
                 .as_deref()
                 .map(|value| format!(" [{value}]"))
                 .unwrap_or_default();
-            format!("diagnostic: {} {}{}: {}", finding.severity, location, code, finding.message)
+            format!(
+                "diagnostic: {} {}{}: {}",
+                finding.severity, location, code, finding.message
+            )
         }));
         lines
     }
