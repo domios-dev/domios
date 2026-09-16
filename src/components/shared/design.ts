@@ -47,7 +47,9 @@ export const UI_PANEL = {
   sectionLabel: "text-[var(--ct-muted)] uppercase tracking-wide text-[9px]",
   drawerBase: "fixed top-9 right-0 bottom-0 bg-[var(--ct-titlebar-bg)] border-l border-[var(--ct-border)] p-4 flex flex-col gap-3 z-50 overflow-auto",
   surfaceCard: "bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)]",
-  drawerClose: "ct-btn ct-btn-ghost !w-7 !h-7 !leading-none text-[var(--ct-fg)]",
+  // !px-0 is load-bearing: .ct-btn forces 0.7rem side padding, which crushes a
+  // 15px icon inside a 28px square until it renders as a dot.
+  drawerClose: "ct-btn ct-btn-ghost !w-7 !h-7 !px-0 !leading-none text-[var(--ct-fg)]",
 } as const;
 
 export const tabClass = (active: boolean, touch: boolean) =>

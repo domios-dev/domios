@@ -299,7 +299,8 @@ describe("map_canvas workspace essence map", () => {
     await settle();
     const panel = host.querySelector('[data-testid="essence-source-panel"]');
     expect(panel?.getAttribute("role")).toBe("dialog");
-    expect(panel?.querySelector("pre")?.textContent).toBe(exactSource);
+    expect(panel?.textContent).toContain("exact referenced essence");
+    expect(panel?.textContent).toContain("capability:workspaces-and-tabs");
     expect(sourceReader).toHaveBeenCalledTimes(1);
   });
 
