@@ -171,11 +171,14 @@ final class MobileWireVectorsTests: XCTestCase {
 
         let generatedSignature = try privateKey.signature(for: requestWire)
         let bridge: [String: Any] = [
+            "run_marker": UUID().uuidString,
             "public_key_hex": hex(privateKey.publicKey.rawRepresentation),
             "message_hex": hex(requestWire),
             "signature_hex": hex(generatedSignature)
         ]
-        let bridgeURL = URL(fileURLWithPath: "/tmp/codeterm-mobile-wire-v1-swift-interop.json")
+        let bridgeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codeterm-mobile-wire-v1-swift-interop.json")
+        try? FileManager.default.removeItem(at: bridgeURL)
         try JSONSerialization.data(withJSONObject: bridge, options: [.sortedKeys]).write(to: bridgeURL, options: .atomic)
     }
 
