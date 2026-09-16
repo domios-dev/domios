@@ -326,10 +326,11 @@ fn read_source(root: &Path, path: &'static str) -> Result<SourceFile, String> {
     let text = String::from_utf8(bytes.clone())
         .map_err(|error| format!("source essence {path} is not UTF-8: {error}"))?;
     let canonical_bytes = text.replace("\r\n", "\n");
+    let sha256 = sha256(canonical_bytes.as_bytes());
     Ok(SourceFile {
         path,
-        text,
-        sha256: sha256(canonical_bytes.as_bytes()),
+        text: canonical_bytes,
+        sha256,
     })
 }
 
@@ -436,12 +437,14 @@ fn build_inventory(root: &Path) -> Result<Inventory, String> {
                 })
             })
             .transpose()?;
-        edges.push(EdgeRecord {
-            from: part.id.clone(),
-            to: target.unwrap_or_else(|| part.id.clone()),
-            edge_type: EdgeType::PartOf,
-            source: source_ref(&core, &part.id),
-        });
+        if let Some(target) = target {
+            edges.push(EdgeRecord {
+                from: part.id.clone(),
+                to: target,
+                edge_type: EdgeType::PartOf,
+                source: source_ref(&core, &part.id),
+            });
+        }
     }
     let service_layer = labels
         .get(&label_key("Service layer"))
@@ -925,6 +928,12 @@ fn validate_edge_shape(
     inventory: &Inventory,
     nodes: &BTreeMap<String, &NodeRecord>,
 ) -> Result<(), String> {
+    if edge.edge_type == EdgeType::PartOf && edge.from == edge.to {
+        return Err(format!(
+            "part_of edge {} -> {} is a self-parent cycle",
+            edge.from, edge.to
+        ));
+    }
     let Some(from) = nodes.get(&edge.from) else {
         return Err(format!(
             "edge {} -> {} references dangling source",
