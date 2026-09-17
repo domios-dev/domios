@@ -215,11 +215,24 @@ class ReleaseBuildSpeedContractTest(unittest.TestCase):
                 text = read(name)
                 self.assertNotRegex(text, r"(?i)rust-cache|swatinem")
 
+    def test_pinned_target_directory_is_anchored_to_the_checkout(self):
+        """A relative pin resolves against each step's own cwd. The prebuild runs
+        from the repo root and tauri-action runs cargo from src-tauri, so one
+        relative value produced two target directories and the upload found none."""
+        for name in self.RELEASE_LANES:
+            with self.subTest(workflow=name):
+                values = re.findall(r"CARGO_TARGET_DIR:\s*(\S.*)$", read(name), re.MULTILINE)
+                self.assertTrue(values, "every release lane pins its target directory")
+                for value in values:
+                    self.assertTrue(
+                        value.startswith("${{ github.workspace }}/"),
+                        f"{name} pins a cwd-dependent target directory: {value}",
+                    )
+
     def test_direct_tauri_lanes_pin_target_directory_target_and_features(self):
         for name in ("release-windows.yml", "release-linux.yml"):
             with self.subTest(workflow=name):
                 text = read(name)
-                self.assertIn("CARGO_TARGET_DIR: src-tauri/target", text)
                 self.assertIn("CARGO_INCREMENTAL: '0'", text)
                 self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
                 self.assertIn(
