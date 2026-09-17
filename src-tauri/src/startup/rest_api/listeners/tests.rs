@@ -108,11 +108,13 @@ fn mesh_reachability_configured_is_not_live_and_remote_loss_preserves_local() {
     assert!(state.ready().is_empty());
 }
 
-#[tokio::test]
+/// Multi-threaded on purpose: dropping the primary closes its socket through the
+/// IO driver, and a current-thread runtime only drives that when it parks — which
+/// a test spinning on the rebind never lets it do.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mesh_reachability_failed_secondary_bind_releases_primary() {
-    // Fixed and below the ephemeral range on purpose: this is the one test that
-    // must re-bind the exact port it just released, and an ephemeral one can be
-    // handed to a sibling test in the window between the release and the rebind.
+    // Fixed and outside the ephemeral range: this is the one test that re-binds
+    // the port it just released, and an ephemeral one gets handed to a sibling.
     let primary = tokio::net::TcpListener::bind("127.0.0.1:39217")
         .await
         .unwrap();
@@ -120,7 +122,18 @@ async fn mesh_reachability_failed_secondary_bind_releases_primary() {
     let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let result = bind_remote(primary, Some(occupied.local_addr().unwrap())).await;
     assert!(result.is_err());
-    let replacement = tokio::net::TcpListener::bind(address).await.unwrap();
+
+    // Contend for the address rather than assume the close is already visible;
+    // this waits on the driver completing it, never on a duration.
+    let mut rebound = tokio::net::TcpListener::bind(address).await;
+    for _ in 0..200 {
+        if rebound.is_ok() {
+            break;
+        }
+        tokio::task::yield_now().await;
+        rebound = tokio::net::TcpListener::bind(address).await;
+    }
+    let replacement = rebound.expect("a failed secondary bind must release the primary");
     assert_eq!(replacement.local_addr().unwrap(), address);
 }
 
