@@ -132,6 +132,15 @@ jobs:
         shell: bash
         run: ./build.sh release-inputs
 
+      # A dropped upload leaves a starter asset that holds the name and makes every
+      # later upload of it fail opaquely, including tauri-action's own.
+      - name: Clear wedged release assets
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          node scripts/release-clear-wedged-assets.mjs "${{ github.repository }}" "${{ steps.tag.outputs.name }}"
+          node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "${{ steps.tag.outputs.name }}"
+
       - name: Build and upload release assets
         uses: tauri-apps/tauri-action@v0
         env:

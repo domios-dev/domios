@@ -215,6 +215,22 @@ class ReleaseBuildSpeedContractTest(unittest.TestCase):
                 text = read(name)
                 self.assertNotRegex(text, r"(?i)rust-cache|swatinem")
 
+    def test_release_lanes_clear_wedged_assets_before_uploading(self):
+        """A dropped upload leaves a starter asset that holds the name, so every
+        later upload of it fails with an opaque error until someone clears it by
+        hand. Each lane pre-cleans both the source repo and the public mirror."""
+        for name in ("release.yml", "release-windows.yml", "release-linux.yml"):
+            with self.subTest(workflow=name):
+                text = read(name)
+                self.assertIn("scripts/release-clear-wedged-assets.mjs", text)
+                self.assertIn("rollacode/codeterm-releases", text)
+                clear = text.index("Clear wedged release assets")
+                upload = min(
+                    (text.index(marker) for marker in ("tauri-apps/tauri-action", "gh release upload") if marker in text),
+                    default=len(text),
+                )
+                self.assertLess(clear, upload, "the pre-clean must precede the first upload")
+
     def test_pinned_target_directory_is_anchored_to_the_checkout(self):
         """A relative pin resolves against each step's own cwd. The prebuild runs
         from the repo root and tauri-action runs cargo from src-tauri, so one
