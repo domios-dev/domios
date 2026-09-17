@@ -209,8 +209,9 @@ jq -r '.workspaces[].tabs[].split_tree
 Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way.
 For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a
 read-only `lifecycle` object with live lineage, ordered transitions, surviving
-checkpoint, and journal-tail health. Default inspect output and `tab list`
-stay unchanged. The projection is telemetry only; it has no restore or
+checkpoint, and journal-tail health. The workspace map from plain `tab list`
+and the scoped tree from `tab list --workspace` remain separate from lifecycle
+telemetry. The projection is telemetry only; it has no restore or
 checkpoint-mutation surface.
 
 ## Attempt retirement fences a closed tab's dispatch

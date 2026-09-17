@@ -2959,7 +2959,7 @@ Show the full daemon tab payload for one or more explicit tab ids
 List compact tab summaries across every workspace. Use `--workspace` for one workspace and `tab inspect` for full tab details
 
 - `--agents` — Show only tabs running an agent (have an agent_type)
-- `--all-workspaces` — Include every workspace explicitly (the default when --workspace is absent)
+- `--all-workspaces` — Accepted for compatibility; every workspace is now listed by default
 - `--workspace` — Workspace id to list. Without this selector every workspace is listed
 
 #### `codeterm tab new`
