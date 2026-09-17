@@ -141,7 +141,9 @@ jobs:
           node scripts/release-clear-wedged-assets.mjs "${{ github.repository }}" "${{ steps.tag.outputs.name }}"
           node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "${{ steps.tag.outputs.name }}"
 
-      - name: Build and upload release assets
+      # Build and sign only. tauri-action's uploader reports a bare "Error saving
+      # asset" with no status, body or asset name, which cost 1.11.3 four runs.
+      - name: Build and sign release bundles
         uses: tauri-apps/tauri-action@v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -150,16 +152,31 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ steps.tag.outputs.name }}
-          releaseName: 'CodeTerm ${{ steps.tag.outputs.name }}'
-          releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
-          releaseDraft: true
-          prerelease: ${{ steps.channel.outputs.prerelease }}
-          # tauri-action's own updater-JSON path silently skips when its
-          # internal sig matcher cannot pair an artifact with a signature.
-          # We build the fragment ourselves below.
           includeUpdaterJson: false
           args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }} --bundles deb,appimage
+
+      - name: Publish the Linux bundles
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
+          SOURCE_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
+          DEB=$(find "$BUNDLE_ROOT/deb" -name '*.deb' 2>/dev/null | head -n1)
+          APPIMAGE=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage' 2>/dev/null | head -n1)
+          [ -n "$DEB" ] || { echo "::error::No .deb under $BUNDLE_ROOT/deb"; exit 1; }
+          [ -n "$APPIMAGE" ] || { echo "::error::No .AppImage under $BUNDLE_ROOT/appimage"; exit 1; }
+
+          if ! gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            extra=""
+            [ "$PRERELEASE" = "true" ] && extra="--prerelease"
+            gh release create "$TAG" --repo "$SOURCE_REPO" --draft $extra               --title "CodeTerm $TAG"               --notes "See the assets to download this version and install. Auto-update users will be offered this build via the configured channel."
+          fi
+
+          node scripts/release-upload-assets.mjs "$SOURCE_REPO" "$TAG" "$DEB" "$APPIMAGE"
 
       # Publish the linux-x86_64 updater fragment from the AppImage. The .sig is
       # read for its signature string but NOT uploaded (the updater reads the
