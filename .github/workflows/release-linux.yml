@@ -60,7 +60,9 @@ jobs:
     env:
       TARGET: x86_64-unknown-linux-gnu
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
-      CARGO_TARGET_DIR: src-tauri/target
+      # Absolute: the prebuild step runs from the repo root and tauri-action runs
+      # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
       CARGO_INCREMENTAL: '0'
       # linuxdeploy is itself an AppImage; if FUSE is unavailable in the runner's

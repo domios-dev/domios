@@ -65,7 +65,9 @@ jobs:
       # target so the bundled CLI/embed sidecars match the installer arch (this is
       # what makes the aarch64 cross-build on the x64 ROG produce arm64 sidecars).
       CARGO_BUILD_TARGET: ${{ matrix.target }}
-      CARGO_TARGET_DIR: src-tauri/target
+      # Absolute: the prebuild step runs from the repo root and tauri-action runs
+      # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
       CARGO_INCREMENTAL: '0'
       # Some repo paths exceed Windows' 260-char limit (.codeterm/plans/**). git's
