@@ -134,8 +134,14 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         || (input.status_elapsed.progressed
             && (input.byte_idle_ms < STUCK_WORKING_IDLE_MS
                 || input.semantic_idle_ms < STUCK_WORKING_IDLE_MS));
+    // A long think advances no transcript, so semantic idle alone cannot retire the
+    // widget. A bare spinner repaint is cosmetic; one carrying a clock is the turn.
+    let widget_repainting = input.byte_idle_ms < WAIT_MS
+        && extract_status_line(input.screen_lines).is_some_and(|s| s.elapsed_ms.is_some());
     let live_turn = (live_status_widget || active_footer)
-        && (input.semantic_idle_ms < WORKING_GRACE_MS || elapsed_progress_live)
+        && (input.semantic_idle_ms < WORKING_GRACE_MS
+            || elapsed_progress_live
+            || widget_repainting)
         && extract_completion_summary(input.screen_lines).is_none()
         && !completed_status_repaint;
     let stale_working_status_at_prompt =
@@ -553,7 +559,11 @@ fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
         .find_map(|(idx, line)| {
             let line = line.trim();
             // Input-prompt glyphs: ❯/› (claude/codex), → (cursor's composer arrow).
-            (line.starts_with('❯') || line.starts_with('›') || line.starts_with('→'))
+            // Codex writes its running turn as `→ Working (ctrl+c to stop)`, which
+            // is a turn footer announcing itself, never a composer awaiting input.
+            let composer_glyph =
+                line.starts_with('❯') || line.starts_with('›') || line.starts_with('→');
+            (composer_glyph && !active_turn_footer(std::slice::from_ref(&line.to_string())))
                 .then_some(idx as u16)
         })
 }
