@@ -362,7 +362,7 @@ export function MemorySnapshotCanvas({
         .catch(() => {});
     }
     return () => { active = false; };
-  }, [selectedId, api]);
+  }, [selectedId, api.host, api.port, api.token]);
 
   // Pulse animation — same as legacy canvas.
   useEffect(() => {

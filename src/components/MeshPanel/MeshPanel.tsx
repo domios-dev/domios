@@ -76,6 +76,7 @@ function WebUiModal({
   const [busy, setBusy] = useState(false);
   const [setupMsg, setSetupMsg] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+  const configKey = JSON.stringify(config);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +93,7 @@ function WebUiModal({
     return () => {
       cancelled = true;
     };
-  }, [config]);
+  }, [configKey]);
 
   const plan: ServeSetupPlan | null = serve
     ? planServeSetup(serve, target.port, serve.platform ?? "")

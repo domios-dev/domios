@@ -638,6 +638,7 @@ function BadgeField({
   const [variant, setVariant] = useState<BadgeVariant | null>(null);
   // Serialize args for stable dependency tracking. Plain object refs flip every render even when contents don't change.
   const argsKey = JSON.stringify(queryArgs ?? null);
+  const variantsKey = JSON.stringify(variants);
 
   useEffect(() => {
     let active = true;
@@ -655,7 +656,7 @@ function BadgeField({
     return () => {
       active = false;
     };
-  }, [queryCommand, argsKey, variants]);
+  }, [queryCommand, argsKey, variantsKey]);
 
   if (!variant) return null;
   return (
