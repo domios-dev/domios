@@ -535,13 +535,18 @@ async fn refresh_models_skips_when_fresh_refreshes_when_forced() {
         discovery: Some(vec![model("new", "New")]),
     });
 
-    // Fresh snapshot → refresh skipped, list unchanged.
+    // Fresh snapshot → refresh skipped, the live entry is untouched. Asserted by
+    // membership: seeds merge ahead of live models, so position proves nothing.
     assert!(refresh_models(stub.clone(), false).await.is_none());
-    assert_eq!(resolve_models(id)[0].id, "old");
+    let models = resolve_models(id);
+    assert!(models.iter().any(|model| model.id == "old"));
+    assert!(!models.iter().any(|model| model.id == "new"));
 
     // force=true → refreshes regardless of TTL.
     assert!(refresh_models(stub, true).await.is_some());
-    assert_eq!(resolve_models(id)[0].id, "new");
+    let models = resolve_models(id);
+    assert!(models.iter().any(|model| model.id == "new"));
+    assert!(!models.iter().any(|model| model.id == "old"));
     cleanup(id);
 }
 

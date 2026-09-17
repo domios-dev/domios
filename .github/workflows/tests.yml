@@ -252,6 +252,11 @@ jobs:
       - name: Run TS unit tests
         run: pnpm test:unit
 
+      # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
+      # step is the only thing that runs them.
+      - name: Run vitest-owned TS tests
+        run: pnpm test:vitest
+
       - name: Check generated plugin bundles
         run: pnpm check:plugin-bundles
 
