@@ -30,6 +30,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   const [error, setError] = useState<string | null>(null);
   const [resetTick, setResetTick] = useState(0);
   const cancelledRef = useRef(false);
+  const snapshotKey = snapshot ? JSON.stringify(snapshot) : null;
 
   const refetch = useCallback(async () => {
     if (!enabled) return;
@@ -92,7 +93,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       setResetTick((v) => v + 1);
     }, delay);
     return () => clearTimeout(t);
-  }, [snapshot, enabled, refresh, resetTick]);
+  }, [snapshotKey, enabled, refresh, resetTick]);
 
   return { snapshot, loading, error, refetch, refresh };
 }
