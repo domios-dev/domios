@@ -340,6 +340,34 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 "✗ task '{task}' was found, but no single execution attempt on it resolves to bounce.\nfix: inspect its attempts, then retry:\n  codeterm plan task show {plan_id} {task}"
             ))
         }
+        "review_continuation_delivery_refused" => {
+            let task = data
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .or(task_id)
+                .unwrap_or("<task_id>");
+            let attempt = data
+                .get("attempt_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<attempt_id>");
+            // The epochs are the whole story: the caller holds one the attempt
+            // has already left, so say which, not just that it was refused.
+            let drift = match (
+                data.get("expected_epoch").and_then(|v| v.as_u64()),
+                data.get("actual_epoch").and_then(|v| v.as_u64()),
+            ) {
+                (Some(expected), Some(actual)) => {
+                    format!(" it is at epoch {actual}, the bounce was written for {expected}")
+                }
+                (Some(expected), None) => {
+                    format!(" it carries no continuation epoch, the bounce was written for {expected}")
+                }
+                _ => String::new(),
+            };
+            Some(format!(
+                "✗ the bounce was not delivered: attempt '{attempt}' on task '{task}' is no longer awaiting continuation.{drift}\nfix: re-read the task and bounce the attempt it actually holds:\n  codeterm plan task show {plan_id} {task}"
+            ))
+        }
         "write_pending" => render_write_pending(data, plan_id, task_id),
         "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         "io" => Some(render_io(data, plan_id, params)),
