@@ -151,16 +151,24 @@ export function CanvasViewInner({
 
   const fixtureSpecSections = useMemo(() => fixtureSpecSectionsByPlan(filteredPlans), [filteredPlans]);
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
+  // Keyed on the specs actually being fetched, not on array identity: mux hands
+  // back fresh plan and tab objects many times a second while agents run.
+  const specFetchKey = filteredPlans
+    .filter((plan) => plan.primary_spec_id && !fixtureSpecSections.has(plan.id))
+    .map((plan) => `${plan.id}:${plan.primary_spec_id as string}`)
+    .join(",");
   useEffect(() => {
-    if (!api) return;
+    if (!api || !specFetchKey) return;
     let active = true;
-    const targets = filteredPlans.filter((p) => p.primary_spec_id && !fixtureSpecSections.has(p.id));
-    if (!targets.length) return;
+    const targets = specFetchKey.split(",").map((entry) => {
+      const separator = entry.indexOf(":");
+      return { planId: entry.slice(0, separator), specId: entry.slice(separator + 1) };
+    });
     void Promise.all(
-      targets.map((p) =>
-        fetchSpecSections(api, p.primary_spec_id as string)
-          .then((sections) => [p.id, sections] as const)
-          .catch(() => [p.id, [] as Section[]] as const),
+      targets.map(({ planId, specId }) =>
+        fetchSpecSections(api, specId)
+          .then((sections) => [planId, sections] as const)
+          .catch(() => [planId, [] as Section[]] as const),
       ),
     ).then((pairs) => {
       if (active) setFetchedSpecSections(new Map(pairs));
@@ -168,7 +176,7 @@ export function CanvasViewInner({
     return () => {
       active = false;
     };
-  }, [api, filteredPlans, fixtureSpecSections]);
+  }, [api, specFetchKey]);
   const specSectionsByPlan = useMemo(() => {
     if (!fixtureSpecSections.size) return fetchedSpecSections;
     const merged = new Map(fetchedSpecSections);
