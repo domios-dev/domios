@@ -78,8 +78,10 @@ updater-manifest verification passes.
 ## 1. Preflight (before bumping the version)
 
 Canonical work for a version collects on `integrate/<version>`: accepted lanes merge there with
-real merge commits, and the verified branch merges into the open `release/X.Y.Z` branch, cut from
-`master` right after the previous release. Batch `release/X.Y.Z` pushes: every push to it queues CI
+real merge commits. `release/X.Y.Z` is cut from `master` only when the release is actually being
+cut — it exists to carry the version bump and the final gate, and it dies at the tag. A release
+branch opened before there is a release to make is the long-lived integration branch we retired,
+wearing a new name. Work that carries no version reaches `master` on its own branch, directly. Batch `release/X.Y.Z` pushes: every push to it queues CI
 (documentation-only changes excepted), so push once per verified wave, never once per lane.
 
 Run from the canonical checkout, on `release/X.Y.Z`:
