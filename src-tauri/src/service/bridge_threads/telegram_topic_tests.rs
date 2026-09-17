@@ -477,8 +477,11 @@ impl ChannelHost for RecordingHost {
     }
 }
 
+/// A push is an alert, so it goes into the chat whole. Routed through the tab it
+/// speaks for, it would arrive as a truncated pointer to a topic — attribution at
+/// the cost of the message itself.
 #[test]
-fn telegram_topic_notification_from_a_tab_is_routed_through_that_tab() {
+fn telegram_topic_notification_from_a_tab_still_reaches_the_chat_whole() {
     let host = RecordingHost(Mutex::new(Vec::new()));
     let asked = PushMessage {
         text: "Deploy?".to_string(),
@@ -493,12 +496,7 @@ fn telegram_topic_notification_from_a_tab_is_routed_through_that_tab() {
         .deliver(&host, &Audience(vec![CHAT.to_string()]), &asked)
         .expect("delivered");
     let sent = host.0.lock().pop().expect("enqueued");
-    assert_eq!(
-        sent.route,
-        OutboundRoute::Tab {
-            tab_id: PLANCK.to_string()
-        }
-    );
+    assert_eq!(sent.route, OutboundRoute::Chat);
     assert!(sent.buttons.is_some(), "choices are preserved");
     assert!(sent.receipt.is_some(), "the placement still comes back");
 
