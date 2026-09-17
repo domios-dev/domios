@@ -56,8 +56,7 @@ export function buildPlanRecentActivity(plan: Plan, limit = 12): PlanActivityIte
 
 export function taskHasActivity(task: Task, tabs: Record<string, Tab> = {}): boolean {
   return task.milestones.length > 0
-    || resolveTaskExecutionAttempts(task, tabs).length > 0
-    || (task.execution_attempts ?? []).some((attempt) => attempt.report?.diagnostics != null);
+    || resolveTaskExecutionAttempts(task, tabs).length > 0;
 }
 
 export function milestoneAgeLabel(ts: number, now: number): string {

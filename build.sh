@@ -9,14 +9,13 @@
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI/embed bundle inputs
 #   ./build.sh release-preflight — run local PR checks and verify release inputs
-#   ./build.sh worktree-check — explicit isolated, nonincremental lane check
+#   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
 #   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to the active dev data directory
 #                          without waiting for the app/dev build gateway
-#   ./build.sh lane-diagnostics — daemon-owned checks in the diagnostics worktree
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
@@ -1449,7 +1448,6 @@ CodeTerm build commands
   qa-prep                     Prepare a worktree for QA
   install-local               Build and install locally
   build                       Build production artifacts
-  lane-diagnostics            Run daemon-owned diagnostics in the warm worktree
   gateway-status              Show the machine build owner
 
 Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
@@ -1462,9 +1460,6 @@ EOF
   fmt-check)
     cargo fmt --manifest-path src-tauri/Cargo.toml --check
     cargo fmt --manifest-path cli/Cargo.toml --check
-    ;;
-  lane-diagnostics)
-    source scripts/lane-diagnostics.sh
     ;;
   gateway-status)
     ct_gateway_status
