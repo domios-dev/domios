@@ -951,6 +951,7 @@ fn one_rebind_heals_both_the_plan_gate_and_the_w3c_task_gate() {
 /// the UI or the CLI — not an agent whose binding went missing. Without this
 /// the owner could not approve their own draft from the app at all (#517).
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn an_unbound_authenticated_caller_is_the_owner() {
     let (fixture, plan_id, _owner, planner) = fixture();
     let unbound = AuthenticatedPlanCaller {
