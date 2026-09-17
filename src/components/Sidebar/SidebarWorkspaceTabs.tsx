@@ -494,7 +494,13 @@ export function SidebarWorkspaceTabs({
             disabled={newSessionDisabled}
             aria-disabled={newSessionDisabled}
             className={`sidebar-new-session flex min-w-0 flex-1 items-center gap-2 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
-            title={newSessionDisabled ? undefined : "New session in this workspace"}
+            // The cursor tip is the visual affordance; the control still carries
+            // its own explanation, which is what a reader and a test can see.
+            title={
+              newSessionDisabled
+                ? "Finish Get started before creating another session"
+                : "New session in this workspace"
+            }
           >
             <Plus size={10} strokeWidth={1.5} className="shrink-0" />
             <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
