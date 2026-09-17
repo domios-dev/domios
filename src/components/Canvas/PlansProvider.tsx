@@ -50,7 +50,7 @@ export function PlansProvider({
     refetch: refetchIndex,
   } = useResilientQuery((signal) => fetchPlanIndex(api, signal), EMPTY_INDEX, {
     enabled,
-    deps: [api],
+    deps: [api.host, api.port, api.token],
   });
 
   useEffect(() => {

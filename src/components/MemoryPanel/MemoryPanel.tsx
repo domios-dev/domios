@@ -80,7 +80,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       }).catch(() => {});
     });
     return () => { active = false; if (unlisten) unlisten(); };
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   const fitRef = useRef<() => void>(() => {});
   const recenterRef = useRef<() => void>(() => {});

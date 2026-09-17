@@ -49,7 +49,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
       const token = daemonAuthToken(api);
       return token ? { Authorization: `Bearer ${token}` } : ({} as Record<string, string>);
     },
-    [api],
+    [api?.host, api?.port, api?.token],
   );
 
   const [logs, setLogs] = useState<AppLog[]>([]);

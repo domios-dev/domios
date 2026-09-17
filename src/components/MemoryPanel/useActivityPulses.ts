@@ -155,7 +155,7 @@ export function useActivityPulses(api: ApiConfig): UseActivityPulsesResult {
       if (pollTimer != null) clearInterval(pollTimer);
       if (rafHandle != null) cancelAnimationFrame(rafHandle);
     };
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   return { pulses: pulsesRef.current, recentEvents };
 }

@@ -42,7 +42,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
       })
       .catch(e => { if (active) setError(e instanceof Error ? e.message : String(e)); });
     return () => { active = false; };
-  }, [api, itemId]);
+  }, [api.host, api.port, api.token, itemId]);
 
   useEffect(() => {
     if (!item) return;
@@ -71,7 +71,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
     } finally {
       setSaving(false);
     }
-  }, [api, itemId, item, dirty, draftTitle, draftBody, draftArea, draftTags, onUpdated, onClose]);
+  }, [api.host, api.port, api.token, itemId, item, dirty, draftTitle, draftBody, draftArea, draftTags, onUpdated, onClose]);
 
   const handleDelete = useCallback(async () => {
     try {
@@ -81,7 +81,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [api, itemId, onDeleted, onClose]);
+  }, [api.host, api.port, api.token, itemId, onDeleted, onClose]);
 
   // Close on Escape (if not dirty)
   useEffect(() => {

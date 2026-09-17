@@ -43,7 +43,7 @@ export function useGraphData(api: ApiConfig) {
       });
 
     return () => ctrl.abort();
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   const updateNode = useCallback(
     (id: string, patch: Partial<MemNode>) => {
@@ -121,7 +121,7 @@ export function useGraphData(api: ApiConfig) {
       if (unlisten) unlisten();
       if (debounceTimer != null) clearTimeout(debounceTimer);
     };
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   return {
     ...state,

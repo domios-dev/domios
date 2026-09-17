@@ -184,7 +184,7 @@ export function PlanListView({
     return () => {
       active = false;
     };
-  }, [api, specPlanId, specSourceId, specIsFixture]);
+  }, [api?.host, api?.port, api?.token, specPlanId, specSourceId, specIsFixture]);
 
   const selectedSpecSections = useMemo(() => {
     if (!selectedPlan) return [] as Section[];
