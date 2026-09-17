@@ -59,18 +59,19 @@ Three moving parts, two channels, one published SDK:
 | Install | present + `plugin update-system` | opt-in from Marketplace |
 | Default git ref | `master` (released) | the repo's default branch |
 
-**The `codeterm-core` default tracks `master`, not `develop`.** An install from
-this channel is recorded as an official system-channel install, and the loader
-grants System trust on that provenance alone — "hash differs from embedded table
-but install record is official system channel". Pointing the default at a branch
-head therefore stamped System trust on unreleased code: `plugin update-system`
-installed whatever `develop` happened to carry. `master` only advances through a
-release merge, so every commit it serves is shipped code.
+**The `codeterm-core` default tracks `master`, never an unreleased branch.** An
+install from this channel is recorded as an official system-channel install, and
+the loader grants System trust on that provenance alone — "hash differs from
+embedded table but install record is official system channel". Pointing the
+default at a branch head therefore stamped System trust on unreleased code:
+`plugin update-system` installed whatever that branch happened to carry. `master`
+only advances through a release merge, so every commit it serves is shipped code.
 
-To follow pre-release plugins deliberately, set the channel URL explicitly:
+To follow pre-release plugins deliberately, set the channel URL explicitly to the
+open release branch:
 
 ```bash
-export CODETERM_SYSTEM_PLUGIN_CHANNEL_URL='https://github.com/rollacode/codeterm.git#develop:plugins'
+export CODETERM_SYSTEM_PLUGIN_CHANNEL_URL='https://github.com/rollacode/codeterm.git#release/1.11.3:plugins'
 ```
 
 `ensure_system_channel` re-registers `codeterm-core` whenever the resolved URL
