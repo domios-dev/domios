@@ -168,6 +168,8 @@ function startWorker({
       [
         "--import",
         "tsx",
+        "--import",
+        path.join(root, "scripts", "ts-test-asset-hook.mjs"),
         "--input-type=module",
         "--eval",
         testWorkerBootstrap,
