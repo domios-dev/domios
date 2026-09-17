@@ -119,7 +119,6 @@ mod tests {
             base: None,
             sha: None,
             changed_files: Vec::new(),
-            reporter_tab_id: "worker".into(),
             require_lane_marker: false,
         }
     }

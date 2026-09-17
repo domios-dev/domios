@@ -108,7 +108,6 @@ impl crate::service::ServiceContext {
             base: details.base.clone().or_else(|| task.lane.base.clone()),
             sha: details.sha.clone(),
             changed_files: details.changed_files.clone().unwrap_or_default(),
-            reporter_tab_id: tab_id.to_string(),
             require_lane_marker: true,
         })
     }
@@ -142,7 +141,6 @@ impl crate::service::ServiceContext {
             base: task.lane.base.clone(),
             sha: None,
             changed_files: Vec::new(),
-            reporter_tab_id: task.assigned_tab_id.clone().unwrap_or_default(),
             require_lane_marker: false,
         };
         let summary = self.lane_diagnostics.run(request)?;
