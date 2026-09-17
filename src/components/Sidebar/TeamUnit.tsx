@@ -608,6 +608,16 @@ export function TeamUnit({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
+            <button
+              type="button"
+              data-testid="team-board-action"
+              className="sidebar-team-board-action"
+              aria-label={`Open the board for ${displayTitle}`}
+              title="Open board"
+              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id })}
+            >
+              <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
+            </button>
             <TeamMenu
               providers={providers}
               providersLoading={providersLoading}

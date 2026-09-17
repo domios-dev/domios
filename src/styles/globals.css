@@ -2773,13 +2773,40 @@ button,
 
 .sidebar-team-progress-slot {
   position: relative;
-  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  width: 46px;
   height: 20px;
 }
 
 .sidebar-team-menu-root {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.sidebar-team-board-action {
+  display: flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.sidebar-team-board-action:hover {
+  background: var(--ct-border);
+  color: var(--ct-fg);
 }
 
 .sidebar-team-kebab {
@@ -2812,26 +2839,32 @@ button,
 }
 
 .sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,
-.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab {
+.sidebar-team-header:hover .sidebar-team-board-action,
+.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-board-action {
   opacity: 1;
   pointer-events: auto;
 }
 
 .sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-menu-root .sidebar-team-kebab,
-.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-menu-root .sidebar-team-kebab {
+.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-board-action,
+.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-board-action {
   opacity: 1;
   pointer-events: auto;
 }
 
 @media (hover: none), (pointer: coarse) {
-  .sidebar-team-menu-root .sidebar-team-kebab {
+  .sidebar-team-menu-root .sidebar-team-kebab,
+  .sidebar-team-board-action {
     opacity: 1;
     pointer-events: auto;
   }
 
 }
 
-[data-touch-mode="true"] .sidebar-team-menu-root .sidebar-team-kebab {
+[data-touch-mode="true"] .sidebar-team-menu-root .sidebar-team-kebab,
+[data-touch-mode="true"] .sidebar-team-board-action {
   opacity: 1;
   pointer-events: auto;
 }
@@ -3552,9 +3585,11 @@ button,
   background: var(--ct-bg);
   color: var(--ct-fg);
 }
+/* The index is dropped below three sections, so its track exists only when it
+   does — otherwise the document lands in the narrow column meant for it. */
 .plan-document-layout {
   display: grid;
-  grid-template-columns: minmax(11rem, 14rem) minmax(0, 76ch);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: clamp(1.25rem, 4vw, 4rem);
   width: min(100%, 94rem);
@@ -3562,9 +3597,11 @@ button,
   margin: 0 auto;
   padding: clamp(1.5rem, 4vw, 4rem) clamp(0.9rem, 4vw, 4rem) 5rem;
 }
+.plan-document-layout:has(.plan-document-index-desktop) {
+  grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
+}
 .plan-document-readable {
   min-width: 0;
-  max-width: 76ch;
 }
 .plan-document-eyebrow {
   margin: 0 0 0.4rem;
@@ -5767,9 +5804,6 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
   }
   .plan-document-index-mobile nav {
     padding: 0.2rem 0.75rem 0.75rem;
-  }
-  .plan-document-readable {
-    max-width: none;
   }
   .plan-document-section-body {
     font-size: 0.96rem;
