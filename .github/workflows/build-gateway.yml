@@ -23,7 +23,7 @@ on:
       - 'scripts/fixtures/build-gateway-*'
       - '.github/workflows/build-gateway.yml'
   push:
-    branches: [develop, master]
+    branches: [master, 'release/**']
     paths:
       - 'build.sh'
       - 'scripts/build-gateway.sh'

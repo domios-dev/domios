@@ -15,7 +15,7 @@ on:
       - ".github/workflows/docs-source-of-truth.yml"
   push:
     branches:
-      - develop
+      - 'release/**'
       - master
     paths-ignore:
       - '.codeterm/build-machine/**'

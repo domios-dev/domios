@@ -10,7 +10,7 @@ on:
       - 'packages/chat-ui/src/codeterm/**'
       - '.github/workflows/cli-source-of-truth.yml'
   push:
-    branches: [develop, master]
+    branches: [master, 'release/**']
     paths-ignore:
       - '.codeterm/build-machine/**'
       - '.github/workflows/release*.yml'
