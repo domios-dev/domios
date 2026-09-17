@@ -407,6 +407,9 @@ mod tests {
             let mut m = mesh.lock();
             m.disk_persist = false;
             m.tailscale_ip = Some("100.64.1.2".into());
+            // An address is advertised only where a listener is ready, so a
+            // configured tailnet ip alone announces nothing.
+            m.ready_listeners = vec!["100.64.1.2:7685".parse().unwrap()];
         }
 
         let mut write_called = false;

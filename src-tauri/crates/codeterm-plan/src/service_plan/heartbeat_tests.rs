@@ -1,3 +1,4 @@
+use super::task_attempts::TaskCompeteRequest;
 use super::{NewTask, PlanStore};
 use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef, TaskStatus};
 
@@ -108,11 +109,30 @@ fn heartbeat_renders_live_competitive_attempt_summary() {
             20,
         )
         .unwrap();
-    store
-        .assign_task(&plan_id, &task_id, "worker-a", None, 21)
+    // Sequential assignment is a replacement and closes the outgoing attempt;
+    // only the compete path leaves two attempts open at once.
+    let drafts = store
+        .build_task_compete_drafts(&plan_id, &task_id, TaskCompeteRequest::default())
         .unwrap();
     store
-        .assign_task(&plan_id, &task_id, "worker-b", None, 22)
+        .record_task_compete_attempt(
+            &plan_id,
+            &task_id,
+            "worker-a",
+            &drafts[0],
+            Some("worker"),
+            21,
+        )
+        .unwrap();
+    store
+        .record_task_compete_attempt(
+            &plan_id,
+            &task_id,
+            "worker-b",
+            &drafts[1],
+            Some("worker"),
+            22,
+        )
         .unwrap();
 
     let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();

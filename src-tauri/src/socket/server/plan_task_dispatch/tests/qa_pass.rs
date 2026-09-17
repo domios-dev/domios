@@ -324,10 +324,12 @@ fn qa_pass_rejects_live_competition_and_superseded_replacement_without_mutation(
             10,
         )
         .unwrap_err();
-    assert!(matches!(
-        superseded_error,
-        PlanError::ReadbackMismatch { operation, .. } if operation == "qa_pass"
-    ));
+    // Judging the winner superseded voids the claim, so this is refused a guard
+    // earlier than the live-competition case above, which readback still owns.
+    assert!(
+        matches!(&superseded_error, PlanError::QaNotRunning),
+        "a superseded replacement must be refused, got {superseded_error:?}"
+    );
 
     let task = store
         .get(&plan.id)
@@ -357,5 +359,7 @@ fn qa_pass_rejects_live_competition_and_superseded_replacement_without_mutation(
     }
     assert_eq!(task.assigned_tab_id.as_deref(), Some("replacement-tab"));
     assert_eq!(task.lane.tab_id.as_deref(), Some("replacement-tab"));
-    assert_eq!(task.status, TaskStatus::InReview);
+    // A respawn hands the work back: the replacement owes an ack before this is
+    // in progress again, and it is certainly no longer in review.
+    assert_eq!(task.status, TaskStatus::Pending);
 }

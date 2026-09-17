@@ -356,11 +356,34 @@ mod tests {
     #[test]
     fn prepends_competitive_context_without_leaking_other_attempt_ids() {
         let (_dir, store, task_id) = store_with_assigned_task();
-        store
-            .assign_task("pl_charter", &task_id, "worker-tab", None, 3)
+        // Sequential assignment replaces rather than competes: it closes the
+        // outgoing attempt, leaving nothing for the charter to warn about.
+        let drafts = store
+            .build_task_compete_drafts(
+                "pl_charter",
+                &task_id,
+                crate::service_plan::task_attempts::TaskCompeteRequest::default(),
+            )
             .unwrap();
         store
-            .assign_task("pl_charter", &task_id, "worker-tab-2", None, 4)
+            .record_task_compete_attempt(
+                "pl_charter",
+                &task_id,
+                "worker-tab",
+                &drafts[0],
+                Some("worker"),
+                3,
+            )
+            .unwrap();
+        store
+            .record_task_compete_attempt(
+                "pl_charter",
+                &task_id,
+                "worker-tab-2",
+                &drafts[1],
+                Some("worker"),
+                4,
+            )
             .unwrap();
 
         let out = store.prepend_worker_charter_for_tab("worker-tab", "continue");
