@@ -715,9 +715,11 @@ fn telegram269_wire_contract() {
         canonical_target(query["path"].as_str().unwrap(), &pairs),
         query["expected"]
     );
+    // Through our own canonicalizer: serde_json's key order is a build-feature
+    // detail and says nothing about the wire form we actually sign.
     assert_eq!(
-        serde_json::to_string(&vectors["jcs"]["value"]).unwrap(),
-        vectors["jcs"]["expected"]
+        canonicalize_jcs(&serde_json::to_string(&vectors["jcs"]["value"]).unwrap()).unwrap(),
+        vectors["jcs"]["expected"].as_str().unwrap()
     );
     for vector in vectors["jcs"]["canonicalization"].as_array().unwrap() {
         assert_eq!(
