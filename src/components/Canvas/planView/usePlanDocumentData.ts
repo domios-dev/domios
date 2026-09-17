@@ -108,25 +108,29 @@ export function usePlanDocumentData({
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
   const [specLoading, setSpecLoading] = useState(false);
 
+  // Primitive keys only: mux rebuilds the plan object on every broadcast, and
+  // this effect reaches the API.
+  const specPlanId = selectedPlan?.id ?? "";
+  const specSourceId = selectedPlan?.primary_spec_id ?? "";
+  const specIsFixture = specPlanId ? fixtureSpecSections.has(specPlanId) : false;
   useEffect(() => {
-    if (!api || !selectedPlan?.primary_spec_id || fixtureSpecSections.has(selectedPlan.id)) {
+    if (!api || !specSourceId || specIsFixture) {
       setSpecLoading(false);
       return;
     }
     let active = true;
-    const currentPlanId = selectedPlan.id;
     setSpecLoading(true);
-    void fetchSpecSections(api, selectedPlan.primary_spec_id)
+    void fetchSpecSections(api, specSourceId)
       .catch(() => [] as Section[])
       .then((sections) => {
         if (!active) return;
-        setFetchedSpecSections((previous) => new Map(previous).set(currentPlanId, sections));
+        setFetchedSpecSections((previous) => new Map(previous).set(specPlanId, sections));
         setSpecLoading(false);
       });
     return () => {
       active = false;
     };
-  }, [api, selectedPlan, fixtureSpecSections]);
+  }, [api, specPlanId, specSourceId, specIsFixture]);
 
   const selectedSpecSections = useMemo(() => {
     if (!selectedPlan) return [];
