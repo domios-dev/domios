@@ -227,7 +227,6 @@ fn reports_included_when_configured() {
         test_cmd: None,
         test_result: None,
         skipped: None,
-        diagnostics: None,
         report_outcome: None,
         attachments: vec![],
         model: None,

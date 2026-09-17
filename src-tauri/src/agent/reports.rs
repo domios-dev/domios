@@ -45,8 +45,6 @@ pub struct ReportDetails {
     pub skipped: Option<String>,
     #[serde(default)]
     pub attachments: Vec<String>,
-    #[serde(default)]
-    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,8 +76,6 @@ pub struct AgentReport {
     pub test_result: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -126,9 +122,6 @@ impl AgentReport {
         }
         if let Some(ref sha) = self.sha {
             lines.push(format!("sha: {}", sha));
-        }
-        if let Some(ref diagnostics) = self.diagnostics {
-            lines.extend(diagnostics.compact_lines(3));
         }
         match (self.test_cmd.as_deref(), self.test_result.as_deref()) {
             (Some(cmd), Some(result)) => lines.push(format!("tests: {} -> {}", cmd, result)),
@@ -343,7 +336,6 @@ impl ReportStore {
             test_cmd: details.test_cmd.clone(),
             test_result: details.test_result.clone(),
             skipped: details.skipped.clone(),
-            diagnostics: details.diagnostics.clone(),
             report_outcome,
             attachments: Vec::new(),
             model: actual_model.clone(),
@@ -604,7 +596,6 @@ mod tests {
             test_result: Some("ok".to_string()),
             skipped: Some("e2e".to_string()),
             attachments: vec![],
-            diagnostics: None,
         };
         let mut store = ReportStore::new(100);
         let stored = store.add_detailed("orch", "w1", "Worker", "all done", details, None);
@@ -755,7 +746,6 @@ mod tests {
             test_result: Some("42 passed".to_string()),
             skipped: Some("manual UI step".to_string()),
             attachments: vec![],
-            diagnostics: None,
         };
         let mut store = ReportStore::new(100);
         let report = store.add_detailed("orch", "w1", "Worker", "the freeform body", details, None);

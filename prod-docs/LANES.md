@@ -49,7 +49,7 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -91,24 +91,6 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
 9. Before every milestone or release close, run a stale-lane sweep: every branch
    and worktree gets one verdict: merged and cleaned, bounced, deferred
    with a recorded reason, or abandoned with rationale.
-
-### Background diagnostics
-
-The daemon owns one serialized diagnostics service per machine. It runs only
-from the canonical checkout into `../<repo>-worktrees/.diagnostics`; worker
-lanes never start checks, watchers, `bacon`, `rust-analyzer`, `tsgo`, or `tsc`.
-An `in_review` lane report queues the warm run after report delivery; completion
-records the findings on the attempt and delivers no message. Read them with
-`codeterm lane diagnostics <task>` or use `codeterm lane check <task|branch>`.
-The run uses the build gateway in fail-fast mode; a busy slot is recorded as a
-skipped attempt with the gateway owner and command, and is retried by `lane check`.
-The task lane record and dispatcher provisioning marker are the authority for
-lane identity; task/plan environment ids are secondary. Optional tools are
-capability-detected and skipped cleanly. `tsc --noEmit` is authoritative when
-it disagrees with optional `tsgo`; warm `tsc -b` state stays in its own build
-info file. No speed claim is made here because this service has no measured
-benchmark yet. Live LSP via `ra-multiplex` remains out of scope and is a
-follow-up.
 
 Mechanism ownership:
 

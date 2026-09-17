@@ -34,7 +34,6 @@ pub mod inject_verify;
 pub mod input_parser;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
-pub(crate) mod lane_diagnostics;
 pub(crate) mod lane_removal;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
@@ -353,7 +352,6 @@ pub struct ServiceContext {
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
-    pub(crate) lane_diagnostics: Arc<lane_diagnostics::LaneDiagnosticsService>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
@@ -940,8 +938,6 @@ pub struct ReportResult {
     pub rejected_task_transition: Option<RejectedTaskTransition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
