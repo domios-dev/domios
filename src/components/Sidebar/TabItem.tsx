@@ -14,7 +14,7 @@ import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
-import { agentBracketLabel, classifyAgentLiveness } from "../../lib/agentLabel";
+import { agentBadgeLabel, agentModelForBadge, classifyAgentLiveness } from "../../lib/agentLabel";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
@@ -88,13 +88,13 @@ function GroupCollapseChevron({
   );
 }
 
-function TabWorkingActivity() {
+function TabWorkingActivity({ active }: { active: boolean }) {
   return (
     <span
       data-testid="tab-working-activity"
       className="inline-flex items-center shrink-0"
     >
-      <ActivityDots size="small" tone="muted" />
+      <ActivityDots size="small" tone="muted" active={active} />
     </span>
   );
 }
@@ -188,8 +188,13 @@ function TabItemInner({
   const descriptor = getAgentDescriptor(tab.agent_type);
   const shellSessionModel = useShellSessionModel(tab);
   const providerName = provider?.displayName || "Agent";
-  // back to the live chatBackend session model (fetched/cached out of band).
-  const tabModel = tab.agent_session_model ?? shellSessionModel;
+  // Runtime session evidence wins; own-tab launch provenance covers startup gaps.
+  const modelEvidence = {
+    sessionModel: tab.agent_session_model,
+    providerResolvedModel: tab.agent_provider_resolved_model,
+    requestedModel: tab.agent_requested_model,
+  };
+  const tabModel = agentModelForBadge(modelEvidence) ?? shellSessionModel;
   const agentLiveness = classifyAgentLiveness({
     declaresAgent: tab.agent_type != null,
     ptyLive: tab.pty_id && status != null ? status !== "Dead" : null,
@@ -197,13 +202,9 @@ function TabItemInner({
     bootStage: tab.boot_stage ?? null,
     bootInFlight: tab.agent_booting ?? false,
   });
-  // Recompute only for a projection predating the daemon's label, from the raw id:
-  // a badge-truncated id would no longer match any catalogue entry.
-  const tabAgentLabel = tab.agent_label ?? agentBracketLabel(
-    tab.agent_type,
-    tabModel,
-    agentLiveness,
-  );
+  // Compose from current tab evidence so a cached provider-only label cannot
+  // mask a newer runtime model.
+  const tabAgentLabel = agentBadgeLabel(tab.agent_type, modelEvidence, agentLiveness);
   // Only a chatBackend shell's own detected model stands alone; a PTY tab that
   // lost its provider must not keep the model half of the identity.
   const shellBadge = shellSessionModel ? formatModelBadge(shellSessionModel) : null;
@@ -280,7 +281,7 @@ function TabItemInner({
         ${touchMode ? "sidebar-tab-touch" : ""}
         ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
         ${animClass}
-        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+        ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
       {isActive && <ActiveTabPill />}
@@ -305,7 +306,7 @@ function TabItemInner({
                 setEditing(false);
               }
             }}
-            className={`${tabText} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none`}
+            className={`${tabText} ct-input ct-input--compact bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none`}
           />
         </div>
       )}
@@ -353,7 +354,9 @@ function TabItemInner({
               >
                 {displayTitle}
               </span>
-              {status === "Working" && <TabWorkingActivity />}
+              {hasAgent && (status === "Working" || status === "Idle") && (
+                <TabWorkingActivity active={status === "Working"} />
+              )}
             </span>
             {collapsed && groupCollapsible && collapsedSummary ? (
               <span
@@ -531,6 +534,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.permission_auto_confirm === np.permission_auto_confirm &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
+    pp.agent_provider_resolved_model === np.agent_provider_resolved_model &&
+    pp.agent_requested_model === np.agent_requested_model &&
     pp.boot_stage === np.boot_stage &&
     pp.agent_booting === np.agent_booting &&
     pp.pty_id === np.pty_id &&

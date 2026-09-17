@@ -18,7 +18,9 @@
       "kind": "structural_composer",
       "timeoutSecs": 30
     },
-    "verifySubmit": { "kind": "tui_input_drained" },
+    "verifySubmit": {
+      "kind": "tui_input_drained"
+    },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
     "supportsLazySkills": false,
@@ -85,7 +87,7 @@
   "installer": {
     "macos": "curl https://cursor.com/install -fsS | bash",
     "linux": "curl https://cursor.com/install -fsS | bash",
-    "windows": "powershell -ExecutionPolicy ByPass -c \"irm 'https://cursor.com/install?win32=true' | iex\""
+    "windows": "$s = Join-Path $env:TEMP 'codeterm-cursor-install.ps1'; Invoke-WebRequest -Uri 'https://cursor.com/install?win32=true' -OutFile $s -UseBasicParsing; try { & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
   },
   "commands": {
     "stopKey": "\u001b",

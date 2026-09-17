@@ -134,9 +134,11 @@ fn build_resume_command_shape() {
     let j = codex();
     // Resume accepts a rollout filename stem and extracts the trailing uuid.
     let cmd = j.build_resume_command(CODEX_STEM, true).unwrap();
+    // Animations stay on: the repainting status band is what the offline state
+    // classifier reads as a live turn, so silencing it would blind activity.
     assert!(
-        cmd.starts_with("codex -c tui.animations=false resume"),
-        "resume subcommand without TUI animations: {cmd}"
+        cmd.starts_with("codex resume"),
+        "resume subcommand shape: {cmd}"
     );
     assert!(cmd.contains(CODEX_UUID), "must carry the uuid: {cmd}");
     assert!(

@@ -895,9 +895,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Web { .. }
         | Commands::Plugin { .. }
         | Commands::Plan { .. }
+        | Commands::Lane { .. }
         | Commands::Team { .. }
         | Commands::Spec { .. }
         | Commands::Effort { .. }
+        | Commands::EssenceMap { .. }
         | Commands::Orchestrator { .. }
         | Commands::Persona { .. }
         | Commands::Task { .. }

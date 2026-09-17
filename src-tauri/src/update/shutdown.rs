@@ -6,7 +6,7 @@ use crate::service::ServiceState;
 const SPAWN_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const PTY_REAP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Step 2-9 from `docs/plans/auto-update.md`. Step 1 (user confirmation) and
+/// Steps 2-9 of the auto-update sequence. Step 1 (user confirmation) and
 /// step 6 (binary swap, handled by `tauri-plugin-updater` before this runs)
 /// happen outside. Steps 7-9 (relaunch + session restore + per-tab resume)
 /// happen in the NEW process via `lib.rs::init_states` (snapshot reload) and

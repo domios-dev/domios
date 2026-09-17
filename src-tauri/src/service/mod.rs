@@ -21,6 +21,7 @@ mod analytics_host;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
+pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
 mod command_port_impl;
@@ -33,6 +34,7 @@ pub mod inject_verify;
 pub mod input_parser;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
+pub(crate) mod lane_diagnostics;
 pub(crate) mod lane_removal;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
@@ -46,6 +48,8 @@ pub(crate) mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
 mod process_tree;
+#[cfg(test)]
+pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
 pub(crate) mod directory_trust;
 pub mod orchestrator_digests;
@@ -77,7 +81,7 @@ pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
 pub(crate) mod role_preset;
-mod role_profile;
+pub(crate) mod role_profile;
 mod session_backup;
 pub(crate) mod session_binding_deferral;
 mod session_binding_state;
@@ -92,11 +96,13 @@ mod spawn_cli;
 mod spawn_factory;
 mod spawn_params;
 mod spawn_plan_task;
+pub(crate) mod task_assignment;
 pub(crate) use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
 pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
+pub(crate) mod startup_nudge;
 mod status_reconciliation;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
@@ -122,7 +128,8 @@ pub(crate) use team::rename_team_core;
 pub(crate) use team::rename_team_with_state_change;
 mod task_lane_guard;
 pub(crate) use task_lane_guard::{
-    canonical_path_of, classify_mutating_lane, recorded_lane_matches, UnsafeMutatingLane,
+    canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,
+    UnsafeMutatingLane,
 };
 // The value-only verdict has no production caller; the routes go through the
 // ServiceContext wrapper instead.
@@ -346,6 +353,7 @@ pub struct ServiceContext {
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
+    pub(crate) lane_diagnostics: Arc<lane_diagnostics::LaneDiagnosticsService>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
@@ -467,6 +475,20 @@ impl ServiceContext {
     /// Deliver a parked user send, once. A send that fails again is reconciled
     /// and left alone rather than retried, so one park yields at most one write.
     pub(crate) fn deliver_parked_user_send(&self, tab_id: &str) {
+        // `Unconfirmed` means the payload already reached this PTY and only its
+        // acknowledgement is missing, so delivering it here would write the same
+        // text twice. Restore replays a genuinely undelivered payload elsewhere.
+        let already_written = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
+            .is_some_and(|record| {
+                record.state() == crate::multiplexer::types::PendingDeliveryState::Unconfirmed
+            });
+        if already_written {
+            return;
+        }
         let Ok(Some(text)) = self.resolve_pending_delivery(tab_id) else {
             return;
         };
@@ -919,6 +941,8 @@ pub struct ReportResult {
     pub rejected_task_transition: Option<RejectedTaskTransition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]

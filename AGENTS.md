@@ -12,7 +12,20 @@
 
 # CodeTerm
 
-**OS for AI agents.** Cross-platform terminal multiplexer where AI agents live, work, and coordinate. Tauri v2 (Rust) + React/TypeScript + xterm.js. Full vision: `VISION.md`.
+**OS for AI agents.** Cross-platform terminal multiplexer where AI agents live, work, and coordinate. Tauri v2 (Rust) + React/TypeScript + xterm.js. Full vision: `essences/vision.md`.
+
+## How CodeTerm holds together
+
+Read this first; it is why the project stays whole while agents write almost all of the code.
+
+- **The owner works with a black box.** Andrey does not read the code. He sees inputs (a message to an agent, a ring or Telegram event) and outputs (plans, tabs, reports, deliveries) and expects the outputs he knows. That space is huge and dynamic, so no UI suite covers it. What protects it is agents verifying the observable behaviour of whatever they touched.
+- **Hard invariants are guarded mechanically.** This is the first reason the project has not fallen apart. Each lesson that once cost a breakage is cast into a test, a script or a refusal. Examples: the 1200-line file limit; owner approval before any PTY delivery change; lock ordering and no lock held across `.await`; branching on capability, never on provider id; no sleeps; dispatch refusals for unsafe lanes; the embedded docs size boundary. Essences say what must keep working; these guards stop us from breaking what already works.
+- **Essences are the stable foundation; code is volatile.** The product's essences (its vectors and capabilities, each with invariants and a status) change rarely and evolve gradually, while code is rebuilt in pieces. They are the expected inputs and outputs every change must keep, and they say what to verify. Today an agent matches a change to the essences by judgement; a mechanism that maps touched code to essences is on the roadmap. Map: `essences/capabilities.md`; core parts, clients and the routing spine: `essences/core.md`; why the vectors exist: `essences/vision.md`; when and how to edit docs: `essences/begin_here.md`.
+- **The map is an indirect beacon.** Work is done with an eye on the essences, but real architecture is more complex and is never bent to mirror the map.
+- **Meta-teams do the work.** The Orchestrator coordinates and verifies at speed. The Planner designs each task and gives its Worker a fitted personality: executor role, role guidance, a one-word name, and the model that fits the work. Workers stay source-only in isolated lanes. Lanes land through real merges, and executable proof runs in canonical.
+- **Verification stays proportional.** Each change is proven by the smallest focused oracle of what it touched, and one broad gate runs before a release. Every pinned expectation costs test time, so we balance coverage against speed rather than testing everything.
+- **Continuity lives in durable surfaces, not in one conversation.** Owner rules and vision go in `codeterm mem`, decisions and evidence in plan strides, lessons in `codeterm orchestrator learn`, and product essences in the capability map. Memory wake-up and plan learnings reach a resumed agent automatically; the capability map is read on purpose. Every agent writes the non-obvious *why* back into these surfaces as it works.
+- **Two documentation areas.** `essences/` holds the internal material for building CodeTerm and never ships to production agents. `prod-docs/` holds exactly the docs embedded in the binary (`codeterm docs <NAME>`, registry `cli/src/cmd/docs.rs`), the only docs that reach them. Step-by-step procedures live as project skills in `.agents/skills/`.
 
 ## Hard rules
 
@@ -36,7 +49,7 @@ When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in
 
 Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to dev and never kills prod.
 
-Choose the operation before running a command: shared development is `docs/BUILD.md#development`; a local production installer for this machine is `docs/BUILD.md#local-production-build-and-self-install`; public publishing is `docs/RELEASE.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
+Choose the operation before running a command: shared development is `essences/build.md#development`; a local production installer for this machine is `essences/build.md#local-production-build-and-self-install`; public publishing is `essences/release.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
 
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
@@ -49,7 +62,7 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ./build.sh verify           # check + unit tests + source-size gate
 ./build.sh build            # production build
 ./build.sh install-local    # incremental production build + self-install (Windows canonical)
-./build.sh cli              # rebuild CLI only → active ~/.codeterm-dev*/bin/
+./build.sh cli              # rebuild CLI + regenerate CLI artifacts → active ~/.codeterm-dev*/bin/
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # API E2E tests against running dev
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
@@ -77,11 +90,20 @@ Parallel writers always use separate worktrees/lanes; the canonical checkout has
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
 
+Run builds and dev restarts in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --cmd "..."`), never inline in the agent's own call.
+
 If foreground dev owns the gateway, stop dev before canonical QA and restart it
 afterward. Never move the check into a lane, compose a private
 `CARGO_TARGET_DIR`, or wait behind dev.
 
 Use `./build.sh help` and the named build operations. Do not hand-compose Cargo manifests, packages, profiles, or gateway commands when a build operation already owns that intent.
+
+## Lane diagnostics background analysis
+
+Background analysis runs only in the canonical checkout and the daemon-owned warm worktree; it is always off inside worker lanes.
+Workers never start checks or watchers in a lane; findings come from the serialized in-review run and `codeterm lane diagnostics <task>`.
+A checkout is a lane only when the host-owned task lane record and dispatcher provisioning marker identify it; task/plan env ids are secondary.
+The full operational contract is [Lane Lifecycle Standard — background diagnostics](prod-docs/LANES.md#background-diagnostics).
 
 ## Build speed (worktrees, tests, profiles)
 
@@ -116,7 +138,7 @@ If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is
 
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
-Full testing guide: `docs/TESTING.md`; authoring contract: `docs/contributing/test-authoring.md`.
+Full testing guide: `essences/testing.md`; authoring contract: `prod-docs/TEST-AUTHORING.md`.
 
 **Never assert prompt wording.** Test the mechanism — that a recipient receives
 the fragments it should, that placeholders were substituted, that a surface stays
@@ -223,7 +245,7 @@ The send path (`service/pty_io/`, `service/chat_send_transaction.rs`,
 `crates/codeterm-pty/src/pty/write_queue.rs`, delivery ledger) has been broken repeatedly by
 "one more heuristic / one more retry" changes that turned delivered messages
 into false failures. Before ANY change there, read and obey
-**`docs/contributing/pty-delivery.md`**. Non-negotiable core: the payload is
+**`essences/contributing/pty-delivery.md`**. Non-negotiable core: the payload is
 written at most once; after the paste reaches the write queue a failure may
 only classify as `submit_unconfirmed`, never `pty_unavailable`; false
 uncertainty is reconciled by exact session-turn evidence, never by guessing
@@ -310,7 +332,9 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 ## Project skills
 
-Repository-local operational skills live in `.agents/skills/`. Load the matching skill for dev, testing, prompt evaluation, or release work instead of duplicating its procedure here.
+Repository-local operational skills live in `.agents/skills/`. Load the matching skill for dev, testing, prompt evaluation, gates, or release work instead of duplicating its procedure here.
+
+Before running `build.ps1 test`, `release-preflight`, or a release, load `.agents/skills/gates/SKILL.md`. It owns which checks you run here and which you delegate, and the traps that make a gate lie about its own result.
 
 ## Orchestration failure visibility
 
@@ -325,11 +349,11 @@ technical status or silently retry it.
 
 ## Code style
 
-SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structure carry meaning. Only comment WHY (non-obvious invariant, OS quirk, deliberate workaround), never WHAT. **Hard limit: 2 lines per comment, strictly.** No multi-line narrative comment blocks — if a WHY needs more than 2 lines, the code needs a better name or a smaller function, not more prose. Giant explanatory comment blocks are forbidden and get removed on sight. (Applies to inline `//` comments; license/file headers and public-API doc comments are exempt but must still stay terse.) Detailed Rust + TypeScript guidance and architecture guardrails: **`docs/contributing/style.md`**.
+SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structure carry meaning. Only comment WHY (non-obvious invariant, OS quirk, deliberate workaround), never WHAT. **Hard limit: 2 lines per comment, strictly.** No multi-line narrative comment blocks — if a WHY needs more than 2 lines, the code needs a better name or a smaller function, not more prose. Giant explanatory comment blocks are forbidden and get removed on sight. (Applies to inline `//` comments; license/file headers and public-API doc comments are exempt but must still stay terse.) Detailed Rust + TypeScript guidance and architecture guardrails: **`essences/contributing/style.md`**.
 
 ## Architecture (agent providers, detection)
 
-Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode (PTY agents) + chatBackend plugins (non-PTY, e.g. LM Studio). Architecture-ready: Aider, Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
+Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode (PTY agents) + chatBackend plugins (non-PTY, e.g. LM Studio). Architecture-ready: Aider, Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`essences/contributing/architecture.md`**.
 
 ### Plugin & capability discipline (enforce on every provider change)
 
@@ -341,17 +365,17 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 4. **Audit the host-API surface when it grows.** Every new host function a drop-in can call is a new confinement hole — justify it against the FS/sqlite/env sandbox, and remember QuickJS lacks bindings the native runtime has (a missing `console` once aborted parsing silently).
 5. **Keep core provider plugin metadata in lockstep — for the GA provider set.** Until provider plugins split into their own release stream, `claude` / `codex` / `opencode` versions mirror the CodeTerm app version. After bumping `package.json`, run `npm run sync:versions` and verify with `npm run check:versions`; this syncs those three provider manifests/packages, internal `packages/*` package versions, and their `plugins/channel.json` entries. `cursor` (still a staged/incomplete provider rollout) and `chat-preprocessor` (a `chatPreprocessor` capability plugin, not an `AgentProvider`) are intentionally outside this sync scope — `scripts/sync-plugin-versions.mjs`'s `providers` array is the source of truth for which ids are covered. Their `plugins/channel.json` version fields drift independently of the app version and `check:versions` does not flag that drift; do not read a clean `check:versions` run as proof `cursor`/`chat-preprocessor` are current. Official `codeterm-core` channel installs are trusted system plugins, startup repairs same-version embedded hash drift, and newer channel versions must not be downgraded.
 
-Full rationale + the boundary map: **`docs/contributing/architecture.md`**.
+Full rationale + the boundary map: **`essences/contributing/architecture.md`**.
 
 **Where plugin source lives — not all of it is in this repo.** The bundled system provider plugins ship from the in-repo `plugins/` channel (`codeterm-core`: claude / codex / opencode / cursor / git / chat-preprocessor). Only claude / codex / opencode are on strict app-version lockstep — see "Plugin & capability discipline" above. The other **official, non-system capability plugins are NOT in this repo** — Bitwarden, Transcriber, LM Studio, and friends live in the separate **`codeterm-plugins`** repo (`~/Developer/codeterm-plugins`, channel `codeterm-plugins`, `github.com/rollacode/codeterm-plugins`), authored in TS against `@codeterm/plugin-sdk` and built to a QuickJS `plugin.js` + split UI bundles via `node scripts/build-plugin.mjs <id>`. Installed copies live under `~/.codeterm/plugins/<id>/`. To fix a non-bundled plugin (e.g. Bitwarden's connection view), edit it in `codeterm-plugins`, rebuild, and `codeterm plugin install --from-dir <path>` to test — do not look for it here.
 
 ## Code navigation
 
-Prefer cached SCIP indexes for definitions, references, and implementation graphs; use `rg` for exact text. Build/query details and fallbacks live in `docs/spikes/llm-codemap-eval.md`.
+Prefer cached SCIP indexes for definitions, references, and implementation graphs; use `rg` for exact text.
 
 ## GitHub and release
 
-Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `docs/RELEASE.md`. Never direct-push `master`, move published tags, or release from an unverified head.
+Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `essences/release.md`. Never direct-push `master`, move published tags, or release from an unverified head.
 
 **CLI contract changes require a consumer audit.** Review and update affected docs, prompts, skills, cards/examples, and contract tests; never change Clap syntax, output, or behavior in isolation.
 
@@ -363,25 +387,14 @@ commit that carries the fix and in the PR that merges it. This applies to every
 repository, this one and the plugin repos alike. Referencing an issue you did not
 fix is worse than none: use `Refs #N` for context, never a closing keyword.
 
-PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `docs/RELEASE.md`.
+PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `essences/release.md`.
 
 ## Documentation
 
-Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
+Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N -->` tag at the bottom of any `prod-docs/` doc you change; essence docs carry no revision tag.
 
-- `docs/API.md` — REST / Socket / CLI reference
-- `docs/PLUGINS.md` — plugin ecosystem map: **what is published where** (npm `@codeterm/plugin-sdk`; in-repo `plugins/provider-*` → embedded `codeterm-core` channel; external `rollacode/codeterm-plugins` repo → marketplace channel), authoring, release/publish flows. Read its "Ecosystem at a glance" before touching anything plugin- or npm-related
-- `docs/CONFIG.md` — config options, themes, keybindings
-- `docs/SKILLS.md` — Claude Code skill for CodeTerm control
-- `docs/BUILD.md` — build instructions
-- `docs/HTML.md` — sandboxed chat HTML, Tailwind runtime, and user-selected files
-- `docs/RELEASE.md` — release runbook: preflight, trigger-tag flow, artifact matrix, troubleshooting
-- `docs/MESH.md` — mesh networking (flat peer model) + bridge migration + Mesh tab (service registry, health probes, activity log, push tokens)
-- `docs/MEMORY.md` — memory subsystem
-- `docs/TAB-LIFECYCLE.md` — tab lifecycle journal (telemetry only): file location, schema, compaction, the unconditional restore contract, read-only inspection recipes
-- `docs/PROMPTS.md` — prompt templates: where they live, how they compile
-- `docs/TESTING.md` — full test guide
-- `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
-- `docs/contributing/` — agents, style, architecture, per-feature testing recipes
+- `essences/` — internal, never ships: `essences/capabilities.md` (capability map), `essences/core.md` (core parts, clients, routing spine), `essences/vision.md`, `essences/build.md` and `essences/build-reference.md`, `essences/release.md` (release map), `essences/testing.md` and `essences/e2e-testing.md`, `essences/plugins.md` (what is published where: npm `@codeterm/plugin-sdk`, in-repo `plugins/provider-*` → embedded `codeterm-core` channel, external `rollacode/codeterm-plugins` → marketplace channel; read its "Ecosystem at a glance" before touching anything plugin- or npm-related), the generated `essences/cli.md` and `essences/cli-manifest.json`, and `essences/contributing/` (agents, style, architecture, providers, PTY delivery, per-feature testing recipes).
+- `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/PROMPTS.md`, `prod-docs/TAB-LIFECYCLE.md`.
+- `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
-<!-- revision: 33 -->
+<!-- revision: 36 -->

@@ -6,6 +6,60 @@ use std::process::Command;
 
 use super::*;
 
+/// The doctor's only production path asks the daemon for the plan, so tests serve
+/// a plan value over a stub client instead of storage files it never reads.
+pub(super) struct StubPlanRpc {
+    plan: Value,
+    calls: Vec<String>,
+}
+
+impl crate::client::RpcClient for StubPlanRpc {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        _params: Option<Value>,
+    ) -> Result<Value, crate::client::SocketCallError> {
+        self.calls.push(method.to_string());
+        match method {
+            "plan.get" => Ok(self.plan.clone()),
+            "plan.files" => Ok(json!({
+                "index_path": "C:/central/plans/active/pl_1/INDEX.md",
+                "entries": []
+            })),
+            other => panic!("unexpected RPC method {other}"),
+        }
+    }
+}
+
+pub(super) fn authoritative_report(
+    plan: &Value,
+    plan_id: &str,
+    project: &Path,
+    kind: &str,
+) -> Value {
+    authoritative_report_with_calls(plan, plan_id, project, kind).0
+}
+
+pub(super) fn authoritative_report_with_calls(
+    plan: &Value,
+    plan_id: &str,
+    project: &Path,
+    kind: &str,
+) -> (Value, Vec<String>) {
+    let mut client = StubPlanRpc {
+        plan: plan.clone(),
+        calls: Vec::new(),
+    };
+    let report = doctor_report_authoritative(
+        &mut client,
+        Some(plan_id.to_string()),
+        Some(project.display().to_string()),
+        kind,
+    )
+    .unwrap();
+    (report, client.calls)
+}
+
 pub(super) fn run_git(cwd: &Path, args: &[&str]) {
     let out = Command::new("git")
         .current_dir(cwd)
@@ -192,10 +246,9 @@ fn incomplete_or_all_cancelled_group_is_not_flagged() {
 #[test]
 fn detects_malformed_json() {
     let dir = tempfile::tempdir().unwrap();
-    let plan_dir = dir.path().join(".codeterm/plans/active/pl_bad");
-    std::fs::create_dir_all(&plan_dir).unwrap();
-    std::fs::write(plan_dir.join("plan.yaml"), "{not yaml").unwrap();
-    let report = doctor_report(None, Some(dir.path().display().to_string()), "all").unwrap();
+    // The authoritative path never reads files, so a malformed plan reaches the
+    // doctor as a non-object value from plan.get.
+    let report = authoritative_report(&json!("{not yaml"), "pl_bad", dir.path(), "all");
     assert!(!report["ok"].as_bool().unwrap());
     assert!(report["findings"]
         .as_array()
@@ -243,7 +296,7 @@ fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
     write_v2_plan(&canonical_dir, &plan);
     write_v2_plan(&stray_dir, &plan);
 
-    let report = doctor_report(None, Some(linked.display().to_string()), "storage").unwrap();
+    let report = authoritative_report(&plan, "pl_1", &linked, "storage");
     let findings = report["findings"].as_array().unwrap();
     // The comparison uses production canonicalization because temporary paths differ across Windows and Unix.
     let main_c = super::inspect::canonicalize_path(&main)

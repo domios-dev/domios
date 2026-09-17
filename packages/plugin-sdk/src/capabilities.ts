@@ -527,14 +527,31 @@ export interface ChatPreprocessor {
   }): { text: string } | null; // null = passthrough
 }
 
+// Declared in plugin.json as `capabilities.webhookReceiver`. `audio: true` lets the
+// host accept one bounded `audio/*` part and transcribe it with the installed Transcriber.
+export interface WebhookReceiverCapability {
+  kind: "pebble";
+  audio?: boolean;
+}
+
+// Metadata only: audio bytes never enter the plugin.
+export interface WebhookAudio {
+  mediaType: string;
+  size: number;
+}
+
 export interface WebhookReceiveContext {
   payload: unknown;
   receivedAt: string;
+  // Present only for an audio-capable receiver that was sent an audio part.
+  audio?: WebhookAudio;
 }
 
 export interface WebhookDelivery {
   text: string;
   eventId?: string;
+  // The sender's own transcript; the host renders it labelled beside its own transcription.
+  transcript?: string;
 }
 
 export interface WebhookReceiver {

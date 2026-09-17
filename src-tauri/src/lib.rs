@@ -48,6 +48,8 @@ pub mod session;
 pub mod shell;
 mod socket;
 mod startup;
+#[cfg(test)]
+mod telegram269_wire_contract;
 pub mod transcribe;
 pub mod transcribe_adapter;
 pub mod update;
@@ -225,6 +227,8 @@ pub fn run() {
             commands::save_temp_file,
             commands::read_html_preview_file,
             commands::read_local_preview_file,
+            commands::read_workspace_essence_maps,
+            commands::read_workspace_essence_source,
             commands::copy_image_to_clipboard,
             commands::check_for_update,
             commands::install_app_update,
@@ -356,6 +360,7 @@ pub fn run() {
             commands_mesh::mesh_list_peers,
             commands_mesh::mesh_refresh_discovery,
             commands_mesh::mesh_connect,
+            commands_mesh::mesh_cancel_pairing,
             commands_mesh::mesh_approve_pairing,
             commands_mesh::mesh_reject_pairing,
             commands_mesh::mesh_disconnect,
@@ -885,8 +890,14 @@ pub fn run() {
                 )),
                 worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
+                lane_diagnostics: crate::service::lane_diagnostics::LaneDiagnosticsService::new(
+                    crate::paths::data_dir().join("lane-diagnostics"),
+                ),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            service_state
+                .lane_diagnostics
+                .bind_owner(std::sync::Arc::downgrade(&service_state));
             service_state.plan_store.bind_task_key_port(Arc::new(
                 crate::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
                     service_state.mux.clone(),

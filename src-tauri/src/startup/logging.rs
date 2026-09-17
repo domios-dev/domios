@@ -7,6 +7,8 @@ use crate::paths;
 /// generation without any bound — this is how a 95 MB rotated log happened.
 const MAX_LOG_BYTES: u64 = 50 * 1024 * 1024;
 const LOG_GENERATIONS: usize = 3;
+const THIRD_PARTY_WARN_TARGETS: &[&str] =
+    &["hyper_util", "reqwest", "tungstenite", "tokio", "mdns_sd"];
 
 fn rotate(log_dir: &std::path::Path) {
     use std::fs;
@@ -90,14 +92,12 @@ pub(crate) fn setup_logging() {
             ))
         })
         .level(level)
-        .level_for("hyper", log::LevelFilter::Warn)
-        .level_for("reqwest", log::LevelFilter::Warn)
-        .level_for("tungstenite", log::LevelFilter::Warn)
-        .level_for("tokio", log::LevelFilter::Warn)
-        .level_for("mdns_sd", log::LevelFilter::Warn)
         .level_for("codeterm::update", log::LevelFilter::Info)
         .level_for("codeterm::api::updater_routes", log::LevelFilter::Info)
         .chain(std::io::stderr());
+    for target in THIRD_PARTY_WARN_TARGETS {
+        dispatch = dispatch.level_for(*target, log::LevelFilter::Warn);
+    }
 
     let mut file_open_err: Option<String> = None;
     match RotatingLog::open(&log_dir) {
@@ -192,5 +192,15 @@ mod tests {
         sink.write_all(b"one line\n").unwrap();
         sink.flush().unwrap();
         assert!(!dir.path().join("codeterm.log.1").exists());
+    }
+
+    #[test]
+    fn log_composition_filters_the_actual_third_party_targets() {
+        assert!(THIRD_PARTY_WARN_TARGETS.contains(&"hyper_util"));
+        assert!(!THIRD_PARTY_WARN_TARGETS.contains(&"hyper"));
+        assert!(THIRD_PARTY_WARN_TARGETS.contains(&"reqwest"));
+        assert!(THIRD_PARTY_WARN_TARGETS.contains(&"tungstenite"));
+        assert!(THIRD_PARTY_WARN_TARGETS.contains(&"tokio"));
+        assert!(THIRD_PARTY_WARN_TARGETS.contains(&"mdns_sd"));
     }
 }

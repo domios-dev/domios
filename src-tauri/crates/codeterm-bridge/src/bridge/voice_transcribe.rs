@@ -7,6 +7,19 @@ use std::path::Path;
 
 use crate::transcribe::{TranscribeError, TranscribeRegistry};
 
+/// The agent-facing explanation for a voice file the voice stage could not transcribe.
+pub fn untranscribed_note(error: &TranscribeError) -> String {
+    match error {
+        TranscribeError::NoBackend => {
+            "No speech-to-text engine. Run codeterm plugin install transcriber, then open \
+             the Transcriber panel, pick a model, and click Install — it downloads and \
+             enables itself. Do not build anything by hand."
+                .to_string()
+        }
+        other => format!("transcription unavailable: {other}"),
+    }
+}
+
 /// Build the agent-facing attachment line; voice attachments are transcribed via the active transcriber (`active_id`).
 pub async fn format_attachment_line(
     path: &str,
@@ -26,22 +39,11 @@ pub async fn format_attachment_line(
         .await
         {
             Ok(t) => mk::voice(path, Some(&t.text), None),
-            Err(TranscribeError::NoBackend) => mk::voice(
-                path,
-                None,
-                Some(
-                    "No speech-to-text engine. Run codeterm plugin install transcriber, then open \
-                     the Transcriber panel, pick a model, and click Install — it downloads and \
-                     enables itself. Do not build anything by hand.",
-                ),
-            ),
             Err(e) => {
-                log::warn!("[voice] transcribe failed for {}: {}", path, e);
-                mk::voice(
-                    path,
-                    None,
-                    Some(&format!("transcription unavailable: {}", e)),
-                )
+                if !matches!(e, TranscribeError::NoBackend) {
+                    log::warn!("[voice] transcribe failed for {}: {}", path, e);
+                }
+                mk::voice(path, None, Some(&untranscribed_note(&e)))
             }
         };
     }

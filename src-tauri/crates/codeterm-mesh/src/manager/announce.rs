@@ -38,19 +38,16 @@ impl MeshManager {
                 });
             }
         }
-        out
+        crate::reachability::advertised_addresses(&self.ready_listeners, &out, self.api_port)
     }
 
     pub fn build_announce(&self) -> types::PeerAnnounce {
-        let online = self.local_http_healthy;
+        let addresses = self.local_announce_addresses();
+        let online = self.local_http_healthy && !addresses.is_empty();
         types::PeerAnnounce {
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
-            addresses: if online {
-                self.local_announce_addresses()
-            } else {
-                Vec::new()
-            },
+            addresses: if online { addresses } else { Vec::new() },
             api_port: self.api_port,
             online,
             web_ui: if online {

@@ -139,6 +139,9 @@ pub(super) fn dispatch(
                 "target_tab_id": result.orchestrator_tab_id,
                 "report_outcome": result.report_outcome,
             });
+            if let Some(diagnostics) = result.diagnostics {
+                resp["diagnostics"] = serde_json::to_value(diagnostics).unwrap_or_default();
+            }
             if let Some((plan_id, task_id)) = result.persisted_task {
                 resp["task_report"] = serde_json::json!({
                     "persisted": true,
@@ -182,14 +185,38 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|value| value.get("task_id"))
                 .and_then(Value::as_str);
-            let acknowledged = svc
-                .plan_store
-                .acknowledge_live_task_attempt_for_tab(&tab_id, plan_id, task_id, epoch_ms())
-                .map_err(|error| JsonRpcError {
-                    code: -32603,
-                    message: error.to_string(),
-                    data: None,
-                })?;
+            let acknowledged = match svc.plan_store.acknowledge_live_task_attempt_for_tab(
+                &tab_id,
+                plan_id,
+                task_id,
+                epoch_ms(),
+            ) {
+                Ok(acknowledged) => {
+                    log_ack_event(
+                        "task_ack",
+                        "accepted",
+                        "none",
+                        Some(&acknowledged.attempt.executor_tab_id),
+                        Some(&acknowledged.attempt.id),
+                    );
+                    acknowledged
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    log_ack_event(
+                        "task_ack",
+                        "refused",
+                        task_ack_refusal_class(&message),
+                        None,
+                        None,
+                    );
+                    return Err(JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    });
+                }
+            };
             let plan_id = acknowledged.plan_id.clone();
             let task_id = acknowledged.task_id.clone();
             svc.worker_ack
@@ -244,14 +271,32 @@ pub(super) fn dispatch(
             let caller_tab_id = get_string_param(params, "caller_tab_id")?;
             let attempt_id = get_string_param(params, "attempt_id")?;
             let binding_nonce = get_string_param(params, "binding_nonce")?;
-            let accepted = svc
-                .acknowledge_agent_startup(&caller_tab_id, &attempt_id, &binding_nonce)
-                .map_err(|message| JsonRpcError {
-                    code: -32603,
-                    message,
-                    data: None,
-                })?;
+            let accepted =
+                match svc.acknowledge_agent_startup(&caller_tab_id, &attempt_id, &binding_nonce) {
+                    Ok(accepted) => accepted,
+                    Err(message) => {
+                        log_ack_event(
+                            "startup_ack",
+                            "refused",
+                            "startup_ack_not_owner",
+                            None,
+                            None,
+                        );
+                        return Err(JsonRpcError {
+                            code: -32603,
+                            message,
+                            data: None,
+                        });
+                    }
+                };
             if !accepted {
+                log_ack_event(
+                    "startup_ack",
+                    "refused",
+                    "startup_ack_not_awaiting",
+                    None,
+                    None,
+                );
                 return Err(JsonRpcError {
                     code: -32603,
                     message: format!(
@@ -260,6 +305,13 @@ pub(super) fn dispatch(
                     data: None,
                 });
             }
+            log_ack_event(
+                "startup_ack",
+                "accepted",
+                "none",
+                Some(&caller_tab_id),
+                Some(&attempt_id),
+            );
             Ok(serde_json::json!({
                 "ok": true,
                 "accepted": true,
@@ -305,4 +357,143 @@ fn epoch_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+fn log_ack_event(
+    stage: &str,
+    outcome: &str,
+    refusal_class: &str,
+    tab_id: Option<&str>,
+    attempt_id: Option<&str>,
+) {
+    let record = ack_log_record(stage, outcome, refusal_class, tab_id, attempt_id);
+    log::info!(target: "codeterm::worker_ack", "{record}");
+}
+
+fn ack_log_record(
+    stage: &str,
+    outcome: &str,
+    refusal_class: &str,
+    tab_id: Option<&str>,
+    attempt_id: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "event": "worker_ack",
+        "stage": stage,
+        "outcome": outcome,
+        "refusal_class": refusal_class,
+        "timestamp_ms": epoch_ms(),
+        "tab_id": tab_id,
+        "attempt_id": attempt_id,
+    })
+}
+
+fn task_ack_refusal_class(message: &str) -> &'static str {
+    if message.contains("worker_ack_attempt_superseded") {
+        "worker_ack_attempt_superseded"
+    } else if message.contains("worker_ack_ambiguous_live_attempts") {
+        "worker_ack_ambiguous_live_attempts"
+    } else if message.contains("worker_ack_no_live_attempt") {
+        "worker_ack_no_live_attempt"
+    } else if message.contains("worker_ack_plan_not_active") {
+        "worker_ack_plan_not_active"
+    } else if message.contains("worker_ack_task_not_open") {
+        "worker_ack_task_not_open"
+    } else if message.contains("attempt was not acknowledged") {
+        "worker_ack_not_acknowledged"
+    } else if message.contains("attempt missing") {
+        "worker_ack_attempt_missing"
+    } else {
+        "worker_ack_refused"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ack_log_record, task_ack_refusal_class};
+
+    #[test]
+    fn agent_ack_diagnostic_startup_accepted() {
+        let record = ack_log_record(
+            "startup_ack",
+            "accepted",
+            "none",
+            Some("tab-safe"),
+            Some("attempt-safe"),
+        );
+        assert_eq!(record["stage"], "startup_ack");
+        assert_eq!(record["outcome"], "accepted");
+        assert_eq!(record["attempt_id"], "attempt-safe");
+    }
+
+    #[test]
+    fn agent_ack_diagnostic_task_accepted() {
+        let record = ack_log_record(
+            "task_ack",
+            "accepted",
+            "none",
+            Some("tab-safe"),
+            Some("attempt-safe"),
+        );
+        assert_eq!(record["stage"], "task_ack");
+        assert_eq!(record["outcome"], "accepted");
+        assert_eq!(record["tab_id"], "tab-safe");
+    }
+
+    #[test]
+    fn agent_ack_diagnostic_refused_classified() {
+        assert_eq!(
+            task_ack_refusal_class(
+                "worker_ack_attempt_superseded: token=secret binding_nonce=private"
+            ),
+            "worker_ack_attempt_superseded"
+        );
+        assert_eq!(
+            task_ack_refusal_class("worker_ack_ambiguous_live_attempts: plan/task details"),
+            "worker_ack_ambiguous_live_attempts"
+        );
+        assert_eq!(
+            task_ack_refusal_class("unexpected provider key material"),
+            "worker_ack_refused"
+        );
+    }
+
+    #[test]
+    fn agent_ack_diagnostic_stale_unattributed() {
+        let record = ack_log_record("task_ack", "refused", "worker_ack_refused", None, None);
+        assert_eq!(record["tab_id"], serde_json::Value::Null);
+        assert_eq!(record["attempt_id"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn agent_ack_diagnostic_unauthenticated_unattributed() {
+        let record = ack_log_record(
+            "startup_ack",
+            "refused",
+            "startup_ack_not_owner",
+            None,
+            None,
+        );
+        assert_eq!(record["tab_id"], serde_json::Value::Null);
+        assert_eq!(record["attempt_id"], serde_json::Value::Null);
+        assert_eq!(record["refusal_class"], "startup_ack_not_owner");
+    }
+
+    #[test]
+    fn agent_ack_diagnostic_redacts_secrets() {
+        let raw_error =
+            "worker_ack_attempt_superseded: token=secret binding_nonce=private raw_error=hidden";
+        let record = ack_log_record(
+            "task_ack",
+            "refused",
+            task_ack_refusal_class(raw_error),
+            None,
+            None,
+        );
+        assert!(!record.to_string().contains("binding_nonce"));
+        assert!(!record.to_string().contains("token"));
+        assert!(!record.to_string().contains("raw_error"));
+        assert!(!record.to_string().contains("secret"));
+        assert!(!record.to_string().contains("private"));
+    }
 }

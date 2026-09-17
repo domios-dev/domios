@@ -16,7 +16,7 @@ Paste real command output showing the fix works. Claims without evidence don't c
 
 ## New/changed tests
 
-Describe the fail-first method used (bug-fix red→green, sabotage, or refactor triple-green) with evidence. Justify test layer — see `docs/TESTING.md` decision tree.
+Describe the fail-first method used (bug-fix red→green, sabotage, or refactor triple-green) with evidence. Justify test layer — see `essences/testing.md` decision tree.
 
 ## Docs
 

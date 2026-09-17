@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # CodeTerm local build machine — orchestrator (macOS + Linux only).
 #
-# Topology: 2 build engines on THIS Mac, each builds ONE arch per wave, so 2 artifacts
-# build concurrently per wave; two waves cover all 4 mac+linux targets.
+# Topology: the Mac pipeline builds both macOS arches in one overlap wave; Docker builds
+# optional Linux arm64 alongside it. x86_64 Linux runs on the ROG/WSL runner.
 #
-#   ENGINE        WHERE                 arm64 wave            x86_64 wave
-#   mac host      native macOS          macOS aarch64 dmg     macOS x86_64 dmg
-#   docker        baked linux images    linux arm64 .deb+.AppImage   (x86_64 -> ROG/WSL)
+#   ENGINE        WHERE                 overlap wave
+#   mac host      native macOS          macOS aarch64 + x86_64 DMGs
+#   docker        baked Linux image     linux arm64 .deb+.AppImage (optional)
 #
 # NOT built here, each on its own ROG self-hosted GitHub Actions runner (tag-triggered):
 #   - Windows x64+arm64 -> release-windows.yml   (label windows-build)
@@ -28,7 +28,6 @@ set -euo pipefail
 TAG="${1:?usage: build-all.sh vX.Y.Z}"; VER="${TAG#v}"
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 BM="$REPO/.codeterm/build-machine"
-HELPERS="$REPO/.agents/skills/github-release/scripts"
 ART="${ART:-/tmp/codeterm-${VER}-artifacts}"
 LWORK=/tmp/ct-linux-build
 rm -rf "$ART" "$LWORK"
@@ -57,7 +56,7 @@ cp "/tmp/codeterm-${TAG}.bundle" "$LWORK/${TAG}.bundle"
 # Short engine name from its command, so per-engine logs are attributable.
 engine_name() {
   case "$1" in
-    *mac-bundle*)    echo "macos" ;;
+    *mac-bundle*|*mac-overlap*) echo "macos" ;;
     *build-linux*)   echo "linux" ;;
     *)               echo "engine" ;;
   esac
@@ -97,7 +96,11 @@ run_wave() {
   return "$rc"
 }
 
-DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -e CARGO_BUILD_JOBS=2 -w /work"
+DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -e CARGO_BUILD_JOBS=2 -e CARGO_TARGET_DIR=/src/src-tauri/target -e CARGO_INCREMENTAL=0 -e CODETERM_RELEASE_FEATURES=embeddings -w /work"
+
+export CARGO_TARGET_DIR="$REPO/src-tauri/target"
+export CARGO_INCREMENTAL=0
+export CODETERM_RELEASE_FEATURES=embeddings
 
 # The mac engine builds the GUI/CLI from THIS checkout; a fresh CI checkout has no
 # node_modules, so install once up front (linux/windows engines install inside themselves).
@@ -114,19 +117,14 @@ rc=0
 # set CT_BUILD_LINUX=1 to re-enable the docker arm64 Linux engine.
 if [ "${CT_BUILD_LINUX:-0}" = "1" ]; then
   run_wave arm64 \
-    "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
+    "$BM/scripts/mac-overlap.sh $VER $ART" \
     "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" || rc=1
 else
   echo "[build-all] Linux arm64 engine skipped (CT_BUILD_LINUX!=1)"
   run_wave arm64 \
-    "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
+    "$BM/scripts/mac-overlap.sh $VER $ART" \
     "true" || rc=1
 fi
-
-# x86_64 wave — macOS only; x86_64 Linux is built natively on the ROG/WSL runner
-# (release-linux.yml), not cross-compiled here.
-run_wave x86_64 \
-  "$HELPERS/mac-bundle.sh $VER x86_64 $ART" || rc=1
 
 # Collect mac DMGs into the artifacts dir (mac-bundle leaves them in target/).
 cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$ART/" 2>/dev/null || true

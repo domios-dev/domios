@@ -361,6 +361,31 @@ fn exact_review_continuation_attempt(task: &Task) -> Option<usize> {
     Some(*index)
 }
 
+pub(crate) fn reset_completed_review_continuation(
+    task: &mut Task,
+    attempt_index: usize,
+) -> Result<(), PlanError> {
+    let Some(attempt) = task.execution_attempts.get_mut(attempt_index) else {
+        return Err(PlanError::ReviewContinuationAttemptNotFound {
+            task_id: task.id.clone(),
+        });
+    };
+    if attempt.continuation.state.as_deref() != Some("continued") {
+        return Ok(());
+    }
+    attempt.continuation.epoch = attempt
+        .continuation
+        .epoch
+        .checked_add(1)
+        .ok_or_else(|| PlanError::Io("review continuation epoch exhausted".into()))?;
+    attempt.continuation.review_round = None;
+    attempt.continuation.state = None;
+    attempt.continuation.milestone_id = None;
+    attempt.continuation.delivered_at = None;
+    task.status_label = None;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ReviewCreditReconcileResult {
     pub plan_id: String,
@@ -788,9 +813,15 @@ impl PlanStore {
                     changed_executable_surfaces,
                     distinct_oracle,
                 });
-                task.review_round += 1;
+                task.review_round = task
+                    .review_round
+                    .checked_add(1)
+                    .ok_or_else(|| PlanError::Io("review round exhausted".into()))?;
                 let attempt = &mut task.execution_attempts[attempt_index];
-                attempt.continuation.epoch += 1;
+                attempt.continuation.epoch =
+                    attempt.continuation.epoch.checked_add(1).ok_or_else(|| {
+                        PlanError::Io("review continuation epoch exhausted".into())
+                    })?;
                 attempt.continuation.review_round = Some(task.review_round);
                 attempt.continuation.state = Some("awaiting_continuation".into());
                 attempt.continuation.milestone_id = Some(mid.clone());
@@ -897,29 +928,48 @@ impl PlanStore {
         attempt_id: &str,
         epoch: u32,
         now_ms: u64,
-    ) -> Result<bool, PlanError> {
+    ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
+            let task_index = plan
                 .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
+                .iter()
+                .position(|task| task.id == task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
-                attempt.id == attempt_id
-                    && attempt.closed_at.is_none()
-                    && attempt.continuation.epoch == epoch
-            }) else {
-                return Ok(false);
-            };
-            if task.status != TaskStatus::InReview
-                || task.status_label.as_deref() != Some("awaiting_continuation")
-                || attempt.continuation.state.as_deref() != Some("awaiting_continuation")
-            {
-                return Ok(false);
+            let task = &plan.tasks[task_index];
+            let attempt = task
+                .execution_attempts
+                .iter()
+                .find(|attempt| attempt.id == attempt_id);
+            let valid = task.status == TaskStatus::InReview
+                && task.status_label.as_deref() == Some("awaiting_continuation")
+                && attempt.is_some_and(|attempt| {
+                    attempt.closed_at.is_none()
+                        && attempt.continuation.epoch == epoch
+                        && attempt.continuation.state.as_deref() == Some("awaiting_continuation")
+                });
+            if !valid {
+                return Err(PlanError::ReviewContinuationDeliveryRefused {
+                    task_id: task.id.clone(),
+                    attempt_id: attempt_id.into(),
+                    expected_epoch: epoch,
+                    actual_epoch: attempt.map(|attempt| attempt.continuation.epoch),
+                    task_status: format!("{:?}", task.status),
+                    task_status_label: task.status_label.clone(),
+                    continuation_state: attempt
+                        .and_then(|attempt| attempt.continuation.state.clone()),
+                    attempt_closed: attempt.map(|attempt| attempt.closed_at.is_some()),
+                });
             }
+            let attempt_index = task
+                .execution_attempts
+                .iter()
+                .position(|attempt| attempt.id == attempt_id)
+                .expect("validated continuation attempt must still exist");
+            let task = &mut plan.tasks[task_index];
+            let attempt = &mut task.execution_attempts[attempt_index];
             attempt.continuation.state = Some("continuation_delivering".into());
             task.updated_at = now_ms;
-            Ok(true)
+            Ok(())
         })
     }
 

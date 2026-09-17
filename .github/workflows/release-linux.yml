@@ -59,6 +59,10 @@ jobs:
     runs-on: [self-hosted, linux-build]
     env:
       TARGET: x86_64-unknown-linux-gnu
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+      CARGO_TARGET_DIR: src-tauri/target
+      CODETERM_RELEASE_FEATURES: embeddings
+      CARGO_INCREMENTAL: '0'
       # linuxdeploy is itself an AppImage; if FUSE is unavailable in the runner's
       # service context, extract-and-run avoids the FUSE mount.
       APPIMAGE_EXTRACT_AND_RUN: '1'
@@ -108,14 +112,6 @@ jobs:
           rustc -vV
           rustup target list --installed | grep -E 'x86_64-unknown-linux-gnu' || rustup target add "$TARGET"
 
-      - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri
-            cli
-          key: ${{ env.TARGET }}
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -152,7 +148,7 @@ jobs:
           # internal sig matcher cannot pair an artifact with a signature.
           # We build the fragment ourselves below.
           includeUpdaterJson: false
-          args: --target ${{ env.TARGET }} --bundles deb,appimage
+          args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }} --bundles deb,appimage
 
       # Publish the linux-x86_64 updater fragment from the AppImage. The .sig is
       # read for its signature string but NOT uploaded (the updater reads the

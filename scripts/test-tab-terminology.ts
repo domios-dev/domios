@@ -95,7 +95,7 @@ function assertNoDeprecatedTabFlag(path: string, text: string): void {
   if (/--[\w-]*tab\b/.test(text)) throw new Error(`${path}: tab-named CLI flags are not supported user-visible flags; use --tab`);
 }
 
-for (const path of files("docs", ".agents")) {
+for (const path of files("essences", "prod-docs", ".agents")) {
   if (!path.endsWith(".md")) continue;
   const text = prose(readFileSync(path, "utf8"));
   if (/\btabs?\b/i.test(text)) throw new Error(`${path}: user-visible Tab terminology remains in documentation prose`);
@@ -107,7 +107,7 @@ for (const path of files("src/components", "src/help", "cli/src")) {
   assertNoTabTerminology(path, readFileSync(path, "utf8"));
 }
 
-for (const path of files("cli", "src-tauri", "packages", "docs", ".agents")) {
+for (const path of files("cli", "src-tauri", "packages", "essences", "prod-docs", ".agents")) {
   if (path.endsWith(".css")) continue;
   assertNoDeprecatedTabFlag(path, readFileSync(path, "utf8"));
 }

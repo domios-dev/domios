@@ -106,6 +106,55 @@ fn str_field<'a>(params: Option<&'a Value>, key: &str) -> &'a str {
         .unwrap_or("")
 }
 
+fn finish_continuation_result(
+    finished: bool,
+    delivery: Result<(), String>,
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    review_round: u32,
+) -> Result<(), JsonRpcError> {
+    if !finished {
+        let delivery_error = delivery.as_ref().err().cloned();
+        let mut data = json!({
+            "type": "bounce_continuation_finish_refused",
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "review_round": review_round,
+            "delivery_succeeded": delivery.is_ok(),
+            "uncertain_completion": true,
+        });
+        if let Some(error) = delivery_error {
+            data["delivery_error"] = json!(error);
+        }
+        return Err(JsonRpcError {
+            code: -32603,
+            message: format!(
+                "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation finish refused for {plan_id}/{task_id}/{attempt_id}; delivery outcome does not prove completion"
+            ),
+            data: Some(data),
+        });
+    }
+    if let Err(error) = delivery {
+        return Err(JsonRpcError {
+            code: -32603,
+            message: format!(
+                "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation failed for {plan_id}/{task_id}/{attempt_id}: {error}"
+            ),
+            data: Some(json!({
+                "type": "bounce_continuation_failed",
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "review_round": review_round,
+                "error": error,
+            })),
+        });
+    }
+    Ok(())
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -203,6 +252,11 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("residual_risk"))
                 .and_then(|v| v.as_str());
             let from = actor(p);
+            if let Some(plan) = store.get(&plan_id) {
+                super::plan_task_dispatch::canonical_writer::refuse_lane_integration_while_canonical_held(
+                    &plan, &task_id,
+                )?;
+            }
             let result = store
                 .accept_review(
                     &plan_id,
@@ -246,7 +300,7 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
             if let Some(continuation) = result.continuation.as_mut() {
-                let claimed = store
+                store
                     .claim_review_continuation_delivery(
                         &plan_id,
                         &task_id,
@@ -255,90 +309,78 @@ pub(super) fn dispatch(
                         now,
                     )
                     .map_err(plan_rpc_err)?;
-                if claimed {
-                    svc.record_kpi_review_verdict(
-                        from.tab_id.as_deref().unwrap_or("unknown"),
+                svc.record_kpi_review_verdict(
+                    from.tab_id.as_deref().unwrap_or("unknown"),
+                    &plan_id,
+                    &task_id,
+                    crate::agent::kpi_ledger::KpiEventKind::Bounce,
+                    result.review_round,
+                    note(p).len(),
+                );
+                let binding_nonce = {
+                    let mux = svc.mux.read();
+                    mux.get_tab(&continuation.executor_tab_id).and_then(|tab| {
+                        (tab.agent_session_id.as_deref() == Some(continuation.session_id.as_str())
+                            && tab.session_binding_nonce.is_some()
+                            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
+                            .then(|| tab.session_binding_nonce.clone())
+                            .flatten()
+                    })
+                };
+                let delivery = binding_nonce
+                    .as_deref()
+                    .ok_or_else(|| {
+                        "authenticated Worker continuation binding is unavailable".to_string()
+                    })
+                    .and_then(|nonce| {
+                        let envelope =
+                            crate::service::messenger::MessageEnvelope::codeterm_reminder(
+                                "review-bounce",
+                            )
+                            .id(Some(format!(
+                                "{}:{}:{}",
+                                continuation.attempt_id,
+                                continuation.review_round,
+                                continuation.epoch
+                            )));
+                        crate::service::messenger::Messenger::deliver_planner_session(
+                            svc,
+                            &continuation.executor_tab_id,
+                            &continuation.session_id,
+                            nonce,
+                            envelope,
+                            note(p),
+                            format!(
+                                "review-bounce:{}:{}:{}:{}",
+                                plan_id,
+                                task_id,
+                                continuation.attempt_id,
+                                continuation.review_round
+                            ),
+                        )
+                        .map(|_| ())
+                    });
+                let delivered = delivery.is_ok();
+                let finished = store
+                    .finish_review_continuation(
                         &plan_id,
                         &task_id,
-                        crate::agent::kpi_ledger::KpiEventKind::Bounce,
-                        result.review_round,
-                        note(p).len(),
-                    );
-                    let binding_nonce = {
-                        let mux = svc.mux.read();
-                        mux.get_tab(&continuation.executor_tab_id).and_then(|tab| {
-                            (tab.agent_session_id.as_deref()
-                                == Some(continuation.session_id.as_str())
-                                && tab.session_binding_nonce.is_some()
-                                && tab.session_binding_nonce == tab.reported_session_binding_nonce)
-                                .then(|| tab.session_binding_nonce.clone())
-                                .flatten()
-                        })
-                    };
-                    let delivery = binding_nonce
-                        .as_deref()
-                        .ok_or_else(|| {
-                            "authenticated Worker continuation binding is unavailable".to_string()
-                        })
-                        .and_then(|nonce| {
-                            let envelope =
-                                crate::service::messenger::MessageEnvelope::codeterm_reminder(
-                                    "review-bounce",
-                                )
-                                .id(Some(format!(
-                                    "{}:{}:{}",
-                                    continuation.attempt_id,
-                                    continuation.review_round,
-                                    continuation.epoch
-                                )));
-                            crate::service::messenger::Messenger::deliver_planner_session(
-                                svc,
-                                &continuation.executor_tab_id,
-                                &continuation.session_id,
-                                nonce,
-                                envelope,
-                                note(p),
-                                format!(
-                                    "review-bounce:{}:{}:{}:{}",
-                                    plan_id,
-                                    task_id,
-                                    continuation.attempt_id,
-                                    continuation.review_round
-                                ),
-                            )
-                            .map(|_| ())
-                        });
-                    let delivered = delivery.is_ok();
-                    store
-                        .finish_review_continuation(
-                            &plan_id,
-                            &task_id,
-                            &continuation.attempt_id,
-                            continuation.epoch,
-                            delivered,
-                            epoch_ms(),
-                        )
-                        .map_err(plan_rpc_err)?;
-                    emit_plan_changed(app, &plan_id);
-                    if let Err(error) = delivery {
-                        return Err(JsonRpcError {
-                            code: -32603,
-                            message: format!(
-                                "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation failed for {plan_id}/{task_id}/{}: {error}",
-                                continuation.attempt_id
-                            ),
-                            data: Some(json!({
-                                "type": "bounce_continuation_failed",
-                                "plan_id": plan_id,
-                                "task_id": task_id,
-                                "attempt_id": continuation.attempt_id,
-                                "review_round": continuation.review_round,
-                                "error": error,
-                            })),
-                        });
-                    }
-                    continuation.state = "continued".into();
-                }
+                        &continuation.attempt_id,
+                        continuation.epoch,
+                        delivered,
+                        epoch_ms(),
+                    )
+                    .map_err(plan_rpc_err)?;
+                emit_plan_changed(app, &plan_id);
+                finish_continuation_result(
+                    finished,
+                    delivery,
+                    &plan_id,
+                    &task_id,
+                    &continuation.attempt_id,
+                    continuation.review_round,
+                )?;
+                continuation.state = "continued".into();
             }
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
@@ -418,6 +460,38 @@ mod tests {
     }
 
     #[test]
+    fn review_bounce_finish_false_is_an_uncertain_completion_refusal() {
+        let error = finish_continuation_result(false, Ok(()), "plan-1", "task-1", "attempt-1", 2)
+            .expect_err("a no-op finish must never serialize success");
+        assert_eq!(error.code, -32603);
+        let data = error.data.unwrap();
+        assert_eq!(data["type"], "bounce_continuation_finish_refused");
+        assert_eq!(data["delivery_succeeded"], true);
+        assert_eq!(data["uncertain_completion"], true);
+    }
+
+    #[test]
+    fn review_bounce_finish_success_and_delivery_failure_keep_distinct_results() {
+        assert!(
+            finish_continuation_result(true, Ok(()), "plan-1", "task-1", "attempt-1", 1,).is_ok()
+        );
+
+        let error = finish_continuation_result(
+            true,
+            Err("delivery unavailable".into()),
+            "plan-1",
+            "task-1",
+            "attempt-1",
+            1,
+        )
+        .expect_err("failed delivery must remain an explicit failure");
+        let data = error.data.unwrap();
+        assert_eq!(data["type"], "bounce_continuation_failed");
+        assert_eq!(data["error"], "delivery unavailable");
+        assert!(data.get("uncertain_completion").is_none());
+    }
+
+    #[test]
     fn review_bounce_reopens_exact_acknowledged_attempt_and_continues_once() {
         let (_dir, store, plan_id, task_id, attempt_id) = continuation_store();
         let before = store.show_task(&task_id).unwrap().task;
@@ -436,10 +510,19 @@ mod tests {
         assert_eq!(continuation.attempt_id, attempt_id);
         assert!(store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 6)
-            .unwrap());
-        assert!(!store
+            .is_ok());
+        let refusal = store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 7)
-            .unwrap());
+            .expect_err("second claim must be an explicit refusal");
+        assert!(matches!(
+            refusal,
+            crate::service::plan::PlanError::ReviewContinuationDeliveryRefused {
+                expected_epoch: 1,
+                actual_epoch: Some(1),
+                continuation_state: Some(ref state),
+                ..
+            } if state == "continuation_delivering"
+        ));
         assert!(store
             .finish_review_continuation(&plan_id, &task_id, &attempt_id, 1, true, 8)
             .unwrap());
@@ -472,7 +555,7 @@ mod tests {
             .unwrap();
         assert!(store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 6)
-            .unwrap());
+            .is_ok());
         assert!(store
             .finish_review_continuation(&plan_id, &task_id, &attempt_id, 1, false, 7)
             .unwrap());
@@ -543,9 +626,13 @@ mod tests {
         assert_eq!(first.continuation, replay.continuation);
         assert!(store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 7)
-            .unwrap());
-        assert!(!store
+            .is_ok());
+        let refusal = store
             .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, 1, 8)
-            .unwrap());
+            .expect_err("replayed claim must be an explicit refusal");
+        assert!(matches!(
+            refusal,
+            crate::service::plan::PlanError::ReviewContinuationDeliveryRefused { .. }
+        ));
     }
 }

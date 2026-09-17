@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
+import { Map as MapIcon, X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useConfig } from "../../hooks/useConfig";
@@ -21,6 +21,7 @@ interface WorkspaceItemProps {
   onRename: (name: string) => void;
   onNewTerminal: () => void;
   onNewSession: () => void;
+  onOpenMap?: () => void;
   newSessionDisabled?: boolean;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
@@ -41,6 +42,7 @@ function WorkspaceItemInner({
   onRename,
   onNewTerminal,
   onNewSession,
+  onOpenMap,
   newSessionDisabled = false,
   onNewAgent,
   canClose: _canClose,
@@ -235,23 +237,40 @@ function WorkspaceItemInner({
         </span>
       </div>
       {/* 3-dot menu — visible on hover */}
-      <DropdownMenu
-        items={menuItems}
-        className={
-          touchMode
-            ? "shrink-0 flex h-11 w-11 items-center justify-center"
-            : "shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
-        }
-        trigger={
+      <div className="flex shrink-0 items-center gap-0.5">
+        {onOpenMap && (
           <button
-            aria-label={`Actions for ${workspace.name}`}
-            className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
-            title="Workspace actions"
+            type="button"
+            data-testid="workspace-map-action"
+            aria-label={`Open essence map for ${workspace.name}`}
+            className={`${touchMode ? "h-11 w-11" : "w-5 h-5 opacity-0 group-hover:opacity-60 focus-visible:opacity-100 hover:!opacity-100"} flex items-center justify-center rounded text-[var(--ct-muted-fg)] transition-opacity hover:bg-[var(--ct-border)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]`}
+            title="Open workspace essence map"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenMap();
+            }}
           >
-            <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
+            <MapIcon size={touchMode ? 17 : 13} strokeWidth={1.6} aria-hidden="true" />
           </button>
-        }
-      />
+        )}
+        <DropdownMenu
+          items={menuItems}
+          className={
+            touchMode
+              ? "shrink-0 flex h-11 w-11 items-center justify-center"
+              : "shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+          }
+          trigger={
+            <button
+              aria-label={`Actions for ${workspace.name}`}
+              className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
+              title="Workspace actions"
+            >
+              <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
+            </button>
+          }
+        />
+      </div>
     </div>
   );
 }
@@ -264,6 +283,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.canClose === next.canClose &&
     prev.showDisclosure === next.showDisclosure &&
     prev.detailHeader === next.detailHeader &&
+    prev.onOpenMap === next.onOpenMap &&
     prev.touchMode === next.touchMode &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&

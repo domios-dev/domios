@@ -39,6 +39,7 @@ pub fn format_tab_row(p: &serde_json::Value) -> String {
 /// Human `Tab list`: workspaces as headers, tabs as `<id> <name> <model>`
 /// rows, sub-agents nested under their parent by `parent_tab_id`. Compact
 /// on purpose — this output is read by agents too, so every line costs tokens.
+#[cfg(test)]
 pub fn render_tab_tree(tabs: &[serde_json::Value]) -> String {
     render_tab_tree_with_current(tabs, None)
 }

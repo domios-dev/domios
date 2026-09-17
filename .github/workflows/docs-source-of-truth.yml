@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "docs/**"
+      - "essences/**"
+      - "prod-docs/**"
       - "src-tauri/prompts/**"
       - "src-tauri/src/prompts.rs"
       - "CLAUDE.md"
@@ -44,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha }}"
-          changed="$(git diff --name-only "$base"...HEAD -- 'docs/*.md' || true)"
+          changed="$(git diff --name-only "$base"...HEAD -- 'essences/*.md' 'prod-docs/*.md' || true)"
           [ -n "$changed" ] || exit 0
           missing=0
           while IFS= read -r file; do

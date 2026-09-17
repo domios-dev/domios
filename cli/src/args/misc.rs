@@ -87,7 +87,7 @@ pub enum TabAction {
         /// Workspace id to list. Without this selector every workspace is listed.
         #[arg(long, value_name = "WORKSPACE_ID")]
         workspace: Option<String>,
-        /// Include every workspace explicitly (the default when --workspace is absent).
+        /// Accepted for compatibility; every workspace is now listed by default.
         #[arg(long, conflicts_with = "workspace")]
         all_workspaces: bool,
         /// Show only tabs running an agent (have an agent_type).
@@ -616,7 +616,7 @@ pub enum BridgeAction {
 
 #[derive(Subcommand)]
 pub enum BridgeThreadAction {
-    /// Open or reuse a tab's Telegram topic and print its link
+    /// Open or reuse a tab's Telegram topic and print where to find it
     Open {
         /// Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab
         #[arg(long)]

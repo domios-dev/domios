@@ -661,12 +661,7 @@ fn planner_unpaired_escalates_to_error_at_approval() {
     let plan = planner_pairing_base_plan(None);
     write_v2_plan(&plan_dir, &plan);
 
-    let report = doctor_report(
-        Some("pl_1".into()),
-        Some(dir.path().display().to_string()),
-        "quality",
-    )
-    .unwrap();
+    let report = super::authoritative_report(&plan, "pl_1", dir.path(), "quality");
     assert!(report["findings"]
         .as_array()
         .unwrap()
@@ -847,12 +842,7 @@ fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
     });
     write_v2_plan(&plan_dir, &plan);
 
-    let report = doctor_report(
-        Some("pl_1".into()),
-        Some(dir.path().display().to_string()),
-        "quality",
-    )
-    .unwrap();
+    let report = super::authoritative_report(&plan, "pl_1", dir.path(), "quality");
     let vague: Vec<&Value> = report["findings"]
         .as_array()
         .unwrap()
@@ -955,12 +945,8 @@ fn executor_role_required_approval_refuses_a_plan_holding_a_roleless_task() {
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
     write_v2_plan(&plan_dir, &roleless_task_plan());
 
-    let mut report = doctor_report(
-        Some("pl_1".into()),
-        Some(dir.path().display().to_string()),
-        "quality",
-    )
-    .unwrap();
+    let mut report =
+        super::authoritative_report(&roleless_task_plan(), "pl_1", dir.path(), "quality");
     assert!(
         report["ok"].as_bool().unwrap(),
         "standalone doctor only reports it: {report}"
@@ -987,15 +973,12 @@ fn executor_role_required_preexisting_roleless_tasks_are_reported_not_filled() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
     write_v2_plan(&plan_dir, &roleless_task_plan());
-    let task_path = plan_dir.join("tasks").join("task_1.yaml");
-    let before = std::fs::read_to_string(&task_path).unwrap();
-
-    let report = doctor_report(
-        Some("pl_1".into()),
-        Some(dir.path().display().to_string()),
+    let (report, calls) = super::authoritative_report_with_calls(
+        &roleless_task_plan(),
+        "pl_1",
+        dir.path(),
         "quality",
-    )
-    .unwrap();
+    );
     let finding = report["findings"]
         .as_array()
         .unwrap()
@@ -1004,15 +987,9 @@ fn executor_role_required_preexisting_roleless_tasks_are_reported_not_filled() {
         .expect("expected the roleless task to be surfaced");
     assert_eq!(finding["task_id"], "task_1");
 
-    let after = std::fs::read_to_string(&task_path).unwrap();
-    assert_eq!(before, after, "the doctor must never write a role in");
-    let stored: Value = serde_yaml::from_str(&after).unwrap();
     assert!(
-        stored
-            .get("executor_role")
-            .and_then(Value::as_str)
-            .is_none_or(str::is_empty),
-        "stored value changed: {stored:?}"
+        calls.iter().all(|m| m == "plan.get" || m == "plan.files"),
+        "the doctor must never write a role in, only read: {calls:?}"
     );
 }
 

@@ -124,7 +124,7 @@ impl ServiceContext {
 
     /// Retire a closed tab's threads off the close path; an unbound tab spawns nothing.
     pub(crate) fn release_bridge_threads(&self, tab_id: &str) {
-        if !self.bridge_threads.has_open_binding(tab_id) {
+        if !self.bridge_threads.holds_topics(tab_id) {
             return;
         }
         let threads = self.bridge_threads.clone();

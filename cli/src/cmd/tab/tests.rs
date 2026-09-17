@@ -20,17 +20,27 @@ impl RpcClient for SearchRpc {
 }
 
 #[test]
-fn tab_list_defaults_to_all_workspaces() {
+fn tab_list_defaults_to_all_workspace_request() {
     let params = tab_list_params(None, false, false);
 
     assert_eq!(params["focused_workspace"], false);
     assert_eq!(params["all_workspaces"], false);
     assert_eq!(ordinary_tab_list_path(&params), "/api/tabs");
 
-    let output = render_tab_tree(&[
-        json!({"id": "tab_one", "tab_title": "One", "workspace_id": "ws_one", "workspace_name": "One"}),
-        json!({"id": "tab_two", "tab_title": "Two", "workspace_id": "ws_two", "workspace_name": "Two"}),
-    ]);
+    let output = crate::cmd::render_workspace_map(
+        &json!([
+            {"id": "ws_one", "name": "One", "tab_count": 1, "tab_ids": ["tab_one"]},
+            {"id": "ws_two", "name": "Two", "tab_count": 1, "tab_ids": ["tab_two"]}
+        ]),
+        Some(&json!([
+            {"id": "tab_one", "tab_title": "One tab", "workspace_id": "ws_one"},
+            {"id": "tab_two", "tab_title": "Two tab", "workspace_id": "ws_two"}
+        ])),
+        Some(&json!({"teams": []})),
+        Some(&json!({"plans": []})),
+        None,
+        None,
+    );
     assert!(output.contains("One  ws_one"));
     assert!(output.contains("Two  ws_two"));
 }

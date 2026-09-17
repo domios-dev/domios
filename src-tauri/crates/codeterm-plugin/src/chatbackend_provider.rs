@@ -206,6 +206,7 @@ pub trait ChatBackendProvider: Send + Sync {
             supports_permission_bypass: false,
             cli_binary: None,
             install_command: None,
+            badge: None,
             update_command: None,
             model_switch_format: None,
             fresh_context_command: None,

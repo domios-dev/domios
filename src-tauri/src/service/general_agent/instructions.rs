@@ -430,20 +430,20 @@ mod tests {
     #[test]
     fn general_agent_contract_preserves_memory_recall_save_graph_semantics() {
         let rendered = render_system_prompt("codex", None);
-        for invariant in [
-            "ENGLISH IN MEM",
-            "SEARCH BEFORE ANSWERING",
-            "NEVER GUESS IDS",
-            "\"REMEMBER\" → SAVE NOW",
-            "Facts change → save the new one",
-            "TEMPORAL FACTS REQUIRE THE GRAPH",
-            "Past conversation → `codeterm sessions search`",
-            "codeterm mem skill new <slug>",
+        assert_eq!(
+            rendered.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
+            1,
+            "the memory protocol reaches the General Agent exactly once"
+        );
+        for command in [
+            "`codeterm mem search`",
+            "`codeterm mem save`",
+            "`codeterm sessions search`",
+            "`codeterm mem skill new <slug>`",
         ] {
-            assert_eq!(
-                rendered.matches(invariant).count(),
-                1,
-                "memory invariant must appear once: {invariant}"
+            assert!(
+                crate::prompts::BRIDGE_MEM.contains(command),
+                "the memory protocol names the CLI command {command}"
             );
         }
     }

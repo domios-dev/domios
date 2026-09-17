@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = json.loads(
     Path(__file__).with_name("protocol-fixtures.json").read_text(encoding="utf-8")
 )
-CONTRACT = ROOT / "src-tauri/prompts/bounce_unwinding_contract.md"
+CONTRACT = ROOT / "prod-docs/BOUNCE.md"
 
 
 def record_output(record, fields):
