@@ -298,8 +298,6 @@ impl IdempotencyStore {
 pub struct MessageGateway {
     idempotency: Mutex<IdempotencyStore>,
     worker_report_required: Mutex<HashSet<String>>,
-    #[cfg(test)]
-    delivery_observer: Mutex<Option<std::sync::mpsc::Sender<String>>>,
 }
 
 impl Default for MessageGateway {
@@ -317,8 +315,6 @@ impl MessageGateway {
         Self {
             idempotency: Mutex::new(IdempotencyStore::new(cap)),
             worker_report_required: Mutex::new(HashSet::new()),
-            #[cfg(test)]
-            delivery_observer: Mutex::new(None),
         }
     }
 
@@ -343,11 +339,6 @@ impl MessageGateway {
         self.worker_report_required.lock().contains(tab_id)
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_delivery_observer_for_test(&self, observer: std::sync::mpsc::Sender<String>) {
-        *self.delivery_observer.lock() = Some(observer);
-    }
-
     pub fn submit<S: DeliverySeam>(
         &self,
         seam: &S,
@@ -365,13 +356,6 @@ impl MessageGateway {
         }
 
         let outcome = self.dispatch(seam, &msg);
-
-        #[cfg(test)]
-        if outcome.is_ok() {
-            if let Some(observer) = self.delivery_observer.lock().clone() {
-                let _ = observer.send(msg.target.clone());
-            }
-        }
 
         if let Some(key) = dedup_key {
             self.idempotency.lock().put(key, outcome.clone());
