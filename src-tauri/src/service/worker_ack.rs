@@ -863,10 +863,23 @@ impl ServiceContext {
                     Some(session_id),
                 )
             });
-            if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id) {
-                log::warn!("[worker-ack] reminder delivery failed attempt={attempt_id}: {error}");
-            }
-            if !reminder_allowed {
+            // Only a tab with an authenticated worker binding can receive this.
+            // Without one there is no agent reading the PTY, so the reminder
+            // would be typed into whatever shell is sitting there as literal
+            // keystrokes — which is how a failed launch used to spray our own
+            // routing markers across the user's terminal.
+            if reminder_allowed {
+                if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id)
+                {
+                    log::warn!(
+                        "[worker-ack] reminder delivery failed attempt={attempt_id}: {error}"
+                    );
+                }
+            } else {
+                log::warn!(
+                    "[worker-ack] tab={worker_tab_id} attempt={attempt_id} never bound a worker session; \
+                     recording the startup deadline instead of writing into its shell"
+                );
                 let _ = service.plan_store.mark_worker_startup_deadline(
                     &plan_id,
                     &task_id,
@@ -898,10 +911,18 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id) {
-                log::warn!(
-                    "[worker-ack] final binding reminder delivery failed attempt={attempt_id}: {error}"
-                );
+            // Same rule as the first reminder: a tab that never bound a worker
+            // session has no agent to read this, only a shell to type it into.
+            if service
+                .authenticated_worker_binding(&worker_tab_id)
+                .is_some()
+            {
+                if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id)
+                {
+                    log::warn!(
+                        "[worker-ack] final binding reminder delivery failed attempt={attempt_id}: {error}"
+                    );
+                }
             }
             service.publish_worker_lifecycle_report(
                 &parent_tab_id,

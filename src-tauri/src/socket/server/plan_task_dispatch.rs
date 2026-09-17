@@ -901,6 +901,14 @@ pub(super) fn dispatch(
             svc.provision_dispatch_worker_lane(&mut spawn_params, base_checkout, &lane_label)
                 .map_err(|error| dispatch_failed("lane_provision", error))?,
         ),
+        // A lane we created on an earlier dispatch is still ours. Without this
+        // the reused worktree carries no provenance, the directory-trust
+        // responder declines to answer, and the agent waits on a dialog nobody
+        // will ever press until it exits.
+        Some(DispatchLanePlacement::Existing(provenance)) => {
+            spawn_params.provisioned_cwd = Some(provenance.worktree_path.clone());
+            None
+        }
         _ => None,
     };
     let initial_provenance = if execution_intent == crate::plan::ExecutionIntent::Mutating
