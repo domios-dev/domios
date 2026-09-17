@@ -200,39 +200,66 @@ fn register_twice_replaces() {
 }
 
 #[test]
-fn put_live_overrides_seed_for_models_and_default() {
-    let id = "test-put-live-overrides-seed";
+fn put_live_merges_with_seed_models_and_keeps_live_default() {
+    let id = "test-put-live-merges-seed";
     register(
         id,
         RegisteredDefaults {
-            models: vec![ModelInfo {
-                id: "seed".into(),
-                display_name: "Seed".into(),
-                description: None,
-                available: None,
-                availability: None,
-            }],
+            models: vec![model("seed", "Seed"), model("shared", "Seed Shared")],
             default: Some("seed".into()),
         },
     );
 
     put_live(
         id,
-        vec![ModelInfo {
-            id: "live".into(),
-            display_name: "Live".into(),
-            description: None,
-            available: None,
-            availability: None,
-        }],
+        vec![model("shared", "Live Shared"), model("live", "Live")],
         Some("live".into()),
     );
 
     let models = resolve_models(id);
-    assert_eq!(models.len(), 1);
-    assert_eq!(models[0].id, "live");
+    assert_eq!(
+        models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        vec!["seed", "shared", "live"]
+    );
+    assert_eq!(models[1].display_name, "Live Shared");
     assert_eq!(resolve_default(id).as_deref(), Some("live"));
-    registry().write().remove(id);
+    cleanup(id);
+}
+
+#[test]
+fn live_cache_subset_never_hides_new_seed_models() {
+    let id = "test-live-subset-keeps-seed";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![
+                model("gpt-6-astra", "GPT-6-Astra"),
+                model("gpt-5.6-sol", "GPT-5.6-Sol"),
+                model("gpt-5.6-terra", "GPT-5.6-Terra"),
+                model("gpt-5.6-luna", "GPT-5.6-Luna"),
+                model("gpt-5.5", "GPT-5.5"),
+                model("gpt-5.4-mini", "GPT-5.4-Mini"),
+                model("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark"),
+            ],
+            default: Some("gpt-5.5".into()),
+        },
+    );
+    put_live(
+        id,
+        vec![
+            model("gpt-5.5", "GPT-5.5"),
+            model("gpt-5.4-mini", "GPT-5.4-Mini"),
+            model("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark"),
+        ],
+        Some("gpt-5.5".into()),
+    );
+
+    let models = resolve_models(id);
+    assert_eq!(models.len(), 7);
+    assert_eq!(models[0].id, "gpt-6-astra");
+    assert_eq!(models[4].id, "gpt-5.5");
+    cleanup(id);
 }
 
 #[test]
