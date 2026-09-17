@@ -130,7 +130,7 @@ export function usePlanDocumentData({
     return () => {
       active = false;
     };
-  }, [api.host, api.port, api.token, specPlanId, specSourceId, specIsFixture]);
+  }, [api?.host, api?.port, api?.token, specPlanId, specSourceId, specIsFixture]);
 
   const selectedSpecSections = useMemo(() => {
     if (!selectedPlan) return [];

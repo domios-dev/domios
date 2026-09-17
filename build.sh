@@ -1586,6 +1586,7 @@ EOF
     scripts/test-capped.sh --manifest-path cli/Cargo.toml
     node node_modules/typescript/bin/tsc --noEmit
     node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
+    node scripts/check-api-effect-dependencies.mjs
     node scripts/run-ts-unit-tests.mjs
     node node_modules/vitest/vitest.mjs run
     node scripts/run-plugin-tests.mjs
@@ -1994,6 +1995,7 @@ EOF
     }
 
     ta_run "rust-unit"  scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    ta_run "api-effects" node scripts/check-api-effect-dependencies.mjs
     ta_run "ts-unit"    pnpm -s test:unit
     ta_run "ts-vitest"  node node_modules/vitest/vitest.mjs run
     ta_run "plugin"     pnpm -s test:plugins
