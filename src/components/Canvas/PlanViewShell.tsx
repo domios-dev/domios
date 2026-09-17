@@ -85,9 +85,8 @@ export function useFrozenWhenHidden<T>(props: T, visible: boolean): T {
 export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [storedMode, setViewMode] = usePersistedPlanViewMode();
   const [segment, setSegment] = useTaskSegment(props.workspaceTarget, setViewMode);
-  // A draft is a plan you must be able to read — that is how it gets reviewed and
-  // approved. These views need a plan to show, not an approved one, so they open
-  // as soon as one exists and close only when there is nothing to render.
+  // A draft must be readable to get reviewed and approved, so these views open as
+  // soon as any plan exists — approved or not — and close only when none does.
   const hasPlanToRead = useMemo(
     () => props.plans.some((plan) => !props.teamId || plan.team_id === props.teamId),
     [props.plans, props.teamId],

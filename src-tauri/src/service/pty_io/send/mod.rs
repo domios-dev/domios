@@ -591,9 +591,8 @@ impl ServiceContext {
         if completed {
             return observed.expect("completed public input readiness");
         }
-        // Owner exception: no definitive verdict (not SpawnFailed, not AgentReady)
-        // arrived within the bounded wait. Deliver anyway rather than refuse
-        // forever — a live PTY with an unconfirmed session is not a dead one.
+        // Owner exception: no definitive verdict arrived within the bounded wait.
+        // Deliver anyway — a live PTY with an unconfirmed session isn't a dead one.
         log::info!(
             "[chat-send] Tab {tab_id} input readiness unresolved after {timeout:?}; delivering anyway"
         );

@@ -507,9 +507,8 @@ function layoutEssenceMapProjectClustered(nodes: EssenceMapNode[], availableWidt
   clients.forEach((node, index) => { const angle = -Math.PI / 2 + (index / Math.max(clients.length, 1)) * Math.PI * 2; put(node, center.x + Math.cos(angle) * clientRadius, center.y + Math.sin(angle) * clientRadius); });
   const order = [...vectors, ...capabilities, ...core, ...clients];
   const clampPoint = (point: { x: number; y: number }) => { point.x = Math.max(cardWidth / 2 + 4, Math.min(width - cardWidth / 2 - 4, point.x)); point.y = Math.max(48, Math.min(height - 48, point.y)); };
-  // Separation reasons about the label, not the dot. A 14px dot with a 120px label
-  // beside it clears a dot-sized gap while its text lies across its neighbour's,
-  // which is what put a whole cluster's names on one unreadable line.
+  // Separation reasons about the label, not the dot: a 14px dot clears a dot-sized
+  // gap while its 120px label overlaps a neighbour's, garbling a whole cluster.
   const labelWidth = (node: EssenceMapNode): number => Math.min(150, node.label.length * 5.4 + 8);
   const boxOf = (node: EssenceMapNode, point: { x: number; y: number }) => {
     const half = cardWidth / 2;

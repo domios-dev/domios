@@ -475,9 +475,8 @@ mod tests {
     fn apply_env_wires_powershell_command_finished_observation() {
         ensure_scripts();
         let script = integration_dir().join("powershell.ps1");
-        // The shipped script, not this machine's copy: ensure_scripts discards
-        // its write error, so an installed CodeTerm holding that file leaves an
-        // older build's content behind and this would measure that install.
+        // The shipped script, not this machine's copy: ensure_scripts discards its
+        // write error, so an install could be running an older file than this constant.
         let content = POWERSHELL_PS1;
         let authenticated_command = content.find("']633;E;;'").unwrap();
         let command_finished = content.find("']633;D'").unwrap();

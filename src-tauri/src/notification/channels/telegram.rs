@@ -137,9 +137,8 @@ impl PushChannel for TelegramChannel {
                         buttons: buttons.clone(),
                         edit: None,
                         receipt: receipt.clone(),
-                        // Into the chat, never a tab topic. A push routed as a
-                        // tab arrives as a truncated pointer to somewhere else,
-                        // which is the opposite of what an alert is for.
+                        // Into the chat, never a tab topic: a push routed as a tab
+                        // arrives as a truncated pointer elsewhere, defeating the alert.
                         route: OutboundRoute::Chat,
                     },
                 )

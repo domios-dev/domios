@@ -558,9 +558,8 @@ fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
         .take(4)
         .find_map(|(idx, line)| {
             let line = line.trim();
-            // Input-prompt glyphs: ❯/› (claude/codex), → (cursor's composer arrow).
-            // Codex writes its running turn as `→ Working (ctrl+c to stop)`, which
-            // is a turn footer announcing itself, never a composer awaiting input.
+            // ❯/›/→ mark a composer prompt, but Codex's turn footer also starts with
+            // → ("→ Working…"), so active_turn_footer below must rule that case out.
             let composer_glyph =
                 line.starts_with('❯') || line.starts_with('›') || line.starts_with('→');
             (composer_glyph && !active_turn_footer(std::slice::from_ref(&line.to_string())))
