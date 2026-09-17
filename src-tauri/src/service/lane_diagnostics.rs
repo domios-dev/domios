@@ -65,7 +65,6 @@ pub(crate) struct DiagnosticsRequest {
     pub(crate) base: Option<String>,
     pub(crate) sha: Option<String>,
     pub(crate) changed_files: Vec<String>,
-    pub(crate) reporter_tab_id: String,
     pub(crate) require_lane_marker: bool,
 }
 
