@@ -17,7 +17,7 @@ on:
       - 'scripts/check-comment-length.sh'
       - '.github/workflows/comment-length.yml'
   push:
-    branches: [develop, master]
+    branches: [master, 'release/**']
     paths-ignore:
       - '.codeterm/build-machine/**'
       - '.github/workflows/release*.yml'
