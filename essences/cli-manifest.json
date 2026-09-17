@@ -13779,7 +13779,7 @@
               "value_name": "ALL_WORKSPACES",
               "possible_values": [],
               "default": null,
-              "help": "Include every workspace explicitly (the default when --workspace is absent)",
+              "help": "Accepted for compatibility; every workspace is now listed by default",
               "aliases": []
             },
             {

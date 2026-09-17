@@ -169,9 +169,8 @@ declares an agent (`agent_type` set or a launch in flight); otherwise the body
 is shell input. A live provider behind a record that no longer declares it
 receives the raw text in its composer, where a leading `/` is a provider command.
 
-Manual check: exit an agent to its shell and confirm `codeterm tab list` shows
-the tab `absent`, then run `codeterm agent restart --tab $TAB`. It returns
+Manual check: exit an agent to its shell and confirm the caller's workspace map
+from `codeterm tab list` shows the tab `absent`, then run `codeterm agent restart --tab $TAB`. It returns
 `agent_ready` with `recovered_in_place: true` and the prior `session_id`, the
 dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
 PTY, and a Chat UI send is delivered without `tab_busy_refused`.
-

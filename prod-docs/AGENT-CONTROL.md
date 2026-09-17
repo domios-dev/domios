@@ -50,7 +50,7 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 # Mark current tab as orchestrator
 codeterm agent set-orchestrator --tab $CODETERM_TAB_ID
 
-# View the complete local workspace tree (sub-agents nested); --workspace selects one workspace; --agents = agent tabs only
+# View the complete local workspace map (workspaces, Teams, Plans, and nested tabs); --workspace selects the existing one-workspace tree; --agents = agent tabs only
 codeterm tab list
 
 # Get one tab's agent state (type, session, prompt)

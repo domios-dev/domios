@@ -18,6 +18,7 @@ mod render;
 mod repair;
 mod search;
 mod team_utility;
+mod workspace_topology;
 use capture::handle_tab_capture;
 use chat_view::print_tab_chat;
 use inspect::handle_tab_inspect;
@@ -47,6 +48,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             agents,
         } => {
             let requested_workspace = workspace.clone();
+            if !json && requested_workspace.is_none() {
+                if let Err(error) = workspace_topology::print_local_workspace_map(client, agents) {
+                    eprintln!("Error: {error}");
+                    std::process::exit(1);
+                }
+                return;
+            }
             let workspace_id = workspace;
             let params = tab_list_params(workspace_id, all_workspaces, agents);
             match fetch_ordinary_tabs(&params) {
