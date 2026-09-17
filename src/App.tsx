@@ -190,7 +190,6 @@ function AppInner() {
     createTab,
     closeTab,
     reopenClosed,
-    setActiveTab,
     setFocusedTab,
     selectTabByTab,
     setTabPty,
