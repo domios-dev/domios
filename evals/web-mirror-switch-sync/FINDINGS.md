@@ -681,7 +681,7 @@ No daemon death. The in-flight ceiling held at 1 throughout.
 What makes this meaningful is not the zero on its own -- five runs cannot prove
 absence -- but that it is **the same load which produced six gaps before**,
 measured by the same client code. The bench imports `webEvents.ts` from the
-lane checkout rather than dev's served bundle, so the detector did not change
+isolated checkout rather than dev's served bundle, so the detector did not change
 between the two.
 
 ### Run 4 is NOT #428, and is worth a separate look

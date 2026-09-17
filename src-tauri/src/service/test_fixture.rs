@@ -162,12 +162,8 @@ impl ServiceFixture {
             worker_identity_allocator: Arc::new(Mutex::new(Default::default())),
             worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
-            lane_diagnostics: crate::service::lane_diagnostics::LaneDiagnosticsService::new(
-                temp.path().join("lane-diagnostics"),
-            ),
         };
         let owner = Arc::new(service.clone());
-        service.lane_diagnostics.bind_owner(Arc::downgrade(&owner));
         service.provider_updates.bind_execution_owner(&owner);
         Self {
             service,
