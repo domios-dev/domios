@@ -65,7 +65,6 @@ pub(crate) struct DiagnosticsRequest {
     pub(crate) base: Option<String>,
     pub(crate) sha: Option<String>,
     pub(crate) changed_files: Vec<String>,
-    pub(crate) reporter_tab_id: String,
     pub(crate) require_lane_marker: bool,
 }
 
@@ -920,17 +919,6 @@ fn diagnostics_now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-fn diagnostics_followup_targets(owner: Option<&str>, worker: &str) -> Vec<String> {
-    let mut targets = Vec::new();
-    if let Some(owner) = owner.filter(|id| !id.is_empty()) {
-        targets.push(owner.to_string());
-    }
-    if !worker.is_empty() && owner != Some(worker) {
-        targets.push(worker.to_string());
-    }
-    targets
 }
 
 fn canonical_project_path(plan: &codeterm_types::plan::Plan) -> String {
