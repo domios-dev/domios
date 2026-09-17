@@ -57,7 +57,9 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(chevron?.querySelector(".sidebar-team-disclosure-count")?.textContent?.trim() === "1 tab", "collapsed Team shows its tab count beside the centered handle");
   await act(async () => chevron?.click());
   assert(chevron?.getAttribute("aria-expanded") === "true", "bottom handle click expands Team");
-  assert(/\.sidebar-team-progress-slot\s*\{[^}]*width:\s*24px;[^}]*height:\s*20px;/.test(sidebarStyles), "done/total and kebab share one fixed slot");
+  assert(/\.sidebar-team-progress-slot\s*\{[^}]*width:\s*46px;[^}]*height:\s*20px;/.test(sidebarStyles), "board action, done/total and kebab share one fixed slot");
+  assert(/\.sidebar-team-board-action\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "board action hides by opacity without removing its slot");
+  assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-board-action"), "CSS hover reveals the board action in the same fixed slot");
   assert(/\.ct-plan-status-breakdown-separator\s*\{[^}]*margin:\s*0 2px;/.test(sidebarStyles), "status separators have explicit spacing");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "hidden kebab ignores accidental pointer clicks");
