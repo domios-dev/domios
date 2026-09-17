@@ -402,7 +402,7 @@ fn handoff(
     };
     let narrative = resolve_text(None, from_file)?;
     let seed = format!(
-        "run `codeterm plan handoff show {} --latest --markdown` FIRST, load orchestrator role (docs/contributing/agents.md + AGENTS.md), `codeterm plan get`, resume from next_actions; do not re-handoff.",
+        "run `codeterm plan handoff show {} --latest --markdown` FIRST, load orchestrator role (essences/contributing/agents.md + AGENTS.md), `codeterm plan get`, resume from next_actions; do not re-handoff.",
         plan_id
     );
 

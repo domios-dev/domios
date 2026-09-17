@@ -2,8 +2,8 @@ use super::tab_restart::handle_shell_restart;
 use crate::client::{RpcClient, SocketClient};
 use crate::cmd::agent::normalize_tab_description;
 use crate::cmd::print::{
-    exit_with_cli_error, handle_cli_result, handle_result, print_json, tab_list_json_envelope,
-    CliError,
+    exit_with_cli_error, handle_cli_result, handle_result, print_json,
+    tab_list_json_envelope_with_request, CliError,
 };
 use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
@@ -18,6 +18,7 @@ mod render;
 mod repair;
 mod search;
 mod team_utility;
+mod workspace_topology;
 use capture::handle_tab_capture;
 use chat_view::print_tab_chat;
 use inspect::handle_tab_inspect;
@@ -28,7 +29,9 @@ use remote_target::{
 };
 #[cfg(test)]
 use render::format_tab_row;
-pub use render::{render_tab_tree, render_tab_tree_with_current};
+pub use render::render_tab_tree_with_scope;
+#[cfg(test)]
+use render::{render_tab_tree, render_tab_tree_with_current};
 use repair::handle_tab_repair;
 pub use search::print_tab_find_results;
 #[cfg(test)]
@@ -44,15 +47,16 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             all_workspaces,
             agents,
         } => {
-            let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
-            let workspace_id = if all_workspaces {
-                None
-            } else {
-                workspace
-                    .or_else(|| std::env::var("CODETERM_WORKSPACE_ID").ok())
-                    .or_else(|| caller_workspace_id(client, caller_tab_id.as_deref()))
-            };
-            let params = tab_list_params(workspace_id, all_workspaces, agents, caller_tab_id);
+            let requested_workspace = workspace.clone();
+            if !json && requested_workspace.is_none() {
+                if let Err(error) = workspace_topology::print_local_workspace_map(client, agents) {
+                    eprintln!("Error: {error}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            let workspace_id = workspace;
+            let params = tab_list_params(workspace_id, all_workspaces, agents);
             match fetch_ordinary_tabs(&params) {
                 Ok(value) => {
                     let Some(arr) = value.as_array() else {
@@ -61,14 +65,19 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     };
                     let list = arr.clone();
                     if json {
-                        print_json(&tab_list_json_envelope(list.clone()));
-                    } else if list.is_empty() {
-                        println!("(no tabs)");
+                        print_json(&tab_list_json_envelope_with_request(
+                            list.clone(),
+                            requested_workspace.as_deref(),
+                        ));
                     } else {
                         let current_tab = std::env::var("CODETERM_TAB_ID").ok();
                         print!(
                             "{}",
-                            render_tab_tree_with_current(&list, current_tab.as_deref())
+                            render_tab_tree_with_scope(
+                                &list,
+                                current_tab.as_deref(),
+                                requested_workspace.as_deref(),
+                            )
                         );
                     }
                 }
@@ -834,47 +843,21 @@ fn tab_list_params(
     workspace_id: Option<String>,
     all_workspaces: bool,
     agents_only: bool,
-    caller_tab_id: Option<String>,
 ) -> serde_json::Value {
-    let focused_workspace = !all_workspaces && workspace_id.is_none();
-    let caller_tab_id = if focused_workspace {
-        caller_tab_id
-    } else {
-        None
-    };
     serde_json::json!({
         "workspace_id": workspace_id,
-        "caller_tab_id": caller_tab_id,
-        "focused_workspace": focused_workspace,
+        "focused_workspace": false,
         "all_workspaces": all_workspaces,
         "agents_only": agents_only,
     })
 }
 
 fn tab_search_params() -> serde_json::Value {
-    tab_list_params(None, true, false, None)
+    tab_list_params(None, true, false)
 }
 
 fn fetch_search_tabs(client: &mut dyn RpcClient) -> Result<serde_json::Value, String> {
     client.call("tab.list", Some(tab_search_params()))
-}
-
-fn caller_workspace_id(client: &mut SocketClient, caller_tab_id: Option<&str>) -> Option<String> {
-    let tab_id = caller_tab_id?.trim();
-    if tab_id.is_empty() {
-        return None;
-    }
-    client
-        .call(
-            "tab.inspect",
-            Some(serde_json::json!({ "tab_ids": [tab_id], "lifecycle": false })),
-        )
-        .ok()?
-        .as_array()?
-        .first()?
-        .get("workspace_id")?
-        .as_str()
-        .map(str::to_string)
 }
 
 fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
@@ -939,7 +922,11 @@ fn ordinary_tab_list_path(params: &serde_json::Value) -> String {
     {
         query.push("agents=true".into());
     }
-    format!("/api/tabs?{}", query.join("&"))
+    if query.is_empty() {
+        "/api/tabs".into()
+    } else {
+        format!("/api/tabs?{}", query.join("&"))
+    }
 }
 
 fn fetch_ordinary_tabs(params: &serde_json::Value) -> Result<serde_json::Value, String> {

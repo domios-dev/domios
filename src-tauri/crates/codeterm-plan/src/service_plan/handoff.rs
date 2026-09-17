@@ -149,7 +149,7 @@ fn derive_goal(req: &HandoffCreateRequest, plan: &Plan) -> String {
 
 fn resume_prompt(plan: &Plan, seq: u64) -> String {
     format!(
-        "Run `codeterm plan handoff show {} --latest --markdown` FIRST for handoff #{}. Load docs/contributing/agents.md and AGENTS.md, run `codeterm plan get {}`, resume from next_actions, and do not re-handoff.",
+        "Run `codeterm plan handoff show {} --latest --markdown` FIRST for handoff #{}. Load essences/contributing/agents.md and AGENTS.md, run `codeterm plan get {}`, resume from next_actions, and do not re-handoff.",
         plan.id, seq, plan.id
     )
 }

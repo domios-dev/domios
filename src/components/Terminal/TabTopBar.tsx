@@ -13,6 +13,7 @@ import { reconnectTabSession, restartTabSession, tabSessionActionView } from "./
 import { buildTabMenu, type TabMenuAction, type TabMenuContext } from "./tabMenuModel";
 import { performTabMenuAction } from "./tabMenuActions";
 import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
+import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
@@ -198,6 +199,7 @@ export function TabTopBar({
           </span>
         )}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
+        <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
         {entries.length > 0 && (

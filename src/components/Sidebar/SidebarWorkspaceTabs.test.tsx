@@ -833,6 +833,76 @@ test("tab rich menu opens from right click and exposes session actions", async (
   await act(async () => root.unmount());
 });
 
+test("rename_space", async () => {
+  const renamed: Array<[string, string]> = [];
+  const human = tab({ id: "human", title: "Human" });
+  const { host, root } = await renderSidebar({
+    tabs: { human },
+    sortedTabs: ["human"],
+    onRenameTab: (tabId, title) => renamed.push([tabId, title]),
+  });
+  const title = host.querySelector('[data-testid="tab-title"]');
+  assert(title, "human tab title rendered");
+  await act(async () => title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  const input = host.querySelector('input[aria-label="Rename tab Human"]') as HTMLInputElement | null;
+  assert(input, "rename editor opened");
+  assert(document.activeElement === input, "rename editor receives keyboard focus");
+
+  const space = new KeyboardEvent("keydown", {
+    key: " ",
+    code: "Space",
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => input.dispatchEvent(space));
+  assert(!space.defaultPrevented, "Space remains available to the rename input");
+
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  await act(async () => {
+    setter?.call(input, "Human Tab");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Enter",
+    code: "Enter",
+    bubbles: true,
+    cancelable: true,
+  })));
+  assert(JSON.stringify(renamed) === JSON.stringify([["human", "Human Tab"]]), "Enter commits the spaced title");
+  await act(async () => root.unmount());
+});
+
+test("rename_focus_state", async () => {
+  const active = tab({ id: "active", title: "Active" });
+  const human = tab({ id: "human", title: "Human" });
+  const { host, root } = await renderSidebar({
+    tabs: { active, human },
+    sortedTabs: ["active", "human"],
+    activeTabId: "active",
+  });
+  const row = host.querySelector('[data-tab-id="human"]') as HTMLElement | null;
+  assert(row, "inactive human tab row rendered");
+  assert(row.className.includes("sidebar-tab-dimmed"), "inactive tab starts dimmed");
+  const title = row?.querySelector('[data-testid="tab-title"]');
+  assert(title, "inactive human tab title rendered");
+  await act(async () => title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  const input = row?.querySelector('input[aria-label="Rename tab Human"]') as HTMLInputElement | null;
+  assert(input, "rename editor opened on the inactive tab");
+  assert(document.activeElement === input, "rename editor keeps keyboard focus");
+  assert(!row.className.includes("sidebar-tab-dimmed"), "editing row keeps normal chrome");
+  assert(input.className.includes("ct-input"), "rename editor exposes visible focus styling");
+
+  await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Escape",
+    code: "Escape",
+    bubbles: true,
+    cancelable: true,
+  })));
+  assert(!row.querySelector('input[aria-label="Rename tab Human"]'), "Escape closes the rename editor");
+  assert(row.className.includes("sidebar-tab-dimmed"), "cancel restores inactive tab chrome");
+  await act(async () => root.unmount());
+});
+
 test("team manager close control calls onCloseTab", async () => {
   const closed: string[] = [];
   const tabs: Record<string, Tab> = {

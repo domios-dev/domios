@@ -16,6 +16,7 @@
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to the active dev data directory
 #                          without waiting for the app/dev build gateway
+#   ./build.sh lane-diagnostics — daemon-owned checks in the diagnostics worktree
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
@@ -1413,12 +1414,19 @@ ensure_deps() {
 }
 
 prepare_release_bundle_inputs() {
+  local cargo_target_args=()
+  if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    cargo_target_args=(--target "$CARGO_BUILD_TARGET")
+  fi
   pnpm build
   node scripts/touch-cli-main.js
-  cargo build --release --manifest-path cli/Cargo.toml
+  cargo build --release --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
   node scripts/prepare-embed-stub.js
-  cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+  cargo build --release --manifest-path src-tauri/Cargo.toml \
+    "${cargo_target_args[@]}" \
+    --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+    --bin codeterm --bin codeterm-embed
   node scripts/bundle-embed.js
 }
 
@@ -1441,6 +1449,7 @@ CodeTerm build commands
   qa-prep                     Prepare a worktree for QA
   install-local               Build and install locally
   build                       Build production artifacts
+  lane-diagnostics            Run daemon-owned diagnostics in the warm worktree
   gateway-status              Show the machine build owner
 
 Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
@@ -1453,6 +1462,9 @@ EOF
   fmt-check)
     cargo fmt --manifest-path src-tauri/Cargo.toml --check
     cargo fmt --manifest-path cli/Cargo.toml --check
+    ;;
+  lane-diagnostics)
+    source scripts/lane-diagnostics.sh
     ;;
   gateway-status)
     ct_gateway_status
@@ -1824,6 +1836,18 @@ EOF
     fi
     ;;
   dev)
+    if [ "$CT_DEV_WAIT" -eq 1 ]; then
+      HEALTH="$(dev_health_status)"
+      HEALTH_FIELDS="$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null || true)"
+      HEALTH_STATUS="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '1p')"
+      HEALTH_SHA="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '2p')"
+      HEALTH_API_PORT="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '4p')"
+      if [ "$HEALTH_STATUS" = "ok" ] && [ "$HEALTH_API_PORT" = "$CT_PORT" ]; then
+        SHA="$HEALTH_SHA"
+        echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+        exit 0
+      fi
+    fi
     if named_dev_wait_isolated; then
       prepare_named_dev_target
       echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
@@ -1863,7 +1887,14 @@ EOF
       LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
       : > "$LOG"
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-      DEV_PID=$(start_dev_wait_process "$LOG")
+      PID_FILE="/tmp/codeterm-dev${CT_SUFFIX}.pid.$$"
+      if ! start_dev_wait_process "$LOG" > "$PID_FILE"; then
+        echo "Dev startup failed before the explicit health signal. Last log lines:"
+        tail -25 "$LOG"
+        exit 1
+      fi
+      DEV_PID="$(cat "$PID_FILE")"
+      rm -f "$PID_FILE"
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
       DEADLINE=$(( $(date +%s) + 600 ))
       LAST_STAGE=""
@@ -1917,8 +1948,6 @@ EOF
             write_dev_provenance "$SHA"
             retain_dev_pdb "$SHA"
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
-            # Named --wait startup never acquires the shared gateway, so it must
-            # not claim its canonical lock after readiness.
             if [ -n "$CT_INSTANCE" ]; then
               echo "Named dev ready; shared build gateway handoff skipped."
             else
@@ -1959,7 +1988,7 @@ EOF
     # dev-dependent API integration tests run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
     # an EXECUTED layer failed (SKIP never fails the run). Behaviour benches and
-    # the suspended Playwright suite are excluded — see docs/TESTING.md.
+    # the suspended Playwright suite are excluded — see essences/testing.md.
     ta_names=(); ta_status=()
     ta_record() { ta_names+=("$1"); ta_status+=("$2"); }
     ta_run() { # name, cmd...

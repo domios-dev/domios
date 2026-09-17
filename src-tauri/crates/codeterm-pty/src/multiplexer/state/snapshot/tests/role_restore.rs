@@ -133,3 +133,18 @@ fn a_complete_agent_tab_keeps_its_restored_role_and_team() {
     assert_eq!(tab.depth, 1);
     assert!(tab.anchors_team());
 }
+
+#[test]
+fn tab_name_contract_restore_preserves_task_executor_name() {
+    let mut leaf = role_claim_leaf("Worker");
+    if let SplitNodeSnapshot::Leaf { ref mut title, .. } = leaf {
+        *title = Some("Ada".into());
+    }
+
+    let restored = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+    assert_eq!(
+        restored.get_tab("db79d2da").unwrap().title,
+        "Ada",
+        "restore keeps the persisted executor name exactly"
+    );
+}

@@ -1,7 +1,4 @@
-Executable verification is canonical-only:
-- An isolated Worker lane performs source work and static inspection only. It never builds, runs project tests, starts dev services, or executes validation gates, regardless of cost or scope.
-- The Worker authors required coverage and reports exact commands plus expected observations under GATES REQUESTED.
-- After ancestry-preserving integration, the Orchestrator serializes focused and broad verification in the canonical integration checkout.
-- A Worker may execute a gate only when it is assigned to that canonical checkout and the Orchestrator explicitly authorizes the exact command.
-- Every authorized run uses the repository's bounded runner; a failure deadline never becomes permission to raise the cap or retry blindly.
-
+Verification runs in the canonical checkout:
+- An isolated Worker lane is source-only: it does not build, run project tests, start dev services, or execute validation gates, whatever their cost or scope. The Worker authors the coverage and lists exact commands and expected observations under GATES REQUESTED.
+- After an ancestry-preserving merge, the Orchestrator runs focused and broad verification in canonical. A Worker runs a gate only when assigned to canonical and authorized for that exact command.
+- Authorized runs use the repository's bounded runner; a failure deadline is never permission to raise the cap or retry blindly.

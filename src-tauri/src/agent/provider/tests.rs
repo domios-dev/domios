@@ -103,6 +103,7 @@ fn provider_descriptor_round_trip() {
             supports_permission_bypass: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
+            badge: Some("free tokens".into()),
             update_command: Some("testcli update".into()),
             model_switch_format: Some("/model {model}".into()),
             fresh_context_command: Some("/new".into()),

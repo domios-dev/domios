@@ -1,5 +1,42 @@
 /* Shared UI primitives: imported by globals.css and by core plugin views that render the same components. */
 
+/* Thin scrollbars that stay out of sight until the pointer is on the thing that
+   scrolls. Lives here, not in globals.css, so plugin views get them too. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover {
+  scrollbar-color: var(--ct-muted, #484f58) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 99px;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+}
+
+*:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .ct-panel-card {
   border: 1px solid var(--ct-border);
   background: var(--ct-bg);

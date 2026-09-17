@@ -449,9 +449,8 @@ fn validate_task_status_transition_for(
     if matches!(next, TaskStatus::Done) {
         reject_done_with_open_subtasks(plan, task_id)?;
     }
-    // Pausing must carry a reason + stride: force `plan task pause`, never a bare status set.
     if matches!(next, TaskStatus::Paused) {
-        return Err(PlanError::TaskPauseRequiresReason);
+        return Err(PlanError::TaskPausedSystemOnly);
     }
     Ok(())
 }

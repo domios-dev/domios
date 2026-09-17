@@ -36,26 +36,26 @@ Stage C maintenance. Add cases as new failure modes show up.
 
 ```bash
 # Single-prompt sanity (current state of the prompt)
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-file src-tauri/prompts/dreaming_rem.md \
   --eval-set evals/dreaming/evals.json \
   --runs 3
 
 # A/B against the previous git revision
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-a HEAD~1:src-tauri/prompts/dreaming_rem.md \
   --prompt-b src-tauri/prompts/dreaming_rem.md \
   --eval-set evals/dreaming/evals.json \
   --runs 3
 
 # Live dashboard at http://localhost:7779 while the run is in progress
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-file src-tauri/prompts/dreaming_rem.md \
   --eval-set evals/dreaming/evals.json \
   --runs 3 --http-port 7779
 
 # Single eval debug
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-file src-tauri/prompts/dreaming_rem.md \
   --eval-set evals/dreaming/evals.json \
   --only-id 1 --runs 1 --verbose

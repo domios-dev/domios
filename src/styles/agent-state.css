@@ -69,7 +69,7 @@
   align-items: flex-end;
   gap: var(--activity-dot-gap);
   align-self: baseline;
-  height: calc(var(--activity-dot-size) + var(--activity-dot-jump));
+  height: calc(var(--activity-dot-size, 4px) + var(--activity-dot-jump, 0px));
   flex: 0 0 auto;
   color: var(--ct-accent);
   transition: color 0.6s ease;
@@ -77,15 +77,16 @@
 .activity-dots {
   --activity-dot-duration: 1.05s;
   --activity-dot-delay: 0.12s;
+  --activity-dot-cooldown-duration: 30s;
 }
 .ct-phase-dots i {
-  width: var(--activity-dot-size);
-  height: var(--activity-dot-size);
+  width: var(--activity-dot-size, 4px);
+  height: var(--activity-dot-size, 4px);
   border-radius: 50%;
   background: currentColor;
   display: block;
   transform-origin: 50% 100%;
-  animation: ct-dots-squash-jump var(--activity-dot-duration) var(--ct-ease-squash-jump) infinite;
+  animation: ct-dots-squash-jump var(--activity-dot-duration, 1.05s) var(--ct-ease-squash-jump) infinite;
   transition: opacity 0.45s ease, transform 0.45s ease;
 }
 [data-agent-state="working"] .ct-phase-dots i:nth-child(2) {
@@ -126,6 +127,24 @@
   42% { opacity: 0.95; transform: translateY(calc(var(--activity-dot-size) * 0.08)) scaleX(1.2) scaleY(0.7); }
   54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
 }
+@keyframes ct-dots-cooldown {
+  0%, 5%, 12%, 22%, 37%, 58% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
+  2% { opacity: 0.95; transform: translateY(calc(var(--activity-dot-size) * 0.08)) scaleX(1.16) scaleY(0.76); }
+  3.5% { opacity: 0.88; transform: translateY(calc(var(--activity-dot-jump) * -1)) scaleX(0.96) scaleY(1.06); }
+  7% { opacity: 0.9; transform: translateY(calc(var(--activity-dot-size) * 0.06)) scaleX(1.12) scaleY(0.8); }
+  9.5% { opacity: 0.84; transform: translateY(calc(var(--activity-dot-jump) * -0.8)) scaleX(0.97) scaleY(1.04); }
+  15% { opacity: 0.84; transform: translateY(calc(var(--activity-dot-size) * 0.05)) scaleX(1.08) scaleY(0.84); }
+  18.5% { opacity: 0.78; transform: translateY(calc(var(--activity-dot-jump) * -0.65)) scaleX(0.98) scaleY(1.03); }
+  27% { opacity: 0.76; transform: translateY(calc(var(--activity-dot-size) * 0.04)) scaleX(1.06) scaleY(0.88); }
+  32% { opacity: 0.72; transform: translateY(calc(var(--activity-dot-jump) * -0.5)) scaleX(0.99) scaleY(1.02); }
+  44% { opacity: 0.68; transform: translateY(calc(var(--activity-dot-size) * 0.03)) scaleX(1.04) scaleY(0.92); }
+  51% { opacity: 0.62; transform: translateY(calc(var(--activity-dot-jump) * -0.35)) scaleX(0.99) scaleY(1.01); }
+  66%, 75% { opacity: 0.55; transform: translateY(0) scaleX(1) scaleY(1); }
+  78% { opacity: 0.5; transform: translateY(calc(var(--activity-dot-size) * 0.02)) scaleX(1.02) scaleY(0.96); }
+  84% { opacity: 0.48; transform: translateY(calc(var(--activity-dot-jump) * -0.2)) scaleX(1) scaleY(1); }
+  92% { opacity: 0.45; transform: translateY(0) scaleX(1) scaleY(0.98); }
+  100% { opacity: 0; transform: scale(0.9); }
+}
 
 .activity-dots--micro {
   --activity-dot-size: 2.5px;
@@ -161,18 +180,25 @@
   --activity-dot-duration: 0.88s;
   --activity-dot-delay: 0.1s;
 }
-.activity-dots--idle i {
+.activity-dots--active i,
+.activity-dots--reactivated i {
+  animation: ct-dots-squash-jump var(--activity-dot-duration) var(--ct-ease-squash-jump) infinite;
+}
+.activity-dots--cooling i {
+  animation: ct-dots-cooldown var(--activity-dot-cooldown-duration) var(--ct-ease-liquid-breathe) forwards;
+}
+/* Stopped dots hide rather than rest: a settled agent shows nothing at all. */
+.activity-dots--still i {
   animation: none;
-  opacity: 0.42;
+  opacity: 0;
   transform: scale(0.9);
 }
 
-/* Going idle: the three-dot slot stays intact and settles into a static,
-   muted state, so working ↔ idle never shifts the message. */
+/* Going idle keeps the slot intact while the shared cooldown animation settles. */
 [data-agent-state="idle"] .ct-phase-dots {
   color: var(--ct-muted-fg);
 }
-[data-agent-state="idle"] .ct-phase-dots i {
+[data-agent-state="idle"] .ct-phase-dots:not(.activity-dots) i {
   animation: none;
   opacity: 0.42;
   transform: scale(0.9);
@@ -282,6 +308,4 @@
   .ct-agent-cursor-rest { opacity: 0.6; }
   .ct-phase-dots i { opacity: 0.85; transition: none; }
   .activity-dots i { animation: none !important; opacity: 0.85; transform: scale(1); }
-  [data-agent-state="idle"] .ct-phase-dots i:nth-child(2),
-  [data-agent-state="idle"] .ct-phase-dots i:nth-child(3) { opacity: 0; }
 }

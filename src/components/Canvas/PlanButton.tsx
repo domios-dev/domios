@@ -82,7 +82,7 @@ export function PlanButton({ tabId, tabs }: PlanButtonProps) {
     >
       <Map size={13} />
       Plan
-      {pulsing && <ActivityDots data-testid="plan-button-activity" size="small" tone="muted" />}
+      {pulsing && <ActivityDots data-testid="plan-button-activity" size="small" tone="muted" active />}
       {pulsing && <span className="sr-only" role="status" aria-live="polite">Plan updated</span>}
     </button>
   );

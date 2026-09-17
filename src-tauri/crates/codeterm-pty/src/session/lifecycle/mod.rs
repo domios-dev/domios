@@ -1,6 +1,6 @@
 //! Durable tab lifecycle telemetry: one append-only journal, written by the
 //! code that commits each mutation. Normal restore does not use it as
-//! authority. See `docs/TAB-LIFECYCLE.md`.
+//! authority. See `prod-docs/TAB-LIFECYCLE.md`.
 
 mod inspect;
 mod journal;

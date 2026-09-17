@@ -14,11 +14,46 @@ pub enum TopicFailure {
     TopicsUnavailable,
     /// The thread no longer exists.
     ThreadGone,
+    /// The owner closed the topic, so it refuses sends until reopened.
+    ThreadClosed,
     Rejected(String),
+}
+
+impl TopicFailure {
+    pub fn thread_unusable(&self) -> bool {
+        matches!(self, Self::ThreadGone | Self::ThreadClosed)
+    }
+}
+
+/// What attach learned about a bound topic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopicProbe {
+    Open,
+    Reopened,
+    Gone,
+    /// The check itself failed; reuse rather than risk a duplicate topic.
+    Unverified,
+}
+
+/// A probe error that settles the topic's state, or `None` to try the next check.
+pub fn probe_outcome(description: &str) -> Option<TopicProbe> {
+    if description
+        .to_ascii_lowercase()
+        .contains("topic_not_modified")
+    {
+        return Some(TopicProbe::Open);
+    }
+    match classify_failure(description) {
+        TopicFailure::ThreadGone => Some(TopicProbe::Gone),
+        _ => None,
+    }
 }
 
 pub fn classify_failure(description: &str) -> TopicFailure {
     let d = description.to_ascii_lowercase();
+    if d.contains("topic_closed") {
+        return TopicFailure::ThreadClosed;
+    }
     let topics_off = d.contains("not a forum")
         || d.contains("forum_disabled")
         || d.contains("only for supergroups")
@@ -35,14 +70,37 @@ pub fn classify_failure(description: &str) -> TopicFailure {
     TopicFailure::Rejected(description.to_string())
 }
 
-/// A one-tap link into a topic. Supergroups use the `t.me/c` form; a bot's
-/// private chat uses the bot username form.
-pub fn topic_link(bot_username: Option<&str>, chat_id: i64, thread_id: i64) -> Option<String> {
-    if let Some(internal) = chat_id.to_string().strip_prefix("-100") {
-        return Some(format!("https://t.me/c/{internal}/{thread_id}"));
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatKind {
+    Private,
+    Supergroup { internal_id: i64 },
+    Group,
+}
+
+/// Bot API ids: users are positive, supergroups carry the `-100` prefix.
+pub fn chat_kind(chat_id: i64) -> ChatKind {
+    if chat_id > 0 {
+        return ChatKind::Private;
     }
-    let username = bot_username.map(str::trim).filter(|u| !u.is_empty())?;
-    Some(format!("https://t.me/{username}/{thread_id}"))
+    match chat_id
+        .to_string()
+        .strip_prefix("-100")
+        .and_then(|internal| internal.parse().ok())
+    {
+        Some(internal_id) => ChatKind::Supergroup { internal_id },
+        None => ChatKind::Group,
+    }
+}
+
+/// A link that opens the topic itself. Only supergroup forums have one
+/// (`t.me/c/<id>/<topic_id>`); Telegram documents no topic link for a bot's private chat.
+pub fn topic_link(chat_id: i64, thread_id: i64) -> Option<String> {
+    match chat_kind(chat_id) {
+        ChatKind::Supergroup { internal_id } => {
+            Some(format!("https://t.me/c/{internal_id}/{thread_id}"))
+        }
+        ChatKind::Private | ChatKind::Group => None,
+    }
 }
 
 /// The bot's public user id, which prefixes its token. Never the secret half.
@@ -56,8 +114,9 @@ pub fn bot_id_from_token(token: &str) -> i64 {
 
 #[async_trait]
 pub trait TopicTransport: Send + Sync {
-    async fn bot_username(&self) -> Option<String>;
     async fn create_topic(&self, chat_id: i64, name: &str) -> Result<i64, TopicFailure>;
+    /// Confirm a bound topic exists, reopening it when closed. No visible effect on an open topic.
+    async fn probe_topic(&self, chat_id: i64, thread_id: i64, name: &str) -> TopicProbe;
     async fn delete_topic(&self, chat_id: i64, thread_id: i64) -> Result<(), TopicFailure>;
     async fn rename_topic(
         &self,
@@ -79,7 +138,6 @@ pub struct TelegramTopicTransport {
     client: reqwest::Client,
     api_base: String,
     token: String,
-    username: tokio::sync::OnceCell<String>,
 }
 
 impl TelegramTopicTransport {
@@ -97,7 +155,6 @@ impl TelegramTopicTransport {
             client,
             api_base,
             token,
-            username: tokio::sync::OnceCell::new(),
         }
     }
 
@@ -141,24 +198,6 @@ impl TelegramTopicTransport {
 
 #[async_trait]
 impl TopicTransport for TelegramTopicTransport {
-    async fn bot_username(&self) -> Option<String> {
-        self.username
-            .get_or_try_init(|| async {
-                self.call("getMe", json!({}))
-                    .await
-                    .ok()
-                    .and_then(|me| {
-                        me.get("username")
-                            .and_then(Value::as_str)
-                            .map(str::to_string)
-                    })
-                    .ok_or(())
-            })
-            .await
-            .ok()
-            .cloned()
-    }
-
     async fn create_topic(&self, chat_id: i64, name: &str) -> Result<i64, TopicFailure> {
         let result = self
             .call(
@@ -171,6 +210,29 @@ impl TopicTransport for TelegramTopicTransport {
             .get("message_thread_id")
             .and_then(Value::as_i64)
             .ok_or_else(|| TopicFailure::Rejected("createForumTopic returned no thread".into()))
+    }
+
+    async fn probe_topic(&self, chat_id: i64, thread_id: i64, name: &str) -> TopicProbe {
+        let target = json!({ "chat_id": chat_id, "message_thread_id": thread_id });
+        match self.call("reopenForumTopic", target.clone()).await {
+            Ok(_) => return TopicProbe::Reopened,
+            Err(description) => {
+                if let Some(outcome) = probe_outcome(&description) {
+                    return outcome;
+                }
+                log::info!("[bridge-threads] reopenForumTopic {thread_id}: {description}");
+            }
+        }
+        // Reopen may be refused in chats without topic-management rights; an unchanged edit still proves existence.
+        let mut edit = target;
+        edit["name"] = json!(name);
+        match self.call("editForumTopic", edit).await {
+            Ok(_) => TopicProbe::Open,
+            Err(description) => probe_outcome(&description).unwrap_or_else(|| {
+                log::warn!("[bridge-threads] topic {thread_id} unverified: {description}");
+                TopicProbe::Unverified
+            }),
+        }
     }
 
     async fn delete_topic(&self, chat_id: i64, thread_id: i64) -> Result<(), TopicFailure> {

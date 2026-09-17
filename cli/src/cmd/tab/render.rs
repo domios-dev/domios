@@ -39,8 +39,60 @@ pub fn format_tab_row(p: &serde_json::Value) -> String {
 /// Human `Tab list`: workspaces as headers, tabs as `<id> <name> <model>`
 /// rows, sub-agents nested under their parent by `parent_tab_id`. Compact
 /// on purpose — this output is read by agents too, so every line costs tokens.
+#[cfg(test)]
 pub fn render_tab_tree(tabs: &[serde_json::Value]) -> String {
     render_tab_tree_with_current(tabs, None)
+}
+
+pub fn render_tab_tree_with_scope(
+    tabs: &[serde_json::Value],
+    current_tab_id: Option<&str>,
+    requested_workspace: Option<&str>,
+) -> String {
+    let scope = requested_workspace.map(|_| "workspace").or_else(|| {
+        tabs.first()
+            .and_then(|tab| tab.get("scope"))
+            .and_then(serde_json::Value::as_str)
+    });
+    let Some("workspace") = scope else {
+        return if tabs.is_empty() {
+            "(no tabs)\n".to_string()
+        } else {
+            render_tab_tree_with_current(tabs, current_tab_id)
+        };
+    };
+    let workspace_id = tabs
+        .first()
+        .and_then(|tab| tab.get("scope_workspace_id"))
+        .and_then(serde_json::Value::as_str)
+        .or(requested_workspace)
+        .unwrap_or("?");
+    let workspace_name = tabs
+        .first()
+        .and_then(|tab| tab.get("scope_workspace_name"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            tabs.first()
+                .and_then(|tab| tab.get("workspace_name"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| !name.is_empty())
+        })
+        .unwrap_or(workspace_id);
+    let other_workspace_tab_count = tabs
+        .first()
+        .and_then(|tab| tab.get("other_workspace_tab_count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let tree = if tabs.is_empty() {
+        "(no tabs)\n".to_string()
+    } else {
+        render_tab_tree_with_current(tabs, current_tab_id)
+    };
+    format!(
+        "scope: workspace {} ({}) — {} tabs in other workspaces\n\n{}",
+        workspace_name, workspace_id, other_workspace_tab_count, tree,
+    )
 }
 
 pub fn render_tab_tree_with_current(

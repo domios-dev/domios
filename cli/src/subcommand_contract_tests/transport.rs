@@ -28,6 +28,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported("capabilities is socket-only; run it on the target machine"),
     ),
     (
+        "lane",
+        &["codeterm", "lane", "check", "task_1"],
+        Local::Socket,
+        MeshRelay::SocketRpc,
+        ApiVerdict::Unsupported("lane diagnostics are local-only — run it on the target machine"),
+    ),
+    (
         "pad",
         &["codeterm", "pad", "path"],
         Local::Socket,
@@ -48,6 +55,15 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         MeshRelay::Fallthrough,
         ApiVerdict::Unsupported(
             "cli-manifest is local-only — it dumps this binary's own command tree",
+        ),
+    ),
+    (
+        "essence-map",
+        &["codeterm", "essence-map", "validate"],
+        Local::PreSocket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported(
+            "essence-map is local-only — it reads the repository's source essences",
         ),
     ),
     (
@@ -381,7 +397,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 16, "unsupported command count changed");
+    assert_eq!(checked, 18, "unsupported command count changed");
 }
 
 #[test]

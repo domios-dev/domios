@@ -59,8 +59,6 @@ describe("board task card kebab", () => {
         card={cardFor(TaskStatus.Pending)}
         planId="plan-1"
         onOpen={onOpen}
-        onPauseTask={vi.fn()}
-        onResumeTask={vi.fn()}
         onDeleteTask={vi.fn()}
       />,
     );
@@ -70,27 +68,25 @@ describe("board task card kebab", () => {
       expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
       expect(trigger.closest(".plan-board-task-actions")).not.toBeNull();
       expect(card.contains(menu)).toBe(false);
-      expect(labels(menu)).toEqual(["Pause", "Delete"]);
+      expect(labels(menu)).toEqual(["Delete"]);
       expect(onOpen).not.toHaveBeenCalled();
     } finally {
       await unmount();
     }
   });
 
-  it("offers Resume and Delete on a paused card", async () => {
+  it("keeps only Delete on a paused card", async () => {
     const { host, unmount } = await render(
       <BoardTaskCard
         card={cardFor(TaskStatus.Paused)}
         planId="plan-1"
-        onPauseTask={vi.fn()}
-        onResumeTask={vi.fn()}
         onDeleteTask={vi.fn()}
       />,
     );
 
     try {
       const { menu } = await openKebab(host);
-      expect(labels(menu)).toEqual(["Resume", "Delete"]);
+      expect(labels(menu)).toEqual(["Delete"]);
     } finally {
       await unmount();
     }

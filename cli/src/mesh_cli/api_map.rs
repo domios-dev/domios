@@ -245,10 +245,13 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     query.push(format!("workspace_id={}", urlencoding::encode(workspace)));
                 } else if *all_workspaces {
                     query.push("all_workspaces=true".into());
-                } else {
-                    query.push("focused_workspace=true".into());
                 }
-                ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
+                let path = if query.is_empty() {
+                    "/api/tabs".to_string()
+                } else {
+                    format!("/api/tabs?{}", query.join("&"))
+                };
+                ("GET".into(), path, None)
             }
             crate::TabAction::Inspect { tabs, tab, lifecycle } => (
                 "GET".into(),
@@ -866,6 +869,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("GET".into(), path, None)
             }
+            crate::UsageAction::RebuildLedger => (
+                "POST".into(),
+                "/api/usage/ledger/rebuild".into(),
+                Some("{}".into()),
+            ),
             crate::UsageAction::Refresh {
                 provider,
                 account_id,
@@ -887,9 +895,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Web { .. }
         | Commands::Plugin { .. }
         | Commands::Plan { .. }
+        | Commands::Lane { .. }
         | Commands::Team { .. }
         | Commands::Spec { .. }
         | Commands::Effort { .. }
+        | Commands::EssenceMap { .. }
         | Commands::Orchestrator { .. }
         | Commands::Persona { .. }
         | Commands::Task { .. }

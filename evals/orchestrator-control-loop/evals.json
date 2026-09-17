@@ -54,10 +54,10 @@
     {
       "id": 5,
       "name": "tab-cleanup-prefers-compact-discovery",
-      "prompt": "Clean up every extra tab in my current workspace without closing your own tab. Explain the CodeTerm commands you will use and how you will identify your own tab.",
+      "prompt": "Clean up every extra tab in workspace ws_cleanup without closing your own tab. Explain the CodeTerm commands you will use and how you will identify your own tab.",
       "expected_output": "Uses compact tab discovery with the self marker, inspects only an ambiguous selected tab, and avoids dumping the whole workspace as JSON.",
       "expectations": [
-        "Uses `codeterm tab list` without `--json` for discovery before closing tabs",
+        "Uses `codeterm tab list --workspace ws_cleanup` without `--json` for discovery before closing tabs",
         "Uses the `(self)` marker from the compact list to preserve the calling tab",
         "Uses `codeterm tab inspect <id>` only if a selected tab needs more detail",
         "Does NOT use whole-list `tab list --json` for ordinary cleanup"

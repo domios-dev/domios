@@ -11,7 +11,7 @@ use crate::agent::kpi_ledger::{KpiEventInput, KpiEventKind, KpiLedger, TokenCoun
 use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{AgentRef, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 
@@ -39,7 +39,7 @@ fn token_row(
             uncached_input: uncached,
             output,
         }),
-        dedup_key: None,
+        dedup_key: Some(ulid::Ulid::new().to_string()),
         workspace_id: None,
         tab_kind: None,
     }
@@ -367,13 +367,16 @@ fn mission_control_spend_charges_the_owner_of_a_fully_paused_plan() {
     fixture
         .service
         .plan_store
-        .pause_task(
-            &plan.id,
-            &task_id,
-            "waiting on a decision",
-            AgentRef::from_tab(&orchestrator),
-            3,
-        )
+        .with_plan(&plan.id, 3, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.status = TaskStatus::Paused;
+            task.pause_reason = Some("waiting on a decision".into());
+            Ok(())
+        })
         .unwrap();
 
     assert_eq!(
@@ -741,10 +744,9 @@ fn mission_control_spend_records_a_second_turn_in_the_same_session() {
     );
     assert_eq!(second.tokens.map(|t| t.uncached_input), Some(50));
     assert_eq!(second.tokens.map(|t| t.output), Some(25));
-    assert!(
-        rows.iter().all(|row| row.dedup_key.is_none()),
-        "usage rows carry no dedup key, so a repeat turn can never be ignored"
-    );
+    let keys: Vec<_> = rows.iter().map(|row| row.dedup_key.clone()).collect();
+    assert!(keys.iter().all(Option::is_some));
+    assert_ne!(keys[0], keys[1]);
 
     // A third pass with nothing appended adds nothing and loses nothing.
     fixture.service.request_kpi_usage_ingest(&tab_id);

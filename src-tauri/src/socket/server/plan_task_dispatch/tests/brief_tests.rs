@@ -150,7 +150,6 @@ fn test_author_brief_carries_charter_reference_before_task() {
         .expect("body in brief");
 
     assert_eq!(guidance_pos, 0);
-    assert!(brief.contains("docs/contributing/test-authoring.md"));
     assert!(guidance_pos < title_pos);
     assert!(guidance_pos < body_pos);
 }
@@ -169,7 +168,7 @@ fn brief_supplies_task_owned_identity_when_personality_is_absent() {
 }
 
 #[test]
-fn dispatch_preserves_only_explicit_user_personality() {
+fn tab_name_contract_dispatch_preserves_only_explicit_user_personality() {
     let t = task(json!({
         "id": "task_user_persona",
         "name": "Dispatch",
@@ -184,7 +183,7 @@ fn dispatch_preserves_only_explicit_user_personality() {
 }
 
 #[test]
-fn dispatch_treats_planner_personality_as_provisional() {
+fn tab_name_contract_dispatch_treats_planner_personality_as_provisional() {
     let t = task(json!({
         "id": "task_suggested_persona",
         "name": "Dispatch",
@@ -200,7 +199,7 @@ fn dispatch_treats_planner_personality_as_provisional() {
 }
 
 #[test]
-fn task_dispatch_uses_planned_executor_name() {
+fn tab_name_contract_dispatch_never_uses_executor_role_as_tab_name() {
     let t = task(json!({
         "id": "task_executor_title",
         "name": "Keep identity stable",
@@ -211,12 +210,12 @@ fn task_dispatch_uses_planned_executor_name() {
 
     let (title, provenance) = dispatch_worker_identity(&t);
 
-    assert_eq!(title.as_deref(), Some("dispatch-identity-dev"));
-    assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
+    assert_eq!(title, None);
+    assert_eq!(provenance, None);
 }
 
 #[test]
-fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() {
+fn tab_name_contract_dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() {
     let t = task(json!({
         "id": "task_batch_persona",
         "name": "Dispatch",
@@ -319,13 +318,10 @@ fn worker_prompt_places_ack_before_assignment_work() {
     let report = prompt
         .find("codeterm agent report --status in_review")
         .unwrap();
-    let fallback = prompt
-        .find("load the provider skill named `codeterm`")
-        .unwrap();
 
     assert!(identity < context && context < ack && ack < body);
     assert!(body < intent && intent < correctness);
-    assert!(correctness < report && report < fallback);
+    assert!(correctness < report);
     assert_eq!(prompt.matches("codeterm agent ack").count(), 1);
     assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }

@@ -19,6 +19,8 @@ rm -rf /src
 git clone -q "/work/${TAG}.bundle" /src
 cd /src
 git checkout -q "tags/${TAG}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/src/src-tauri/target}"
+export CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}"
 echo "HEAD=$(git rev-parse HEAD)  bundles=$BUNDLES  target=${CARGO_BUILD_TARGET:-native}"
 
 # Fast compile gate: cargo check only, no frontend/bundle/sign. Catches
@@ -45,7 +47,8 @@ if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
 fi
 pnpm install
 ./build.sh release-inputs
-pnpm tauri build ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} --bundles "$BUNDLES" \
+pnpm tauri build ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
+  --features "$CODETERM_RELEASE_FEATURES" --bundles "$BUNDLES" \
   || echo "tauri build returned non-zero (updater-sign step has no key in-container; bundles built before it)"
 
 mkdir -p /work/out

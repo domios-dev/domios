@@ -32,7 +32,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::InProgressRequiresTab
         | PlanError::BlockedRequiresLabel
         | PlanError::ExecutorRoleRequired
-        | PlanError::TaskPauseRequiresReason
+        | PlanError::TaskPausedSystemOnly
         | PlanError::PauseRequiresReason
         | PlanError::QaNoteRequired
         | PlanError::QaSlotUnavailable
@@ -57,6 +57,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::ActivePlanRequiresTeam { .. }
         | PlanError::PlanActivationRequiresUnarchive { .. }
         | PlanError::InvalidPlanSkillSlug
+        | PlanError::InvalidExecutorName(_)
         | PlanError::InvalidExternalRef(_)
         | PlanError::UnauthorizedGateClaim { .. }
         | PlanError::BudgetExhausted { .. }
@@ -68,6 +69,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::TeamAlreadyHasActivePlan { .. }
         | PlanError::PlanAlreadyBoundToTeam { .. }
         | PlanError::PlanSkillAlreadyExists { .. }
+        | PlanError::ReviewContinuationDeliveryRefused { .. }
         | PlanError::ReviewHoldRequired => StatusCode::CONFLICT,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };

@@ -108,6 +108,7 @@ export function MissionControlPlanSurface({
     }
   }, []);
 
+  const [actionError, setActionError] = useState<string | null>(null);
   const [boardEvents, setBoardEvents] = useState(0);
   const boardTeamId = teamId ?? listedPlan?.team_id ?? null;
   const plansRevision = useMemo(
@@ -159,9 +160,13 @@ export function MissionControlPlanSurface({
     [effectivePlans, selectedPlan, team, onOpenPlanTarget],
   );
 
+  // A refusal used to be discarded here, so a rejected approval looked exactly
+  // like a button that does nothing. Surface it instead.
   const approvePlan = useCallback((id: string) => {
     if (!api) return;
-    void setPlanMode(api, id, "approved").catch(() => undefined);
+    void setPlanMode(api, id, "approved").catch((reason: unknown) => {
+      setActionError(reason instanceof Error ? reason.message : String(reason));
+    });
   }, [api]);
 
   const previewPlanLifecycle = useCallback((id: string, kind: PlanLifecycleKind) => {
@@ -228,6 +233,23 @@ export function MissionControlPlanSurface({
         </header>
       )}
       <div className="relative min-h-0 flex-1">
+        {actionError && (
+          <div
+            role="alert"
+            data-testid="mission-control-action-error"
+            className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-md border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 px-3 py-2 text-xs text-[var(--ct-fg)]"
+          >
+            <span className="min-w-0">{actionError}</span>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              className="shrink-0 text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+              onClick={() => setActionError(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <PlanFetchErrorState
           loading={loading}
           error={error}
@@ -245,9 +267,14 @@ export function MissionControlPlanSurface({
           />
         )}
         {showsData && !selectedPlan && !team && (
-          <p data-testid="mission-control-empty" className="p-4 text-sm" style={{ color: "var(--ct-muted-fg)" }}>
-            No active plans in this workspace.
-          </p>
+          <div
+            data-testid="mission-control-empty"
+            className="flex h-full items-center justify-center p-8"
+          >
+            <p className="text-center text-[15px] text-[var(--ct-muted-fg)]">
+              No active plans in this workspace.
+            </p>
+          </div>
         )}
         {showsData && selectedPlan && (
           <MissionControlBoard

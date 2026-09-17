@@ -16,6 +16,7 @@ pub enum NextActionKind {
     ClaimQa,
     SpawnTester,
     RegressionGate,
+    GroupRetrospective,
     Continue,
     ReviewWipBlocked,
     WaitingOnDependency,
@@ -131,6 +132,20 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         });
     }
 
+    for gate in &s.pending_group_retrospectives {
+        actions.push(NextAction {
+            priority: 2,
+            kind: NextActionKind::GroupRetrospective,
+            task_id: None,
+            loop_id: None,
+            message: super::prompts_plan::group_retrospective_suggestion(
+                &s.plan_id,
+                &gate.key,
+                &gate.label,
+            ),
+        });
+    }
+
     for lane in &s.blocked_lanes {
         actions.push(NextAction {
             priority: 2,
@@ -224,16 +239,20 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         } else {
             format!("dispatch {} ({})", lane.task_id, lane.name)
         };
-        let message = if s.blocking_regression_gates.is_empty() {
+        let message = if s.blocking_regression_gates.is_empty()
+            && s.pending_group_retrospectives.is_empty()
+        {
             message
         } else {
-            let gates = s
+            let mut gates = s
                 .blocking_regression_gates
                 .iter()
+                .chain(&s.pending_group_retrospectives)
                 .map(|g| g.key.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{message} — BLOCKED by pending regression gate(s): {gates}; clear the gate, tag the task release-blocking/regression-gate, or record an authorized override")
+                .collect::<Vec<_>>();
+            gates.sort_unstable();
+            gates.dedup();
+            format!("{message} — BLOCKED by closed group gate(s): {}; record the regression run and group retrospective, tag the task release-blocking/regression-gate, or record an authorized override for the regression run", gates.join(", "))
         };
         actions.push(NextAction {
             priority: 5,
@@ -329,6 +348,7 @@ mod tests {
             recent_strides: vec![],
             pending_regression_gates: vec![],
             blocking_regression_gates: vec![],
+            pending_group_retrospectives: vec![],
             regression_overrides: vec![],
             review_gate: Default::default(),
             mission_control: Default::default(),
@@ -558,6 +578,36 @@ mod tests {
         assert!(compute_next_actions(&s)
             .iter()
             .all(|x| x.kind != NextActionKind::RegressionGate));
+    }
+
+    #[test]
+    fn milestone_retrospective_contract_next_actions_name_the_group_and_block_dispatch() {
+        let mut s = empty();
+        s.plan_id = "pl_retro".into();
+        s.open_lanes = vec![lane("t_next", TaskStatus::Pending)];
+        s.pending_group_retrospectives = vec![super::super::milestone_gates::RegressionGate {
+            key: "phase-1".into(),
+            label: "Phase 1".into(),
+        }];
+        let actions = compute_next_actions(&s);
+        let retro = actions
+            .iter()
+            .find(|a| a.kind == NextActionKind::GroupRetrospective)
+            .expect("retrospective action");
+        assert!(retro.message.contains("pl_retro"));
+        assert!(retro.message.contains("phase-1"));
+        let dispatch = actions
+            .iter()
+            .find(|a| a.kind == NextActionKind::Dispatch)
+            .expect("dispatch action");
+        assert!(dispatch.message.contains("phase-1"));
+
+        s.pending_group_retrospectives = vec![];
+        let cleared = compute_next_actions(&s);
+        assert!(cleared
+            .iter()
+            .all(|a| a.kind != NextActionKind::GroupRetrospective));
+        assert!(cleared.iter().all(|a| !a.message.contains("phase-1")));
     }
 
     #[test]

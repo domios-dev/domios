@@ -165,6 +165,24 @@ pub fn init_reflect_every(every_gates: u32) {
     REFLECT_EVERY_GATES.get_or_init(|| every_gates);
 }
 
+fn render_group_retrospectives(plan: &Plan, out: &mut String) {
+    let pending = super::milestone_gates::pending_group_retrospectives(plan);
+    if pending.is_empty() {
+        return;
+    }
+    out.push_str(super::prompts_plan::GROUP_RETROSPECTIVE_HEARTBEAT_TITLE);
+    out.push('\n');
+    for gate in pending {
+        out.push_str("- ");
+        out.push_str(&super::prompts_plan::group_retrospective_suggestion(
+            &plan.id,
+            &gate.key,
+            &gate.label,
+        ));
+        out.push('\n');
+    }
+}
+
 fn reflect_every_gates() -> u32 {
     *REFLECT_EVERY_GATES.get().unwrap_or(&5)
 }
@@ -259,7 +277,8 @@ fn render_heartbeat(
             && task.qa_state.is_some()
     });
     let has_open_gates = plan.gates.iter().any(|g| g.is_open());
-    let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty();
+    let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty()
+        || !super::milestone_gates::pending_group_retrospectives(plan).is_empty();
     let has_review_gate = super::review_gate::review_gate_status(plan)
         .reason
         .is_some();
@@ -298,6 +317,7 @@ fn render_heartbeat(
     render_qa_queue(plan, &mut out);
     render_review_gate(plan, &mut out);
     render_regression_gates(plan, &mut out);
+    render_group_retrospectives(plan, &mut out);
     super::reflection::render_reflection(plan, reflect_every_gates(), &mut out);
     render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
@@ -331,7 +351,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> Stri
     );
     format!(
         "STATE-RECONCILIATION:\n\
-         - This tab owns an execution-mode plan with unfinished work; do not pause while open tasks remain.\n\
+         - This tab owns an execution-mode plan with unfinished work; act on actionable tasks, and let dependency-waiting or machine-paused tasks wait.\n\
          - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
          - Worker reports are pushed into this tab automatically; judge each incoming report without polling an inbox.\n\
          - Read the compact plan-owned status with `{status}`.\n\

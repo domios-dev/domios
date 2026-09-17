@@ -10,7 +10,7 @@ import re
 import sys
 
 root = Path(sys.argv[1])
-docs = root / "docs/PROMPTS.md"
+docs = root / "prod-docs/PROMPTS.md"
 prompts_dir = root / "src-tauri/prompts"
 prompts_rs = root / "src-tauri/src/prompts.rs"
 plan_prompts_rs = root / "src-tauri/crates/codeterm-plan/src/service_plan/prompts_plan.rs"
@@ -54,12 +54,12 @@ if bold_prompt_files:
 
 missing_doc = sorted(files - doc_pairs.keys())
 if missing_doc:
-    errors.append("Prompt files missing from docs/PROMPTS.md:")
+    errors.append("Prompt files missing from prod-docs/PROMPTS.md:")
     errors.extend(f"  {name}" for name in missing_doc)
 
 stale_doc = sorted(doc_pairs.keys() - files)
 if stale_doc:
-    errors.append("docs/PROMPTS.md rows without prompt files:")
+    errors.append("prod-docs/PROMPTS.md rows without prompt files:")
     errors.extend(f"  {name}" for name in stale_doc)
 
 missing_const = sorted(files - loaders.keys())

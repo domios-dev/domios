@@ -113,8 +113,7 @@ pub enum SendEligibility {
 /// Prose/task-charter shape: multiline or beyond the inline budget. A short
 /// single-line command (e.g. `git status`) stays eligible for a raw shell.
 pub fn is_task_shaped_payload(text: &str) -> bool {
-    const INLINE_BUDGET: usize = 240;
-    text.contains('\n') || text.chars().count() > INLINE_BUDGET
+    crate::cmd::quoted_handoff::is_authored_payload(text)
 }
 
 pub fn classify_tab_kind(record: &serde_json::Value) -> TabKind {
@@ -772,70 +771,14 @@ pub fn resolve_send_text_input<R: std::io::Read>(
             .map_err(|e| format!("failed to read --from-file {}: {}", path, e));
     }
     let text = text.unwrap_or_default();
-    if let Some(hint) = pad_nudge("positional", &text) {
-        eprintln!("{hint}");
+    if let Some(refusal) = crate::cmd::quoted_handoff::inline_refusal(
+        crate::cmd::quoted_handoff::INLINE_SOURCE,
+        &text,
+        crate::cmd::quoted_handoff::PAD_REMEDY,
+    ) {
+        return Err(refusal);
     }
-    Ok((text, "positional"))
-}
-
-/// Soft nudge toward the pad when an authored payload was inlined. Advisory
-/// only — a short scalar argument stays inline, so the shape of the payload
-/// decides, not the caller.
-pub fn pad_nudge(source: &str, text: &str) -> Option<String> {
-    staging_nudge(
-        source,
-        text,
-        "Stage it in the pad (`codeterm pad path`) and pass --from-pad.",
-    )
-}
-
-/// Same heavy-inline guard as `pad_nudge`; the caller supplies the staging
-/// remedy naming the flag valid for its command (spawn: --task-file/--plan-task).
-pub fn staging_nudge(source: &str, text: &str, remedy: &str) -> Option<String> {
-    const INLINE_BUDGET: usize = 240;
-    if source != "positional" {
-        return None;
-    }
-    let multiline = text.contains('\n');
-    if !multiline && text.chars().count() <= INLINE_BUDGET {
-        return None;
-    }
-    let shape = if multiline {
-        "multiline"
-    } else {
-        "over 240 characters"
-    };
-    Some(format!(
-        "hint: this payload is {shape} and went inline — the shell mangles backticks, $, quotes, \
-         and newlines on the way. {remedy}"
-    ))
-}
-
-/// Print the report-body staging nudge to stderr (skipped for `--json`).
-pub fn nudge_report_body(json: bool, text: &str) {
-    emit_staging_nudge(
-        json,
-        text,
-        "Stage it in the pad (`codeterm pad path`) and pass --from-pad.",
-    );
-}
-
-/// Print the spawn-task staging nudge naming the flags spawn actually has.
-pub fn nudge_spawn_task(json: bool, text: &str) {
-    emit_staging_nudge(
-        json,
-        text,
-        "Pass it byte-exact with --task-file <path>, or bind a plan task via --plan-task <id> — both bypass the shell.",
-    );
-}
-
-fn emit_staging_nudge(json: bool, text: &str, remedy: &str) {
-    if json {
-        return;
-    }
-    if let Some(hint) = staging_nudge("positional", text, remedy) {
-        eprintln!("{hint}");
-    }
+    Ok((text, crate::cmd::quoted_handoff::INLINE_SOURCE))
 }
 
 #[cfg(test)]
@@ -1092,45 +1035,45 @@ mod tests {
         assert_eq!(body["actions"], super::actions_to_json(&actions));
     }
 
+    /// The resolver is the single seam every coordination send shares, so the
+    /// refusal has to land there, before a tab id is even resolved.
     #[test]
-    fn pad_nudge_fires_only_for_inlined_authored_payloads() {
-        // Short scalar arguments are exactly what may stay inline.
-        assert!(super::pad_nudge("positional", "tab_9").is_none());
-        assert!(super::pad_nudge("positional", "done").is_none());
-
-        // Multiline is authored prose regardless of length.
-        let nudge = super::pad_nudge("positional", "line one\nline two")
-            .expect("multiline inline payload is nudged");
-        assert!(nudge.contains("--from-pad"));
-        assert!(nudge.contains("codeterm pad path"));
-        assert!(nudge.contains("multiline"));
-
-        // A long single line is authored too.
-        let long = "x".repeat(241);
-        assert!(super::pad_nudge("positional", &long)
-            .expect("long inline payload is nudged")
-            .contains("over 240 characters"));
-        assert!(super::pad_nudge("positional", &"y".repeat(240)).is_none());
-
-        // Every non-inline source already did the right thing.
-        for source in ["--from-pad", "--stdin", "--from-file"] {
-            assert!(
-                super::pad_nudge(source, "line one\nline two").is_none(),
-                "{source} must not be nudged"
-            );
-        }
+    fn quoted_handoff_inline_payload_is_refused_by_the_send_resolver() {
+        let authored = "Goal: `plan handoff` must arrive byte-exact.\nRules: no $VARS lost.";
+        let err = resolve_send_text_input(
+            Some(authored.to_string()),
+            None,
+            None,
+            false,
+            &mut std::io::empty(),
+        )
+        .expect_err("an inline authored send is refused");
+        assert!(err.starts_with(crate::cmd::quoted_handoff::REFUSAL_CODE));
+        assert!(err.contains("--from-pad"));
     }
 
     #[test]
-    fn staging_nudge_names_the_caller_supplied_flag() {
-        // Same heavy-inline guard: short scalars stay silent.
-        assert!(super::staging_nudge("positional", "done", "use --task-file <path>").is_none());
-        // Heavy payload surfaces the caller's remedy verbatim, not a hardcoded flag.
-        let hint =
-            super::staging_nudge("positional", "line one\nline two", "use --task-file <path>")
-                .expect("multiline inline payload is nudged");
-        assert!(hint.contains("--task-file <path>"));
-        assert!(!hint.contains("--from-pad"));
+    fn quoted_handoff_scalar_send_and_staged_sources_still_resolve() {
+        let (text, source) = resolve_send_text_input(
+            Some("status?".to_string()),
+            None,
+            None,
+            false,
+            &mut std::io::empty(),
+        )
+        .expect("a scalar argument stays inline");
+        assert_eq!((text.as_str(), source), ("status?", "positional"));
+
+        let staged = "Goal: `plan handoff` must arrive byte-exact.\nRules: no $VARS lost.\n";
+        let (text, source) = resolve_send_text_input(
+            None,
+            None,
+            None,
+            true,
+            &mut std::io::Cursor::new(staged.as_bytes().to_vec()),
+        )
+        .expect("a staged payload is never refused for its shape");
+        assert_eq!((text.as_str(), source), (staged, "--stdin"));
     }
 
     #[test]

@@ -50,7 +50,7 @@ fn claude_fixture_totals_match_precomputed_values() {
 }
 
 #[test]
-fn codex_fixture_totals_use_last_turn_usage_not_cumulative() {
+fn codex_fixture_totals_are_deltas_of_cumulative_usage() {
     let dir = scratch("codex");
     let source = write_source(&dir, "rollout.jsonl", codex_fixture());
 
@@ -258,7 +258,13 @@ fn seed_cursor_resumes_from_a_persisted_watermark_instead_of_byte_zero() {
     let source = write_source(&dir, "session.jsonl", claude_fixture());
     let mut ingestor = UsageIngestor::default();
 
-    ingestor.seed_cursor(&source, claude_fixture().len() as u64);
+    ingestor.seed_cursor(
+        &source,
+        UsageCursor {
+            offset: claude_fixture().len() as u64,
+            ..Default::default()
+        },
+    );
     assert!(
         ingestor.ingest(&source).unwrap().is_empty(),
         "seeding at end-of-file skips every already-recorded line, mirroring what a \
@@ -270,7 +276,7 @@ fn seed_cursor_resumes_from_a_persisted_watermark_instead_of_byte_zero() {
     let mut ingestor = UsageIngestor::default();
     ingestor.ingest(&source).unwrap();
     let advanced = ingestor.cursor_offset(&source).unwrap();
-    ingestor.seed_cursor(&source, 0);
+    ingestor.seed_cursor(&source, UsageCursor::default());
     assert_eq!(ingestor.cursor_offset(&source).unwrap(), advanced);
 
     std::fs::remove_dir_all(&dir).ok();

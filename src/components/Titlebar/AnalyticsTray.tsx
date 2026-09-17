@@ -1,7 +1,7 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect } from "react";
 import { ChartColumn } from "lucide-react";
 import { UI_TRAY_BTN } from "../shared/design";
-import { usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
+import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
 import { isAnalyticsAvailable } from "./analyticsTrayLogic";
 
 const OPEN_CLASS =
@@ -10,6 +10,11 @@ const OPEN_CLASS =
 export const AnalyticsTray = forwardRef<HTMLButtonElement, { open: boolean; onToggle: () => void }>(
   function AnalyticsTray({ open, onToggle }, ref) {
     const { snapshot } = usePluginSnapshotStore();
+    // The tray is in the titlebar from first paint, so it asks for the snapshot
+    // rather than waiting for whoever opens the plugins panel to ask first.
+    useEffect(() => {
+      void ensurePluginSnapshot({ background: true }).catch(() => {});
+    }, []);
     if (!isAnalyticsAvailable(snapshot.plugins)) return null;
     return (
       <button

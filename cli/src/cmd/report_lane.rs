@@ -369,6 +369,50 @@ mod tests {
     }
 
     #[test]
+    fn canonical_writer_attempt_binds_report_to_canonical_with_strict_dirt() {
+        let dir = repo();
+        let task = json!({
+            "id": "task_a",
+            "lane": {},
+            "execution_attempts": [{
+                "executor_tab_id": "tab-a",
+                "worktree_path": dir.path().to_string_lossy(),
+                "placement": "canonical_writer"
+            }],
+        });
+        let scope = task_readiness_scope_from_task(&task, "tab-a");
+        assert_eq!(scope.worktree_path.as_deref(), Some(dir.path()));
+        assert_eq!(scope.base, None);
+
+        let committed = head(dir.path());
+        fs::write(dir.path().join("VISION.md"), "uncommitted\n").unwrap();
+        let error = crate::cmd::report_guard::enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(committed.clone()),
+            ReportBase::default(),
+            None,
+            false,
+        )
+        .expect_err("any dirt in canonical refuses a canonical writer report");
+        assert_eq!(error.dirty_files, vec!["VISION.md"]);
+
+        fs::remove_file(dir.path().join("VISION.md")).unwrap();
+        let (_, reported, _) = crate::cmd::report_guard::enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(committed.clone()),
+            ReportBase::default(),
+            None,
+            false,
+        )
+        .expect("a clean canonical writer commit reports");
+        assert_eq!(reported.as_deref(), Some(committed.as_str()));
+    }
+
+    #[test]
     fn explicit_base_overrides_task_derived_fallback() {
         let (_dir, lane, base, owned_sha) = lane_with_owned_commit();
         fs::write(lane.join("VISION.md"), "foreign dirt\n").unwrap();

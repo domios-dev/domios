@@ -23,12 +23,11 @@ pub async fn list_tabs(
     Query(query): Query<TabListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let focused_workspace =
-        !query.all_workspaces && (query.focused_workspace || query.workspace_id.is_none());
-    let caller_tab_id = if query.all_workspaces {
-        None
-    } else {
+    let focused_workspace = !query.all_workspaces && query.focused_workspace;
+    let caller_tab_id = if focused_workspace {
         caller_tab_header(&headers)
+    } else {
+        None
     };
     let command = crate::dispatch::Command::TabSummary {
         workspace_id: query.workspace_id,
@@ -98,6 +97,57 @@ mod explicit_address_scope_tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert_eq!(actual, expected);
+    }
+}
+
+#[cfg(test)]
+mod default_scope_contract_tests {
+    use super::TabListQuery;
+    use crate::dispatch::build_tab_summary_json;
+    use crate::multiplexer::state::MultiplexerState;
+
+    #[test]
+    fn tabs_default_to_all_workspaces() {
+        let query = TabListQuery::default();
+        let (mut state, _) = MultiplexerState::new();
+        let second = state.create_workspace("second".into(), None);
+        state.create_tab(&second.id).unwrap();
+
+        let tabs = build_tab_summary_json(
+            &state.snapshot(),
+            query.workspace_id.as_deref(),
+            None,
+            !query.all_workspaces && query.focused_workspace,
+            query.agents,
+        );
+
+        assert_eq!(tabs.len(), 2);
+        assert!(tabs.iter().all(|tab| tab["scope"] == "all_workspaces"));
+    }
+
+    #[test]
+    fn tabs_explicit_workspace_scope() {
+        let (mut state, _) = MultiplexerState::new();
+        let first = state.snapshot().workspaces[0].id.clone();
+        let second = state.create_workspace("second".into(), None);
+        state.create_tab(&second.id).unwrap();
+        let query = TabListQuery {
+            workspace_id: Some(first.clone()),
+            ..TabListQuery::default()
+        };
+
+        let tabs = build_tab_summary_json(
+            &state.snapshot(),
+            query.workspace_id.as_deref(),
+            None,
+            !query.all_workspaces && query.focused_workspace,
+            query.agents,
+        );
+
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0]["scope"], "workspace");
+        assert_eq!(tabs[0]["scope_workspace_id"], first);
+        assert_eq!(tabs[0]["other_workspace_tab_count"], 1);
     }
 }
 

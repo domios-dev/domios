@@ -113,6 +113,10 @@ pub struct PluginManifest {
     #[serde(default)]
     pub installer: std::collections::HashMap<String, String>,
 
+    // Short note picker surfaces render beside the provider name.
+    #[serde(default)]
+    pub badge: Option<String>,
+
     #[serde(default)]
     pub updater: std::collections::HashMap<String, String>,
 

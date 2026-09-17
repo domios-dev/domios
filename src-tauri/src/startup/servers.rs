@@ -224,7 +224,12 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         ) {
             log::error!("Failed to start socket server: {}", e);
         }
-        let listener_allowed = match crate::config::validate_api_trust_boundary(&api_config) {
+        let named_dev = cfg!(debug_assertions)
+            && std::env::var("CODETERM_INSTANCE").is_ok_and(|name| !name.trim().is_empty());
+        let remote_bind = super::rest_api::listeners::additional_bind(&api_config, named_dev);
+        let listener_allowed = match crate::config::validate_api_trust_boundary(&api_config)
+            .and_then(|()| remote_bind.as_ref().map(|_| ()).map_err(Clone::clone))
+        {
             Ok(()) => true,
             Err(error) => {
                 log::error!("[api] listener disabled by trust-boundary policy: {error}");
@@ -232,6 +237,35 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             }
         };
         if api_config.enabled && listener_allowed {
+            let weak_mesh = Arc::downgrade(&states.mesh);
+            let mesh_config = states.config.clone();
+            states.rest_api.listeners.configure(
+                remote_bind.expect("validated remote bind"),
+                Arc::new(move |ready| {
+                    if let Some(mesh) = weak_mesh.upgrade() {
+                        let changed = {
+                            let mut state = mesh.lock();
+                            let changed = state.ready_listeners != ready;
+                            state.ready_listeners = ready;
+                            changed
+                        };
+                        if changed {
+                            crate::mesh::discovery::stop_broadcast(&mesh);
+                            if mesh_config.lock().mesh.enabled {
+                                tauri::async_runtime::spawn(async move {
+                                    let report = crate::mesh::broadcast_announce(&mesh, None).await;
+                                    if !report.errors.is_empty() {
+                                        log::warn!(
+                                            "[mesh] listener-set announcement failed: {:?}",
+                                            report.errors
+                                        );
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }),
+            );
             let bind_addr = crate::config::canonical_api_bind_addr(&api_config)
                 .expect("validated API host must have a canonical socket address");
             states

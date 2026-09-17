@@ -2,7 +2,7 @@
 
 Use `codeterm` to control tabs, workspaces, agents, mesh peers, mem, and system power.
 
-- `codeterm tab list` — always use this plain compact view for interactive discovery/cleanup; `(self)` marks your tab
+- `codeterm tab list` — always use this plain workspace map for interactive discovery/cleanup across all local workspaces; `(self)` marks your tab. Pass `--workspace <id>` for one workspace's scoped tree.
 - `codeterm tab inspect --tab ID` — full details for one selected tab; add `--lifecycle` only for that tab's journal history
 - `codeterm send "..." --tab ID` — type into a tab
 - `codeterm tab stop [--tab ID]` — interrupt the agent's current generation (doesn't close the tab)

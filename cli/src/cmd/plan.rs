@@ -490,6 +490,8 @@ fn run_plan(
                 }),
             )?;
             if json {
+                let mut val = val;
+                crate::cmd::plan_reconcile::annotate_reconcile_json(&mut val);
                 return Ok(Some(val));
             }
             print!("{}", crate::cmd::plan_reconcile::render_reconcile(&val));

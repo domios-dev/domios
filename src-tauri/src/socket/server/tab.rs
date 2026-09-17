@@ -31,7 +31,7 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|value| value.get("focused_workspace"))
                 .and_then(|value| value.as_bool())
-                .unwrap_or(workspace_id.is_none());
+                .unwrap_or(false);
             let agents_only = params
                 .as_ref()
                 .and_then(|value| value.get("agents_only"))

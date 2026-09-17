@@ -43,6 +43,7 @@ fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::Boun
         test_cmd: Some("cargo test".into()),
         test_result: Some("ok".into()),
         skipped: None,
+        diagnostics: None,
         authority: None,
     }
 }
@@ -124,6 +125,7 @@ fn dispatch_without_declared_gates_records_an_explicit_empty_policy() {
             None,
             "attempt-gates",
             Vec::new(),
+            crate::plan::WorkerPlacement::IsolatedLane,
             3,
         )
         .unwrap();

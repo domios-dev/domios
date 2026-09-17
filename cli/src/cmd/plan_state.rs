@@ -24,12 +24,17 @@ fn gate_keys(val: &Value, field: &str) -> Vec<String> {
 fn render_regression_gates(val: &Value, out: &mut String) {
     let pending = gate_keys(val, "pending_regression_gates");
     let blocking = gate_keys(val, "blocking_regression_gates");
+    let retrospectives = gate_keys(val, "pending_group_retrospectives");
     let overrides = val
         .get("regression_overrides")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    if pending.is_empty() && blocking.is_empty() && overrides.is_empty() {
+    if pending.is_empty()
+        && blocking.is_empty()
+        && retrospectives.is_empty()
+        && overrides.is_empty()
+    {
         return;
     }
     if !pending.is_empty() {
@@ -38,13 +43,25 @@ fn render_regression_gates(val: &Value, out: &mut String) {
             pending.join(", ")
         ));
     }
-    if blocking.is_empty() {
-        out.push_str("dispatch: unblocked (no pending regression gate blocks the frontier)\n");
-    } else {
+    if !retrospectives.is_empty() {
+        out.push_str(&format!(
+            "group retrospectives pending: {} — record each with `codeterm plan groups close {} <group> --note \"<retrospective>\"`\n",
+            retrospectives.join(", "),
+            s(val, "plan_id")
+        ));
+    }
+    if !blocking.is_empty() {
         out.push_str(&format!(
             "dispatch: BLOCKED by regression gate(s): {} — non-blocker tasks cannot dispatch until cleared or overridden\n",
             blocking.join(", ")
         ));
+    } else if !retrospectives.is_empty() {
+        out.push_str(&format!(
+            "dispatch: BLOCKED until group retrospective(s) are recorded: {}\n",
+            retrospectives.join(", ")
+        ));
+    } else {
+        out.push_str("dispatch: unblocked (no pending regression gate blocks the frontier)\n");
     }
     for o in &overrides {
         let actor = o
@@ -574,6 +591,25 @@ mod tests {
         let out = render_state(&val);
         assert!(out.contains("regression gates pending: phase-1"));
         assert!(out.contains("dispatch: unblocked"));
+    }
+
+    #[test]
+    fn renders_pending_group_retrospective_as_a_dispatch_block() {
+        let val = json!({
+            "plan_id": "pl_retro",
+            "title": "Retro",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 1, "done": 1, "in_progress": 0, "in_review": 0, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 1.0,
+            "pending_regression_gates": [],
+            "blocking_regression_gates": [],
+            "pending_group_retrospectives": [{"key": "phase-1", "label": "Phase 1"}]
+        });
+        let out = render_state(&val);
+        assert!(out.contains("phase-1"));
+        assert!(out.contains("pl_retro"));
+        assert!(!out.contains("dispatch: unblocked"));
     }
 
     #[test]

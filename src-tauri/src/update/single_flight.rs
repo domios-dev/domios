@@ -7,6 +7,8 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::apply::{ApplyOptions, ApplyResult};
+#[cfg(test)]
+use super::UpdatePhase;
 use super::UpdateState;
 
 /// Wire discriminants. A refused second request must never read as "nothing to
@@ -188,7 +190,7 @@ mod tests {
     async fn update_is_single_flight_across_callers() {
         let gate: &'static UpdateGate = Box::leak(Box::new(UpdateGate::new()));
         let fake = Arc::new(FakeApplier::default());
-        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel::<()>();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel::<UpdatePhase>();
         let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
 
         // Caller A — the HTTP route shape: acquire, hand the lease to the worker.
@@ -196,7 +198,21 @@ mod tests {
         let applier = fake.clone();
         let worker = tokio::spawn(async move {
             run_holding_lease(lease, || async move {
-                entered_tx.send(()).expect("test receiver alive");
+                let state = std::sync::Arc::new(parking_lot::Mutex::new(UpdateState {
+                    install_method: super::super::InstallMethod::Unknown,
+                    last_check: None,
+                    last_check_time: None,
+                    channel: super::super::Channel::Stable,
+                    phase: UpdatePhase::Idle,
+                    last_error: Some("stale error".to_string()),
+                    phase_changed_at: None,
+                    downloaded_bytes: 0,
+                    download_total_bytes: None,
+                }));
+                super::super::apply::begin_apply(&state);
+                entered_tx
+                    .send(state.lock().phase)
+                    .expect("test receiver alive");
                 release_rx.await.map_err(|e| e.to_string())?;
                 applier.apply(ApplyResult::Restarting)
             })
@@ -204,7 +220,10 @@ mod tests {
         });
 
         // A declared entry, not a delay: A owns the gate from here.
-        entered_rx.await.expect("the first apply entered");
+        assert_eq!(
+            entered_rx.await.expect("the first apply entered"),
+            UpdatePhase::Checking
+        );
 
         // Caller B — the Tauri command shape, while A is still in flight.
         let second = run_single_flight(gate, || {

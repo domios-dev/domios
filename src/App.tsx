@@ -24,6 +24,7 @@ import { RecoveryStatusBanner } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
+import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
@@ -108,6 +109,7 @@ function AppInner() {
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
+  const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useState<string | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
@@ -192,6 +194,7 @@ function AppInner() {
     setFocusedTab,
     selectTabByTab,
     setTabPty,
+    setActiveWorkspace,
     markRead,
     markAllRead,
     deleteNotification,
@@ -371,12 +374,28 @@ function AppInner() {
     activeWs != null;
   const workspaceCanvasVisible = showInlineWorkspaceCanvas || showOverlayWorkspaceCanvas;
   const cronSelection = useCronSelection();
+  const closeWorkspaceMap = useCallback(() => {
+    setWorkspaceMapWorkspaceId(null);
+  }, []);
+  const openWorkspaceMap = useCallback((workspaceId: string) => {
+    closePluginView();
+    setActiveWorkspace(workspaceId);
+    canvasFocusStore.closeWorkspace();
+    cronSelectionStore.close();
+    setMainView("workspace");
+    setWorkspaceMapWorkspaceId(workspaceId);
+    closeSidebarOnMobile();
+  }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   const handleNavigateToTab = useCallback(() => {
+    closeWorkspaceMap();
     canvasFocusStore.closeWorkspace();
     cronSelectionStore.close();
     setMainView("workspace");
     closeSidebarOnMobile();
-  }, [closeSidebarOnMobile]);
+  }, [closeSidebarOnMobile, closeWorkspaceMap]);
+  useEffect(() => {
+    if (mainView !== "workspace") setWorkspaceMapWorkspaceId(null);
+  }, [mainView]);
   useEffect(() => {
     if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
   }, [activeTab]);
@@ -583,7 +602,8 @@ function AppInner() {
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
-                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection}
+                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection || workspaceMapWorkspaceId !== null}
+                onOpenWorkspaceMap={openWorkspaceMap}
                 teamActions={teamActions}
               />
             </div>
@@ -680,6 +700,11 @@ function AppInner() {
           {pluginViewId && (
             <div className="absolute inset-0 z-30">
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={closePluginView} />
+            </div>
+          )}
+          {workspaceMapWorkspaceId && mainView === "workspace" && (
+            <div className="absolute inset-0" style={{ zIndex: 26 }}>
+              <EssenceMapCanvas workspaceId={workspaceMapWorkspaceId} onClose={closeWorkspaceMap} />
             </div>
           )}
           {showInlineWorkspaceCanvas && (

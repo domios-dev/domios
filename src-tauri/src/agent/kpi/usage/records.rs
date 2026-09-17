@@ -4,27 +4,61 @@
 
 use serde_json::Value;
 
-use crate::agent::kpi_ledger::TokenCounts;
+use crate::agent::kpi_ledger::{CumulativeUsage, TokenCounts};
 
-/// `tokens: None` is a context-compaction marker: an event with no token cost of its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UsageRecord {
-    pub timestamp: u64,
-    pub tokens: Option<TokenCounts>,
+/// One usage-bearing line. A response line names its API response when the provider
+/// stamps one; a cumulative line carries running totals rather than a per-turn delta.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedUsage {
+    Compaction {
+        timestamp: u64,
+    },
+    Response {
+        timestamp: u64,
+        response_id: Option<String>,
+        tokens: TokenCounts,
+    },
+    Cumulative {
+        timestamp: u64,
+        total: CumulativeUsage,
+        last: Option<TokenCounts>,
+    },
 }
 
-pub fn parse_record(value: &Value) -> Option<UsageRecord> {
+pub fn parse_record(value: &Value) -> Option<ParsedUsage> {
     let timestamp = record_timestamp(value);
     if is_compaction(value) {
-        return Some(UsageRecord {
+        return Some(ParsedUsage::Compaction { timestamp });
+    }
+    if let Some(tokens) = nested_usage_tokens(value) {
+        return Some(ParsedUsage::Response {
             timestamp,
-            tokens: None,
+            response_id: nested_response_id(value),
+            tokens,
         });
     }
-    let tokens = assistant_turn_tokens(value)?;
-    Some(UsageRecord {
+    if let Some(info) = value.get("payload").and_then(|p| p.get("info")) {
+        let last = last_turn_usage_tokens(info);
+        if let Some(total) = cumulative_usage(info) {
+            return Some(ParsedUsage::Cumulative {
+                timestamp,
+                total,
+                last,
+            });
+        }
+        if let Some(tokens) = last {
+            return Some(ParsedUsage::Response {
+                timestamp,
+                response_id: None,
+                tokens,
+            });
+        }
+    }
+    let tokens = grouped_tokens(value)?;
+    Some(ParsedUsage::Response {
         timestamp,
-        tokens: Some(tokens),
+        response_id: value.get("id").and_then(Value::as_str).map(str::to_string),
+        tokens,
     })
 }
 
@@ -51,12 +85,6 @@ fn is_opencode_compaction(value: &Value) -> bool {
     value.get("summary").and_then(Value::as_bool) == Some(true)
 }
 
-fn assistant_turn_tokens(value: &Value) -> Option<TokenCounts> {
-    nested_usage_tokens(value)
-        .or_else(|| last_turn_usage_tokens(value))
-        .or_else(|| grouped_tokens(value))
-}
-
 /// Shape: `message.usage.{input_tokens, cache_creation_input_tokens,
 /// cache_read_input_tokens, output_tokens}` — cache reads are the cached slice.
 fn nested_usage_tokens(value: &Value) -> Option<TokenCounts> {
@@ -72,16 +100,41 @@ fn nested_usage_tokens(value: &Value) -> Option<TokenCounts> {
     })
 }
 
+/// Streaming writes one line per content block, each repeating its response's
+/// `message.id` and top-level `requestId`.
+fn nested_response_id(value: &Value) -> Option<String> {
+    let message_id = value.get("message")?.get("id")?.as_str()?;
+    let request_id = value
+        .get("requestId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Some(format!("{message_id}:{request_id}"))
+}
+
 /// Shape: `payload.info.last_token_usage.{input_tokens, cached_input_tokens,
 /// output_tokens}` — `input_tokens` already includes the cached slice here.
-fn last_turn_usage_tokens(value: &Value) -> Option<TokenCounts> {
-    let usage = value.get("payload")?.get("info")?.get("last_token_usage")?;
+fn last_turn_usage_tokens(info: &Value) -> Option<TokenCounts> {
+    let usage = info.get("last_token_usage")?;
     let input = u64_at(usage, "input_tokens")?;
     let cached = u64_at(usage, "cached_input_tokens").unwrap_or(0);
     Some(TokenCounts {
         input,
         uncached_input: input.saturating_sub(cached),
         output: u64_at(usage, "output_tokens").unwrap_or(0),
+    })
+}
+
+/// Shape: `payload.info.total_token_usage` — the same fields as running session totals,
+/// re-emitted unchanged when no new response happened.
+fn cumulative_usage(info: &Value) -> Option<CumulativeUsage> {
+    let usage = info.get("total_token_usage")?;
+    let input = u64_at(usage, "input_tokens")?;
+    let output = u64_at(usage, "output_tokens").unwrap_or(0);
+    Some(CumulativeUsage {
+        input,
+        cached_input: u64_at(usage, "cached_input_tokens").unwrap_or(0),
+        output,
+        total: u64_at(usage, "total_tokens").unwrap_or(input + output),
     })
 }
 

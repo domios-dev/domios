@@ -41,8 +41,6 @@ pub(super) const RECOVERY_METHODS: &[&str] = &[
     "plan.task.update",
     "plan.task.assign",
     "plan.task.dispatch",
-    "plan.task.pause",
-    "plan.task.resume",
     "plan.task.respawn",
     "plan.task.close",
 ];
@@ -56,8 +54,6 @@ pub(super) const PLAN_OWNER_AUTHORITY_METHODS: &[&str] = &[
     "plan.task.update",
     "plan.task.attach",
     "plan.task.close",
-    "plan.task.pause",
-    "plan.task.resume",
     "plan.task.assign",
     "plan.task.dispatch",
     "plan.task.respawn",

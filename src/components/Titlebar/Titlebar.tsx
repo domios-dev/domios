@@ -2,7 +2,6 @@ import { useCallback, useState, useEffect, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ThemeConfig } from "../../lib/types";
 import { CloseXIcon, HamburgerIcon } from "../Icons";
-import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
 import { IS_WEB } from "../../lib/webApi";
@@ -106,20 +105,11 @@ export function Titlebar({
         className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 min-[430px]:flex"
         data-tauri-drag-region
       >
-        <img
-          src={logoUrl}
-          alt=""
-          className="h-4 w-4 rounded-sm opacity-90"
-        />
-        <span
-          className="text-[11px] font-medium text-[var(--ct-muted-fg)]"
-        >
-          CodeTerm
-        </span>
         {buildLabel && (
           <span
             className="rounded bg-[var(--ct-accent)] px-1.5 py-0.5 font-mono text-[8px] font-bold leading-none tracking-wide text-[var(--ct-bg)]"
             aria-label={`Development build, version ${__APP_VERSION__}`}
+            data-tauri-drag-region
           >
             {buildLabel}
           </span>
@@ -128,7 +118,7 @@ export function Titlebar({
 
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
-      <div className="flex min-w-0 flex-1 items-center justify-end h-full overflow-hidden">
+      <div className="flex min-w-0 flex-1 items-center justify-end h-full overflow-hidden" data-tauri-drag-region>
         {onDismissToast && (
           <NotificationToastContainer
             toasts={toasts}

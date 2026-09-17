@@ -108,6 +108,7 @@ pub struct BoundWorkerReport {
     pub test_cmd: Option<String>,
     pub test_result: Option<String>,
     pub skipped: Option<String>,
+    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
     pub authority: Option<super::interruption::TaskMutationAuthority>,
 }
 
@@ -848,6 +849,8 @@ impl PlanStore {
             task.lane.tab_id = Some(tab_id.into());
             task.taken_by_role = role.map(str::to_string);
             task.peer = None;
+            task.status = TaskStatus::Pending;
+            task.status_changed_at = now_ms;
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
             let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
@@ -1007,6 +1010,33 @@ impl PlanStore {
         })
     }
 
+    pub fn record_task_attempt_diagnostics(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        diagnostics: codeterm_types::plan::LaneDiagnosticsSummary,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+            else {
+                return Ok(false);
+            };
+            let Some(report) = attempt.report.as_mut() else {
+                return Ok(false);
+            };
+            report.diagnostics = Some(diagnostics);
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
     /// Ingest a worker report for its currently assigned task in one plan write.
     /// An accepted `in_review` report advances the task; every other
     /// accepted report remains a handoff milestone without changing task state.
@@ -1110,16 +1140,13 @@ impl PlanStore {
                 attachments: vec![],
             });
             let owner_epoch = task.interruption.owner_epoch;
-            if let Some(attempt) = task
-                .execution_attempts
-                .iter_mut()
-                .rposition(|attempt| {
-                    attempt.executor_tab_id == reporter_tab
-                        && attempt.closed_at.is_none()
-                        && (owner_epoch == 0 || attempt.interruption.owner_epoch == owner_epoch)
-                })
-                .map(|index| &mut task.execution_attempts[index])
-            {
+            let report_attempt_index = task.execution_attempts.iter_mut().rposition(|attempt| {
+                attempt.executor_tab_id == reporter_tab
+                    && attempt.closed_at.is_none()
+                    && (owner_epoch == 0 || attempt.interruption.owner_epoch == owner_epoch)
+            });
+            if let Some(index) = report_attempt_index {
+                let attempt = &mut task.execution_attempts[index];
                 attempt.report = Some(TaskExecutionReportSnapshot {
                     id: format!("report_{now_ms}"),
                     message: Some(report.message),
@@ -1130,6 +1157,7 @@ impl PlanStore {
                     test_cmd: report.test_cmd,
                     test_result: report.test_result,
                     skipped: report.skipped,
+                    diagnostics: report.diagnostics,
                     attachments: vec![],
                     plan_skill_manifest: attempt.plan_skill_manifest.clone(),
                     loaded_plan_skills: attempt.loaded_plan_skills.clone(),
@@ -1141,6 +1169,11 @@ impl PlanStore {
                 task.status = TaskStatus::InReview;
                 task.status_changed_at = now_ms;
                 super::qa::normalize_task_review_fields(task);
+                if let Some(index) = report_attempt_index {
+                    crate::service_plan::review_gate::reset_completed_review_continuation(
+                        task, index,
+                    )?;
+                }
                 crate::service_plan::review_gate::fix_oracle_and_consume_override(task, now_ms);
             }
             task.updated_at = now_ms;

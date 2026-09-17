@@ -4,7 +4,6 @@ target/
 target-check/
 references/
 !skills/codeterm/references/
-!docs/plans/references/
 *.exe
 !src-tauri/conpty/**/OpenConsole.exe
 /tmp/
@@ -64,3 +63,11 @@ src-tauri/bundled-embed
 design/codeterm-notifications.html
 design/mission-control-insights.html
 design/global-analytics.html
+
+# Superseded essence maps retained for the release revert choice - local safety net, regenerable
+essences/map-history/
+
+# Scratch capture from local gate runs.
+.gate.txt
+.suite.txt
+.pty.txt

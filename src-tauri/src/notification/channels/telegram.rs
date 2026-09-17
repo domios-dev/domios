@@ -137,11 +137,9 @@ impl PushChannel for TelegramChannel {
                         buttons: buttons.clone(),
                         edit: None,
                         receipt: receipt.clone(),
-                        route: message
-                            .origin_tab
-                            .clone()
-                            .map(|tab_id| OutboundRoute::Tab { tab_id })
-                            .unwrap_or_default(),
+                        // Into the chat, never a tab topic: a push routed as a tab
+                        // arrives as a truncated pointer elsewhere, defeating the alert.
+                        route: OutboundRoute::Chat,
                     },
                 )
                 .is_err()

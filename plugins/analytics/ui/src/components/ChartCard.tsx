@@ -46,6 +46,7 @@ export function ChartCard({
           onChange={onMeasure}
           aria-label="Measure"
           data-testid="analytics-measure"
+          className="analytics-seg"
           height={narrow ? 36 : 24}
         />
       }

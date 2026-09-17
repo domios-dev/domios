@@ -78,7 +78,7 @@ CodeTermは、AI支援開発のためにゼロから設計されたクロスプ�
 ### 自動アップデートと耐障害性
 - **自動アップデート** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`。マニフェストは ed25519 で署名され、バイナリに触れる前に検証される。自動インストールは 9 ステップの優雅なシャットダウン（mem WAL チェックポイント、スーパーバイザー停止、署名済みバイナリ入れ替え）を実行し、その後ペインが自動再開 — コンテキストはアップグレードを生き延びる
 - **サブプロセス スーパーバイザー** — 重い mem 処理（dreaming、Librarian 抽出）は子プロセスで動作し、サーキットブレーカー（60 秒で 3 回失敗 → オープン）でガード。ワーカーの死は API を巻き込まず、重い mem リクエストの `503` タイムアウトでデーモンの応答性を保つ
-- **外部ウォッチドッグ** — `/api/health` のヘルスプローブ。Windows タスクスケジューラ、launchd、systemd 向けのセットアップは [docs/RESILIENCE.md](docs/RESILIENCE.md) を参照
+- **外部ウォッチドッグ** — `/api/health` のヘルスプローブ。Windows タスクスケジューラ、launchd、systemd 向けのセットアップは [essences/resilience.md](essences/resilience.md) を参照
 
 ### テーマ
 - **8つの組み込みテーマ** — GitHub Dark、Dracula、Catppuccin Mocha、One Dark、Nord、GitHub Light、Solarized Light、Pip-Boy
@@ -226,7 +226,7 @@ CodeTermはすべてのPTYセッションで以下の環境変数を設定しま
 | `CODETERM_SOCKET_PATH` | JSON-RPC APIのソケットパス |
 | `TERM_PROGRAM` | `CodeTerm` |
 
-完全なエンドポイントのドキュメントは[APIリファレンス](docs/API.md)を参照してください。
+完全なエンドポイントのドキュメントは[APIリファレンス](prod-docs/API.md)を参照してください。
 
 ## Configuration
 
@@ -255,7 +255,7 @@ port = 7685
 # token = "your-secret-token"
 ```
 
-すべてのオプションについては[設定ガイド](docs/CONFIG.md)を参照してください。
+すべてのオプションについては[設定ガイド](prod-docs/CONFIG.md)を参照してください。
 
 ## Architecture
 

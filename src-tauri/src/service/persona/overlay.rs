@@ -41,7 +41,7 @@ pub(crate) struct CoreFragment {
 pub(crate) const CONTRACT_CORE: &[CoreFragment] = &[
     CoreFragment {
         id: "framework_rule",
-        needle: "You are a Worker. Three rules, always:",
+        needle: "You are a Worker: a skilled colleague who owns this one task and its lane.",
     },
     CoreFragment {
         id: "report_protocol",

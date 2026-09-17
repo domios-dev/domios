@@ -12,6 +12,7 @@ pub mod pairing;
 pub mod peer_services;
 pub mod peers;
 pub mod ports;
+pub mod reachability;
 pub mod serve_setup;
 pub mod toggle;
 pub mod transport;
@@ -26,7 +27,7 @@ pub use broadcast::{
     broadcast_announce, broadcast_introductions, broadcast_sync, refresh_local_addresses,
     refresh_local_addresses_blocking, refresh_local_addresses_blocking_force, AnnounceReport,
 };
-pub use manager::{MeshManager, PairingDelivery};
+pub use manager::{MeshManager, PairingDelivery, MAX_PAIRING_DELIVERIES};
 pub use ports::{LastActivityProvider, MeshEventSink};
 pub use serve_setup::{
     disable_web_serve, enable_web_serve, probe_serve_status, reconcile_web_serve,

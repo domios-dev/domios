@@ -346,6 +346,22 @@ fn task_bound_mutating_spawn_rejects_missing_lane() {
     foreign.cleanup().unwrap();
 }
 
+#[test]
+fn lane_provisioning_failure_is_a_synchronous_lane_dispatch_error() {
+    let root = tempfile::tempdir().unwrap();
+    let missing_checkout = root.path().join("missing-checkout");
+    let provisioning_failure =
+        provision_lane_for_test(missing_checkout.to_str().unwrap(), "plan-task-lane").unwrap_err();
+    let error = super::super::dispatch_failed("lane_provision", provisioning_failure);
+
+    assert_eq!(error.code, -32603);
+    assert!(error.message.contains("dispatch failed at lane_provision"));
+    assert_eq!(error.data.as_ref().unwrap()["type"], "task_dispatch_failed");
+    assert_eq!(error.data.as_ref().unwrap()["stage"], "lane_provision");
+    assert!(error.data.as_ref().unwrap()["reason"].is_string());
+    assert!(error.data.as_ref().unwrap().get("tab_id").is_none());
+}
+
 fn canonical_of(lane: &Value) -> &str {
     lane.get("canonical_project_path")
         .and_then(Value::as_str)

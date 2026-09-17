@@ -31,6 +31,7 @@ pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) ->
                 "/describe",
                 "/can-spawn",
                 "/agent-type",
+                "/attachments",
             ];
             if path.starts_with("/api/tabs/") && write_allowed.iter().any(|s| path.ends_with(s)) {
                 return true;
@@ -49,7 +50,9 @@ pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) ->
                 }
             }
             if path.starts_with("/api/tabs/") {
-                if path.ends_with("/send") && perms.contains(&Permission::SendInput) {
+                if (path.ends_with("/send") || path.ends_with("/attachments"))
+                    && perms.contains(&Permission::SendInput)
+                {
                     return true;
                 }
                 if (path.ends_with("/output") || path.ends_with("/text"))

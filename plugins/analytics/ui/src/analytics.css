@@ -6,6 +6,14 @@ body,
   height: 100%;
 }
 
+/* The board is the only scroller. The UA margin on body pushes a 100%-tall page
+   past the viewport, which is what put a second scrollbar beside it. */
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
 body {
   font-family: var(--ct-font-ui);
   font-size: var(--ct-font-size-sm);
@@ -86,6 +94,13 @@ body {
 
 .analytics-range-caption {
   margin-left: auto;
+}
+
+/* Equal-width segments size to the longest label, so a short one ends up with
+   its text nearly against the thumb of the segment beside it. */
+.analytics-seg .ct-liquid-segmented__option {
+  padding: 0 1.15rem;
+  gap: 0.5rem;
 }
 
 .analytics-popover {

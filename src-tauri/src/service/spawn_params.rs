@@ -95,7 +95,6 @@ impl SpawnTabSpec {
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
                 provisioned_cwd: params.provisioned_cwd.clone(),
-                lane_setup_command: params.lane_setup_command.clone(),
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
@@ -144,7 +143,6 @@ impl SpawnTabSpec {
             args: if args.is_empty() { None } else { Some(args) },
             cwd: self.cwd.clone(),
             provisioned_cwd: agent.provisioned_cwd.clone(),
-            lane_setup_command: agent.lane_setup_command.clone(),
             title: self.title.clone(),
             title_provenance: None,
             description: self.description.clone(),
@@ -407,6 +405,29 @@ mod tests {
             .unwrap()
             .channel,
             crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput
+        );
+    }
+
+    #[test]
+    fn tab_name_contract_spawn_name_paths_keep_name_and_description_separate() {
+        let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            agent: Some("codex".into()),
+            title: Some("Ada".into()),
+            description: Some("Worker · rust-backend-dev · pending".into()),
+            role: Some("Worker".into()),
+            ..Default::default()
+        });
+
+        assert_eq!(spec.title.as_deref(), Some("Ada"));
+        assert_eq!(
+            spec.description.as_deref(),
+            Some("Worker · rust-backend-dev · pending")
+        );
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.title.as_deref(), Some("Ada"));
+        assert_eq!(
+            params.description.as_deref(),
+            Some("Worker · rust-backend-dev · pending")
         );
     }
 

@@ -23,11 +23,18 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 }
 
 async function main(): Promise<void> {
-  const idle = await render(<AgentStateIndicator state={{ state: "idle" }} providerName="Codex" model="gpt-5.6-sol" />);
+  const idle = await render(
+    <AgentStateIndicator
+      state={{ state: "idle" }}
+      providerName="Codex"
+      model="gpt-5.6-sol"
+      reasoningEffort={{ actual: " high ", actual_source: "session-owned" }}
+    />,
+  );
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "idle keeps exactly one status row mounted");
   assert(idle.host.querySelectorAll(".activity-dots i").length === 3, "idle row keeps three dots");
   assert(idle.host.querySelector(".activity-dots")?.classList.contains("activity-dots--muted"), "idle dots are gray");
-  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol", "idle row contains provider and model without a summary");
+  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · high", "idle row includes session-owned actual effort");
 
   let stopCalls = 0;
   await act(async () => idle.root.render(
@@ -36,6 +43,7 @@ async function main(): Promise<void> {
       providerName="Codex"
       model="gpt-5.6-sol"
       onStop={() => { stopCalls += 1; }}
+      reasoningEffort={{ actual: null, actual_source: "session-owned" }}
     />,
   ));
   assert(idle.host.querySelector('[data-agent-state="working"]'), "working reuses the same row");
@@ -45,6 +53,49 @@ async function main(): Promise<void> {
   await act(async () => stop.click());
   assert(stopCalls === 1, "Stop invokes its handler once");
 
+  await act(async () => idle.root.render(
+    <AgentStateIndicator
+      state={{ state: "working", status_line: "Editing files" }}
+      providerName="Codex"
+      model="gpt-5.6-sol"
+      reasoningEffort={{ actual: "high", actual_source: "provider-default-unverified" }}
+    />,
+  ));
+  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · Editing files", "unverified effort is omitted");
+
+  await act(async () => idle.root.render(
+    <AgentStateIndicator
+      state={{ state: "idle" }}
+      providerName="Codex"
+      model="gpt-5.6-sol"
+      reasoningEffort={{ actual: null, requested: "medium" }}
+    />,
+  ));
+  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol", "requested-only effort is omitted");
+
+  await act(async () => idle.root.render(
+    <AgentStateIndicator
+      state={{ state: "idle" }}
+      providerName="Codex"
+      model="gpt-5.6-sol"
+      reasoningEffort={{ actual: "   ", actual_source: "session-owned" }}
+    />,
+  ));
+  assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol", "empty effort is omitted without a separator");
+
+  await act(async () => idle.root.render(
+    <div style={{ width: 390 }}>
+      <AgentStateIndicator
+        state={{ state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" }}
+        providerName="Codex"
+        model="gpt-5.6-sol"
+        reasoningEffort={{ actual: "high", actual_source: "session-owned" }}
+      />
+    </div>,
+  ));
+  assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "390px rendering keeps one compact status row");
+  assert(idle.host.querySelector(".ct-agent-msg")?.classList.contains("truncate"), "status suffix remains truncatable at narrow width");
+
   let terminalCalls = 0;
   let cancelCalls = 0;
   await act(async () => idle.root.render(
@@ -52,6 +103,7 @@ async function main(): Promise<void> {
       state={{ state: "question", subtype: "permission" }}
       providerName="Codex"
       model="gpt-5.6-sol"
+      reasoningEffort={{ actual: "low", actual_source: "provider-default-unverified" }}
       onOpenTerminal={() => { terminalCalls += 1; }}
       onCancel={() => { cancelCalls += 1; }}
     />,

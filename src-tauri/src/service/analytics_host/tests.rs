@@ -44,7 +44,7 @@ fn token_row(
             uncached_input: uncached,
             output: 10,
         }),
-        dedup_key: None,
+        dedup_key: Some(ulid::Ulid::new().to_string()),
         workspace_id: workspace.map(str::to_string),
         tab_kind: None,
     }

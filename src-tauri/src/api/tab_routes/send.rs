@@ -158,6 +158,13 @@ pub(crate) fn should_prepend_source(
     has_source && target_has_agent && transport == TabInputTransport::Pty
 }
 
+/// A return address describes a message, and a keystroke-only send carries no
+/// message. Wrapping its empty body produced a marker with nothing to introduce,
+/// which the target then received as the payload of the keystroke itself.
+pub(crate) fn prefixes_return_address(body: &str, prefix_source: bool) -> bool {
+    prefix_source && !body.is_empty()
+}
+
 #[derive(Deserialize)]
 pub(crate) struct SendTextBody {
     pub(crate) text: Option<String>,
@@ -389,7 +396,7 @@ pub async fn send_text(
         should_prepend_source(source_envelope.is_some(), target_has_agent, transport);
     let prepend = |s: &str| -> String {
         match &source_envelope {
-            Some(envelope) if prefix_source => {
+            Some(envelope) if prefixes_return_address(s, prefix_source) => {
                 crate::service::messenger::Messenger::from(envelope.clone()).wrap(s)
             }
             _ => s.to_string(),
@@ -643,6 +650,14 @@ mod action_delivery_tests {
         .unwrap();
         assert_eq!(raw_writes, [b"up".to_vec(), b"esc".to_vec()]);
         assert_eq!(deadlines, [std::time::Duration::from_millis(25)]);
+    }
+
+    #[test]
+    fn a_keystroke_only_send_carries_no_return_address() {
+        use super::prefixes_return_address;
+        assert!(!prefixes_return_address("", true));
+        assert!(prefixes_return_address("answer the prompt", true));
+        assert!(!prefixes_return_address("answer the prompt", false));
     }
 }
 

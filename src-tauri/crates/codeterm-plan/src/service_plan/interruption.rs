@@ -79,6 +79,7 @@ pub fn provider_allowance_preflight(
 
 impl PlanStore {
     #[allow(clippy::too_many_arguments)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn assign_task_with_role_authorized(
         &self,
         plan_id: &str,
@@ -89,21 +90,16 @@ impl PlanStore {
         authority: &TaskMutationAuthority,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            authorize_task_mutation(plan, &plan.tasks[index], authority)?;
-            let task = &mut plan.tasks[index];
-            task.assigned_tab_id = Some(tab.into());
-            task.lane.tab_id = Some(tab.into());
-            task.taken_by_role = role.map(str::to_string);
-            task.peer = peer.map(str::to_string);
-            task.updated_at = now_ms;
-            let attempt =
-                super::task_attempts::new_assignment_attempt(task, tab, peer, role, now_ms);
-            task.execution_attempts.push(attempt);
-            Ok(())
-        })
+        self.assign_task_with_optional_binding(
+            plan_id,
+            task_id,
+            tab,
+            peer,
+            role,
+            None,
+            Some(authority),
+            now_ms,
+        )
     }
 
     fn attempt_is_active_for_interruption(
