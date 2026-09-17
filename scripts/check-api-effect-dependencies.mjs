@@ -18,12 +18,10 @@ function sourceFiles(directory) {
 
 function isApiCall(node) {
   if (!ts.isCallExpression(node)) return false;
-  const name = ts.isIdentifier(node.expression)
-    ? node.expression.text
-    : ts.isPropertyAccessExpression(node.expression)
-      ? node.expression.name.text
-      : "";
-  return apiCallNames.has(name) || /^(fetch|refetch|refresh)/u.test(name);
+  if (ts.isIdentifier(node.expression)) {
+    return apiCallNames.has(node.expression.text) || /^(fetch|refetch|refresh)/u.test(node.expression.text);
+  }
+  return ts.isPropertyAccessExpression(node.expression) && apiCallNames.has(node.expression.name.text);
 }
 
 function reachesApi(effect) {
@@ -42,6 +40,8 @@ function reachesApi(effect) {
 
 function isPrimitive(type, checker) {
   if (type.isUnion()) return type.types.every((member) => isPrimitive(member, checker));
+  const typeNames = [type.symbol?.name, type.aliasSymbol?.name, checker.typeToString(type)];
+  if (typeNames.some((name) => /(?:^|[.< ])(?:MutableRefObject|RefObject)(?:<|$)/u.test(name ?? ""))) return true;
   if (checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0) return true;
   return Boolean(
     type.flags & (
