@@ -121,11 +121,12 @@ each on its own self-hosted runner:
 - `.github/workflows/release-linux.yml` on the **ROG's WSL2** (`[self-hosted, linux-build]`) —
   builds + signs `x86_64` Linux `.deb`+`.AppImage` natively, then publishes/mirrors.
 
-0. **Preflight the release head.** `develop` must contain `origin/master` before the version bump
-   (`git merge-base --is-ancestor origin/master origin/develop`). If not, merge `master` into
-   `develop`, resolve conflicts, run gates, push, and visually check dev from the main checkout
-   before continuing. Clean merged lane worktrees under `../codeterm-worktrees/` so old artifacts
-   and stale agents do not influence the release.
+0. **Preflight the release head.** The release branch is cut from `master` and dies at the tag, so
+   it cannot drift from it — verify it is still descended from `origin/master`
+   (`git merge-base --is-ancestor origin/master origin/release/X.Y.Z`) and, if a hotfix landed on
+   `master` meanwhile, merge `master` in, run gates and push before continuing. Visually check dev
+   from the main checkout, and clean merged lane worktrees under `../codeterm-worktrees/` so old
+   artifacts and stale agents do not influence the release.
 1. **Land the release on `master` via a PR.** Open a PR of the release branch → `master`
    (`gh pr create --base master --head <branch>`) and merge it. Direct pushes to `master` are
    intentionally gated — always go through the PR.
@@ -141,7 +142,7 @@ each on its own self-hosted runner:
 
 Recovery rule: do not move or overwrite a published release tag/artifact by default. If a bad
 public release is intentionally deleted, cut the fix as a new patch version through the same
-develop → master PR path and trigger it with a new `release-X.Y.Z` tag.
+release branch → master PR path and trigger it with a new `release-X.Y.Z` tag.
 
 Closeout rule: once artifacts publish, remove merged lane worktrees under `../codeterm-worktrees/`,
 delete merged `lane/*` branches, close finished worker tabs, stop lane-specific dev daemons, and

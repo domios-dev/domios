@@ -1,13 +1,13 @@
 # Releasing CodeTerm
 
-How a versioned release goes from `develop` to a published GitHub release the
-in-app updater can pull. This is the **map**; the **executable procedure** (every
+How a versioned release goes from a short-lived `release/X.Y.Z` branch to a published GitHub
+release the in-app updater can pull. This is the **map**; the **executable procedure** (every
 command, every secret, every retry) lives in the `github-release` skill:
 `.agents/skills/github-release/SKILL.md`. Build-farm/runner internals live in
 `.codeterm/build-machine/README.md`.
 
 **Golden rule:** every artifact is built from the **tagged commit on `master`** —
-never from `develop`, never from an untagged tree.
+never from `release/X.Y.Z`, never from an untagged tree.
 
 This is the public-release operation only. For a local production installer use
 `essences/build.md#local-production-build-and-self-install`; for a dev window use
@@ -78,20 +78,19 @@ updater-manifest verification passes.
 ## 1. Preflight (before bumping the version)
 
 Canonical work for a version collects on `integrate/<version>`: accepted lanes merge there with
-real merge commits, and the verified branch merges into `develop`. Batch `develop` pushes: every
-push to `develop` queues CI (documentation-only changes excepted), so push once per verified wave,
-never once per lane.
+real merge commits. `release/X.Y.Z` is cut from `master` only when the release is actually being
+cut — it exists to carry the version bump and the final gate, and it dies at the tag. A release
+branch opened before there is a release to make is the long-lived integration branch we retired,
+wearing a new name. Work that carries no version reaches `master` on its own branch, directly. Batch `release/X.Y.Z` pushes: every push to it queues CI
+(documentation-only changes excepted), so push once per verified wave, never once per lane.
 
-Run from the canonical checkout, on `develop`:
+Run from the canonical checkout, on `release/X.Y.Z`:
 
 ```bash
+VER=X.Y.Z
 git fetch origin --prune
-git checkout develop
-git pull --ff-only origin develop
-git merge-base --is-ancestor origin/master HEAD || {
-  git merge --no-ff origin/master --no-edit
-  # resolve conflicts, run the gates below, push develop before bumping the version
-}
+git checkout "release/$VER"
+git pull --ff-only origin "release/$VER"
 git status --short                  # must be clean
 curl -s http://127.0.0.1:7686/api/health
 ```
@@ -106,14 +105,13 @@ re-cut from the new merge commit — a full wasted build cycle across all three 
 `git diff --exit-code src-tauri/Cargo.lock` returning clean before opening the master PR.
 
 ```bash
-VER=X.Y.Z
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
 ./build.sh release-preflight           # host-local PR matrix + both Cargo lockfiles
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
   src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
 git commit -m "release: v$VER"
-git push origin develop
+git push origin "release/$VER"
 ```
 
 `release-preflight` runs formatting, both Rust workspaces, app and CLI tests,
@@ -124,7 +122,7 @@ Cheap deterministic policy and freshness checks run first so a stale artifact or
 oversized local source cannot waste a full test cycle.
 
 Then start dev from the main checkout and visually confirm the app, clean old lane worktrees
-(`../codeterm-worktrees/`), and open the PR `develop` → `master`. Collect the exact
+(`../codeterm-worktrees/`), and open the PR `release/X.Y.Z` → `master`. Collect the exact
 `Repository-Issue:` lines from the included integration PR body and render the closing block:
 
 ```bash
@@ -133,7 +131,7 @@ python3 scripts/release_issue_contract.py repository-closes \
 ```
 
 Put that output in the final PR body. GitHub applies `Closes #N` only when the PR targets the
-default branch, so integration PRs targeting `develop` retain non-closing metadata instead.
+default branch, so integration PRs targeting `release/X.Y.Z` retain non-closing metadata instead.
 
 ## 2. Cut the release: one trigger tag
 
@@ -148,11 +146,18 @@ git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"   # must 
 test "$(git rev-parse origin/master)" = "$INTENDED_MASTER_SHA"
 
 git tag "release-$VER" "$INTENDED_MASTER_SHA"
-git push origin "refs/tags/release-$VER"   # full ref: the branch shares this name
+git push origin "refs/tags/release-$VER"   # full ref: legacy release-X.Y.Z branches share this name
 ```
 
 Push **only** `release-X.Y.Z`. Do not also create/push `vX.Y.Z` — the three workflows stamp and
 publish under `vX.Y.Z` themselves. Watch it: `gh run watch --repo rollacode/codeterm`.
+
+Once the tag is pushed, delete the `release/X.Y.Z` branch — it dies with the tag; there is no
+back-merge to wait for:
+
+```bash
+git push origin --delete "release/$VER"
+```
 
 ## 3. Artifact matrix
 
@@ -425,7 +430,7 @@ prompt assertion then passes. Keep child-exit diagnostics instead of widening wa
 | An archived release manifest downloads a later release or 404s after a newer version becomes GitHub Latest | The manifest used `/releases/latest/download/…` floating asset URLs | Generate all `latest.json` and updater fragment URLs with `/releases/download/vX.Y.Z/…`. Track this in issue #265; do not use an archived manifest as a stable download record until fixed. |
 | Public issue validation fails with `python: command not found` | The self-hosted runner exposes Python as `python3` only | Keep release workflows on `python3`; rerun the failed PR check after the workflow fix is pushed. |
 | `release.yml` preflight fails with `No Keychain password item found for profile: codeterm`, blaming expired Apple Developer agreements | The notary **keychain profile** vanished. `notarytool store-credentials` writes to the data-protection keychain, which only persists from a real interactive login session — from the runner (or any agent shell) it reports success and stores nothing, so the profile rots silently and cannot be re-provisioned automatically | Fixed in 1.7.5: preflight and `notarize-dmg.sh` now authenticate with `--apple-id/--team-id/--password`, taken from the `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_PASSWORD` repo secrets and falling back to `~/.claude/.secrets/apple-notary.env`. No keychain profile is consulted. If preflight still fails, the credentials themselves are bad — verify with `xcrun notarytool history --apple-id … --team-id … --password …` before suspecting Apple agreements, because the old error message pointed at the wrong cause. |
-| `git push origin release-X.Y.Z` → `src refspec release-X.Y.Z matches more than one` | The release branch and the trigger tag share a name, so the short refspec is ambiguous | Push the tag by its full ref: `git push origin refs/tags/release-X.Y.Z`. |
+| `git push origin release-X.Y.Z` → `src refspec release-X.Y.Z matches more than one` | A dash-named `release-X.Y.Z` branch from before the `release/X.Y.Z` convention still exists and shares the tag's name, so the short refspec is ambiguous | Push the tag by its full ref: `git push origin refs/tags/release-X.Y.Z`. Today's branches carry a slash, so new releases cannot collide — the full ref stays the habit because it is never ambiguous. |
 | Apple notarization is broken and the whole Mac release job dies before Linux arm64 builds | Preflight aborted on the first failed check | Preflight now evaluates every check and exits once at the end, so the log shows the full picture. Note the Mac job still owns Linux arm64: `build-all.sh`'s `run_wave` keeps a failing engine from aborting the wave, but `publish-release.sh` deliberately bails when an artifact is missing, so a broken macOS leg still holds back the publish. To ship Linux arm64 independently the job would have to be split — not done yet. |
 | A release bundle fails with missing `dist`, `bundled-cli`, or `bundled-embed` after `beforeBuildCommand` was removed | A direct Tauri release entrypoint bypassed `build.sh release-inputs`, so the frontend or target-correct sidecars were never staged | Keep `beforeBuildCommand` absent. Run the target-aware `release-inputs` operation before every direct Tauri release build, then rerun the unpublished release from the same verified source commit. |
 | Windows release-input preparation builds the embed binary, then `bundle-embed.js` reports that `rustc` is not recognized | A nested Windows command shell cannot resolve bare `rustc` even though Cargo inherited a valid toolchain path | Use the current helper, which resolves the compiler from `RUSTC` or Cargo home without a shell lookup, then rerun `build.ps1 release-inputs`. |
@@ -480,8 +485,8 @@ gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 The first act of a release train is `docs/release/<version>-pr.md`, created before the first lane is
 dispatched. It carries the plan id and goal, the slice-to-issue map, and empty "Fixed",
 "Investigated, not fixed", and "Deferred, with reasons" sections. Each slice appends its own block
-there **as its lane merges into `develop`**, with one `Repository-Issue:` metadata line per issue it
-actually fixed.
+there **as its lane merges into `release/X.Y.Z`**, with one `Repository-Issue:` metadata line per
+issue it actually fixed.
 
 This exists because the alternative has failed in practice: reconstructing the closing set from
 `git log` at release time is when issues get missed, and a fix that closed an issue nobody recorded
@@ -497,8 +502,8 @@ Rules the renderer enforces, so they are not optional:
 - A deferred issue is named in the body with its reason. "Not in this release" is a decision and
   belongs in the record; silently dropping it is not.
 
-Before opening the final `develop` → `master` PR, render the closing block rather than hand-writing
-it:
+Before opening the final `release/X.Y.Z` → `master` PR, render the closing block rather than
+hand-writing it:
 
 ```bash
 python3 scripts/release_issue_contract.py repository-closes --body-file docs/release/<version>-pr.md
@@ -515,7 +520,7 @@ non-default branches declare one exact line per fixed issue:
 Repository-Issue: rollacode/codeterm#294
 ```
 
-The final `develop` → `master` PR renders those declarations as `Closes #294`; merging that PR
+The final `release/X.Y.Z` → `master` PR renders those declarations as `Closes #294`; merging that PR
 closes the issue. The validator rejects closing keywords on integration PRs because GitHub ignores
 them outside the default branch.
 
@@ -606,17 +611,9 @@ cargo sweep --time 2
 ```
 
 Remove merged lane worktrees and delete their merged `lane/*` branches, close finished worker
-Tabs, stop lane-specific dev daemons. Then merge the released `master` back into `develop` and push
-once:
-
-```bash
-git checkout develop
-git pull --ff-only origin develop
-git merge --no-ff origin/master -m "Merge master after the $VER release"
-git push origin develop
-```
-
-Don't skip this — a stale `develop` makes the next release start from a missing-commits base.
+Tabs, stop lane-specific dev daemons. The `release/X.Y.Z` branch itself is already gone (deleted
+with the tag in step 2) — there is no back-merge step: a branch that dies at the tag cannot drift
+from `master` in the first place.
 
 ## Gotchas that have cost real build time (general, not version-specific)
 

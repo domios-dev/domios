@@ -387,7 +387,7 @@ commit that carries the fix and in the PR that merges it. This applies to every
 repository, this one and the plugin repos alike. Referencing an issue you did not
 fix is worse than none: use `Refs #N` for context, never a closing keyword.
 
-PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `essences/release.md`.
+PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `release/X.Y.Z` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `essences/release.md`.
 
 ## Documentation
 

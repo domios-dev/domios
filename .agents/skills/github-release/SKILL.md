@@ -11,14 +11,14 @@ description: >-
 # End-to-end CodeTerm release to GitHub
 
 **Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
-"Default release path" right below). The pipeline: bump version on a release branch/develop →
+"Default release path" right below). The pipeline: bump version on the open `release/X.Y.Z` branch →
 sync versions → merge to master by PR → tag the master commit with `release-X.Y.Z` → build
 signed+notarized macOS (arm64+x86_64) + Linux (arm64+x86_64) + Windows (arm64+x86_64) → upload
 to private repo (source) → mirror artifacts + signed `latest.json` to public repo (so the GUI
 updater works) → (optional) update Homebrew cask. The manual per-platform / multi-machine steps
 further down are the fallback for when the runners are down.
 
-**Golden rule: all builds happen from the tagged commit on master. Never build release artifacts from develop.**
+**Golden rule: all builds happen from the tagged commit on master. Never build release artifacts from `release/X.Y.Z`.**
 
 ---
 
@@ -30,22 +30,18 @@ Linux `linux-build` via `release-linux.yml`. **Self-hosted runner minutes are fr
 how we release without burning GitHub-hosted minutes. You do NOT build by hand on multiple
 machines anymore (that's the fallback at the bottom).
 
-**Normal change flow:** first prove `develop` already contains `origin/master`, merge `master` into
-`develop` if needed, verify the UI from the main checkout on `develop`, clean old lane worktrees,
-then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`, open a PR
-from `develop` into `master`, and merge it only after required checks are green. Releases are cut
-from the resulting `master` commit.
+**Normal change flow:** verify the UI from the main checkout on `release/X.Y.Z`, clean old lane
+worktrees, then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`,
+open a PR from `release/X.Y.Z` into `master`, and merge it only after required checks are green.
+Releases are cut from the resulting `master` commit.
 
 **Hard preflight before version bump / master PR:**
 
 ```bash
+VER=X.Y.Z
 git fetch origin --prune
-git checkout develop
-git pull --ff-only origin develop
-git merge-base --is-ancestor origin/master HEAD || {
-  git merge --no-ff origin/master --no-edit
-  # Resolve conflicts, run the gates below, commit, and push develop before bumping the version.
-}
+git checkout "release/$VER"
+git pull --ff-only origin "release/$VER"
 
 git status --short                  # must be clean
 ls -la ../codeterm-worktrees         # should be empty or only explicitly preserved lanes
@@ -53,8 +49,7 @@ curl -s http://127.0.0.1:7686/api/health
 ```
 
 Start dev from this main checkout and visually inspect the release UI before opening the release
-PR. Do not cut a release from a lane worktree, a stale dev build, or a `develop` that is missing
-commits already present on `master`.
+PR. Do not cut a release from a lane worktree or a stale dev build.
 
 **To cut a release — after the version bump PR lands on `master`, push only the trigger tag:**
 
@@ -68,6 +63,13 @@ git tag release-X.Y.Z && git push origin release-X.Y.Z
 
 Do **not** create or push a separate `vX.Y.Z` tag for the normal path. The workflows build from
 the `release-X.Y.Z` tag and publish/stamp/map the GitHub releases as `vX.Y.Z` themselves.
+
+Once the tag is pushed, delete the `release/X.Y.Z` branch — it dies with the tag, and there is no
+back-merge step waiting on it:
+
+```bash
+git push origin --delete "release/$VER"
+```
 
 Pushing `release-X.Y.Z` triggers the runners, which **fully automatically**:
 1. preflight (Developer ID, notary, minisign key, docker images, VM, gh) →
@@ -182,18 +184,14 @@ Rust builds share the target dir — concurrent `tauri build` + `tauri dev` figh
 ./build.sh kill
 ```
 
-### 1. Bump version on develop/release branch (one commit)
+### 1. Bump version on the release branch (one commit)
 
 ```bash
-git checkout develop
-git fetch origin --prune
-git pull --ff-only origin develop
-git merge-base --is-ancestor origin/master HEAD
-
-# If the merge-base check fails, merge origin/master into develop first and stop here until
-# develop is pushed, green, and visually checked from the main checkout.
-
 VER=1.2.0  # new
+git checkout "release/$VER"
+git fetch origin --prune
+git pull --ff-only origin "release/$VER"
+
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
 npm run check:versions
@@ -206,7 +204,7 @@ npm run check:versions
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
   src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
 git commit -m "release: v$VER"
-git push origin develop
+git push origin "release/$VER"
 ```
 
 Run this on the exact release head before opening the master PR:
@@ -240,12 +238,12 @@ deleted without that superseded record.
 
 ### 2. Merge to master by PR + push the release trigger tag
 
-**Always via PR on GitHub** — don't direct-push develop to master. This avoids merge-commit
+**Always via PR on GitHub** — don't direct-push `release/X.Y.Z` to master. This avoids merge-commit
 collisions when multiple machines operate on master. The normal trigger is a single
 `release-$VER` tag on the master merge commit.
 
 ```bash
-# On GitHub: open PR develop → master, watch checks, and merge via "Create a merge commit".
+# On GitHub: open PR release/X.Y.Z → master, watch checks, and merge via "Create a merge commit".
 gh pr checks <pr-number> --watch
 gh pr view <pr-number> --json mergeable,mergeStateStatus,statusCheckRollup,headRefOid
 
@@ -262,6 +260,12 @@ git push origin "release-$VER"
 Do **not** create or push `v$VER` here. The release workflows create/update the private and
 public GitHub releases under `v$VER` and map the updater metadata there.
 
+Once the tag is pushed, delete the `release/X.Y.Z` branch — it dies with the tag:
+
+```bash
+git push origin --delete "release/$VER"
+```
+
 ### 2.1. Release closeout cleanup
 
 After the workflows publish successfully and before archiving the plan:
@@ -276,14 +280,9 @@ Remove merged lane worktrees and delete their merged `lane/*` branches. Close fi
 and stop lane-specific dev daemons. Keep only documented stashes or explicitly preserved scratch
 checkouts. Do not leave `src-tauri/target` or lane `target/` directories to grow silently between
 releases; `cargo sweep --time 2` is the default cleanup because active build artifacts are touched
-daily and stale layers otherwise accumulate into tens of GB.
-
-If you need to merge post-release develop commits to master (docs, skills, etc.) after the tag:
-```bash
-git checkout master && git pull origin master --no-rebase
-git merge --no-ff origin/develop --no-edit
-git push origin master
-```
+daily and stale layers otherwise accumulate into tens of GB. The `release/X.Y.Z` branch is already
+gone (deleted with the tag above) — there is no back-merge step: a branch that dies at the tag
+cannot drift from `master` in the first place.
 
 If push to master is rejected: always `git pull origin master --no-rebase --no-edit` first — origin/master may already have a merge commit from a GitHub PR that your local doesn't have yet.
 
@@ -551,19 +550,7 @@ For historical cleanup, `node scripts/sync-release-notes.mjs --backfill 10` pres
 source notes, replaces only placeholders or weak generated bodies, and synchronizes the chosen
 release-PR summary to both repos.
 
-### 10. Sync develop with master + return to develop
-
-After the release commit + tag land on master, `develop` is behind by the release/merge commits (and any docs/skill tweaks the release agent committed directly on master during the run). Fast-forward develop and push so the next release doesn't start from a stale base.
-
-```bash
-git checkout develop
-git pull --ff-only origin master   # fast-forward; master == develop + release commits
-git push origin develop
-```
-
-If `--ff-only` refuses (someone committed to develop during the release window), `git merge --no-ff origin/master --no-edit && git push origin develop`. **Don't skip this** — v1.2.1 forgot it and the next release had to re-discover the missing commits manually.
-
-### 11. Bump Homebrew cask (optional, repos still private)
+### 10. Bump Homebrew cask (optional, repos still private)
 
 ```bash
 gh api repos/rollacode/codeterm/releases/tags/v$VER --jq '.assets[] | select(.name|endswith(".dmg")) | "\(.name) \(.digest)"'
@@ -582,7 +569,7 @@ git push origin main
 
 Both repos are currently PRIVATE — `brew install codeterm` still won't work for the public. Bumping the cask keeps the tap self-consistent for when repos go public.
 
-### 12. Regenerate translated READMEs from README.md (agent pass) translations must not ship stale
+### 11. Regenerate translated READMEs from README.md (agent pass) translations must not ship stale
 
 ## Retrigger in-place (post-publish hotfix)
 
@@ -591,9 +578,10 @@ it's safe to force-move the release trigger tag and re-upload artifacts under th
 rather than bumping. Used for v1.1.15 (2026-05-05).
 
 ```bash
-# 1. Commit fix on develop, merge by PR to master:
-git checkout develop && git push origin develop
-# On GitHub: open PR develop -> master and merge it.
+# 1. Commit fix on a fix/* branch, merge by PR directly to master
+#    (the release/X.Y.Z branch is already gone by this point — it died with the tag):
+git checkout -b fix/<description> && git push origin fix/<description>
+# On GitHub: open PR fix/<description> -> master and merge it.
 git checkout master && git pull origin master --no-rebase
 
 # 2. Move the release trigger tag:

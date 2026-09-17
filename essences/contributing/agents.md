@@ -121,7 +121,7 @@ complete. Typical gates include:
 - Playwright/web-mode checks for UI behavior.
 - Manual UI oracle checks when the bug is visual or depends on real session
   data.
-- Code review before merging a feature branch back toward `develop`.
+- Code review before merging a feature branch into its integration branch.
 
 A lane is not complete just because its implementation compiles. The relevant
 behavior must be exercised at the layer where the user-visible bug occurs.

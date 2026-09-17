@@ -11,8 +11,8 @@ base="${VISUAL_GOLDEN_BASE:-}"
 if [ -z "$base" ]; then
   if git rev-parse --verify @{upstream} >/dev/null 2>&1; then
     base="$(git merge-base HEAD @{upstream})"
-  elif git rev-parse --verify origin/develop >/dev/null 2>&1; then
-    base="$(git merge-base HEAD origin/develop)"
+  elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+    base="$(git merge-base HEAD origin/master)"
   else
     base="HEAD"
   fi
