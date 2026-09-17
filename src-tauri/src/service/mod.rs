@@ -102,6 +102,7 @@ mod spawn_rollback;
 mod spawn_shell;
 pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
+pub(crate) mod startup_nudge;
 mod status_reconciliation;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;

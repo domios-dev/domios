@@ -652,11 +652,7 @@ impl ServiceContext {
             if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
-            if let Err(error) = service.deliver_worker_ack_reminder(&agent_tab_id, &attempt_id) {
-                log::warn!(
-                    "[agent-startup] binding reminder delivery failed attempt={attempt_id}: {error}"
-                );
-            }
+            service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
@@ -733,6 +729,19 @@ impl ServiceContext {
             super::task_assignment::authenticated_tab_binding(tab)
                 .map(|binding| (binding.session_id, binding.session_binding_nonce))
         })
+    }
+
+    /// Nudge a tab that has not acknowledged its startup. The tab's own state
+    /// decides whether the nudge is this text at all: a terminal still owned by
+    /// a provider dialog gets that dialog answered instead, and a terminal with
+    /// no agent behind it gets nothing.
+    pub(crate) fn nudge_unacknowledged_startup(&self, tab_id: &str, attempt_id: &str) {
+        if !self.classify_startup_nudge(tab_id).delivers() {
+            return;
+        }
+        if let Err(error) = self.deliver_worker_ack_reminder(tab_id, attempt_id) {
+            log::warn!("[worker-ack] reminder delivery failed attempt={attempt_id}: {error}");
+        }
     }
 
     pub(crate) fn deliver_worker_ack_reminder(
@@ -863,23 +872,8 @@ impl ServiceContext {
                     Some(session_id),
                 )
             });
-            // Only a tab with an authenticated worker binding can receive this.
-            // Without one there is no agent reading the PTY, so the reminder
-            // would be typed into whatever shell is sitting there as literal
-            // keystrokes — which is how a failed launch used to spray our own
-            // routing markers across the user's terminal.
-            if reminder_allowed {
-                if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id)
-                {
-                    log::warn!(
-                        "[worker-ack] reminder delivery failed attempt={attempt_id}: {error}"
-                    );
-                }
-            } else {
-                log::warn!(
-                    "[worker-ack] tab={worker_tab_id} attempt={attempt_id} never bound a worker session; \
-                     recording the startup deadline instead of writing into its shell"
-                );
+            service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
+            if !reminder_allowed {
                 let _ = service.plan_store.mark_worker_startup_deadline(
                     &plan_id,
                     &task_id,
@@ -911,19 +905,7 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            // Same rule as the first reminder: a tab that never bound a worker
-            // session has no agent to read this, only a shell to type it into.
-            if service
-                .authenticated_worker_binding(&worker_tab_id)
-                .is_some()
-            {
-                if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id)
-                {
-                    log::warn!(
-                        "[worker-ack] final binding reminder delivery failed attempt={attempt_id}: {error}"
-                    );
-                }
-            }
+            service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
             service.publish_worker_lifecycle_report(
                 &parent_tab_id,
                 &worker_tab_id,
