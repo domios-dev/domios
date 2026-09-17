@@ -482,10 +482,12 @@ mod tests {
     }
 
     #[test]
-    fn orphan_selection_spares_every_host_with_a_live_parent() {
+    fn orphan_selection_spares_live_parent_but_all_selects_it() {
         let expected = Path::new(r"C:\CodeTerm\conpty\x64\OpenConsole.exe");
         let path = expected.to_str().unwrap();
 
+        // Process enumeration is machine-wide; feed selection its complete
+        // candidate state directly so this test owns every liveness input.
         assert!(is_selected_bundled_host(
             &orphan(10, 8, path),
             7,
@@ -711,52 +713,6 @@ mod tests {
         std::fs::remove_file(&host).unwrap();
         std::fs::rename(&replacement, &host).unwrap();
         assert_eq!(std::fs::read(&host).unwrap(), b"replacement");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn orphan_cleanup_spares_a_live_parents_host_but_all_reaps_it() {
-        use std::process::{Command, Stdio};
-        use std::time::Duration;
-
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path().join("conpty").join("x64");
-        std::fs::create_dir_all(&dir).unwrap();
-        let host = dir.join("OpenConsole.exe");
-        std::fs::copy(std::env::current_exe().unwrap(), &host).unwrap();
-
-        let mut command = Command::new(&host);
-        command
-            .args([
-                "--exact",
-                "update::conpty_cleanup::tests::openconsole_test_helper",
-                "--nocapture",
-            ])
-            .env("CODETERM_OPENCONSOLE_TEST_HELPER", "1")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped());
-        crate::process_util::no_window_std(&mut command);
-        let mut child = command.spawn().unwrap();
-
-        let readiness = wait_for_helper_ready(&mut child, Duration::from_secs(10));
-        if !readiness {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        assert!(readiness, "OpenConsole helper did not become ready");
-
-        // The helper's parent is this live test process, so the pre-installer
-        // sweep must leave it alone; only the replacement sweep may reap it.
-        let spared = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::Orphaned).unwrap();
-        assert_eq!(spared, 0);
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "helper was reaped early"
-        );
-
-        let cleaned = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::All).unwrap();
-        assert_eq!(cleaned, 1);
-        child.wait().unwrap();
     }
 
     #[cfg(windows)]

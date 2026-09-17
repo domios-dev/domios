@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - 'cli/**'
-      - 'docs/cli-manifest.json'
-      - 'docs/CLI.md'
+      - 'essences/cli-manifest.json'
+      - 'essences/cli.md'
       - 'src-tauri/prompts/codeterm_cli.md'
       - 'packages/chat-ui/src/codeterm/**'
       - '.github/workflows/cli-source-of-truth.yml'

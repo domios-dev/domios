@@ -1,9 +1,9 @@
 //! SOURCE OF TRUTH for the CodeTerm CLI surface.
 //! On any change here run `codeterm cli-manifest --write` to regenerate
-//! docs/cli-manifest.json + docs/CLI.md. The tests `cli_manifest_is_fresh`,
+//! essences/cli-manifest.json + essences/cli.md. The tests `cli_manifest_is_fresh`,
 //! `docs_cli_md_is_fresh`, and `prompt_cli_commands_exist` (cli/src/cmd/manifest.rs)
 //! plus the chat-ui `recognize.test.ts` fail CI if anything drifts.
-//! See docs/contributing/cli.md.
+//! See essences/contributing/cli.md.
 
 use clap::{Parser, Subcommand};
 
@@ -14,8 +14,10 @@ use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
 use super::effort::EffortAction;
+use super::essence_map::EssenceMapAction;
 use super::inbox::InboxAction;
 use super::integration::IntegrationAction;
+use super::lane::LaneAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
@@ -81,10 +83,10 @@ pub enum Commands {
 
     /// Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
     CliManifest {
-        /// Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
+        /// Regenerate committed artifacts (essences/cli-manifest.json + essences/cli.md)
         #[arg(long)]
         write: bool,
-        /// Emit the docs/CLI.md auto-block markdown instead of JSON
+        /// Emit the essences/cli.md auto-block markdown instead of JSON
         #[arg(long, conflicts_with = "write")]
         markdown: bool,
     },
@@ -308,6 +310,12 @@ pub enum Commands {
         action: PlanAction,
     },
 
+    /// Run and read daemon-owned diagnostics for worker lanes
+    Lane {
+        #[command(subcommand)]
+        action: LaneAction,
+    },
+
     /// Requirements specs — first-class WHAT documents
     Spec {
         #[command(subcommand)]
@@ -318,6 +326,13 @@ pub enum Commands {
     Effort {
         #[command(subcommand)]
         action: EffortAction,
+    },
+
+    /// Generate and validate the source-backed essence map
+    #[command(name = "essence-map")]
+    EssenceMap {
+        #[command(subcommand)]
+        action: EssenceMapAction,
     },
 
     /// Plan-backed tasks across active plans

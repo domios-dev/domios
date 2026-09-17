@@ -650,47 +650,24 @@ pub async fn task_assign(
         .show_task(&tid)
         .map(|detail| detail.task.interruption.owner_epoch)
         .unwrap_or(0);
-    if owner_epoch > 0 {
-        let authority = rest_task_mutation_authority(&headers)?;
-        let mux = state.svc.mux.read();
-        if !mux.get_tab(&authority.tab_id).is_some_and(|tab| {
-            tab.agent_session_id.as_deref() == Some(&authority.session_id)
-                && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
-                && tab.reported_session_binding_nonce.as_deref()
-                    == Some(&authority.session_binding_nonce)
-        }) {
-            return Err(text_err(
-                axum::http::StatusCode::CONFLICT,
-                "task mutation caller rebound",
-            ));
-        }
-        state
-            .svc
-            .plan_store
-            .assign_task_with_role_authorized(
-                &id,
-                &tid,
-                &body.tab,
-                body.peer.as_deref(),
-                planner_role_for_tab(&state, &body.tab),
-                &authority,
-                epoch_ms(),
-            )
-            .map_err(plan_err)?;
-        drop(mux);
+    let authority = if owner_epoch > 0 {
+        Some(rest_task_mutation_authority(&headers)?)
     } else {
-        state
-            .svc
-            .plan_store
-            .assign_task_with_role(
-                &id,
-                &tid,
-                &body.tab,
-                body.peer.as_deref(),
-                planner_role_for_tab(&state, &body.tab),
-                epoch_ms(),
-            )
-            .map_err(plan_err)?;
+        None
+    };
+    {
+        let mux = state.svc.mux.read();
+        crate::service::task_assignment::assign_existing_task(
+            &state.svc.plan_store,
+            &mux,
+            &id,
+            &tid,
+            &body.tab,
+            body.peer.as_deref(),
+            authority.as_ref(),
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
     }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -994,7 +971,6 @@ pub async fn task_respawn(
             &tid,
             &created.attempt.id,
             respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
-            std::time::Duration::ZERO,
         );
     }
     emit_plan_changed(&state, &id);

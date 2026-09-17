@@ -73,31 +73,14 @@ pub(crate) fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, 
     fs::read_to_string(file).map_err(|e| format!("read --from-pad as UTF-8: {e}"))
 }
 
-/// No prescribed template inlines a report body any more; past this an argv body
-/// is an authoring mistake, not a deliberate short call.
-pub const INLINE_BODY_REFUSAL_LIMIT: usize = 4000;
-
-/// Cheap, local pre-flight for an argv report body. Returns the refusal text so
-/// an oversized paste costs one error instead of a failed mutation.
-pub fn oversize_inline_refusal(body: Option<&str>) -> Option<String> {
-    let count = body?.chars().count();
-    if count <= INLINE_BODY_REFUSAL_LIMIT {
-        return None;
-    }
-    Some(format!(
-        "Error: this report body is {count} characters and went inline through the shell, which \
-         silently mangles backticks, $, quotes, and newlines. Refused before the report was sent.\n\
-         Required: stage it in the pad (`codeterm pad path`) and pass --from-pad."
-    ))
-}
-
-/// Must run before the first socket call so the refusal never pays for a
-/// round-trip, a task lookup, or the report mutation.
-pub fn refuse_oversize_inline(body: Option<&str>) {
-    if let Some(refusal) = oversize_inline_refusal(body) {
-        eprintln!("{refusal}");
-        std::process::exit(1);
-    }
+/// Pre-flight for an argv report body, run before the first socket call so a
+/// refused report costs one error instead of a round-trip and a mutation.
+pub fn refuse_inline_report_body(body: Option<&str>) {
+    crate::cmd::quoted_handoff::refuse_inline(
+        crate::cmd::quoted_handoff::INLINE_SOURCE,
+        body.unwrap_or_default(),
+        crate::cmd::quoted_handoff::PAD_REMEDY,
+    );
 }
 
 pub fn list_pad_files() -> Result<Vec<PathBuf>, String> {
@@ -168,37 +151,6 @@ mod tests {
             read_from_pad_root(&pad, "nested/report.md").unwrap(),
             "quotes ` $ Привіт\n\n"
         );
-    }
-
-    #[test]
-    fn oversize_inline_report_body_is_refused_with_the_staging_remedy() {
-        let body = "x".repeat(INLINE_BODY_REFUSAL_LIMIT + 1);
-        let refusal =
-            oversize_inline_refusal(Some(&body)).expect("an oversized argv body is refused");
-        assert!(refusal.contains("--from-pad"));
-        assert!(refusal.contains("codeterm pad path"));
-        assert!(refusal.contains(&(INLINE_BODY_REFUSAL_LIMIT + 1).to_string()));
-    }
-
-    /// Negative control: the shapes real callers inline today stay accepted.
-    #[test]
-    fn prescribed_and_scalar_inline_report_bodies_are_not_refused() {
-        let worker_template = "STATUS: in_review\nCHANGES: cli/src/cmd/payload_source.rs\n\
-             TESTS RUN: deferred to Orchestrator canonical QA\nGATES REQUESTED: none\n\
-             FOLLOWUP: Orchestrator reviews and closes the task";
-        assert!(oversize_inline_refusal(Some(worker_template)).is_none());
-        assert!(oversize_inline_refusal(Some("Lifecycle milestone appended")).is_none());
-        assert!(oversize_inline_refusal(Some(&"y".repeat(INLINE_BODY_REFUSAL_LIMIT))).is_none());
-        assert!(oversize_inline_refusal(None).is_none());
-    }
-
-    #[test]
-    fn oversize_refusal_counts_characters_not_bytes() {
-        // Two bytes per char, so a byte-counting guard would refuse at the limit.
-        let body = "и".repeat(INLINE_BODY_REFUSAL_LIMIT);
-        assert_eq!(body.chars().count(), INLINE_BODY_REFUSAL_LIMIT);
-        assert!(body.len() > INLINE_BODY_REFUSAL_LIMIT);
-        assert!(oversize_inline_refusal(Some(&body)).is_none());
     }
 
     #[test]

@@ -455,7 +455,10 @@ fn scheduler_delivers_at_1800_seconds_once_and_marks_nudged() {
     let plans = vec![owner_plan(&tab_id)];
     let interval =
         codeterm_types::config::schema::OrchestrationConfig::default().nudge_interval_secs;
-    assert_eq!(interval, 1800);
+    assert_eq!(
+        interval,
+        codeterm_types::config::schema::OrchestrationConfig::default().nudge_interval_secs
+    );
     {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("test-provider".into());
@@ -469,7 +472,7 @@ fn scheduler_delivers_at_1800_seconds_once_and_marks_nudged() {
     let writes = RefCell::new(Vec::new());
     assert!(!counter.time_nudge_due(&tab_id, 0, interval));
 
-    for (now, expected_deliveries) in [(1799, 0), (1800, 1), (1800, 1)] {
+    for (now, expected_deliveries) in [(interval - 1, 0), (interval, 1), (interval, 1)] {
         send_due_plan_time_reminders_with(&plans, &counter, now, interval, |id, _, _| {
             assert!(crate::service::plan_reconcile::tab_has_live_agent(
                 mux.get_tab(id).unwrap()

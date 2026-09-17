@@ -2,13 +2,15 @@
 //! inside the repository size gate; the module contract is unchanged.
 
 mod idle_coordination;
+mod notify_rules;
+mod prompt_diet;
 mod task_sequencing;
 
 use super::*;
 
 /// The committed clap manifest is the authority on which commands exist.
 /// Generated artifact — read here, never written.
-const CLI_MANIFEST: &str = include_str!("../../../docs/cli-manifest.json");
+const CLI_MANIFEST: &str = include_str!("../../../essences/cli-manifest.json");
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
@@ -262,7 +264,7 @@ fn prompt_cli_references_exist_in_manifest() {
     assert!(
         problems.is_empty(),
         "prompts teach commands the CLI manifest does not have. If the command \
-         is new, docs/cli-manifest.json needs regeneration:\n{}",
+         is new, essences/cli-manifest.json needs regeneration:\n{}",
         problems.join("\n")
     );
 }
@@ -372,9 +374,9 @@ fn cron_skill_prompts_keep_their_substitution_slots() {
 
 #[test]
 fn orchestration_guidance_uses_only_complete_document_reads() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../docs/ORCHESTRATION.md");
-    const PLANNER_DOC: &str = include_str!("../../../docs/PLANNER.md");
-    const PLAN_EDITING_DOC: &str = include_str!("../../../docs/PLAN-EDITING.md");
+    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION.md");
+    const PLANNER_DOC: &str = include_str!("../../../prod-docs/PLANNER.md");
+    const PLAN_EDITING_DOC: &str = include_str!("../../../prod-docs/PLAN-EDITING.md");
     let surfaces = [
         ORCHESTRATOR_ONBOARDING,
         PLANNER_SUFFIX,
@@ -449,9 +451,9 @@ fn agent_pad_rule_has_exactly_one_source() {
 
 #[test]
 fn selected_instruction_references_name_whole_documents() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../docs/ORCHESTRATION.md");
-    const PLANNER_DOC: &str = include_str!("../../../docs/PLANNER.md");
-    const PLAN_EDITING_DOC: &str = include_str!("../../../docs/PLAN-EDITING.md");
+    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION.md");
+    const PLANNER_DOC: &str = include_str!("../../../prod-docs/PLANNER.md");
+    const PLAN_EDITING_DOC: &str = include_str!("../../../prod-docs/PLAN-EDITING.md");
     let surfaces = [
         ORCHESTRATOR_ONBOARDING,
         PLANNER_SUFFIX,
@@ -488,6 +490,7 @@ fn selected_instruction_references_name_whole_documents() {
                     "MEMORY",
                     "SECRETS",
                     "API-CLI",
+                    "API-PLAN",
                 ]
                 .contains(&document),
                 "instruction reference names an unknown document: {command}"
@@ -685,7 +688,7 @@ fn planner_suffix_embeds_the_canonical_manual() {
 
 #[test]
 fn milestone_gate_constants_wire_into_orchestration_ladder() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../docs/ORCHESTRATION-OPERATIONS.md");
+    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION-OPERATIONS.md");
 
     // Suggestion fills both placeholders and names the record command.
     let msg = milestone_gate_suggestion("phase-1", "Phase 1");
@@ -753,193 +756,6 @@ fn plan_skills_worker_and_registry_lines_are_pointers() {
     assert!(PLAN_SKILLS_REGISTRY_LINE.contains("codeterm plan skill show <slug> | new | edit."));
 }
 
-/// The seeded `codeterm` skill body is compiled into codeterm-mem, which
-/// `test-one app` cannot reach. Read the one file both crates load, so this
-/// stays a single-crate gate on the same bytes mem seeds from.
-const SEED_SKILL_CODETERM: &str = include_str!("../../prompts/seed/skill_codeterm.md");
-
-/// The long flag the ask clause teaches, named once so the clause and the
-/// manifest are compared against the same token rather than two spellings.
-const ASK_FLAG: &str = "--choice";
-
-/// Every surface that teaches an agent when to escalate to the user. The
-/// primer reaches composed launch prompts through the seam already asserted
-/// in service::orchestrator::prompt_compose::tests, so a clause present in
-/// the fragment is a clause present in what an agent receives.
-fn notify_escalation_surfaces() -> [(&'static str, &'static str); 3] {
-    [
-        ("codeterm_rule.md", CODETERM_RULE),
-        ("agent_codeterm_primer.md", AGENT_CODETERM_PRIMER),
-        ("seed/skill_codeterm.md", SEED_SKILL_CODETERM),
-    ]
-}
-
-/// Delivery, by constant identity. The clause is an opaque token here: what
-/// it says belongs to the .md files, and that each surface receives it once
-/// is the only mechanism this test owns.
-#[test]
-fn notify_ask_guidance_reaches_every_escalation_surface() {
-    let clause = NOTIFY_ASK_CLAUSE;
-    assert!(
-        !clause.trim().is_empty(),
-        "an empty fragment proves nothing"
-    );
-
-    for (name, surface) in notify_escalation_surfaces() {
-        assert_eq!(
-            surface.matches(clause).count(),
-            1,
-            "{name} must carry the ask clause exactly once"
-        );
-    }
-}
-
-/// The clause names a flag; the committed manifest is the authority on
-/// whether that flag exists. Guidance cannot document a flag the CLI lacks.
-#[test]
-fn notify_ask_guidance_names_a_flag_the_manifest_has() {
-    let root: serde_json::Value =
-        serde_json::from_str(CLI_MANIFEST).expect("cli-manifest.json must parse");
-    let send = subcommand(&root, "notify")
-        .and_then(|notify| subcommand(notify, "send"))
-        .expect("the manifest must carry notify send");
-
-    assert!(NOTIFY_ASK_CLAUSE.contains(ASK_FLAG));
-    assert!(
-        flag_names(send).contains(&ASK_FLAG.trim_start_matches('-')),
-        "notify send must accept the flag the ask clause teaches"
-    );
-}
-
-/// The addition is a clause on a restriction, never a replacement for it:
-/// the surface that carries the clause must still state the rule that keeps
-/// the escalation rare. Both are named by constant, not by their sentences.
-#[test]
-fn notify_ask_guidance_leaves_the_rare_escalation_rule_standing() {
-    assert!(!NOTIFY_RARE_ESCALATION_RULE.trim().is_empty());
-    assert_eq!(
-        AGENT_CODETERM_PRIMER
-            .matches(NOTIFY_RARE_ESCALATION_RULE)
-            .count(),
-        1
-    );
-    assert!(AGENT_CODETERM_PRIMER.contains(NOTIFY_ASK_CLAUSE));
-}
-
-/// Worker and Planner tabs never notify the user directly, so their role
-/// surfaces must not gain the clause. A copy there would read as an
-/// invitation to the one role the restriction excludes.
-#[test]
-fn notify_ask_guidance_stays_out_of_surfaces_that_never_notify() {
-    for (name, surface) in surfaces_that_never_notify() {
-        assert!(
-            !surface.contains(NOTIFY_ASK_CLAUSE),
-            "{name} must not restate the ask clause"
-        );
-    }
-}
-
-/// The roles the notify restriction excludes. Named once so the negative
-/// control and the ask-clause control cannot drift apart.
-fn surfaces_that_never_notify() -> [(&'static str, &'static str); 3] {
-    [
-        ("worker_suffix.md", WORKER_SUFFIX),
-        ("worker_codeterm_context.md", WORKER_CODETERM_CONTEXT),
-        ("planner_suffix.md", PLANNER_SUFFIX),
-    ]
-}
-
-/// Delivery, by constant identity. What the relaxation says belongs to the .md
-/// files; that every surface teaching notify receives it once is the mechanism
-/// this test owns.
-#[test]
-fn verbose_completion_relaxation_reaches_every_notify_surface() {
-    let clause = NOTIFY_VERBOSE_COMPLETION_CLAUSE;
-    assert!(
-        !clause.trim().is_empty(),
-        "an empty fragment proves nothing"
-    );
-
-    for (name, surface) in notify_escalation_surfaces() {
-        assert_eq!(
-            surface.matches(clause).count(),
-            1,
-            "{name} must carry the verbose completion clause exactly once"
-        );
-    }
-}
-
-/// The same surfaces must explain the `unseen` report, so an agent meeting it
-/// under the id reads information rather than an error it should retry.
-#[test]
-fn verbose_completion_unseen_clause_reaches_every_notify_surface() {
-    let clause = NOTIFY_UNSEEN_CLAUSE;
-    assert!(
-        !clause.trim().is_empty(),
-        "an empty fragment proves nothing"
-    );
-
-    for (name, surface) in notify_escalation_surfaces() {
-        assert_eq!(
-            surface.matches(clause).count(),
-            1,
-            "{name} must carry the unseen clause exactly once"
-        );
-    }
-}
-
-/// A relaxation, not an invitation. The permission cannot be delivered without
-/// the restriction it carries, and the two rules that did not relax must still
-/// stand where they stood. All three are named by constant, never by sentence.
-#[test]
-fn verbose_completion_leaves_the_surviving_restrictions_standing() {
-    assert!(!NOTIFY_NO_RUNNING_COMMENTARY_RULE.trim().is_empty());
-    assert!(
-        NOTIFY_VERBOSE_COMPLETION_CLAUSE.contains(NOTIFY_NO_RUNNING_COMMENTARY_RULE),
-        "the permission must carry its own restriction"
-    );
-
-    for (name, surface) in notify_escalation_surfaces() {
-        assert_eq!(
-            surface.matches(NOTIFY_NO_RUNNING_COMMENTARY_RULE).count(),
-            1,
-            "{name} must still forbid a running commentary"
-        );
-    }
-
-    assert!(!NOTIFY_WORKER_PLANNER_SILENCE_RULE.trim().is_empty());
-    assert_eq!(
-        AGENT_CODETERM_PRIMER
-            .matches(NOTIFY_WORKER_PLANNER_SILENCE_RULE)
-            .count(),
-        1,
-        "the primer must still send Workers and Planners through their channel"
-    );
-    assert_eq!(
-        AGENT_CODETERM_PRIMER
-            .matches(NOTIFY_RARE_ESCALATION_RULE)
-            .count(),
-        1,
-        "the two-case rule for the escalating levels must still stand"
-    );
-}
-
-/// The relaxation is scoped to the surfaces that teach notify. A copy on a
-/// Worker or Planner surface would read as permission to the roles excluded.
-#[test]
-fn verbose_completion_stays_out_of_surfaces_that_never_notify() {
-    for (name, surface) in surfaces_that_never_notify() {
-        assert!(
-            !surface.contains(NOTIFY_VERBOSE_COMPLETION_CLAUSE),
-            "{name} must not restate the verbose completion clause"
-        );
-        assert!(
-            !surface.contains(NOTIFY_UNSEEN_CLAUSE),
-            "{name} must not restate the unseen clause"
-        );
-    }
-}
-
 #[test]
 fn every_prompt_md_has_a_loader() {
     // Any file in the directory that is NOT in this set is an orphan — it is compiled into the binary by nobody and misleads future editors.
@@ -950,7 +766,6 @@ fn every_prompt_md_has_a_loader() {
         "planner_suffix.md",
         "planning_compaction.md",
         "team_creation_contract.md",
-        "bounce_unwinding_contract.md",
         "orchestrator_suffix.md",
         "orchestrator_onboarding.md",
         "manager_bootstrap.md",
@@ -974,6 +789,7 @@ fn every_prompt_md_has_a_loader() {
         "mem_rerank.md",
         "dreaming_rem.md",
         "task_sequencing_contract.md",
+        "cartographer_suffix.md",
     ]
     .into_iter()
     .collect();

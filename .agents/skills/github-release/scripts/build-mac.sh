@@ -41,7 +41,8 @@ fi
 if [ "$ARCH" = "arm64" ]; then
   rm -rf src-tauri/target/release/bundle
   ./build.sh release-inputs
-  pnpm tauri build --config src-tauri/tauri.conf.json
+  pnpm tauri build --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+    --config src-tauri/tauri.conf.json
   APP=src-tauri/target/release/bundle/macos/CodeTerm.app
 else
   rm -rf src-tauri/target/x86_64-apple-darwin/release/bundle

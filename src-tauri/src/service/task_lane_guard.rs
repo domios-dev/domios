@@ -6,7 +6,7 @@
 use super::orchestrator::SpawnAgentParams;
 use super::worker_lane::{same_path, verify_worker_lane, LaneProtection};
 use super::ServiceContext;
-use crate::plan::{ExecutionIntent, Plan, Task};
+use crate::plan::{ExecutionIntent, Plan, Task, WorkerPlacement};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UnsafeMutatingLane {
@@ -56,6 +56,18 @@ pub(crate) fn classify_mutating_lane(
             worktree: resolved_worktree.to_string(),
             owner: owner.to_string(),
         }
+    })
+}
+
+/// `(task_id, attempt_id)` of the live attempt holding canonical as its exclusive writer.
+pub(crate) fn live_canonical_writer(plan: &Plan) -> Option<(&str, &str)> {
+    plan.tasks.iter().find_map(|task| {
+        task.execution_attempts
+            .iter()
+            .find(|attempt| {
+                attempt.closed_at.is_none() && attempt.placement == WorkerPlacement::CanonicalWriter
+            })
+            .map(|attempt| (task.id.as_str(), attempt.id.as_str()))
     })
 }
 

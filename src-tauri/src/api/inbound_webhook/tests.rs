@@ -66,7 +66,11 @@ impl WebhookReceiver for ScriptedReceiver {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.payloads.lock().push(context.payload);
         match self.outcome.clone() {
-            Outcome::Deliver(text, event_id) => Ok(Some(WebhookDelivery { text, event_id })),
+            Outcome::Deliver(text, event_id) => Ok(Some(WebhookDelivery {
+                text,
+                event_id,
+                transcript: None,
+            })),
             Outcome::Noop => Ok(None),
             Outcome::Throw => Err(WebhookReceiveError::Vm(VmError::Script("boom".into()))),
             Outcome::Malformed => Err(WebhookReceiveError::Vm(VmError::InvalidJson(
@@ -184,9 +188,12 @@ impl Pipeline<'_> {
         live_bound_target: Option<&'static str>,
     ) -> Result<WebhookResponse, WebhookRejection> {
         let body = Bytes::copy_from_slice(body);
-        let (receiver, context) = accept(self.store, self.registry, headers, &body).await?;
+        let admitted = accept(self.store, self.registry, headers, &body).await?;
         let general_agent = self.general_agent;
-        receive_and_deliver(
+        let Some(event) = receive_event(admitted.receiver.as_ref(), admitted.context)? else {
+            return Ok(WebhookResponse::noop(None));
+        };
+        deliver_event(
             self.gateway,
             self.seam,
             move |receiver_id: &str| {
@@ -197,8 +204,9 @@ impl Pipeline<'_> {
                 live_bound_target.map(str::to_string)
             },
             move || general_agent.map(str::to_string).map_err(str::to_string),
-            receiver.as_ref(),
-            context,
+            admitted.receiver.as_ref(),
+            event,
+            None,
         )
     }
 }
@@ -612,3 +620,5 @@ fn event_text_loses_control_sequences_and_marker_openings() {
     assert!(clean.starts_with("line one"));
     assert!(clean.contains('\n'));
 }
+
+mod audio_delivery;

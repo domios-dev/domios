@@ -437,13 +437,20 @@
   list-style: none;
 }
 
+.mc-board-needs-list > li {
+  min-width: 0;
+}
+
 .mc-board-needs-title {
+  min-width: 0;
   margin: 0;
   font-size: var(--mc-text-body);
   font-weight: 600;
   line-height: 1.45;
   color: var(--ct-fg);
-  overflow-wrap: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The active plan reads by its goal, cut to three lines, then where its tasks stand. */

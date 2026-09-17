@@ -44,12 +44,12 @@ fn work_facet_quality_names_every_legacy_task_and_preserves_storage() {
         .iter()
         .map(|(id, _, _)| std::fs::read(plan_dir.join(format!("tasks/{id}.yaml"))).unwrap())
         .collect();
-    let report = doctor_report(
-        Some("pl_work".into()),
-        Some(dir.path().display().to_string()),
-        "quality",
-    )
-    .unwrap();
+    let (report, calls) =
+        super::authoritative_report_with_calls(&plan, "pl_work", dir.path(), "quality");
+    assert!(
+        calls.iter().all(|m| m == "plan.get" || m == "plan.files"),
+        "the doctor must only read: {calls:?}"
+    );
     assert_eq!(report["ok"], false);
     let findings = report["findings"].as_array().unwrap();
     assert_eq!(findings.len(), cases.len(), "{report}");

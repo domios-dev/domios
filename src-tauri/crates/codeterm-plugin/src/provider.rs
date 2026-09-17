@@ -4,157 +4,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-/// How to wait for agent readiness after PTY spawn.
-#[derive(Debug, Clone)]
-pub enum ReadinessStrategy {
-    PollShellPrompt { timeout: Duration },
-    FixedDelay { duration: Duration },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProviderReadinessStrategy {
-    TuiFrame { timeout: Duration },
-    StructuralComposer { timeout: Duration },
-}
-
-impl Default for ProviderReadinessStrategy {
-    fn default() -> Self {
-        Self::TuiFrame {
-            timeout: Duration::from_secs(30),
-        }
-    }
-}
-
-impl ProviderReadinessStrategy {
-    pub fn timeout(&self) -> Duration {
-        match self {
-            Self::TuiFrame { timeout } | Self::StructuralComposer { timeout } => *timeout,
-        }
-    }
-
-    pub fn requires_composer(&self) -> bool {
-        matches!(self, Self::StructuralComposer { .. })
-    }
-}
-
-/// How to confirm that text submitted to a launched provider was actually
-/// processed (Enter consumed, REPL accepted it). Used to gate `OK` on a
-/// real receiver-side observation rather than an optimistic write.
-#[derive(Debug, Clone)]
-pub enum VerifySubmitStrategy {
-    /// Wait for a new shell prompt to appear (default for plain shells and
-    /// providers that pipe through the shell unchanged).
-    ShellPrompt { timeout: Duration },
-    /// Submit through an interactive TUI. The PTY boundary waits for a
-    /// rendered draft before Enter, then observes the provider turn.
-    TuiInputDrained { initial_key_delay: Duration },
-    /// No verification — for providers where post-submit state is not
-    /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
-    None,
-}
-
-impl VerifySubmitStrategy {
-    pub fn initial_key_delay(&self) -> Duration {
-        match self {
-            Self::TuiInputDrained { initial_key_delay } => *initial_key_delay,
-            Self::ShellPrompt { .. } | Self::None => Duration::ZERO,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BusySubmitStrategy {
-    SubmitNormally,
-    Key(String),
-}
-
-/// How to deliver the task to the agent.
-#[derive(Debug, Clone)]
-pub enum TaskDelivery {
-    /// Task is embedded in the launch command (Claude's temp file approach).
-    InlineFlag,
-    /// Task is sent as PTY text after agent is ready.
-    PtyInput,
-}
-
-/// The single visible turn that starts an interactive provider session.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StarterPrompt {
-    #[default]
-    AssignedTask,
-    NoStarter,
-    IdleWakeup,
-    TeamBootstrap,
-    StartupHandshake,
-}
-
-impl StarterPrompt {
-    pub fn host_text(self) -> Option<&'static str> {
-        match self {
-            Self::TeamBootstrap => Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()),
-            Self::StartupHandshake => Some(
-                "Before any other action, run `codeterm agent startup-ack`. Then continue with the assigned role or task.",
-            ),
-            Self::NoStarter | Self::AssignedTask | Self::IdleWakeup => None,
-        }
-    }
-
-    pub fn system_prefix(self) -> Option<String> {
-        let context = match self {
-            Self::AssignedTask => "assigned-task",
-            Self::IdleWakeup => "idle-wakeup",
-            Self::TeamBootstrap => "team-bootstrap",
-            Self::StartupHandshake => "startup-handshake",
-            Self::NoStarter => return None,
-        };
-        Some(
-            codeterm_types::message_markers::Marker::new("system")
-                .attr("context", context)
-                .build(),
-        )
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct AgentLaunchParams {
-    pub agent_name: Option<String>,
-    pub task: Option<String>,
-    pub starter_prompt: StarterPrompt,
-    pub args: Option<Vec<String>>,
-    pub skip_permissions: bool,
-    // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
-    pub session_id: Option<String>,
-    /// Fixed local server the host wants the agent's structured-prompt handle to
-    /// listen on (opencode `--hostname/--port`). Set by the host only for
-    /// providers that `supports_structured_prompts`; the plugin maps it to the
-    /// provider's server flags. Fixes the W3 leading-dash `--args` ergonomics
-    /// gap — the host allocates the port instead of the caller hand-passing args.
-    pub structured_prompt_server: Option<StructuredPromptServer>,
-    pub launch_marker: Option<String>,
-}
-
-/// Everything a resumed session needs beyond its id. `system_prompt` is the
-/// composed launch prompt, present only when the host has one to re-apply.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentResumeParams {
-    pub session_id: String,
-    pub skip_permissions: bool,
-    pub system_prompt: Option<String>,
-    #[serde(default)]
-    pub args: Vec<String>,
-}
-
-/// Splice trailing launch args onto a command the same way
-/// `build_launch_command` splices `AgentLaunchParams::args`.
-pub fn append_launch_args(command: String, args: &[String]) -> String {
-    if args.is_empty() {
-        return command;
-    }
-    format!("{command} {}", args.join(" "))
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationInstallOptions {
     pub consent: bool,
@@ -278,12 +127,14 @@ mod capabilities;
 mod launch_session;
 mod model_info;
 mod settings;
+mod spawn_strategy;
 mod usage_snapshot;
 pub use availability::*;
 pub use capabilities::*;
 pub use launch_session::*;
 pub use model_info::*;
 pub use settings::*;
+pub use spawn_strategy::*;
 pub use usage_snapshot::*;
 
 /// Wire format describing one agent provider to the frontend.
@@ -335,6 +186,10 @@ pub struct ProviderDescriptor {
     /// pipes it into a fresh terminal tab when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// Short provider-declared note picker surfaces render beside the name,
+    /// e.g. a free-tier offer. Keeps the claim with the provider that owns it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
     /// Shell command for updating the CLI on the current platform.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_command: Option<String>,
@@ -1043,6 +898,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Short note picker surfaces show beside this provider's name, such as a
+    /// free-tier offer. `None` means the provider makes no such claim.
+    fn badge(&self) -> Option<&str> {
+        None
+    }
+
     /// Declarative settings panel for the per-provider Settings → Agents tab.
     /// Frontend renders generically via `<SchemaRenderer />`.
     fn settings_schema(&self) -> Vec<SettingField> {
@@ -1090,6 +951,7 @@ pub trait AgentProvider: Send + Sync {
             supports_permission_bypass: !self.auto_approve_flags().is_empty(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
+            badge: self.badge().map(|s| s.to_string()),
             update_command: self.update_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),

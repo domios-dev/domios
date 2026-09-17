@@ -44,6 +44,6 @@ pub use plugin_manager::{
 };
 pub use provider::AgentProvider;
 pub use webhook::{
-    WebhookDelivery, WebhookReceiveContext, WebhookReceiveError, WebhookReceiver, WebhookRegistry,
-    WebhookRegistryHandle,
+    WebhookAudio, WebhookDelivery, WebhookReceiveContext, WebhookReceiveError, WebhookReceiver,
+    WebhookRegistry, WebhookRegistryHandle,
 };

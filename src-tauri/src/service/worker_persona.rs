@@ -317,7 +317,7 @@ where
         .unwrap_or(FALLBACK_PREFIX);
     let mut suffix = 2usize;
     loop {
-        let candidate = format!("{base} {suffix}");
+        let candidate = format!("{base}{suffix}");
         if !used.contains(&canonical_name(&candidate)) {
             return WorkerPersonaAllocation {
                 title: candidate,
@@ -457,10 +457,37 @@ mod tests {
     }
 
     #[test]
-    fn suffix_fallback_only_after_pool_exhaustion() {
+    fn tab_name_contract_suffix_fallback_only_after_pool_exhaustion() {
         let allocation = allocate_worker_persona_name(WORKER_PERSONA_POOL, None, None, 0);
-        assert_eq!(allocation.title, "Worker 2");
+        assert_eq!(allocation.title, "Worker2");
         assert!(allocation.exhausted_pool);
+    }
+
+    #[test]
+    fn tab_name_contract_spawn_name_paths_keep_personality_and_role_separate() {
+        let task: crate::plan::Task = serde_json::from_value(serde_json::json!({
+            "id": "task_name_contract",
+            "name": "Stable identity",
+            "type": "code",
+            "status": "pending",
+            "personality": "Ada",
+            "executor_role": "rust-backend-dev"
+        }))
+        .expect("task fixture deserializes");
+        assert_eq!(
+            crate::service::planned_task_title(&task).as_deref(),
+            Some("Ada")
+        );
+
+        let role_only: crate::plan::Task = serde_json::from_value(serde_json::json!({
+            "id": "task_role_only",
+            "name": "Role stays descriptive",
+            "type": "code",
+            "status": "pending",
+            "executor_role": "rust-backend-dev"
+        }))
+        .expect("task fixture deserializes");
+        assert_eq!(crate::service::planned_task_title(&role_only), None);
     }
 
     #[test]

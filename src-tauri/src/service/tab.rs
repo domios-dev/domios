@@ -630,16 +630,18 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Respond to a pending prompt — sends the selection to PTY and clears the prompt.
-    /// Only sends to PTY if there's actually a pending prompt (avoids phantom input).
+    /// Respond to a prompt — sends the selection to PTY and clears the prompt.
+    /// The screen decides, not the bookkeeping: a prompt CodeTerm recognized only
+    /// from terminal output is answerable too, and one that is already gone is
+    /// answered by writing nothing.
     pub fn respond_prompt(&self, tab_id: &str, value: &str) -> Result<(), String> {
-        let had_prompt = {
+        {
             let mut mux = self.mux.write();
             let tab = mux
                 .get_tab_mut(tab_id)
                 .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
-            tab.pending_prompt.take().is_some()
-        };
+            tab.pending_prompt.take();
+        }
 
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(tab_id);
@@ -649,52 +651,54 @@ impl ServiceContext {
             return result;
         }
 
-        if had_prompt {
-            let pty_id = self.resolve_pty_id(tab_id)?;
+        // The tab exists — it was cleared above — so no PTY means no terminal
+        // prompt to answer, the same nothing-to-do as a prompt already gone.
+        let Ok(pty_id) = self.resolve_pty_id(tab_id) else {
+            self.emit_state_changed();
+            return Ok(());
+        };
+        let screen = {
+            let buf = self.output_buf.lock();
+            buf.get_text(&pty_id).unwrap_or_default()
+        };
+        let clean = crate::pty::ansi::clean_terminal_output(&screen);
+        let agent_type = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|p| p.agent_type.clone());
+        let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
+            || agent_type.as_deref().is_some_and(|at| {
+                crate::agent::prompt::parse_prompt_safely(|| {
+                    self.agent_registry.parse_prompt(at, &clean)
+                })
+                .is_some()
+            });
 
-            let screen = {
-                let buf = self.output_buf.lock();
-                buf.get_text(&pty_id).unwrap_or_default()
-            };
-            let clean = crate::pty::ansi::clean_terminal_output(&screen);
-            let agent_type = self
-                .mux
-                .read()
-                .get_tab(tab_id)
-                .and_then(|p| p.agent_type.clone());
-            let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
-                || agent_type.as_deref().is_some_and(|at| {
-                    crate::agent::prompt::parse_prompt_safely(|| {
-                        self.agent_registry.parse_prompt(at, &clean)
-                    })
-                    .is_some()
-                });
+        if prompt_on_screen {
+            let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1);
 
-            if prompt_on_screen {
-                let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1);
-
-                let steps = if let Some(ref at) = agent_type {
-                    self.agent_registry
-                        .build_prompt_response(at, option_index, &clean)
-                        .unwrap_or_else(|| self.default_prompt_response(option_index))
-                } else {
-                    self.default_prompt_response(option_index)
-                };
-
-                let pty = self.pty.clone();
-                let pid = pty_id.clone();
-                std::thread::spawn(move || {
-                    for step in steps {
-                        let _ = pty.lock().write(&pid, &step);
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                });
+            let steps = if let Some(ref at) = agent_type {
+                self.agent_registry
+                    .build_prompt_response(at, option_index, &clean)
+                    .unwrap_or_else(|| self.default_prompt_response(option_index))
             } else {
-                log::debug!(
-                    "[respond_prompt] Prompt not on screen — skipping PTY input for Tab {}",
-                    tab_id
-                );
-            }
+                self.default_prompt_response(option_index)
+            };
+
+            let pty = self.pty.clone();
+            let pid = pty_id.clone();
+            std::thread::spawn(move || {
+                for step in steps {
+                    let _ = pty.lock().write(&pid, &step);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            });
+        } else {
+            log::debug!(
+                "[respond_prompt] Prompt not on screen — skipping PTY input for Tab {}",
+                tab_id
+            );
         }
 
         self.emit_state_changed();

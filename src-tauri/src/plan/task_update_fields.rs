@@ -55,10 +55,14 @@ pub(crate) enum TaskUpdateSeam {
 pub(crate) struct TaskUpdateInputError {
     pub(crate) unknown_key: Option<String>,
     accepted_keys: Vec<&'static str>,
+    message: Option<String>,
 }
 
 impl fmt::Display for TaskUpdateInputError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(message) = &self.message {
+            return formatter.write_str(message);
+        }
         if let Some(key) = &self.unknown_key {
             write!(formatter, "unknown task update key '{key}'; ")?;
         } else {
@@ -81,6 +85,7 @@ pub(crate) fn validate_task_update_fields(
         return Err(TaskUpdateInputError {
             unknown_key: None,
             accepted_keys,
+            message: None,
         });
     };
     let mut unknown_keys = fields
@@ -93,7 +98,27 @@ pub(crate) fn validate_task_update_fields(
         return Err(TaskUpdateInputError {
             unknown_key: Some(unknown_key),
             accepted_keys,
+            message: None,
         });
+    }
+    if let Some(personality) = fields.get("personality") {
+        let Some(personality) = personality.as_str() else {
+            if !personality.is_null() {
+                return Err(TaskUpdateInputError {
+                    unknown_key: None,
+                    accepted_keys,
+                    message: Some("personality must be a one-word executor name or null".into()),
+                });
+            }
+            return Ok(());
+        };
+        if let Err(message) = codeterm_types::plan::validate_executor_name(personality) {
+            return Err(TaskUpdateInputError {
+                unknown_key: None,
+                accepted_keys,
+                message: Some(message),
+            });
+        }
     }
     Ok(())
 }
@@ -248,5 +273,17 @@ mod tests {
         });
         assert!(validate_task_update_fields(&body, TaskUpdateSeam::Socket).is_ok());
         assert!(validate_task_update_fields(&body, TaskUpdateSeam::Rest).is_err());
+    }
+
+    #[test]
+    fn tab_name_contract_update_seams_reject_invalid_executor_names() {
+        for seam in [TaskUpdateSeam::Socket, TaskUpdateSeam::Rest] {
+            for value in ["rust-backend-dev", "Ada Lovelace"] {
+                let error =
+                    validate_task_update_fields(&serde_json::json!({ "personality": value }), seam)
+                        .unwrap_err();
+                assert!(error.to_string().contains("one word"), "{value}: {error}");
+            }
+        }
     }
 }

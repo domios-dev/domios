@@ -19,6 +19,29 @@ fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
 }
 
 #[test]
+fn cartographer_prompt_orchestrator_composition_delivers_boundary_notice() {
+    let prompt =
+        spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
+    let notice = crate::prompts::ORCH_CARTOGRAPHER_CONTRACT_NOTICE;
+    assert_eq!(prompt.matches(notice).count(), 1);
+    assert!(!prompt.contains("{cartographer_contract_notice}"));
+    assert!(prompt.len() <= crate::prompts::COMPOSED_ROLE_PROMPT_MAX_BYTES);
+}
+
+#[test]
+fn cartographer_prompt_cartographer_composition_delivers_contract_and_assignment_once() {
+    const ASSIGNMENT_TOKEN: &str = "OPAQUE-CARTOGRAPHER-DELIVERY-2c6e1";
+    let prompt =
+        super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), Some("Worker"), Some("cartographer"))
+            .expect("cartographer system prompt");
+    let contract = crate::prompts::CARTOGRAPHER_SUFFIX.trim();
+    assert_eq!(prompt.matches(contract).count(), 1);
+    assert_eq!(prompt.matches(ASSIGNMENT_TOKEN).count(), 1);
+    assert!(!prompt.contains("{cartographer_contract_notice}"));
+    assert!(prompt.len() <= crate::prompts::COMPOSED_ROLE_PROMPT_MAX_BYTES);
+}
+
+#[test]
 fn explicit_orchestrator_task_is_submitted_exactly_once() {
     let prompt = spawn_onboarding_task(&orchestrator_params(Some("inspect launch")))
         .expect("orchestrator system prompt");
@@ -84,6 +107,47 @@ fn every_launch_composition() -> Vec<(&'static str, String)> {
                 .expect("fallback composition"),
         ),
     ]
+}
+
+/// A quoted coordination payload that survived the caller's shell only because
+/// it was staged in a file still has to reach the receiver unchanged. Composition
+/// is concatenation, never templating, so an opaque test-supplied payload holding
+/// backticks, `$` expansions, command substitution, both quote kinds, a tab and
+/// non-ASCII must appear once and verbatim in every recipient's brief.
+#[test]
+fn quoted_handoff_payload_reaches_every_recipient_brief_byte_exact() {
+    const PAYLOAD: &str = "QUOTED-HANDOFF-7ac91 goal: keep `plan handoff` intact.\n\n\
+                           - dollars: $CARGO_TARGET_DIR and ${HOME}\n\
+                           - substitution: $(rm -rf /) and `whoami`\n\
+                           - quotes: \"double\" and 'single'\n\
+                           - tab:\tkept\n\
+                           - unicode: Привіт — ok";
+
+    let recipients = [
+        (
+            "spawned orchestrator",
+            spawn_onboarding_task(&orchestrator_params(Some(PAYLOAD)))
+                .expect("orchestrator system prompt"),
+        ),
+        (
+            "spawned planner",
+            super::role_onboarding_task(Some(PAYLOAD), Some("Manager"), Some("planner"))
+                .expect("planner system prompt"),
+        ),
+        (
+            "spawned worker",
+            super::role_onboarding_task(Some(PAYLOAD), Some("Worker"), None)
+                .expect("worker system prompt"),
+        ),
+    ];
+
+    for (recipient, composed) in recipients {
+        assert_eq!(
+            composed.matches(PAYLOAD).count(),
+            1,
+            "{recipient} must receive the staged payload once, byte for byte"
+        );
+    }
 }
 
 /// The delivery half of the AgentPad invariant. The pre-existing prompt test

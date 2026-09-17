@@ -118,8 +118,6 @@ pub struct AgentSpawnSpec {
     pub extra_args: Vec<String>,
     #[serde(default, skip_deserializing)]
     pub provisioned_cwd: Option<String>,
-    #[serde(default, skip_deserializing)]
-    pub(crate) lane_setup_command: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -361,15 +359,6 @@ impl ServiceContext {
         let tab_id = {
             let mut mux = self.mux.write();
             let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?;
-            if let Some(ref t) = spec.title {
-                if !t.trim().is_empty() {
-                    let _ = mux.rename_tab_at_level(
-                        &result,
-                        t,
-                        crate::multiplexer::types::TitleLevel::User,
-                    );
-                }
-            }
             if let Some(ref dir) = resolved_cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
@@ -418,7 +407,6 @@ impl ServiceContext {
                     tab.chat_view = true;
                 }
             }
-            // real agent name was supplied — the raw provider id is never a title.
             if let Some((title, level)) = super::spawn_title::creation_title_override(
                 spec.title.as_deref(),
                 agent.agent_name.as_deref(),
@@ -517,6 +505,14 @@ impl ServiceContext {
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);
         })?;
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+            persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
+            super::reasoning_effort::persist_launch_identity(
+                tab,
+                agent.planned_reasoning_effort.as_deref(),
+                agent.reasoning_effort.as_deref(),
+            );
+        }
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -529,14 +525,6 @@ impl ServiceContext {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
-        }
-        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
-            persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
-            super::reasoning_effort::persist_launch_identity(
-                tab,
-                agent.planned_reasoning_effort.as_deref(),
-                agent.reasoning_effort.as_deref(),
-            );
         }
         self.emit_state_changed();
 
@@ -663,7 +651,6 @@ impl ServiceContext {
             &legacy_params,
             role_suffixed_task.as_deref(),
             launch_session_id.as_deref(),
-            agent.lane_setup_command.as_deref(),
             &self.agent_registry,
         );
         launch_agent_in_background_with_env(
@@ -1092,26 +1079,22 @@ impl ServiceContext {
 }
 
 /// A visible launch carries a minted marker so a hook-less provider still binds
-/// its own session, and lane setup runs before it.
+/// its own session.
 fn visible_agent_launch_command(
     tab_id: &str,
     agent_cmd: &str,
     params: &super::SpawnAgentParams,
     task: Option<&str>,
     injected_session_id: Option<&str>,
-    lane_setup_command: Option<&str>,
     registry: &AgentRegistry,
 ) -> String {
-    super::worker_lane::compose_launch_with_setup(
-        lane_setup_command,
-        super::launch_session_detection::marked_agent_command(
-            tab_id,
-            agent_cmd,
-            params,
-            task,
-            injected_session_id,
-            registry,
-        ),
+    super::launch_session_detection::marked_agent_command(
+        tab_id,
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
     )
 }
 

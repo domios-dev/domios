@@ -408,6 +408,9 @@ pub(super) fn run_task(
                     "--executor-role names who executes this task and cannot be blank".to_string(),
                 );
             }
+            if let Some(personality) = personality.as_deref() {
+                codeterm_types::plan::validate_executor_name(personality)?;
+            }
             let role_guidance_text =
                 super::resolve_role_guidance(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
@@ -698,6 +701,7 @@ pub(super) fn run_task(
             task_id,
             agent,
             authorized_gates,
+            canonical_writer,
             model,
             reasoning_effort,
             parent,
@@ -715,6 +719,9 @@ pub(super) fn run_task(
             });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
+            }
+            if canonical_writer {
+                params["placement"] = json!("canonical_writer");
             }
             if let Some(agent) = agent {
                 params["agent"] = json!(agent);

@@ -125,10 +125,9 @@ fn stale_task_report_hint_from_a_tab_with_no_binding_is_refused() {
     assert!(error.contains("promoted-orchestrator"));
 }
 
-/// A reassignment pushes a new attempt without closing the old one, so the tab
-/// still has an open attempt on a task it no longer holds. That residue must not
-/// be mistaken for a live binding — otherwise the rebind case leaks straight
-/// through the predicate.
+/// A reassignment used to push a new attempt without closing the old one, leaving
+/// the tab an open attempt on a task it no longer holds. Reassignment now closes
+/// it, and the refusal must hold either way.
 #[test]
 fn stale_task_report_lingering_open_attempt_cannot_launder_a_hint() {
     let fx = holdings("worker", true);
@@ -140,12 +139,14 @@ fn stale_task_report_lingering_open_attempt_cannot_launder_a_hint() {
         .into_iter()
         .find(|task| task.id == fx.other)
         .unwrap();
+    // Reassignment closes the outgoing attempt, so the residue this refusal was
+    // built to survive no longer exists: the leak is gone at its source.
     assert!(
-        other
+        !other
             .execution_attempts
             .iter()
             .any(|attempt| { attempt.executor_tab_id == "worker" && attempt.closed_at.is_none() }),
-        "the reassigned task must still carry the tab's open attempt for this to prove anything"
+        "reassignment must not leave the previous tab an open attempt"
     );
     assert_eq!(other.assigned_tab_id.as_deref(), Some("someone-else"));
 

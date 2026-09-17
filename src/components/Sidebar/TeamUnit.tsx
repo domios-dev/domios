@@ -558,7 +558,7 @@ export function TeamUnit({
               className="sidebar-team-working-indicator"
               role="status"
               aria-label={`${displayTitle} has working members`}
-            ><ActivityDots size="small" tone="muted" /></span>
+            ><ActivityDots size="small" tone="muted" active /></span>
           )}
         </span>
       )}
@@ -670,7 +670,7 @@ export function TeamUnit({
                 <div data-testid="workers-collapse-summary" className="sidebar-team-workers-summary">
                   {summarizeWorkers(workerCount, workingWorkerCount)}
                   {workingWorkerCount > 0 && (
-                    <ActivityDots size="small" tone="muted" />
+                    <ActivityDots size="small" tone="muted" active />
                   )}
                   <span className="sidebar-team-summary-kebab">⋮</span>
                 </div>

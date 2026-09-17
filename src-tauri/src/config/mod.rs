@@ -1,7 +1,6 @@
 mod agent_access;
 mod dropped_keys;
 mod kpi_default;
-pub mod lane;
 pub mod schema;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -96,6 +95,13 @@ port = 7685
 # token = "your-secret-token"
 cors = false
 # cors_allow_origins = ["https://trusted.example"]
+
+[orchestration.map]
+# The workspace essence map. Off until you opt in: with it on, a plan wave
+# closing or a release boundary offers one Cartographer run that regenerates
+# essences/map.jsonl from the source essences and logs its decision. A
+# repository without those source essences is never map-enabled.
+enabled = false
 
 [kpi]
 # Local orchestration-economics ledger behind Mission Control's token and turn

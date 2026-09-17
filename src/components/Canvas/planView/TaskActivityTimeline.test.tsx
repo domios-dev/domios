@@ -129,6 +129,44 @@ test("renders grouped execution attempts", async () => {
   assert(host.querySelectorAll('[data-testid="plan-task-activity-attempt"]').length === 2, "two attempts");
 });
 
+test("renders stored diagnostics with finding locations", async () => {
+  const task: Task = {
+    ...FIXTURE_TASK,
+    milestones: [],
+    execution_attempts: [{
+      id: "diagnostic-attempt",
+      tab_id: "tab-a",
+      report: {
+        diagnostics: {
+          plan_id: "plan",
+          task_id: FIXTURE_TASK.id,
+          attempt_id: "diagnostic-attempt",
+          status: "complete",
+          incomplete: false,
+          worktree: "warm",
+          tools: ["tsc"],
+          error_count: 1,
+          warning_count: 0,
+          info_count: 0,
+          findings: [{
+            tool: "tsc",
+            severity: "error",
+            file: "src/app.ts",
+            line: 4,
+            column: 8,
+            message: "type mismatch",
+            code: "TS2322",
+          }],
+        },
+      },
+    }],
+  };
+  const { host } = await render(<TaskActivityTimeline task={task} plan={FIXTURE_PLAN} />);
+  assert(host.querySelector('[data-testid="plan-task-activity-diagnostics"]'), "diagnostics block");
+  assert(host.querySelector('[data-testid="plan-task-diagnostics-summary"]')?.textContent?.includes("1 errors"), "diagnostics count");
+  assert(host.querySelector('[data-testid="plan-task-activity-diagnostic"]')?.textContent?.includes("src/app.ts:4:8"), "diagnostic location");
+});
+
 let passed = 0;
 (async () => {
   for (const [name, fn] of tests) {

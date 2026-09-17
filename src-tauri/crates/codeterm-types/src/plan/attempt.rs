@@ -1,3 +1,4 @@
+use super::diagnostics::LaneDiagnosticsSummary;
 use super::types::AttachmentRef;
 use super::{AttemptContinuationState, AttemptInterruptionState};
 use serde::{Deserialize, Serialize};
@@ -22,12 +23,6 @@ pub struct TaskLaneMetadata {
     pub cleanup_status: Option<String>,
     #[serde(default)]
     pub cleanup_hints: Vec<String>,
-    /// Shared-directory links lane bootstrap created inside the worktree.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bootstrap_links: Vec<String>,
-    /// Bootstrap skip/refusal warnings; recorded, never a dispatch failure.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bootstrap_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -67,6 +62,8 @@ pub struct TaskExecutionReportSnapshot {
     pub plan_skill_manifest: Vec<PlanSkillManifestEntry>,
     #[serde(default)]
     pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<LaneDiagnosticsSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -82,6 +79,20 @@ pub struct LoadedPlanSkillEvidence {
     pub slug: String,
     pub content_digest: String,
     pub loaded_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerPlacement {
+    #[default]
+    IsolatedLane,
+    CanonicalWriter,
+}
+
+impl WorkerPlacement {
+    pub fn is_isolated_lane(&self) -> bool {
+        matches!(self, Self::IsolatedLane)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -120,6 +131,9 @@ pub struct TaskExecutionAttempt {
     /// empty list is deliberate: that dispatch granted no gate permission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorized_gates: Option<Vec<String>>,
+    /// Set only by an explicit dispatch opt-in; never derived from a checkout path.
+    #[serde(default, skip_serializing_if = "WorkerPlacement::is_isolated_lane")]
+    pub placement: WorkerPlacement,
     #[serde(default)]
     pub report: Option<TaskExecutionReportSnapshot>,
     #[serde(default)]

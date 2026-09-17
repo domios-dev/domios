@@ -14,7 +14,10 @@
   "src/components/Canvas/missionControl/missionControlLiveRefresh.test.tsx",
   "src/components/Canvas/missionControl/missionControlBoardLinks.test.tsx",
   "src/components/Canvas/missionControl/missionControlDraftPlan.test.tsx",
+  "src/components/shared/working_indicator.test.tsx",
   "src/components/Notifications/notificationDeepLink.test.tsx",
+  "src/components/Notifications/notification_status_row_truncation.test.tsx",
+  "src/components/Sidebar/hover_reveal_scrollbar.test.tsx",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
   "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx",
@@ -24,6 +27,7 @@
   "src/components/Canvas/planView/PlanParagraphAsk.test.tsx",
   "src/components/Canvas/planView/BoardTaskCard.actions.test.tsx",
   "src/components/Terminal/useChatScroll.stability.test.tsx",
+  "src/components/Terminal/receiverTargetMark.test.tsx",
   "src/components/Canvas/teamTaskSegment.test.tsx",
   "src/components/Snake/simulation.test.ts",
   "src/components/Canvas/missionControl/BoardSpendChart.test.tsx",
@@ -37,5 +41,8 @@
   "plugins/analytics/ui/src/Dashboard.freshness.test.tsx",
   "src/lib/refreshGate.test.ts",
   "src/components/Canvas/missionControl/AnimatedNumber.test.tsx",
-  "src/components/Canvas/missionControl/teamSpendLiveRefresh.test.tsx"
+  "src/components/Canvas/missionControl/teamSpendLiveRefresh.test.tsx",
+  "src/components/Canvas/map_canvas.test.tsx",
+  "src/components/Canvas/EssenceMapCanvas.gesture.test.tsx",
+  "src/components/Canvas/essence_document_tree.test.tsx"
 ]

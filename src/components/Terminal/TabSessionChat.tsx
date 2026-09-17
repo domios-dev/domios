@@ -711,7 +711,7 @@ export function TabSessionChat({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
+        className="ct-hover-reveal-scrollbar absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
         aria-label="Conversation"
@@ -829,6 +829,7 @@ export function TabSessionChat({
           state={statusRowState}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
+          reasoningEffort={tab?.reasoning_effort_identity}
           className="mx-auto w-full max-w-4xl"
           onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}

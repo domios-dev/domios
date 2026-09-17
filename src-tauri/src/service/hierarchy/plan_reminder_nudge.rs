@@ -139,7 +139,15 @@ impl ServiceContext {
                 log::warn!("[plan-reminder] complete wrapup not delivered to {tab_id}: {reason}");
                 continue;
             }
-            let text = crate::service::plan::complete_wrapup::complete_wrapup_message(&plan_id);
+            let mut text = crate::service::plan::complete_wrapup::complete_wrapup_message(&plan_id);
+            // A complete plan gets no heartbeat, so the release map boundary
+            // rides the one wrapup this plan is sent.
+            if let Some(plan) = self.plan_store.get(&plan_id) {
+                for line in crate::service::cartographer::digest_lines(&plan) {
+                    text.push_str("\n\n");
+                    text.push_str(&line);
+                }
+            }
             if self.deliver_automated_plan_reminder(&tab_id, &text).is_ok() {
                 self.plan_turn_counter.mark_complete_wrapup_sent(&plan_id);
                 self.plan_turn_counter.mark_time_nudged(&tab_id, now);

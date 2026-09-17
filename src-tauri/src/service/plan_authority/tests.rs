@@ -944,3 +944,44 @@ fn one_rebind_heals_both_the_plan_gate_and_the_w3c_task_gate() {
     ));
     assert!(w3c_task_binding_matches(&fixture, &owner));
 }
+
+/// The person at the machine outranks every agent role. Identity here is built
+/// from headers an agent sets and the request has already cleared the API
+/// token, so a caller presenting no binding at all is the owner working through
+/// the UI or the CLI — not an agent whose binding went missing. Without this
+/// the owner could not approve their own draft from the app at all (#517).
+#[test]
+fn an_unbound_authenticated_caller_is_the_owner() {
+    let (fixture, plan_id, _owner, planner) = fixture();
+    let unbound = AuthenticatedPlanCaller {
+        tab_id: None,
+        session_id: None,
+        binding_nonce: None,
+    };
+
+    assert_eq!(
+        fixture
+            .service
+            .classify_planning_caller(&plan_id, &unbound)
+            .expect("the owner is authorized"),
+        crate::plan::PlanningAuthor::User,
+    );
+    fixture
+        .service
+        .authorize_plan_orchestrator(&plan_id, &unbound)
+        .expect("and holds execution authority, which approval requires");
+
+    // A caller that does present a tab still proves that binding, so the
+    // unbound path cannot be used to launder a half-presented agent identity.
+    let half_presented = AuthenticatedPlanCaller {
+        binding_nonce: None,
+        ..planner.clone()
+    };
+    assert!(
+        fixture
+            .service
+            .classify_planning_caller(&plan_id, &half_presented)
+            .is_err(),
+        "a tab without its binding proof is still refused"
+    );
+}
