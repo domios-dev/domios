@@ -110,7 +110,12 @@ fn mesh_reachability_configured_is_not_live_and_remote_loss_preserves_local() {
 
 #[tokio::test]
 async fn mesh_reachability_failed_secondary_bind_releases_primary() {
-    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    // Fixed and below the ephemeral range on purpose: this is the one test that
+    // must re-bind the exact port it just released, and an ephemeral one can be
+    // handed to a sibling test in the window between the release and the rebind.
+    let primary = tokio::net::TcpListener::bind("127.0.0.1:39217")
+        .await
+        .unwrap();
     let address = primary.local_addr().unwrap();
     let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let result = bind_remote(primary, Some(occupied.local_addr().unwrap())).await;
