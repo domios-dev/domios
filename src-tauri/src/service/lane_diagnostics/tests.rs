@@ -9,6 +9,10 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// A failure deadline, not a readiness signal: a loaded runner must not fail a
+/// test that is merely slow, so this is generous rather than tight.
+const EVENT_DEADLINE: Duration = Duration::from_secs(20);
+
 #[test]
 fn lane_diagnostics_lane_path_never_allows_a_watcher_but_canonical_does() {
     assert!(!analysis_allowed(analysis_scope(
@@ -317,25 +321,19 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
         returned_tx.send(result.is_ok()).unwrap();
         result
     });
+    assert_eq!(started_rx.recv_timeout(EVENT_DEADLINE).unwrap(), attempt_id);
+    assert!(returned_rx.recv_timeout(EVENT_DEADLINE).unwrap());
     assert_eq!(
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-        attempt_id
-    );
-    assert!(returned_rx.recv_timeout(Duration::from_secs(1)).unwrap());
-    assert_eq!(
-        delivery_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        delivery_rx.recv_timeout(EVENT_DEADLINE).unwrap(),
         orchestrator
     );
     release_tx.send(()).unwrap();
     assert!(report.join().unwrap().is_ok());
     assert_eq!(
-        delivery_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        delivery_rx.recv_timeout(EVENT_DEADLINE).unwrap(),
         orchestrator
     );
-    assert_eq!(
-        delivery_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-        worker
-    );
+    assert_eq!(delivery_rx.recv_timeout(EVENT_DEADLINE).unwrap(), worker);
     assert!(delivery_rx.try_recv().is_err());
 }
 
