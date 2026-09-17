@@ -49,7 +49,7 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -98,7 +98,7 @@ The daemon owns one serialized diagnostics service per machine. It runs only
 from the canonical checkout into `../<repo>-worktrees/.diagnostics`; worker
 lanes never start checks, watchers, `bacon`, `rust-analyzer`, `tsgo`, or `tsc`.
 An `in_review` lane report queues the warm run after report delivery; completion
-updates the attempt and sends one compact follow-up. Read findings with
+records the findings on the attempt and delivers no message. Read them with
 `codeterm lane diagnostics <task>` or use `codeterm lane check <task|branch>`.
 The run uses the build gateway in fail-fast mode; a busy slot is recorded as a
 skipped attempt with the gateway owner and command, and is retried by `lane check`.
