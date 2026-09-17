@@ -48,9 +48,8 @@ function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error
   const fittedKey = useRef<string | null>(null);
   useEffect(() => {
     if (world.projects.length === 0 || size.width <= 0 || size.height <= 0) return;
-    // Keyed on the maps alone, never the size: the view mounts at a default width and
-    // the observer reports the real one a moment later, so a size-keyed fit re-fires
-    // after the viewer has already zoomed or panned and throws their camera away.
+    // Keyed on the maps alone, never the size: the view mounts at a default width,
+    // so a size-keyed fit would re-fire after the viewer already zoomed or panned.
     const key = world.projects.map((project) => project.file.project_path).join("|");
     if (fittedKey.current === key) return;
     fittedKey.current = key;

@@ -157,10 +157,8 @@ export function KeepAwakeTray() {
     return { top: rect.bottom + 4, right: window.innerWidth - rect.right };
   })();
 
-  // The strip follows the status where the status can tell us: a countdown has
-  // already drifted off whichever preset started it, so a session begun
-  // elsewhere keeps whatever this window last chose. The header clock is the
-  // authority on remaining time either way.
+  // The strip follows status where it can: a countdown drifts off its preset, so a
+  // session begun elsewhere keeps this window's last pick; the header clock rules time.
   useEffect(() => {
     if (status.active && status.expires_at === null) setPicked("inf");
   }, [status.active, status.expires_at]);

@@ -42,10 +42,8 @@ export function EssenceMapProjectView({ project, onActivate }: { project: Essenc
   const { layout } = project;
   const nodeById = layout.nodeById;
   const colorByNodeId = new Map(layout.clusters.flatMap((cluster) => cluster.nodeIds.map((id) => [id, vectorColor(cluster.colorIndex)] as const)));
-  // Fifty-five nodes and a hundred edges overwhelm at a glance; lighting one
-  // neighbourhood at a time is what makes an essence and its connections readable.
-  // Click pins a neighbourhood so it stays lit while the source panel is read;
-  // hover is the transient preview on top of it.
+  // Fifty-five nodes and a hundred edges overwhelm at a glance, so lighting one
+  // neighbourhood keeps it readable: click pins it, hover previews on top.
   const [pinned, setPinned] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const active = pinned ?? hovered;

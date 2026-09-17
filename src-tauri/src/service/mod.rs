@@ -475,9 +475,8 @@ impl ServiceContext {
     /// Deliver a parked user send, once. A send that fails again is reconciled
     /// and left alone rather than retried, so one park yields at most one write.
     pub(crate) fn deliver_parked_user_send(&self, tab_id: &str) {
-        // `Unconfirmed` means the payload already reached this PTY and only its
-        // acknowledgement is missing, so delivering it here would write the same
-        // text twice. Restore replays a genuinely undelivered payload elsewhere.
+        // `Unconfirmed` means the payload already reached the PTY, only its ack is
+        // missing — delivering here would duplicate it; restore replays elsewhere.
         let already_written = self
             .mux
             .read()
