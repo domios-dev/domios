@@ -922,17 +922,6 @@ fn diagnostics_now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn diagnostics_followup_targets(owner: Option<&str>, worker: &str) -> Vec<String> {
-    let mut targets = Vec::new();
-    if let Some(owner) = owner.filter(|id| !id.is_empty()) {
-        targets.push(owner.to_string());
-    }
-    if !worker.is_empty() && owner != Some(worker) {
-        targets.push(worker.to_string());
-    }
-    targets
-}
-
 fn canonical_project_path(plan: &codeterm_types::plan::Plan) -> String {
     if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
