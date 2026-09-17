@@ -26,7 +26,9 @@ jobs:
     # (single-repo) isn't enough — use a PAT (repo scope on both) provided as GH_RELEASE_TOKEN.
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
-      CARGO_TARGET_DIR: src-tauri/target
+      # Absolute: the prebuild step runs from the repo root and tauri-action runs
+      # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
       CARGO_INCREMENTAL: '0'
     steps:
