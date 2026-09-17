@@ -207,8 +207,6 @@ fn planner_structure_grant_does_not_extend_to_execution_verbs() {
         "plan.task.assign",
         "plan.task.dispatch",
         "plan.task.close",
-        "plan.task.pause",
-        "plan.task.resume",
         "plan.task.respawn",
         "plan.task.rm",
     ] {

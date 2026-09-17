@@ -26,9 +26,13 @@ pub struct ReportDetails {
     #[serde(default)]
     pub session_binding_nonce: Option<String>,
     #[serde(default)]
+    pub attempt_id: Option<String>,
+    #[serde(default)]
     pub status: Option<ReportStatus>,
     #[serde(default)]
     pub branch: Option<String>,
+    #[serde(default)]
+    pub base: Option<String>,
     #[serde(default)]
     pub sha: Option<String>,
     #[serde(default)]
@@ -41,6 +45,8 @@ pub struct ReportDetails {
     pub skipped: Option<String>,
     #[serde(default)]
     pub attachments: Vec<String>,
+    #[serde(default)]
+    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +67,10 @@ pub struct AgentReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changed_files: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub test_cmd: Option<String>,
@@ -68,6 +78,8 @@ pub struct AgentReport {
     pub test_result: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<codeterm_types::plan::LaneDiagnosticsSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -114,6 +126,9 @@ impl AgentReport {
         }
         if let Some(ref sha) = self.sha {
             lines.push(format!("sha: {}", sha));
+        }
+        if let Some(ref diagnostics) = self.diagnostics {
+            lines.extend(diagnostics.compact_lines(3));
         }
         match (self.test_cmd.as_deref(), self.test_result.as_deref()) {
             (Some(cmd), Some(result)) => lines.push(format!("tests: {} -> {}", cmd, result)),
@@ -322,10 +337,13 @@ impl ReportStore {
             status: details.status,
             branch: details.branch.clone(),
             sha: details.sha.clone(),
+            attempt_id: details.attempt_id.clone(),
+            base: details.base.clone(),
             changed_files: details.changed_files.clone(),
             test_cmd: details.test_cmd.clone(),
             test_result: details.test_result.clone(),
             skipped: details.skipped.clone(),
+            diagnostics: details.diagnostics.clone(),
             report_outcome,
             attachments: Vec::new(),
             model: actual_model.clone(),
@@ -576,14 +594,17 @@ mod tests {
             caller_tab_id: Some("w1".into()),
             caller_session_id: Some("session".into()),
             session_binding_nonce: Some("nonce".into()),
+            attempt_id: None,
             status: Some(ReportStatus::Partial),
             branch: Some("orch-p2-structured-report".to_string()),
+            base: None,
             sha: Some("deadbeef".to_string()),
             changed_files: Some(vec!["a.rs".to_string(), "b.rs".to_string()]),
             test_cmd: Some("cargo test".to_string()),
             test_result: Some("ok".to_string()),
             skipped: Some("e2e".to_string()),
             attachments: vec![],
+            diagnostics: None,
         };
         let mut store = ReportStore::new(100);
         let stored = store.add_detailed("orch", "w1", "Worker", "all done", details, None);
@@ -724,14 +745,17 @@ mod tests {
             caller_tab_id: Some("w1".into()),
             caller_session_id: Some("session".into()),
             session_binding_nonce: Some("nonce".into()),
+            attempt_id: None,
             status: Some(ReportStatus::Done),
             branch: Some("feature-x".to_string()),
+            base: None,
             sha: Some("abc123".to_string()),
             changed_files: Some(vec!["src/a.rs".to_string(), "src/b.rs".to_string()]),
             test_cmd: Some("cargo test".to_string()),
             test_result: Some("42 passed".to_string()),
             skipped: Some("manual UI step".to_string()),
             attachments: vec![],
+            diagnostics: None,
         };
         let mut store = ReportStore::new(100);
         let report = store.add_detailed("orch", "w1", "Worker", "the freeform body", details, None);

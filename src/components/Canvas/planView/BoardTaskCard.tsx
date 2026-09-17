@@ -11,12 +11,9 @@ import { taskDisplayKey, taskReferenceLabel } from "../taskDisplayKey";
 import {
   MissionControlControls,
   type MissionControlTaskAction,
-  type MissionControlTaskPauseAction,
 } from "../missionControl/MissionControlControls";
 
 export interface BoardTaskActions {
-  onPauseTask?: MissionControlTaskPauseAction;
-  onResumeTask?: MissionControlTaskAction;
   onDeleteTask?: MissionControlTaskAction;
 }
 
@@ -42,7 +39,7 @@ function metaTestId(kind: TaskCardMetaRow["kind"]): string {
   return "plan-board-task-age";
 }
 
-export function BoardTaskCard({ card, onOpen, planId, onPauseTask, onResumeTask, onDeleteTask }: BoardTaskCardProps) {
+export function BoardTaskCard({ card, onOpen, planId, onDeleteTask }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
   const isPaused = task.status === TaskStatus.Paused;
@@ -89,9 +86,6 @@ export function BoardTaskCard({ card, onOpen, planId, onPauseTask, onResumeTask,
             planId={planId}
             taskId={task.id}
             taskName={task.name}
-            taskStatus={task.status}
-            onPauseTask={onPauseTask}
-            onResumeTask={onResumeTask}
             onDeleteTask={onDeleteTask}
           />
         </div>

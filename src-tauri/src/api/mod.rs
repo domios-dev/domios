@@ -5,6 +5,7 @@ pub mod routes;
 
 pub mod agent_done_routes;
 pub mod agent_routes;
+pub mod ai_helper_routes;
 pub mod bridge_routes;
 pub mod clipboard_routes;
 pub mod config_routes;
@@ -13,12 +14,14 @@ pub mod debug_routes;
 pub mod delayed_send_routes;
 #[cfg(debug_assertions)]
 pub mod dev_cast_routes;
+pub(crate) mod essence_map_routes;
 pub mod fs_routes;
 pub mod health_routes;
 pub mod hook_routes;
 pub mod inbound_webhook;
 pub mod logs_routes;
 pub mod mem_routes;
+pub mod mesh_attachment;
 pub mod mesh_inventory;
 pub mod mesh_routes;
 pub mod network_routes;

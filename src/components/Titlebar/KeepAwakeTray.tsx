@@ -5,6 +5,8 @@ import { getCachedConfig, loadConfig, setUiSettings } from "../../lib/clientSett
 import { Power } from "lucide-react";
 import { createPortal } from "react-dom";
 import { UI_TRAY_BTN } from "../shared/design";
+import { LiquidToggleTrack, useLiquidTravel } from "../shared/LiquidToggle";
+import { Segmented } from "../shared/Segmented";
 
 interface KeepAwakeStatus {
   active: boolean;
@@ -12,14 +14,16 @@ interface KeepAwakeStatus {
   expires_at: number | null;
 }
 
-const PRESETS: { label: string; title: string; secs: number | null }[] = [
-  { label: "∞", title: "Indefinitely", secs: null },
-  { label: "1h", title: "1 hour", secs: 3600 },
-  { label: "2h", title: "2 hours", secs: 7200 },
-  { label: "4h", title: "4 hours", secs: 14400 },
-  { label: "8h", title: "8 hours", secs: 28800 },
-  { label: "12h", title: "12 hours", secs: 43200 },
-];
+const PRESETS = [
+  { value: "inf", label: "∞", title: "Indefinitely", secs: null },
+  { value: "1h", label: "1h", title: "1 hour", secs: 3600 },
+  { value: "2h", label: "2h", title: "2 hours", secs: 7200 },
+  { value: "4h", label: "4h", title: "4 hours", secs: 14400 },
+  { value: "8h", label: "8h", title: "8 hours", secs: 28800 },
+  { value: "12h", label: "12h", title: "12 hours", secs: 43200 },
+] as const;
+
+type PresetValue = (typeof PRESETS)[number]["value"];
 
 // is shared across clients instead of per-localStorage.
 function loadDisplay(): boolean {
@@ -41,6 +45,7 @@ export function KeepAwakeTray() {
   const [status, setStatus] = useState<KeepAwakeStatus>({ active: false, display: false, expires_at: null });
   const [open, setOpen] = useState(false);
   const [displaySleep, setDisplaySleep] = useState<boolean>(loadDisplay);
+  const [picked, setPicked] = useState<PresetValue>("inf");
   const [tick, setTick] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -109,8 +114,7 @@ export function KeepAwakeTray() {
     await invoke("keepawake_stop").catch(() => {});
   }, []);
 
-  const toggleDisplay = useCallback(() => {
-    const next = !displaySleep;
+  const applyDisplay = useCallback((next: boolean) => {
     setDisplaySleep(next);
     saveDisplay(next);
     if (!status.active) return;
@@ -122,7 +126,13 @@ export function KeepAwakeTray() {
     }
     invoke<KeepAwakeStatus>("keepawake_start", { durationSecs: durSecs, display: next })
       .catch(() => {});
-  }, [displaySleep, status.active, status.expires_at]);
+  }, [status.active, status.expires_at]);
+
+  const {
+    flip: flipDisplay,
+    travel: displayTravel,
+    finishTravel: finishDisplayTravel,
+  } = useLiquidTravel(displaySleep, applyDisplay);
 
   useEffect(() => {
     if (!open) return;
@@ -146,6 +156,21 @@ export function KeepAwakeTray() {
     const rect = triggerRef.current.getBoundingClientRect();
     return { top: rect.bottom + 4, right: window.innerWidth - rect.right };
   })();
+
+  // The strip follows status where it can: a countdown drifts off its preset, so a
+  // session begun elsewhere keeps this window's last pick; the header clock rules time.
+  useEffect(() => {
+    if (status.active && status.expires_at === null) setPicked("inf");
+  }, [status.active, status.expires_at]);
+
+  const onPick = useCallback(
+    (value: PresetValue) => {
+      setPicked(value);
+      const preset = PRESETS.find((p) => p.value === value);
+      if (preset) void start(preset.secs);
+    },
+    [start],
+  );
 
   const timed = status.active && status.expires_at !== null;
   const time = timed ? clockParts(status.expires_at!) : null;
@@ -186,9 +211,7 @@ export function KeepAwakeTray() {
           {/* Header row */}
           <div className="flex items-center h-10 px-3">
             <div className="flex-1 flex items-baseline gap-1.5 min-w-0">
-              <span className={`text-[11px] font-medium ${status.active ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)]"}`}>
-                Keep Awake
-              </span>
+              <span className="text-[12px] font-semibold text-[var(--ct-fg)]">Keep Awake</span>
               {status.active && (
                 <>
                   <span className="text-[11px] text-[var(--ct-muted)]">—</span>
@@ -204,55 +227,52 @@ export function KeepAwakeTray() {
                 </>
               )}
             </div>
-            {status.active && (
-              <button
-                onClick={(e) => { e.stopPropagation(); stop(); }}
-                title="End session"
-                className="ml-2 px-2 py-0.5 text-[10px] rounded-full border border-[rgba(255,255,255,0.18)] text-[var(--ct-muted)] hover:border-[var(--ct-red,#ef4444)] hover:text-[var(--ct-red,#ef4444)] hover:bg-[rgba(239,68,68,0.12)] transition-colors"
-              >
-                End
-              </button>
-            )}
           </div>
 
           <div className="h-px bg-[rgba(255,255,255,0.08)]" />
 
-          {/* Preset chips row */}
-          <div className="flex items-center gap-1 px-3 py-2">
-            {PRESETS.map((p) => (
-              <button
-                key={p.label}
-                onClick={() => start(p.secs)}
-                title={p.title}
-                className="flex-1 px-1 py-1 text-[11px] rounded-md text-[var(--ct-fg)] border border-[rgba(255,255,255,0.10)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-accent)] hover:bg-[rgba(125,200,255,0.08)] transition-colors"
-              >
-                {p.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 px-3 py-2">
+            <button
+              type="button"
+              className="ct-keepawake-off"
+              aria-pressed={!status.active}
+              title="Off"
+              aria-label="Turn keep awake off"
+              onClick={() => void stop()}
+            >
+              ✕
+            </button>
+            <Segmented
+              aria-label="Keep awake duration"
+              className={`flex-1${status.active ? "" : " ct-segmented-idle"}`}
+              height={26}
+              value={picked}
+              onChange={onPick}
+              options={PRESETS.map((p) => ({ value: p.value, label: p.label, title: p.title }))}
+            />
           </div>
 
           <div className="h-px bg-[rgba(255,255,255,0.08)]" />
 
           {/* Display sleep toggle */}
           <button
-            onClick={toggleDisplay}
+            type="button"
+            role="switch"
+            aria-checked={displaySleep}
+            onClick={flipDisplay}
             className="flex items-center justify-between w-full px-3 py-2 text-[11px] text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.06)] transition-colors"
           >
             <span className="flex flex-col items-start">
               <span>Keep display awake</span>
-              <span className="text-[9.5px] text-[var(--ct-muted)] mt-0.5">
+              <span className="text-[9.5px] text-[var(--ct-muted-fg)] mt-0.5">
                 {displaySleep ? "Display stays on" : "Display can sleep"}
               </span>
             </span>
-            <span
-              className="relative inline-block w-7 h-4 rounded-full transition-colors flex-shrink-0"
-              style={{ background: displaySleep ? "var(--ct-accent, #7dc8ff)" : "rgba(255,255,255,0.16)" }}
-            >
-              <span
-                className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
-                style={{ left: displaySleep ? "calc(100% - 14px)" : "2px" }}
-              />
-            </span>
+            <LiquidToggleTrack
+              checked={displaySleep}
+              travel={displayTravel}
+              onTravelEnd={finishDisplayTravel}
+            />
           </button>
         </div>,
         document.body

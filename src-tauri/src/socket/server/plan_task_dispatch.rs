@@ -19,6 +19,7 @@ use super::JsonRpcError;
 
 mod attempt_rollback;
 mod brief;
+pub(super) mod canonical_writer;
 mod dispatch_failure;
 mod gates;
 mod lane_commit;
@@ -51,7 +52,10 @@ use lane_safety::{
     refuse_unsafe_mutating_write,
 };
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
-use routing::{dispatch_worker_identity, resolve_dispatch_routing, unqualified_model_error};
+use routing::{
+    dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing,
+    unqualified_model_error,
+};
 use workspace_admission::preflight_dispatch_workspace;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
@@ -66,9 +70,6 @@ fn dispatch_reasoning_effort(p: Option<&Value>) -> (Option<String>, Option<Strin
 }
 
 const DISPATCH_READY_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
-/// A queued `lane.setup_command` runs before the agent boots, so the ready
-/// deadline must leave room for it. Failure bound only, never a readiness signal.
-const LANE_SETUP_READY_ALLOWANCE: Duration = Duration::from_secs(540);
 
 fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
     JsonRpcError {
@@ -271,7 +272,6 @@ pub(super) fn arm_worker_ack_deadline(
     task_id: &str,
     attempt_id: &str,
     spawn_command: String,
-    startup_allowance: Duration,
 ) {
     svc.arm_worker_ack_deadline(
         parent_tab_id,
@@ -281,7 +281,6 @@ pub(super) fn arm_worker_ack_deadline(
         task_id,
         attempt_id,
         spawn_command,
-        startup_allowance,
     );
 }
 
@@ -322,21 +321,8 @@ pub(super) struct DispatchStartup {
 }
 
 impl DispatchStartup {
-    fn lane_setup_allowance(&self) -> Duration {
-        let setup_command_queued = self
-            .provisioned_lane
-            .as_ref()
-            .is_some_and(|lane| lane.bootstrap.setup_command.is_some());
-        if setup_command_queued {
-            LANE_SETUP_READY_ALLOWANCE
-        } else {
-            Duration::ZERO
-        }
-    }
-
     pub(super) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
-        let startup_allowance = self.lane_setup_allowance();
-        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT + startup_allowance;
+        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
         let provisioned_lane = self.provisioned_lane;
         let outcome = complete_dispatch_transaction(
             deadline,
@@ -378,8 +364,6 @@ impl DispatchStartup {
                             metadata.branch = None;
                             metadata.base = None;
                             metadata.cleanup_status = None;
-                            metadata.bootstrap_links = Vec::new();
-                            metadata.bootstrap_warnings = Vec::new();
                             metadata
                         }),
                 );
@@ -423,7 +407,6 @@ impl DispatchStartup {
                     &self.task_id,
                     &self.attempt_id,
                     self.spawn_command.clone(),
-                    startup_allowance,
                 );
                 emit_plan_changed(&self.app, &self.plan_id);
                 let nudges = self
@@ -587,16 +570,33 @@ fn gate_keys(gates: &[RegressionGate]) -> String {
 }
 
 // Refuse the dispatch loudly, naming every blocking gate — no tab is spawned.
-fn regression_blocked_error(gates: Vec<RegressionGate>) -> JsonRpcError {
-    let names = gate_keys(&gates);
+fn regression_blocked_error(
+    gates: Vec<RegressionGate>,
+    retrospectives: Vec<RegressionGate>,
+) -> JsonRpcError {
+    let mut causes = Vec::new();
+    if !gates.is_empty() {
+        causes.push(format!(
+            "pending regression gate(s) {}: run the warm integration QA (codeterm plan qa next <plan> --group <gate> --note \"<evidence>\") or record an authorized override (codeterm plan qa override <plan> --reason \"<why>\")",
+            gate_keys(&gates)
+        ));
+    }
+    if !retrospectives.is_empty() {
+        causes.push(format!(
+            "unrecorded group retrospective(s) {}: record each with codeterm plan groups close <plan> <group> --note \"<retrospective>\"",
+            gate_keys(&retrospectives)
+        ));
+    }
     JsonRpcError {
         code: -32010,
         message: format!(
-            "dispatch blocked by pending regression gate(s): {names}. Run the warm integration QA to clear them (codeterm plan qa next <plan> --group <gate> --note \"<evidence>\"), tag the task regression-gate/release-blocking if it is the exception, or record an authorized override (codeterm plan qa override <plan> --reason \"<why>\")."
+            "dispatch blocked by {}. Tag the task regression-gate/release-blocking only if it is the exception.",
+            causes.join("; ")
         ),
         data: Some(json!({
             "type": "regression_gate_blocked",
             "blocking_gates": gates,
+            "pending_retrospectives": retrospectives,
         })),
     }
 }
@@ -640,8 +640,11 @@ pub(super) fn dispatch(
     match regression_dispatch_decision(&plan, &detail.task) {
         RegressionDispatchDecision::Clear => {}
         RegressionDispatchDecision::Exempt { exemption: e, .. } => exemption = Some(e),
-        RegressionDispatchDecision::Blocked { blocking } => {
-            return Err(regression_blocked_error(blocking));
+        RegressionDispatchDecision::Blocked {
+            blocking,
+            retrospectives,
+        } => {
+            return Err(regression_blocked_error(blocking, retrospectives));
         }
     }
     // Same frontier policy for the review WIP gate: decide before any tab
@@ -669,6 +672,9 @@ pub(super) fn dispatch(
         detail.task.model.clone(),
         &svc.agent_registry.provider_ids(),
     );
+    if let Some(error) = provider_mismatch_error(&routing) {
+        return Err(error);
+    }
 
     // Surface an unknown-model fallback loudly instead of silently downgrading.
     let resolved_provider = routing
@@ -684,6 +690,8 @@ pub(super) fn dispatch(
             ))
         }
     };
+    let placement =
+        canonical_writer::dispatch_worker_placement(p, &execution_intent, &detail.task)?;
     let allowance_capability = svc
         .agent_registry
         .with_provider(&resolved_provider, |provider| {
@@ -751,12 +759,15 @@ pub(super) fn dispatch(
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
         .map_err(plan_rpc_err)?;
-    let brief = build_brief_with_manifest(
-        &detail.task,
-        &detail.sections,
-        &plan_id,
-        &manifest,
-        &authorized_gates,
+    let brief = canonical_writer::compose_dispatch_brief(
+        build_brief_with_manifest(
+            &detail.task,
+            &detail.sections,
+            &plan_id,
+            &manifest,
+            &authorized_gates,
+        ),
+        placement,
     );
 
     let explicit_cwd = owned_str(p, "cwd");
@@ -781,6 +792,12 @@ pub(super) fn dispatch(
                 LaneProtection::Waived,
             )
             .map_err(checkout_required)?;
+            Some(lane_resolution::DispatchLaneResolution {
+                spawn_cwd: canonical_cwd.clone(),
+                existing: None,
+            })
+        } else if placement == crate::plan::WorkerPlacement::CanonicalWriter {
+            canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
             Some(lane_resolution::DispatchLaneResolution {
                 spawn_cwd: canonical_cwd.clone(),
                 existing: None,
@@ -816,7 +833,10 @@ pub(super) fn dispatch(
     // Placement decides lane-vs-canonical before a tab exists, so a refusal and
     // a provisioning both happen with nothing yet to clean up.
     let lane_placement = match lane_resolution.as_ref() {
-        Some(resolution) if execution_intent == crate::plan::ExecutionIntent::Mutating => {
+        Some(resolution)
+            if execution_intent == crate::plan::ExecutionIntent::Mutating
+                && placement.is_isolated_lane() =>
+        {
             let resolved = resolution.existing.clone().ok_or_else(|| {
                 checkout_required("mutating dispatch resolved no repository checkout")
             })?;
@@ -859,6 +879,9 @@ pub(super) fn dispatch(
         title: explicit_persona,
         title_provenance,
         role: Some("Worker".into()),
+        role_profile: crate::service::role_profile::builtin_worker_profile(
+            detail.task.executor_role.as_deref(),
+        ),
         parent_tab_id: parent,
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
@@ -878,21 +901,29 @@ pub(super) fn dispatch(
             svc.provision_dispatch_worker_lane(&mut spawn_params, base_checkout, &lane_label)
                 .map_err(|error| dispatch_failed("lane_provision", error))?,
         ),
+        // A lane we created on an earlier dispatch is still ours. Without this the
+        // reused worktree carries no provenance and the trust dialog waits forever.
+        Some(DispatchLanePlacement::Existing(provenance)) => {
+            spawn_params.provisioned_cwd = Some(provenance.worktree_path.clone());
+            None
+        }
         _ => None,
     };
-    let initial_provenance =
-        if execution_intent == crate::plan::ExecutionIntent::Mutating && requires_repository {
-            match provisioned_lane.as_ref() {
-                Some(lane) => lane.verify(),
-                None => match lane_placement.as_ref() {
-                    Some(DispatchLanePlacement::Existing(provenance)) => Ok(provenance.clone()),
-                    _ => Err("dispatch did not provision or resolve a worker lane".to_string()),
-                },
-            }
-            .map(Some)
-        } else {
-            Ok(None)
-        };
+    let initial_provenance = if execution_intent == crate::plan::ExecutionIntent::Mutating
+        && requires_repository
+        && placement.is_isolated_lane()
+    {
+        match provisioned_lane.as_ref() {
+            Some(lane) => lane.verify(),
+            None => match lane_placement.as_ref() {
+                Some(DispatchLanePlacement::Existing(provenance)) => Ok(provenance.clone()),
+                _ => Err("dispatch did not provision or resolve a worker lane".to_string()),
+            },
+        }
+        .map(Some)
+    } else {
+        Ok(None)
+    };
     let initial_provenance = match initial_provenance {
         Ok(provenance) => provenance,
         Err(error) => {
@@ -937,14 +968,6 @@ pub(super) fn dispatch(
         lane_for_commit.workspace_id.get_or_insert(workspace_id);
         lane_for_commit.workspace_name.get_or_insert(workspace_name);
     }
-    // A freshly provisioned lane owns the bootstrap record; stale entries from
-    // a prior attempt must not survive into this dispatch's record.
-    if let Some(lane) = provisioned_lane.as_ref() {
-        lane_for_commit.bootstrap_links = lane.bootstrap.links.clone();
-        lane_for_commit.bootstrap_warnings = lane.bootstrap.warnings.clone();
-    }
-    let bootstrap_links = lane_for_commit.bootstrap_links.clone();
-    let bootstrap_warnings = lane_for_commit.bootstrap_warnings.clone();
     let starting_lane = initial_provenance
         .as_ref()
         .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance, &canonical_cwd))
@@ -954,8 +977,6 @@ pub(super) fn dispatch(
             lane.branch = None;
             lane.base = None;
             lane.cleanup_status = None;
-            lane.bootstrap_links = Vec::new();
-            lane.bootstrap_warnings = Vec::new();
             lane
         });
     // Team identity rides the same committed value as the isolated lane, so no
@@ -995,6 +1016,7 @@ pub(super) fn dispatch(
         Some(&resolved_provider),
         &reserved_attempt_id,
         authorized_gates.clone(),
+        placement,
         now,
     ) {
         Ok(attempt_id) => attempt_id,
@@ -1084,15 +1106,10 @@ pub(super) fn dispatch(
         "attempt_id": attempt_id,
         "agent": resolved_provider,
         "authorized_gates": authorized_gates,
+        "placement": placement,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
         result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &detail.task.lane);
-        if !bootstrap_links.is_empty() {
-            result["lane"]["bootstrap_links"] = json!(bootstrap_links);
-        }
-        if !bootstrap_warnings.is_empty() {
-            result["lane"]["bootstrap_warnings"] = json!(bootstrap_warnings);
-        }
     }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {

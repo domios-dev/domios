@@ -558,7 +558,7 @@ export function TeamUnit({
               className="sidebar-team-working-indicator"
               role="status"
               aria-label={`${displayTitle} has working members`}
-            ><ActivityDots size="small" tone="muted" /></span>
+            ><ActivityDots size="small" tone="muted" active /></span>
           )}
         </span>
       )}
@@ -608,6 +608,16 @@ export function TeamUnit({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
+            <button
+              type="button"
+              data-testid="team-board-action"
+              className="sidebar-team-board-action"
+              aria-label={`Open the board for ${displayTitle}`}
+              title="Open board"
+              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id })}
+            >
+              <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
+            </button>
             <TeamMenu
               providers={providers}
               providersLoading={providersLoading}
@@ -670,7 +680,7 @@ export function TeamUnit({
                 <div data-testid="workers-collapse-summary" className="sidebar-team-workers-summary">
                   {summarizeWorkers(workerCount, workingWorkerCount)}
                   {workingWorkerCount > 0 && (
-                    <ActivityDots size="small" tone="muted" />
+                    <ActivityDots size="small" tone="muted" active />
                   )}
                   <span className="sidebar-team-summary-kebab">⋮</span>
                 </div>

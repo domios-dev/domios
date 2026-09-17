@@ -656,29 +656,35 @@ new_shell_tab() {
     | python3 -c "import json,sys; print(json.load(sys.stdin).get('tab_id',''))"
 }
 
+# Spawn an agent tab of the given provider. Echoes tab_id.
+# The task goes through `--task-file -` so a bench prompt with backticks, $,
+# quotes or newlines reaches the agent byte-exact; an inline --task of that
+# shape is refused by the CLI, because the shell would already have eaten it.
+new_agent_tab() {
+  local provider="$1" ws="$2" cwd="$3" title="$4" task="${5:-}"
+  local args=( agent spawn "$provider" --workspace "$ws" --cwd "$cwd" --title "$title" )
+  if [ -n "$task" ]; then
+    printf '%s' "$task" | dc "${args[@]}" --task-file - 2>&1 \
+      | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+  else
+    dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+  fi
+}
+
 # Spawn a claude tab in the given workspace. Echoes tab_id.
-# Optional 4th arg = initial --task prompt.
+# Optional 4th arg = initial task prompt.
 new_claude_tab() {
-  local ws="$1" cwd="$2" title="${3:-claude}" task="${4:-}"
-  local args=( agent spawn claude --workspace "$ws" --cwd "$cwd" --title "$title" )
-  [ -n "$task" ] && args+=( --task "$task" )
-  dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+  new_agent_tab claude "$1" "$2" "${3:-claude}" "${4:-}"
 }
 
-# Spawn a codex tab. Echoes tab_id. Optional 4th arg = --task prompt.
+# Spawn a codex tab. Echoes tab_id. Optional 4th arg = task prompt.
 new_codex_tab() {
-  local ws="$1" cwd="$2" title="${3:-codex}" task="${4:-}"
-  local args=( agent spawn codex --workspace "$ws" --cwd "$cwd" --title "$title" )
-  [ -n "$task" ] && args+=( --task "$task" )
-  dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+  new_agent_tab codex "$1" "$2" "${3:-codex}" "${4:-}"
 }
 
-# Spawn an opencode tab. Echoes tab_id. Optional 4th arg = --task prompt.
+# Spawn an opencode tab. Echoes tab_id. Optional 4th arg = task prompt.
 new_opencode_tab() {
-  local ws="$1" cwd="$2" title="${3:-opencode}" task="${4:-}"
-  local args=( agent spawn opencode --workspace "$ws" --cwd "$cwd" --title "$title" )
-  [ -n "$task" ] && args+=( --task "$task" )
-  dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
+  new_agent_tab opencode "$1" "$2" "${3:-opencode}" "${4:-}"
 }
 
 # --- Auto-init: resolve the dev connection at source time. -----------

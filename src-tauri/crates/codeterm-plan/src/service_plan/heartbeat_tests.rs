@@ -1,3 +1,4 @@
+use super::task_attempts::TaskCompeteRequest;
 use super::{NewTask, PlanStore};
 use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef, TaskStatus};
 
@@ -108,11 +109,30 @@ fn heartbeat_renders_live_competitive_attempt_summary() {
             20,
         )
         .unwrap();
-    store
-        .assign_task(&plan_id, &task_id, "worker-a", None, 21)
+    // Sequential assignment is a replacement and closes the outgoing attempt;
+    // only the compete path leaves two attempts open at once.
+    let drafts = store
+        .build_task_compete_drafts(&plan_id, &task_id, TaskCompeteRequest::default())
         .unwrap();
     store
-        .assign_task(&plan_id, &task_id, "worker-b", None, 22)
+        .record_task_compete_attempt(
+            &plan_id,
+            &task_id,
+            "worker-a",
+            &drafts[0],
+            Some("worker"),
+            21,
+        )
+        .unwrap();
+    store
+        .record_task_compete_attempt(
+            &plan_id,
+            &task_id,
+            "worker-b",
+            &drafts[1],
+            Some("worker"),
+            22,
+        )
         .unwrap();
 
     let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
@@ -340,10 +360,8 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
         })
         .unwrap();
 
-    let text = store.prepend_heartbeat_for_plan(
-        &plan_id,
-        &super::reminders::nudge_text(super::reminders::NudgeKind::Orchestrator),
-    );
+    let reminder = super::reminders::orchestrator_nudge_text(&store.get(&plan_id).unwrap());
+    let text = store.prepend_heartbeat_for_plan(&plan_id, &reminder);
 
     assert!(text.starts_with("<codeterm-role-identity"));
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
@@ -358,7 +376,8 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains("codeterm docs ORCHESTRATION"));
     assert!(!text.contains("<codeterm-orchestrator-heartbeat"));
     assert!(!text.contains("Current focus:"));
-    assert!(text.contains("Plan reminder: this tab owns unfinished execution-plan work."));
+    assert!(text.ends_with(&reminder));
+    assert!(!reminder.contains("{actionable}"));
 }
 
 #[test]
@@ -535,13 +554,16 @@ fn is_plan_complete_rejects_paused_and_blocked_tasks() {
         )
         .unwrap();
     store
-        .pause_task(
-            &plan.id,
-            &paused_id,
-            "waiting for quota reset",
-            AgentRef::from_tab("orch"),
-            4,
-        )
+        .with_plan(&plan.id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == paused_id)
+                .unwrap();
+            task.status = TaskStatus::Paused;
+            task.pause_reason = Some("waiting for quota reset".into());
+            Ok(())
+        })
         .unwrap();
 
     let paused_plan = store.get(&plan.id).unwrap();

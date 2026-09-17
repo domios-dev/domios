@@ -76,18 +76,18 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum TabAction {
-    /// List compact tab summaries in the current workspace. Use
-    /// `tab inspect` for full tab details.
+    /// List compact tab summaries across every workspace. Use
+    /// `--workspace` for one workspace and `tab inspect` for full tab details.
     ///
     /// Each tab carries a `backing.kind`: `pty` tabs (terminal agents,
     /// shells) have a real shell — `send` injects text you can execute.
     /// `chat_backend` tabs (LLM chat via plugin) have NO shell: `send`
     /// delivers a chat message; never instruct them to run shell commands.
     List {
-        /// Workspace id to list. Defaults to this tab's workspace, then the focused workspace.
+        /// Workspace id to list. Without this selector every workspace is listed.
         #[arg(long, value_name = "WORKSPACE_ID")]
         workspace: Option<String>,
-        /// Include every workspace instead of the current one.
+        /// Accepted for compatibility; every workspace is now listed by default.
         #[arg(long, conflicts_with = "workspace")]
         all_workspaces: bool,
         /// Show only tabs running an agent (have an agent_type).
@@ -616,7 +616,7 @@ pub enum BridgeAction {
 
 #[derive(Subcommand)]
 pub enum BridgeThreadAction {
-    /// Open or reuse a tab's Telegram topic and print its link
+    /// Open or reuse a tab's Telegram topic and print where to find it
     Open {
         /// Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab
         #[arg(long)]

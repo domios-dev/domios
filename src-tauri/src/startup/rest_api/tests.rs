@@ -473,7 +473,7 @@ async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
     let mut recovery_events = control.take_recovery_events().unwrap();
     let generation = control.begin_generation();
     control.listener_bound(generation, "127.0.0.1:7686".parse().unwrap());
-    control.mark_listening(generation).unwrap();
+    control.mark_listening(generation, Vec::new()).unwrap();
     let mut claims = crate::liveness::RecoveryResyncClaims::default();
 
     for expected_transition in 1..=2 {

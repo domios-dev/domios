@@ -50,7 +50,7 @@ fn token_event(
             uncached_input: uncached,
             output: 1,
         }),
-        dedup_key: None,
+        dedup_key: Some(ulid::Ulid::new().to_string()),
         workspace_id: workspace.map(str::to_string),
         tab_kind: None,
     }

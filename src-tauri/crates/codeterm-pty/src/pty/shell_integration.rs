@@ -29,6 +29,35 @@ const ZSH_HOOKS: &str = include_zsh_hooks();
 const BASH_RC: &str = include_bash_rc();
 const FISH_CONF: &str = include_fish_conf();
 
+const POWERSHELL_PS1: &str = r#"# CodeTerm shell integration - do not edit
+if (-not $global:__CodeTermShellIntegrationLoaded) {
+  $global:__CodeTermShellIntegrationLoaded = $true
+  $global:__CodeTermLastHistoryId = 0
+  $global:__CodeTermShellNonce = $env:CODETERM_SHELL_NONCE
+  Remove-Item Env:CODETERM_SHELL_NONCE -ErrorAction SilentlyContinue
+  $global:__CodeTermOriginalPrompt = $function:prompt
+  if ($null -eq $global:__CodeTermOriginalPrompt) {
+    $global:__CodeTermOriginalPrompt = { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
+  }
+
+  function global:prompt {
+    # An empty Enter or a prompt redraw adds no history entry, so it never reads as a finished command.
+    $lastHistory = Get-History -Count 1
+    $historyId = if ($null -eq $lastHistory) { 0 } else { $lastHistory.Id }
+    $commandFinished = $historyId -gt $global:__CodeTermLastHistoryId
+    $global:__CodeTermLastHistoryId = $historyId
+    if ($commandFinished -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
+      [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
+      [Console]::Write(([char]27 + ']633;D' + [char]7))
+    }
+    [Console]::Write(([char]27 + ']633;A' + [char]7))
+    $rendered = & $global:__CodeTermOriginalPrompt
+    [Console]::Write(([char]27 + ']633;B' + [char]7))
+    $rendered
+  }
+}
+"#;
+
 /// Ensure shell integration scripts exist on disk. Called once at app startup.
 pub fn ensure_scripts() {
     let _guard = SCRIPTS_WRITE_LOCK
@@ -77,35 +106,7 @@ fi
     let _ = std::fs::write(&bashrc, BASH_RC);
 
     let powershell = dir.join("powershell.ps1");
-    let powershell_content = r#"# CodeTerm shell integration - do not edit
-if (-not $global:__CodeTermShellIntegrationLoaded) {
-  $global:__CodeTermShellIntegrationLoaded = $true
-  $global:__CodeTermLastHistoryId = 0
-  $global:__CodeTermShellNonce = $env:CODETERM_SHELL_NONCE
-  Remove-Item Env:CODETERM_SHELL_NONCE -ErrorAction SilentlyContinue
-  $global:__CodeTermOriginalPrompt = $function:prompt
-  if ($null -eq $global:__CodeTermOriginalPrompt) {
-    $global:__CodeTermOriginalPrompt = { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
-  }
-
-  function global:prompt {
-    # An empty Enter or a prompt redraw adds no history entry, so it never reads as a finished command.
-    $lastHistory = Get-History -Count 1
-    $historyId = if ($null -eq $lastHistory) { 0 } else { $lastHistory.Id }
-    $commandFinished = $historyId -gt $global:__CodeTermLastHistoryId
-    $global:__CodeTermLastHistoryId = $historyId
-    if ($commandFinished -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
-      [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
-      [Console]::Write(([char]27 + ']633;D' + [char]7))
-    }
-    [Console]::Write(([char]27 + ']633;A' + [char]7))
-    $rendered = & $global:__CodeTermOriginalPrompt
-    [Console]::Write(([char]27 + ']633;B' + [char]7))
-    $rendered
-  }
-}
-"#;
-    let _ = std::fs::write(&powershell, powershell_content);
+    let _ = std::fs::write(&powershell, POWERSHELL_PS1);
 
     // fish: auto-sourced from $XDG_DATA_DIRS/fish/vendor_conf.d on interactive start.
     let fish_dir = dir.join("fish").join("vendor_conf.d");
@@ -474,7 +475,9 @@ mod tests {
     fn apply_env_wires_powershell_command_finished_observation() {
         ensure_scripts();
         let script = integration_dir().join("powershell.ps1");
-        let content = std::fs::read_to_string(&script).unwrap();
+        // The shipped script, not this machine's copy: ensure_scripts discards its
+        // write error, so an install could be running an older file than this constant.
+        let content = POWERSHELL_PS1;
         let authenticated_command = content.find("']633;E;;'").unwrap();
         let command_finished = content.find("']633;D'").unwrap();
         assert!(content.contains("$env:CODETERM_SHELL_NONCE"));
@@ -493,8 +496,8 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn restore_contract_powershell_command_finished_requires_a_new_history_entry() {
-        ensure_scripts();
-        let content = std::fs::read_to_string(integration_dir().join("powershell.ps1")).unwrap();
+        // The shipped script, for the same reason as the test above.
+        let content = POWERSHELL_PS1;
         let prompt = content.find("function global:prompt").unwrap();
         let history = content.find("Get-History -Count 1").unwrap();
         let gate = content

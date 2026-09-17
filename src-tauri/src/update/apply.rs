@@ -55,11 +55,49 @@ pub struct ApplyOptions {
     pub initiating_tab_id: Option<String>,
 }
 
+pub(crate) fn begin_apply(update_state: &std::sync::Arc<parking_lot::Mutex<UpdateState>>) {
+    let mut us = update_state.lock();
+    us.set_phase(UpdatePhase::Checking);
+    us.clear_error();
+}
+
+#[cfg(test)]
+mod update_apply_phase_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn state() -> Arc<parking_lot::Mutex<UpdateState>> {
+        Arc::new(parking_lot::Mutex::new(UpdateState {
+            install_method: InstallMethod::Unknown,
+            last_check: None,
+            last_check_time: None,
+            channel: Channel::Stable,
+            phase: UpdatePhase::Idle,
+            last_error: Some("stale error".to_string()),
+            phase_changed_at: None,
+            downloaded_bytes: 0,
+            download_total_bytes: None,
+        }))
+    }
+
+    #[test]
+    fn update_apply_phase_begins_checking_and_clears_error() {
+        let update_state = state();
+
+        begin_apply(&update_state);
+
+        let state = update_state.lock();
+        assert_eq!(state.phase, UpdatePhase::Checking);
+        assert!(state.last_error.is_none());
+    }
+}
+
 pub(super) async fn check_and_apply(
     app: &tauri::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
+    begin_apply(&update_state);
     if opts.install_method == InstallMethod::Deb {
         return check_and_apply_deb(app, opts, update_state).await;
     }
@@ -272,6 +310,7 @@ pub async fn check_stage_deb_update(
     opts: &ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<DebianUpdatePlan, String> {
+    begin_apply(&update_state);
     let endpoint_str = resolve_manifest_endpoint(&opts).await?;
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;

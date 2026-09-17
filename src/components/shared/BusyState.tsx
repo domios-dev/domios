@@ -47,6 +47,7 @@ export function BusyState({
         size={dotSize}
         tone={phase === "thinking" ? "thinking" : "accent"}
         rhythm={phase}
+        active
       />
       {!hideLabel && text ? <span className="ct-agent-msg">{text}</span> : null}
     </span>

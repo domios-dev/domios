@@ -10,7 +10,7 @@ pub enum ReviewVerdict {
 }
 
 /// Evidence attached to the owning implementation task by a read-only review
-/// pass. Never creates a task of its own; see docs/ORCHESTRATION.md review section.
+/// pass. Never creates a task of its own; see prod-docs/ORCHESTRATION.md review section.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReviewEvidence {
     pub id: String,

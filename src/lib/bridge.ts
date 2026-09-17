@@ -16,7 +16,7 @@ import {
   listen as tauriListen,
   type UnlistenFn as TauriUnlistenFn,
 } from "@tauri-apps/api/event";
-import { currentToken, IS_WEB, WebApiError, webFetch, webJson } from "./webApi";
+import { currentToken, IS_WEB, localJson, WebApiError, webFetch, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
@@ -378,13 +378,13 @@ const HTTP_MAP: Record<string, Mapper> = {
 
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
-  ordinary_tabs_list: () => webJson("GET", "/api/tabs?all_workspaces=true"),
+  ordinary_tabs_list: () => webJson("GET", "/api/tabs"),
   mesh_peer_tabs_list: async (a) => {
     const peer = s(a, "peerId") ?? s(a, "peer_id");
     const response = await webJson<{ ok?: boolean; data?: unknown; error?: string | null }>("POST", "/api/mesh/relay-to", {
       target_peer_id: peer,
       method: "GET",
-      path: "/api/tabs?all_workspaces=true&local_only=true",
+      path: "/api/tabs?local_only=true",
       body: null,
     });
     if (!response.ok) throw new Error(response.error ?? "Failed to list remote Tabs");
@@ -433,6 +433,14 @@ const HTTP_MAP: Record<string, Mapper> = {
       return relay.data;
     });
   },
+  // The serving daemon holds the uploaded bytes, so the handoff never rides a relay target.
+  mesh_transfer_attachment: (a) =>
+    localJson("POST", "/api/mesh/attachments/transfer", {
+      ordinary_tab_id: s(a, "ordinaryTabId"),
+      peer_id: s(a, "peerId"),
+      path: s(a, "path"),
+      kind: s(a, "kind"),
+    }),
   mesh_peer_services_list: (a) =>
     webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
   mesh_inventory_list: () => webJson("GET", "/api/mesh/inventory"),
@@ -582,6 +590,16 @@ const HTTP_MAP: Record<string, Mapper> = {
     ),
   fs_mkdir: (a) =>
     webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
+  read_workspace_essence_maps: (a) => {
+    const paths = Array.isArray(a.projectPaths) ? a.projectPaths : [];
+    const query = paths.map((path) => `path=${enc(String(path))}`).join("&");
+    return webJson("GET", `/api/essence-maps${query ? `?${query}` : ""}`);
+  },
+  read_workspace_essence_source: (a) =>
+    webJson(
+      "GET",
+      `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
+    ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),

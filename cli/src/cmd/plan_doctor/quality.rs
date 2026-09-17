@@ -180,7 +180,11 @@ pub(super) fn inspect_task_lifecycle(
             .get("pause_reason")
             .and_then(Value::as_str)
             .is_some_and(|s| !s.trim().is_empty());
-        if !has_reason {
+        let is_provider_hold = task
+            .get("status_label")
+            .and_then(Value::as_str)
+            .is_some_and(|label| label == "provider_exhausted");
+        if !has_reason && !is_provider_hold {
             findings.push(Finding {
                 severity: "error",
                 kind: "paused_without_reason",
@@ -188,7 +192,7 @@ pub(super) fn inspect_task_lifecycle(
                 path: path.display().to_string(),
                 task_id: task_id.clone(),
                 detail: "task is paused but has no pause_reason".into(),
-                fix: "resume and pause with a reason: `codeterm plan task pause <plan> <task> --reason \"<why>\"`".into(),
+                fix: "operator must inspect and delete or cancel this task; no automatic migration is performed".into(),
             });
         }
     }
@@ -213,7 +217,7 @@ pub(super) fn inspect_task_lifecycle(
             task_id,
             "aged_unstaffed_task",
             "pending task has been unstaffed for over 4h",
-            "dispatch it, pause it with a reason, or send it to replanning",
+            "dispatch it or send it to replanning",
         ));
     }
     findings.extend(cleanup::cleanup_debt_findings(path, plan, task));

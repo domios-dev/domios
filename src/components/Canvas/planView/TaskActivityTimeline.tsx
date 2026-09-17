@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { milestoneColorMap } from "../milestoneColors";
 import { resolveTaskExecutionAttempts, attemptTabId, attemptTabTitle } from "../taskExecutorHistory";
-import type { Plan, Task } from "../types";
+import type { LaneDiagnosticsSummary, Plan, Task } from "../types";
 import { AttachmentGallery } from "./attachments";
 import {
   milestoneAbsoluteTitle,
@@ -58,6 +58,44 @@ function AttemptRow({
   );
 }
 
+function DiagnosticLocation({
+  file,
+  line,
+  column,
+}: {
+  file?: string | null;
+  line?: number | null;
+  column?: number | null;
+}) {
+  if (!file) return <span>&lt;repo&gt;</span>;
+  const suffix = line == null ? "" : column == null ? `:${line}` : `:${line}:${column}`;
+  return <span>{`${file}${suffix}`}</span>;
+}
+
+function DiagnosticsBlock({ summary }: { summary: LaneDiagnosticsSummary }) {
+  return (
+    <div className="plan-task-activity-diagnostics" data-testid="plan-task-activity-diagnostics">
+      <div className="plan-task-activity-subhead">Diagnostics</div>
+      <div className="plan-task-activity-diagnostics-summary" data-testid="plan-task-diagnostics-summary">
+        {summary.status} · {summary.error_count} errors · {summary.warning_count} warnings · {summary.info_count} info
+      </div>
+      {summary.findings.slice(0, 3).map((finding, index) => (
+        <div
+          className="plan-task-activity-diagnostic"
+          data-testid="plan-task-activity-diagnostic"
+          key={`${finding.tool}-${finding.file ?? "repo"}-${finding.line ?? 0}-${index}`}
+        >
+          <span className="plan-task-activity-diagnostic-severity">{finding.severity}</span>
+          <span className="plan-task-activity-diagnostic-tool">{finding.tool}</span>
+          <DiagnosticLocation file={finding.file} line={finding.line} column={finding.column} />
+          {finding.code && <span>({finding.code})</span>}
+          <span>{finding.message}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TaskActivityTimelineBody({
   task,
   plan,
@@ -68,6 +106,10 @@ function TaskActivityTimelineBody({
 }: TaskActivityTimelineProps) {
   const [expanded, setExpanded] = useState(false);
   const attempts = useMemo(() => resolveTaskExecutionAttempts(task, tabs), [task, tabs]);
+  const diagnostics = useMemo(
+    () => [...(task.execution_attempts ?? [])].reverse().find((attempt) => attempt.report?.diagnostics)?.report?.diagnostics,
+    [task.execution_attempts],
+  );
   const colors = useMemo(() => (plan ? milestoneColorMap(plan) : new Map<string, string>()), [plan]);
   const { visible, hiddenCount } = useMemo(
     () => visibleMilestones(task.milestones, expanded),
@@ -89,6 +131,7 @@ function TaskActivityTimelineBody({
           ))}
         </div>
       )}
+      {diagnostics && <DiagnosticsBlock summary={diagnostics} />}
       {task.milestones.length > 0 && (
         <div
           className={`plan-task-activity-timeline${expanded ? " plan-task-activity-timeline--expanded" : ""}`}

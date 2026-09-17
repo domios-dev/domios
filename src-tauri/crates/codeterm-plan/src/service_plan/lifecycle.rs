@@ -1,6 +1,6 @@
 use super::mutations::plan_contains_id;
 use super::{PlanError, PlanStore};
-use crate::plan::{AgentRef, Milestone, PlanMode, TaskStatus};
+use crate::plan::{AgentRef, Milestone, PlanMode};
 
 impl PlanStore {
     pub fn pause_plan(
@@ -59,100 +59,6 @@ impl PlanStore {
             Ok(())
         })?;
         Ok(mode)
-    }
-
-    pub fn pause_task(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        reason: &str,
-        from: AgentRef,
-        now_ms: u64,
-    ) -> Result<String, PlanError> {
-        let reason = reason.trim();
-        if reason.is_empty() {
-            return Err(PlanError::TaskPauseRequiresReason);
-        }
-        let mut mid = String::new();
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if p.tasks[idx].status.is_terminal() {
-                return Err(PlanError::TransitionDenied {
-                    from: p.tasks[idx].status.clone(),
-                    to: TaskStatus::Paused,
-                });
-            }
-            if p.tasks[idx].status == TaskStatus::InReview {
-                return Err(PlanError::ReviewHoldRequired);
-            }
-            mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            let task = &mut p.tasks[idx];
-            if task.status != TaskStatus::Paused {
-                task.status_changed_at = now_ms;
-            }
-            task.status = TaskStatus::Paused;
-            task.pause_reason = Some(reason.to_string());
-            let assigned = task.assigned_tab_id.clone();
-            super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            task.assigned_tab_id = None;
-            task.lane.tab_id = None;
-            task.milestones.push(Milestone {
-                id: mid.clone(),
-                from,
-                kind: "decision".into(),
-                text: format!("paused: {reason}"),
-                ts: now_ms,
-                links: vec![],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-            task.updated_at = now_ms;
-            Ok(())
-        })?;
-        Ok(mid)
-    }
-
-    pub fn resume_task(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        from: AgentRef,
-        now_ms: u64,
-    ) -> Result<String, PlanError> {
-        let mut mid = String::new();
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if p.tasks[idx].status != TaskStatus::Paused {
-                return Err(PlanError::TransitionDenied {
-                    from: p.tasks[idx].status.clone(),
-                    to: TaskStatus::Pending,
-                });
-            }
-            mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            let task = &mut p.tasks[idx];
-            task.status = TaskStatus::Pending;
-            task.status_changed_at = now_ms;
-            task.pause_reason = None;
-            task.milestones.push(Milestone {
-                id: mid.clone(),
-                from,
-                kind: "decision".into(),
-                text: "resumed: returned to pending".into(),
-                ts: now_ms,
-                links: vec![],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-            task.updated_at = now_ms;
-            Ok(())
-        })?;
-        Ok(mid)
     }
 }
 

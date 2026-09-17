@@ -23,9 +23,8 @@ pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> St
     }
 }
 
-fn render_regression_gate_blocked(data: &Value, plan_id: &str, task_id: Option<&str>) -> String {
-    let gates = data
-        .get("blocking_gates")
+fn gate_key_list(data: &Value, field: &str) -> String {
+    data.get(field)
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -33,16 +32,36 @@ fn render_regression_gate_blocked(data: &Value, plan_id: &str, task_id: Option<&
                 .collect::<Vec<_>>()
                 .join(", ")
         })
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "<gate>".into());
+        .unwrap_or_default()
+}
+
+fn render_regression_gate_blocked(data: &Value, plan_id: &str, task_id: Option<&str>) -> String {
+    let gates = gate_key_list(data, "blocking_gates");
+    let retrospectives = gate_key_list(data, "pending_retrospectives");
     let task = task_id.unwrap_or("<task_id>");
-    format!(
-        "✗ dispatch blocked: pending regression gate(s) {gates} must clear before a non-blocker task dispatches.\n\
-choose one:\n\
-  clear the gate with a warm integration QA run: codeterm plan qa next {plan_id} --group <gate> --note \"<evidence>\"\n\
-  mark {task} as the exception (gate-clearing or release-blocking): codeterm plan task update {plan_id} {task} --tags regression-gate\n\
-  record an authorized owner override: codeterm plan qa override {plan_id} --reason \"<why>\""
-    )
+    let mut out = String::from(
+        "✗ dispatch blocked: a terminal group's gates must clear before a non-blocker task dispatches.\nchoose one:\n",
+    );
+    if !gates.is_empty() || retrospectives.is_empty() {
+        let gates = if gates.is_empty() {
+            "<gate>"
+        } else {
+            gates.as_str()
+        };
+        out.push_str(&format!(
+            "  clear regression gate(s) {gates} with a warm integration QA run: codeterm plan qa next {plan_id} --group <gate> --note \"<evidence>\"\n\
+  record an authorized owner override: codeterm plan qa override {plan_id} --reason \"<why>\"\n"
+        ));
+    }
+    if !retrospectives.is_empty() {
+        out.push_str(&format!(
+            "  record the group retrospective for {retrospectives}: codeterm plan groups close {plan_id} <group> --note \"<what worked, what failed, what changes next>\"\n"
+        ));
+    }
+    out.push_str(&format!(
+        "  mark {task} as the exception (gate-clearing or release-blocking): codeterm plan task update {plan_id} {task} --tags regression-gate"
+    ));
+    out
 }
 
 fn render_checkout_occupied(data: &Value) -> Option<String> {
@@ -85,6 +104,14 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
 fix: codeterm plan task update {plan_id} {} --executor-role <role>\n\
 presence is the contract; no vocabulary is enforced, so name the specialization \
 that scopes the surface they own, e.g. rust-backend-dev",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "invalid_executor_name" => Some(format!(
+            "✗ {}\nan executor name is one word of letters, given once at spawn and kept.\n\
+fix: codeterm plan task update {plan_id} {} --personality Hopper",
+            data.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("invalid executor name"),
             task_id.unwrap_or("<task_id>")
         )),
         "work_facet_violation" => Some(format!(
@@ -174,10 +201,10 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             "✗ blocked is a claim, not an operator hold.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
             task_id.unwrap_or("<task_id>")
         )),
-        "task_pause_requires_reason" => Some(format!(
-            "✗ pause requires a reason.\nfix: codeterm plan task pause {plan_id} {} --reason \"<reason>\"",
-            task_id.unwrap_or("<task_id>")
-        )),
+        "task_paused_system_only" => Some(
+            "✗ paused task status is reserved for decision-gate and provider-exhaustion system holds."
+                .into(),
+        ),
         "pause_requires_reason" => Some(format!(
             "✗ pause requires a reason.\nfix: codeterm plan pause {plan_id} --reason \"<why this plan is paused>\""
         )),
@@ -311,6 +338,34 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 .unwrap_or("<task_id>");
             Some(format!(
                 "✗ task '{task}' was found, but no single execution attempt on it resolves to bounce.\nfix: inspect its attempts, then retry:\n  codeterm plan task show {plan_id} {task}"
+            ))
+        }
+        "review_continuation_delivery_refused" => {
+            let task = data
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .or(task_id)
+                .unwrap_or("<task_id>");
+            let attempt = data
+                .get("attempt_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<attempt_id>");
+            // The epochs are the whole story: the caller holds one the attempt
+            // has already left, so say which, not just that it was refused.
+            let drift = match (
+                data.get("expected_epoch").and_then(|v| v.as_u64()),
+                data.get("actual_epoch").and_then(|v| v.as_u64()),
+            ) {
+                (Some(expected), Some(actual)) => {
+                    format!(" it is at epoch {actual}, the bounce was written for {expected}")
+                }
+                (Some(expected), None) => {
+                    format!(" it carries no continuation epoch, the bounce was written for {expected}")
+                }
+                _ => String::new(),
+            };
+            Some(format!(
+                "✗ the bounce was not delivered: attempt '{attempt}' on task '{task}' is no longer awaiting continuation.{drift}\nfix: re-read the task and bounce the attempt it actually holds:\n  codeterm plan task show {plan_id} {task}"
             ))
         }
         "write_pending" => render_write_pending(data, plan_id, task_id),

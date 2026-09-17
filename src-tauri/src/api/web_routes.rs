@@ -474,7 +474,7 @@ const UPLOAD_TARGET_BYTES: u64 = 384 * 1024 * 1024;
 
 /// Strip anything that could escape the uploads dir or break a shell-quoted
 /// paste; keep the extension so the receiving agent can tell what it got.
-fn sanitize_filename(name: &str) -> String {
+pub(crate) fn sanitize_filename(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .map(|c| match c {
@@ -544,17 +544,35 @@ async fn cleanup_uploads_dir(dir: &std::path::Path) {
     }
 }
 
+pub(crate) fn uploads_dir() -> std::path::PathBuf {
+    crate::paths::data_dir().join("uploads")
+}
+
+/// The one write path for host-owned attachments, shared by browser uploads and mesh ingest.
+pub(crate) async fn store_upload(
+    dir: &std::path::Path,
+    name: &str,
+    data: &[u8],
+) -> Result<std::path::PathBuf, String> {
+    tokio::fs::create_dir_all(dir)
+        .await
+        .map_err(|e| e.to_string())?;
+    cleanup_uploads_dir(dir).await;
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let path = dir.join(format!("{}-{}", &id[..8], name));
+    tokio::fs::write(&path, data)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 pub async fn upload(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let dir = crate::paths::data_dir().join("uploads");
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    cleanup_uploads_dir(&dir).await;
+    let dir = uploads_dir();
     while let Some(field) = multipart
         .next_field()
         .await
@@ -571,11 +589,9 @@ pub async fn upload(
         if data.is_empty() {
             return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
         }
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        let path = dir.join(format!("{}-{}", &id[..8], name));
-        tokio::fs::write(&path, &data)
+        let path = store_upload(&dir, &name, &data)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         return Ok(Json(serde_json::json!({
             "path": path.to_string_lossy(),
             "size": data.len(),

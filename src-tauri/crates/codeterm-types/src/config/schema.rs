@@ -137,6 +137,7 @@ pub const INTEGRATION_CONSENT_GRANTED: &str = "integration_consent_granted";
 pub struct ApiConfig {
     pub enabled: bool,
     pub host: String,
+    pub mesh_tailnet_host: Option<String>,
     pub port: u16,
     pub token: Option<String>,
     pub cors: bool,
@@ -148,6 +149,7 @@ impl Default for ApiConfig {
         Self {
             enabled: true,
             host: "127.0.0.1".to_string(),
+            mesh_tailnet_host: None,
             #[cfg(debug_assertions)]
             port: std::env::var("CODETERM_API_PORT")
                 .ok()
@@ -607,18 +609,29 @@ pub struct OrchestrationConfig {
     pub reflect: ReflectConfig,
     pub digests: OrchestrationDigestsConfig,
     pub refresh: RefreshConfig,
+    #[serde(default)]
+    pub map: MapConfig,
 }
 
 impl Default for OrchestrationConfig {
     fn default() -> Self {
         Self {
             plan_reminders: true,
-            nudge_interval_secs: 1800,
+            nudge_interval_secs: 2700,
             reflect: ReflectConfig::default(),
             digests: OrchestrationDigestsConfig::default(),
             refresh: RefreshConfig::default(),
+            map: MapConfig::default(),
         }
     }
+}
+
+/// The workspace essence map. Section `[orchestration.map]`. Off until the
+/// owner opts in: a project without a map wants no Cartographer at all.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MapConfig {
+    pub enabled: bool,
 }
 
 fn default_refresh_handoff_timeout_secs() -> u64 {

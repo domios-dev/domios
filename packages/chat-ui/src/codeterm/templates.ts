@@ -250,7 +250,7 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
     const json = inv.flags.json === true;
     return json
       ? { lead: "tab list", object: "JSON inspection", chips: [resultCount(result, "tabs")].filter((v): v is string => Boolean(v)) }
-      : { lead: "tab list", object: resultCount(result, "tabs") ?? "workspace tabs", chips: ["compact"] };
+      : { lead: "tab list", object: resultCount(result, "tabs") ?? "local workspace tabs", chips: ["compact"] };
   }
   if (path === "tab focus") {
     return { lead: "tab focus", object: targetTab(inv, resolve), chips: ["focused"] };

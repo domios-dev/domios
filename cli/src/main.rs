@@ -100,6 +100,7 @@ pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
 pub use args::delayed::DelayedAction;
 pub use args::effort::EffortAction;
+pub use args::essence_map::EssenceMapAction;
 pub use args::inbox::InboxAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
@@ -435,6 +436,11 @@ fn main_impl() {
             return;
         }
 
+        Commands::Lane { action } => {
+            cmd::lane::handle_lane(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Spec { action } => {
             cmd::spec::handle_spec(&mut client, cli.json, action);
             return;
@@ -442,6 +448,11 @@ fn main_impl() {
 
         Commands::Effort { action } => {
             cmd::effort::handle_effort(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::EssenceMap { action } => {
+            cmd::essence_map::handle(cli.json, action);
             return;
         }
 
@@ -946,5 +957,7 @@ mod plan_task_role_guidance_tests;
 mod plugin_cli_tests;
 #[cfg(test)]
 mod subcommand_contract_tests;
+#[cfg(test)]
+mod tab_name_contract_tests;
 #[cfg(test)]
 mod zero_flag_plan_context_tests;

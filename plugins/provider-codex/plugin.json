@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.10.22",
-  "minCodeterm": "1.10.22",
+  "version": "1.11.1",
+  "minCodeterm": "1.11.1",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -122,7 +122,7 @@
   "installer": {
     "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
     "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-    "windows": "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+    "windows": "$s = Join-Path $env:TEMP 'codeterm-codex-install.ps1'; Invoke-WebRequest -Uri 'https://chatgpt.com/codex/install.ps1' -OutFile $s -UseBasicParsing; try { & $s } finally { Remove-Item $s -ErrorAction SilentlyContinue }"
   },
   "updater": {
     "macos": "codex update",

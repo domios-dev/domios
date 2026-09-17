@@ -21,7 +21,7 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
-pub const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+pub const PLANNER_DOC: &str = include_str!("../../prod-docs/PLANNER.md");
 
 /// The executor-role member of [`PLANNER_TASK_MANDATORY_FIELDS`]. It lives in
 /// that list, not in a sentence beside it: a list member cannot be delivered
@@ -75,16 +75,13 @@ pub fn planner_task_routing_line() -> String {
     )
 }
 
-/// Shared bounce-unwinding contract exposed through embedded docs and fixtures.
-pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
-
 /// Canonical role_guidance for tasks whose primary deliverable is tests.
-pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
+pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. `codeterm docs TEST-AUTHORING` is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
-pub const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+pub const ORCHESTRATION_DOC: &str = include_str!("../../prod-docs/ORCHESTRATION.md");
 
 /// Fills `{roleless_draft_rejection}` in [`ORCHESTRATOR_SUFFIX`], inside the
 /// instruction where drafts are already accepted, revised, or rejected.
@@ -94,6 +91,10 @@ pub const ORCH_ROLELESS_DRAFT_REJECTION: &str = "reject any task that names no e
 pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
     "reject any draft whose worker guidance says nothing";
 
+/// Stable Orchestrator delivery token for the opt-in Cartographer boundary.
+pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
+    "Cartographer purpose: regenerate the project's essence map at boundaries only; this map feature is opt-in and off by default, never a continuous cadence.";
+
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
 pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning_compaction.md");
@@ -101,6 +102,9 @@ pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning
 /// Team-bound creation contract shared by the two roles that can ask for a new
 /// agent, shell, or schedule. One source so neither can drift into a loose one.
 pub const TEAM_CREATION_CONTRACT: &str = include_str!("../prompts/team_creation_contract.md");
+
+/// How the Orchestrator sequences work: actionability, group retrospectives, and rare plan pause.
+pub const TASK_SEQUENCING_CONTRACT: &str = include_str!("../prompts/task_sequencing_contract.md");
 
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
@@ -172,6 +176,10 @@ pub const NOTIFY_VERBOSE_COMPLETION_CLAUSE: &str = "A short completion or progre
 /// information rather than an error and does not retry a recorded notification.
 pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried.";
 
+/// Map-authoring contract for the Cartographer leaf. Layered on the Worker
+/// suffix, which still owns lane discipline and the report handoff.
+pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../prompts/cartographer_suffix.md");
+
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codeterm_context.md");
 
@@ -232,7 +240,7 @@ pub fn planner_onboarding_task(
 ) -> String {
     format!(
         "You are the Planner specialist for the active Team Plan {plan_id}, working with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). If no planning request has been delegated yet, reply that you are ready and WAIT."
+First read `codeterm docs PLANNER` for your role. The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. If no planning request has been delegated yet, reply that you are ready and wait."
     )
 }
 
@@ -244,7 +252,7 @@ pub fn planner_onboarding_task_no_plan(
 ) -> String {
     format!(
         "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). The Team may not have a Plan yet; the Orchestrator creates it and Team membership makes it visible to you automatically. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. Planning is delegated to you by default: refine the active Team Plan with the normal plan editing commands once the Orchestrator states the goal. If no planning request has been delegated yet, reply that you are ready and WAIT."
+First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. Planning is delegated to you by default: refine the active Team Plan with the normal plan editing commands once the Orchestrator states the goal. If no planning request has been delegated yet, reply that you are ready and wait."
     )
 }
 
@@ -270,8 +278,16 @@ pub fn orchestrator_suffix() -> String {
             ORCH_EMPTY_ROLE_GUIDANCE_REJECTION,
         )
         .replace(
+            "{task_sequencing_contract}",
+            TASK_SEQUENCING_CONTRACT.trim(),
+        )
+        .replace(
             "{planning_compaction_contract}",
             PLANNING_COMPACTION_CONTRACT.trim(),
+        )
+        .replace(
+            "{cartographer_contract_notice}",
+            ORCH_CARTOGRAPHER_CONTRACT_NOTICE,
         )
         .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
     format!(
@@ -337,6 +353,16 @@ pub fn planner_suffix() -> String {
         "{}\n\n## Canonical Planner manual\n\n{}",
         role_prompt.trim(),
         PLANNER_DOC.trim()
+    )
+}
+
+/// The Cartographer contract: Worker discipline first, then the map-authoring
+/// checklist this kind adds to it.
+pub fn cartographer_suffix() -> String {
+    format!(
+        "{}\n\n{}",
+        worker_suffix().trim(),
+        CARTOGRAPHER_SUFFIX.trim()
     )
 }
 

@@ -21,6 +21,15 @@ export interface LivenessEvidence {
   bootInFlight?: boolean;
 }
 
+export interface AgentModelEvidence {
+  /** The model detected from this tab's currently claimed provider session. */
+  sessionModel?: string | null;
+  /** The model resolved for this tab before its runtime session reports one. */
+  providerResolvedModel?: string | null;
+  /** The explicit model request for this tab, when resolution has not completed. */
+  requestedModel?: string | null;
+}
+
 /** Stages that are direct evidence the provider process is running. */
 const PROVEN_UP = new Set(["provider_ready", "agent_ready"]);
 
@@ -57,6 +66,20 @@ export function classifyAgentLiveness(evidence: LivenessEvidence): AgentLiveness
   return "absent";
 }
 
+function nonEmptyModel(model: string | null | undefined): string | null {
+  const trimmed = model?.trim() ?? "";
+  return trimmed ? trimmed : null;
+}
+
+/** Selects only model evidence owned by the tab; runtime evidence wins launch provenance. */
+export function agentModelForBadge(evidence: AgentModelEvidence): string | null {
+  return (
+    nonEmptyModel(evidence.sessionModel) ??
+    nonEmptyModel(evidence.providerResolvedModel) ??
+    nonEmptyModel(evidence.requestedModel)
+  );
+}
+
 /**
  * THE bracket rule: the tab's agent IDENTITY, never its role. The model
  * REPLACES the provider, it never joins it, and exactly three cases exist:
@@ -80,4 +103,13 @@ export function agentBracketLabel(
   const identity = (modelText ? shortModelName(modelText) : null) ?? providerText;
   if (liveness === "live") return identity;
   return liveness === "absent" ? `${identity}!` : `${identity}?`;
+}
+
+/** The sidebar's single label path, including model evidence and liveness. */
+export function agentBadgeLabel(
+  provider: string | null | undefined,
+  evidence: AgentModelEvidence,
+  liveness: AgentLiveness,
+): string | null {
+  return agentBracketLabel(provider, agentModelForBadge(evidence), liveness);
 }

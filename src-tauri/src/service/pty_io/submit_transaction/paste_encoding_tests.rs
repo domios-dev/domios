@@ -7,9 +7,11 @@ use super::*;
 #[test]
 fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {
     let text = "alpha\r\nbeta\ngamma\rdelta";
+    // Inside bracketed paste, \r is the provider's own Enter byte and splits one
+    // message into several turns — only the CRLF pair is folded, not a standalone \r.
     assert_eq!(
         xterm_paste(text, Some(true), PasteEncodingCapability::LiveModeOnly),
-        "\x1b[200~alpha\rbeta\rgamma\rdelta\x1b[201~"
+        "\x1b[200~alpha\nbeta\ngamma\rdelta\x1b[201~"
     );
     assert_eq!(
         xterm_paste(text, Some(false), PasteEncodingCapability::MultilineTui),

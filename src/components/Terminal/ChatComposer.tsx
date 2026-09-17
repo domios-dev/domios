@@ -3,7 +3,6 @@ import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
-import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { formatModelSwitch } from "../../lib/modelSwitch";
 import { isModelSelectable, modelAvailability } from "../../lib/modelAvailability";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -34,7 +33,10 @@ import {
   isImeKeyEvent,
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
-import { planComposerAttachments } from "./composerAttachmentPlan";
+import { composeAttachmentDraft } from "./meshAttachmentHandoff";
+import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
+import { ReceiverTargetMarks } from "./ReceiverTargetMark";
+import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -301,6 +303,7 @@ function ChatComposerImpl({
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  const pluginTabMenu = usePluginTabMenu();
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -542,25 +545,13 @@ function ChatComposerImpl({
     allAttachments: string[],
     recordedVoiceAttachments: string[],
   ) {
-    let transcribeFailed = false;
-    const pathParts = await Promise.all(
-      planComposerAttachments(allAttachments, recordedVoiceAttachments).map(
-        async ({ path, transcribe }) => {
-          if (!transcribe) return quotePathForPaste(path);
-          try {
-            return await invoke<string>("transcribe_voice_attachment", { path });
-          } catch {
-            transcribeFailed = true;
-            return quotePathForPaste(path);
-          }
-        },
-      ),
+    return composeAttachmentDraft(
+      tabId,
+      text,
+      allAttachments,
+      recordedVoiceAttachments,
+      composerAttachmentHandoff,
     );
-    const pathLines = pathParts.join(" ");
-    const composed = text && pathLines
-      ? `${text} ${pathLines}`
-      : text || pathLines;
-    return { composed, transcribeFailed };
   }
 
   async function send(extraAttachments: string[] = []) {
@@ -577,11 +568,17 @@ function ChatComposerImpl({
     const placeholderId = recordedVoiceAttachments.length > 0
       ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER)
       : null;
-    const { composed, transcribeFailed } = await composeDraft(
-      text,
-      allAttachments,
-      recordedVoiceAttachments,
-    );
+    let draftResult: Awaited<ReturnType<typeof composeDraft>>;
+    try {
+      draftResult = await composeDraft(text, allAttachments, recordedVoiceAttachments);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (placeholderId) updateOptimistic(placeholderId, `⚠️ ${message}`);
+      else flagComposerError(message);
+      refocusComposer();
+      return;
+    }
+    const { composed, transcribeFailed } = draftResult;
     if (placeholderId && transcribeFailed) {
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");
@@ -851,6 +848,7 @@ function ChatComposerImpl({
           </div>
         </div>
       )}
+      <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <TabTaskStrip tabId={tabId} />
       <ComposerBubbleRow
         attachments={attachments}

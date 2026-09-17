@@ -391,7 +391,7 @@ impl ServiceContext {
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
-        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(90))
+        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
             .map_err(|detail| DeliveryError::TabBusyRefused {
                 tab: tab_id.to_string(),
                 detail,
@@ -591,9 +591,12 @@ impl ServiceContext {
         if completed {
             return observed.expect("completed public input readiness");
         }
-        Err(format!(
-            "Agent in Tab {tab_id} did not reach AgentReady within {timeout:?}"
-        ))
+        // Owner exception: no definitive verdict arrived within the bounded wait.
+        // Deliver anyway — a live PTY with an unconfirmed session isn't a dead one.
+        log::info!(
+            "[chat-send] Tab {tab_id} input readiness unresolved after {timeout:?}; delivering anyway"
+        );
+        Ok(())
     }
 
     /// Windows ConPTY: a write before the prompt renders races the first byte and

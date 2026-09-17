@@ -318,18 +318,6 @@ pub enum PlanTaskAction {
         #[arg(long)]
         mesh: Option<String>,
     },
-    /// Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)
-    Pause {
-        plan_id: String,
-        task_id: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        reason: String,
-    },
-    /// Resume a paused task (returns it to dependency-waiting pending)
-    Resume {
-        plan_id: String,
-        task_id: Option<String>,
-    },
     /// Assign a task to a tab (exports CODETERM_TASK_ID to that tab)
     Assign {
         plan_id: String,
@@ -352,6 +340,11 @@ pub enum PlanTaskAction {
             help = "Gate token the worker may claim as executed; repeatable"
         )]
         authorized_gates: Vec<String>,
+        #[arg(
+            long = "canonical-writer",
+            help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred"
+        )]
+        canonical_writer: bool,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(
@@ -463,6 +456,39 @@ mod tests {
             .unwrap()
             .render_long_help()
             .to_string()
+    }
+
+    fn dispatch_canonical_writer(extra: &[&str]) -> bool {
+        use clap::Parser;
+        let mut argv = vec![
+            "codeterm",
+            "plan",
+            "task",
+            "dispatch",
+            "pl_test",
+            "task_test",
+            "--execution-intent",
+            "mutating",
+        ];
+        argv.extend_from_slice(extra);
+        match Cli::try_parse_from(argv).expect("dispatch parses").command {
+            crate::Commands::Plan {
+                action:
+                    crate::PlanAction::Task {
+                        action:
+                            super::PlanTaskAction::Dispatch {
+                                canonical_writer, ..
+                            },
+                    },
+            } => canonical_writer,
+            _ => panic!("expected plan task dispatch"),
+        }
+    }
+
+    #[test]
+    fn canonical_writer_dispatch_flag_is_opt_in_and_off_by_default() {
+        assert!(!dispatch_canonical_writer(&[]));
+        assert!(dispatch_canonical_writer(&["--canonical-writer"]));
     }
 
     #[test]

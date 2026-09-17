@@ -14,6 +14,7 @@ import type {
   TabMenuContribution,
   WebhookDelivery,
   WebhookReceiveContext,
+  WebhookReceiverCapability,
   WebhookReceiver,
 } from "../capabilities";
 import type { Host, Backend, TabRef, UsageSnapshot } from "../host";
@@ -88,6 +89,24 @@ const receiver: WebhookReceiver = {
 };
 void webhookContext;
 void receiver;
+
+const audioContext: WebhookReceiveContext = {
+  payload: {},
+  receivedAt: "2026-09-11T07:00:00Z",
+  audio: { mediaType: "audio/mp4", size: 3 },
+};
+const audioDelivery: WebhookDelivery = { text: "client: ring", transcript: "hello" };
+const audioCapability: WebhookReceiverCapability = { kind: "pebble", audio: true };
+void audioContext;
+void audioDelivery;
+void audioCapability;
+
+const badTranscript: WebhookDelivery = {
+  text: "ok",
+  // @ts-expect-error transcript must be a string
+  transcript: 7,
+};
+void badTranscript;
 
 const plugin: PluginModule = {
   webhookReceive: () => ({ text: "Pebble event" }),

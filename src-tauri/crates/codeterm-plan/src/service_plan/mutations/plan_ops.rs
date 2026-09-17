@@ -179,7 +179,7 @@ impl PlanStore {
         })
     }
 
-    pub(crate) fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
+    pub fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
@@ -290,6 +290,13 @@ impl PlanStore {
         external_refs: &[String],
         now_ms: u64,
     ) -> Result<String, PlanError> {
+        let mut new = new;
+        new.personality = new
+            .personality
+            .as_deref()
+            .map(crate::service_plan::worker_identity::validate_executor_name)
+            .transpose()
+            .map_err(PlanError::InvalidExecutorName)?;
         let external_refs =
             crate::service_plan::external_refs::canonicalize_external_refs(external_refs)?;
         let tid = self.mint_id("task");

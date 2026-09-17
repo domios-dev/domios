@@ -205,8 +205,8 @@ console.log("\n--- non-Windows launch branch is unaffected by the Windows fix --
   const cmd = p.buildLaunchCommand({ task: "some task body", args: ["--model", "gpt-5.5"], starterPrompt: "no_starter" });
   eq(
     cmd,
-    'codex -c tui.animations=false --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
-    "the macOS/Linux launch line keeps its exact prior shape",
+    'codex --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
+    "the macOS/Linux launch line retains TUI animations",
   );
   assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
   assert(!cmd.includes("ConvertTo-Json") && !cmd.includes("Set-Content") && !cmd.includes("$ctProfile"), "non-Windows launch has no PowerShell profile machinery");
@@ -1094,12 +1094,13 @@ for (const [name, fixture] of [
   );
   eq(
     p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex -c tui.animations=false resume Q(windows:11111111-1111-1111-1111-111111111111)",
+    "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
   for (const enabled of [false, true]) {
     for (const command of [p.buildLaunchCommand({ skipPermissions: enabled }), p.buildResumeCommand("session-fixture", enabled)]) {
-      eq(command.startsWith("codex -c tui.animations=false"), true, "every Codex launch disables TUI animations");
+      eq(command.startsWith("codex"), true, "every Codex launch uses the normal TUI");
+      eq(command.includes("tui.animations=false"), false, "every Codex launch retains TUI animations");
       for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"]) {
         eq(command.includes(flag), enabled, `full access controls ${flag}`);
       }

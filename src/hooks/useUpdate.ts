@@ -44,10 +44,30 @@ export interface UpdateInfo {
   published_at?: string | null;
 }
 
-interface InstallResponse {
-  status: "updating" | "up_to_date" | "command" | "browser_opened";
+export interface InstallResponse {
+  status: "updating" | "up_to_date" | "command" | "browser_opened" | "already_in_flight";
   message?: string;
   version?: string;
+}
+
+export function normalizeInstallResponse(v: unknown): InstallResponse {
+  if (typeof v !== "object" || v === null) return { status: "updating" };
+  const o = v as Record<string, unknown>;
+  const status = o.status;
+  if (
+    status !== "updating" &&
+    status !== "up_to_date" &&
+    status !== "command" &&
+    status !== "browser_opened" &&
+    status !== "already_in_flight"
+  ) {
+    return { status: "updating" };
+  }
+  return {
+    status,
+    message: typeof o.message === "string" ? o.message : undefined,
+    version: typeof o.version === "string" ? o.version : undefined,
+  };
 }
 
 interface RuntimeStatus {
@@ -126,6 +146,24 @@ function isUpdatePhase(v: unknown): v is UpdatePhase {
     v === "success" ||
     v === "error"
   );
+}
+
+function isActiveUpdatePhase(phase: UpdatePhase): boolean {
+  return phase === "checking" || phase === "downloading" || phase === "applying" || phase === "success";
+}
+
+export function observeInstallPhase(
+  phase: UpdatePhase,
+  activePhaseObserved: boolean,
+  installCallReturned: boolean,
+): { activePhaseObserved: boolean; finished: boolean; keepVisible: boolean } {
+  const nextActivePhaseObserved = activePhaseObserved || isActiveUpdatePhase(phase);
+  const finished = phase === "idle" && (nextActivePhaseObserved || installCallReturned);
+  return {
+    activePhaseObserved: nextActivePhaseObserved,
+    finished,
+    keepVisible: phase === "idle" && !finished,
+  };
 }
 
 function nullableString(v: unknown): string | null {
@@ -221,6 +259,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [downloadTotalBytes, setDownloadTotalBytes] = useState<number | null>(null);
   const installingRef = useRef(false);
   const toastOpenRef = useRef(false);
+  const activeInstallPhaseRef = useRef(false);
+  const installCallReturnedRef = useRef(false);
 
   useEffect(() => {
     installingRef.current = installing;
@@ -297,15 +337,28 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const applyRuntimeStatus = useCallback(
     (raw: RuntimeStatus, opts?: { adopt?: boolean }) => {
       const next = normalizeRuntimeStatus(raw);
-      const activePhase =
-        next.phase === "checking" ||
-        next.phase === "downloading" ||
-        next.phase === "applying" ||
-        next.phase === "success";
+      const observation = observeInstallPhase(
+        next.phase,
+        activeInstallPhaseRef.current,
+        installCallReturnedRef.current,
+      );
+      activeInstallPhaseRef.current = observation.activePhaseObserved;
       const shouldAdopt =
         opts?.adopt === true &&
         (next.phase === "downloading" || next.phase === "applying" || next.phase === "success");
-      const nextInstalling = installingRef.current || shouldAdopt || (activePhase && toastOpenRef.current);
+      const nextInstalling =
+        installingRef.current || shouldAdopt || (observation.activePhaseObserved && toastOpenRef.current);
+
+      if (shouldAdopt) {
+        installingRef.current = true;
+        toastOpenRef.current = true;
+      }
+
+      if (observation.keepVisible && installingRef.current) {
+        setStatus("checking");
+        setProgress((prev) => Math.max(prev, 8));
+        return;
+      }
 
       setPhase(next.phase);
       setChannelState(next.channel);
@@ -331,6 +384,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "error") {
         const message = next.last_error || "Update failed";
+        installingRef.current = false;
+        activeInstallPhaseRef.current = false;
+        installCallReturnedRef.current = true;
         setError(message);
         setStatus("error");
         setInstalling(false);
@@ -347,7 +403,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (next.phase === "idle" && installingRef.current) {
+      if (next.phase === "idle" && installingRef.current && observation.finished) {
+        installingRef.current = false;
+        toastOpenRef.current = false;
+        activeInstallPhaseRef.current = false;
+        installCallReturnedRef.current = false;
         setInstalling(false);
         setToastOpen(false);
         setProgress(0);
@@ -368,6 +428,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   );
 
   const applyUpdate = useCallback(async (): Promise<InstallResponse | null> => {
+    if (installingRef.current) return { status: "already_in_flight" };
+    installingRef.current = true;
+    toastOpenRef.current = true;
+    activeInstallPhaseRef.current = false;
+    installCallReturnedRef.current = false;
     setInstalling(true);
     setToastOpen(true);
     setStatus("checking");
@@ -375,9 +440,14 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     setProgress((prev) => Math.max(prev, 8));
     setError(null);
     try {
-      await installAppUpdate();
-      return { status: "updating" };
+      const response = normalizeInstallResponse(await installAppUpdate());
+      if (response.status !== "already_in_flight") installCallReturnedRef.current = true;
+      return response;
     } catch (e) {
+      installingRef.current = false;
+      activeInstallPhaseRef.current = false;
+      installCallReturnedRef.current = true;
+      toastOpenRef.current = true;
       setError(e instanceof Error ? e.message : String(e));
       setStatus("error");
       setPhase("error");
@@ -385,7 +455,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       setToastOpen(true);
       return null;
     }
-  }, [refresh]);
+  }, []);
 
   const dismissUpdateToast = useCallback(() => {
     if (status === "applying" || status === "restarting") return;

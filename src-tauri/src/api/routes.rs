@@ -11,13 +11,13 @@ use tower_http::{
 };
 
 use super::{
-    agent_done_routes, agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes,
-    debug_routes, fs_routes, health_routes, inbound_webhook, logs_routes, mem_routes,
-    mesh_inventory, mesh_routes, network_routes, notification_routes, output_stream,
-    pasteboard_routes, plan_routes, plugin_tab_menu_routes, pty_routes, services_routes,
-    session_routes, tab_agent_routes, tab_routes, task_routes, team_mission_control_routes,
-    team_routes, team_spend, theme_routes, updater_routes, usage_routes, web_routes,
-    webhook_routes, workspace_routes,
+    agent_done_routes, agent_routes, ai_helper_routes, bridge_routes, clipboard_routes,
+    config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
+    inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
+    notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
+    pty_routes, services_routes, session_routes, tab_agent_routes, tab_routes, task_routes,
+    team_mission_control_routes, team_routes, team_spend, theme_routes, updater_routes,
+    usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -120,6 +120,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/identify", get(health_routes::identify))
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
+        .route(
+            "/api/essence-maps",
+            get(essence_map_routes::list_essence_maps),
+        )
+        .route(
+            "/api/essence-source",
+            get(essence_map_routes::read_essence_source),
+        )
         .route(
             "/api/teams/{team_id}/rename",
             post(team_routes::rename_team),
@@ -298,14 +306,6 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/plans/{id}/tasks/{tid}/close",
             post(plan_routes::task_close),
-        )
-        .route(
-            "/api/plans/{id}/tasks/{tid}/pause",
-            post(plan_routes::task_pause),
-        )
-        .route(
-            "/api/plans/{id}/tasks/{tid}/resume",
-            post(plan_routes::task_resume),
         )
         .route(
             "/api/plans/{id}/tasks/{tid}/assign",
@@ -566,6 +566,10 @@ pub fn create_router(state: AppState) -> Router {
             post(session_routes::resume_session_api),
         )
         .route("/api/agents/spawn", post(agent_routes::spawn_agent))
+        .route(
+            "/api/agents/helper",
+            post(ai_helper_routes::spawn_ai_helper),
+        )
         .route("/api/agents/done", get(agent_done_routes::list_done))
         .route(
             "/api/orchestration/new",
@@ -636,6 +640,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
         .route("/api/mesh/relay-to", post(mesh_routes::mesh_relay_to_peer))
+        .route(
+            "/api/mesh/attachments/transfer",
+            post(super::mesh_attachment::transfer),
+        )
         .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
         .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
         .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))
@@ -665,7 +673,12 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/broadcast/stop",
             post(mesh_routes::mesh_stop_broadcast),
         )
-        .route("/api/mesh/relay", post(mesh_routes::mesh_relay))
+        .route(
+            "/api/mesh/relay",
+            post(mesh_routes::mesh_relay).layer(axum::extract::DefaultBodyLimit::max(
+                super::mesh_attachment::MESH_ATTACHMENT_RELAY_BODY_LIMIT,
+            )),
+        )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
             "/api/mesh/relay-stream",
@@ -903,7 +916,7 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             inbound_webhook::PEBBLE_WEBHOOK_PATH,
             post(inbound_webhook::receive_pebble_webhook).layer(
-                axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_BODY_BYTES),
+                axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_REQUEST_BYTES),
             ),
         )
         .route(
@@ -975,6 +988,10 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/usage/projection", get(usage_routes::usage_projection))
         .route("/api/usage/refresh", post(usage_routes::usage_refresh))
+        .route(
+            "/api/usage/ledger/rebuild",
+            post(usage_routes::usage_ledger_rebuild),
+        )
         .route(
             "/api/logs",
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),

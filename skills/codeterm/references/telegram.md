@@ -56,13 +56,13 @@ Supported `--type`: `text` (default), `photo`, `document`, `voice`, `animation`,
 
 ## Per-tab topic threads
 
-Open or reuse your own topic and print its link:
+Open or reuse your own topic; it prints one sentence naming the topic (with a link only where Telegram has one):
 
 ```bash
 codeterm bridge thread open --service telegram
 ```
 
-Only the General Agent may open another tab's topic, then reply in the main chat with the printed link:
+Only the General Agent may open another tab's topic, then relay the printed sentence in the main chat:
 
 ```bash
 codeterm bridge thread open --tab TAB_ID --service telegram
@@ -105,4 +105,4 @@ codeterm bridge migrate --to PEER \
 
 **Secret locality.** Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` from the source and never sends it across the wire — `--ensure-token` only fires on the daemon that owns the secret. Same contract as `--mesh PEER mem secret …`.
 
-**Exit codes:** `0` success / `1` generic failure (rollback OK) / `5` preflight (target unreachable, no token + no vault, missing peer) / `6` usage error (e.g. `--mesh`) / `7` split-brain (rollback also failed; CLI prints the manual repair command). Full orchestration steps + REST endpoints: `docs/MESH.md` and `docs/API.md`.
+**Exit codes:** `0` success / `1` generic failure (rollback OK) / `5` preflight (target unreachable, no token + no vault, missing peer) / `6` usage error (e.g. `--mesh`) / `7` split-brain (rollback also failed; CLI prints the manual repair command). Full orchestration steps + REST endpoints: `codeterm docs MESH` and `codeterm docs API`.

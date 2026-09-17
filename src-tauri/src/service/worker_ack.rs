@@ -652,11 +652,7 @@ impl ServiceContext {
             if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
-            if let Err(error) = service.deliver_worker_ack_reminder(&agent_tab_id, &attempt_id) {
-                log::warn!(
-                    "[agent-startup] binding reminder delivery failed attempt={attempt_id}: {error}"
-                );
-            }
+            service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
@@ -730,12 +726,22 @@ impl ServiceContext {
 
     fn authenticated_worker_binding(&self, tab_id: &str) -> Option<(String, String)> {
         self.mux.read().get_tab(tab_id).and_then(|tab| {
-            let session_id = tab.agent_session_id.clone()?.trim().to_string();
-            let nonce = tab.session_binding_nonce.clone()?;
-            (!session_id.is_empty()
-                && tab.reported_session_binding_nonce.as_deref() == Some(nonce.as_str()))
-            .then_some((session_id, nonce))
+            super::task_assignment::authenticated_tab_binding(tab)
+                .map(|binding| (binding.session_id, binding.session_binding_nonce))
         })
+    }
+
+    /// Nudge a tab that has not acknowledged its startup. The tab's own state
+    /// decides whether the nudge is this text at all: a terminal still owned by
+    /// a provider dialog gets that dialog answered instead, and a terminal with
+    /// no agent behind it gets nothing.
+    pub(crate) fn nudge_unacknowledged_startup(&self, tab_id: &str, attempt_id: &str) {
+        if !self.classify_startup_nudge(tab_id).delivers() {
+            return;
+        }
+        if let Err(error) = self.deliver_worker_ack_reminder(tab_id, attempt_id) {
+            log::warn!("[worker-ack] reminder delivery failed attempt={attempt_id}: {error}");
+        }
     }
 
     pub(crate) fn deliver_worker_ack_reminder(
@@ -823,7 +829,6 @@ impl ServiceContext {
         task_id: &str,
         attempt_id: &str,
         spawn_command: String,
-        startup_allowance: Duration,
     ) {
         let acknowledged = self.plan_store.get(plan_id).is_some_and(|plan| {
             crate::plan::task_key::find_task(&plan.tasks, task_id)
@@ -843,9 +848,7 @@ impl ServiceContext {
         let task_id = task_id.to_string();
         let attempt_id = attempt_id.to_string();
         std::thread::spawn(move || {
-            // A queued lane setup command runs before the agent boots; the
-            // first ack deadline stretches by that bound, never the final one.
-            match receiver.recv_timeout(WORKER_ACK_TIMEOUT + startup_allowance) {
+            match receiver.recv_timeout(WORKER_ACK_TIMEOUT) {
                 Ok(WorkerAckSignal::Acknowledged) | Ok(WorkerAckSignal::Superseded) => return,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -869,9 +872,7 @@ impl ServiceContext {
                     Some(session_id),
                 )
             });
-            if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id) {
-                log::warn!("[worker-ack] reminder delivery failed attempt={attempt_id}: {error}");
-            }
+            service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
             if !reminder_allowed {
                 let _ = service.plan_store.mark_worker_startup_deadline(
                     &plan_id,
@@ -904,11 +905,7 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id) {
-                log::warn!(
-                    "[worker-ack] final binding reminder delivery failed attempt={attempt_id}: {error}"
-                );
-            }
+            service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
             service.publish_worker_lifecycle_report(
                 &parent_tab_id,
                 &worker_tab_id,
@@ -978,7 +975,6 @@ impl ServiceContext {
             task_id,
             &attempt.id,
             spawn_command,
-            Duration::ZERO,
         );
         Ok(true)
     }

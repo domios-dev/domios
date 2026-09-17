@@ -41,7 +41,7 @@ The judge prompt is strict: it explicitly tells the judge to FAIL if the agent o
 ### Single prompt eval (just check current state)
 
 ```bash
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-file src-tauri/prompts/general_agent.md \
   --eval-set evals/general-agent/evals.json \
   --runs 3
@@ -52,7 +52,7 @@ Output: a markdown table to stdout with pass/fail per eval. Exit code `0` if all
 ### A/B compare two prompt versions
 
 ```bash
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-a "HEAD~1:src-tauri/prompts/general_agent.md" \
   --prompt-b "src-tauri/prompts/general_agent.md" \
   --eval-set evals/general-agent/evals.json \
@@ -67,11 +67,11 @@ Output: side-by-side table with `Δ` column showing regressions (`Δ < 0`), impr
 ### Save report to file
 
 ```bash
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-a HEAD~1:src-tauri/prompts/general_agent.md \
   --prompt-b src-tauri/prompts/general_agent.md \
   --eval-set evals/general-agent/evals.json \
-  --report markdown > .claude/skills/prompt-evaluator/reports/general-agent-2026-04-07.md
+  --report markdown > .agents/skills/prompt-evaluator/reports/general-agent-2026-04-07.md
 ```
 
 Reports directory is gitignored — they're per-machine artifacts.
@@ -81,7 +81,7 @@ Reports directory is gitignored — they're per-machine artifacts.
 For long `--thorough` A/B runs the user often wants to *watch* progress. Add `--http-port <N>` and the runner spawns a tiny in-process HTTP server (pure stdlib — no Flask/Tornado) that serves a single-page dashboard:
 
 ```bash
-python .claude/skills/prompt-evaluator/runner.py \
+python .agents/skills/prompt-evaluator/runner.py \
   --prompt-a HEAD~1:src-tauri/prompts/general_agent.md \
   --prompt-b src-tauri/prompts/general_agent.md \
   --eval-set evals/general-agent/evals.json \
@@ -211,4 +211,4 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

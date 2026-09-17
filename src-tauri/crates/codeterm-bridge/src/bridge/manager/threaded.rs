@@ -92,6 +92,9 @@ pub(super) async fn send_for_tab(
     .await
     {
         log::error!("[bridge-outbound] tab media send failed: {}", error);
+        if let Some(thread_id) = destination.thread_id {
+            threads.note_thread_send_failure(chat_id, thread_id, &error.to_string());
+        }
         return;
     }
     threads

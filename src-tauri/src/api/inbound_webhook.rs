@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Bytes,
+    body::{Body, Bytes},
     extract::State as AxumState,
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -15,7 +15,8 @@ use serde_json::Value;
 use crate::api::routes::AppState;
 use crate::bridge_host::ServiceBridgeTabPort;
 use crate::plugin::{
-    WebhookDelivery, WebhookReceiveContext, WebhookReceiver, WebhookReceiverKind, WebhookRegistry,
+    WebhookAudio, WebhookDelivery, WebhookReceiveContext, WebhookReceiver, WebhookReceiverKind,
+    WebhookRegistry,
 };
 use crate::secrets::{SecretError, SecretStore};
 use crate::service::message_gateway::{
@@ -23,11 +24,16 @@ use crate::service::message_gateway::{
 };
 use crate::service::messenger::MessageEnvelope;
 
+mod audio;
 mod payload;
 
 pub(crate) const PEBBLE_WEBHOOK_PATH: &str = "/api/plugins/pebble/webhook";
 pub(crate) const PEBBLE_WEBHOOK_SECRET: &str = "pebble_webhook_secret";
 pub(crate) const MAX_WEBHOOK_BODY_BYTES: usize = 1024 * 1024;
+/// Granted on top of the text body only to a receiver whose capability declares audio.
+pub(crate) const MAX_WEBHOOK_AUDIO_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_WEBHOOK_REQUEST_BYTES: usize =
+    MAX_WEBHOOK_BODY_BYTES + MAX_WEBHOOK_AUDIO_BYTES;
 const MAX_DELIVERY_TEXT_BYTES: usize = 64 * 1024;
 const MAX_EVENT_ID_BYTES: usize = 256;
 
@@ -246,24 +252,56 @@ fn pebble_receiver(
     Ok(receiver)
 }
 
-/// Authenticates before anything else, so an unauthenticated request never reaches a plugin.
+/// Authenticates before anything else, so an unauthenticated request never reaches a plugin or a body read.
+async fn authorize(
+    store: &dyn SecretStore,
+    registry: &WebhookRegistry,
+    headers: &HeaderMap,
+) -> Result<Arc<dyn WebhookReceiver>, WebhookRejection> {
+    authenticate(store, headers).await?;
+    pebble_receiver(registry)
+}
+
+fn audio_cap(receiver: &dyn WebhookReceiver) -> Option<usize> {
+    receiver.accepts_audio().then_some(MAX_WEBHOOK_AUDIO_BYTES)
+}
+
+pub(crate) struct Admitted {
+    receiver: Arc<dyn WebhookReceiver>,
+    context: WebhookReceiveContext,
+    audio: Option<payload::AudioPart>,
+}
+
+async fn admit(
+    receiver: Arc<dyn WebhookReceiver>,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<Admitted, WebhookRejection> {
+    let decoded = payload::decode(headers, body, audio_cap(receiver.as_ref())).await?;
+    let context = WebhookReceiveContext {
+        payload: decoded.fields,
+        received_at: chrono::Utc::now().to_rfc3339(),
+        audio: decoded.audio.as_ref().map(|audio| WebhookAudio {
+            media_type: audio.media_type.clone(),
+            size: audio.bytes.len() as u64,
+        }),
+    };
+    Ok(Admitted {
+        receiver,
+        context,
+        audio: decoded.audio,
+    })
+}
+
+#[cfg(test)]
 async fn accept(
     store: &dyn SecretStore,
     registry: &WebhookRegistry,
     headers: &HeaderMap,
     body: &Bytes,
-) -> Result<(Arc<dyn WebhookReceiver>, WebhookReceiveContext), WebhookRejection> {
-    authenticate(store, headers).await?;
-    if body.len() > MAX_WEBHOOK_BODY_BYTES {
-        return Err(WebhookRejection::body_too_large());
-    }
-    let payload = payload::decode(headers, body).await?;
-    let receiver = pebble_receiver(registry)?;
-    let context = WebhookReceiveContext {
-        payload,
-        received_at: chrono::Utc::now().to_rfc3339(),
-    };
-    Ok((receiver, context))
+) -> Result<Admitted, WebhookRejection> {
+    let receiver = authorize(store, registry, headers).await?;
+    admit(receiver, headers, body).await
 }
 
 fn sanitize_event_text(text: &str) -> String {
@@ -278,14 +316,17 @@ fn sanitize_event_text(text: &str) -> String {
     clean.trim().to_string()
 }
 
-fn receive_and_deliver<S: DeliverySeam>(
-    gateway: &MessageGateway,
-    seam: &S,
-    live_bound_target: impl FnOnce(&str) -> Option<String>,
-    resolve_general_agent: impl FnOnce() -> Result<String, String>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReceivedEvent {
+    text: String,
+    transcript: Option<String>,
+    event_id: Option<String>,
+}
+
+fn receive_event(
     receiver: &dyn WebhookReceiver,
     context: WebhookReceiveContext,
-) -> Result<WebhookResponse, WebhookRejection> {
+) -> Result<Option<ReceivedEvent>, WebhookRejection> {
     let delivery = receiver.receive(context).map_err(|error| {
         log::warn!(
             "[pebble-webhook] receiver {} failed: {error}",
@@ -293,27 +334,48 @@ fn receive_and_deliver<S: DeliverySeam>(
         );
         WebhookRejection::receiver_failed()
     })?;
-    let Some(WebhookDelivery { text, event_id }) = delivery else {
-        return Ok(WebhookResponse::noop(None));
+    let Some(WebhookDelivery {
+        text,
+        event_id,
+        transcript,
+    }) = delivery
+    else {
+        return Ok(None);
     };
     let event_id = event_id.filter(|event_id| !event_id.is_empty());
-    let text = if text.len() > MAX_DELIVERY_TEXT_BYTES {
-        String::new()
-    } else {
-        sanitize_event_text(&text)
-    };
-    if text.is_empty()
+    let oversized = text.len() > MAX_DELIVERY_TEXT_BYTES
+        || transcript
+            .as_ref()
+            .is_some_and(|transcript| transcript.len() > MAX_DELIVERY_TEXT_BYTES)
         || event_id
             .as_ref()
-            .is_some_and(|event_id| event_id.len() > MAX_EVENT_ID_BYTES)
-    {
+            .is_some_and(|event_id| event_id.len() > MAX_EVENT_ID_BYTES);
+    let text = sanitize_event_text(&text);
+    if oversized || text.is_empty() {
         log::warn!(
             "[pebble-webhook] receiver {} returned an empty or oversized delivery",
             receiver.id()
         );
         return Err(WebhookRejection::receiver_failed());
     }
+    Ok(Some(ReceivedEvent {
+        text,
+        transcript: transcript
+            .map(|transcript| sanitize_event_text(&transcript))
+            .filter(|transcript| !transcript.is_empty()),
+        event_id,
+    }))
+}
 
+fn deliver_event<S: DeliverySeam>(
+    gateway: &MessageGateway,
+    seam: &S,
+    live_bound_target: impl FnOnce(&str) -> Option<String>,
+    resolve_general_agent: impl FnOnce() -> Result<String, String>,
+    receiver: &dyn WebhookReceiver,
+    event: ReceivedEvent,
+    host_audio: Option<&audio::HostAudio>,
+) -> Result<WebhookResponse, WebhookRejection> {
     let target = match live_bound_target(receiver.id()) {
         Some(tab_id) => tab_id,
         None => resolve_general_agent().map_err(|error| {
@@ -321,7 +383,9 @@ fn receive_and_deliver<S: DeliverySeam>(
             WebhookRejection::general_agent_missing()
         })?,
     };
-    let idempotency_key = event_id
+    let body = audio::render(&event.text, event.transcript.as_deref(), host_audio);
+    let idempotency_key = event
+        .event_id
         .as_deref()
         .map(|event_id| format!("pebble:{}:{event_id}", receiver.id()));
     let receipt = gateway
@@ -329,7 +393,7 @@ fn receive_and_deliver<S: DeliverySeam>(
             seam,
             OutboundMessage {
                 target,
-                body: MessageBody::Text { body: text },
+                body: MessageBody::Text { body },
                 envelope: Some(MessageEnvelope::plugin(
                     receiver.id(),
                     receiver.icon_svg().map(str::to_string),
@@ -344,36 +408,81 @@ fn receive_and_deliver<S: DeliverySeam>(
             WebhookRejection::delivery_failed()
         })?;
     if receipt.dedup_hit {
-        return Ok(WebhookResponse::noop(event_id));
+        return Ok(WebhookResponse::noop(event.event_id));
     }
-    Ok(WebhookResponse::delivered(event_id))
+    Ok(WebhookResponse::delivered(event.event_id))
+}
+
+fn task_failed(error: tokio::task::JoinError) -> WebhookRejection {
+    log::error!("[pebble-webhook] receiver task did not complete: {error}");
+    WebhookRejection::internal()
 }
 
 pub(crate) async fn receive_pebble_webhook(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Json<WebhookResponse>, WebhookRejection> {
     let store = state.svc.secrets.read().await.clone();
-    let (receiver, context) =
-        accept(store.as_ref(), &state.svc.webhook_registry, &headers, &body).await?;
+    let receiver = authorize(store.as_ref(), &state.svc.webhook_registry, &headers).await?;
+    let limit = payload::body_limit(audio_cap(receiver.as_ref()));
+    let body = axum::body::to_bytes(body, limit).await.map_err(|error| {
+        log::warn!("[pebble-webhook] request body was not read within {limit} bytes: {error}");
+        WebhookRejection::body_too_large()
+    })?;
+    let Admitted {
+        receiver,
+        context,
+        audio,
+    } = admit(receiver, &headers, &body).await?;
+    drop(body);
+
+    let receiving = receiver.clone();
+    let event = tokio::task::spawn_blocking(move || receive_event(receiving.as_ref(), context))
+        .await
+        .map_err(task_failed)??;
+    let Some(event) = event else {
+        return Ok(Json(WebhookResponse::noop(None)));
+    };
+
+    let host_audio = match audio {
+        Some(audio) => {
+            let active = tokio::task::spawn_blocking(|| {
+                crate::config::load_config()
+                    .integrations
+                    .voice_transcribe
+                    .active
+            })
+            .await
+            .map_err(task_failed)?;
+            Some(
+                audio::transcribe(
+                    &state.svc.transcribe_registry,
+                    &active,
+                    &crate::api::web_routes::uploads_dir(),
+                    audio,
+                )
+                .await,
+            )
+        }
+        None => None,
+    };
+
     let svc = state.svc.clone();
     let response = tokio::task::spawn_blocking(move || {
         let general_agent = ServiceBridgeTabPort((*svc).clone());
-        receive_and_deliver(
+        deliver_event(
             &svc.gateway,
             svc.as_ref(),
             |receiver_id| svc.live_receiver_target(receiver_id),
             || general_agent.resolve_general_tab(),
             receiver.as_ref(),
-            context,
+            event,
+            host_audio.as_ref(),
         )
     })
     .await
-    .map_err(|error| {
-        log::error!("[pebble-webhook] receiver task did not complete: {error}");
-        WebhookRejection::internal()
-    })??;
+    .map_err(task_failed)??;
     Ok(Json(response))
 }
 

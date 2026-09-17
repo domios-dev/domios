@@ -9,6 +9,14 @@ use std::{future::Future, sync::Arc};
 
 use crate::api::routes::{check_auth, AppState};
 
+#[cfg(test)]
+mod pairing_correlation_tests;
+#[cfg(test)]
+mod reachability_tests;
+
+mod delivery;
+use delivery::PairingSendDisposition;
+
 #[derive(Debug, PartialEq)]
 pub enum ConnectPeerResult {
     Pending { request_id: String, existing: bool },
@@ -38,6 +46,8 @@ pub enum ConnectPeerError {
     Conflict(String),
     BadRequest(String),
     Internal(String),
+    BeforeSend(String),
+    Refused(String),
     Delivery(String),
 }
 
@@ -48,7 +58,20 @@ impl std::fmt::Display for ConnectPeerError {
             | Self::Conflict(message)
             | Self::BadRequest(message)
             | Self::Internal(message)
+            | Self::BeforeSend(message)
+            | Self::Refused(message)
             | Self::Delivery(message) => f.write_str(message),
+        }
+    }
+}
+
+impl ConnectPeerError {
+    fn pairing_send_disposition(&self) -> Option<PairingSendDisposition> {
+        match self {
+            Self::BeforeSend(_) => Some(PairingSendDisposition::DefinitelyBeforeSend),
+            Self::Refused(_) => Some(PairingSendDisposition::Terminal),
+            Self::Delivery(_) => Some(PairingSendDisposition::Uncertain),
+            Self::NotFound(_) | Self::Conflict(_) | Self::BadRequest(_) | Self::Internal(_) => None,
         }
     }
 }
@@ -95,7 +118,7 @@ struct ConnectOwner {
 }
 
 impl ConnectOwner {
-    fn complete(&mut self, outcome: Result<(), String>) -> Result<(), String> {
+    fn complete(&mut self, outcome: Result<(), ConnectPeerError>) -> Result<(), String> {
         let terminal = complete_connect(
             &self.mesh,
             &self.target_id,
@@ -111,7 +134,9 @@ impl ConnectOwner {
 impl Drop for ConnectOwner {
     fn drop(&mut self) {
         if !self.completed {
-            let _ = self.complete(Err("Pairing request delivery was cancelled".to_string()));
+            let _ = self.complete(Err(ConnectPeerError::Delivery(
+                "phase=unknown;source_depth=0;causes=none".to_string(),
+            )));
         }
     }
 }
@@ -140,6 +165,13 @@ fn prepare_connect(
     if let Some(result) = existing_connect_result(mesh, &target_id) {
         return Ok(ConnectPreparation::Existing(result));
     }
+    if mesh.pairing_targets.len() >= crate::mesh::MAX_PAIRING_DELIVERIES
+        || mesh.pairing_deliveries.len() >= crate::mesh::MAX_PAIRING_DELIVERIES
+    {
+        return Err(ConnectPeerError::Conflict(
+            "Pairing delivery capacity reached; cancel or await expiry".to_string(),
+        ));
+    }
     let address = peer
         .addresses
         .iter()
@@ -152,17 +184,20 @@ fn prepare_connect(
         .public_key
         .clone()
         .ok_or_else(|| ConnectPeerError::Internal("No identity keypair".to_string()))?;
+    let from_addresses =
+        crate::mesh::discovery::remote_addresses(mesh).map_err(ConnectPeerError::BadRequest)?;
     let request = crate::mesh::types::PairingRequest {
         request_id: uuid::Uuid::new_v4().to_string(),
         from_instance_id: mesh.ident.identity.instance_id.clone(),
         from_instance_name: mesh.ident.instance_name.clone(),
-        from_address: mesh
-            .tailscale_ip
-            .clone()
-            .or_else(|| mesh.local_ip.clone())
-            .unwrap_or_else(|| "127.0.0.1".to_string()),
+        from_address: from_addresses
+            .iter()
+            .find(|address| address.is_tailscale)
+            .unwrap_or(&from_addresses[0])
+            .ip
+            .clone(),
         from_port: mesh.api_port,
-        from_addresses: mesh.local_announce_addresses(),
+        from_addresses,
         public_key,
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -197,9 +232,21 @@ fn complete_connect(
     instance_id: &str,
     request_id: &str,
     delivery: &Arc<crate::mesh::PairingDelivery>,
-    outcome: Result<(), String>,
+    outcome: Result<(), ConnectPeerError>,
 ) -> Result<(), String> {
+    let uncertain = outcome.as_ref().is_err_and(|error| {
+        error.pairing_send_disposition() == Some(PairingSendDisposition::Uncertain)
+    });
+    let outcome = outcome.map_err(|error| error.to_string());
     let mut manager = mesh.lock();
+    if uncertain {
+        if !delivery.retain() {
+            return delivery.outcome();
+        }
+        drop(manager);
+        delivery.publish();
+        return outcome;
+    }
     if !delivery.claim(outcome.clone()) {
         return delivery.outcome();
     }
@@ -297,9 +344,10 @@ where
     let remote_instance_id = match sender(request.clone(), address, port).await {
         Ok(id) => id,
         Err(error) => {
-            let terminal = owner.complete(Err(error.to_string()));
+            let message = error.to_string();
+            let terminal = owner.complete(Err(error));
             return Err(ConnectPeerError::Delivery(match terminal {
-                Ok(()) => error.to_string(),
+                Ok(()) => message,
                 Err(error) => error,
             }));
         }
@@ -309,7 +357,7 @@ where
         manager.confirm_pairing_target_identity(&request.request_id, &remote_instance_id)
     };
     if let Err(error) = confirmation {
-        let terminal = owner.complete(Err(error.clone()));
+        let terminal = owner.complete(Err(ConnectPeerError::Refused(error.clone())));
         return Err(ConnectPeerError::Delivery(match terminal {
             Ok(()) => error,
             Err(error) => error,
@@ -339,18 +387,32 @@ pub async fn connect_peer(
             .json(&request)
             .send()
             .await
-            .map_err(|error| ConnectPeerError::Delivery(format!("Network error: {}", error)))?;
+            .map_err(|error| {
+                let detail = delivery::safe_reqwest_detail(&error);
+                match delivery::classify_reqwest_error(
+                    error.is_timeout(),
+                    error.is_connect(),
+                    error.is_body() || error.is_decode(),
+                ) {
+                    PairingSendDisposition::DefinitelyBeforeSend => {
+                        ConnectPeerError::BeforeSend(detail)
+                    }
+                    PairingSendDisposition::Uncertain | PairingSendDisposition::Terminal => {
+                        ConnectPeerError::Delivery(detail)
+                    }
+                }
+            })?;
         if !response.status().is_success() {
-            return Err(ConnectPeerError::Delivery(format!(
-                "Pair request rejected: {}",
-                response.text().await.unwrap_or_default()
+            return Err(ConnectPeerError::Refused(format!(
+                "Pair request rejected with HTTP {}",
+                response.status()
             )));
         }
         response
             .json::<serde_json::Value>()
             .await
             .map_err(|error| {
-                ConnectPeerError::Delivery(format!("Invalid pair response: {}", error))
+                ConnectPeerError::Delivery(delivery::safe_reqwest_detail(&error).to_string())
             })?["instance_id"]
             .as_str()
             .map(str::to_string)
@@ -390,7 +452,9 @@ fn rest_connect_error(error: ConnectPeerError) -> (StatusCode, String) {
         ConnectPeerError::Conflict(_) => StatusCode::CONFLICT,
         ConnectPeerError::BadRequest(_) => StatusCode::BAD_REQUEST,
         ConnectPeerError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        ConnectPeerError::Delivery(_) => StatusCode::BAD_GATEWAY,
+        ConnectPeerError::BeforeSend(_)
+        | ConnectPeerError::Refused(_)
+        | ConnectPeerError::Delivery(_) => StatusCode::BAD_GATEWAY,
     };
     (status, error.to_string())
 }
@@ -408,6 +472,7 @@ mod tests {
 
     fn mesh_state() -> crate::MeshStateHandle {
         let mut manager = crate::mesh::MeshManager::new("test".to_string(), 7685);
+        manager.ready_listeners = vec!["100.64.0.1:7685".parse().unwrap()];
         manager.disk_persist = false;
         manager.ident.identity.public_key = Some("key".to_string());
         manager.discovered_peers.insert(
@@ -613,10 +678,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mesh_connect_peer_failed_send_rolls_back_so_retry_can_send() {
+    async fn mesh_connect_peer_definitely_before_send_rolls_back_so_retry_can_send() {
         let mesh = mesh_state();
         let error = connect_peer_with_sender(mesh.clone(), PEER_ID.to_string(), |_, _, _| async {
-            Err(ConnectPeerError::Delivery("offline".to_string()))
+            Err(ConnectPeerError::BeforeSend("offline".to_string()))
         })
         .await
         .unwrap_err();
@@ -639,7 +704,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mesh_connect_peer_duplicate_waits_for_delivery_failure_and_retry_is_fresh() {
+    async fn mesh_connect_peer_duplicate_waits_for_before_send_failure_and_retry_is_fresh() {
         let mesh = mesh_state();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release_rx) = tokio::sync::oneshot::channel();
@@ -650,7 +715,7 @@ mod tests {
                     .send(())
                     .expect("test waits for the first delivery");
                 release_rx.await.expect("test releases the first delivery");
-                Err(ConnectPeerError::Delivery("offline".to_string()))
+                Err(ConnectPeerError::BeforeSend("offline".to_string()))
             })
             .await
         });
@@ -799,10 +864,18 @@ mod tests {
         wait_rx.await.expect("waiter starts waiting");
         owner.abort();
         assert!(owner.await.expect_err("owner was aborted").is_cancelled());
-        assert_eq!(
-            waiter.await.unwrap().unwrap_err().to_string(),
-            "Pairing request delivery was cancelled"
-        );
+        assert!(matches!(
+            waiter.await.unwrap().unwrap(),
+            ConnectPeerResult::Pending { existing: true, .. }
+        ));
+        let request_id = mesh
+            .lock()
+            .pending_requests
+            .keys()
+            .next()
+            .cloned()
+            .expect("cancellation retains correlation until disposition");
+        assert!(mesh.lock().cancel_outgoing_pairing(&request_id));
         assert!(mesh.lock().pairing_deliveries.is_empty());
         assert!(mesh.lock().pending_requests.is_empty());
         assert!(mesh.lock().pairing_targets.is_empty());
@@ -823,94 +896,6 @@ mod tests {
             }
         ));
         assert_eq!(sends.load(Ordering::SeqCst), 1);
-    }
-
-    async fn assert_expiry_before_owner_publication(
-        remote_instance_id: &'static str,
-        expiry_offset: u64,
-    ) {
-        let mesh = mesh_state();
-        let (send_started_tx, send_started_rx) = tokio::sync::oneshot::channel();
-        let (send_release_tx, send_release_rx) = tokio::sync::oneshot::channel();
-        let (confirmed_tx, confirmed_rx) = tokio::sync::oneshot::channel();
-        let (owner_release_tx, owner_release_rx) = tokio::sync::oneshot::channel();
-        let owner_mesh = mesh.clone();
-        let owner = tokio::spawn(async move {
-            connect_peer_with_sender_and_waiter_and_confirmation(
-                owner_mesh,
-                PEER_ID.to_string(),
-                |_, _, _| async move {
-                    send_started_tx.send(()).expect("owner send starts");
-                    send_release_rx.await.expect("test releases owner send");
-                    Ok(remote_instance_id.to_string())
-                },
-                || {},
-                || async move {
-                    confirmed_tx.send(()).expect("identity is confirmed");
-                    owner_release_rx
-                        .await
-                        .expect("test releases owner publication");
-                },
-            )
-            .await
-        });
-        send_started_rx.await.expect("owner send starts");
-
-        let waiter_mesh = mesh.clone();
-        let (wait_started_tx, wait_started_rx) = tokio::sync::oneshot::channel();
-        let waiter = tokio::spawn(async move {
-            connect_peer_with_sender_and_waiter(
-                waiter_mesh,
-                PEER_NAME.to_string(),
-                |_, _, _| async { panic!("waiter must not send") },
-                || wait_started_tx.send(()).expect("waiter joins delivery"),
-            )
-            .await
-        });
-        wait_started_rx.await.expect("waiter joins delivery");
-        send_release_tx.send(()).expect("release owner send");
-        confirmed_rx.await.expect("identity is confirmed");
-
-        let expires_at = mesh
-            .lock()
-            .pending_requests
-            .values()
-            .next()
-            .unwrap()
-            .timestamp
-            + expiry_offset;
-        mesh.lock().cleanup_expired_requests_at(expires_at);
-
-        assert_eq!(
-            waiter.await.unwrap().unwrap_err().to_string(),
-            "Pairing request expired"
-        );
-        assert!(mesh.lock().pending_requests.is_empty());
-        assert!(mesh.lock().pairing_targets.is_empty());
-        assert!(mesh.lock().pairing_deliveries.is_empty());
-
-        owner_release_tx
-            .send(())
-            .expect("release owner publication");
-        assert_eq!(
-            owner.await.unwrap().unwrap_err().to_string(),
-            "Pairing request expired"
-        );
-    }
-
-    #[tokio::test]
-    async fn mesh_connect_peer_expiry_before_owner_publication_cleans_state_and_fails_everyone() {
-        assert_expiry_before_owner_publication(PEER_ID, 301).await;
-    }
-
-    #[tokio::test]
-    async fn mesh_connect_peer_manual_rekey_expiry_cleans_the_immutable_delivery() {
-        assert_expiry_before_owner_publication("c8ac146a-3e46-4f5f-9c88-a2fa03941a81", 301).await;
-    }
-
-    #[tokio::test]
-    async fn mesh_connect_peer_retention_expiry_cleans_delivery_before_request_eviction() {
-        assert_expiry_before_owner_publication(PEER_ID, 3601).await;
     }
 
     #[test]

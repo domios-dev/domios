@@ -292,4 +292,4 @@ Note: `bash build.sh build` runs the production frontend bundle and currently fa
 ## Self-improvement
 
 If a test fails or a command doesn't work as expected, edit this SKILL.md to fix it.
-The skill lives at: `/Users/rollacode/Developer/codeterm/.claude/skills/dev-testing/SKILL.md`
+The skill lives at: `.agents/skills/dev-testing/SKILL.md`

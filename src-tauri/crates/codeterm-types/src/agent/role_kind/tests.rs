@@ -1,6 +1,6 @@
 use crate::agent::AgentRole;
 
-use super::builtins::{self, GENERAL_AGENT, ORCHESTRATOR, PLANNER, WATCHER, WORKER};
+use super::builtins::{self, CARTOGRAPHER, GENERAL_AGENT, ORCHESTRATOR, PLANNER, WATCHER, WORKER};
 use super::query;
 use super::{RoleKindCapability, RoleKindDescriptor, RoleKindOrigin};
 
@@ -54,6 +54,13 @@ const ROWS: &[Row] = &[
     },
     Row {
         id: WORKER,
+        anchors_team: false,
+        requires_parent: true,
+        can_spawn: false,
+        team_authority: false,
+    },
+    Row {
+        id: CARTOGRAPHER,
         anchors_team: false,
         requires_parent: true,
         can_spawn: false,
@@ -203,6 +210,18 @@ fn worker_keeps_an_unknown_profile_as_a_leaf_subtype() {
     assert!(!query::can_spawn(role, Some("rust-platform-dev")));
     assert!(!query::has_team_authority(role, Some("rust-platform-dev")));
     assert!(query::requires_parent(role, Some("rust-platform-dev")));
+}
+
+#[test]
+fn cartographer_map_role_is_a_worker_leaf_subtype() {
+    let role = Some(AgentRole::Worker);
+    let profile = Some(CARTOGRAPHER);
+    assert_eq!(query::kind_id(role, profile), Some(CARTOGRAPHER));
+    assert_eq!(query::kind_label(role, profile), Some("Cartographer"));
+    assert!(query::requires_parent(role, profile));
+    assert!(!query::anchors_team(role, profile));
+    assert!(!query::can_spawn(role, profile));
+    assert!(!query::has_team_authority(role, profile));
 }
 
 #[test]

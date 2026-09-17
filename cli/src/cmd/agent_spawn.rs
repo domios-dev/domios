@@ -259,11 +259,6 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         );
         return;
     }
-    if task_file.is_none() {
-        if let Some(t) = task.as_deref() {
-            crate::cmd::send_text::nudge_spawn_task(json, t);
-        }
-    }
     let task = match crate::cmd::agent::resolve_spawn_task(
         task,
         task_file,
@@ -543,7 +538,7 @@ mod tests {
         }
     }
 
-    /// codeterm#305: an unbound Worker spawn is accepted (docs/SKILLS.md's
+    /// codeterm#305: an unbound Worker spawn is accepted (prod-docs/SKILLS.md's
     /// ad-hoc pattern) but carries the shared advisory constant.
     #[test]
     fn worker_without_plan_binding_is_refused_or_warned_at_spawn() {

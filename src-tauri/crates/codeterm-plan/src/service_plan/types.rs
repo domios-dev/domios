@@ -35,7 +35,7 @@ pub enum PlanError {
     TaskCreationRequiresApproval,
     TaskDispatchRequiresApproval,
     HeartbeatRequiresExecution,
-    TaskPauseRequiresReason,
+    TaskPausedSystemOnly,
     ReviewHoldRequired,
     PauseRequiresReason,
     InProgressRequiresTab,
@@ -67,6 +67,16 @@ pub enum PlanError {
     /// task does not exist", it is "inspect why the attempt isn't exact".
     ReviewContinuationAttemptNotFound {
         task_id: String,
+    },
+    ReviewContinuationDeliveryRefused {
+        task_id: String,
+        attempt_id: String,
+        expected_epoch: u32,
+        actual_epoch: Option<u32>,
+        task_status: String,
+        task_status_label: Option<String>,
+        continuation_state: Option<String>,
+        attempt_closed: Option<bool>,
     },
     GateNotFound,
     GateAlreadyAnswered,
@@ -111,6 +121,7 @@ pub enum PlanError {
         slug: String,
     },
     InvalidPlanSkillSlug,
+    InvalidExecutorName(String),
     InvalidExternalRef(String),
     WorkFacetViolation(codeterm_types::plan::work_facet::WorkFacetViolation),
     UnauthorizedGateClaim {
@@ -193,6 +204,7 @@ impl fmt::Display for PlanError {
             PlanError::InvalidExternalRef(message) => {
                 write!(f, "invalid external reference: {message}")
             }
+            PlanError::InvalidExecutorName(message) => write!(f, "{message}"),
             PlanError::WorkFacetViolation(violation) => write!(f, "{violation}"),
             PlanError::TaskCreationRequiresApproval => write!(
                 f,
@@ -218,9 +230,9 @@ impl fmt::Display for PlanError {
                 f,
                 "executor_role names who executes this task and cannot be emptied; pass --executor-role \"<role>\" with a value"
             ),
-            PlanError::TaskPauseRequiresReason => write!(
+            PlanError::TaskPausedSystemOnly => write!(
                 f,
-                "pausing a task requires a reason; run `codeterm plan task pause <plan> <task> --reason \"<why>\"`"
+                "paused task status is reserved for decision-gate and provider-exhaustion system holds"
             ),
             PlanError::ReviewHoldRequired => write!(
                 f,
@@ -276,6 +288,19 @@ impl fmt::Display for PlanError {
             PlanError::ReviewContinuationAttemptNotFound { task_id } => write!(
                 f,
                 "task '{task_id}' was found but has no single resolvable execution attempt to bounce; inspect its attempts with `codeterm plan task show <plan_id> {task_id}` before retrying"
+            ),
+            PlanError::ReviewContinuationDeliveryRefused {
+                task_id,
+                attempt_id,
+                expected_epoch,
+                actual_epoch,
+                task_status,
+                task_status_label,
+                continuation_state,
+                attempt_closed,
+            } => write!(
+                f,
+                "review continuation delivery refused for task '{task_id}' attempt '{attempt_id}': expected epoch {expected_epoch}, actual epoch {actual_epoch:?}; task state status={task_status}, label={task_status_label:?}; continuation state={continuation_state:?}; attempt closed={attempt_closed:?}"
             ),
             PlanError::GateNotFound => write!(f, "decision gate not found"),
             PlanError::GateAlreadyAnswered => {
@@ -372,6 +397,7 @@ impl PlanError {
             | PlanError::GroupNotFound
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
+            PlanError::InvalidExecutorName(_) => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
     }
@@ -419,8 +445,8 @@ impl PlanError {
             PlanError::ExecutorRoleRequired => {
                 serde_json::json!({ "type": "executor_role_required" })
             }
-            PlanError::TaskPauseRequiresReason => {
-                serde_json::json!({ "type": "task_pause_requires_reason" })
+            PlanError::TaskPausedSystemOnly => {
+                serde_json::json!({ "type": "task_paused_system_only" })
             }
             PlanError::ReviewHoldRequired => serde_json::json!({
                 "type": "review_hold_required",
@@ -470,6 +496,26 @@ impl PlanError {
             PlanError::ReviewContinuationAttemptNotFound { task_id } => serde_json::json!({
                 "type": "review_continuation_attempt_not_found",
                 "task_id": task_id
+            }),
+            PlanError::ReviewContinuationDeliveryRefused {
+                task_id,
+                attempt_id,
+                expected_epoch,
+                actual_epoch,
+                task_status,
+                task_status_label,
+                continuation_state,
+                attempt_closed,
+            } => serde_json::json!({
+                "type": "review_continuation_delivery_refused",
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "expected_epoch": expected_epoch,
+                "actual_epoch": actual_epoch,
+                "task_status": task_status,
+                "task_status_label": task_status_label,
+                "continuation_state": continuation_state,
+                "attempt_closed": attempt_closed
             }),
             PlanError::GateNotFound => serde_json::json!({ "type": "gate_not_found" }),
             PlanError::GateAlreadyAnswered => {
@@ -562,6 +608,10 @@ impl PlanError {
             }),
             PlanError::InvalidExternalRef(message) => serde_json::json!({
                 "type": "invalid_external_ref",
+                "message": message,
+            }),
+            PlanError::InvalidExecutorName(message) => serde_json::json!({
+                "type": "invalid_executor_name",
                 "message": message,
             }),
             PlanError::WorkFacetViolation(violation) => serde_json::json!({

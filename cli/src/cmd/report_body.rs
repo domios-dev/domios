@@ -36,7 +36,6 @@ pub fn read_report_body(
     text: Option<String>,
     from_pad: Option<String>,
     doc: Option<String>,
-    json: bool,
 ) -> String {
     let pad_body = from_pad.map(|path| {
         crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
@@ -45,9 +44,8 @@ pub fn read_report_body(
         })
     });
     if pad_body.is_none() {
-        crate::cmd::send_text::nudge_report_body(
-            json,
-            text.as_deref().or(message.as_deref()).unwrap_or_default(),
+        crate::cmd::payload_source::refuse_inline_report_body(
+            text.as_deref().or(message.as_deref()),
         );
     }
     let doc_body = doc.map(|path| {

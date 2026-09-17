@@ -41,6 +41,6 @@ pub use codeterm_plugin::{
     PluginPermissions, PluginPrompt, PluginTier,
 };
 pub use codeterm_plugin::{
-    WebhookDelivery, WebhookReceiveContext, WebhookReceiveError, WebhookReceiver,
+    WebhookAudio, WebhookDelivery, WebhookReceiveContext, WebhookReceiveError, WebhookReceiver,
     WebhookReceiverKind, WebhookRegistry, WebhookRegistryHandle,
 };

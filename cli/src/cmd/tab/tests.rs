@@ -20,25 +20,38 @@ impl RpcClient for SearchRpc {
 }
 
 #[test]
-fn tab_list_request_scopes_to_calling_tab_when_workspace_env_is_absent() {
-    let params = tab_list_params(None, false, false, Some("self-tab".into()));
+fn tab_list_defaults_to_all_workspace_request() {
+    let params = tab_list_params(None, false, false);
 
-    assert_eq!(params["caller_tab_id"], "self-tab");
-    assert_eq!(params["focused_workspace"], true);
+    assert_eq!(params["focused_workspace"], false);
+    assert_eq!(params["all_workspaces"], false);
+    assert_eq!(ordinary_tab_list_path(&params), "/api/tabs");
+
+    let output = crate::cmd::render_workspace_map(
+        &json!([
+            {"id": "ws_one", "name": "One", "tab_count": 1, "tab_ids": ["tab_one"]},
+            {"id": "ws_two", "name": "Two", "tab_count": 1, "tab_ids": ["tab_two"]}
+        ]),
+        Some(&json!([
+            {"id": "tab_one", "tab_title": "One tab", "workspace_id": "ws_one"},
+            {"id": "tab_two", "tab_title": "Two tab", "workspace_id": "ws_two"}
+        ])),
+        Some(&json!({"teams": []})),
+        Some(&json!({"plans": []})),
+        None,
+        None,
+    );
+    assert!(output.contains("One  ws_one"));
+    assert!(output.contains("Two  ws_two"));
 }
 
 #[test]
-fn tab_list_request_drops_calling_tab_for_explicit_scope() {
-    let workspace = tab_list_params(
-        Some("workspace".into()),
-        false,
-        false,
-        Some("self-tab".into()),
-    );
-    let all = tab_list_params(None, true, false, Some("self-tab".into()));
+fn tab_list_request_uses_only_explicit_scope() {
+    let workspace = tab_list_params(Some("workspace".into()), false, false);
+    let all = tab_list_params(None, true, false);
 
-    assert!(workspace["caller_tab_id"].is_null());
-    assert!(all["caller_tab_id"].is_null());
+    assert_eq!(workspace["focused_workspace"], false);
+    assert_eq!(all["focused_workspace"], false);
 }
 
 #[test]
@@ -68,6 +81,31 @@ fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
         vec!["deadbeef1234".to_string()]
     );
     assert!(format_tab_row(&tabs[0]).contains("ws=Elsewhere"));
+}
+
+#[test]
+fn tab_list_explicit_workspace_scope() {
+    let params = tab_list_params(Some("ws_one".into()), false, false);
+    assert_eq!(
+        ordinary_tab_list_path(&params),
+        "/api/tabs?workspace_id=ws_one"
+    );
+
+    let tabs = vec![json!({
+        "id": "tab_one",
+        "tab_title": "One",
+        "workspace_id": "ws_one",
+        "workspace_name": "One",
+        "scope": "workspace",
+        "scope_workspace_id": "ws_one",
+        "scope_workspace_name": "One",
+        "other_workspace_tab_count": 3
+    })];
+
+    let output = super::render_tab_tree_with_scope(&tabs, None, Some("ws_one"));
+
+    assert!(output.contains("scope: workspace One (ws_one) — 3 tabs in other workspaces"));
+    assert!(output.contains("One  ws_one"));
 }
 
 fn make_tab(id: &str, title: &str, agent: Option<&str>, sname: Option<&str>) -> serde_json::Value {
@@ -173,7 +211,7 @@ fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
     assert_eq!(string_field(&tabs[2], "role_profile"), "planner");
     assert_eq!(string_field(&tabs[2], "remote_peer_name"), "A");
     assert_eq!(
-        ordinary_tab_list_path(&tab_list_params(None, true, false, None)),
+        ordinary_tab_list_path(&tab_list_params(None, true, false)),
         "/api/tabs?all_workspaces=true"
     );
 }

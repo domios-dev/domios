@@ -28,6 +28,15 @@ impl IntoResponse for SpawnRejection {
     }
 }
 
+impl SpawnRejection {
+    pub(crate) fn new(status: StatusCode, code: &str, message: String) -> Self {
+        Self {
+            status,
+            body: serde_json::json!({"ok": false, "error": {"code": code, "message": message}}),
+        }
+    }
+}
+
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
         Self {
@@ -260,7 +269,6 @@ pub async fn spawn_agent(
         args: body.args,
         cwd: body.cwd,
         provisioned_cwd: None,
-        lane_setup_command: None,
         title: body.title,
         title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: body.description,
@@ -319,33 +327,7 @@ pub async fn spawn_agent(
         .await
         .map_err(SpawnRejection::from)?;
     if let Some(ready_rx) = ready_rx {
-        let delivery = await_spawn_delivery(ready_rx).await.and_then(|()| {
-            let mux = state.svc.mux.read();
-            let tab = mux
-                .get_tab(&result.tab_id)
-                .ok_or_else(|| "agent launch acknowledged after its Tab disappeared".to_string())?;
-            require_no_pending_delivery(
-                tab.pending_delivery
-                    .as_ref()
-                    .map(|pending| format!("{:?}", pending.state())),
-            )
-        });
-        if let Err(message) = delivery {
-            let _ = state.svc.close_tab_with_reason(
-                &result.tab_id,
-                crate::multiplexer::types::TabCloseReason::SpawnRollback,
-            );
-            return Err(SpawnRejection {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                body: serde_json::json!({
-                    "ok": false,
-                    "error": {
-                        "code": "delivery_failed",
-                        "message": message,
-                    },
-                }),
-            });
-        }
+        verify_spawn_delivery(&state, &result.tab_id, ready_rx).await?;
     }
     let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
         match state.svc.arm_bound_worker_ack_deadline_for_tab(
@@ -403,6 +385,38 @@ pub async fn spawn_agent(
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
     }
     Ok(Json(resp))
+}
+
+/// A launch that did not acknowledge, or left its first turn pending, is rolled
+/// back so the caller never keeps a tab that silently holds an undelivered task.
+pub(crate) async fn verify_spawn_delivery(
+    state: &AppState,
+    tab_id: &str,
+    ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+) -> Result<(), SpawnRejection> {
+    let delivery = await_spawn_delivery(ready_rx).await.and_then(|()| {
+        let mux = state.svc.mux.read();
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or_else(|| "agent launch acknowledged after its Tab disappeared".to_string())?;
+        require_no_pending_delivery(
+            tab.pending_delivery
+                .as_ref()
+                .map(|pending| format!("{:?}", pending.state())),
+        )
+    });
+    if let Err(message) = delivery {
+        let _ = state.svc.close_tab_with_reason(
+            tab_id,
+            crate::multiplexer::types::TabCloseReason::SpawnRollback,
+        );
+        return Err(SpawnRejection::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "delivery_failed",
+            message,
+        ));
+    }
+    Ok(())
 }
 
 fn require_no_pending_delivery(state: Option<String>) -> Result<(), String> {
