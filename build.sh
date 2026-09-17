@@ -1592,6 +1592,7 @@ EOF
     node node_modules/typescript/bin/tsc --noEmit
     node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     node scripts/run-ts-unit-tests.mjs
+    node node_modules/vitest/vitest.mjs run
     node scripts/run-plugin-tests.mjs
     "$(command -v python3 || command -v python)" -m unittest scripts.tests.test_release_issue_contract
     "$(command -v python3 || command -v python)" -m unittest scripts.tests.test_release_workflow_contract
@@ -1999,6 +2000,7 @@ EOF
 
     ta_run "rust-unit"  scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
     ta_run "ts-unit"    pnpm -s test:unit
+    ta_run "ts-vitest"  node node_modules/vitest/vitest.mjs run
     ta_run "plugin"     pnpm -s test:plugins
 
     PYTHON_BIN="$(command -v python3 || command -v python)"

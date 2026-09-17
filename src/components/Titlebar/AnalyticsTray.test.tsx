@@ -5,10 +5,16 @@ import type { PluginSnapshotStoreState } from "../../lib/pluginSnapshotStore";
 
 const store: { plugins: Array<{ id: string; capabilities?: { view?: boolean } }> } = { plugins: [] };
 
+const ensurePluginSnapshot = vi.fn(
+  (_options?: { force?: boolean; background?: boolean }) => Promise.resolve(),
+);
+
 vi.mock("../../lib/pluginSnapshotStore", () => ({
   usePluginSnapshotStore: (): Partial<PluginSnapshotStoreState> => ({
     snapshot: { plugins: store.plugins, channels: [], diff: [] },
   }),
+  ensurePluginSnapshot: (options?: { force?: boolean; background?: boolean }) =>
+    ensurePluginSnapshot(options),
 }));
 
 import { AnalyticsTray } from "./AnalyticsTray";

@@ -306,7 +306,14 @@ describe("mission control board visual system", () => {
     expect(rule(css, ".mc-board-models-table .mc-board-models-num")).toContain("text-align: right;");
     expect(rule(css, ".mc-board-row")).toContain("align-items: stretch;");
     expect(rule(css, ".mc-board-plan-heading")).toContain("-webkit-line-clamp: 3;");
-    expect(css).not.toMatch(/border-right|border-inline-end|animation/);
+    // The panel is ruled horizontally only, so vertical rules stay banned.
+    expect(css).not.toMatch(/border-right|border-inline-end/);
+    // The only motion is the value-change cue, and it opts out of reduced motion.
+    const animations = css.match(/animation:\s*([^;]+);/g) ?? [];
+    for (const declaration of animations) {
+      expect(declaration).toMatch(/ct-number-changed|none/);
+    }
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     await unmount();
   });
 

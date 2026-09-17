@@ -167,7 +167,6 @@ impl ProviderModels {
         self.binary = binary;
         self
     }
-
 }
 
 fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
