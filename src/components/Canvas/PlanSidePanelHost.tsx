@@ -36,7 +36,7 @@ function useUnlistedPlan(api: ApiConfig | undefined, planId: string | null) {
         if (!controller.signal.aborted) setResult({ planId, plan });
       });
     return () => controller.abort();
-  }, [api, planId]);
+  }, [api?.host, api?.port, api?.token, planId]);
   const settled = result !== null && result.planId === planId;
   return { plan: settled ? result.plan : null, loading: Boolean(api && planId && !settled) };
 }

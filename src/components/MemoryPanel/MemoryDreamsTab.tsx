@@ -80,7 +80,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
         /* network */
       }
     },
-    [api, dreamCron],
+    [api.host, api.port, api.token, dreamCron],
   );
 
   const fetchCronData = useCallback(async () => {
@@ -102,7 +102,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
     } catch {
       /* network */
     }
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   const fetchDiary = useCallback(
     async (showLoading = false) => {
@@ -124,7 +124,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
         if (mountedRef.current && showLoading) setDiaryLoading(false);
       }
     },
-    [api],
+    [api.host, api.port, api.token],
   );
 
   useEffect(() => { fetchCronData(); }, [fetchCronData]);
@@ -196,7 +196,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
     } finally {
       if (mountedRef.current) setRunning(false);
     }
-  }, [api, running]);
+  }, [api.host, api.port, api.token, running]);
 
   const inflight = dreamWorkers.find(
     (w) => !isTerminalWorkerStatus(w.status),

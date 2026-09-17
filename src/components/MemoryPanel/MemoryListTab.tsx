@@ -61,7 +61,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode
       } catch { /* ignore (includes AbortError) */ }
     }, 300);
     return () => { clearTimeout(timer); ctrl.abort(); };
-  }, [search, api]);
+  }, [search, api.host, api.port, api.token]);
 
   const areas = useMemo(() => {
     const s = new Set<string>();

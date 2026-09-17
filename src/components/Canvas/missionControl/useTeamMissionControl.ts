@@ -55,7 +55,7 @@ export function useTeamMissionControl(
         if (!controller.signal.aborted) setRead(null);
       });
     return () => controller.abort();
-  }, [api, teamId, revision]);
+  }, [api?.host, api?.port, api?.token, teamId, revision]);
 
   const loadNext = useCallback(() => {
     if (!api || !teamId || !read?.nextCursor || loadingRef.current) return;
@@ -73,7 +73,7 @@ export function useTeamMissionControl(
       .finally(() => {
         loadingRef.current = false;
       });
-  }, [api, teamId, read]);
+  }, [api?.host, api?.port, api?.token, teamId, read]);
 
   return useMemo(() => {
     if (!read) return null;

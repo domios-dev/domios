@@ -220,7 +220,7 @@ export function MemorySnapshotCanvas({
       sigmaRef.current = null;
       graphRef.current = null;
     };
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   const adapterNodes = useMemo(() => buildAdapterMap(index, labelsRef.current), [index, labelTick]);
 
@@ -253,7 +253,7 @@ export function MemorySnapshotCanvas({
     applyEgoEdges(graph, selectedIdRef.current, edgesByNodeRef.current, palette);
     sigma.refresh();
     void fetchViewportData(api, idx, bounds ?? viewportBounds(sigma), showEdges);
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   // Lazy fetch for the viewport: labels + edges, dedupe, cache, max 500/req.
   const fetchViewportData = useCallback(
