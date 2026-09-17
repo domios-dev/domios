@@ -8,7 +8,7 @@ import {
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -168,8 +168,10 @@ function startWorker({
       [
         "--import",
         "tsx",
+        // A bare Windows path is rejected by the ESM loader ("protocol 'd:'"),
+        // so the hook is passed as a file:// URL on every platform.
         "--import",
-        path.join(root, "scripts", "ts-test-asset-hook.mjs"),
+        pathToFileURL(path.join(root, "scripts", "ts-test-asset-hook.mjs")).href,
         "--input-type=module",
         "--eval",
         testWorkerBootstrap,
