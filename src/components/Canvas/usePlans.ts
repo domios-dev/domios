@@ -39,7 +39,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
         project: projectRef.current,
       }),
     EMPTY_PLANS,
-    { enabled, deps: [api, project] },
+    { enabled, deps: [api.host, api.port, api.token, project] },
   );
 
   const patchPlan = useCallback(

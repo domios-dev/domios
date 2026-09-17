@@ -46,7 +46,8 @@
     "check:versions": "node scripts/sync-plugin-versions.mjs --check",
     "check:release-locks": "node scripts/check-release-locks.mjs",
     "sync:plugin-versions": "node scripts/sync-plugin-versions.mjs",
-    "check:plugin-versions": "node scripts/sync-plugin-versions.mjs --check"
+    "check:plugin-versions": "node scripts/sync-plugin-versions.mjs --check",
+    "check:api-effects": "node scripts/check-api-effect-dependencies.mjs"
   },
   "keywords": [],
   "author": "",

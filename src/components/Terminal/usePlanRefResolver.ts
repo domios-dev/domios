@@ -91,6 +91,9 @@ export function usePlanRefResolver(
     }
     return next;
   }, [refs]);
+  const orderedRefKey = useMemo(() => orderedRefs.map(keyOf).join("\u001f"), [orderedRefs]);
+  const orderedRefsRef = useRef(orderedRefs);
+  orderedRefsRef.current = orderedRefs;
 
   // Resolved content changes replace rendered state, so unchanged chips never flicker through loading during revalidation.
   useEffect(() => {
@@ -98,9 +101,10 @@ export function usePlanRefResolver(
     if (!api.enabled) return;
     const generation = invalidationGeneration;
     const revalidate = fetchedGenerationRef.current !== generation;
+    const currentRefs = orderedRefsRef.current;
     const targets = revalidate
-      ? orderedRefs
-      : orderedRefs.filter((ref) => !cacheRef.current.has(keyOf(ref)));
+      ? currentRefs
+      : currentRefs.filter((ref) => !cacheRef.current.has(keyOf(ref)));
     if (targets.length === 0) {
       fetchedGenerationRef.current = generation;
       return;
@@ -111,7 +115,7 @@ export function usePlanRefResolver(
         if (!active) return;
         fetchedGenerationRef.current = generation;
         if (revalidate) {
-          const visible = new Set(orderedRefs.map(keyOf));
+          const visible = new Set(currentRefs.map(keyOf));
           for (const key of [...cacheRef.current.keys()]) {
             if (!visible.has(key)) cacheRef.current.delete(key);
           }
@@ -136,7 +140,7 @@ export function usePlanRefResolver(
       active = false;
       ctrl.abort();
     };
-  }, [api, orderedRefs, invalidationGeneration]);
+  }, [api?.enabled, api?.host, api?.port, api?.token, orderedRefKey, invalidationGeneration]);
 
   useEffect(() => {
     let active = true;

@@ -54,7 +54,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
     } finally {
       if (activeRef.current) setLoading(false);
     }
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   useEffect(() => {
     activeRef.current = true;
@@ -113,7 +113,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
       unlisteners = [];
       if (pollTimer != null) clearInterval(pollTimer);
     };
-  }, [api, refresh, upsert]);
+  }, [api.host, api.port, api.token, refresh, upsert]);
 
   const spawn = useCallback(
     async (req: SpawnWorkerReq): Promise<GraphWorkerInfo> => {
@@ -147,7 +147,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
         throw new Error(`Kill failed: ${res.status}`);
       }
     },
-    [api],
+    [api.host, api.port, api.token],
   );
 
   return { workers, loading, error, spawn, kill, refresh };

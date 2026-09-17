@@ -317,7 +317,7 @@ export function useTeamSpend(
       freshness.cancel();
       if (gate.current === freshness) gate.current = null;
     };
-  }, [api, teamId]);
+  }, [api?.host, api?.port, api?.token, teamId]);
 
   useEffect(() => {
     if (!api || !teamId) {
@@ -334,6 +334,6 @@ export function useTeamSpend(
         if (!controller.signal.aborted) gate.current?.settled();
       });
     return () => controller.abort();
-  }, [api, teamId, revision, metric, commits]);
+  }, [api?.host, api?.port, api?.token, teamId, revision, metric, commits]);
   return spend;
 }

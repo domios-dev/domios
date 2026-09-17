@@ -176,7 +176,7 @@ export function CanvasViewInner({
     return () => {
       active = false;
     };
-  }, [api, specFetchKey]);
+  }, [api?.host, api?.port, api?.token, specFetchKey]);
   const specSectionsByPlan = useMemo(() => {
     if (!fixtureSpecSections.size) return fetchedSpecSections;
     const merged = new Map(fetchedSpecSections);

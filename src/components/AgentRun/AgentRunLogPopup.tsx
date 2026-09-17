@@ -34,7 +34,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
       .then((r) => (r.ok ? r.text() : Promise.reject(r.statusText)))
       .then(setFallbackText)
       .catch(() => {});
-  }, [api, worker.worker_id, isTerminal]);
+  }, [api.host, api.port, api.token, worker.worker_id, isTerminal]);
 
   // results.
   const fallbackEvents = useMemo(() => {
