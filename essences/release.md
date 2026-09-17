@@ -1,13 +1,13 @@
 # Releasing CodeTerm
 
-How a versioned release goes from `develop` to a published GitHub release the
-in-app updater can pull. This is the **map**; the **executable procedure** (every
+How a versioned release goes from a short-lived `release/X.Y.Z` branch to a published GitHub
+release the in-app updater can pull. This is the **map**; the **executable procedure** (every
 command, every secret, every retry) lives in the `github-release` skill:
 `.agents/skills/github-release/SKILL.md`. Build-farm/runner internals live in
 `.codeterm/build-machine/README.md`.
 
 **Golden rule:** every artifact is built from the **tagged commit on `master`** —
-never from `develop`, never from an untagged tree.
+never from `release/X.Y.Z`, never from an untagged tree.
 
 This is the public-release operation only. For a local production installer use
 `essences/build.md#local-production-build-and-self-install`; for a dev window use
@@ -78,20 +78,17 @@ updater-manifest verification passes.
 ## 1. Preflight (before bumping the version)
 
 Canonical work for a version collects on `integrate/<version>`: accepted lanes merge there with
-real merge commits, and the verified branch merges into `develop`. Batch `develop` pushes: every
-push to `develop` queues CI (documentation-only changes excepted), so push once per verified wave,
-never once per lane.
+real merge commits, and the verified branch merges into the open `release/X.Y.Z` branch, cut from
+`master` right after the previous release. Batch `release/X.Y.Z` pushes: every push to it queues CI
+(documentation-only changes excepted), so push once per verified wave, never once per lane.
 
-Run from the canonical checkout, on `develop`:
+Run from the canonical checkout, on `release/X.Y.Z`:
 
 ```bash
+VER=X.Y.Z
 git fetch origin --prune
-git checkout develop
-git pull --ff-only origin develop
-git merge-base --is-ancestor origin/master HEAD || {
-  git merge --no-ff origin/master --no-edit
-  # resolve conflicts, run the gates below, push develop before bumping the version
-}
+git checkout "release/$VER"
+git pull --ff-only origin "release/$VER"
 git status --short                  # must be clean
 curl -s http://127.0.0.1:7686/api/health
 ```
@@ -106,14 +103,13 @@ re-cut from the new merge commit — a full wasted build cycle across all three 
 `git diff --exit-code src-tauri/Cargo.lock` returning clean before opening the master PR.
 
 ```bash
-VER=X.Y.Z
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
 ./build.sh release-preflight           # host-local PR matrix + both Cargo lockfiles
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
   src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
 git commit -m "release: v$VER"
-git push origin develop
+git push origin "release/$VER"
 ```
 
 `release-preflight` runs formatting, both Rust workspaces, app and CLI tests,
@@ -124,7 +120,7 @@ Cheap deterministic policy and freshness checks run first so a stale artifact or
 oversized local source cannot waste a full test cycle.
 
 Then start dev from the main checkout and visually confirm the app, clean old lane worktrees
-(`../codeterm-worktrees/`), and open the PR `develop` → `master`. Collect the exact
+(`../codeterm-worktrees/`), and open the PR `release/X.Y.Z` → `master`. Collect the exact
 `Repository-Issue:` lines from the included integration PR body and render the closing block:
 
 ```bash
@@ -133,7 +129,7 @@ python3 scripts/release_issue_contract.py repository-closes \
 ```
 
 Put that output in the final PR body. GitHub applies `Closes #N` only when the PR targets the
-default branch, so integration PRs targeting `develop` retain non-closing metadata instead.
+default branch, so integration PRs targeting `release/X.Y.Z` retain non-closing metadata instead.
 
 ## 2. Cut the release: one trigger tag
 
@@ -153,6 +149,13 @@ git push origin "refs/tags/release-$VER"   # full ref: the branch shares this na
 
 Push **only** `release-X.Y.Z`. Do not also create/push `vX.Y.Z` — the three workflows stamp and
 publish under `vX.Y.Z` themselves. Watch it: `gh run watch --repo rollacode/codeterm`.
+
+Once the tag is pushed, delete the `release/X.Y.Z` branch — it dies with the tag; there is no
+back-merge to wait for:
+
+```bash
+git push origin --delete "release/$VER"
+```
 
 ## 3. Artifact matrix
 
@@ -480,8 +483,8 @@ gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 The first act of a release train is `docs/release/<version>-pr.md`, created before the first lane is
 dispatched. It carries the plan id and goal, the slice-to-issue map, and empty "Fixed",
 "Investigated, not fixed", and "Deferred, with reasons" sections. Each slice appends its own block
-there **as its lane merges into `develop`**, with one `Repository-Issue:` metadata line per issue it
-actually fixed.
+there **as its lane merges into `release/X.Y.Z`**, with one `Repository-Issue:` metadata line per
+issue it actually fixed.
 
 This exists because the alternative has failed in practice: reconstructing the closing set from
 `git log` at release time is when issues get missed, and a fix that closed an issue nobody recorded
@@ -497,8 +500,8 @@ Rules the renderer enforces, so they are not optional:
 - A deferred issue is named in the body with its reason. "Not in this release" is a decision and
   belongs in the record; silently dropping it is not.
 
-Before opening the final `develop` → `master` PR, render the closing block rather than hand-writing
-it:
+Before opening the final `release/X.Y.Z` → `master` PR, render the closing block rather than
+hand-writing it:
 
 ```bash
 python3 scripts/release_issue_contract.py repository-closes --body-file docs/release/<version>-pr.md
@@ -515,7 +518,7 @@ non-default branches declare one exact line per fixed issue:
 Repository-Issue: rollacode/codeterm#294
 ```
 
-The final `develop` → `master` PR renders those declarations as `Closes #294`; merging that PR
+The final `release/X.Y.Z` → `master` PR renders those declarations as `Closes #294`; merging that PR
 closes the issue. The validator rejects closing keywords on integration PRs because GitHub ignores
 them outside the default branch.
 
@@ -606,17 +609,9 @@ cargo sweep --time 2
 ```
 
 Remove merged lane worktrees and delete their merged `lane/*` branches, close finished worker
-Tabs, stop lane-specific dev daemons. Then merge the released `master` back into `develop` and push
-once:
-
-```bash
-git checkout develop
-git pull --ff-only origin develop
-git merge --no-ff origin/master -m "Merge master after the $VER release"
-git push origin develop
-```
-
-Don't skip this — a stale `develop` makes the next release start from a missing-commits base.
+Tabs, stop lane-specific dev daemons. The `release/X.Y.Z` branch itself is already gone (deleted
+with the tag in step 2) — there is no back-merge step: a branch that dies at the tag cannot drift
+from `master` in the first place.
 
 ## Gotchas that have cost real build time (general, not version-specific)
 
