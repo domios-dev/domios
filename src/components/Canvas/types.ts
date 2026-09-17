@@ -145,35 +145,10 @@ export interface TaskCompetitionMetadata {
   judge_hint?: string | null;
 }
 
-export interface LaneDiagnosticFinding {
-  tool: string;
-  severity: string;
-  file?: string | null;
-  line?: number | null;
-  column?: number | null;
-  message: string;
-  code?: string | null;
-}
-
-export interface LaneDiagnosticsSummary {
-  plan_id: string;
-  task_id: string;
-  attempt_id: string;
-  status: string;
-  incomplete: boolean;
-  worktree: string;
-  tools: string[];
-  error_count: number;
-  warning_count: number;
-  info_count: number;
-  findings: LaneDiagnosticFinding[];
-}
-
 export interface TaskExecutionReportSnapshot {
   id?: string;
   message?: string | null;
   status?: string | null;
-  diagnostics?: LaneDiagnosticsSummary | null;
 }
 
 export interface TaskExecutionAttempt {

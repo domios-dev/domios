@@ -139,9 +139,6 @@ pub(super) fn dispatch(
                 "target_tab_id": result.orchestrator_tab_id,
                 "report_outcome": result.report_outcome,
             });
-            if let Some(diagnostics) = result.diagnostics {
-                resp["diagnostics"] = serde_json::to_value(diagnostics).unwrap_or_default();
-            }
             if let Some((plan_id, task_id)) = result.persisted_task {
                 resp["task_report"] = serde_json::json!({
                     "persisted": true,

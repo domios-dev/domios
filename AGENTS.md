@@ -98,13 +98,6 @@ afterward. Never move the check into a lane, compose a private
 
 Use `./build.sh help` and the named build operations. Do not hand-compose Cargo manifests, packages, profiles, or gateway commands when a build operation already owns that intent.
 
-## Lane diagnostics background analysis
-
-Background analysis runs only in the canonical checkout and the daemon-owned warm worktree; it is always off inside worker lanes.
-Workers never start checks or watchers in a lane; findings come from the serialized in-review run and `codeterm lane diagnostics <task>`.
-A checkout is a lane only when the host-owned task lane record and dispatcher provisioning marker identify it; task/plan env ids are secondary.
-The full operational contract is [Lane Lifecycle Standard — background diagnostics](prod-docs/LANES.md#background-diagnostics).
-
 ## Build speed (worktrees, tests, profiles)
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.

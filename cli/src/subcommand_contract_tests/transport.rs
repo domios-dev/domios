@@ -28,13 +28,6 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported("capabilities is socket-only; run it on the target machine"),
     ),
     (
-        "lane",
-        &["codeterm", "lane", "check", "task_1"],
-        Local::Socket,
-        MeshRelay::SocketRpc,
-        ApiVerdict::Unsupported("lane diagnostics are local-only — run it on the target machine"),
-    ),
-    (
         "pad",
         &["codeterm", "pad", "path"],
         Local::Socket,
