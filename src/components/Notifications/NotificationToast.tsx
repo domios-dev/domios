@@ -25,7 +25,8 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
   // A choice is answered from the bell and the chat card, which keep it as a
   // log of decisions; a toast that vanishes must not offer one.
   const runnable = notification.actions?.filter((action) => action.type !== "answer") ?? [];
-  const hasActions = runnable.length > 0;
+  const compactRunnable = embedded ? runnable.slice(0, 1) : runnable;
+  const hasActions = compactRunnable.length > 0;
   const sticky = notification.sticky || hasActions || expanded;
 
   const dismiss = useCallback((e: React.MouseEvent) => {
@@ -74,26 +75,26 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       ) : (
         <LevelIcon className="shrink-0" style={{ color: tone }} />
       )}
-      <div className="min-w-0 flex flex-1 items-baseline gap-1.5">
-        <span className="truncate font-medium text-[var(--ct-fg)]">
+      <div className="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+        <span className="block min-w-0 max-w-full truncate font-medium text-[var(--ct-fg)]">
           {notification.title}
         </span>
         {notification.body && (
-          <div className="min-w-0 truncate text-[var(--ct-muted-fg)] [&_p]:m-0 [&_p]:inline">
+          <div className="min-w-0 flex-1 truncate text-[var(--ct-muted-fg)] [&_*]:whitespace-nowrap [&_p]:m-0 [&_p]:inline">
             <RichMarkdown text={notification.body} />
           </div>
         )}
       </div>
       {hasActions && (
         <div className="flex shrink-0 gap-1">
-          {runnable.map((action, i) => (
+          {compactRunnable.map((action, i) => (
             <button
               key={i}
               onClick={(e) => { e.stopPropagation(); runAction(action); }}
               className={
                 i === 0
-                  ? "h-5 rounded border border-[var(--toast-accent)]/35 bg-[var(--toast-accent)]/12 px-1.5 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--toast-accent)]/18"
-                  : "h-5 rounded border border-[var(--ct-border)]/70 px-1.5 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
+                  ? "h-5 max-w-[132px] truncate rounded border border-[var(--toast-accent)]/35 bg-[var(--toast-accent)]/12 px-1.5 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--toast-accent)]/18"
+                  : "h-5 max-w-[132px] truncate rounded border border-[var(--ct-border)]/70 px-1.5 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
               }
             >
               {action.label}

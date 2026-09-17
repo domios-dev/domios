@@ -119,6 +119,35 @@ test("transient toast dismisses from its animation event without timers", async 
   await act(async () => root.unmount());
 });
 
+test("embedded toast keeps text single-line and shows only the primary action", async () => {
+  setupDom();
+  const item: Notification = {
+    ...notification("actions", "requesting permission to", 5),
+    body: "run a shell command",
+    actions: [
+      { type: "dismiss", label: "Update Codex" },
+      { type: "dismiss", label: "Not now - Codex" },
+    ],
+  };
+  const { host, root } = await render(
+    <NotificationToastContainer
+      toasts={[item]}
+      onDismiss={() => undefined}
+      embedded
+    />,
+  );
+
+  const toast = host.querySelector('[data-testid="notification-toast"]');
+  assert(toast, "embedded toast should render");
+  assert(host.textContent?.includes("Update Codex"), "primary action should be visible");
+  assert(!host.textContent?.includes("Not now"), "secondary action should stay out of the compact toast");
+  const title = Array.from(toast.querySelectorAll("span")).find((node) =>
+    node.textContent === item.title,
+  );
+  assert(title?.getAttribute("class")?.includes("truncate"), "title should be constrained to one visual line");
+  await act(async () => root.unmount());
+});
+
 async function run() {
   let failed = 0;
   for (const [name, fn] of tests) {
