@@ -332,7 +332,9 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 ## Project skills
 
-Repository-local operational skills live in `.agents/skills/`. Load the matching skill for dev, testing, prompt evaluation, or release work instead of duplicating its procedure here.
+Repository-local operational skills live in `.agents/skills/`. Load the matching skill for dev, testing, prompt evaluation, gates, or release work instead of duplicating its procedure here.
+
+Before running `build.ps1 test`, `release-preflight`, or a release, load `.agents/skills/gates/SKILL.md`. It owns which checks you run here and which you delegate, and the traps that make a gate lie about its own result.
 
 ## Orchestration failure visibility
 
@@ -393,6 +395,6 @@ Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N
 
 - `essences/` — internal, never ships: `essences/capabilities.md` (capability map), `essences/core.md` (core parts, clients, routing spine), `essences/vision.md`, `essences/build.md` and `essences/build-reference.md`, `essences/release.md` (release map), `essences/testing.md` and `essences/e2e-testing.md`, `essences/plugins.md` (what is published where: npm `@codeterm/plugin-sdk`, in-repo `plugins/provider-*` → embedded `codeterm-core` channel, external `rollacode/codeterm-plugins` → marketplace channel; read its "Ecosystem at a glance" before touching anything plugin- or npm-related), the generated `essences/cli.md` and `essences/cli-manifest.json`, and `essences/contributing/` (agents, style, architecture, providers, PTY delivery, per-feature testing recipes).
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/PROMPTS.md`, `prod-docs/TAB-LIFECYCLE.md`.
-- `.agents/skills/` — step-by-step procedures (dev run, dev testing, release, prompt evaluation, lane cleanup); not a docs area.
+- `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
 <!-- revision: 36 -->
