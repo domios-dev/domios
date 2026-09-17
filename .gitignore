@@ -66,3 +66,8 @@ design/global-analytics.html
 
 # Superseded essence maps retained for the release revert choice - local safety net, regenerable
 essences/map-history/
+
+# Scratch capture from local gate runs.
+.gate.txt
+.suite.txt
+.pty.txt
