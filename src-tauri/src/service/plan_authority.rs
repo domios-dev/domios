@@ -256,6 +256,15 @@ impl ServiceContext {
             .binding_nonce
             .as_deref()
             .filter(|value| !value.is_empty());
+        // The owner outranks every agent role. Identity here is built purely
+        // from headers an agent sets, and the request already cleared the API
+        // token, so a caller presenting no agent binding is the person holding
+        // this machine — acting through the UI or the CLI, not an agent whose
+        // binding went missing. A caller that does present a tab still proves
+        // that binding below, so this cannot launder a broken agent identity.
+        if tab_id.is_none() && requested_session_id.is_none() && nonce.is_none() {
+            return Ok(PlanningAuthor::User);
+        }
         let mux = self.mux.read();
         let tab = tab_id
             .and_then(|id| mux.get_tab(id))
