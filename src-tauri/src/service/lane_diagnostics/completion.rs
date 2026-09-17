@@ -66,42 +66,6 @@ impl crate::service::ServiceContext {
                 request.attempt_id
             ),
         }
-
-        let owner = self
-            .plan_store
-            .get(&request.plan_id)
-            .and_then(|plan| plan.owner.tab_id);
-        let text = format!(
-            "[lane diagnostics] task {} attempt {}\n{}\nRead details: codeterm lane diagnostics {}",
-            request.task_id,
-            request.attempt_id,
-            summary.compact_lines(3).join("\n"),
-            request.task_id,
-        );
-        for target in diagnostics_followup_targets(owner.as_deref(), &request.reporter_tab_id) {
-            if owner.as_deref() == Some(target.as_str()) {
-                if let Err(error) =
-                    crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-                        self,
-                        &request.plan_id,
-                        &target,
-                        "lane-diagnostics",
-                        &text,
-                    )
-                {
-                    log::warn!(
-                        "[lane-diagnostics] orchestrator follow-up target={target}: {error}"
-                    );
-                }
-            } else if let Err(error) = self.gateway_deliver(
-                &target,
-                crate::service::messenger::MessageEnvelope::codeterm_reminder("lane-diagnostics"),
-                &text,
-                crate::service::message_gateway::DeliveryClass::SystemNotice,
-            ) {
-                log::warn!("[lane-diagnostics] worker follow-up target={target}: {error}");
-            }
-        }
     }
 
     pub(crate) fn diagnostics_request_for_report(

@@ -13,6 +13,10 @@ use std::time::Duration;
 /// test that is merely slow, so this is generous rather than tight.
 const EVENT_DEADLINE: Duration = Duration::from_secs(20);
 
+/// Bounded window for proving a delivery does NOT arrive; absence has no event
+/// to wait on, so this is the one place elapsed time is the assertion.
+const NO_EVENT_WINDOW: Duration = Duration::from_secs(2);
+
 #[test]
 fn lane_diagnostics_lane_path_never_allows_a_watcher_but_canonical_does() {
     assert!(!analysis_allowed(analysis_scope(
@@ -168,18 +172,6 @@ fn lane_diagnostics_busy_gateway_keeps_owner_and_command() {
 }
 
 #[test]
-fn lane_diagnostics_finished_run_targets_both_tabs_once() {
-    assert_eq!(
-        diagnostics_followup_targets(Some("orchestrator"), "worker"),
-        vec!["orchestrator", "worker"]
-    );
-    assert_eq!(
-        diagnostics_followup_targets(Some("orchestrator"), "orchestrator"),
-        vec!["orchestrator"]
-    );
-}
-
-#[test]
 #[cfg_attr(
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
@@ -329,12 +321,8 @@ fn lane_diagnostics_report_returns_before_blocked_runner() {
     );
     release_tx.send(()).unwrap();
     assert!(report.join().unwrap().is_ok());
-    assert_eq!(
-        delivery_rx.recv_timeout(EVENT_DEADLINE).unwrap(),
-        orchestrator
-    );
-    assert_eq!(delivery_rx.recv_timeout(EVENT_DEADLINE).unwrap(), worker);
-    assert!(delivery_rx.try_recv().is_err());
+    // Completion records the findings on the attempt and delivers nothing.
+    assert!(delivery_rx.recv_timeout(NO_EVENT_WINDOW).is_err());
 }
 
 #[cfg(windows)]
