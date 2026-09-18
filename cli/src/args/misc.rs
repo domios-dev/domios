@@ -267,6 +267,19 @@ pub enum TabAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
+    /// Adopt a live PTY as an agent send target without restarting it.
+    #[command(name = "adopt-agent")]
+    AdoptAgent {
+        /// Registered PTY provider to assert. Required; never inferred.
+        #[arg(long, value_name = "PROVIDER")]
+        provider: String,
+        /// Adopt even when the screen is a login shell or non-agent TUI.
+        #[arg(long)]
+        force: bool,
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback).
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
     /// Fuzzy search tabs by id-prefix, tab title, friendly session name,
     /// agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add
     /// `--mesh PEER` to search a paired peer (#99). `find` kept as alias.

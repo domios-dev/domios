@@ -62,6 +62,11 @@ codeterm tab repair --from-evidence
 # The Plan owner can repair an assigned worker through the same evidence boundary
 codeterm tab repair --from-evidence --tab $WORKER
 
+# Adopt a live foreign PTY as an agent send target without restarting it
+codeterm tab adopt-agent --tab $FOREIGN --provider <provider-id>
+# A login shell is refused unless the owner passes --force
+codeterm tab adopt-agent --tab $FOREIGN --provider <provider-id> --force
+
 TEAM_ID=$CODETERM_TEAM_ID
 # Clear role; a final Orchestrator retains its Team and active Plan for replacement
 codeterm agent unlink --tab $CODETERM_TAB_ID
@@ -124,4 +129,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

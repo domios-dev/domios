@@ -416,6 +416,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::TabAction::Repair { .. } => unsupported(
                 "tab repair is caller-local and cannot target a mesh peer",
             ),
+            crate::TabAction::AdoptAgent { .. } => unsupported(
+                "tab adopt-agent is caller-local and cannot target a mesh peer",
+            ),
             crate::TabAction::Search { .. } => {
                 // tab search runs local CLI-side; peer only supplies raw list.
                 // Local ranking keeps `Tab list` output stable.

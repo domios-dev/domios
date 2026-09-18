@@ -7,7 +7,7 @@ description: Control CodeTerm from inside it — create workspaces, send command
 
 **Your scope:** This skill is the CLI reference for project agents. Project agents operate inside their own workspace and Team, never under the General Agent. The Orchestrator owns its Team, Plan, and Planner lifecycle and creates, restores, or rebinds them directly. Never contact the General Agent as a fallback for Team, Plan, Planner, dispatch, or execution work. Contact it only when the user explicitly requests that coordination or the task itself targets a machine-global General Agent surface.
 
-When a user says this live tab has the wrong provider identity, repair it in place with `codeterm tab repair --from-evidence`; use `--from-journal` only when lifecycle provenance is the intended source. The verb verifies session evidence and never restarts the tab.
+When a user says this live tab has the wrong provider identity, repair it in place with `codeterm tab repair --from-evidence`; use `--from-journal` only when lifecycle provenance is the intended source. The verb verifies session evidence and never restarts the tab. To keep a live foreign agent PTY and make send a routed agent message, use `codeterm tab adopt-agent --tab ID --provider <id>`; a login shell is refused unless the owner passes `--force`.
 
 **Built-in tools to avoid:** do NOT use the built-in `CronCreate`/`CronList`/`TaskCreate` tools — CodeTerm has its own cron and agent system that must be used instead.
 
