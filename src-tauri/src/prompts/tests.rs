@@ -861,18 +861,24 @@ fn executor_role_prompt_move_drops_nothing_from_either_list() {
     }
     assert_eq!(
         PLANNER_TASK_MANDATORY_FIELDS.len(),
-        MANDATORY_FIELDS_BEFORE_THE_MOVE.len() + 2,
-        "the list retained its baseline and gained both required worker fields"
+        MANDATORY_FIELDS_BEFORE_THE_MOVE.len() + 3,
+        "the list retained its baseline and gained every required worker field"
     );
 
-    // Ruled out of the MANDATORY scope, not out of the product.
-    for flag in ["`--model`", "`--personality`"] {
-        assert!(
-            PLANNER_TASK_ROUTING_FLAGS.contains(&flag),
-            "the routing set lost {flag}"
-        );
-    }
-    assert_eq!(PLANNER_TASK_ROUTING_FLAGS.len(), 2);
+    // The persona joined the mandatory list; only genuine routing stays optional.
+    assert!(
+        PLANNER_TASK_MANDATORY_FIELDS.contains(&PLANNER_TASK_PERSONALITY_FIELD),
+        "the persona must be obliged by membership in the mandatory list"
+    );
+    assert!(
+        !PLANNER_TASK_ROUTING_FLAGS.contains(&PLANNER_TASK_PERSONALITY_FIELD),
+        "a member of the optional routing set inherits its optionality"
+    );
+    assert!(
+        PLANNER_TASK_ROUTING_FLAGS.contains(&"`--model`"),
+        "the routing set lost `--model`"
+    );
+    assert_eq!(PLANNER_TASK_ROUTING_FLAGS.len(), 1);
 
     let rendered = planner_suffix();
     for member in PLANNER_TASK_MANDATORY_FIELDS
@@ -906,16 +912,29 @@ fn role_guidance_contract_moves_conditioning_into_the_mandatory_list() {
     assert!(PLANNER_TASK_MANDATORY_FIELDS.contains(&PLANNER_TASK_ROLE_GUIDANCE_FIELD));
     assert_eq!(
         PLANNER_TASK_MANDATORY_FIELDS.len(),
-        MANDATORY_BEFORE_ROLE_GUIDANCE.len() + 1
+        MANDATORY_BEFORE_ROLE_GUIDANCE.len() + 2
     );
     assert!(!PLANNER_TASK_ROUTING_FLAGS.contains(&PLANNER_TASK_ROLE_GUIDANCE_FIELD));
 }
 
 #[test]
-fn role_guidance_contract_preserves_optional_model_and_personality_routing() {
-    assert_eq!(
-        PLANNER_TASK_ROUTING_FLAGS,
-        &["`--model`", "`--personality`"]
+fn personality_contract_moves_the_persona_into_the_mandatory_list() {
+    assert!(
+        PLANNER_TASK_MANDATORY_FIELDS.contains(&PLANNER_TASK_PERSONALITY_FIELD),
+        "the persona must be obliged by membership in the mandatory list"
+    );
+    assert!(
+        !PLANNER_TASK_ROUTING_FLAGS.contains(&PLANNER_TASK_PERSONALITY_FIELD),
+        "a required persona must not inherit the optionality of the routing set"
+    );
+    assert_eq!(PLANNER_TASK_ROUTING_FLAGS, &["`--model`"]);
+
+    let contract = planner_task_contract_line();
+    assert!(contract.contains(PLANNER_TASK_PERSONALITY_FIELD));
+    let rendered = planner_suffix();
+    assert!(
+        rendered.contains(contract.as_str()),
+        "the Planner surface must deliver the mandatory-field fragment"
     );
 }
 

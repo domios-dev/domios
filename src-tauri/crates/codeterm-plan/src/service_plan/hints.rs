@@ -43,7 +43,7 @@ pub fn task_quality_guard_hint(
         return None;
     }
     Some(format!(
-        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --executor-role <role> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
+        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --executor-role <role> --personality <name> --role-guidance <conditioning> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
         missing.join(", ")
     ))
 }

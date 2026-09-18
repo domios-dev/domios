@@ -52,6 +52,8 @@ fn role_guidance_contract_presence_only_accepts_short_unimaginative_guidance() {
         "Thin guidance lane",
         "--executor-role",
         "dev",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "do it",
     ])
@@ -85,6 +87,8 @@ fn plan_task_add_and_update_parse_role_guidance_flags() {
         "Planner lane",
         "--executor-role",
         "docs-sync",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "Act as planner",
         "--role-guidance-file",
@@ -143,6 +147,8 @@ fn plan_task_add_and_update_parse_executor_role_flags() {
         "Executor lane",
         "--executor-role",
         "rust-backend-dev",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "focused worker",
     ])
