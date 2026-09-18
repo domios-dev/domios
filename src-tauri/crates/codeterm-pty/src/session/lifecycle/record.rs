@@ -45,6 +45,7 @@ pub enum AgentTypeWriteOrigin {
     Ui,
     Restore,
     Repair,
+    Adopt,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
