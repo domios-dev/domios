@@ -809,6 +809,10 @@ export interface ModelInfo {
   // A probe that could not run reports "unknown" here instead of collapsing
   // into `available: false`. See `lib/modelAvailability.ts`.
   availability?: "available" | "unavailable" | "unknown" | null;
+  /** Catalog marks this model to lead the picker list, ahead of the rest. */
+  featured?: boolean | null;
+  /** Short chip rendered beside the model label in spawn pickers. */
+  badge?: string | null;
 }
 
 export interface ReasoningEffortInfo {
@@ -974,8 +978,10 @@ export interface ProviderDescriptor {
 export interface OrchestrationPairInput {
   orchestratorAgent: string;
   orchestratorModel?: string;
+  orchestratorReasoningEffort?: string;
   plannerAgent: string;
   plannerModel?: string;
+  plannerReasoningEffort?: string;
   workspaceId?: string;
   title?: string;
   /** Blank picker tab to claim for the Orchestrator in place (task_e0ddee08) —

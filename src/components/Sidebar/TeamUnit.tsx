@@ -301,7 +301,16 @@ function TeamMenu({
                   disabled={addingMember || model.available === false}
                   onClick={() => void addMember(providerRole, selectedProvider.id, model.id)}
                 >
-                  {model.display_name}
+                  <span className="sidebar-team-picker-model-label">{model.display_name}</span>
+                  {model.badge && (
+                    <span
+                      data-testid={`team-picker-model-${model.id}-badge`}
+                      className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+                      style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+                    >
+                      {model.badge}
+                    </span>
+                  )}
                 </button>
               )) : (
                 <div data-testid="team-picker-no-models" role="status">This provider requires a model, but none are available.</div>

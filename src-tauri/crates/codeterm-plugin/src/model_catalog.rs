@@ -42,6 +42,10 @@ struct CatalogModel {
     description: Option<String>,
     #[serde(default)]
     available: Option<bool>,
+    #[serde(default)]
+    featured: Option<bool>,
+    #[serde(default)]
+    badge: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -533,11 +537,15 @@ fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> O
 /// Unregistered provider returns the override list as-is (or empty).
 pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     let registered = registered_models(provider_id);
-    match load_override(provider_id) {
+    let mut models = match load_override(provider_id) {
         None => registered,
         Some(o) if o.replace => o.models,
         Some(o) => merge_models(&registered, &o.models),
-    }
+    };
+    // Featured models lead, but the catalog's own order survives within each
+    // group — `sort_by_key` is stable, so nothing else is reordered.
+    models.sort_by_key(|model| !model.is_featured());
+    models
 }
 
 fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
@@ -848,6 +856,8 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             description: m.description,
                             available: m.available,
                             availability: None,
+                            featured: m.featured,
+                            badge: m.badge,
                         })
                         .collect(),
                     default_effort: p.default_effort,
@@ -1046,6 +1056,12 @@ fn render_example(
                 desc.replace('"', "\\\"")
             ));
         }
+        if m.is_featured() {
+            out.push_str("featured = true\n");
+        }
+        if let Some(badge) = &m.badge {
+            out.push_str(&format!("badge = \"{}\"\n", badge.replace('"', "\\\"")));
+        }
         out.push('\n');
     }
     for effort in &effort_defaults.efforts {
@@ -1107,6 +1123,8 @@ default_effort = "medium"
 id = "example-model"
 display_name = "Example Model (extended context)"
 description = "Best for everyday, complex tasks."
+featured = true
+badge = "own"
 
 [[models]]
 id = "example-model-mini"
@@ -1124,6 +1142,9 @@ description = "Maximum reasoning depth."
   launch failures.
 - `display_name` is what the picker UI shows.
 - `description` is optional secondary text.
+- `featured = true` lists this model ahead of the rest, preserving catalog
+  order within each group.
+- `badge` is an optional short chip shown beside the model in spawn pickers.
 - `[[efforts]]` entries extend or replace accepted reasoning-effort ids using
   the same merge rules as models.
 

@@ -30,9 +30,21 @@ pub struct ModelInfo {
     /// so `available` alone decides; `Some(Unknown)` ⇒ the probe could not run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub availability: Option<ModelAvailability>,
+    /// `Some(true)` ⇒ the catalog lists this model ahead of the rest, preserving
+    /// catalog order within each group. `None`/`Some(false)` ⇒ ordinary order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub featured: Option<bool>,
+    /// Short chip rendered beside the label in the spawn model picker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
 }
 
 impl ModelInfo {
+    /// True when the catalog marks this model to lead the list.
+    pub fn is_featured(&self) -> bool {
+        self.featured == Some(true)
+    }
+
     /// The one answer every surface renders, so the CLI and the picker cannot
     /// disagree. A model nothing probed and nothing vetoed is available.
     pub fn availability(&self) -> ModelAvailability {
