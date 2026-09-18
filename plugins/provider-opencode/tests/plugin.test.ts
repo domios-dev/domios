@@ -127,24 +127,50 @@ console.log("\n--- exclusive structured cursor ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
   const rows: Array<Record<string, unknown>> = [
-    { id: "p1", ts: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
   ];
   const p = loadOpencodeWithHost(ocHost({
     fs: {
       fileExists: (pth: string) => pth === dbPath,
       sqliteQuery: (_db: string, _sql: string, params: unknown[]) => {
         const sinceTs = Number(params[1] || 0);
-        return rows.filter((row) => Number(row.ts) >= sinceTs);
+        return rows.filter((row) => Number(row.ts_updated) >= sinceTs);
       },
     },
   }));
   const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: unknown[]; cursor: string };
   eq(first.cursor, '[1000,["p1"]]', "cursor includes timestamp and seen peer ids");
-  rows.push({ id: "p0", ts: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
+  rows.push({ id: "p0", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
   const peer = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string }>; cursor: string };
   eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
   const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
   eq(empty.messages, [], "cursor excludes every previously returned part");
+}
+
+console.log("\n--- streamed part growth is re-delivered (same id, newer update) ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const rows: Array<Record<string, unknown>> = [
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "Hel" }), msg: JSON.stringify({ role: "assistant" }) },
+  ];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: (_db: string, _sql: string, params: unknown[]) => {
+        const sinceTs = Number(params[1] || 0);
+        return rows.filter((row) => Number(row.ts_updated) >= sinceTs);
+      },
+    },
+  }));
+  const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: Array<{ content: string }>; cursor: string };
+  eq(first.messages.map((message) => message.content), ["Hel"], "first read delivers the partial part");
+  // The part keeps its id and creation instant while its text grows.
+  rows[0] = { ...rows[0], ts_updated: 1200, part: JSON.stringify({ type: "text", text: "Hello world" }) };
+  const grown = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string; id: string }>; cursor: string };
+  eq(grown.messages.map((message) => message.content), ["Hello world"], "grown content is re-delivered past the cursor");
+  eq(grown.messages.map((message) => message.id), ["p1"], "the grown row keeps its part id");
+  const settled = p.readStructuredChat("/work/proj", "ses_owned", grown.cursor) as { messages: unknown[] };
+  eq(settled.messages, [], "an unchanged part is not replayed");
 }
 
 console.log("\n--- malformed structured cursor fails closed ---\n");
