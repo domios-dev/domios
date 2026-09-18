@@ -18,7 +18,7 @@ on:
       - 'scripts/check-file-sizes.sh'
       - '.github/workflows/file-sizes.yml'
   push:
-    branches: [master, 'release/**']
+    branches: [master]
     paths-ignore:
       - '.codeterm/build-machine/**'
       - '.github/workflows/release*.yml'

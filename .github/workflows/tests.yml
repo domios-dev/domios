@@ -7,29 +7,68 @@ name: tests
 on:
   pull_request:
   push:
-    branches: [master, 'release/**', 'feat/**', 'lane/**']
+    branches: [master]
     paths-ignore:
       - '.codeterm/**'
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
 
-# One commit, one matrix run. github.ref is refs/heads/<branch> for the push
-# event and refs/pull/N/merge for the pull_request event, so a branch with an
-# open PR built two disjoint groups and ran the matrix twice per commit — which
-# the single self-hosted Windows runner cannot absorb. The key is the commit
-# under test instead: pull_request carries it as head.sha, every other event as
-# github.sha, so both events for one commit collapse into one group.
+# A branch is tested through its pull request, never through its own pushes:
+# release/feat/lane pushes duplicated the matrix the PR already ran, and the
+# single self-hosted Linux runner they contend for is the one a release needs.
+# master stays because a real three-way merge produces a tree neither side tested.
+#
+# The key is the commit under test rather than the ref, so the push and
+# pull_request events for one commit collapse into one group.
 concurrency:
   group: tests-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
+  # A push whose tree equals a parent's tree introduces nothing that parent had
+  # not already carried through its own pull request, so the matrix would retest
+  # an identical tree. Concurrency cannot see that: the merge is a new commit.
+  # A real three-way merge matches no parent and still runs.
+  #
+  # Push only. A pull_request checks out refs/pull/N/merge, whose parents are the
+  # base tip and the PR head; with an unmoved base its tree equals the head tree,
+  # and skipping there would skip the one run that has never happened.
+  changed:
+    name: tree is new
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.tree.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != push ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tree=$(git rev-parse HEAD^{tree})
+          for parent in $(git rev-parse HEAD^@); do
+            if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
+              echo "HEAD tree $tree already carried by parent $parent"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
   # Formatting is platform-independent, so it does not belong inside a platform
   # lane: gating that lane off silences the check with it, which is how 22 files
   # drifted unseen. Its own job on the fastest runner, seconds long.
   fmt:
     name: fmt
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 10
     steps:
@@ -41,6 +80,8 @@ jobs:
 
   rust-linux:
     name: rust (linux)
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 40
     steps:
@@ -108,6 +149,8 @@ jobs:
 
   rust-macos:
     name: rust (macos)
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 40
     steps:
@@ -141,6 +184,8 @@ jobs:
 
   rust-windows:
     name: rust (windows)
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 50
     steps:
@@ -224,6 +269,8 @@ jobs:
 
   ts:
     name: ts unit + plugins
+    needs: changed
+    if: ${{ needs.changed.outputs.run == 'true' }}
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 30
     steps:

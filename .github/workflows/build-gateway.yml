@@ -5,6 +5,10 @@ name: build-gateway
 # without anyone noticing. They are shell-only: they drive build.sh against a
 # fixture state dir, take no machine build slot and invoke no Cargo.
 #
+# They still run on linux-build: this account has no GitHub-hosted minutes, so a
+# hosted runner refuses the job outright. Their contention with a release lane
+# is bounded by the push trigger instead.
+#
 # Gateway logging has no script of this name. It is build.sh's own
 # `gateway-logging-check` (check_build_gateway_logging, driving gateway-log-probe),
 # which is likewise unwired; wiring it needs its own verified run first.
@@ -23,7 +27,7 @@ on:
       - 'scripts/fixtures/build-gateway-*'
       - '.github/workflows/build-gateway.yml'
   push:
-    branches: [master, 'release/**']
+    branches: [master]
     paths:
       - 'build.sh'
       - 'scripts/build-gateway.sh'
