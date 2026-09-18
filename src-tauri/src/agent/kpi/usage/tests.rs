@@ -86,6 +86,68 @@ fn opencode_sqlite_fixture_totals_match_precomputed_values() {
 }
 
 #[test]
+fn sqlite_source_scoped_to_one_session_never_reads_a_sibling() {
+    let dir = scratch("opencode-scoped");
+    let path = dir.join("opencode.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, \
+         time_updated INTEGER, data TEXT);
+         INSERT INTO message VALUES ('m1', 'ses_a', 1, 1,
+           '{\"role\":\"assistant\",\"tokens\":{\"input\":10,\"output\":1,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":1000}}');
+         INSERT INTO message VALUES ('m2', 'ses_b', 1, 1,
+           '{\"role\":\"assistant\",\"tokens\":{\"input\":99,\"output\":9,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":2000}}');
+         INSERT INTO message VALUES ('m3', 'ses_a', 1, 1,
+           '{\"role\":\"assistant\",\"tokens\":{\"input\":20,\"output\":2,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":3000}}');",
+    )
+    .unwrap();
+    drop(conn);
+
+    let a = UsageSource::scoped(&path, "ses_a");
+    let b = UsageSource::scoped(&path, "ses_b");
+    let mut ingestor = UsageIngestor::default();
+
+    let a_batch = ingestor.ingest(&a).unwrap();
+    assert_eq!(a_batch.records.len(), 2, "only ses_a rows");
+    assert_eq!(a_batch.totals().input_tokens, 30);
+    assert_eq!(a_batch.totals().output_tokens, 3);
+
+    let b_batch = ingestor.ingest(&b).unwrap();
+    assert_eq!(
+        b_batch.records.len(),
+        1,
+        "a sibling session on the shared log keeps its own cursor"
+    );
+    assert_eq!(b_batch.totals().input_tokens, 99);
+    assert_ne!(
+        a_batch.records[0].key, b_batch.records[0].key,
+        "shared-log sessions must not share a dedup key"
+    );
+
+    assert!(ingestor.ingest(&a).unwrap().is_empty());
+    assert!(ingestor.ingest(&b).unwrap().is_empty());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn source_key_round_trips_a_session_scope() {
+    let plain = UsageSource::new("/tmp/session.jsonl");
+    assert_eq!(plain.key(), "/tmp/session.jsonl");
+    assert_eq!(UsageSource::from_key(&plain.key()), plain);
+
+    let scoped = UsageSource::scoped("/tmp/opencode.db", "ses_a");
+    let key = scoped.key();
+    assert_ne!(key, "/tmp/opencode.db");
+    assert_eq!(UsageSource::from_key(&key), scoped);
+    assert_ne!(
+        UsageSource::from_key(&key),
+        UsageSource::scoped("/tmp/opencode.db", "ses_b"),
+        "different sessions never collide on one shared path"
+    );
+}
+
+#[test]
 fn second_pass_over_unchanged_source_yields_nothing() {
     let dir = scratch("idempotent");
     let claude = write_source(&dir, "session.jsonl", claude_fixture());
