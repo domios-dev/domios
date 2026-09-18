@@ -51,4 +51,31 @@ function messageItem(message: NormalizedChatMessage): TimelineItem {
   assert(after.msg.content === "second", "updated body extracted");
 }
 
+// --- a message that reaches the projection twice still renders one row ---
+{
+  const cache: EnrichmentCache = new WeakMap();
+  const plain = user("u-once", "say it once");
+  const item = messageItem(plain);
+  const entries = enrichTimelineItems([item, item], cache);
+  assert(entries.length === 1, "a repeated user message projects one bubble");
+  assert(entries[0].msg.id === "u-once", "the surviving bubble keeps the message identity");
+}
+{
+  const cache: EnrichmentCache = new WeakMap();
+  const assistant: NormalizedChatMessage = { id: "a-once", type: "assistant", content: "reply" };
+  const tool: TimelineItem = {
+    kind: "tool",
+    event: {
+      id: "t-once",
+      phase: "call",
+      status: "success",
+      kind: "generic",
+      summary: "read",
+      message: assistant,
+    },
+  };
+  const entries = enrichTimelineItems([messageItem(assistant), tool], cache);
+  assert(entries.length === 1, "a message echoed as both message and tool member projects one row");
+}
+
 console.log("chat enrichment cache checks passed");
