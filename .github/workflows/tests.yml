@@ -249,8 +249,18 @@ jobs:
       - name: TypeScript unused exports
         run: pnpm check:unused-exports
 
+      # An effect that reaches the API must key on primitives; a mux-rebuilt object
+      # re-runs it at broadcast rate. Five such sites shipped before this existed.
+      - name: Check API effect dependencies
+        run: pnpm check:api-effects
+
       - name: Run TS unit tests
         run: pnpm test:unit
+
+      # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
+      # step is the only thing that runs them.
+      - name: Run vitest-owned TS tests
+        run: pnpm test:vitest
 
       - name: Check generated plugin bundles
         run: pnpm check:plugin-bundles

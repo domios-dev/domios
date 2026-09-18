@@ -7,7 +7,6 @@ pub mod effort;
 pub mod essence_map;
 pub mod inbox;
 pub mod integration;
-pub mod lane;
 pub mod mem;
 pub mod misc;
 pub mod orchestrator;

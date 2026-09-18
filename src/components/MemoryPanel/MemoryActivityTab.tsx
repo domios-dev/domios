@@ -89,7 +89,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
       })
       .catch(() => {});
     return () => { active = false; };
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   useEffect(() => {
     let active = true;
@@ -112,7 +112,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
       })
       .catch(() => {});
     return () => { active = false; if (unlisten) unlisten(); };
-  }, [api, autoScroll]);
+  }, [api.host, api.port, api.token, autoScroll]);
 
   const filtered = opFilter ? events.filter((e) => e.op === opFilter) : events;
 

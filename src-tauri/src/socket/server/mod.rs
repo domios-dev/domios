@@ -12,7 +12,6 @@ mod canvas;
 mod cron;
 mod dispatch;
 mod error_codes;
-mod lane;
 mod local_api;
 mod mem;
 mod notification;

@@ -95,7 +95,7 @@ export function SecretBackendDetail({
     return () => {
       cancelled = true;
     };
-  }, [unlocked, base, headers]);
+  }, [unlocked, base, headers.Authorization]);
 
   useEffect(() => {
     if (!unlocked) return;
@@ -115,7 +115,7 @@ export function SecretBackendDetail({
     return () => {
       cancelled = true;
     };
-  }, [unlocked, defaultOrg, base, headers]);
+  }, [unlocked, defaultOrg, base, headers.Authorization]);
 
   const saveDefaults = useCallback(async (org: string, coll: string) => {
     try {

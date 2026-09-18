@@ -696,22 +696,6 @@ impl ServiceContext {
             report_outcome = Some(ReportOutcomeClass::StructurallyNotAttachable);
         }
 
-        let diagnostics_request = if details.status == Some(ReportStatus::InReview)
-            && !homed_to_remote
-            && !foreign
-            && rejected_task_transition.is_none()
-            && persisted_task.is_some()
-        {
-            eff_plan_id
-                .as_deref()
-                .zip(eff_task_id.as_deref())
-                .and_then(|(plan_id, task_id)| {
-                    self.diagnostics_request_for_report(tab_id, plan_id, task_id, &details)
-                })
-        } else {
-            None
-        };
-
         let storage_key = target.storage_key();
         let delivered_message = rejected_task_transition.as_ref().map_or_else(
             || message.to_string(),
@@ -808,10 +792,6 @@ impl ServiceContext {
             &report.id,
         );
 
-        if let Some(request) = diagnostics_request {
-            self.enqueue_lane_diagnostics(request);
-        }
-
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_tab_id: storage_key,
@@ -820,7 +800,6 @@ impl ServiceContext {
             persisted_plan_evidence,
             rejected_task_transition,
             report_outcome,
-            diagnostics: None,
         })
     }
 

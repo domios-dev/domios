@@ -115,6 +115,13 @@ jobs:
           # release-windows.yml (tag-triggered); this Mac builds mac+linux only.
           .codeterm/build-machine/scripts/build-all.sh "${{ steps.ver.outputs.tag }}"
 
+      # A dropped upload leaves a starter asset that holds the name and makes every
+      # later upload of it fail opaquely, including tauri-action's own.
+      - name: Clear wedged release assets
+        run: |
+          node scripts/release-clear-wedged-assets.mjs "${{ github.repository }}" "${{ steps.ver.outputs.tag }}"
+          node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "${{ steps.ver.outputs.tag }}"
+
       - name: Publish (private archive + public mirror + signed latest.json)
         run: |
           .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"

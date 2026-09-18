@@ -115,7 +115,7 @@ export function MemoryNodeDetail({
     return () => {
       cancelled = true;
     };
-  }, [api, node.id, bodyText]);
+  }, [api.host, api.port, api.token, node.id, bodyText]);
 
   const handleSave = useCallback(async () => {
     const patch: ItemPatch = {};
@@ -145,7 +145,7 @@ export function MemoryNodeDetail({
     } catch (e) {
       setSaveError(String(e));
     }
-  }, [api, edit, node, onUpdate]);
+  }, [api.host, api.port, api.token, edit, node, onUpdate]);
 
   const handleCancel = useCallback(() => {
     setEdit(buildEditState(node));
@@ -161,7 +161,7 @@ export function MemoryNodeDetail({
     } catch (e) {
       setSaveError(String(e));
     }
-  }, [api, node.id, node.title, onDelete]);
+  }, [api.host, api.port, api.token, node.id, node.title, onDelete]);
 
   const handleCopyId = useCallback(() => {
     navigator.clipboard.writeText(node.id).then(() => {

@@ -190,7 +190,6 @@ function AppInner() {
     createTab,
     closeTab,
     reopenClosed,
-    setActiveTab,
     setFocusedTab,
     selectTabByTab,
     setTabPty,
@@ -475,13 +474,15 @@ function AppInner() {
   );
 
   const kb = config.keybindings;
+  const kbKey = JSON.stringify(kb);
+  const activeWorkspaceId = activeWs?.id ?? null;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Config-driven bindings (language-independent via e.code)
       // Browser-standard reopen-closed-tab. Most recent = ring index 0.
       if (matchesBinding(e, kb.reopen_tab ?? "Ctrl+Shift+T")) {
         e.preventDefault();
-        if (activeWs) reopenClosed(activeWs.id, 0);
+        if (activeWorkspaceId) reopenClosed(activeWorkspaceId, 0);
         return;
       }
 
@@ -505,15 +506,9 @@ function AppInner() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    kb,
-    handleNewTab,
-    handleCloseCurrentTab,
+    kbKey,
+    activeWorkspaceId,
     reopenClosed,
-    createWorkspace,
-    activeWs,
-    setActiveTab,
-    config,
-    updateConfig,
   ]);
 
   const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);

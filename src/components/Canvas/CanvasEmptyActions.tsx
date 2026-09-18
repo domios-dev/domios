@@ -82,7 +82,7 @@ export function CanvasEmptyActions({ api, projectPath }: CanvasEmptyActionsProps
     } finally {
       setBusy(false);
     }
-  }, [api, busy, projectPath, workspaceTarget]);
+  }, [api.host, api.port, api.token, busy, projectPath, workspaceTarget]);
 
   if (!workspaceTarget?.teamId || !workspaceTarget.managerTabId) return null;
 
