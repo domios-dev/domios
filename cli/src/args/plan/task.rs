@@ -97,9 +97,10 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name, e.g. Alex, Emma, Leo"
+            value_name = "ONE_WORD_PERSONA",
+            help = "REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'"
         )]
-        personality: Option<String>,
+        personality: String,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]

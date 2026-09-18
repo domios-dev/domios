@@ -263,6 +263,7 @@ if ! TASK_RESPONSE="$(
   CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
     dc --as-tab "$OWNER_TAB" plan task add "$PLAN_ID" \
       --name "task-bound misuse sentinel $RUN_ID" --executor-role "oracle-worker" \
+      --personality "Oracle" \
       --role-guidance "opaque-fixture-$RUN_ID" --criterion "opaque-criterion-$RUN_ID" \
       --test-plan "opaque-test-$RUN_ID" --assign-tab "$BOUND_TAB" --json
 )"; then

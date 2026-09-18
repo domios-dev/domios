@@ -34,10 +34,9 @@ fn tab_name_contract_cli_accepts_executor_name_and_keeps_role_slug_distinct() {
                 },
         } => {
             assert_eq!(executor_role, "rust-backend-dev");
-            assert_eq!(personality.as_deref(), Some("Ada"));
+            assert_eq!(personality, "Ada");
             assert_eq!(
-                codeterm_types::plan::validate_executor_name(personality.as_deref().unwrap())
-                    .unwrap(),
+                codeterm_types::plan::validate_executor_name(&personality).unwrap(),
                 "Ada"
             );
         }

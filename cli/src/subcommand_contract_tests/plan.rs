@@ -581,6 +581,8 @@ fn plan_task_add_parses_quality_fields() {
         "Quality lane",
         "--executor-role",
         "rust-backend-dev",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "focused worker",
         "--criterion",

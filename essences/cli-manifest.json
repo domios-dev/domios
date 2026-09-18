@@ -10223,11 +10223,11 @@
                 {
                   "name": "personality",
                   "positional": false,
-                  "required": false,
-                  "value_name": "PERSONALITY",
+                  "required": true,
+                  "value_name": "ONE_WORD_PERSONA",
                   "possible_values": [],
                   "default": null,
-                  "help": "Executor persona name, e.g. Alex, Emma, Leo",
+                  "help": "REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'",
                   "aliases": []
                 },
                 {
