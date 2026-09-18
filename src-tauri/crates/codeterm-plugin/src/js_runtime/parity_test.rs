@@ -1176,6 +1176,7 @@ mod context_owner;
 mod cursor;
 mod find_session;
 mod manifest_launch_template;
+mod model_groups;
 mod opencode;
 mod record_identity;
 mod trust_grant;

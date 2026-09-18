@@ -293,6 +293,50 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
+// Image/video generation ids are not chat models.
+{
+  const p = loadOpencodeWithHost(ocHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "xai/grok-4.6\nxai/grok-imagine-image\nxai/grok-imagine-video-1.5\n" }),
+  }));
+  eq(
+    p.discoverModels(),
+    [{ id: "xai/grok-4.6", displayName: "Grok 4.6" }],
+    "image/video generation models are filtered; the chat model is kept",
+  );
+}
+
+// Per-group usage is read from opencode's store and keyed by providerID.
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { g: "deepseek", messages: 2, input: 100, output: 40, cache_read: 10, cache_write: 0, cost: 1.9425 },
+        { g: null, messages: 9, input: 1, output: 1, cache_read: 0, cache_write: 0, cost: 0 },
+      ],
+    },
+  }));
+  eq(
+    p.modelGroupUsage(),
+    [{
+      group: "deepseek",
+      messages: 2,
+      input_tokens: 100,
+      output_tokens: 40,
+      cache_read_tokens: 10,
+      cache_write_tokens: 0,
+      cost_micros: 1_942_500,
+    }],
+    "modelGroupUsage maps rows to snake_case groups and drops a null provider",
+  );
+}
+
+{
+  const p = loadOpencodeWithHost(ocHost({ fs: { fileExists: () => false } }));
+  eq(p.modelGroupUsage(), [], "no session store ⇒ no usage, never a guess");
+}
+
 // opencode plugin so the session-start report can prove tab ownership.
 {
   let body = "";
