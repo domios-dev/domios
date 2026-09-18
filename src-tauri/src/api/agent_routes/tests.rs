@@ -129,6 +129,8 @@ impl crate::chatbackend::ChatBackendProvider for ListingShell {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
         }])
     }
 

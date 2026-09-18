@@ -8,6 +8,7 @@ import { setAgentSettings } from "../../lib/clientSettings";
 import {
   defaultNewSessionChoice,
   readPersistedNewSessionChoice,
+  resolveEffort,
   writePersistedNewSessionChoice,
   type NewSessionChoice,
   type NewSessionMode,
@@ -72,7 +73,12 @@ export function NewSessionPicker({
     const restored = readPersistedNewSessionChoice(visibleProviders);
     if (initialProviderId && visibleProviders.some((provider) => provider.id === initialProviderId)) {
       const provider = visibleProviders.find((candidate) => candidate.id === initialProviderId);
-      setChoice({ mode: "single", providerId: initialProviderId, modelId: provider?.default_model });
+      setChoice({
+        mode: "single",
+        providerId: initialProviderId,
+        modelId: provider?.default_model,
+        effortId: resolveEffort(provider),
+      });
     } else {
       setChoice(restored);
     }
@@ -198,6 +204,7 @@ export function NewSessionPicker({
   const runProviderSpawn = useCallback(async (
     providerId: string,
     modelId: string | undefined,
+    effortId?: string,
   ) => {
     if (disabledProviderIds.has(providerId)) return;
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
@@ -207,13 +214,14 @@ export function NewSessionPicker({
         providerId,
         targetCwd ?? undefined,
         modelId,
+        effortId,
       ),
     );
   }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
-    await runProviderSpawn(choice.providerId, choice.modelId);
+    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId);
   }, [choice, runProviderSpawn]);
 
   const runPairSpawn = useCallback(() => {
@@ -229,8 +237,10 @@ export function NewSessionPicker({
     void createOrchestrationPair({
       orchestratorAgent: choice.orchestratorProviderId,
       orchestratorModel: choice.orchestratorModelId,
+      orchestratorReasoningEffort: choice.orchestratorEffortId,
       plannerAgent: choice.plannerProviderId,
       plannerModel: choice.plannerModelId,
+      plannerReasoningEffort: choice.plannerEffortId,
       workspaceId: wsId,
     })
       .then((result) => selectTabByTab(wsId, result.orchestrator_tab_id))
@@ -295,14 +305,17 @@ export function NewSessionPicker({
           mode: "single",
           providerId: prev.mode === "pair" ? prev.orchestratorProviderId : prev.providerId,
           modelId: prev.mode === "pair" ? prev.orchestratorModelId : prev.modelId,
+          effortId: prev.mode === "pair" ? prev.orchestratorEffortId : prev.effortId,
         };
       }
       return {
         mode: "pair",
         orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
         orchestratorModelId: prev.mode === "single" ? prev.modelId : prev.orchestratorModelId,
+        orchestratorEffortId: prev.mode === "single" ? prev.effortId : prev.orchestratorEffortId,
         plannerProviderId: prev.mode === "pair" ? prev.plannerProviderId : prev.providerId,
         plannerModelId: prev.mode === "pair" ? prev.plannerModelId : prev.modelId,
+        plannerEffortId: prev.mode === "pair" ? prev.plannerEffortId : prev.effortId,
       };
     });
   }, []);
@@ -410,15 +423,20 @@ export function NewSessionPicker({
               providers={visibleProviders}
               providerId={choice.providerId}
               modelId={choice.modelId ?? ""}
+              effortId={choice.effortId}
               disabledProviderIds={disabledProviderIds}
               onProviderChange={(providerId) => {
+                const provider = visibleProviders.find((p) => p.id === providerId);
                 setChoice({
                   mode: "single",
                   providerId,
-                  modelId: visibleProviders.find((p) => p.id === providerId)?.default_model,
+                  modelId: provider?.default_model,
+                  effortId: resolveEffort(provider),
                 });
               }}
               onModelChange={(modelId) => setChoice({ ...choice, modelId })}
+              onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
+              effortTestId="picker-effort-single"
               onInstallProvider={handleInstallProvider}
             />
           ) : (
@@ -427,24 +445,30 @@ export function NewSessionPicker({
               values={{
                 orchestratorProviderId: choice.orchestratorProviderId,
                 orchestratorModelId: choice.orchestratorModelId ?? "",
+                orchestratorEffortId: choice.orchestratorEffortId,
                 plannerProviderId: choice.plannerProviderId,
                 plannerModelId: choice.plannerModelId ?? "",
+                plannerEffortId: choice.plannerEffortId,
               }}
               disabledProviderIds={disabledProviderIds}
               onChange={(values) => setChoice({
                 mode: "pair",
                 orchestratorProviderId: values.orchestratorProviderId,
                 orchestratorModelId: values.orchestratorModelId || undefined,
+                orchestratorEffortId: values.orchestratorEffortId,
                 plannerProviderId: values.plannerProviderId,
                 plannerModelId: values.plannerModelId || undefined,
+                plannerEffortId: values.plannerEffortId,
               })}
               layout="card"
               pairAffordanceTestId="pair-affordance"
               roleTestIds={{
                 orchestratorProvider: "picker-provider-orchestrator",
                 orchestratorModel: "picker-model-orchestrator",
+                orchestratorEffort: "picker-effort-orchestrator",
                 plannerProvider: "picker-provider-planner",
                 plannerModel: "picker-model-planner",
+                plannerEffort: "picker-effort-planner",
               }}
               onInstallProvider={handleInstallProvider}
             />

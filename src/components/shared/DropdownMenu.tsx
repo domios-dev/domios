@@ -15,6 +15,8 @@ const SEPARATOR_HEIGHT = 9;
 export interface DropdownMenuItem {
   label: string;
   icon?: ReactNode;
+  /** Short chip rendered beside the label (e.g. a model's catalog badge). */
+  badge?: string;
   onClick?: () => void;
   submenu?: {
     label: string;
@@ -444,7 +446,18 @@ function DropdownMenuRow({
     >
       {item.icon && <span className="shrink-0 w-3 h-3 flex items-center justify-center">{item.icon}</span>}
       <span className="min-w-0 flex-1 text-left">
-        <span className="block truncate">{item.label}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{item.label}</span>
+          {item.badge && (
+            <span
+              data-badge-for={item["data-testid"]}
+              className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+              style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+            >
+              {item.badge}
+            </span>
+          )}
+        </span>
         {item.description && (
           <span id={descriptionId} className="mt-0.5 block max-w-56 whitespace-normal text-[10px] leading-snug text-[var(--ct-muted-fg)]">
             {item.description}
@@ -464,6 +477,8 @@ export interface DropdownSelectOption {
   disabled?: boolean;
   /** Native-title suffix appended to the label (e.g. " (not installed)"). */
   suffix?: string;
+  /** Short chip rendered beside the option label. */
+  badge?: string;
 }
 
 /**
@@ -496,8 +511,10 @@ export function DropdownSelect({
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
+  const badge = selected?.badge;
   const items: DropdownMenuItem[] = options.map((o) => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
+    badge: o.badge,
     disabled: o.disabled,
     icon: o.value === value ? <Check size={12} /> : <span className="w-3 h-3" />,
     onClick: () => onChange(o.value),
@@ -515,6 +532,15 @@ export function DropdownSelect({
     >
       {leading}
       <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+      {badge && (
+        <span
+          data-testid={testId ? `${testId}-badge` : undefined}
+          className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+          style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+        >
+          {badge}
+        </span>
+      )}
       <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
     </button>
   );

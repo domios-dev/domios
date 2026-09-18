@@ -139,6 +139,17 @@ fn atomic_spawn_params_deserialize_camel_case() {
 }
 
 #[test]
+fn atomic_spawn_params_carry_reasoning_effort() {
+    let p: AtomicSpawnParams = serde_json::from_value(serde_json::json!({
+        "agentId": "opencode",
+        "reasoningEffort": "high",
+    }))
+    .expect("reasoningEffort deserializes");
+
+    assert_eq!(p.reasoning_effort.as_deref(), Some("high"));
+}
+
+#[test]
 fn agent_pad_launch_env_for_pty_and_chat_backend() {
     let temp = tempfile::tempdir().unwrap();
     let pty = AgentPad::create(temp.path(), "pty-full-id", AgentPadRole::Worker).unwrap();

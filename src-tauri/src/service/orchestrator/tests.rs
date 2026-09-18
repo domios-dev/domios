@@ -592,6 +592,8 @@ fn build_agent_command_canonicalizes_display_model_before_launch_args() {
                 description: None,
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
             }],
             default: Some("gpt-5.5".into()),
         },

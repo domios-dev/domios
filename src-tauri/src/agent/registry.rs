@@ -606,6 +606,8 @@ mod tests {
                     description: None,
                     available: None,
                     availability: None,
+                    featured: None,
+                    badge: None,
                 }],
                 default: Some("phantom-model".into()),
             },
@@ -618,6 +620,8 @@ mod tests {
                 description: None,
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
             }],
             Some("cache-model".into()),
         );
