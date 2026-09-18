@@ -15,6 +15,7 @@ mod inspect;
 pub(crate) mod labels;
 pub(crate) mod remote_target;
 mod render;
+mod adopt;
 mod repair;
 mod search;
 mod team_utility;
@@ -32,6 +33,7 @@ use render::format_tab_row;
 pub use render::render_tab_tree_with_scope;
 #[cfg(test)]
 use render::{render_tab_tree, render_tab_tree_with_current};
+use adopt::handle_tab_adopt_agent;
 use repair::handle_tab_repair;
 pub use search::print_tab_find_results;
 #[cfg(test)]
@@ -669,6 +671,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             from_journal,
             tab,
         ),
+        TabAction::AdoptAgent {
+            provider,
+            force,
+            tab,
+        } => handle_tab_adopt_agent(client, json, provider, force, tab),
         TabAction::Stop { tab } => {
             match tab.as_deref().map(classify_remote_tab_id) {
                 Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
@@ -885,6 +892,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         | TabAction::AutoConfirm { tab, .. }
         | TabAction::Rebind { tab, .. }
         | TabAction::Repair { tab, .. }
+        | TabAction::AdoptAgent { tab, .. }
         | TabAction::Stop { tab }
         | TabAction::Chat { tab, .. } => tab.as_deref().filter(|value| invalid(value)),
         TabAction::Capture { action } => match action {

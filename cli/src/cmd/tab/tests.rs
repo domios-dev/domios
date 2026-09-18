@@ -562,6 +562,11 @@ fn every_tab_action_rejects_malformed_remote_before_local_transport() {
             from_journal: false,
             tab: bad(),
         },
+        TabAction::AdoptAgent {
+            provider: "mock-pty".into(),
+            force: false,
+            tab: bad(),
+        },
         TabAction::Stop { tab: bad() },
         TabAction::Chat {
             tab: bad(),

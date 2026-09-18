@@ -40,6 +40,7 @@ pub mod session_routes;
 pub mod snapshot_bound;
 pub mod tab_agent_routes;
 pub mod tab_chat_routes;
+pub(crate) mod tab_adopt_routes;
 pub(crate) mod tab_repair_routes;
 pub mod tab_routes;
 pub mod task_routes;
