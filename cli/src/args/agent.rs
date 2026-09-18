@@ -339,7 +339,7 @@ pub enum AgentAction {
             allow_hyphen_values = true
         )]
         authorized_gates: Vec<String>,
-        #[arg(long = "provider-reserve-pct", default_value_t = 5.0)]
+        #[arg(long = "provider-reserve-pct", default_value_t = 0.0)]
         provider_reserve_pct: f32,
         /// Declare the tab non-user-facing (bench/probe): its interactive
         /// prompts never raise user-visible Input-needed notifications.

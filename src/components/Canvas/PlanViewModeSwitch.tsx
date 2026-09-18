@@ -54,13 +54,36 @@ export function PlanViewModeSwitch({
     measuredValue.current = value;
     const measure = () => {
       const active = root.querySelector<HTMLElement>(`[role="tab"][data-value="${value}"]`);
-      if (active) setThumb({ left: active.offsetLeft, width: active.offsetWidth });
+      if (!active) return;
+      // The temporary capsule enters with a transform (scale), so offsetLeft/offsetWidth
+      // lag its real box; measure the rendered rect against the root instead.
+      const rootRect = root.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      const next = { left: activeRect.left - rootRect.left, width: activeRect.width };
+      setThumb((prev) =>
+        prev && Math.abs(prev.left - next.left) < 0.5 && Math.abs(prev.width - next.width) < 0.5
+          ? prev
+          : next,
+      );
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
+    // The temporary capsule animates in/out; re-measure once its transform settles.
+    const remeasure = () => measure();
+    root.addEventListener("animationend", remeasure);
+    root.addEventListener("transitionend", remeasure);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        root.removeEventListener("animationend", remeasure);
+        root.removeEventListener("transitionend", remeasure);
+      };
+    }
     const observer = new ResizeObserver(measure);
     observer.observe(root);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      root.removeEventListener("animationend", remeasure);
+      root.removeEventListener("transitionend", remeasure);
+    };
   }, [value, planModesEnabled, temporaryItem?.label]);
 
   return (

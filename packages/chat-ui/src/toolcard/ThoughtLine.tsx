@@ -1,6 +1,8 @@
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 
+export const THOUGHT_MAX_HEIGHT = "200px";
+
 /** First non-empty line, with a whole-line bold heading unwrapped. */
 export function thoughtHeadline(text: string): string {
   const line = text.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
@@ -42,13 +44,18 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
       </button>
       <div id={regionId} role="region" aria-label={label} hidden={!open} className="px-2 pb-1">
         {open && (
-          <p
-            data-testid="chat-thought-text"
-            className="m-0 whitespace-pre-wrap break-words text-xs"
-            style={{ color: "var(--ct-muted-fg)" }}
+          <div
+            data-testid="chat-thought-body"
+            style={{ maxHeight: THOUGHT_MAX_HEIGHT, overflowY: "auto" }}
           >
-            {text}
-          </p>
+            <p
+              data-testid="chat-thought-text"
+              className="m-0 whitespace-pre-wrap break-words text-xs"
+              style={{ color: "var(--ct-muted-fg)" }}
+            >
+              {text}
+            </p>
+          </div>
         )}
       </div>
     </div>

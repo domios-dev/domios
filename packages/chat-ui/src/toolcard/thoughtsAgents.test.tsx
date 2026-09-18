@@ -148,7 +148,7 @@ describe("concise thoughts", () => {
     expect(view.textContent).toBe("");
   });
 
-  it("shows Claude thinking expanded in full by default and collapses to its headline on demand", async () => {
+  it("shows Claude thinking expanded by default inside a 200px scroll region and collapses to its headline on demand", async () => {
     const full = `Plan the edit carefully\n${"then apply it ".repeat(40).trim()}`;
     const view = await render([thought("claude-think", full, { provider: "claude", sourceSessionId: CLAUDE })]);
     const [line] = all(view, "chat-thought");
@@ -158,7 +158,9 @@ describe("concise thoughts", () => {
     expect(toggle?.getAttribute("style")).toContain("var(--ct-muted-fg)");
     expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
     expect(line.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe("");
-    expect(line.querySelector('[data-testid="chat-thought-text"]')?.className).not.toContain("max-h-");
+    const body = line.querySelector<HTMLElement>('[data-testid="chat-thought-body"]');
+    expect(body?.style.maxHeight).toBe("200px");
+    expect(body?.style.overflowY).toBe("auto");
     expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(false);
 
     await click(toggle);
