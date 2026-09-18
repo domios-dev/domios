@@ -125,6 +125,7 @@ pub enum PathOpenKind {
 mod availability;
 mod capabilities;
 mod launch_session;
+mod model_group;
 mod model_info;
 mod settings;
 mod spawn_strategy;
@@ -132,6 +133,7 @@ mod usage_snapshot;
 pub use availability::*;
 pub use capabilities::*;
 pub use launch_session::*;
+pub use model_group::*;
 pub use model_info::*;
 pub use settings::*;
 pub use spawn_strategy::*;
@@ -155,6 +157,11 @@ pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_color: Option<String>,
     pub available_models: Vec<ModelInfo>,
+    /// Provider-owned groupings of `available_models` (for example the upstream
+    /// company a routed model belongs to). Empty ⇒ one flat list. Core never
+    /// maps a vendor id to a label; the provider declares both.
+    #[serde(default)]
+    pub model_groups: Vec<ModelGroup>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
     /// Reasoning-effort levels this provider supports at launch. Empty ⇒ the
@@ -268,7 +275,7 @@ pub struct ProviderDescriptor {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 15;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 16;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -866,6 +873,29 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Provider-owned groupings of its models, declared as pure data (no I/O):
+    /// the picker renders one section per group and core carries the labels
+    /// through untouched. Empty ⇒ one flat list.
+    fn model_groups(&self) -> Vec<ModelGroup> {
+        Vec::new()
+    }
+
+    /// Cumulative usage per model group, from whatever source the provider
+    /// declares. May do I/O, so it is never called from `describe()` — only
+    /// from the on-demand picker command. Empty ⇒ the provider publishes no
+    /// per-group usage and the picker shows none.
+    fn model_group_usage(&self) -> Vec<ModelGroupUsage> {
+        Vec::new()
+    }
+
+    /// Files whose change means this provider's credentialed model availability
+    /// changed. The catalog fingerprints them and re-probes when one moves, so
+    /// connecting a provider surfaces its models without a rebuild. Empty ⇒ the
+    /// provider's catalog does not depend on an observable credential file.
+    fn model_credential_files(&self) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
+
     fn icon_hint(&self) -> Option<&str> {
         None
     }
@@ -941,6 +971,7 @@ pub trait AgentProvider: Send + Sync {
             // Keep unavailable entries: `available` greys a model out in the
             // picker, it must not vanish it. Matches chatbackend describe().
             available_models: self.available_models(),
+            model_groups: self.model_groups(),
             default_model: self.default_model(),
             reasoning_efforts: self.reasoning_efforts(),
             default_reasoning_effort: self.default_reasoning_effort(),

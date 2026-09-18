@@ -45,6 +45,26 @@
     "supportsStructuredPrompts": true,
     "structuredPromptServer": true
   },
+  "credentials": [
+    {
+      "id": "opencodeAuth",
+      "file": "~/.local/share/opencode/auth.json"
+    }
+  ],
+  "modelGroups": [
+    {
+      "id": "opencode",
+      "label": "OpenCode Zen"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek"
+    },
+    {
+      "id": "xai",
+      "label": "xAI"
+    }
+  ],
   "models": [
     {
       "id": "anthropic/claude-opus-4-8",
