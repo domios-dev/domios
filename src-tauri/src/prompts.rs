@@ -33,6 +33,10 @@ pub const PLANNER_TASK_EXECUTOR_ROLE_FIELD: &str = "an `--executor-role` naming 
 pub const PLANNER_TASK_ROLE_GUIDANCE_FIELD: &str =
     "`--role-guidance` conditioning who the worker is and what it does";
 
+/// The persona member of [`PLANNER_TASK_MANDATORY_FIELDS`]. A task without one
+/// dispatches a worker that falls back to the title 'Worker'.
+pub const PLANNER_TASK_PERSONALITY_FIELD: &str = "a one-word `--personality`";
+
 /// Every field a task must carry at creation. The prompt sentence is composed
 /// from this list, so a field is obliged by membership rather than by prose.
 pub const PLANNER_TASK_MANDATORY_FIELDS: &[&str] = &[
@@ -45,10 +49,11 @@ pub const PLANNER_TASK_MANDATORY_FIELDS: &[&str] = &[
     "report expectations",
     PLANNER_TASK_EXECUTOR_ROLE_FIELD,
     PLANNER_TASK_ROLE_GUIDANCE_FIELD,
+    PLANNER_TASK_PERSONALITY_FIELD,
 ];
 
 /// Routing that stays optional — out of the mandatory scope, not out of the product.
-pub const PLANNER_TASK_ROUTING_FLAGS: &[&str] = &["`--model`", "`--personality`"];
+pub const PLANNER_TASK_ROUTING_FLAGS: &[&str] = &["`--model`"];
 
 fn oxford_join(items: &[&str]) -> String {
     match items {
