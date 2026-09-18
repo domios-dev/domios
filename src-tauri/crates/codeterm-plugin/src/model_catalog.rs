@@ -32,6 +32,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
+mod grouping;
+
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
 #[derive(Debug, Deserialize)]
@@ -46,6 +48,8 @@ struct CatalogModel {
     featured: Option<bool>,
     #[serde(default)]
     badge: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -540,7 +544,11 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     let mut models = match load_override(provider_id) {
         None => registered,
         Some(o) if o.replace => o.models,
-        Some(o) => merge_models(&registered, &o.models),
+        Some(o) => {
+            let mut merged = merge_models(&registered, &o.models);
+            grouping::inherit_provider_groups(&mut merged, &registered);
+            merged
+        }
     };
     // Featured models lead, but the catalog's own order survives within each
     // group — `sort_by_key` is stable, so nothing else is reordered.
@@ -858,6 +866,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             availability: None,
                             featured: m.featured,
                             badge: m.badge,
+                            group: m.group,
                         })
                         .collect(),
                     default_effort: p.default_effort,
@@ -1062,6 +1071,9 @@ fn render_example(
         if let Some(badge) = &m.badge {
             out.push_str(&format!("badge = \"{}\"\n", badge.replace('"', "\\\"")));
         }
+        if let Some(group) = &m.group {
+            out.push_str(&format!("group = \"{}\"\n", group.replace('"', "\\\"")));
+        }
         out.push('\n');
     }
     for effort in &effort_defaults.efforts {
@@ -1125,6 +1137,7 @@ display_name = "Example Model (extended context)"
 description = "Best for everyday, complex tasks."
 featured = true
 badge = "own"
+group = "example"
 
 [[models]]
 id = "example-model-mini"
@@ -1145,6 +1158,8 @@ description = "Maximum reasoning depth."
 - `featured = true` lists this model ahead of the rest, preserving catalog
   order within each group.
 - `badge` is an optional short chip shown beside the model in spawn pickers.
+- `group` is an optional section label: models sharing it render together under
+  one collapsible heading in spawn pickers.
 - `[[efforts]]` entries extend or replace accepted reasoning-effort ids using
   the same merge rules as models.
 

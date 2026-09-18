@@ -20,6 +20,7 @@ fn register_and_read_back() {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             }],
             default: Some("m1".into()),
         },
@@ -66,6 +67,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         },
         ModelInfo {
             id: "sonnet".into(),
@@ -75,6 +77,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         },
         ModelInfo {
             id: "haiku".into(),
@@ -84,6 +87,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         },
     ];
     let overrides = vec![
@@ -95,6 +99,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         },
         ModelInfo {
             id: "my-finetune".into(),
@@ -104,6 +109,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         },
     ];
     let merged = merge_models(&builtin, &overrides);
@@ -125,6 +131,7 @@ fn merge_with_empty_override_is_builtin_verbatim() {
         availability: None,
         featured: None,
         badge: None,
+        group: None,
     }];
     let merged = merge_models(&builtin, &[]);
     assert_eq!(merged.len(), 1);
@@ -141,6 +148,7 @@ fn merge_with_empty_builtin_is_override_verbatim() {
         availability: None,
         featured: None,
         badge: None,
+        group: None,
     }];
     let merged = merge_models(&[], &overrides);
     assert_eq!(merged.len(), 1);
@@ -194,6 +202,7 @@ fn register_twice_replaces() {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             }],
             default: Some("a".into()),
         },
@@ -209,6 +218,7 @@ fn register_twice_replaces() {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             }],
             default: Some("b".into()),
         },
@@ -296,6 +306,7 @@ fn is_stale_uses_injected_now() {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             }],
             default: Some("seed".into()),
         },
@@ -311,6 +322,7 @@ fn is_stale_uses_injected_now() {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         }],
         Some("live".into()),
     );
@@ -344,6 +356,7 @@ fn resolve_model_matches_exact_id() {
                     availability: None,
                     featured: None,
                     badge: None,
+                    group: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
@@ -353,6 +366,7 @@ fn resolve_model_matches_exact_id() {
                     availability: None,
                     featured: None,
                     badge: None,
+                    group: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -381,6 +395,7 @@ fn resolve_model_matches_display_case_insensitively() {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             }],
             default: Some("gpt-5.5".into()),
         },
@@ -411,6 +426,7 @@ fn resolve_model_unknown_falls_back_to_default() {
                     availability: None,
                     featured: None,
                     badge: None,
+                    group: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
@@ -420,6 +436,7 @@ fn resolve_model_unknown_falls_back_to_default() {
                     availability: None,
                     featured: None,
                     badge: None,
+                    group: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -446,11 +463,7 @@ fn model(id: &str, display: &str) -> ModelInfo {
     ModelInfo {
         id: id.into(),
         display_name: display.into(),
-        description: None,
-        available: None,
-        availability: None,
-        featured: None,
-        badge: None,
+        ..ModelInfo::default()
     }
 }
 
@@ -720,6 +733,7 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         }],
         Some("opus".into()),
     );
@@ -810,6 +824,7 @@ fn availability_flag_is_carried_through_resolve() {
                     availability: None,
                     featured: None,
                     badge: None,
+                    group: None,
                 },
             ],
             default: Some("opus".into()),
@@ -860,27 +875,30 @@ fn featured_models_lead_preserving_catalog_order_within_each_group() {
 }
 
 #[test]
-fn override_parser_reads_featured_and_badge() {
+fn override_parser_reads_featured_badge_and_group() {
     let parsed = toml::from_str::<CatalogFile>(
         r#"[[models]]
 id = "deepseek-v4-flash"
 display_name = "DeepSeek V4 Flash"
 featured = true
 badge = "own"
+group = "deepseek"
 "#,
     )
-    .expect("featured/badge must parse");
+    .expect("featured/badge/group must parse");
 
     assert_eq!(parsed.models[0].featured, Some(true));
     assert_eq!(parsed.models[0].badge.as_deref(), Some("own"));
+    assert_eq!(parsed.models[0].group.as_deref(), Some("deepseek"));
 }
 
 #[test]
-fn example_renderer_emits_featured_and_badge() {
+fn example_renderer_emits_featured_badge_and_group() {
     let defaults = RegisteredDefaults {
         models: vec![ModelInfo {
             featured: Some(true),
             badge: Some("own".into()),
+            group: Some("deepseek".into()),
             ..model("deepseek-v4-flash", "DeepSeek V4 Flash")
         }],
         default: None,
@@ -891,6 +909,10 @@ fn example_renderer_emits_featured_and_badge() {
     assert!(
         body.contains("badge = \"own\""),
         "example must carry the badge"
+    );
+    assert!(
+        body.contains("group = \"deepseek\""),
+        "example must carry the group"
     );
 }
 
@@ -911,6 +933,7 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
                     availability: None,
                     featured: None,
                     badge: None,
+                    group: None,
                 },
             ],
             default: Some("stable".into()),
@@ -959,6 +982,7 @@ fn unknown_model(id: &str, display: &str) -> ModelInfo {
         availability: Some(ModelAvailability::Unknown),
         featured: None,
         badge: None,
+        group: None,
     }
 }
 
@@ -989,6 +1013,7 @@ fn unknown_verdict_never_persists_as_a_negative() {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             },
         ],
         Some("sonnet".into()),
@@ -1119,6 +1144,7 @@ async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
             availability: Some(ModelAvailability::Available),
             featured: None,
             badge: None,
+            group: None,
         }]),
     });
     let refreshed = refresh_for_reader(provider).await;
@@ -1155,6 +1181,7 @@ async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
             availability: Some(ModelAvailability::Available),
             featured: None,
             badge: None,
+            group: None,
         }],
         Some("fable".into()),
     );

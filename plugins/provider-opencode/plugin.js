@@ -580,9 +580,17 @@ function discoverOpencodeModels() {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
     if (isNonChatModel(id)) continue;
-    models.push({ id, displayName: displayNameFromId(id) });
+    models.push({ id, displayName: displayNameFromId(id), group: groupFromModelId(id) });
   }
   return models.length ? models : null;
+}
+function groupFromModelId(id) {
+  const slash = id.split("/");
+  if (slash.length < 2) return void 0;
+  const provider = slash[0].trim();
+  if (!provider) return void 0;
+  if (provider.toLowerCase() === "opencode") return "OpenCode Zen";
+  return provider;
 }
 function isModelId(value) {
   return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
