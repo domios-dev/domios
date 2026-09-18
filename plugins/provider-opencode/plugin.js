@@ -366,17 +366,18 @@ var plugin = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_created >= ?2 ORDER BY p.time_created ASC, p.id ASC",
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
       [sessionId, sinceMs]
     );
     const messages = [];
     let lastTs = sinceMs;
     let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
-      const ts = rows[i].ts || 0;
+      const updated = rows[i].ts_updated || 0;
+      const created = rows[i].ts_created || updated;
       const id = String(rows[i].id);
-      if (ts > lastTs) {
-        lastTs = ts;
+      if (updated > lastTs) {
+        lastTs = updated;
         seenAtLastTs = [];
       }
       if (seenAtLastTs.indexOf(id) !== -1) continue;
@@ -386,7 +387,7 @@ var plugin = {
       let role = "assistant";
       const msg = safeJson(rows[i].msg);
       if (msg && msg.role) role = msg.role;
-      const cm = partToChatMsg(part, role, id, ts);
+      const cm = partToChatMsg(part, role, id, created);
       if (cm) messages.push(cm);
     }
     seenAtLastTs.sort();

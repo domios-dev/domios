@@ -51,6 +51,26 @@ function messageItem(message: NormalizedChatMessage): TimelineItem {
   assert(after.msg.content === "second", "updated body extracted");
 }
 
+// --- a same-id content update replaces the stale row instead of being dropped ---
+{
+  const cache: EnrichmentCache = new WeakMap();
+  const partial: NormalizedChatMessage = { id: "a-stream", type: "assistant", content: "Hel" };
+  const grown: NormalizedChatMessage = { id: "a-stream", type: "assistant", content: "Hello world" };
+  const entries = enrichTimelineItems([messageItem(partial), messageItem(grown)], cache);
+  assert(entries.length === 1, "a same-id streamed update still projects one row");
+  assert(entries[0].msg === grown, "the grown content replaces the stale row");
+}
+
+// --- an exact repeat with identical content is still suppressed ---
+{
+  const cache: EnrichmentCache = new WeakMap();
+  const first: NormalizedChatMessage = { id: "a-dup", type: "assistant", content: "same" };
+  const again: NormalizedChatMessage = { id: "a-dup", type: "assistant", content: "same" };
+  const entries = enrichTimelineItems([messageItem(first), messageItem(again)], cache);
+  assert(entries.length === 1, "an exact id+content repeat projects one row");
+  assert(entries[0].msg === first, "the first occurrence of an exact repeat survives");
+}
+
 // --- a message that reaches the projection twice still renders one row ---
 {
   const cache: EnrichmentCache = new WeakMap();
