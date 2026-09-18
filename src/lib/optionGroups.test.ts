@@ -11,19 +11,23 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+type Item = { id: string; group?: string };
+
 test("no option declares a group ⇒ null, so callers keep the flat list", () => {
+  const options: Item[] = [{ id: "a" }, { id: "b" }];
   assert(
-    groupOptionsByLabel([{ id: "a" }, { id: "b" }]) === null,
+    groupOptionsByLabel(options) === null,
     "ungrouped options must not fabricate sections",
   );
 });
 
 test("options bucket by label, preserving first-appearance order of sections", () => {
-  const sections = groupOptionsByLabel([
+  const options: Item[] = [
     { id: "a", group: "alpha" },
     { id: "b", group: "beta" },
     { id: "c", group: "alpha" },
-  ]);
+  ];
+  const sections = groupOptionsByLabel(options);
   assert(sections !== null, "a declared group produces sections");
   assert(
     sections.map((section) => section.label).join(",") === "alpha,beta",
@@ -36,11 +40,12 @@ test("options bucket by label, preserving first-appearance order of sections", (
 });
 
 test("ungrouped options keep their place in a headerless section", () => {
-  const sections = groupOptionsByLabel([
+  const options: Item[] = [
     { id: "plain" },
     { id: "a", group: "alpha" },
     { id: "also-plain" },
-  ]);
+  ];
+  const sections = groupOptionsByLabel(options);
   assert(sections !== null, "one grouped option makes the list grouped");
   assert(sections[0].label === "", "the leading ungrouped bucket has no header");
   assert(
@@ -51,8 +56,9 @@ test("ungrouped options keep their place in a headerless section", () => {
 });
 
 test("a whitespace-only group is treated as ungrouped", () => {
+  const options: Item[] = [{ id: "a", group: "   " }];
   assert(
-    groupOptionsByLabel([{ id: "a", group: "   " }]) === null,
+    groupOptionsByLabel(options) === null,
     "blank group labels are not sections",
   );
 });
