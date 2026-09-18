@@ -657,7 +657,7 @@
               "required": false,
               "value_name": "PROVIDER_RESERVE_PCT",
               "possible_values": [],
-              "default": "5",
+              "default": "0",
               "help": null,
               "aliases": []
             },
@@ -10735,8 +10735,8 @@
                   "required": false,
                   "value_name": "PROVIDER_RESERVE_PCT",
                   "possible_values": [],
-                  "default": "5",
-                  "help": "Minimum remaining provider allowance for mutating work",
+                  "default": "0",
+                  "help": "Optional minimum remaining provider allowance for mutating work (0 = no reserve)",
                   "aliases": []
                 },
                 {

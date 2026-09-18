@@ -21,7 +21,8 @@ fn personality_required_add_refuses_a_task_without_one_and_names_the_flag() {
         "--role-guidance",
         "focused worker",
     ])
-    .expect_err("plan task add must not create a task with no executor persona");
+    .err()
+    .expect("plan task add must not create a task with no executor persona");
 
     let rendered = error.to_string();
     assert!(rendered.contains("--personality"), "{rendered}");
