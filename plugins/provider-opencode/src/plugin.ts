@@ -694,10 +694,21 @@ function discoverOpencodeModels(): ModelInfo[] | null {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
     if (isNonChatModel(id)) continue;
-    models.push({ id: id, displayName: displayNameFromId(id) });
+    models.push({ id: id, displayName: displayNameFromId(id), group: groupFromModelId(id) });
   }
   // list is already availability-filtered — every entry is selectable (available unset).
   return models.length ? models : null;
+}
+
+/** Picker section for a model id: the upstream provider segment before the
+ *  slash. The plugin owns this convention; core only renders the declared label. */
+function groupFromModelId(id: string): string | undefined {
+  const slash = id.split("/");
+  if (slash.length < 2) return undefined;
+  const provider = slash[0].trim();
+  if (!provider) return undefined;
+  if (provider.toLowerCase() === "opencode") return "OpenCode Zen";
+  return provider;
 }
 
 function isModelId(value: string): boolean {

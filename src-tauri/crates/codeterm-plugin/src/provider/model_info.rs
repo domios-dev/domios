@@ -37,6 +37,11 @@ pub struct ModelInfo {
     /// Short chip rendered beside the label in the spawn model picker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub badge: Option<String>,
+    /// Provider-declared picker section. Models sharing a `group` render together
+    /// under that heading; `None` models stay in the flat list. Core never derives
+    /// a group from a model id — the provider that owns the id declares it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 impl ModelInfo {
