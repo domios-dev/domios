@@ -282,6 +282,95 @@ fn live_cache_subset_never_hides_new_seed_models() {
     cleanup(id);
 }
 
+/// The provider's probe owns the set: a model no seed and no override names is
+/// offered and resolves without falling back the moment the provider reports it.
+#[test]
+fn uncatalogued_live_model_is_offered_and_spawnable() {
+    let id = "test-uncatalogued-live-model";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("known", "Known")],
+            default: Some("known".into()),
+        },
+    );
+    put_live(
+        id,
+        vec![model("known", "Known"), model("brand-new", "Brand New")],
+        Some("brand-new".into()),
+    );
+
+    let models = resolve_models(id);
+    assert!(
+        models.iter().any(|m| m.id == "brand-new"),
+        "a provider-reported model the static lists never named must be offered"
+    );
+    assert_eq!(resolve_default(id).as_deref(), Some("brand-new"));
+    let resolved = resolve_model(id, Some("brand-new"));
+    assert_eq!(resolved.id, "brand-new");
+    assert!(
+        !resolved.fell_back,
+        "the reported model must resolve to itself, not a fallback"
+    );
+    cleanup(id);
+}
+
+/// An override is an overlay on a live catalog, never an allowlist: a live model
+/// it omits stays offered, and it cannot add an id the provider did not report.
+#[test]
+fn override_cannot_restrict_or_invent_against_a_live_catalog() {
+    let id = "test-override-not-allowlist";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("seed", "Seed")],
+            default: Some("seed".into()),
+        },
+    );
+    put_live(
+        id,
+        vec![model("alpha", "Alpha"), model("beta", "Beta")],
+        Some("alpha".into()),
+    );
+    std::fs::write(
+        override_path(id),
+        r#"replace = true
+
+[[models]]
+id = "beta"
+display_name = "Beta Renamed"
+featured = true
+
+[[models]]
+id = "invented"
+display_name = "Invented"
+"#,
+    )
+    .unwrap();
+
+    let models = resolve_models(id);
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert!(
+        ids.contains(&"alpha"),
+        "a live model the override omits must stay offered"
+    );
+    assert!(
+        !ids.contains(&"invented"),
+        "an override must not add a model the provider does not report"
+    );
+    assert_eq!(models[0].id, "beta", "the override's featured flag orders it first");
+    assert_eq!(
+        models
+            .iter()
+            .find(|m| m.id == "beta")
+            .map(|m| m.display_name.as_str()),
+        Some("Beta Renamed")
+    );
+    cleanup(id);
+}
+
 #[test]
 fn is_stale_uses_injected_now() {
     let id = "test-is-stale-injected-now";
@@ -442,18 +531,6 @@ fn test_live_fetched_at(provider_id: &str) -> SystemTime {
         .expect("live snapshot fetched_at")
 }
 
-fn model(id: &str, display: &str) -> ModelInfo {
-    ModelInfo {
-        id: id.into(),
-        display_name: display.into(),
-        description: None,
-        available: None,
-        availability: None,
-        featured: None,
-        badge: None,
-    }
-}
-
 /// Minimal provider whose `discover_models` returns a canned result, so the
 /// refresh path can be driven deterministically (Some = online, None =
 /// offline/opt-out).
@@ -503,12 +580,6 @@ impl AgentProvider for DiscoverStub {
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
         self.discovery.clone()
     }
-}
-
-fn cleanup(id: &str) {
-    registry().write().remove(id);
-    seed_registry().write().remove(id);
-    let _ = std::fs::remove_file(cache_path(id));
 }
 
 #[test]
@@ -962,15 +1033,6 @@ fn unknown_model(id: &str, display: &str) -> ModelInfo {
     }
 }
 
-fn temp_binary(tag: &str, bytes: &[u8]) -> PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "model_catalog_bin_{tag}_{}",
-        uuid::Uuid::new_v4().simple()
-    ));
-    std::fs::write(&path, bytes).unwrap();
-    path
-}
-
 /// The red line: a probe that could not run must never reach disk as a
 /// definite negative, because a negative is what disables the row.
 #[test]
@@ -1013,78 +1075,6 @@ fn unknown_verdict_never_persists_as_a_negative() {
         ModelAvailability::Unavailable,
         "a genuine negative is still a negative"
     );
-    cleanup(id);
-}
-
-/// A cached answer describes one binary. Replace that binary and the answer is
-/// no longer authoritative, whatever its TTL says.
-#[test]
-fn cache_is_not_served_when_the_provider_binary_changed() {
-    let id = "test-cache-binary-changed";
-    cleanup(id);
-    let seed = RegisteredDefaults {
-        models: vec![model("opus", "Seed")],
-        default: Some("opus".into()),
-    };
-    register(id, seed.clone());
-    let bin = temp_binary("changed", b"v1");
-    put_live_against(
-        id,
-        vec![model("opus", "Live")],
-        Some("opus".into()),
-        fingerprint_path(&bin),
-    );
-
-    // The CLI self-updates: same path, different bytes.
-    std::fs::write(&bin, b"v2-longer-payload").unwrap();
-    assert!(provider_binary_changed(id));
-
-    registry().write().remove(id);
-    seed_registry().write().remove(id);
-    register(id, seed);
-    prime_from_cache(id);
-
-    let _ = std::fs::remove_file(&bin);
-    assert_eq!(
-        resolve_models(id)[0].display_name,
-        "Seed",
-        "a snapshot captured against a replaced binary must not prime"
-    );
-    assert!(
-        is_stale(id, DEFAULT_TTL, SystemTime::now()),
-        "a rejected snapshot must not carry its TTL forward"
-    );
-    cleanup(id);
-}
-
-/// The same snapshot against an untouched binary is still good, so the
-/// invalidation cannot be a blanket refusal to warm-start.
-#[test]
-fn cache_still_primes_when_the_provider_binary_is_untouched() {
-    let id = "test-cache-binary-untouched";
-    cleanup(id);
-    let seed = RegisteredDefaults {
-        models: vec![model("opus", "Seed")],
-        default: Some("opus".into()),
-    };
-    register(id, seed.clone());
-    let bin = temp_binary("untouched", b"v1");
-    put_live_against(
-        id,
-        vec![model("opus", "Live")],
-        Some("opus".into()),
-        fingerprint_path(&bin),
-    );
-    assert!(!provider_binary_changed(id));
-
-    registry().write().remove(id);
-    seed_registry().write().remove(id);
-    register(id, seed);
-    prime_from_cache(id);
-
-    let display = resolve_models(id)[0].display_name.clone();
-    let _ = std::fs::remove_file(&bin);
-    assert_eq!(display, "Live");
     cleanup(id);
 }
 

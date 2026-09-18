@@ -16,10 +16,14 @@ when the upstream CLI exposes a stable catalog command. Two layers:
 └─────────────────────────────────────────────────┘
 ```
 
-Static provider catalogs **merge** by default — see [Merge vs replace](#merge-vs-replace)
-below. Dynamic providers such as Codex/OpenCode treat an override file as an
-explicit pinned list, so they do not mix local overrides with a live account-
-dependent catalog.
+An override file is never an allowlist. When a provider has a **live snapshot**
+(its CLI reported its current catalog), that probe owns the set of spawnable
+models: an override may decorate an id the provider reports (featured, badge,
+display name, description) and order it, but it can neither hide a reported
+model nor add one the provider does not have. A model you never named in
+`<provider>.toml` is still spawnable the moment the provider offers it. Without
+a live snapshot the static seed and the override are all there is, so the
+[merge/replace](#merge-vs-replace) rules below apply.
 
 Where `<data_dir>` is:
 - Prod: `~/.codeterm/`
@@ -331,17 +335,34 @@ A model carries `availability`: `available`, `unavailable`, or `unknown`.
   An unknown verdict publishes no boolean and is never written to
   `<provider>.cache.json` as a negative.
 
+## Provider groups and per-group usage
+
+A provider may declare `modelGroups` — `[{id, label}]` where `id` matches a
+model-id prefix (e.g. the upstream company a routed model belongs to). The
+picker renders one section per group and core carries the labels through
+untouched; it never maps a vendor id to a label itself.
+
+The same provider may export `modelGroupUsage()`, returning cumulative tokens
+and cost per group. The picker shows that figure for the selected model's group.
+A provider with no such export shows none — usage is never inferred. Groups are
+the provider's to decide, so a new provider needs no core change.
+
 ## Cache invalidation
 
 `<provider>.cache.json` records the CLI it was captured against (path, size,
-mtime). Two things void it without any timer:
+mtime) and the credential files its model list depended on. Three things void it
+without any timer:
 
 - **Provider-binary change.** A watcher on the *resolved* CLI path forces a
   re-probe when the file is rewritten, and a snapshot whose recorded binary no
   longer matches is not primed at startup.
+- **Credential change.** A provider declares its credential files in the
+  manifest `credentials` (core fingerprints them; it never hardcodes a path).
+  A file that appeared, vanished, or changed voids the snapshot — so connecting
+  a provider surfaces its models without a rebuild, on the next picker open.
 - **Opening the model picker.** An explicit user action, TTL-gated to at most
-  one probe per freshness window — except while a verdict is still `unknown`,
-  which is always retried.
+  one probe per freshness window — except while a verdict is still `unknown`
+  (always retried) or a credential file moved (always re-probed).
 
 Every refresh clears the `host.exec` binary-resolution memo first: a refresh
 that re-reads a memoized failed resolution just rewrites the same wrong answer.

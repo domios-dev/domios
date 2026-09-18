@@ -108,6 +108,13 @@ const plugin: PluginModule = {
     return discoverOpencodeModels() || manifestModels();
   },
 
+  // Cumulative usage per upstream company, read from opencode's own session
+  // store. Groups are keyed by the model-id prefix (providerID) so the picker
+  // can match a model to its usage without core knowing any vendor.
+  modelGroupUsage(): ModelGroupUsage[] {
+    return discoverOpencodeGroupUsage();
+  },
+
   // because response bytes depend on horizontal vs vertical navigation.
   parsePrompt(text: string): ParsedPrompt | null {
     const screen = String(text || "");
@@ -473,6 +480,16 @@ interface OpencodePart {
   state?: { input?: unknown; output?: unknown };
 }
 
+interface ModelGroupUsage {
+  group: string;
+  messages: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_micros: number;
+}
+
 function parsePermissionPrompt(text: string): ParsedPrompt | null {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
   let permIdx = -1;
@@ -704,13 +721,64 @@ function isModelId(value: string): boolean {
   return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
 }
 
-// embedding/tts/moderation/rerank ids so only chat models reach the picker.
-const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+// embedding/tts/image/video/moderation/rerank ids so only chat models reach the
+// picker. `vision` is deliberately absent: a vision-capable chat model is still
+// a chat model.
+const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle", "image", "video", "imagine"];
 function isNonChatModel(id: string): boolean {
   const leaf = (id.split("/").pop() || id).toLowerCase();
   const toks = leaf.split(/[-_.]/);
   for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
   return false;
+}
+
+interface ModelUsageRow {
+  g?: string;
+  messages?: number;
+  input?: number;
+  output?: number;
+  cache_read?: number;
+  cache_write?: number;
+  cost?: number;
+}
+
+// Group the assistant messages opencode already stores by their providerID,
+// summing tokens and cost. Absent fields are treated as zero, never a guess.
+function discoverOpencodeGroupUsage(): ModelGroupUsage[] {
+  const db = opencodeDbPath();
+  if (!db || !host.fs.fileExists(db)) return [];
+  const rows = host.fs.sqliteQuery<ModelUsageRow>(
+    db,
+    "SELECT json_extract(data,'$.providerID') AS g, " +
+      "COUNT(*) AS messages, " +
+      "SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, " +
+      "SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, " +
+      "SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, " +
+      "SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, " +
+      "SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost " +
+      "FROM message WHERE json_extract(data,'$.role')='assistant' " +
+      "AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
+    []
+  );
+  const out: ModelGroupUsage[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const group = rows[i].g;
+    if (typeof group !== "string" || !group) continue;
+    out.push({
+      group: group,
+      messages: finiteNumber(rows[i].messages),
+      input_tokens: finiteNumber(rows[i].input),
+      output_tokens: finiteNumber(rows[i].output),
+      cache_read_tokens: finiteNumber(rows[i].cache_read),
+      cache_write_tokens: finiteNumber(rows[i].cache_write),
+      cost_micros: Math.round(finiteNumber(rows[i].cost) * 1_000_000),
+    });
+  }
+  return out;
+}
+
+function finiteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function manifestModels(): ModelInfo[] {

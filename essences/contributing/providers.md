@@ -101,6 +101,8 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command launched in a visible shell from an update notification. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
+| `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
+| `credentials` | `[{id, file, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
 | `reasoningEfforts` | `[{id, displayName, description?}]` | Reasoning-effort levels. |
 | `defaultReasoningEffort` | string? | Default effort id. |
@@ -260,6 +262,7 @@ instead.
 | `parseUsage(rawText, nowMs)` | captured usage screen, epoch ms | UsageSnapshot-shaped object (snake_case fields) or `null` | provider has no usage parser; the poller skips it (pairs with `spawn.usageProbeCommand`). |
 | `fetchUsage(nowMs)` | epoch ms | raw usage payload string or `null` | usage stays probe-based. **Exporting this flips the provider to fetch-based usage** (no TUI probe). |
 | `discoverModels()` | — | `[{id, displayName, description?, available?}]` or `null` | `null` = honest "no live discovery"; the manifest `models` seed stands. A `null` return never falls back to the seed either — it means "nothing new learned". |
+| `modelGroupUsage()` | — | `[{group, messages, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micros}]` (snake_case; `cost_micros` is USD × 1e6) | `[]` — the picker shows no per-group usage. `group` matches a manifest `modelGroups` id (or a bare model-id prefix); core renders it for the selected model's group. |
 | `settingsSchema()` | — | SettingField[] | manifest-derived settings sections. Evaluated **once** and cached — keep it a pure constant. |
 | `notificationsSchema()` | — | SettingField[] | `[]`. Cached with `settingsSchema`. |
 | `providerSelfUpdateCapability()` | — | capability object or `null` | native fallback; else `null`. |

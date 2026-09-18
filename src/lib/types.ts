@@ -815,6 +815,26 @@ export interface ModelInfo {
   badge?: string | null;
 }
 
+/** Provider-owned grouping of its models, e.g. the upstream company a routed
+ *  model belongs to. `id` matches the model-id prefix; `label` is the text the
+ *  picker renders. Core never maps a vendor id to a label. */
+export interface ModelGroup {
+  id: string;
+  label: string;
+}
+
+/** Cumulative usage the provider attributes to one model group. `cost_micros`
+ *  is USD × 1_000_000 so the wire stays integer. */
+export interface ModelGroupUsage {
+  group: string;
+  messages: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_micros: number;
+}
+
 export interface ReasoningEffortInfo {
   id: string;
   display_name: string;
@@ -918,6 +938,8 @@ export interface ProviderDescriptor {
   icon_svg?: string;
   icon_color?: string;
   available_models: ModelInfo[];
+  /** Provider-owned groupings of `available_models`; empty ⇒ one flat list. */
+  model_groups?: ModelGroup[];
   default_model?: string;
   /// Reasoning-effort levels the provider supports at launch. Empty ⇒ the
   /// provider exposes no effort selector and the UI must not render one.

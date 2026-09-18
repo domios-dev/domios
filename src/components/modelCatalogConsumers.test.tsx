@@ -5,7 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "./Sidebar/OrchestrationPairForm";
 import { TeamUnit } from "./Sidebar/TeamUnit";
-import type { ModelInfo, ProviderDescriptor, Team } from "../lib/types";
+import { __setInvokeForTest } from "../lib/bridge";
+import type { ModelGroupUsage, ModelInfo, ProviderDescriptor, Team } from "../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -325,6 +326,78 @@ test("no reasoning-effort selector when the provider declares none", async () =>
     host.querySelector('[data-testid="effort-select"]') === null,
     "a provider with no declared efforts must not render an effort selector",
   );
+  await act(async () => root.unmount());
+});
+
+test("the spawn picker shows the selected model's group usage", async () => {
+  const models: ModelInfo[] = [
+    { id: "deepseek/deepseek-v4-flash", display_name: "DeepSeek V4 Flash" },
+    { id: "xai/grok-4.6", display_name: "Grok 4.6" },
+  ];
+  const descriptor: ProviderDescriptor = {
+    ...descriptorWith(models),
+    model_groups: [
+      { id: "deepseek", label: "DeepSeek" },
+      { id: "xai", label: "xAI" },
+    ],
+  } as ProviderDescriptor;
+  const usage: ModelGroupUsage = {
+    group: "deepseek",
+    messages: 2,
+    input_tokens: 4_800_000,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    cost_micros: 1_940_000,
+  };
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "provider_model_usage") return [usage] as T;
+    return undefined as T;
+  });
+
+  const team: Team = { id: "team-1", name: "Team", lifecycle: "active", created_at: 0, workspace_id: "ws" };
+  const { host, root } = await render(
+    <TeamUnit
+      team={team}
+      plan={null}
+      tabs={{}}
+      managers={null}
+      managerCount={1}
+      workers={null}
+      workerCount={0}
+      workingWorkerCount={0}
+      providers={[descriptor]}
+      onOpenEffort={() => {}}
+      onAddMember={() => {}}
+    />,
+  );
+
+  await click(host.querySelector('[data-testid="team-menu-trigger"]'));
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes("Add worker")),
+  );
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes(descriptor.display_name)),
+  );
+  // Let the usage fetch resolve before asserting the chip.
+  await act(async () => {
+    for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+  });
+
+  const chip = document.querySelector('[data-testid="team-picker-model-deepseek/deepseek-v4-flash-usage"]');
+  assert(chip, "a model whose group reports usage renders a usage chip");
+  assert(
+    chip.textContent?.includes("$1.94"),
+    `usage chip must show the group cost, got "${chip.textContent}"`,
+  );
+  assert(
+    document.querySelector('[data-testid="team-picker-model-xai/grok-4.6-usage"]') === null,
+    "a group with no reported usage renders no chip",
+  );
+
+  __setInvokeForTest(null);
   await act(async () => root.unmount());
 });
 
