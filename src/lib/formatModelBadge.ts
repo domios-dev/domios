@@ -1,5 +1,12 @@
 export const MODEL_BADGE_MAX_CHARS = 18;
 
+/** A model badge is capped to roughly the width of a provider-label badge, in
+ *  characters, so a long model id cannot dominate the sidebar row. */
+export function modelBadgeWidthForProvider(providerLabel: string): number {
+  const providerWidth = providerLabel.trim().length;
+  return Math.min(Math.max(providerWidth, 8), MODEL_BADGE_MAX_CHARS);
+}
+
 export const MODEL_BADGE_SUFFIXES = [
   "QAT",
   "A4B",
