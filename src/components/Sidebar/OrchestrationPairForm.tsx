@@ -4,6 +4,10 @@ import { AgentIcon } from "../AgentIcon";
 import { PairAffordance } from "../shared/PairAffordance";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 
+/** A 70+ model catalog scrolls inside this bound instead of spilling down the
+ *  viewport; the section headers keep it navigable. */
+const MODEL_MENU_MAX_HEIGHT = 320;
+
 export interface OrchestrationPairValues {
   orchestratorProviderId: string;
   orchestratorModelId: string;
@@ -66,7 +70,12 @@ export function OrchestrationRoleRow({
   const modelOptions: DropdownSelectOption[] =
     models.length === 0
       ? [{ value: "", label: "No models published", disabled: true }]
-      : models.map((m) => ({ value: m.id, label: m.display_name, badge: m.badge ?? undefined }));
+      : models.map((m) => ({
+        value: m.id,
+        label: m.display_name,
+        badge: m.badge ?? undefined,
+        group: m.group ?? undefined,
+      }));
   const effortOptions: DropdownSelectOption[] = efforts.map((e) => ({
     value: e.id,
     label: e.display_name,
@@ -91,21 +100,23 @@ export function OrchestrationRoleRow({
             value={modelId}
             onChange={onModelChange}
             disabled={models.length === 0 || providerDisabled}
+            menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
         </div>
-        {efforts.length > 0 && onEffortChange && (
-          <div className="w-[38%] min-w-0">
-            <DropdownSelect
-              data-testid={effortTestId}
-              options={effortOptions}
-              value={effortId ?? ""}
-              onChange={onEffortChange}
-              placeholder="Effort"
-              disabled={providerDisabled}
-            />
-          </div>
-        )}
       </div>
+      {efforts.length > 0 && onEffortChange && (
+        <div className="min-w-0">
+          <DropdownSelect
+            data-testid={effortTestId}
+            options={effortOptions}
+            value={effortId ?? ""}
+            onChange={onEffortChange}
+            placeholder="Default"
+            prefix="Effort"
+            disabled={providerDisabled}
+          />
+        </div>
+      )}
       {providerDisabled && (
         <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
           <span>{provider?.display_name ?? "This provider"}'s CLI isn't installed</span>

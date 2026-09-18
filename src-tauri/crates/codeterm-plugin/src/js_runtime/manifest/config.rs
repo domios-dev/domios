@@ -513,6 +513,9 @@ pub struct SerdeModelInfo {
     /// See `ModelInfo::badge`. Short chip rendered beside the picker label.
     #[serde(default)]
     pub badge: Option<String>,
+    /// See `ModelInfo::group`. Provider-declared picker section label.
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -525,6 +528,7 @@ impl From<&SerdeModelInfo> for ModelInfo {
             availability: s.availability,
             featured: s.featured,
             badge: s.badge.clone(),
+            group: s.group.clone(),
         }
     }
 }
@@ -590,12 +594,14 @@ mod tests {
             "displayName": "DeepSeek V4 Flash",
             "featured": true,
             "badge": "own",
+            "group": "deepseek",
         }))
-        .expect("featured/badge parse");
+        .expect("featured/badge/group parse");
 
         let model: ModelInfo = (&parsed).into();
         assert_eq!(model.featured, Some(true));
         assert_eq!(model.badge.as_deref(), Some("own"));
+        assert_eq!(model.group.as_deref(), Some("deepseek"));
         assert!(model.is_featured());
     }
 
@@ -608,6 +614,7 @@ mod tests {
         let model: ModelInfo = (&parsed).into();
         assert_eq!(model.featured, None);
         assert_eq!(model.badge, None);
+        assert_eq!(model.group, None);
         assert!(!model.is_featured());
     }
 }
