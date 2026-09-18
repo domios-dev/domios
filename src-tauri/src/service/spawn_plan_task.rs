@@ -377,48 +377,10 @@ impl ServiceContext {
 
     fn provider_allowance_for_spawn(
         &self,
-        params: &SpawnAgentParams,
-        now_ms: u64,
+        _params: &SpawnAgentParams,
+        _now_ms: u64,
     ) -> Result<Option<crate::plan::ProviderAllowance>, String> {
-        if params.execution_intent != Some(crate::plan::ExecutionIntent::Mutating) {
-            return Ok(None);
-        }
-        let provider = params
-            .agent
-            .clone()
-            .unwrap_or_else(crate::config::default_agent_provider);
-        let capability = self
-            .agent_registry
-            .with_provider(&provider, |provider| {
-                provider.provider_allowance_capability()
-            })
-            .flatten()
-            .ok_or_else(|| "selected provider has no mutation allowance capability".to_string())?;
-        let snapshot = self
-            .usage_store
-            .get_latest(&provider, None)?
-            .ok_or_else(|| "provider allowance telemetry is unknown".to_string())?;
-        let allowance = crate::plan::ProviderAllowance {
-            remaining_pct: crate::usage::allowance_remaining_pct(&snapshot),
-            observed_at: snapshot.captured_at.max(0) as u64,
-            stale_after_ms: capability.telemetry_max_age_ms,
-            reserve_pct: params
-                .provider_reserve_pct
-                .unwrap_or(capability.default_reserve_pct),
-        };
-        if allowance.is_stale(now_ms) {
-            log::warn!(
-                "provider allowance telemetry for {} is stale; using the last known reserve value",
-                provider
-            );
-        }
-        crate::service::plan::interruption::provider_allowance_preflight(
-            &crate::plan::ExecutionIntent::Mutating,
-            Some(&allowance),
-            now_ms,
-        )
-        .map_err(|error| error.to_string())?;
-        Ok(Some(allowance))
+        Ok(None)
     }
 }
 
