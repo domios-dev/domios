@@ -419,22 +419,25 @@ const plugin: PluginModule = {
     const parsedCursor = parseStructuredCursor(cursor);
     if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
     const [sinceMs, seenAtSinceMs] = parsedCursor;
-    const rows = host.fs.sqliteQuery<{ id: string | number; ts?: number; part?: string; msg?: string }>(
+    // Track `time_updated`, not `time_created`: a streamed part keeps its creation
+    // instant while its text/output grows, so a creation window skips every update.
+    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; msg?: string }>(
       db,
-      "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg " +
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg " +
         "FROM part p JOIN message m ON m.id = p.message_id " +
-        "WHERE p.session_id = ?1 AND p.time_created >= ?2 " +
-        "ORDER BY p.time_created ASC, p.id ASC",
+        "WHERE p.session_id = ?1 AND p.time_updated >= ?2 " +
+        "ORDER BY p.time_updated ASC, p.id ASC",
       [sessionId, sinceMs]
     );
     const messages: unknown[] = [];
     let lastTs = sinceMs;
     let seenAtLastTs = seenAtSinceMs.slice();
     for (let i = 0; i < rows.length; i++) {
-      const ts = rows[i].ts || 0;
+      const updated = rows[i].ts_updated || 0;
+      const created = rows[i].ts_created || updated;
       const id = String(rows[i].id);
-      if (ts > lastTs) {
-        lastTs = ts;
+      if (updated > lastTs) {
+        lastTs = updated;
         seenAtLastTs = [];
       }
       if (seenAtLastTs.indexOf(id) !== -1) continue;
@@ -444,7 +447,7 @@ const plugin: PluginModule = {
       let role = "assistant";
       const msg = safeJson(rows[i].msg);
       if (msg && (msg as { role?: string }).role) role = (msg as { role: string }).role;
-      const cm = partToChatMsg(part as OpencodePart, role, id, ts);
+      const cm = partToChatMsg(part as OpencodePart, role, id, created);
       if (cm) messages.push(cm);
     }
     seenAtLastTs.sort();
