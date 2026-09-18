@@ -204,6 +204,8 @@ export interface AgentProvider {
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
   /** Further usage logs owned by this exact session file (e.g. sub-agent transcripts beside it). */
   sessionUsageSources?(sessionFilePath: string, sessionId: string): string[];
+  /** Every usage log this provider owns for the session; `sessionId` scopes a log shared by many sessions. */
+  usageSources?(cwd: string, sessionId: string): { path: string; sessionId?: string }[];
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */

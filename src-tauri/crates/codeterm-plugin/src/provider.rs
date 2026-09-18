@@ -277,6 +277,45 @@ pub struct ProviderDescriptor {
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
 pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 16;
 
+/// One provider-owned usage log to ingest for a session. `session_id` scopes a
+/// log shared by many sessions (e.g. one sqlite database); a per-session file
+/// leaves it `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageSourceSpec {
+    pub path: PathBuf,
+    pub session_id: Option<String>,
+}
+
+impl UsageSourceSpec {
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            session_id: None,
+        }
+    }
+}
+
+/// The default usage-source set: the session file plus the provider's own extra
+/// logs beside it. Shared by the trait default and the JS bridge so a plugin that
+/// exports nothing keeps the native answer.
+pub fn usage_sources_from_session_file<P: AgentProvider + ?Sized>(
+    provider: &P,
+    cwd: &str,
+    session_id: &str,
+) -> Vec<UsageSourceSpec> {
+    let Some(main) = provider.session_file_path(cwd, session_id) else {
+        return Vec::new();
+    };
+    std::iter::once(UsageSourceSpec::file(main.clone()))
+        .chain(
+            provider
+                .additional_usage_sources(&main, session_id)
+                .into_iter()
+                .map(UsageSourceSpec::file),
+        )
+        .collect()
+}
+
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
 pub trait AgentProvider: Send + Sync {
@@ -351,6 +390,15 @@ pub trait AgentProvider: Send + Sync {
     /// (e.g. sub-agent transcripts). Never another session's; empty when none.
     fn additional_usage_sources(&self, _session_file: &Path, _session_id: &str) -> Vec<PathBuf> {
         Vec::new()
+    }
+
+    /// Every usage log this provider owns for exactly this session, each scoped to
+    /// the session whose rows it holds. Defaults to the session file plus the
+    /// provider's additional sources; a provider whose usage lives in a log shared
+    /// by many sessions (e.g. one sqlite database) overrides this with a
+    /// session-scoped source instead of a fabricated per-session file.
+    fn usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
+        usage_sources_from_session_file(self, cwd, session_id)
     }
 
     /// Detect the most recent session ID for the given working directory.

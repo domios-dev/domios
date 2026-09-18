@@ -333,6 +333,13 @@ var plugin = {
     );
     return rows.length > 0;
   },
+  // opencode keeps every session in one sqlite log, so the source carries the
+  // session id: the reader must not charge a sibling's tokens to this tab.
+  usageSources(_cwd, sessionId) {
+    const db = opencodeDbPath();
+    if (!db || !sessionId || !host.fs.fileExists(db)) return [];
+    return [{ path: db, sessionId }];
+  },
   // birth-time guard to sqlite-backed sessions, which have no per-session file.
   sessionCreatedMs(_cwd, sessionId) {
     const db = opencodeDbPath();
