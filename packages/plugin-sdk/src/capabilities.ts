@@ -421,6 +421,10 @@ export interface ModelInfo {
   // A probe that could not run reports "unknown" here and publishes no
   // `available` boolean: unavailable must mean the CLI answered no.
   availability?: "available" | "unavailable" | "unknown";
+  // Marks this model to lead the picker list, ahead of the rest.
+  featured?: boolean;
+  // Short chip rendered beside the model label in spawn pickers.
+  badge?: string;
 }
 
 export interface Model extends ModelInfo {

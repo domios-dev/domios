@@ -507,6 +507,12 @@ pub struct SerdeModelInfo {
     /// `unknown` here rather than collapsing into `available: false`.
     #[serde(default)]
     pub availability: Option<ModelAvailability>,
+    /// See `ModelInfo::featured`. Marks a model to lead the picker list.
+    #[serde(default)]
+    pub featured: Option<bool>,
+    /// See `ModelInfo::badge`. Short chip rendered beside the picker label.
+    #[serde(default)]
+    pub badge: Option<String>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -517,6 +523,8 @@ impl From<&SerdeModelInfo> for ModelInfo {
             description: s.description.clone(),
             available: s.available,
             availability: s.availability,
+            featured: s.featured,
+            badge: s.badge.clone(),
         }
     }
 }
@@ -569,4 +577,37 @@ pub struct PermissionsConfig {
     /// Whether the plugin may read machine-wide KPI aggregates via `host.analytics`.
     #[serde(default)]
     pub analytics: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serde_model_info_carries_featured_and_badge_into_model_info() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "deepseek-v4-flash",
+            "displayName": "DeepSeek V4 Flash",
+            "featured": true,
+            "badge": "own",
+        }))
+        .expect("featured/badge parse");
+
+        let model: ModelInfo = (&parsed).into();
+        assert_eq!(model.featured, Some(true));
+        assert_eq!(model.badge.as_deref(), Some("own"));
+        assert!(model.is_featured());
+    }
+
+    #[test]
+    fn serde_model_info_defaults_featured_and_badge_to_none() {
+        let parsed: SerdeModelInfo =
+            serde_json::from_value(serde_json::json!({ "id": "m", "displayName": "M" }))
+                .expect("minimal model parse");
+
+        let model: ModelInfo = (&parsed).into();
+        assert_eq!(model.featured, None);
+        assert_eq!(model.badge, None);
+        assert!(!model.is_featured());
+    }
 }

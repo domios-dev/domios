@@ -99,6 +99,8 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
         },
         ModelInfo {
             id: "live-b".into(),
@@ -106,6 +108,8 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: Some("second".into()),
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
         },
         // A probe that could not run is a capability answer of its own, so the
         // native and JS paths must agree it is unknown, not unavailable.
@@ -115,6 +119,8 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: None,
             available: None,
             availability: Some(crate::provider::ModelAvailability::Unknown),
+            featured: None,
+            badge: None,
         },
     ]
 }
@@ -297,6 +303,8 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             description: Some("ready".into()),
             available: Some(true),
             availability: None,
+            featured: None,
+            badge: None,
         },
         ModelInfo {
             id: "sentinel-b".into(),
@@ -304,6 +312,8 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             description: Some("offline".into()),
             available: Some(false),
             availability: None,
+            featured: None,
+            badge: None,
         },
     ]
 }

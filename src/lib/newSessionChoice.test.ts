@@ -108,6 +108,50 @@ test("persisted choices are re-derived when the plugin catalog changes", () => {
   assert(choice.plannerModelId === "model-next", "removed planner model resolves from current catalog");
 });
 
+test("reasoning effort resolves from the provider catalog and round-trips", () => {
+  const withEfforts = {
+    ...provider("provider-a", [{ id: "model-a", display_name: "Model A" }]),
+    reasoning_efforts: [
+      { id: "low", display_name: "Low" },
+      { id: "high", display_name: "High" },
+    ],
+    default_reasoning_effort: "high",
+  } as ProviderDescriptor;
+
+  const choice = defaultNewSessionChoice([withEfforts]);
+  assert(choice.mode === "pair", "defaults to pair mode");
+  if (choice.mode !== "pair") return;
+  assert(choice.orchestratorEffortId === "high", "defaults to the provider's default effort");
+
+  writePersistedNewSessionChoice({
+    mode: "single",
+    providerId: "provider-a",
+    modelId: "model-a",
+    effortId: "low",
+  });
+  const read = readPersistedNewSessionChoice([withEfforts]);
+  assert(read.mode === "single" && read.effortId === "low", "chosen effort round-trips");
+
+  writePersistedNewSessionChoice({
+    mode: "single",
+    providerId: "provider-a",
+    modelId: "model-a",
+    effortId: "ultra",
+  });
+  const reDerived = readPersistedNewSessionChoice([withEfforts]);
+  assert(
+    reDerived.mode === "single" && reDerived.effortId === "high",
+    "an undeclared effort falls back to the provider default",
+  );
+});
+
+test("no effort is selected when the provider declares none", () => {
+  const choice = defaultNewSessionChoice(PROVIDERS);
+  assert(choice.mode === "pair", "defaults to pair mode");
+  if (choice.mode !== "pair") return;
+  assert(choice.orchestratorEffortId === undefined, "no declared efforts ⇒ no selection");
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {

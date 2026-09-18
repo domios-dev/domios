@@ -19,14 +19,17 @@ export interface SingleSessionChoice {
   mode: "single";
   providerId: string;
   modelId?: string;
+  effortId?: string;
 }
 
 export interface PairSessionChoice {
   mode: "pair";
   orchestratorProviderId: string;
   orchestratorModelId?: string;
+  orchestratorEffortId?: string;
   plannerProviderId: string;
   plannerModelId?: string;
+  plannerEffortId?: string;
 }
 
 export type NewSessionChoice = SingleSessionChoice | PairSessionChoice;
@@ -48,6 +51,19 @@ function resolveModel(
   return models[0]?.id;
 }
 
+export function resolveEffort(
+  provider: ProviderDescriptor | undefined,
+  selectedEffortId?: string,
+): string | undefined {
+  const efforts = provider?.reasoning_efforts ?? [];
+  if (efforts.length === 0) return undefined;
+  if (efforts.some((effort) => effort.id === selectedEffortId)) return selectedEffortId;
+  if (efforts.some((effort) => effort.id === provider?.default_reasoning_effort)) {
+    return provider?.default_reasoning_effort;
+  }
+  return efforts[0]?.id;
+}
+
 export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSessionChoice {
   const provider = providers[0];
   const providerId = provider?.id ?? "";
@@ -56,8 +72,10 @@ export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSes
     mode: "pair",
     orchestratorProviderId: providerId,
     orchestratorModelId: modelId,
+    orchestratorEffortId: resolveEffort(provider),
     plannerProviderId: providerId,
     plannerModelId: modelId,
+    plannerEffortId: resolveEffort(provider),
   };
 }
 
@@ -71,6 +89,7 @@ function resolvePersistedChoice(
       mode: "single",
       providerId: provider?.id ?? "",
       modelId: resolveModel(provider, choice.modelId),
+      effortId: resolveEffort(provider, choice.effortId),
     };
   }
   const orchestrator = resolveProvider(providers, choice.orchestratorProviderId);
@@ -79,8 +98,10 @@ function resolvePersistedChoice(
     mode: "pair",
     orchestratorProviderId: orchestrator?.id ?? "",
     orchestratorModelId: resolveModel(orchestrator, choice.orchestratorModelId),
+    orchestratorEffortId: resolveEffort(orchestrator, choice.orchestratorEffortId),
     plannerProviderId: planner?.id ?? "",
     plannerModelId: resolveModel(planner, choice.plannerModelId),
+    plannerEffortId: resolveEffort(planner, choice.plannerEffortId),
   };
 }
 

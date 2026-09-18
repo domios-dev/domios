@@ -319,6 +319,8 @@ impl ChatBackendProvider for JsChatBackend {
                 description: m.description,
                 available: m.available,
                 availability: None,
+                featured: None,
+                badge: None,
             })
             .collect())
     }
