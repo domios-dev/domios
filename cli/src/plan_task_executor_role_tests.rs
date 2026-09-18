@@ -34,6 +34,8 @@ fn executor_role_required_presence_only_accepts_a_short_unimaginative_role() {
         "Short role lane",
         "--executor-role",
         "dev",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "x",
     ])

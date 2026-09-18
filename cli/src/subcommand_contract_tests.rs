@@ -522,6 +522,8 @@ fn plan_task_add_with_required_worker_fields_parses() {
         "y",
         "--executor-role",
         "rust-backend-dev",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "focused worker",
     ])

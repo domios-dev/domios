@@ -2257,7 +2257,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model`
 - `--name`
 - `--parent`
-- `--personality` — Executor persona name, e.g. Alex, Emma, Leo
+- `--personality` — REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'
 - `<plan_id>`
 - `--primary`
 - `--priority`
