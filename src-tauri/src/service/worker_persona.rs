@@ -122,12 +122,11 @@ impl WorkerPersonaReservations {
             .collect()
     }
 
-    /// Reservations across the whole workspace, regardless of which session
-    /// made them — closes the cross-session concurrent-claim race.
-    fn reserved_titles_in_workspace(&self, workspace_id: &str) -> Vec<String> {
+    /// Reservations across every workspace and session: an in-flight claim is
+    /// global, so no second Worker anywhere may take the same name.
+    fn all_reserved_titles(&self) -> Vec<String> {
         self.entries
             .values()
-            .filter(|entry| entry.scope.workspace_id == workspace_id)
             .map(|entry| entry.title.clone())
             .collect()
     }
@@ -149,11 +148,11 @@ impl ServiceContext {
         let seed = seed_for_worker_persona(params, &scope, intent.suggested_title.as_deref());
         let mut reservations = self.worker_identity_allocator.lock();
         let mut used = self.used_worker_persona_names_locked(params, &scope);
-        // Workspace-wide, not session-scoped: two sessions racing in one
-        // workspace must never claim the same in-flight persona.
-        used.extend(reservations.reserved_titles_in_workspace(&scope.workspace_id));
+        // Global, not workspace-scoped: a Worker spawning in any workspace must
+        // never claim a persona another in-flight Worker already holds.
+        used.extend(reservations.all_reserved_titles());
         let allocation = if intent.preserve_title {
-            allocate_task_bound_persona_name(intent.suggested_title.as_deref())
+            allocate_task_bound_persona_name(intent.suggested_title.as_deref(), &used, seed)
         } else {
             allocate_worker_persona_name(
                 &used,
@@ -230,7 +229,7 @@ impl ServiceContext {
     }
 
     /// Titles a new worker persona must never collide with: every live tab in
-    /// the workspace (any role, any session), the spawning parent, and recent attempts.
+    /// every workspace (any role, any session), the spawning parent, and recent attempts.
     fn used_worker_persona_names_locked(
         &self,
         params: &SpawnAgentParams,
@@ -238,7 +237,7 @@ impl ServiceContext {
     ) -> Vec<String> {
         let mut names = {
             let mux = self.mux.read();
-            let mut names = workspace_live_titles(&mux, &scope.workspace_id);
+            let mut names = all_live_titles(&mux);
             if let Some(parent_id) = params.parent_tab_id.as_deref() {
                 let title = mux.display_label_for_tab(parent_id);
                 if !title.trim().is_empty() {
@@ -256,15 +255,12 @@ impl ServiceContext {
     }
 }
 
-/// Every non-empty display title of a live tab in `workspace_id`, regardless
-/// of role or owning session.
-fn workspace_live_titles(
-    mux: &crate::multiplexer::state::MultiplexerState,
-    workspace_id: &str,
-) -> BTreeSet<String> {
+/// Every non-empty display title of a live tab across every workspace,
+/// regardless of role or owning session. Persona uniqueness is global: the same
+/// one-word name must never label two live tabs, even in different workspaces.
+fn all_live_titles(mux: &crate::multiplexer::state::MultiplexerState) -> BTreeSet<String> {
     mux.list_workspaces()
         .into_iter()
-        .filter(|ws| ws.id == workspace_id)
         .flat_map(|ws| ws.tab_ids)
         .filter(|tab_id| mux.get_tab(tab_id).is_some())
         .map(|tab_id| mux.display_label_for_tab(&tab_id))
@@ -328,11 +324,28 @@ where
     }
 }
 
-fn allocate_task_bound_persona_name(preferred_title: Option<&str>) -> WorkerPersonaAllocation {
-    WorkerPersonaAllocation {
-        title: preferred_title.unwrap_or("Worker").trim().to_string(),
-        exhausted_pool: false,
+/// A task-bound Worker keeps its explicitly planned name verbatim; with no
+/// planned name it draws a unique one from the pool rather than settling on the
+/// bare role label. The in-flight claim is reserved by the caller either way.
+fn allocate_task_bound_persona_name<I, S>(
+    preferred_title: Option<&str>,
+    used_names: I,
+    seed: u64,
+) -> WorkerPersonaAllocation
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    if let Some(title) = preferred_title
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return WorkerPersonaAllocation {
+            title: title.to_string(),
+            exhausted_pool: false,
+        };
     }
+    allocate_worker_persona_name(used_names, None, Some(FALLBACK_PREFIX), seed)
 }
 
 fn select_pool_name(used: &HashSet<String>, seed: u64) -> Option<String> {
@@ -432,6 +445,145 @@ mod tests {
 
         assert!(reservation.is_some());
         assert_eq!(params.title.as_deref(), Some("Eli"));
+    }
+
+    #[test]
+    fn task_bound_without_planned_name_draws_from_the_pool() {
+        let used = ["Orchestrator-Prime", "Kai"];
+        let allocation = allocate_task_bound_persona_name(None, used, 0);
+        assert!(
+            WORKER_PERSONA_POOL.contains(&allocation.title.as_str()),
+            "a task-bound Worker with no planned name must draw from the pool, got {}",
+            allocation.title
+        );
+        assert_ne!(allocation.title, "Worker");
+    }
+
+    #[test]
+    fn task_bound_planned_name_is_preserved_verbatim() {
+        let allocation =
+            allocate_task_bound_persona_name(Some("Ada"), std::iter::empty::<&str>(), 0);
+        assert_eq!(allocation.title, "Ada");
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn task_bound_dispatch_without_persona_reserves_a_unique_pool_name() {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            task_id: Some("task_bound".into()),
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: "plan_1".into(),
+                task_id: "task_bound".into(),
+                attempt_id: "attempt_1".into(),
+                lane_base: None,
+            }),
+            ..Default::default()
+        };
+
+        let reservation = fixture
+            .service
+            .reserve_worker_persona(&mut params)
+            .expect("persona reservation succeeds");
+
+        assert!(reservation.is_some());
+        let title = params.title.as_deref().expect("task-bound Worker is named");
+        assert!(
+            WORKER_PERSONA_POOL.contains(&title),
+            "dispatch with no persona must name the Worker from the pool, got {title}"
+        );
+        assert_eq!(
+            params.title_provenance,
+            Some(SpawnIdentityProvenance::Suggested)
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn task_bound_explicit_personality_wins_over_pool() {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            task_id: Some("task_bound".into()),
+            title: Some("Dumas".into()),
+            title_provenance: Some(SpawnIdentityProvenance::UserSupplied),
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: "plan_1".into(),
+                task_id: "task_bound".into(),
+                attempt_id: "attempt_1".into(),
+                lane_base: None,
+            }),
+            ..Default::default()
+        };
+
+        let reservation = fixture
+            .service
+            .reserve_worker_persona(&mut params)
+            .expect("persona reservation succeeds");
+
+        assert!(reservation.is_some());
+        assert_eq!(params.title.as_deref(), Some("Dumas"));
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn in_flight_persona_is_not_reissued_in_another_workspace() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let ws_a = mux.list_workspaces()[0].id.clone();
+        let ws_b = mux.create_workspace("Other".into(), None).id.clone();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+        let mut first = SpawnAgentParams {
+            role: Some("Worker".into()),
+            workspace_id: Some(ws_a),
+            ..Default::default()
+        };
+        let _first_guard = fixture
+            .service
+            .reserve_worker_persona(&mut first)
+            .expect("persona reservation succeeds")
+            .expect("a plain Worker is named");
+        let first_name = first.title.clone().expect("first Worker is named");
+
+        let mut second = SpawnAgentParams {
+            role: Some("Worker".into()),
+            workspace_id: Some(ws_b),
+            title: Some(first_name.clone()),
+            ..Default::default()
+        };
+        let _second_guard = fixture
+            .service
+            .reserve_worker_persona(&mut second)
+            .expect("persona reservation succeeds")
+            .expect("a plain Worker is named");
+
+        assert_ne!(
+            second.title.as_deref(),
+            Some(first_name.as_str()),
+            "an in-flight persona must not be reissued in another workspace"
+        );
+    }
+
+    #[test]
+    fn allocation_avoids_titles_held_in_another_workspace() {
+        use crate::multiplexer::state::MultiplexerState;
+
+        let (mut mux, _) = MultiplexerState::new();
+        let ws_b = mux.create_workspace("Other".into(), None).id.clone();
+        let tab_b = mux
+            .create_tab(&ws_b)
+            .expect("create tab in other workspace");
+        mux.rename_tab(&tab_b, "Ada").expect("rename tab");
+
+        let used = all_live_titles(&mux);
+        let allocation = allocate_worker_persona_name(&used, Some("Ada"), None, 0);
+        assert_ne!(
+            allocation.title, "Ada",
+            "a persona held in another workspace must not be reissued"
+        );
     }
 
     #[test]
@@ -559,8 +711,8 @@ mod tests {
         mux.rename_tab(&worker, "pane rename identity").unwrap();
 
         // Exactly what used_worker_persona_names_locked composes.
-        let mut reserved = workspace_live_titles(&mux, &ws_id);
-        reserved.extend(reservations.lock().reserved_titles_in_workspace(&ws_id));
+        let mut reserved = all_live_titles(&mux);
+        reserved.extend(reservations.lock().all_reserved_titles());
         assert!(
             reserved.contains("Vera"),
             "a live Worker's assigned persona must stay reserved across its own rename; reserved={reserved:?}"
@@ -582,22 +734,19 @@ mod tests {
         }
         .commit_to_tab("tab-1");
         assert_eq!(
-            reservations.lock().reserved_titles_in_workspace("ws"),
+            reservations.lock().all_reserved_titles(),
             vec!["Vera".to_string()]
         );
 
         reservations.lock().release_for_tab("tab-1");
         assert!(
-            reservations
-                .lock()
-                .reserved_titles_in_workspace("ws")
-                .is_empty(),
+            reservations.lock().all_reserved_titles().is_empty(),
             "a closed tab must not keep holding its persona"
         );
     }
 
     #[test]
-    fn workspace_live_titles_excludes_non_worker_roles() {
+    fn live_titles_include_all_roles_and_workspaces() {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::AgentRole;
 
@@ -616,7 +765,11 @@ mod tests {
             .expect("attach worker");
         mux.rename_tab(&worker_tab, "Esme").expect("rename worker");
 
-        let titles = workspace_live_titles(&mux, &ws_id);
+        let other_ws = mux.create_workspace("Other".into(), None).id.clone();
+        let other_tab = mux.create_tab(&other_ws).expect("create tab in other ws");
+        mux.rename_tab(&other_tab, "Nora").expect("rename tab");
+
+        let titles = all_live_titles(&mux);
         assert!(
             titles.contains("Orchestrator-Prime"),
             "the parent Orchestrator's own tab title must count as used, not just Worker Tabs: {titles:?}"
@@ -626,10 +779,14 @@ mod tests {
             "a plain (roleless) tab's title must count as used: {titles:?}"
         );
         assert!(titles.contains("Esme"));
+        assert!(
+            titles.contains("Nora"),
+            "a title held in a different workspace must count as used: {titles:?}"
+        );
     }
 
     #[test]
-    fn workspace_live_titles_ignores_session_scoping() {
+    fn live_titles_ignore_session_scoping() {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::AgentRole;
 
@@ -646,7 +803,7 @@ mod tests {
 
         // The old scan filtered live tabs to the caller's own session_id,
         // so a Worker title claimed under a different session was invisible.
-        let titles = workspace_live_titles(&mux, &ws_id);
+        let titles = all_live_titles(&mux);
         assert!(
             titles.contains("Nora"),
             "a title held by a Tab from a different session must still be excluded: {titles:?}"
@@ -664,26 +821,25 @@ mod tests {
     }
 
     #[test]
-    fn reservations_collide_across_sessions_in_the_same_workspace() {
+    fn reservations_are_global_across_sessions_and_workspaces() {
         let mut reservations = WorkerPersonaReservations::default();
-        let scope_a = ReservationScope {
-            workspace_id: "ws".into(),
-            session_id: Some("session-a".into()),
-        };
-        let scope_b = ReservationScope {
-            workspace_id: "ws".into(),
-            session_id: Some("session-b".into()),
-        };
-        reservations.reserve(scope_a, "Ada".into());
-
-        // Session-scoped lookup (the old collision-check) can't see session-a's
-        // in-flight claim from session-b's scope.
-        assert!(reservations.reserved_titles(&scope_b).is_empty());
-        // Workspace-scoped lookup sees it regardless of which session reserved it.
-        assert_eq!(
-            reservations.reserved_titles_in_workspace("ws"),
-            vec!["Ada".to_string()]
+        reservations.reserve(
+            ReservationScope {
+                workspace_id: "ws-a".into(),
+                session_id: Some("session-a".into()),
+            },
+            "Ada".into(),
         );
+
+        // A session-scoped lookup cannot see another session's claim...
+        assert!(reservations
+            .reserved_titles(&ReservationScope {
+                workspace_id: "ws-a".into(),
+                session_id: Some("session-b".into()),
+            })
+            .is_empty());
+        // ...but the global claim scan must, regardless of session or workspace.
+        assert_eq!(reservations.all_reserved_titles(), vec!["Ada".to_string()]);
     }
 
     #[test]
