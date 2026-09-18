@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::provider::{
-    AgentLaunchParams, AgentProvider, ReadinessStrategy, ReasoningEffortInfo, SystemPromptDelivery,
-    TaskDelivery,
+    usage_sources_from_session_file, AgentLaunchParams, AgentProvider, ReadinessStrategy,
+    ReasoningEffortInfo, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
 pub struct MockProvider {
@@ -21,6 +21,7 @@ pub struct MockProvider {
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
+    usage_source: Option<UsageSourceSpec>,
 }
 
 impl MockProvider {
@@ -35,7 +36,18 @@ impl MockProvider {
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
+            usage_source: None,
         }
+    }
+
+    /// Declares a usage log the provider owns for one session, so a test can drive
+    /// the KPI ingest path through the capability instead of a hardcoded layout.
+    pub fn with_usage_source(mut self, path: PathBuf, session_id: &str) -> Self {
+        self.usage_source = Some(UsageSourceSpec {
+            path,
+            session_id: Some(session_id.to_string()),
+        });
+        self
     }
 
     /// Declares what the provider's own record says this exact session is running,
@@ -169,6 +181,12 @@ impl AgentProvider for MockProvider {
     }
     fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
         self.session_file.clone()
+    }
+    fn usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
+        if let Some(source) = &self.usage_source {
+            return vec![source.clone()];
+        }
+        usage_sources_from_session_file(self, cwd, session_id)
     }
     fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_models.get(session_id).cloned()
