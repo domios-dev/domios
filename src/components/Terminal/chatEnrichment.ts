@@ -41,16 +41,22 @@ function enrichUserMessage(m: ChatMessage, item: TimelineItem): EnrichedChatEntr
   ];
 }
 
-/** One rendered row per message identity. A message object that reaches the
- *  projection twice (an absorbed tool member re-emitted, a re-keyed row) would
- *  otherwise be pushed once per occurrence — including once per cache hit. */
+/** One rendered row per message identity. A duplicate occurrence of the same
+ *  message object is dropped; a distinct object with grown content is a streamed
+ *  update and replaces the stale row in place. */
 export function enrichTimelineItems(visible: TimelineItem[], cache: EnrichmentCache): EnrichedChatEntry[] {
   const out: EnrichedChatEntry[] = [];
-  const emitted = new Set<string>();
+  const emittedAt = new Map<string, number>();
   const append = (entry: EnrichedChatEntry): void => {
-    if (emitted.has(entry.msg.id)) return;
-    emitted.add(entry.msg.id);
-    out.push(entry);
+    const at = emittedAt.get(entry.msg.id);
+    if (at === undefined) {
+      emittedAt.set(entry.msg.id, out.length);
+      out.push(entry);
+      return;
+    }
+    const previous = out[at];
+    if (previous.msg === entry.msg || previous.msg.content === entry.msg.content) return;
+    out[at] = entry;
   };
   for (const item of visible) {
     const m = item.kind === "message" ? item.message : item.event.message;
