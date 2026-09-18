@@ -2337,7 +2337,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
-- `--provider-reserve-pct` — Minimum remaining provider allowance for mutating work
+- `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Provider-supported reasoning effort (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
