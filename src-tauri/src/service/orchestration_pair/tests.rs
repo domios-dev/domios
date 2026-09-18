@@ -526,3 +526,17 @@ fn leaf_creation_acknowledged_defaults_false_for_every_existing_transport() {
     let params: OrchestrationPairParams = serde_json::from_value(body).unwrap();
     assert!(!params.leaf_creation_acknowledged);
 }
+
+#[test]
+fn pair_params_carry_reasoning_effort_for_both_roles() {
+    let body = serde_json::json!({
+        "orchestrator_agent": "opencode",
+        "orchestrator_reasoning_effort": "high",
+        "planner_agent": "opencode",
+        "planner_reasoning_effort": "low",
+    });
+    let params: OrchestrationPairParams = serde_json::from_value(body).unwrap();
+
+    assert_eq!(params.orchestrator_reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(params.planner_reasoning_effort.as_deref(), Some("low"));
+}

@@ -242,6 +242,92 @@ test("Team add-member renders exactly the injected descriptor incl. availability
   await act(async () => root.unmount());
 });
 
+test("a model badge renders as a chip beside its label in the spawn picker", async () => {
+  const models: ModelInfo[] = [
+    { id: "m-own", display_name: "DeepSeek V4 Flash", badge: "own" },
+    { id: "m-zen", display_name: "Zen Model" },
+  ];
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(models)]}
+      providerId="provider-x"
+      modelId="m-own"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      modelTestId="badge-model"
+    />,
+  );
+
+  await openDropdown(host.querySelector('[data-testid="badge-model"]')!);
+  const chip = document.querySelector('[data-badge-for="badge-model-option-m-own"]');
+  assert(chip, "a badged model renders a chip");
+  assert(chip.textContent?.trim() === "own", `chip text must be the badge, got "${chip.textContent}"`);
+  assert(
+    document.querySelector('[data-badge-for="badge-model-option-m-zen"]') === null,
+    "an unbadged model renders no chip",
+  );
+  await act(async () => root.unmount());
+});
+
+function descriptorWithEfforts(models: ModelInfo[]): ProviderDescriptor {
+  return {
+    ...descriptorWith(models),
+    reasoning_efforts: [
+      { id: "low", display_name: "Low" },
+      { id: "medium", display_name: "Medium" },
+      { id: "high", display_name: "High" },
+    ],
+    default_reasoning_effort: "medium",
+  } as ProviderDescriptor;
+}
+
+test("reasoning-effort selector renders and reports the chosen effort", async () => {
+  const changes: string[] = [];
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWithEfforts(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      effortId="medium"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      onEffortChange={(effortId) => changes.push(effortId)}
+      effortTestId="effort-select"
+    />,
+  );
+
+  const trigger = host.querySelector('[data-testid="effort-select"]');
+  assert(trigger, "a provider that declares efforts renders the selector");
+  await openDropdown(trigger!);
+  const high = document.querySelector('[data-testid="effort-select-option-high"]');
+  assert(high, "each declared effort renders as an option");
+  await click(high);
+  assert(changes.join(",") === "high", `chosen effort must be reported, got ${changes.join(",")}`);
+  await act(async () => root.unmount());
+});
+
+test("no reasoning-effort selector when the provider declares none", async () => {
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      onEffortChange={() => {}}
+      effortTestId="effort-select"
+    />,
+  );
+  assert(
+    host.querySelector('[data-testid="effort-select"]') === null,
+    "a provider with no declared efforts must not render an effort selector",
+  );
+  await act(async () => root.unmount());
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {

@@ -21,8 +21,15 @@ use crate::service::ServiceContext;
 pub struct OrchestrationPairParams {
     pub orchestrator_agent: String,
     pub orchestrator_model: Option<String>,
+    /// Requested reasoning effort for the Orchestrator. Capability-validated
+    /// against the provider at spawn; unsupported values are rejected.
+    #[serde(default)]
+    pub orchestrator_reasoning_effort: Option<String>,
     pub planner_agent: String,
     pub planner_model: Option<String>,
+    /// Requested reasoning effort for the Planner (same validation as above).
+    #[serde(default)]
+    pub planner_reasoning_effort: Option<String>,
     pub workspace_id: Option<String>,
     pub spawned_by_tab_id: Option<String>,
     /// Blank picker tab to claim for the Orchestrator in place, instead of
@@ -529,6 +536,10 @@ impl ServiceContext {
         let orch_params = SpawnAgentParams {
             agent: Some(params.orchestrator_agent.clone()),
             model: orchestrator_model.clone(),
+            reasoning_effort: params
+                .orchestrator_reasoning_effort
+                .clone()
+                .filter(|e| !e.trim().is_empty()),
             role: Some("Orchestrator".into()),
             can_spawn: Some(true),
             workspace_id: Some(workspace_id.clone()),
@@ -585,6 +596,10 @@ impl ServiceContext {
         let planner_params = SpawnAgentParams {
             agent: Some(params.planner_agent.clone()),
             model: planner_model.clone(),
+            reasoning_effort: params
+                .planner_reasoning_effort
+                .clone()
+                .filter(|e| !e.trim().is_empty()),
             title: Some(reserved.planner_name.clone()),
             role: Some("Manager".into()),
             role_profile: Some("planner".into()),
