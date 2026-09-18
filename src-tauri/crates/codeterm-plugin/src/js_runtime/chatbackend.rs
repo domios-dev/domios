@@ -121,6 +121,8 @@ struct PluginModel {
     description: Option<String>,
     #[serde(default)]
     available: Option<bool>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -321,6 +323,7 @@ impl ChatBackendProvider for JsChatBackend {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: m.group,
             })
             .collect())
     }

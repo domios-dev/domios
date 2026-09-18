@@ -813,6 +813,8 @@ export interface ModelInfo {
   featured?: boolean | null;
   /** Short chip rendered beside the model label in spawn pickers. */
   badge?: string | null;
+  /** Provider-declared picker section; models sharing it render together. */
+  group?: string | null;
 }
 
 export interface ReasoningEffortInfo {

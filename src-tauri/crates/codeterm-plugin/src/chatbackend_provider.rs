@@ -532,6 +532,7 @@ mod tests {
             availability: None,
             featured: None,
             badge: None,
+            group: None,
         }
     }
 

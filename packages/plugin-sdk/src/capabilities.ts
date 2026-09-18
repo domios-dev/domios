@@ -425,6 +425,9 @@ export interface ModelInfo {
   featured?: boolean;
   // Short chip rendered beside the model label in spawn pickers.
   badge?: string;
+  // Provider-declared picker section label. Models sharing a group render
+  // together under that heading; omitted models stay in the flat list.
+  group?: string;
 }
 
 export interface Model extends ModelInfo {

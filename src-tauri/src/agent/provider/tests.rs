@@ -41,6 +41,7 @@ fn provider_descriptor_round_trip() {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             }],
             default_model: Some("model-1".into()),
             reasoning_efforts: vec![ReasoningEffortInfo {
@@ -294,6 +295,7 @@ impl AgentProvider for StubProvider {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             },
             ModelInfo {
                 id: "unsupported".into(),
@@ -303,6 +305,7 @@ impl AgentProvider for StubProvider {
                 availability: None,
                 featured: None,
                 badge: None,
+                group: None,
             },
         ]
     }

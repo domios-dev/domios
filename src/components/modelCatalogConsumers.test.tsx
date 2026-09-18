@@ -328,6 +328,155 @@ test("no reasoning-effort selector when the provider declares none", async () =>
   await act(async () => root.unmount());
 });
 
+test("team add-member groups models into collapsible sections", async () => {
+  const models: ModelInfo[] = [
+    { id: "alpha/one", display_name: "Alpha One", group: "alpha" },
+    { id: "beta/one", display_name: "Beta One", group: "beta" },
+  ];
+  const descriptor = descriptorWith(models);
+  const team: Team = { id: "team-grouped", name: "Team", lifecycle: "active", created_at: 0, workspace_id: "ws" };
+  const { host, root } = await render(
+    <TeamUnit
+      team={team}
+      plan={null}
+      tabs={{}}
+      managers={null}
+      managerCount={1}
+      workers={null}
+      workerCount={0}
+      workingWorkerCount={0}
+      providers={[descriptor]}
+      onOpenEffort={() => {}}
+      onAddMember={() => {}}
+    />,
+  );
+
+  await click(host.querySelector('[data-testid="team-menu-trigger"]'));
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes("Add worker")),
+  );
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes(descriptor.display_name)),
+  );
+
+  const alphaHeader = document.querySelector('[data-testid="team-picker-group-alpha"]') as HTMLButtonElement | null;
+  assert(alphaHeader, "a provider section header renders");
+  assert(
+    document.querySelector('[data-testid="team-picker-model-alpha/one"]') !== null,
+    "the section lists its model",
+  );
+  await click(alphaHeader);
+  assert(
+    document.querySelector('[data-testid="team-picker-model-alpha/one"]') === null,
+    "collapsing hides the section's models",
+  );
+  assert(
+    document.querySelector('[data-testid="team-picker-model-beta/one"]') !== null,
+    "other sections stay open",
+  );
+  await act(async () => root.unmount());
+});
+
+test("model dropdown groups models into collapsible provider sections", async () => {
+  const models: ModelInfo[] = [
+    { id: "alpha/one", display_name: "Alpha One", group: "alpha" },
+    { id: "beta/one", display_name: "Beta One", group: "beta" },
+    { id: "alpha/two", display_name: "Alpha Two", group: "alpha" },
+  ];
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(models)]}
+      providerId="provider-x"
+      modelId="alpha/one"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      modelTestId="grouped-model"
+    />,
+  );
+  await openDropdown(host.querySelector('[data-testid="grouped-model"]')!);
+
+  const headers = Array.from(
+    document.querySelectorAll('[data-testid^="grouped-model-group-"]'),
+  ) as HTMLButtonElement[];
+  assert(headers.length === 2, `expected two provider sections, got ${headers.length}`);
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-alpha/two"]') !== null,
+    "a section lists every model that declares it",
+  );
+  assert(
+    headers[0].getAttribute("aria-expanded") === "true",
+    "sections start expanded",
+  );
+
+  await click(headers[0]);
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-alpha/one"]') === null,
+    "collapsing a section hides its models",
+  );
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-beta/one"]') !== null,
+    "collapsing one section leaves the others open",
+  );
+  assert(
+    headers[0].getAttribute("aria-expanded") === "false",
+    "the collapsed header reports its state",
+  );
+
+  await click(headers[0]);
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-alpha/one"]') !== null,
+    "expanding a section restores its models",
+  );
+  await act(async () => root.unmount());
+});
+
+test("model dropdown without groups stays a flat list", async () => {
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      modelTestId="flat-model"
+    />,
+  );
+  await openDropdown(host.querySelector('[data-testid="flat-model"]')!);
+  assert(
+    document.querySelectorAll('[data-testid^="flat-model-group-"]').length === 0,
+    "no sections are fabricated for an ungrouped catalog",
+  );
+  await act(async () => root.unmount());
+});
+
+test("effort trigger names the control and shows the selected level", async () => {
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWithEfforts(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      effortId="medium"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      onEffortChange={() => {}}
+      effortTestId="effort-select"
+    />,
+  );
+  const trigger = host.querySelector('[data-testid="effort-select"]')!;
+  assert(trigger.textContent?.includes("Effort"), "the trigger shows the Effort label");
+  assert(trigger.textContent?.includes("Medium"), "the trigger shows the selected level");
+  assert(
+    trigger.getAttribute("aria-label") === "Effort: Medium",
+    `the trigger names control and value, got "${trigger.getAttribute("aria-label")}"`,
+  );
+  await act(async () => root.unmount());
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {
