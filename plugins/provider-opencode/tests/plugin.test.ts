@@ -486,6 +486,23 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
   eq(own.detectSessionModel("/cwd", "ses_mine"), "anthropic/claude-own", "this session's own model is returned");
 }
 
+console.log("\n--- usageSources (session-scoped sqlite log) ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: { fileExists: (pth: string) => pth === dbPath },
+  }));
+  eq(
+    p.usageSources("/work/proj", "ses_owned"),
+    [{ path: dbPath, sessionId: "ses_owned" }],
+    "OpenCode declares the shared sqlite log scoped to the tab's own session",
+  );
+  eq(p.usageSources("/work/proj", ""), [], "an empty session id declares no source");
+
+  const absent = loadOpencodeWithHost(ocHost({ fs: { fileExists: () => false } }));
+  eq(absent.usageSources("/work/proj", "ses_owned"), [], "a missing db declares no source");
+}
+
 console.log("\n--- canonical tool fields ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";

@@ -1179,3 +1179,4 @@ mod manifest_launch_template;
 mod opencode;
 mod record_identity;
 mod trust_grant;
+mod usage_sources;
