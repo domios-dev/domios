@@ -7,19 +7,20 @@ name: tests
 on:
   pull_request:
   push:
-    branches: [master, 'release/**', 'feat/**', 'lane/**']
+    branches: [master]
     paths-ignore:
       - '.codeterm/**'
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
 
-# One commit, one matrix run. github.ref is refs/heads/<branch> for the push
-# event and refs/pull/N/merge for the pull_request event, so a branch with an
-# open PR built two disjoint groups and ran the matrix twice per commit — which
-# the single self-hosted Windows runner cannot absorb. The key is the commit
-# under test instead: pull_request carries it as head.sha, every other event as
-# github.sha, so both events for one commit collapse into one group.
+# A branch is tested through its pull request, never through its own pushes:
+# release/feat/lane pushes duplicated the matrix the PR already ran, and the
+# single self-hosted Linux runner they contend for is the one a release needs.
+# master stays because a real three-way merge produces a tree neither side tested.
+#
+# The key is the commit under test rather than the ref, so the push and
+# pull_request events for one commit collapse into one group.
 concurrency:
   group: tests-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true

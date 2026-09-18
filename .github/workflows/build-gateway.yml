@@ -5,6 +5,10 @@ name: build-gateway
 # without anyone noticing. They are shell-only: they drive build.sh against a
 # fixture state dir, take no machine build slot and invoke no Cargo.
 #
+# They run on a GitHub-hosted runner for that reason: the single self-hosted
+# linux-build machine is the one a release lane needs, and these guards once
+# queued ahead of a release on it.
+#
 # Gateway logging has no script of this name. It is build.sh's own
 # `gateway-logging-check` (check_build_gateway_logging, driving gateway-log-probe),
 # which is likewise unwired; wiring it needs its own verified run first.
@@ -23,7 +27,7 @@ on:
       - 'scripts/fixtures/build-gateway-*'
       - '.github/workflows/build-gateway.yml'
   push:
-    branches: [master, 'release/**']
+    branches: [master]
     paths:
       - 'build.sh'
       - 'scripts/build-gateway.sh'
@@ -44,7 +48,7 @@ concurrency:
 jobs:
   guards:
     name: gateway guards
-    runs-on: [self-hosted, linux-build]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
