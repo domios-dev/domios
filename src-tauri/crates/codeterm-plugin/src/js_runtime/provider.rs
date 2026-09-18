@@ -18,8 +18,8 @@ use wire::{
 };
 
 use crate::provider::{
-    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelInfo,
-    ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
+    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelGroup, ModelGroupUsage,
+    ModelInfo, ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
     SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
     TaskDelivery, VerifySubmitStrategy,
 };
@@ -999,6 +999,19 @@ impl AgentProvider for JsProvider {
     fn default_model(&self) -> Option<String> {
         crate::model_catalog::resolve_default(&self.manifest.id)
             .or_else(|| self.manifest.default_model.clone())
+    }
+
+    fn model_groups(&self) -> Vec<ModelGroup> {
+        self.manifest.model_groups.clone()
+    }
+
+    fn model_group_usage(&self) -> Vec<ModelGroupUsage> {
+        self.try_call::<Vec<ModelGroupUsage>>("modelGroupUsage", &[])
+            .unwrap_or_default()
+    }
+
+    fn model_credential_files(&self) -> Vec<PathBuf> {
+        super::host_credentials::declared_files(&self.manifest.credentials)
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {

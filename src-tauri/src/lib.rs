@@ -292,6 +292,7 @@ pub fn run() {
             commands::delayed_send_send_now,
             commands::check_cli_installed,
             commands::refresh_provider_models,
+            commands::provider_model_usage,
             commands::install_provider_in_tab,
             commands::plugin_manager_snapshot,
             commands::plugin_manager_action,

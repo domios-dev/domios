@@ -21,6 +21,9 @@ import {
 } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 import { refusalText } from "../../lib/refusalText";
+import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
+import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
+import { invoke } from "../../lib/bridge";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -144,7 +147,13 @@ function TeamMenu({
 }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderDescriptor | null>(null);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  // Derive from `providers` (not a captured object) so a catalog refresh — e.g.
+  // a newly connected provider's models — flows into the open picker live.
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
+    [providers, selectedProviderId],
+  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
@@ -158,6 +167,15 @@ function TeamMenu({
   const spawnProviders = providers.filter(
     (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
   );
+  const modelUsage = useProviderModelUsage(selectedProvider?.id ?? null);
+  // Opening the model step is an explicit user action, not a poll: ask the
+  // catalog to re-probe. The backend forces a probe when the provider's
+  // credential files changed, so a just-connected provider appears without a
+  // rebuild; otherwise the TTL keeps it to one probe per window.
+  useEffect(() => {
+    if (!selectedProviderId) return;
+    void invoke("refresh_provider_models", { providerId: selectedProviderId }).catch(() => {});
+  }, [selectedProviderId]);
 
   const positionMenu = useCallback((x: number, y: number) => {
     const width = menuRef.current?.offsetWidth || 174;
@@ -169,7 +187,7 @@ function TeamMenu({
   const openAt = useCallback((x: number, y: number) => {
     openPointRef.current = { x, y };
     setProviderRole(null);
-    setSelectedProvider(null);
+    setSelectedProviderId(null);
     setActionError(null);
     positionMenu(x, y);
     setOpen(true);
@@ -199,7 +217,7 @@ function TeamMenu({
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
         setOpen(false);
         setProviderRole(null);
-        setSelectedProvider(null);
+        setSelectedProviderId(null);
       }
     };
     document.addEventListener("mousedown", close, true);
@@ -216,7 +234,7 @@ function TeamMenu({
   const run = (action: () => void) => {
     setOpen(false);
     setProviderRole(null);
-    setSelectedProvider(null);
+    setSelectedProviderId(null);
     action();
   };
 
@@ -229,7 +247,7 @@ function TeamMenu({
       await onAddMember(role, providerId, model);
       setOpen(false);
       setProviderRole(null);
-      setSelectedProvider(null);
+      setSelectedProviderId(null);
     } catch (error) {
       setActionError(refusalText(error, "Could not add team member."));
     } finally {
@@ -273,7 +291,7 @@ function TeamMenu({
               event.preventDefault();
               setOpen(false);
               setProviderRole(null);
-              setSelectedProvider(null);
+              setSelectedProviderId(null);
               return;
             }
             if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -288,35 +306,47 @@ function TeamMenu({
             <>
               <button type="button" role="menuitem" onClick={() => {
                 pendingProviderFocus.current = selectedProvider.id;
-                setSelectedProvider(null);
+                setSelectedProviderId(null);
               }}>
                 <ChevronRight size={11} className="rotate-180" /> Back
               </button>
               <div className="sidebar-team-menu-label">Choose model</div>
               {selectedProvider.available_models?.length ? (() => {
                 const sections = groupOptionsByLabel(selectedProvider.available_models);
-                const modelButton = (model: ModelInfo) => (
-                  <button
-                    type="button"
-                    key={model.id}
-                    data-testid={`team-picker-model-${model.id}`}
-                    role="menuitemradio"
-                    aria-checked={model.id === selectedProvider.default_model}
-                    disabled={addingMember || model.available === false}
-                    onClick={() => void addMember(providerRole, selectedProvider.id, model.id)}
-                  >
-                    <span className="sidebar-team-picker-model-label">{model.display_name}</span>
-                    {model.badge && (
-                      <span
-                        data-testid={`team-picker-model-${model.id}-badge`}
-                        className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
-                        style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
-                      >
-                        {model.badge}
-                      </span>
-                    )}
-                  </button>
-                );
+                const modelButton = (model: ModelInfo) => {
+                  const usage = usageForModel(modelUsage, selectedProvider.model_groups, model.id);
+                  return (
+                    <button
+                      type="button"
+                      key={model.id}
+                      data-testid={`team-picker-model-${model.id}`}
+                      role="menuitemradio"
+                      aria-checked={model.id === selectedProvider.default_model}
+                      disabled={addingMember || model.available === false}
+                      onClick={() => void addMember(providerRole, selectedProvider.id, model.id)}
+                    >
+                      <span className="sidebar-team-picker-model-label">{model.display_name}</span>
+                      {model.badge && (
+                        <span
+                          data-testid={`team-picker-model-${model.id}-badge`}
+                          className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+                          style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+                        >
+                          {model.badge}
+                        </span>
+                      )}
+                      {hasModelUsage(usage) && (
+                        <span
+                          data-testid={`team-picker-model-${model.id}-usage`}
+                          className="ml-auto shrink-0 text-[9px] tabular-nums text-[var(--ct-muted-fg)]"
+                          title={`${usage.messages} messages`}
+                        >
+                          {formatModelUsage(usage)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                };
                 if (!sections) return selectedProvider.available_models!.map(modelButton);
                 return sections.map((section) => {
                   const collapsed = collapsedGroups.has(section.label);
@@ -372,7 +402,7 @@ function TeamMenu({
                       void addMember(providerRole, provider.id);
                       return;
                     }
-                    setSelectedProvider(provider);
+                    setSelectedProviderId(provider.id);
                   }}
                 >
                   <ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} />

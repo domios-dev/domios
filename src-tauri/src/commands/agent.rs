@@ -398,3 +398,20 @@ pub async fn refresh_provider_models(
     }
     Ok(refreshed)
 }
+
+/// Per-group usage for the model picker. The provider owns both the grouping
+/// and the source; this only carries its answer, so a new provider needs no
+/// core edit. The call may read a provider-owned store, so it stays off the
+/// async runtime. An unknown provider answers with no groups, never an error.
+#[tauri::command]
+pub async fn provider_model_usage(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<Vec<crate::agent::provider::ModelGroupUsage>, String> {
+    let Some(provider) = svc.agent_registry.provider_arc(&provider_id) else {
+        return Ok(Vec::new());
+    };
+    tokio::task::spawn_blocking(move || provider.model_group_usage())
+        .await
+        .map_err(|error| format!("model usage task failed: {error}"))
+}

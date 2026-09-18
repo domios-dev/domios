@@ -225,6 +225,9 @@ export interface AgentProvider {
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
   discoverModels?(): ModelInfo[] | null;
+  /** Cumulative usage per model group (matching manifest `modelGroups` ids, or a
+   *  bare model-id prefix). The picker shows it for the selected model's group. */
+  modelGroupUsage?(): ModelGroupUsage[];
   parseSessionMessages?(text: string): unknown[];
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
@@ -431,6 +434,25 @@ export interface ModelInfo {
 }
 
 export interface Model extends ModelInfo {
+}
+
+/** Provider-owned grouping of its models, e.g. the upstream company a routed
+ *  model belongs to. `id` matches a model-id prefix; `label` is rendered. */
+export interface ModelGroup {
+  id: string;
+  label: string;
+}
+
+/** Cumulative usage the provider attributes to one model group. snake_case to
+ *  match the host wire shape; `cost_micros` is USD × 1_000_000. */
+export interface ModelGroupUsage {
+  group: string;
+  messages: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_micros: number;
 }
 
 export interface PresetInfo {
