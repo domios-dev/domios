@@ -81,9 +81,12 @@ export function EssenceMapCanvasInner(props: EssenceMapCanvasInnerProps) {
 }
 
 function useWorkspaceEssenceMapData(workspace: Workspace | undefined, tabs: Record<string, Tab>) {
-  const projectPaths = useMemo(() => workspace ? projectPathsForWorkspace(workspace, tabs) : [], [tabs, workspace]);
+  // Mux hands back fresh tab and workspace objects many times a second while
+  // agents run; keying on the paths themselves keeps the fetch effect still.
+  const projectPathKey = JSON.stringify(workspace ? projectPathsForWorkspace(workspace, tabs) : []);
+  const projectPaths = useMemo(() => JSON.parse(projectPathKey) as string[], [projectPathKey]);
   const [state, setState] = useState<{ status: "loading" | "ready" | "error"; files: EssenceMapFile[]; error: string | null }>({ status: "loading", files: [], error: null });
-  useEffect(() => { let active = true; if (projectPaths.length === 0) { setState({ status: "ready", files: [], error: null }); return () => { active = false; }; } setState((current) => ({ ...current, status: "loading", error: null })); void fetchWorkspaceEssenceMaps(projectPaths).then((files) => { if (active) setState({ status: "ready", files, error: null }); }, (reason) => { if (active) setState({ status: "error", files: [], error: reason instanceof Error ? reason.message : String(reason) }); }); return () => { active = false; }; }, [projectPaths]);
+  useEffect(() => { let active = true; const paths = JSON.parse(projectPathKey) as string[]; if (paths.length === 0) { setState({ status: "ready", files: [], error: null }); return () => { active = false; }; } setState((current) => ({ ...current, status: "loading", error: null })); void fetchWorkspaceEssenceMaps(paths).then((files) => { if (active) setState({ status: "ready", files, error: null }); }, (reason) => { if (active) setState({ status: "error", files: [], error: reason instanceof Error ? reason.message : String(reason) }); }); return () => { active = false; }; }, [projectPathKey]);
   const retry = useCallback(() => { if (projectPaths.length === 0) return; setState((current) => ({ ...current, status: "loading", error: null })); void fetchWorkspaceEssenceMaps(projectPaths).then((files) => setState({ status: "ready", files, error: null }), (reason) => setState({ status: "error", files: [], error: reason instanceof Error ? reason.message : String(reason) })); }, [projectPaths]);
   return { ...state, retry };
 }

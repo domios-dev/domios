@@ -94,7 +94,7 @@ export function usePlanBoardState(
           refresh();
         }
       });
-  }, [api, planId]);
+  }, [api?.host, api?.port, api?.token, planId]);
 
   useEffect(() => {
     activeRef.current = true;
@@ -104,7 +104,7 @@ export function usePlanBoardState(
       readRef.current?.abort();
       readRef.current = null;
     };
-  }, [api, planId]);
+  }, [api?.host, api?.port, api?.token, planId]);
 
   useEffect(() => {
     if (!api || !planId) {
@@ -120,7 +120,7 @@ export function usePlanBoardState(
       setError(null);
     }
     refresh();
-  }, [api, planId, refresh, revision]);
+  }, [api?.host, api?.port, api?.token, planId, refresh, revision]);
 
   useEffect(() => {
     if (!api || !planId) return;
@@ -150,7 +150,7 @@ export function usePlanBoardState(
       for (const unlisten of unlisteners) unlisten();
       unlisteners.length = 0;
     };
-  }, [api, planId, refresh]);
+  }, [api?.host, api?.port, api?.token, planId, refresh]);
 
   return { state, loading, error };
 }

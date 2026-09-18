@@ -167,23 +167,23 @@ export function MissionControlPlanSurface({
     void setPlanMode(api, id, "approved").catch((reason: unknown) => {
       setActionError(reason instanceof Error ? reason.message : String(reason));
     });
-  }, [api]);
+  }, [api?.host, api?.port, api?.token]);
 
   const previewPlanLifecycle = useCallback((id: string, kind: PlanLifecycleKind) => {
     if (!api) return Promise.reject(new Error("Plan API unavailable"));
     return fetchPlanLifecyclePreview(api, id, kind);
-  }, [api]);
+  }, [api?.host, api?.port, api?.token]);
 
   const confirmPlanLifecycle = useCallback(async (id: string, kind: PlanLifecycleKind) => {
     if (!api) throw new Error("Plan API unavailable");
     if (kind === "pause") await parkPlan(api, id, "Paused from Mission Control");
     else await resumePlan(api, id);
-  }, [api]);
+  }, [api?.host, api?.port, api?.token]);
 
   const clearEverything = useCallback((id: string) => {
     if (!api) return;
     void deletePlan(api, id).catch(() => undefined);
-  }, [api]);
+  }, [api?.host, api?.port, api?.token]);
 
   const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 

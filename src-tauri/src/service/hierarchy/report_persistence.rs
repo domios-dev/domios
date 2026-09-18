@@ -236,7 +236,6 @@ fn persist_bound_report(
         test_cmd: details.test_cmd.clone(),
         test_result: details.test_result.clone(),
         skipped: details.skipped.clone(),
-        diagnostics: details.diagnostics.clone(),
         authority: Some(report_authority(details, tab_id, plan_id, task_id)?),
     };
     store

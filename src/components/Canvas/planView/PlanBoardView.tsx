@@ -236,15 +236,17 @@ export function PlanBoardView({
   );
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
 
+  // Primitive keys only: mux rebuilds the plan object on every broadcast, and
+  // this effect reaches the API.
+  const specPlanId = selectedPlan?.id ?? "";
+  const specSourceId = selectedPlan?.primary_spec_id ?? "";
+  const specIsFixture = specPlanId ? fixtureSpecSections.has(specPlanId) : false;
   useEffect(() => {
-    if (!api || !selectedPlan?.primary_spec_id) return;
-    if (fixtureSpecSections.has(selectedPlan.id)) return;
+    if (!api || !specSourceId || specIsFixture) return;
     let active = true;
-    const planId = selectedPlan.id;
-    const specId = selectedPlan.primary_spec_id;
-    void fetchSpecSections(api, specId)
-      .then((sections) => (active ? [planId, sections] as const : null))
-      .catch(() => (active ? [planId, [] as Section[]] as const : null))
+    void fetchSpecSections(api, specSourceId)
+      .then((sections) => (active ? [specPlanId, sections] as const : null))
+      .catch(() => (active ? [specPlanId, [] as Section[]] as const : null))
       .then((pair) => {
         if (!active || !pair) return;
         setFetchedSpecSections((prev) => new Map(prev).set(pair[0], pair[1]));
@@ -252,7 +254,7 @@ export function PlanBoardView({
     return () => {
       active = false;
     };
-  }, [api, selectedPlan, fixtureSpecSections]);
+  }, [api?.host, api?.port, api?.token, specPlanId, specSourceId, specIsFixture]);
 
   const selectedSpecSections = useMemo(() => {
     if (!selectedPlan) return [] as Section[];

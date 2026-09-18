@@ -424,10 +424,16 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
         Some("live".into()),
     );
 
+    // The catalog entry reaches the list with the catalog's own description, and
+    // the manifest seeds stay visible: a partial live cache must not hide them.
     let ms = p.available_models();
-    assert_eq!(ms.len(), 1);
-    assert_eq!(ms[0].id, "live");
-    assert_eq!(ms[0].description.as_deref(), Some("from catalog"));
+    let live = ms
+        .iter()
+        .find(|model| model.id == "live")
+        .expect("the live catalog entry");
+    assert_eq!(live.description.as_deref(), Some("from catalog"));
+    assert!(ms.iter().any(|model| model.id == "a"));
+    assert!(ms.iter().any(|model| model.id == "b"));
 }
 
 #[test]
@@ -470,7 +476,9 @@ fn settings_model_options_follow_catalog_changes() {
     else {
         panic!("model selector expected");
     };
-    assert_eq!(options, &vec![("live".into(), "Live".into())]);
+    // Membership, not the whole vector: manifest seeds stay listed beside the
+    // live entry, while the default still follows the catalog.
+    assert!(options.contains(&("live".into(), "Live".into())));
     assert_eq!(default.as_deref(), Some("live"));
 }
 

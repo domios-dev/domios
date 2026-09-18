@@ -1,5 +1,4 @@
 pub mod attempt;
-pub mod diagnostics;
 pub mod execution;
 pub mod external_refs;
 pub mod gates;
@@ -14,7 +13,6 @@ pub mod types;
 pub mod work_facet;
 
 pub use attempt::*;
-pub use diagnostics::*;
 pub use execution::*;
 pub use external_refs::*;
 pub use gates::{DecisionGate, GateAnswer, GateStatus, STALE_GATE_MS};

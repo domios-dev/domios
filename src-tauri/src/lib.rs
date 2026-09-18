@@ -890,14 +890,8 @@ pub fn run() {
                 )),
                 worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
-                lane_diagnostics: crate::service::lane_diagnostics::LaneDiagnosticsService::new(
-                    crate::paths::data_dir().join("lane-diagnostics"),
-                ),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
-            service_state
-                .lane_diagnostics
-                .bind_owner(std::sync::Arc::downgrade(&service_state));
             service_state.plan_store.bind_task_key_port(Arc::new(
                 crate::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
                     service_state.mux.clone(),

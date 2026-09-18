@@ -1,4 +1,3 @@
-use super::diagnostics::LaneDiagnosticsSummary;
 use super::types::AttachmentRef;
 use super::{AttemptContinuationState, AttemptInterruptionState};
 use serde::{Deserialize, Serialize};
@@ -62,8 +61,6 @@ pub struct TaskExecutionReportSnapshot {
     pub plan_skill_manifest: Vec<PlanSkillManifestEntry>,
     #[serde(default)]
     pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub diagnostics: Option<LaneDiagnosticsSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

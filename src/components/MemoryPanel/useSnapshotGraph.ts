@@ -69,7 +69,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
       const cur = indexRef.current;
       if (!cur) return;
       try {
-        const delta = await fetchSnapshotDelta(api, cur.layoutVersion, cur.seq, ctrl.signal);
+        const delta = await fetchSnapshotDelta(apiRef.current, cur.layoutVersion, cur.seq, ctrl.signal);
         if (!active) return;
         if (isUnchanged(delta)) return;
         if (isFullSnapshot(delta)) {
@@ -97,7 +97,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
         return;
       }
       try {
-        const snap = await fetchSnapshot(api, ctrl.signal);
+        const snap = await fetchSnapshot(apiRef.current, ctrl.signal);
         ingestFull(snap);
       } catch (e) {
         if ((e as Error)?.name === "AbortError") return;
@@ -117,7 +117,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
       active = false;
       ctrl.abort();
     };
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   // mem-activity → debounced delta fetch (same pattern as legacy useGraphData).
   useEffect(() => {
@@ -130,7 +130,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
       if (!cur) return;
       const ctrl = new AbortController();
       try {
-        const delta = await fetchSnapshotDelta(api, cur.layoutVersion, cur.seq, ctrl.signal);
+        const delta = await fetchSnapshotDelta(apiRef.current, cur.layoutVersion, cur.seq, ctrl.signal);
         if (!active || isUnchanged(delta)) return;
         if (isFullSnapshot(delta)) {
           setIndex(indexSnapshot(delta));
@@ -165,7 +165,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
       if (unlisten) unlisten();
       if (debounce != null) clearTimeout(debounce);
     };
-  }, [api]);
+  }, [api.host, api.port, api.token]);
 
   return { index, status, stats, error, refresh };
 }

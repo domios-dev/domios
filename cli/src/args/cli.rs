@@ -17,7 +17,6 @@ use super::effort::EffortAction;
 use super::essence_map::EssenceMapAction;
 use super::inbox::InboxAction;
 use super::integration::IntegrationAction;
-use super::lane::LaneAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
@@ -308,12 +307,6 @@ pub enum Commands {
     Plan {
         #[command(subcommand)]
         action: PlanAction,
-    },
-
-    /// Run and read daemon-owned diagnostics for worker lanes
-    Lane {
-        #[command(subcommand)]
-        action: LaneAction,
     },
 
     /// Requirements specs — first-class WHAT documents

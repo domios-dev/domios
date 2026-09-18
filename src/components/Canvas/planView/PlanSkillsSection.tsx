@@ -104,7 +104,7 @@ function SkillDetailPanel({
       cancelled = true;
       ctrl.abort();
     };
-  }, [api, planId, slug]);
+  }, [api?.host, api?.port, api?.token, planId, slug]);
 
   const timeline = skillTimelineForSlug(plan, slug);
 
@@ -159,7 +159,7 @@ export function PlanSkillsSection({
       cancelled = true;
       ctrl.abort();
     };
-  }, [api, planId, reloadNonce]);
+  }, [api?.host, api?.port, api?.token, planId, reloadNonce]);
 
   const pick = (slug: string | null) => {
     if (onSelectSlug) onSelectSlug(slug);

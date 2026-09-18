@@ -167,13 +167,6 @@ impl ProviderModels {
         self.binary = binary;
         self
     }
-
-    fn as_defaults(&self) -> RegisteredDefaults {
-        RegisteredDefaults {
-            models: self.models.clone(),
-            default: self.default.clone(),
-        }
-    }
 }
 
 fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
@@ -266,16 +259,12 @@ pub fn unregister(provider_id: &str) {
     override_cache().write().remove(provider_id);
 }
 
-/// Pure in-memory snapshot used by descriptor hot paths.
+/// Resolved snapshot used by descriptor hot paths.
 pub fn registered_snapshot(provider_id: &str) -> RegisteredDefaults {
-    registry()
-        .read()
-        .get(provider_id)
-        .map(ProviderModels::as_defaults)
-        .unwrap_or(RegisteredDefaults {
-            models: Vec::new(),
-            default: None,
-        })
+    RegisteredDefaults {
+        models: resolve_models(provider_id),
+        default: resolve_default(provider_id),
+    }
 }
 
 pub fn register_reasoning_efforts(
@@ -543,15 +532,29 @@ fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> O
 ///
 /// Unregistered provider returns the override list as-is (or empty).
 pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
-    let registered = registry()
-        .read()
-        .get(provider_id)
-        .map(|d| d.models.clone())
-        .unwrap_or_default();
+    let registered = registered_models(provider_id);
     match load_override(provider_id) {
         None => registered,
         Some(o) if o.replace => o.models,
         Some(o) => merge_models(&registered, &o.models),
+    }
+}
+
+fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
+    let snapshot = registry().read().get(provider_id).cloned();
+    let Some(snapshot) = snapshot else {
+        return Vec::new();
+    };
+    if snapshot.source != Source::Live {
+        return snapshot.models;
+    }
+    let seed = seed_registry()
+        .read()
+        .get(provider_id)
+        .map(|defaults| defaults.models.clone());
+    match seed {
+        Some(seed) => merge_models(&seed, &snapshot.models),
+        None => snapshot.models,
     }
 }
 
@@ -969,13 +972,13 @@ pub fn ensure_readme_installed() {
 pub fn refresh_example_files() {
     let dir = models_dir();
     let registered_efforts = effort_registry().read().clone();
-    let snapshot: Vec<(String, RegisteredDefaults, RegisteredEfforts)> = registry()
+    let snapshot: Vec<(String, RegisteredDefaults, RegisteredEfforts)> = seed_registry()
         .read()
         .iter()
         .map(|(k, v)| {
             (
                 k.clone(),
-                v.as_defaults(),
+                v.clone(),
                 registered_efforts.get(k).cloned().unwrap_or_default(),
             )
         })

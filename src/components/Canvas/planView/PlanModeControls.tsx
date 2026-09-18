@@ -35,7 +35,7 @@ export function PlanModeControls({ plan, api }: PlanModeControlsProps) {
       busyRef.current = false;
       setBusy(false);
     }
-  }, [api, plan.id]);
+  }, [api?.host, api?.port, api?.token, plan.id]);
 
   const onResume = useCallback(async () => {
     if (!api || busyRef.current) return;
@@ -50,7 +50,7 @@ export function PlanModeControls({ plan, api }: PlanModeControlsProps) {
       busyRef.current = false;
       setBusy(false);
     }
-  }, [api, plan.id]);
+  }, [api?.host, api?.port, api?.token, plan.id]);
 
   return (
     <div className="plan-mode-controls" data-testid="plan-mode-controls">
