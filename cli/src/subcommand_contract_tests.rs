@@ -11,6 +11,7 @@ use clap::{CommandFactory, Parser};
 mod agent;
 mod context;
 mod sessions;
+mod tab_adopt;
 mod tab_repair;
 mod transport;
 mod workspace;
