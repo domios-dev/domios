@@ -1,4 +1,4 @@
-//! Tauri sink for structured chat deltas from DB-backed providers.
+//! Tauri sink for structured chat deltas from DB-backed providers and event streams.
 //! Emits `tab-chat-msg-{id}` events carrying already-parsed `ChatMsg`s;
 //! the frontend merges them by id. Mirrored to the SSE bus so the web
 //! mirror's chat view streams too.
