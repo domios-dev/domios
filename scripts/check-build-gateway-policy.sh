@@ -130,6 +130,17 @@ worktree_cargo_line="$(grep -n 'cargo check' <<< "$worktree_flow" | head -1 | cu
   exit 1
 }
 
+check_tests_flow="$(sed -n '/^  check-tests)/,/^    ;;/p' build.sh)"
+expect_log 'prepare_exceptional_worktree_target' <<< "$check_tests_flow"
+expect_log 'prepare_dev_frontend_dist "$(pwd -P)"' <<< "$check_tests_flow"
+expect_log 'prepare_bundle_stubs' <<< "$check_tests_flow"
+expect_log 'cargo check --manifest-path src-tauri/Cargo.toml --all-targets' <<< "$check_tests_flow"
+expect_log 'cargo check --manifest-path cli/Cargo.toml --all-targets' <<< "$check_tests_flow"
+if grep -q 'enter_build_gateway' <<< "$check_tests_flow"; then
+  echo "check-tests must compile test profiles without waiting behind the shared dev gateway" >&2
+  exit 1
+fi
+
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
 expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
 expect_log 'cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"

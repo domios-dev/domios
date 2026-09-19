@@ -13,6 +13,11 @@ Two shapes, and picking the wrong one is what costs hours.
 | The branch is releasable | Delegate the broad gate, get a summary |
 | A release | Delegate, then verify its SHA yourself |
 
+A per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
+compiles all targets in both the app and CLI workspaces. `.\build.ps1 check`
+does not compile `#[cfg(test)]` code, so a green `check` alone does not cover
+test-only Rust changes.
+
 A focused check is one test module, one type check, one file's lint. It
 answers in seconds and you read its output directly. Anything that takes
 minutes and prints thousands of lines goes to a sub-agent: the transcript is
