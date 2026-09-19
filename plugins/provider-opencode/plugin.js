@@ -23,390 +23,13 @@ __export(plugin_exports, {
   default: () => plugin_default
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// plugins/provider-opencode/src/helpers.ts
 var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
-var CODETERM_OPENCODE_PLUGIN_FILE = "codeterm-session-binding.js";
-var TITLE_RE = /opencode/i;
-var OUTPUT_MARKERS = ["opencode", "OpenCode", "OpenCode Zen"];
-var OUTPUT_SIGNALS = [
-  "Permission required",
-  "Allow this tool call",
-  "Approve this command",
-  "\u2588\u2580\u2580\u2588",
-  "Build \xB7 ",
-  "\u2503",
-  "\u2579"
-];
-var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
-var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
-var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-function starterPrompt(params) {
-  if (params.starterPromptText) return params.starterPromptText;
-  if (params.starterPrompt === "no_starter") return void 0;
-  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
-  if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
-  return ASSIGNED_TASK_START_PROMPT;
-}
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 var lastPromptShape = "horizontal";
-var plugin = {
-  starterPromptText(prompt) {
-    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
-  },
-  detectFromTitle(title) {
-    return TITLE_RE.test(String(title || ""));
-  },
-  detectFromOutput(text) {
-    const t = String(text || "");
-    let hasMarker = false;
-    for (let i = 0; i < OUTPUT_MARKERS.length; i++) {
-      if (t.indexOf(OUTPUT_MARKERS[i]) !== -1) {
-        hasMarker = true;
-        break;
-      }
-    }
-    if (!hasMarker) return false;
-    for (let j = 0; j < OUTPUT_SIGNALS.length; j++) {
-      if (t.indexOf(OUTPUT_SIGNALS[j]) !== -1) return true;
-    }
-    return false;
-  },
-  screenHasTui(screen) {
-    const lower = String(screen || "").toLowerCase();
-    for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
-      if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
-    }
-    return false;
-  },
-  isOutputNoise(text) {
-    const trimmed = String(text || "").trim();
-    if (!trimmed) return true;
-    for (let i = 0; i < trimmed.length; i++) {
-      const c = trimmed[i];
-      if (c !== "\u2500" && c !== "\u2501" && c !== "\u2550" && c !== "\u2588" && c !== "\u2580" && c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
-        return false;
-      }
-    }
-    return true;
-  },
-  hasEventMarkers(chunk) {
-    const c = String(chunk || "");
-    const lc = c.toLowerCase();
-    return c.indexOf("Permission required") !== -1 || lc.indexOf("approve") !== -1 || chunkHasQuestionMenuRow(c) || findModalPickerTitle(c) >= 0 || lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
-  },
-  detectEvents(text) {
-    const t = String(text || "");
-    const events = [];
-    if (t.indexOf("Permission required") !== -1 || t.indexOf("Allow this tool call") !== -1 || t.indexOf("Approve this command") !== -1 || parseQuestionMenuPrompt(t) || parseModalPickerPrompt(t)) {
-      events.push("permission_request");
-    }
-    return events;
-  },
-  // off hot reads. If the CLI is absent/offline, use the manifest seed.
-  discoverModels() {
-    return discoverOpencodeModels() || manifestModels();
-  },
-  // Cumulative usage per upstream company, read from opencode's own session
-  // store. Groups are keyed by the model-id prefix (providerID) so the picker
-  // can match a model to its usage without core knowing any vendor.
-  modelGroupUsage() {
-    return discoverOpencodeGroupUsage();
-  },
-  // because response bytes depend on horizontal vs vertical navigation.
-  parsePrompt(text) {
-    const screen = String(text || "");
-    return parseQuestionMenuPrompt(screen) || parseModalPickerPrompt(screen) || parsePermissionPrompt(screen);
-  },
-  // opencode has both horizontal permission rows and vertical question menus.
-  buildPromptResponse(optionIndex, screen) {
-    const DOWN = "G1tC";
-    const UP = "G1tB";
-    const RIGHT = "G1tD";
-    const ENTER = "DQ==";
-    const steps = [];
-    const target = optionIndex > 0 ? optionIndex : 0;
-    const promptShape = screen && isVerticalPrompt(String(screen)) ? "vertical" : lastPromptShape;
-    if (promptShape === "vertical") {
-      const current = screen ? verticalPromptHighlightIndex(String(screen)) : -1;
-      const start = current >= 0 ? current : 0;
-      const delta = target - start;
-      const move = delta >= 0 ? DOWN : UP;
-      for (let i = 0; i < Math.abs(delta); i++) steps.push(move);
-    } else {
-      for (let i = 0; i < target; i++) steps.push(RIGHT);
-    }
-    steps.push(ENTER);
-    return steps;
-  },
-  buildLaunchCommand(params) {
-    const p = params || {};
-    const parts = [];
-    let localTaskPath = null;
-    if (p.task) {
-      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
-      if (!taskPath) throw new Error("failed to write OpenCode task instructions");
-      const platform = host.platform();
-      const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
-      localTaskPath = `.codeterm/${taskName}`;
-      const source = host.shell.quoteFor(taskPath, platform);
-      const local = host.shell.quoteFor(localTaskPath, platform);
-      const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
-      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
-    }
-    parts.push("opencode");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-    const sps = p.structuredPromptServer;
-    if (sps && sps.port) {
-      const platform = host.platform();
-      parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
-      parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
-    }
-    if (p.sessionId) {
-      parts.push("--session", host.shell.quoteFor(String(p.sessionId), host.platform()));
-    }
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
-    }
-    const prompt = starterPrompt(p);
-    if (p.task && prompt) {
-      parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
-    }
-    if (localTaskPath) {
-      const local = host.shell.quoteFor(localTaskPath, host.platform());
-      parts.push(host.platform() === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`);
-    }
-    return parts.join(" ");
-  },
-  buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    return parts.join(" ");
-  },
-  // A resumed session re-reads `instructions`, so the composed prompt is
-  // re-applied through the same session-config channel buildLaunchCommand uses.
-  buildResumeCommandWithContext(params) {
-    const p = params || {};
-    const platform = host.platform();
-    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
-    }
-    const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
-    const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return parts.join(" ");
-    const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
-    const localTaskPath = `.codeterm/${taskName}`;
-    const source = host.shell.quoteFor(taskPath, platform);
-    const local = host.shell.quoteFor(localTaskPath, platform);
-    const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
-    const prologue = platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
-    const epilogue = platform === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
-    return `${prologue} ${parts.join(" ")} ${epilogue}`;
-  },
-  // absent from opencode's env, or event field structure changed in a new release).
-  // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
-  detectSessionId(cwd, exclude, maxAgeMs) {
-    const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const targetDirectory = normalizeSessionDirectory(cwd);
-    if (!targetDirectory) return null;
-    const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 3e5;
-    const excludeList = Array.isArray(exclude) ? exclude.filter((id) => typeof id === "string") : typeof exclude === "string" && exclude ? [exclude] : [];
-    const directoryAliases = targetDirectory.endsWith("/") ? [targetDirectory, targetDirectory] : [targetDirectory, targetDirectory + "/"];
-    const directoryExpression = host.platform() === "windows" ? "lower(replace(directory, char(92), '/'))" : "directory";
-    const excludeSql = excludeList.length ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")" : "";
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) AND " + directoryExpression + " IN (?2, ?3)" + excludeSql + " ORDER BY time_created DESC LIMIT 20",
-      [windowMs, ...directoryAliases, ...excludeList]
-    );
-    for (let i = 0; i < rows.length; i++) {
-      const id = rows[i].id;
-      if (typeof id !== "string" || !id.startsWith("ses_")) continue;
-      if (normalizeSessionDirectory(rows[i].directory) !== targetDirectory) continue;
-      if (excludeList.indexOf(id) !== -1) continue;
-      return id;
-    }
-    return null;
-  },
-  enumerateSessions() {
-    const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return [];
-    const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
-    return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => opencodeSessionRecord(row, db));
-  },
-  findSession(sessionId) {
-    if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
-    const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
-    return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
-  },
-  checkIntegration() {
-    const cfg = opencodeConfigPath();
-    const pluginPath = opencodeBindingPluginPath();
-    const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
-    const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
-    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && pluginBody.indexOf("CODETERM_TAB_ID") !== -1 && pluginBody.indexOf("/api/tabs/") !== -1;
-    if (!cfg || !host.fs.fileExists(cfg)) {
-      return {
-        config_file_exists: false,
-        plugin_file_exists: pluginExists,
-        plugin_file_current: pluginCurrent,
-        plugin_installed: false
-      };
-    }
-    const json = host.fs.readJson(cfg);
-    if (!json) {
-      return {
-        config_file_exists: true,
-        plugin_file_exists: pluginExists,
-        plugin_file_current: pluginCurrent,
-        plugin_installed: false
-      };
-    }
-    const target = opencodePluginEntry();
-    const entries = json.plugin;
-    const installed = Array.isArray(entries) && entries.some((entry) => {
-      return opencodePluginEntryMatches(entry, target);
-    });
-    return {
-      config_file_exists: true,
-      plugin_file_exists: pluginExists,
-      plugin_file_current: pluginCurrent,
-      plugin_installed: installed
-    };
-  },
-  installIntegration(apiPort, _options) {
-    const cfg = opencodeConfigPath();
-    const pluginPath = opencodeBindingPluginPath();
-    const target = opencodePluginEntry();
-    if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
-    const json = host.fs.fileExists(cfg) ? host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" } : { "$schema": "https://opencode.ai/config.json" };
-    if (!json || typeof json !== "object" || Array.isArray(json)) {
-      return { ok: false, error: "opencode.json root must be an object" };
-    }
-    if (!Array.isArray(json.plugin)) json.plugin = [];
-    json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
-    json.plugin.push(target);
-    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource(apiPort | 0))) {
-      return { ok: false, error: "writeFile failed for " + pluginPath };
-    }
-    if (!host.fs.writeJson(cfg, json)) {
-      return { ok: false, error: "writeJson failed for " + cfg };
-    }
-    host.log("info", "[opencode-plugin] session binding plugin installed at " + pluginPath);
-    return { ok: true };
-  },
-  uninstallIntegration() {
-    const cfg = opencodeConfigPath();
-    const pluginPath = opencodeBindingPluginPath();
-    const target = opencodePluginEntry();
-    if (cfg && host.fs.fileExists(cfg)) {
-      const json = host.fs.readJson(cfg);
-      if (json && typeof json === "object" && Array.isArray(json.plugin)) {
-        json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
-        if (!host.fs.writeJson(cfg, json)) {
-          return { ok: false, error: "writeJson failed for " + cfg };
-        }
-      }
-    }
-    if (pluginPath && host.fs.fileExists(pluginPath) && !host.fs.removeFile(pluginPath)) {
-      return { ok: false, error: "removeFile failed for " + pluginPath };
-    }
-    return { ok: true };
-  },
-  ensureIntegrationOnStartup(apiPort) {
-    const status = this.checkIntegration();
-    if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
-    return this.installIntegration(apiPort, { consent: true });
-  },
-  sessionExists(_cwd, sessionId) {
-    const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return false;
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
-      [sessionId]
-    );
-    return rows.length > 0;
-  },
-  // opencode keeps every session in one sqlite log, so the source carries the
-  // session id: the reader must not charge a sibling's tokens to this tab.
-  usageSources(_cwd, sessionId) {
-    const db = opencodeDbPath();
-    if (!db || !sessionId || !host.fs.fileExists(db)) return [];
-    return [{ path: db, sessionId }];
-  },
-  // birth-time guard to sqlite-backed sessions, which have no per-session file.
-  sessionCreatedMs(_cwd, sessionId) {
-    const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT time_created FROM session WHERE id = ?1 LIMIT 1",
-      [sessionId]
-    );
-    if (!rows.length) return null;
-    const tc = rows[0].time_created;
-    return typeof tc === "number" ? tc : null;
-  },
-  detectActiveSession(_cwd, _currentSid) {
-    return null;
-  },
-  // the model recorded against this session_id. No "latest model in cwd"
-  // fallback — that would hand the tab a SIBLING agent's model. Unknown → null.
-  detectSessionModel(_cwd, sessionId) {
-    const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    if (!sessionId) return null;
-    return scanMessagesForModel(
-      db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId]
-    );
-  },
-  usesStructuredChat() {
-    return true;
-  },
-  readStructuredChat(_cwd, sessionId, cursor) {
-    const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
-    const parsedCursor = parseStructuredCursor(cursor);
-    if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
-    const [sinceMs, seenAtSinceMs] = parsedCursor;
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
-      [sessionId, sinceMs]
-    );
-    const messages = [];
-    let lastTs = sinceMs;
-    let seenAtLastTs = seenAtSinceMs.slice();
-    for (let i = 0; i < rows.length; i++) {
-      const updated = rows[i].ts_updated || 0;
-      const created = rows[i].ts_created || updated;
-      const id = String(rows[i].id);
-      if (updated > lastTs) {
-        lastTs = updated;
-        seenAtLastTs = [];
-      }
-      if (seenAtLastTs.indexOf(id) !== -1) continue;
-      seenAtLastTs.push(id);
-      const part = safeJson(rows[i].part);
-      if (!part) continue;
-      let role = "assistant";
-      const msg = safeJson(rows[i].msg);
-      if (msg && msg.role) role = msg.role;
-      const cm = partToChatMsg(part, role, id, created);
-      if (cm) messages.push(cm);
-    }
-    seenAtLastTs.sort();
-    return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
-  }
-};
 function parsePermissionPrompt(text) {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
   let permIdx = -1;
@@ -867,6 +490,7 @@ function opencodeConfigPath() {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return dir + sep + "opencode.json";
 }
+var CODETERM_OPENCODE_PLUGIN_FILE = "codeterm-session-binding.js";
 function opencodeBindingPluginPath() {
   const dir = opencodeConfigDir();
   if (!dir) return null;
@@ -1009,4 +633,384 @@ function scanMessagesForModel(db, sql, params) {
   }
   return null;
 }
+
+// plugins/provider-opencode/src/plugin.ts
+var TITLE_RE = /opencode/i;
+var OUTPUT_MARKERS = ["opencode", "OpenCode", "OpenCode Zen"];
+var OUTPUT_SIGNALS = [
+  "Permission required",
+  "Allow this tool call",
+  "Approve this command",
+  "\u2588\u2580\u2580\u2588",
+  "Build \xB7 ",
+  "\u2503",
+  "\u2579"
+];
+var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
+var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
+var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function starterPrompt(params) {
+  if (params.starterPromptText) return params.starterPromptText;
+  if (params.starterPrompt === "no_starter") return void 0;
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
+  return ASSIGNED_TASK_START_PROMPT;
+}
+var plugin = {
+  starterPromptText(prompt) {
+    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
+  },
+  detectFromTitle(title) {
+    return TITLE_RE.test(String(title || ""));
+  },
+  detectFromOutput(text) {
+    const t = String(text || "");
+    let hasMarker = false;
+    for (let i = 0; i < OUTPUT_MARKERS.length; i++) {
+      if (t.indexOf(OUTPUT_MARKERS[i]) !== -1) {
+        hasMarker = true;
+        break;
+      }
+    }
+    if (!hasMarker) return false;
+    for (let j = 0; j < OUTPUT_SIGNALS.length; j++) {
+      if (t.indexOf(OUTPUT_SIGNALS[j]) !== -1) return true;
+    }
+    return false;
+  },
+  screenHasTui(screen) {
+    const lower = String(screen || "").toLowerCase();
+    for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
+      if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
+    }
+    return false;
+  },
+  isOutputNoise(text) {
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return true;
+    for (let i = 0; i < trimmed.length; i++) {
+      const c = trimmed[i];
+      if (c !== "\u2500" && c !== "\u2501" && c !== "\u2550" && c !== "\u2588" && c !== "\u2580" && c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
+        return false;
+      }
+    }
+    return true;
+  },
+  hasEventMarkers(chunk) {
+    const c = String(chunk || "");
+    const lc = c.toLowerCase();
+    return c.indexOf("Permission required") !== -1 || lc.indexOf("approve") !== -1 || chunkHasQuestionMenuRow(c) || findModalPickerTitle(c) >= 0 || lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
+  },
+  detectEvents(text) {
+    const t = String(text || "");
+    const events = [];
+    if (t.indexOf("Permission required") !== -1 || t.indexOf("Allow this tool call") !== -1 || t.indexOf("Approve this command") !== -1 || parseQuestionMenuPrompt(t) || parseModalPickerPrompt(t)) {
+      events.push("permission_request");
+    }
+    return events;
+  },
+  // off hot reads. If the CLI is absent/offline, use the manifest seed.
+  discoverModels() {
+    return discoverOpencodeModels() || manifestModels();
+  },
+  // Cumulative usage per upstream company, read from opencode's own session
+  // store. Groups are keyed by the model-id prefix (providerID) so the picker
+  // can match a model to its usage without core knowing any vendor.
+  modelGroupUsage() {
+    return discoverOpencodeGroupUsage();
+  },
+  // because response bytes depend on horizontal vs vertical navigation.
+  parsePrompt(text) {
+    const screen = String(text || "");
+    return parseQuestionMenuPrompt(screen) || parseModalPickerPrompt(screen) || parsePermissionPrompt(screen);
+  },
+  // opencode has both horizontal permission rows and vertical question menus.
+  buildPromptResponse(optionIndex, screen) {
+    const DOWN = "G1tC";
+    const UP = "G1tB";
+    const RIGHT = "G1tD";
+    const ENTER = "DQ==";
+    const steps = [];
+    const target = optionIndex > 0 ? optionIndex : 0;
+    const promptShape = screen && isVerticalPrompt(String(screen)) ? "vertical" : lastPromptShape;
+    if (promptShape === "vertical") {
+      const current = screen ? verticalPromptHighlightIndex(String(screen)) : -1;
+      const start = current >= 0 ? current : 0;
+      const delta = target - start;
+      const move = delta >= 0 ? DOWN : UP;
+      for (let i = 0; i < Math.abs(delta); i++) steps.push(move);
+    } else {
+      for (let i = 0; i < target; i++) steps.push(RIGHT);
+    }
+    steps.push(ENTER);
+    return steps;
+  },
+  buildLaunchCommand(params) {
+    const p = params || {};
+    const parts = [];
+    let localTaskPath = null;
+    if (p.task) {
+      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write OpenCode task instructions");
+      const platform = host.platform();
+      const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
+      localTaskPath = `.codeterm/${taskName}`;
+      const source = host.shell.quoteFor(taskPath, platform);
+      const local = host.shell.quoteFor(localTaskPath, platform);
+      const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
+    }
+    parts.push("opencode");
+    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
+    const sps = p.structuredPromptServer;
+    if (sps && sps.port) {
+      const platform = host.platform();
+      parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
+      parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
+    }
+    if (p.sessionId) {
+      parts.push("--session", host.shell.quoteFor(String(p.sessionId), host.platform()));
+    }
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    const prompt = starterPrompt(p);
+    if (p.task && prompt) {
+      parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
+    }
+    if (localTaskPath) {
+      const local = host.shell.quoteFor(localTaskPath, host.platform());
+      parts.push(host.platform() === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`);
+    }
+    return parts.join(" ");
+  },
+  buildResumeCommand(sessionId, skipPermissions) {
+    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
+    return parts.join(" ");
+  },
+  // A resumed session re-reads `instructions`, so the composed prompt is
+  // re-applied through the same session-config channel buildLaunchCommand uses.
+  buildResumeCommandWithContext(params) {
+    const p = params || {};
+    const platform = host.platform();
+    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    }
+    const systemPrompt = p.systemPrompt;
+    if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
+    const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
+    if (!taskPath) return parts.join(" ");
+    const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
+    const localTaskPath = `.codeterm/${taskName}`;
+    const source = host.shell.quoteFor(taskPath, platform);
+    const local = host.shell.quoteFor(localTaskPath, platform);
+    const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+    const prologue = platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
+    const epilogue = platform === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
+    return `${prologue} ${parts.join(" ")} ${epilogue}`;
+  },
+  // absent from opencode's env, or event field structure changed in a new release).
+  // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
+  detectSessionId(cwd, exclude, maxAgeMs) {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    const targetDirectory = normalizeSessionDirectory(cwd);
+    if (!targetDirectory) return null;
+    const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 3e5;
+    const excludeList = Array.isArray(exclude) ? exclude.filter((id) => typeof id === "string") : typeof exclude === "string" && exclude ? [exclude] : [];
+    const directoryAliases = targetDirectory.endsWith("/") ? [targetDirectory, targetDirectory] : [targetDirectory, targetDirectory + "/"];
+    const directoryExpression = host.platform() === "windows" ? "lower(replace(directory, char(92), '/'))" : "directory";
+    const excludeSql = excludeList.length ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")" : "";
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) AND " + directoryExpression + " IN (?2, ?3)" + excludeSql + " ORDER BY time_created DESC LIMIT 20",
+      [windowMs, ...directoryAliases, ...excludeList]
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const id = rows[i].id;
+      if (typeof id !== "string" || !id.startsWith("ses_")) continue;
+      if (normalizeSessionDirectory(rows[i].directory) !== targetDirectory) continue;
+      if (excludeList.indexOf(id) !== -1) continue;
+      return id;
+    }
+    return null;
+  },
+  enumerateSessions() {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return [];
+    const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
+    return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => opencodeSessionRecord(row, db));
+  },
+  findSession(sessionId) {
+    if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
+    return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
+  },
+  checkIntegration() {
+    const cfg = opencodeConfigPath();
+    const pluginPath = opencodeBindingPluginPath();
+    const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
+    const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
+    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && pluginBody.indexOf("CODETERM_TAB_ID") !== -1 && pluginBody.indexOf("/api/tabs/") !== -1;
+    if (!cfg || !host.fs.fileExists(cfg)) {
+      return {
+        config_file_exists: false,
+        plugin_file_exists: pluginExists,
+        plugin_file_current: pluginCurrent,
+        plugin_installed: false
+      };
+    }
+    const json = host.fs.readJson(cfg);
+    if (!json) {
+      return {
+        config_file_exists: true,
+        plugin_file_exists: pluginExists,
+        plugin_file_current: pluginCurrent,
+        plugin_installed: false
+      };
+    }
+    const target = opencodePluginEntry();
+    const entries = json.plugin;
+    const installed = Array.isArray(entries) && entries.some((entry) => {
+      return opencodePluginEntryMatches(entry, target);
+    });
+    return {
+      config_file_exists: true,
+      plugin_file_exists: pluginExists,
+      plugin_file_current: pluginCurrent,
+      plugin_installed: installed
+    };
+  },
+  installIntegration(apiPort, _options) {
+    const cfg = opencodeConfigPath();
+    const pluginPath = opencodeBindingPluginPath();
+    const target = opencodePluginEntry();
+    if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
+    const json = host.fs.fileExists(cfg) ? host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" } : { "$schema": "https://opencode.ai/config.json" };
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      return { ok: false, error: "opencode.json root must be an object" };
+    }
+    if (!Array.isArray(json.plugin)) json.plugin = [];
+    json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
+    json.plugin.push(target);
+    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource(apiPort | 0))) {
+      return { ok: false, error: "writeFile failed for " + pluginPath };
+    }
+    if (!host.fs.writeJson(cfg, json)) {
+      return { ok: false, error: "writeJson failed for " + cfg };
+    }
+    host.log("info", "[opencode-plugin] session binding plugin installed at " + pluginPath);
+    return { ok: true };
+  },
+  uninstallIntegration() {
+    const cfg = opencodeConfigPath();
+    const pluginPath = opencodeBindingPluginPath();
+    const target = opencodePluginEntry();
+    if (cfg && host.fs.fileExists(cfg)) {
+      const json = host.fs.readJson(cfg);
+      if (json && typeof json === "object" && Array.isArray(json.plugin)) {
+        json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
+        if (!host.fs.writeJson(cfg, json)) {
+          return { ok: false, error: "writeJson failed for " + cfg };
+        }
+      }
+    }
+    if (pluginPath && host.fs.fileExists(pluginPath) && !host.fs.removeFile(pluginPath)) {
+      return { ok: false, error: "removeFile failed for " + pluginPath };
+    }
+    return { ok: true };
+  },
+  ensureIntegrationOnStartup(apiPort) {
+    const status = this.checkIntegration();
+    if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
+    return this.installIntegration(apiPort, { consent: true });
+  },
+  sessionExists(_cwd, sessionId) {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return false;
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId]
+    );
+    return rows.length > 0;
+  },
+  // opencode keeps every session in one sqlite log, so the source carries the
+  // session id: the reader must not charge a sibling's tokens to this tab.
+  usageSources(_cwd, sessionId) {
+    const db = opencodeDbPath();
+    if (!db || !sessionId || !host.fs.fileExists(db)) return [];
+    return [{ path: db, sessionId }];
+  },
+  // birth-time guard to sqlite-backed sessions, which have no per-session file.
+  sessionCreatedMs(_cwd, sessionId) {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT time_created FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId]
+    );
+    if (!rows.length) return null;
+    const tc = rows[0].time_created;
+    return typeof tc === "number" ? tc : null;
+  },
+  detectActiveSession(_cwd, _currentSid) {
+    return null;
+  },
+  // the model recorded against this session_id. No "latest model in cwd"
+  // fallback — that would hand the tab a SIBLING agent's model. Unknown → null.
+  detectSessionModel(_cwd, sessionId) {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    if (!sessionId) return null;
+    return scanMessagesForModel(
+      db,
+      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      [sessionId]
+    );
+  },
+  usesStructuredChat() {
+    return true;
+  },
+  readStructuredChat(_cwd, sessionId, cursor) {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
+    const parsedCursor = parseStructuredCursor(cursor);
+    if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
+    const [sinceMs, seenAtSinceMs] = parsedCursor;
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
+      [sessionId, sinceMs]
+    );
+    const messages = [];
+    let lastTs = sinceMs;
+    let seenAtLastTs = seenAtSinceMs.slice();
+    for (let i = 0; i < rows.length; i++) {
+      const updated = rows[i].ts_updated || 0;
+      const created = rows[i].ts_created || updated;
+      const id = String(rows[i].id);
+      if (updated > lastTs) {
+        lastTs = updated;
+        seenAtLastTs = [];
+      }
+      if (seenAtLastTs.indexOf(id) !== -1) continue;
+      seenAtLastTs.push(id);
+      const part = safeJson(rows[i].part);
+      if (!part) continue;
+      let role = "assistant";
+      const msg = safeJson(rows[i].msg);
+      if (msg && msg.role) role = msg.role;
+      const cm = partToChatMsg(part, role, id, created);
+      if (cm) messages.push(cm);
+    }
+    seenAtLastTs.sort();
+    return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+  }
+};
 var plugin_default = plugin;
