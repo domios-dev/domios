@@ -270,9 +270,9 @@ fn canonical_tool_fields(
     let fields = if ["bash", "shell", "exec", "run"].contains(&lower.as_str()) {
         ("command", clean_tool_text(command, "Command"), command.to_string())
     } else if ["edit", "multiedit", "write"].contains(&lower.as_str()) {
-        ("edit", nonempty_or(path, "File edit"), path.to_string())
+        ("edit", nonempty_or(path, "File edit").to_string(), path.to_string())
     } else if lower == "read" {
-        ("read", nonempty_or(path, "Read file"), path.to_string())
+        ("read", nonempty_or(path, "Read file").to_string(), path.to_string())
     } else if ["glob", "grep", "search"].contains(&lower.as_str()) {
         let detail = nonempty_or(pattern, path);
         ("search", clean_tool_text(detail, "Search"), detail.to_string())
