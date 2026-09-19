@@ -80,6 +80,63 @@ fn a_declared_credential_fills_the_request_header_without_exposing_the_token() {
 }
 
 #[test]
+fn json_pointer_credential_fields_select_dotted_keys_and_inject_the_secret() {
+    let dir = tempfile::tempdir().unwrap();
+    let entry = "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828";
+    let pointer = format!("/{}", entry.replace('~', "~0").replace('/', "~1"));
+    assert_eq!(pointer, "/https:~1~1auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828");
+
+    let file = dir.path().join("grok-auth.json");
+    let mut document = serde_json::Map::new();
+    document.insert(
+        entry.into(),
+        serde_json::json!({
+            "key": "test-oauth-bearer",
+            "user_id": "test-user-id"
+        }),
+    );
+    std::fs::write(&file, Value::Object(document).to_string()).unwrap();
+
+    let user_path = format!("{pointer}/user_id");
+    let key_path = format!("{pointer}/key");
+
+    let creds = vec![CredentialConfig {
+        id: "grokAuth".into(),
+        file: file.to_string_lossy().into_owned(),
+        public: fields(&[("userId", &user_path)]),
+        secret: fields(&[("accessToken", &key_path)]),
+    }];
+
+    let public = public_json(&creds, "grokAuth").expect("public identity resolves");
+    assert_eq!(
+        serde_json::from_str::<Value>(&public).unwrap(),
+        serde_json::json!({ "userId": "test-user-id" })
+    );
+    assert!(
+        !public.contains("test-oauth-bearer"),
+        "the OAuth bearer must not enter the plugin's public credential view"
+    );
+
+    let opts = serde_json::json!({
+        "url": "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+        "method": "GET",
+        "credential": {
+            "id": "grokAuth",
+            "headers": {
+                "Authorization": "Bearer {accessToken}",
+                "x-userid": "{userId}"
+            }
+        }
+    })
+    .to_string();
+    let rewritten = inject(&creds, &opts).expect("JSON Pointer fields inject");
+    let request: Value = serde_json::from_str(&rewritten).unwrap();
+    assert_eq!(request["headers"]["Authorization"], "Bearer test-oauth-bearer");
+    assert_eq!(request["headers"]["x-userid"], "test-user-id");
+    assert!(request.get("credential").is_none());
+}
+
+#[test]
 fn an_unresolvable_credential_fails_the_fetch_instead_of_sending_it_unauthenticated() {
     let dir = tempfile::tempdir().unwrap();
     let mut cred = codex_credential(dir.path());
