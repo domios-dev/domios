@@ -1,8 +1,7 @@
 //! OpenCode SSE event → structured chat and prompt mapping (pure).
 //!
-//! Maps the local opencode server's `/event` bus payloads onto normalized chat
-//! parts and a provider-agnostic [`PendingPrompt`]. The `server.connected` frame
-//! was observed live; chat frames follow the SDK shape.
+//! Maps live OpenCode `/event` frames onto normalized chat parts and a
+//! provider-agnostic [`PendingPrompt`]. Frames were captured on OpenCode 1.18.31.
 //!
 //! Pure + deterministic: no I/O, no locks. The subscriber thread feeds raw
 //! `data:` JSON in and gets a [`ParsedEvent`] back; the HTTP layer turns a
@@ -72,12 +71,12 @@ pub fn parse_event(value: &Value) -> ParsedEvent {
     let props = value.get("properties").unwrap_or(&Value::Null);
     match event_type {
         "message.updated" => parse_message_updated(props),
+        "message.part.delta" => parse_part_delta(props),
         "message.part.updated" => parse_part_updated(props),
         "question.asked" | "question.v2.asked" => parse_question(props),
-        "permission.asked" | "permission.updated" => parse_permission(props),
+        "permission.asked" => parse_permission(props),
         "question.replied" | "permission.replied" => props
             .get("requestID")
-            .or_else(|| props.get("permissionID"))
             .and_then(|v| v.as_str())
             .map(|id| ParsedEvent::Replied {
                 request_id: id.to_string(),
@@ -108,6 +107,34 @@ fn parse_message_updated(props: &Value) -> ParsedEvent {
             message_id: message_id.to_string(),
             role: role.to_string(),
             timestamp,
+        },
+    }
+}
+
+fn parse_part_delta(props: &Value) -> ParsedEvent {
+    let (Some(session_id), Some(message_id), Some(part_id), Some(delta)) = (
+        props.get("sessionID").and_then(|v| v.as_str()),
+        props.get("messageID").and_then(|v| v.as_str()),
+        props.get("partID").and_then(|v| v.as_str()),
+        props.get("delta").and_then(|v| v.as_str()),
+    ) else {
+        return ParsedEvent::Ignored;
+    };
+    if props.get("field").and_then(|v| v.as_str()) != Some("text") {
+        return ParsedEvent::Ignored;
+    }
+    ParsedEvent::PartUpdated {
+        update: ChatPartUpdate {
+            session_id: session_id.to_string(),
+            message_id: message_id.to_string(),
+            part_id: part_id.to_string(),
+            part: json!({
+                "id": part_id,
+                "sessionID": session_id,
+                "messageID": message_id,
+                "type": "text"
+            }),
+            delta: Some(delta.to_string()),
         },
     }
 }
@@ -196,15 +223,31 @@ fn normalize_tool_part(update: &ChatPartUpdate, timestamp: Option<String>) -> Op
     let tool_name = update.part.get("tool").and_then(|v| v.as_str()).unwrap_or("tool");
     let state = update.part.get("state").unwrap_or(&Value::Null);
     let input = state.get("input");
+    let metadata = state.get("metadata").unwrap_or(&Value::Null);
+    let time = state.get("time").unwrap_or(&Value::Null);
+    let start = time.get("start").and_then(Value::as_i64);
+    let end = time.get("end").and_then(Value::as_i64);
+    let exit_code = metadata.get("exit").and_then(Value::as_i64);
     let (tool_kind, tool_summary, tool_detail, tool_edits) = canonical_tool_fields(tool_name, input);
     Some(ChatMsg {
         id: update.part_id.clone(),
         kind: "tool_call".into(),
         content: String::new(),
-        timestamp,
+        timestamp: time
+            .get("start")
+            .and_then(timestamp_string)
+            .or_else(|| time.get("end").and_then(timestamp_string))
+            .or(timestamp),
         tool_name: Some(tool_name.to_string()),
         tool_input: input.cloned(),
         tool_result: state.get("output").and_then(|v| v.as_str()).map(String::from),
+        tool_id: update.part.get("callID").and_then(|v| v.as_str()).map(String::from),
+        tool_title: state.get("title").and_then(|v| v.as_str()).map(String::from),
+        tool_exit_code: exit_code,
+        tool_duration_ms: start.zip(end).and_then(|(start, end)| {
+            u64::try_from(end.saturating_sub(start)).ok()
+        }),
+        tool_error: exit_code.map(|code| code != 0),
         tool_kind: Some(tool_kind),
         tool_summary: Some(tool_summary),
         tool_detail: Some(tool_detail),
@@ -563,9 +606,9 @@ mod tests {
     }
 
     #[test]
-    fn message_part_update_uses_full_text_and_stable_part_id() {
+    fn live_text_deltas_grow_in_place_then_full_part_text_replaces_them() {
         let message_frame: Value = serde_json::from_str(include_str!(
-            "fixtures/sdk_shape_message_updated.json"
+            "fixtures/captured_message_updated.json"
         ))
         .unwrap();
         let message = parse_event(&message_frame);
@@ -575,45 +618,59 @@ mod tests {
         assert_eq!(message.message_id, "msg_1");
         assert_eq!(message.session_id, "ses_1");
         assert_eq!(message.role, "assistant");
+        assert_eq!(message.timestamp.as_deref(), Some("1789814516718"));
 
         let first_frame: Value = serde_json::from_str(include_str!(
-            "fixtures/sdk_shape_message_part_text_early.json"
+            "fixtures/captured_message_part_delta_first.json"
         ))
         .unwrap();
         let first = parse_event(&first_frame);
         let ParsedEvent::PartUpdated { update } = first else {
-            panic!("expected part update");
+            panic!("expected part delta");
         };
-        assert_eq!(update.delta.as_deref(), Some("Hel"));
+        assert_eq!(update.part_id, "prt_text");
+        assert_eq!(update.delta.as_deref(), Some("121"));
         let partial = normalize_chat_part(&update, &message, None).unwrap();
         assert_eq!(partial.id, "prt_text");
         assert_eq!(partial.kind, "assistant");
-        assert_eq!(partial.content, "Hel");
-        assert_eq!(partial.timestamp.as_deref(), Some("1710000000000"));
+        assert_eq!(partial.content, "121");
+        assert_eq!(partial.timestamp.as_deref(), Some("1789814516718"));
 
         let second_frame: Value = serde_json::from_str(include_str!(
-            "fixtures/sdk_shape_message_part_text_delta.json"
+            "fixtures/captured_message_part_delta_second.json"
         ))
         .unwrap();
         let second = parse_event(&second_frame);
         let ParsedEvent::PartUpdated { update } = second else {
-            panic!("expected part update");
+            panic!("expected part delta");
         };
-        let grown = normalize_chat_part(&update, &message, Some("Hel")).unwrap();
+        let grown = normalize_chat_part(&update, &message, Some("121")).unwrap();
         assert_eq!(grown.id, partial.id);
-        assert_eq!(grown.content, "Hello");
+        assert_eq!(grown.content, "121932");
+
+        let full_frame: Value = serde_json::from_str(include_str!(
+            "fixtures/captured_message_part_updated_text.json"
+        ))
+        .unwrap();
+        let ParsedEvent::PartUpdated { update } = parse_event(&full_frame) else {
+            panic!("expected completed text part");
+        };
+        assert_eq!(update.delta, None);
+        let completed = normalize_chat_part(&update, &message, Some(&grown.content)).unwrap();
+        assert_eq!(completed.id, partial.id);
+        assert_eq!(completed.content, "121932631112635269");
     }
 
     #[test]
-    fn message_part_update_normalizes_thinking_and_tool_parts() {
+    fn live_reasoning_and_tool_lifecycle_keep_their_part_identity() {
         let message = MessageMeta {
             session_id: "ses_2".into(),
             message_id: "msg_2".into(),
             role: "assistant".into(),
-            timestamp: Some("1710000000000".into()),
+            timestamp: Some("1789814516718".into()),
         };
         let reasoning_frame: Value = serde_json::from_str(include_str!(
-            "fixtures/sdk_shape_message_part_reasoning.json"
+            "fixtures/captured_message_part_reasoning.json"
         ))
         .unwrap();
         let ParsedEvent::PartUpdated { update: reasoning } = parse_event(&reasoning_frame) else {
@@ -621,21 +678,43 @@ mod tests {
         };
         let thinking = normalize_chat_part(&reasoning, &message, None).unwrap();
         assert_eq!(thinking.kind, "thinking");
-        assert_eq!(thinking.content, "Need inspect");
+        assert_eq!(thinking.content, "<redacted reasoning text>");
 
-        let tool_frame: Value = serde_json::from_str(include_str!(
-            "fixtures/sdk_shape_message_part_tool.json"
-        ))
-        .unwrap();
-        let ParsedEvent::PartUpdated { update: tool } = parse_event(&tool_frame) else {
+        let pending = parse_tool_fixture(
+            include_str!("fixtures/captured_message_part_tool_pending.json"),
+            &message,
+        );
+        let running = parse_tool_fixture(
+            include_str!("fixtures/captured_message_part_tool_running.json"),
+            &message,
+        );
+        let completed = parse_tool_fixture(
+            include_str!("fixtures/captured_message_part_tool_completed.json"),
+            &message,
+        );
+        assert_eq!(pending.id, "prt_tool");
+        assert_eq!(pending.id, running.id);
+        assert_eq!(running.id, completed.id);
+        assert_eq!(pending.kind, "tool_call");
+        assert_eq!(
+            running.tool_input.as_ref().unwrap()["command"],
+            "<redacted bash command>"
+        );
+        assert_eq!(completed.tool_name.as_deref(), Some("bash"));
+        assert_eq!(completed.tool_id.as_deref(), Some("<redacted call>"));
+        assert_eq!(completed.tool_result.as_deref(), Some("<redacted output>"));
+        assert_eq!(completed.tool_title.as_deref(), Some("<redacted bash command>"));
+        assert_eq!(completed.tool_exit_code, Some(0));
+        assert_eq!(completed.tool_duration_ms, Some(10_204_218));
+        assert_eq!(completed.timestamp.as_deref(), Some("1789814520476"));
+    }
+
+    fn parse_tool_fixture(frame: &str, message: &MessageMeta) -> ChatMsg {
+        let frame: Value = serde_json::from_str(frame).unwrap();
+        let ParsedEvent::PartUpdated { update } = parse_event(&frame) else {
             panic!("expected tool part update");
         };
-        let call = normalize_chat_part(&tool, &message, None).unwrap();
-        assert_eq!(call.id, "prt_tool");
-        assert_eq!(call.kind, "tool_call");
-        assert_eq!(call.tool_name.as_deref(), Some("bash"));
-        assert_eq!(call.tool_kind.as_deref(), Some("command"));
-        assert_eq!(call.tool_summary.as_deref(), Some("printf X"));
+        normalize_chat_part(&update, message, None).unwrap()
     }
 
     #[test]
@@ -657,24 +736,34 @@ mod tests {
     }
 
     #[test]
-    fn parses_current_permission_update_and_reply_shapes() {
+    fn parses_live_permission_asked_and_replied_shapes() {
         let event: Value = serde_json::from_str(include_str!(
-            "fixtures/sdk_shape_permission_updated.json"
+            "fixtures/captured_permission_asked.json"
         ))
         .unwrap();
         let ParsedEvent::Prompt { prompt, route } = parse_event(&event) else {
             panic!("expected prompt");
         };
-        assert_eq!(prompt.question, "Run command");
-        assert_eq!(route.request_id, "per_9");
+        assert_eq!(prompt.question, "<redacted bash command>");
+        assert_eq!(route.request_id, "per_probe");
+        assert_eq!(route.session_id, "ses_5");
+        assert_eq!(
+            parse_event(&json!({
+                "type": "permission.updated",
+                "properties": {"id": "legacy", "sessionID": "ses_5"}
+            })),
+            ParsedEvent::Ignored
+        );
         assert_eq!(
             parse_event(
                 &serde_json::from_str(include_str!(
-                    "fixtures/sdk_shape_permission_replied.json"
+                    "fixtures/captured_permission_replied.json"
                 ))
                 .unwrap()
             ),
-            ParsedEvent::Replied { request_id: "per_9".into() }
+            ParsedEvent::Replied {
+                request_id: "per_probe".into()
+            }
         );
     }
 
