@@ -632,6 +632,7 @@ fn prime_does_not_clobber_a_live_snapshot() {
         models: vec![model("old", "Old")],
         seed_fingerprint: None,
         binary: None,
+        credentials: Vec::new(),
     };
     std::fs::write(cache_path(id), serde_json::to_string(&payload).unwrap()).unwrap();
     put_live(id, vec![model("new", "New")], Some("new".into()));
@@ -937,10 +938,8 @@ fn featured_models_lead_preserving_catalog_order_within_each_group() {
         },
     );
 
-    let ids: Vec<&str> = resolve_models(id)
-        .iter()
-        .map(|m| m.id.as_str())
-        .collect();
+    let resolved = resolve_models(id);
+    let ids: Vec<&str> = resolved.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(
         ids,
         vec!["b", "d", "a", "c", "e"],
