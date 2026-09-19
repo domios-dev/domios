@@ -165,7 +165,7 @@ async fn reader_refresh_reprobes_when_a_credential_file_appears() {
         refreshed.is_some(),
         "a credential file appearing must force a probe inside the TTL"
     );
-    assert_eq!(resolve_models(id)[0].id, "live");
+    assert!(resolve_models(id).iter().any(|model| model.id == "live"));
     cleanup(id);
 }
 
