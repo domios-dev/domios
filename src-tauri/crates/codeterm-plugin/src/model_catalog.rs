@@ -1028,6 +1028,7 @@ fn overlay_only(base: &[ModelInfo], overlay: &[ModelInfo]) -> Vec<ModelInfo> {
                 availability: model.availability,
                 featured: o.featured.or(model.featured),
                 badge: o.badge.clone().or_else(|| model.badge.clone()),
+                group: o.group.clone().or_else(|| model.group.clone()),
             }
         })
         .collect()
