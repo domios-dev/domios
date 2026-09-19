@@ -1,7 +1,7 @@
 # CodeTerm CLI reference
 
 <!-- Do not document commands or flags that don't exist. Full generated
-     reference: generated/cli/cli.md; the validation contract is essences/contributing/cli.md. -->
+     reference: generated/cli/cli.md; the validation contract is .agents/skills/cli-contributor/SKILL.md. -->
 
 You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
 

@@ -3,7 +3,7 @@
 # make two worktrees' sccache cache keys collide.
 #
 # This does NOT reproduce the original bad-artifact incident — nobody has
-# been able to reproduce it on demand (see essences/build.md). It asserts the
+# been able to reproduce it on demand (see .agents/skills/build/SKILL.md). It asserts the
 # derived configuration directly: no compiling, no sccache server, no
 # network. Pass/fail is a pure function of scripts/cache-policy.sh and
 # scripts/test-capped.sh.
