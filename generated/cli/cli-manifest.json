@@ -1193,7 +1193,7 @@
           "value_name": "MARKDOWN",
           "possible_values": [],
           "default": null,
-          "help": "Emit the essences/cli.md auto-block markdown instead of JSON",
+          "help": "Emit the generated/cli/cli.md auto-block markdown instead of JSON",
           "aliases": []
         },
         {
@@ -1203,7 +1203,7 @@
           "value_name": "WRITE",
           "possible_values": [],
           "default": null,
-          "help": "Regenerate committed artifacts (essences/cli-manifest.json + essences/cli.md)",
+          "help": "Regenerate committed artifacts (generated/cli/cli-manifest.json + generated/cli/cli.md)",
           "aliases": []
         }
       ],
