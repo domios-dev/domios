@@ -2,20 +2,19 @@
 //!
 //! Some providers expose pending prompts as a structured PUSH stream rather
 //! than ephemeral PTY UI. OpenCode runs a local HTTP server with an SSE event
-//! bus (`/event`) carrying `question.asked` / `permission.asked`, and accepts
-//! replies on documented endpoints. This module owns:
+//! bus (`/event`) carrying chat-part and prompt events, and accepts replies on
+//! documented endpoints. This module owns:
 //!
 //! - a per-tab endpoint registry (`base_url` + `cwd`), populated at spawn;
-//! - a background subscriber thread per tab that turns SSE prompt events into
-//!   `tab.pending_prompt` (the PTY stays display-only for these classes), and
-//!   commits any turn-state verdict the provider declared for a streamed event;
+//! - a background subscriber thread per tab that pushes normalized chat parts
+//!   and turns prompt events into `tab.pending_prompt`;
 //! - the active-prompt store the hot path reads ([`pending_for_tab`]);
 //! - the HTTP reply round-trip ([`respond`]), wired through the same
 //!   option-index contract the PTY send-back uses.
 //!
-//! All capability-gated by the caller (`supports_structured_prompts`) — this
-//! module never branches on a provider id. The opencode-specific event/endpoint
-//! shapes are isolated in [`opencode_sse`].
+//! Subscription is capability-gated; chat additionally requires the provider's
+//! `uses_structured_chat` capability and the tab's own bound session. The
+//! OpenCode-specific event shapes are isolated in [`opencode_sse`].
 
 pub mod opencode_sse;
 #[cfg(test)]
@@ -28,7 +27,10 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 
-use opencode_sse::{parse_event, reply_body, reply_endpoint, ParsedEvent, ResponseRoute};
+use opencode_sse::{
+    normalize_chat_part, parse_event, reply_body, reply_endpoint, ChatPartUpdate, MessageMeta,
+    ParsedEvent, ResponseRoute,
+};
 
 use crate::multiplexer::types::PendingPrompt;
 use crate::service::ServiceContext;
@@ -41,6 +43,18 @@ struct Endpoint {
 struct Active {
     prompt: PendingPrompt,
     route: ResponseRoute,
+}
+
+#[derive(Default)]
+struct ChatStreamState {
+    session_id: Option<String>,
+    messages: HashMap<String, MessageMeta>,
+    part_text: HashMap<String, String>,
+}
+
+struct ChatBinding {
+    session_id: String,
+    binding_nonce: Option<String>,
 }
 
 static ENDPOINTS: LazyLock<Mutex<HashMap<String, Endpoint>>> =
@@ -206,11 +220,12 @@ fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), 
 }
 
 fn run_subscriber(svc: ServiceContext, tab_id: String, base_url: String, cwd: String) {
+    let mut chat_state = ChatStreamState::default();
     for attempt in 0..30u32 {
         if tab_gone(&svc, &tab_id) {
             break;
         }
-        if connect_and_stream(&svc, &tab_id, &base_url, &cwd) {
+        if connect_and_stream(&svc, &tab_id, &base_url, &cwd, &mut chat_state) {
             break; // tab closed mid-stream
         }
         std::thread::sleep(Duration::from_millis(500 + (attempt.min(10) as u64) * 200));
@@ -220,7 +235,13 @@ fn run_subscriber(svc: ServiceContext, tab_id: String, base_url: String, cwd: St
 
 /// Connect once and stream until the connection drops or the tab closes.
 /// Returns true if the tab is gone (stop reconnecting), false to retry.
-fn connect_and_stream(svc: &ServiceContext, tab_id: &str, base_url: &str, cwd: &str) -> bool {
+fn connect_and_stream(
+    svc: &ServiceContext,
+    tab_id: &str,
+    base_url: &str,
+    cwd: &str,
+    chat_state: &mut ChatStreamState,
+) -> bool {
     let client = match reqwest::blocking::Client::builder().build() {
         Ok(c) => c,
         Err(_) => return false,
@@ -249,6 +270,23 @@ fn connect_and_stream(svc: &ServiceContext, tab_id: &str, base_url: &str, cwd: &
             continue;
         };
         match parse_event(&value) {
+            ParsedEvent::MessageUpdated { message } => {
+                if chat_binding(svc, tab_id, &message.session_id).is_some() {
+                    chat_state.reset_session(&message.session_id);
+                    if chat_state.messages.len() >= 512
+                        && !chat_state.messages.contains_key(&message.message_id)
+                    {
+                        chat_state.messages.clear();
+                        chat_state.part_text.clear();
+                    }
+                    chat_state
+                        .messages
+                        .insert(message.message_id.clone(), message);
+                }
+            }
+            ParsedEvent::PartUpdated { update } => {
+                emit_chat_part(svc, tab_id, &update, chat_state);
+            }
             ParsedEvent::Prompt { prompt, route } => {
                 ACTIVE.lock().insert(
                     tab_id.to_string(),
@@ -284,6 +322,75 @@ fn connect_and_stream(svc: &ServiceContext, tab_id: &str, base_url: &str, cwd: &
         }
     }
     false
+}
+
+impl ChatStreamState {
+    fn reset_session(&mut self, session_id: &str) {
+        if self.session_id.as_deref() == Some(session_id) {
+            return;
+        }
+        self.session_id = Some(session_id.to_string());
+        self.messages.clear();
+        self.part_text.clear();
+    }
+}
+
+fn chat_binding(svc: &ServiceContext, tab_id: &str, session_id: &str) -> Option<ChatBinding> {
+    let (provider_id, bound_session, binding_nonce) = {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        (
+            tab.agent_type.clone()?,
+            tab.agent_session_id.clone()?,
+            tab.session_binding_nonce.clone(),
+        )
+    };
+    if bound_session != session_id {
+        return None;
+    }
+    let supports_chat = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| provider.uses_structured_chat())
+        .unwrap_or(false);
+    supports_chat.then_some(ChatBinding {
+        session_id: bound_session,
+        binding_nonce,
+    })
+}
+
+fn emit_chat_part(
+    svc: &ServiceContext,
+    tab_id: &str,
+    update: &ChatPartUpdate,
+    chat_state: &mut ChatStreamState,
+) {
+    let Some(binding) = chat_binding(svc, tab_id, &update.session_id) else {
+        return;
+    };
+    chat_state.reset_session(&binding.session_id);
+    let Some(message) = chat_state.messages.get(&update.message_id) else {
+        return;
+    };
+    let previous_text = chat_state.part_text.get(&update.part_id).map(String::as_str);
+    let Some(chat_message) = normalize_chat_part(update, message, previous_text) else {
+        return;
+    };
+    if matches!(update.part.get("type").and_then(|v| v.as_str()), Some("text" | "reasoning")) {
+        if chat_state.part_text.len() >= 512 && !chat_state.part_text.contains_key(&update.part_id) {
+            chat_state.part_text.clear();
+        }
+        chat_state
+            .part_text
+            .insert(update.part_id.clone(), chat_message.content.clone());
+    }
+    let sink = crate::service::tab_chat::structured_sink::make_sink(
+        svc.app_handle.clone(),
+        svc.mux.clone(),
+        Some(binding.session_id),
+        binding.binding_nonce,
+        Some(svc.chat_send_ledger.clone()),
+    );
+    sink.emit(tab_id, vec![chat_message], None);
 }
 
 fn tab_gone(svc: &ServiceContext, tab_id: &str) -> bool {
