@@ -1,3 +1,8 @@
+---
+name: build-reference
+description: "Look up CodeTerm build environment, outputs, toolchain, and repository layout."
+---
+
 # Build reference
 
 Dev/prod isolation, hooks, signing, outputs, icons, platform notes, and project layout.
@@ -86,7 +91,7 @@ After `./build.sh build`:
 
 ## Running Tests
 
-Test layers, commands and the runbook: `essences/testing.md`.
+Test layers, commands and the runbook: `.agents/skills/testing/SKILL.md`.
 
 ### Test troubleshooting
 
@@ -112,7 +117,7 @@ starts.
 
 ## Release Process
 
-Public releases: the map is `essences/release.md` and the executable procedure is the
+Public releases: the map is `.agents/skills/github-release/SKILL.md` and the executable procedure is the
 `github-release` skill (`.agents/skills/github-release/SKILL.md`). Local builds with no
 release use `./build.sh build`, above.
 
@@ -226,4 +231,3 @@ the listener's reuse-address policy consistent across generations.
 If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
-

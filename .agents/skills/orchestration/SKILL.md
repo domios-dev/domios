@@ -1,3 +1,8 @@
+---
+name: orchestration
+description: "Assign agent roles, delegate CodeTerm work, manage worktrees, and report verification."
+---
+
 # Agent Roles And Orchestration
 
 CodeTerm uses a two-level agent hierarchy: **Orchestrator -> Worker**.
@@ -176,4 +181,3 @@ be captured as a bug, follow-up, or docs gap when it affects the work.
 
 Prompt templates compiled into the binary live under `src-tauri/prompts/`; the
 full source and loader map is `prod-docs/PROMPTS.md`.
-

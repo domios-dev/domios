@@ -1,3 +1,8 @@
+---
+name: agent-restart
+description: "Exercise graceful, forced, and recovery paths for a CodeTerm agent restart."
+---
+
 # Agent-restart testing playbook
 
 How to test the `codeterm agent restart` flow against a dev instance —

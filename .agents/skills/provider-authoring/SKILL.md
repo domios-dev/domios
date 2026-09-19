@@ -1,3 +1,8 @@
+---
+name: provider-authoring
+description: "Author and validate JavaScript agent provider plugins for CodeTerm."
+---
+
 # Authoring an Agent Provider Plugin
 
 How to build a JS drop-in agent provider for CodeTerm — the manifest schema, the
@@ -353,4 +358,3 @@ The honest seam, in three parts:
 
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
-
