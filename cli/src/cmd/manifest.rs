@@ -1,5 +1,5 @@
 //! Machine-readable dump of the clap command tree — the single source of truth
-//! consumed by essences/cli.md, the prompt doctor, and the chat-card templates.
+//! consumed by generated/cli/cli.md, the prompt doctor, and the chat-card templates.
 //! Regenerate committed artifacts with `codeterm cli-manifest --write`.
 
 use clap::{Arg, ArgAction, Command, CommandFactory};
@@ -190,11 +190,16 @@ fn render_signature(cmd: &ManifestCommand, full: &[String], out: &mut String) {
 
 const MD_START: &str = "<!-- cli:auto-start -->";
 const MD_END: &str = "<!-- cli:auto-end -->";
+const OUTPUT_DIR: &str = "generated/cli";
 
 fn repo_path(rel: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(rel)
+}
+
+fn output_path(file: &str) -> std::path::PathBuf {
+    repo_path(OUTPUT_DIR).join(file)
 }
 
 pub fn handle(write: bool, markdown: bool) {
@@ -206,16 +211,16 @@ pub fn handle(write: bool, markdown: bool) {
         print!("{}", to_json());
         return;
     }
-    let manifest = repo_path("essences/cli-manifest.json");
+    let manifest = output_path("cli-manifest.json");
     std::fs::write(&manifest, to_json()).expect("write cli-manifest.json");
     println!("wrote {}", manifest.display());
 
-    let cli_md = repo_path("essences/cli.md");
-    let md = std::fs::read_to_string(&cli_md).expect("read essences/cli.md");
+    let cli_md = output_path("cli.md");
+    let md = std::fs::read_to_string(&cli_md).expect("read generated/cli/cli.md");
     let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
     let end = md.find(MD_END).expect("missing cli:auto-end marker");
     let spliced = format!("{}\n{}\n{}", &md[..start], to_markdown(), &md[end..]);
-    std::fs::write(&cli_md, spliced).expect("write essences/cli.md");
+    std::fs::write(&cli_md, spliced).expect("write generated/cli/cli.md");
     println!("wrote {}", cli_md.display());
 
     let command_paths = repo_path("packages/chat-ui/src/codeterm/commandPaths.ts");
@@ -231,9 +236,6 @@ mod tests {
         s.replace("\r\n", "\n")
     }
 
-    const MANIFEST_PATH: &str =
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../essences/cli-manifest.json");
-    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../essences/cli.md");
     const COMMAND_PATHS_PATH: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../packages/chat-ui/src/codeterm/commandPaths.ts"
@@ -241,18 +243,19 @@ mod tests {
 
     #[test]
     fn cli_manifest_is_fresh() {
-        let committed = std::fs::read_to_string(MANIFEST_PATH)
-            .expect("essences/cli-manifest.json missing — run `codeterm cli-manifest --write`");
+        let committed = std::fs::read_to_string(output_path("cli-manifest.json"))
+            .expect("generated/cli/cli-manifest.json missing — run `codeterm cli-manifest --write`");
         assert_eq!(
             normalize_newlines(&committed),
             normalize_newlines(&to_json()),
-            "essences/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
+            "generated/cli/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
         );
     }
 
     #[test]
     fn docs_cli_md_is_fresh() {
-        let md = std::fs::read_to_string(CLI_MD_PATH).expect("essences/cli.md missing");
+        let md = std::fs::read_to_string(output_path("cli.md"))
+            .expect("generated/cli/cli.md missing");
         let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
         let end = md.find(MD_END).expect("missing cli:auto-end marker");
         let block = &md[start..end];
@@ -260,7 +263,7 @@ mod tests {
         assert_eq!(
             normalize_newlines(block),
             normalize_newlines(&expected),
-            "essences/cli.md auto-block stale — run `codeterm cli-manifest --write`"
+            "generated/cli/cli.md auto-block stale — run `codeterm cli-manifest --write`"
         );
     }
 
@@ -524,7 +527,11 @@ mod tests {
     }
 
     // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
-    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "essences/cli.md"];
+    const PRESCRIPTION_CORPUS: &[&str] = &[
+        "skills",
+        "src-tauri/prompts",
+        "generated/cli/cli.md",
+    ];
 
     fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -616,7 +623,7 @@ mod tests {
         );
     }
 
-    // `about` string so essences/cli.md and chat cards never render a blank line.
+    // `about` string so generated/cli/cli.md and chat cards never render a blank line.
     #[test]
     fn every_leaf_command_has_about() {
         fn walk(cmd: &Command, path: &[String], missing: &mut Vec<String>) {

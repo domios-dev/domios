@@ -10,7 +10,7 @@ use super::*;
 
 /// The committed clap manifest is the authority on which commands exist.
 /// Generated artifact — read here, never written.
-const CLI_MANIFEST: &str = include_str!("../../../essences/cli-manifest.json");
+const CLI_MANIFEST: &str = include_str!("../../../generated/cli/cli-manifest.json");
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
@@ -264,7 +264,7 @@ fn prompt_cli_references_exist_in_manifest() {
     assert!(
         problems.is_empty(),
         "prompts teach commands the CLI manifest does not have. If the command \
-         is new, essences/cli-manifest.json needs regeneration:\n{}",
+         is new, generated/cli/cli-manifest.json needs regeneration:\n{}",
         problems.join("\n")
     );
 }
