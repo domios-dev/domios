@@ -611,9 +611,8 @@ impl ServiceContext {
         if completed {
             return observed.expect("completed public input readiness");
         }
-        // A launch still on the wire is not an unresolved session: writing now
-        // would corrupt the launch command. Refuse so the user send parks and
-        // replays at AgentReady instead of landing in the shell.
+        // Do not write while launch input is on the wire; that corrupts the command.
+        // Refuse and park the send for AgentReady so it reaches the agent session.
         let still_launching = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
