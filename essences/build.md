@@ -52,11 +52,38 @@ Isolated Worker lanes are source-only.
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
 | Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
+| Compile both Rust test profiles for one source-only lane (isolated per-task test-profile gate) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; isolated target, never the build gateway | `.agents/skills/gates/SKILL.md` |
 | Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
 | Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `essences/release.md` and `github-release` skill |
 
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
+
+## Generated artifacts and the embedded-doc boundary
+
+Two classes of document exist. `prod-docs/<NAME>.md` files are embedded in the
+binary and read by production agents through the docs registry; everything else
+lives in `essences/` and never ships. `prod-docs/` holds only embedded
+documents, and every registered name maps to a same-named file — both directions
+are enforced by tests.
+
+A generated artifact is produced from a source of truth and is never
+hand-edited. Regenerate it from its source in the same lane and commit it with
+the source change before handoff, so no consumer ever sees a stale artifact.
+
+| Source of truth | Generated artifact | Regenerate (canonical) | Verify |
+|---|---|---|---|
+| CLI clap tree in `cli/src/args/` | `essences/cli-manifest.json`, the generated block in `essences/cli.md`, `packages/chat-ui/src/codeterm/commandPaths.ts` | `./build.sh cli`, or `cli-manifest --write` run by the CLI built from this checkout | `./build.sh test-one cli cmd::manifest` |
+| `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `codeterm essence-map generate --root .` | `codeterm essence-map validate --root .`; `./build.sh test-one cli essence_map_contract_committed_artifacts_are_fresh` |
+| `src-tauri/prompts/**` and their loader consts | the `prod-docs/PROMPTS.md` inventory | edit the inventory row by hand | `bash scripts/check-prompts-doc.sh` |
+| Registered public routes in `src-tauri/src/api/routes.rs` | `prod-docs/API.md` | edit the API index by hand | `bash scripts/check-api-docs.sh` |
+| A `prod-docs/<NAME>.md` document | its embedded copy, through the docs registry in `cli/src/cmd/docs.rs` | register the document in `DOCS`, or exclude it with a reason | `./build.sh test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary` |
+
+An isolated Worker lane is source-only: it does not run a build or a gate. When
+the generator needs the checkout's built CLI or any verification, the lane
+reports the exact command under GATES REQUESTED and the Orchestrator regenerates
+and verifies it in canonical before the merge. Never hand-edit a generated
+artifact, and never regenerate one with the installed `codeterm` on `PATH`.
 
 ## Local production build and self-install
 
@@ -401,6 +428,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | CLI docs report `BUILD exceeds 24 KiB` or `ORCHESTRATION exceeds 240 lines` | Troubleshooting or the compact operating contract outgrew its reading boundary. | Compress repetition or move detail to the named reference playbook; rerun `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition and rely on the test process exit. |
 | Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
+| A release-time test fails in `#[cfg(test)]` code while `check` was green | `check` compiles the production profile only, so test-only code is never type-checked | Run `./build.ps1 check-tests`, which compiles `--all-targets` for both workspaces without the build gateway. A stale generated map or a document over its reading boundary is a different cause: use the matching row above. |
 
 ## Related documents
 
