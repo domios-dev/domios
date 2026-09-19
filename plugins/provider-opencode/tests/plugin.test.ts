@@ -72,6 +72,8 @@ const ocHost = (over: Record<string, unknown>) => ({
   expandHome: (v: string) => v,
   envGet: () => null,
   exec: () => JSON.stringify({ code: 1, stdout: "", stderr: "not available" }),
+  unixNowMs: () => 1_000_000,
+  fetch: () => JSON.stringify({ error: "no network in tests" }),
   log: () => {},
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
   ...over,
@@ -265,8 +267,8 @@ console.log("\n--- discoverModels ---\n");
   eq(
     p.discoverModels(),
     [
-      { id: "opencode/big-pickle", displayName: "OpenCode Zen Big Pickle" },
-      { id: "anthropic/claude-opus-4-8", displayName: "Claude Opus 4.8" },
+      { id: "opencode/big-pickle", displayName: "OpenCode Zen Big Pickle", group: "OpenCode Zen" },
+      { id: "anthropic/claude-opus-4-8", displayName: "Claude Opus 4.8", group: "anthropic" },
     ],
     "discoverModels: clean labels (OpenCode Zen prefix + dotted version), no availability signal → unset",
   );
@@ -279,7 +281,7 @@ console.log("\n--- discoverModels ---\n");
   }));
   eq(
     p.discoverModels(),
-    [{ id: "opencode/gpt-5.5", displayName: "OpenCode Zen GPT 5.5" }],
+    [{ id: "opencode/gpt-5.5", displayName: "OpenCode Zen GPT 5.5", group: "OpenCode Zen" }],
     "embedding + whisper filtered out; chat model kept with clean label",
   );
 }
@@ -300,7 +302,7 @@ console.log("\n--- discoverModels ---\n");
   }));
   eq(
     p.discoverModels(),
-    [{ id: "xai/grok-4.6", displayName: "Grok 4.6" }],
+    [{ id: "xai/grok-4.6", displayName: "Grok 4.6", group: "xai" }],
     "image/video generation models are filtered; the chat model is kept",
   );
 }
@@ -327,14 +329,86 @@ console.log("\n--- discoverModels ---\n");
       cache_read_tokens: 10,
       cache_write_tokens: 0,
       cost_micros: 1_942_500,
+      spend_cents: 194,
     }],
-    "modelGroupUsage maps rows to snake_case groups and drops a null provider",
+    "modelGroupUsage maps rows to snake_case groups, adds observed spend, and drops a null provider",
   );
+}
+
+// A group with a live balance endpoint carries remaining credit; the limit is
+// left absent because the endpoint exposes no included allowance.
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  let fetched = "";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { g: "deepseek", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 3.39 },
+        { g: "xai", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 118.75 },
+      ],
+    },
+    fetch: (opts: string) => {
+      fetched = opts;
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({
+          is_available: true,
+          balance_infos: [{ currency: "USD", total_balance: "0.62", topped_up_balance: "0.62" }],
+        }),
+      });
+    },
+  }));
+  const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
+  const deepseek = rows.find((r) => r.group === "deepseek");
+  const xai = rows.find((r) => r.group === "xai");
+  assert(
+    fetched.indexOf("api.deepseek.com") !== -1 &&
+      fetched.indexOf("opencodeAuth") !== -1 &&
+      fetched.indexOf("deepseekKey") !== -1,
+    "the balance read names its own URL and the declared credential secret",
+  );
+  eq(deepseek?.spend_remaining_cents, 62, "deepseek remaining credit is read live");
+  eq(deepseek?.spend_limit_cents, undefined, "no included limit is invented");
+  eq(xai?.spend_cents, 11875, "xai spend comes from its own observed cost");
+  eq(xai?.spend_remaining_cents, undefined, "a group without a balance endpoint has no remaining");
+  eq(xai?.spend_limit_cents, undefined, "a group without a live limit reports null, never a guess");
+}
+
+// A failed balance read still reports the observed spend, with no fabricated limit.
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { g: "deepseek", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 1.0 },
+      ],
+    },
+    fetch: () => JSON.stringify({ error: "request failed: timed out" }),
+  }));
+  const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
+  eq(rows[0].spend_cents, 100, "observed spend survives a failed balance read");
+  eq(rows[0].spend_remaining_cents, undefined, "an unreadable balance leaves remaining absent");
 }
 
 {
   const p = loadOpencodeWithHost(ocHost({ fs: { fileExists: () => false } }));
   eq(p.modelGroupUsage(), [], "no session store ⇒ no usage, never a guess");
+}
+
+// The manifest declares the balance credential secret and the network host the
+// plugin's balance read reaches — core never learns either.
+{
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"),
+  );
+  const cred = (manifest.credentials || []).find((c: { id?: string }) => c.id === "opencodeAuth");
+  assert(cred?.secret?.deepseekKey === "deepseek.key", "auth credential declares the deepseek key secret");
+  assert(
+    (manifest.permissions?.network?.allow || []).includes("api.deepseek.com"),
+    "manifest allows the deepseek balance host",
+  );
 }
 
 // opencode plugin so the session-start report can prove tab ownership.

@@ -496,6 +496,10 @@ interface ModelGroupUsage {
   cache_read_tokens: number;
   cache_write_tokens: number;
   cost_micros: number;
+  spend_cents?: number;
+  spend_limit_cents?: number;
+  spend_remaining_cents?: number;
+  spend_resets_at_ms?: number;
 }
 
 function parsePermissionPrompt(text: string): ParsedPrompt | null {
@@ -763,6 +767,8 @@ interface ModelUsageRow {
 
 // Group the assistant messages opencode already stores by their providerID,
 // summing tokens and cost. Absent fields are treated as zero, never a guess.
+// Spend is the group's observed cost; a group with a live balance endpoint also
+// carries its remaining credit, and a group without one leaves the limit null.
 function discoverOpencodeGroupUsage(): ModelGroupUsage[] {
   const db = opencodeDbPath();
   if (!db || !host.fs.fileExists(db)) return [];
@@ -783,17 +789,76 @@ function discoverOpencodeGroupUsage(): ModelGroupUsage[] {
   for (let i = 0; i < rows.length; i++) {
     const group = rows[i].g;
     if (typeof group !== "string" || !group) continue;
-    out.push({
+    const costMicros = Math.round(finiteNumber(rows[i].cost) * 1_000_000);
+    const entry: ModelGroupUsage = {
       group: group,
       messages: finiteNumber(rows[i].messages),
       input_tokens: finiteNumber(rows[i].input),
       output_tokens: finiteNumber(rows[i].output),
       cache_read_tokens: finiteNumber(rows[i].cache_read),
       cache_write_tokens: finiteNumber(rows[i].cache_write),
-      cost_micros: Math.round(finiteNumber(rows[i].cost) * 1_000_000),
-    });
+      cost_micros: costMicros,
+    };
+    if (costMicros > 0) entry.spend_cents = Math.round(costMicros / 10_000);
+    const remaining = groupBalanceCents(group);
+    if (remaining != null) entry.spend_remaining_cents = remaining;
+    out.push(entry);
   }
   return out;
+}
+
+// Upstream balance endpoints this router's groups expose. The URL and the
+// credential secret are this plugin's own vendor knowledge; core never learns
+// them. A group with no entry simply has no readable live limit.
+const BALANCE_BY_GROUP: Record<string, { url: string; secret: string }> = {
+  deepseek: { url: "https://api.deepseek.com/user/balance", secret: "deepseekKey" },
+};
+const BALANCE_CREDENTIAL = "opencodeAuth";
+const BALANCE_TTL_MS = 60_000;
+const BALANCE_TIMEOUT_MS = 4000;
+let balanceCache: { group: string; atMs: number; cents: number | null } | null = null;
+
+function groupBalanceCents(group: string): number | null {
+  if (!BALANCE_BY_GROUP[group]) return null;
+  const now = host.unixNowMs();
+  if (balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS) {
+    return balanceCache.cents;
+  }
+  const cents = fetchBalanceCents(group);
+  balanceCache = { group: group, atMs: now, cents: cents };
+  return cents;
+}
+
+function fetchBalanceCents(group: string): number | null {
+  const spec = BALANCE_BY_GROUP[group];
+  if (!spec || typeof host.fetch !== "function") return null;
+  let response: { status?: number; body?: string } | null = null;
+  try {
+    response = safeJson(host.fetch(JSON.stringify({
+      url: spec.url,
+      method: "GET",
+      timeoutMs: BALANCE_TIMEOUT_MS,
+      credential: {
+        id: BALANCE_CREDENTIAL,
+        headers: { Authorization: "Bearer {" + spec.secret + "}" },
+      },
+    }))) as { status?: number; body?: string } | null;
+  } catch (_) {
+    return null;
+  }
+  if (!response || response.status !== 200 || typeof response.body !== "string") return null;
+  const body = safeJson(response.body) as
+    | { balance_infos?: Array<{ currency?: string; total_balance?: string }> }
+    | null;
+  const infos = body && Array.isArray(body.balance_infos) ? body.balance_infos : [];
+  let chosen: { currency?: string; total_balance?: string } | null = null;
+  for (let i = 0; i < infos.length; i++) {
+    if (infos[i] && infos[i].currency === "USD") { chosen = infos[i]; break; }
+  }
+  if (!chosen && infos.length > 0) chosen = infos[0];
+  if (!chosen || typeof chosen.total_balance !== "string") return null;
+  const total = parseFloat(chosen.total_balance);
+  return Number.isFinite(total) ? Math.round(total * 100) : null;
 }
 
 function finiteNumber(value: unknown): number {

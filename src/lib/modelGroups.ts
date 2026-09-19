@@ -50,7 +50,8 @@ export function hasModelUsage(usage: ModelGroupUsage | null): usage is ModelGrou
     usage.output_tokens > 0 ||
     usage.cache_read_tokens > 0 ||
     usage.cache_write_tokens > 0 ||
-    usage.cost_micros > 0
+    usage.cost_micros > 0 ||
+    usage.spend_cents != null
   );
 }
 

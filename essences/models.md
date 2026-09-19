@@ -347,6 +347,13 @@ and cost per group. The picker shows that figure for the selected model's group.
 A provider with no such export shows none — usage is never inferred. Groups are
 the provider's to decide, so a new provider needs no core change.
 
+A group may also carry `spend_cents` and, when the provider can read a live
+quota, `spend_limit_cents` / `spend_remaining_cents` / `spend_resets_at_ms`.
+The tab's usage capsule renders that group's spend for the tab's selected model;
+a group whose live limit is unreadable reports spend with a null limit, never a
+fabricated one. The provider owns the balance endpoint and the credential it
+authenticates with — core only carries the numbers.
+
 ## Cache invalidation
 
 `<provider>.cache.json` records the CLI it was captured against (path, size,

@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
+import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
+import { usageForModel } from "../../lib/modelGroups";
+import type { ModelGroup } from "../../lib/types";
 import { classify } from "../../types/usage";
 import { formatSpend } from "./format";
+import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
 import { usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
@@ -15,14 +19,42 @@ interface UsageBubbleProps {
   /// bubble doesn't re-fetch + re-listen on its own. Default `false`
   /// keeps callers that haven't been migrated rendering nothing.
   trackingEnabled?: boolean;
+  /// The tab's selected model, used to pick its provider-declared group's
+  /// spend/limit when the provider publishes per-group usage.
+  modelId?: string | null;
+  /// Provider-declared model groups, so a group-spend capsule matches by id
+  /// without core knowing any vendor.
+  modelGroups?: ModelGroup[];
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const STALE_MS = 20 * 60 * 1000;
 
-export function UsageBubble({ provider, accountId = null, trackingEnabled = false }: UsageBubbleProps) {
+export function UsageBubble({
+  provider,
+  accountId = null,
+  trackingEnabled = false,
+  modelId = null,
+  modelGroups,
+}: UsageBubbleProps) {
+  // The group's provider-declared spend meter takes precedence over the
+  // provider-scoped polled snapshot: it is the tab's own upstream group.
+  const { usage: modelUsage, refresh: refreshModelUsage } = useProviderModelUsageState(
+    provider,
+    trackingEnabled,
+  );
+  const groupUsage = modelId ? usageForModel(modelUsage, modelGroups, modelId) : null;
+  const groupSnapshot = useMemo(
+    () => (hasGroupSpend(groupUsage) ? groupSpendSnapshot(provider, groupUsage, Date.now()) : null),
+    [provider, groupUsage],
+  );
   // nor register a usage-snapshot-updated listener (was a per-tab IPC fan-out).
-  const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
+  const { snapshot, refresh, refetch } = useUsageSnapshot({
+    provider,
+    accountId,
+    enabled: trackingEnabled && !groupSnapshot,
+  });
+  const active = groupSnapshot ?? snapshot;
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -56,19 +88,19 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
   }, [open]);
 
   if (!trackingEnabled) return null;
-  if (!snapshot) return null;
-  const ageMs = Date.now() - snapshot.captured_at;
-  if (!snapshot.parsed_ok && ageMs > ONE_HOUR_MS) return null;
+  if (!active) return null;
+  const ageMs = Date.now() - active.captured_at;
+  if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
   const isStale = ageMs > STALE_MS;
   // to threshold against — render the cycle spend as a neutral pill.
-  const isSpend = snapshot.spend_cents != null && snapshot.session_pct == null && snapshot.weekly_pct == null;
-  const spendLabel = snapshot.spend_remaining_cents != null
-    ? `${formatSpend(snapshot.spend_remaining_cents)} left`
-    : formatSpend(snapshot.spend_cents ?? 0);
-  const sessionState = classify(snapshot.session_pct);
-  const weeklyState = classify(snapshot.weekly_pct);
-  const metrics = visibleUsageMetrics(snapshot);
+  const isSpend = active.spend_cents != null && active.session_pct == null && active.weekly_pct == null;
+  const spendLabel = active.spend_remaining_cents != null
+    ? `${formatSpend(active.spend_remaining_cents)} left`
+    : formatSpend(active.spend_cents ?? 0);
+  const sessionState = classify(active.session_pct);
+  const weeklyState = classify(active.weekly_pct);
+  const metrics = visibleUsageMetrics(active);
   const worst: "neutral" | "warn" | "danger" = isSpend
     ? "neutral"
     : sessionState === "danger" || weeklyState === "danger"
@@ -76,6 +108,15 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
       : sessionState === "warn" || weeklyState === "warn"
         ? "warn"
         : "neutral";
+
+  const refreshUsage = async () => {
+    if (groupSnapshot) {
+      refreshModelUsage();
+      return;
+    }
+    await refresh();
+    await refetch();
+  };
 
   const bubbleClass = [
     "ct-usage-bubble",
@@ -129,12 +170,9 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
 
       {open && isSpend && (
         <UsageSpendDetail
-          snapshot={snapshot}
+          snapshot={active}
           flipUp={flipUp}
-          onRefresh={async () => {
-            await refresh();
-            await refetch();
-          }}
+          onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
             setOpen(false);
@@ -144,12 +182,9 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
 
       {open && !isSpend && (
         <UsageDetail
-          snapshot={snapshot}
+          snapshot={active}
           flipUp={flipUp}
-          onRefresh={async () => {
-            await refresh();
-            await refetch();
-          }}
+          onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
             setOpen(false);
