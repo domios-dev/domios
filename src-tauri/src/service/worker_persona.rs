@@ -40,6 +40,7 @@ struct ReservationScope {
 
 #[derive(Debug, Clone)]
 struct ReservationEntry {
+    #[allow(dead_code)]
     scope: ReservationScope,
     title: String,
     /// Set once the persona is handed to a tab: the claim is then keyed on the
