@@ -196,3 +196,10 @@ The watchdog is a last-resort safety net. Persistent restarts mean the
 daemon-side backpressure (Phase 1) or process isolation (Phase 2) needs
 tuning — not more aggressive restarts.
 
+```map
+anchors:
+  - core:crash-recovery-supervisor
+  - capability:health-and-diagnostics
+  - capability:session-continuity
+```
+
