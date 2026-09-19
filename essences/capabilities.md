@@ -1,10 +1,10 @@
 # CodeTerm capability map
 
-What CodeTerm fundamentally does, grouped by the few vectors that give the system its shape. Each row names a capability, what it makes possible, where it is reached (UI surface, CLI command group, API area), the rules that must not break, its status, the core parts or clients it runs on, and the capabilities it feeds. Why these vectors exist is stated once, in the vision; the core parts, clients and the routing spine are described in the core essence; how to maintain this map is stated in the documentation contract.
+What CodeTerm fundamentally does, grouped by the few vectors that give the system its shape. Each row names a capability, what it makes possible, where it is reached (UI surface, CLI command group, API area), the rules that must not break, its status, the core parts or clients it runs on, and the capabilities it feeds. Why these vectors exist is stated once, in the [vision](vision.md); the core parts, clients and the routing spine are described in the [core essence](core.md); how to maintain this map is stated in the [documentation contract](begin_here.md).
 
 Code is volatile and gets rebuilt in pieces; these essences are the product's stable vectors. They rarely change, and when they do they evolve gradually instead of being restructured, which is what lets them serve as the expected inputs and outputs a change must keep.
 
-Status: **stable** is in the latest release; **in rollout** is merged for the next release and not yet shipped; **planned** is an agreed direction with no shipped surface; **roadmap** is where the product is heading, with its exact shape still open. Detail names an embedded document (read it with `codeterm docs <NAME>`) or an internal essence.
+Status: **stable** is in the latest release; **in rollout** is merged for the next release and not yet shipped; **planned** is an agreed direction with no shipped surface; **roadmap** is where the product is heading, with its exact shape still open. Detail names the UI surfaces, CLI command groups, and API areas through which a capability is reached.
 
 Runs on names core parts and clients exactly as the core essence does. Feeds names capabilities of this map; a capability with no outgoing link is a sink and is fed by at least one other row.
 
@@ -12,14 +12,14 @@ Runs on names core parts and clients exactly as the core essence does. Feeds nam
 
 - Production listens on port 7685 and is never killed by development work; development uses 7686 or a named instance.
 - Core asks capabilities, never provider identities.
-- A routed message is authentic only when the host placed its marker at the leading frame; the same bytes anywhere else are content.
+- A routed marker is accepted as host-injected only in the leading frame placed by the host; the same bytes anywhere else are content. Position does not authenticate the sender or protect against direct writes into a tab's input stream.
 - Coordination waits on observed events, never on sleeps or polling intervals.
 - Changes to PTY or Chat input delivery need the owner's explicit approval first.
 - Agent-to-agent traffic, memory and documentation are English.
 
 ## 1. Agents live and work in tabs
 
-Detail: API-TABS, TAB-LIFECYCLE, ROUTING, HTML, AGENT-CONTROL; internal essences MODELS and the provider authoring guide.
+Detail: Workspace sidebar and chat view; workspace, tab, agent, and sessions command groups; workspace, tab, agent, and session APIs; [core essence](core.md).
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
@@ -32,7 +32,7 @@ Detail: API-TABS, TAB-LIFECYCLE, ROUTING, HTML, AGENT-CONTROL; internal essences
 
 ## 2. Agents coordinate as meta-teams through plans
 
-Detail: ORCHESTRATION, ORCHESTRATION-OPERATIONS, PLANNER, PLAN-EDITING, API-PLAN, PROMPTS.
+Detail: Plan canvas; team, plan, spec, and task command groups; plan and task APIs; [core essence](core.md).
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
@@ -46,7 +46,7 @@ Detail: ORCHESTRATION, ORCHESTRATION-OPERATIONS, PLANNER, PLAN-EDITING, API-PLAN
 
 ## 3. Work flows through isolated lanes into canonical
 
-Detail: LANES, TESTING, TEST-AUTHORING; internal essences BUILD, RELEASE and the CLI contributor guide.
+Detail: Plan canvas; plan, task, and review command groups; plan API; [core essence](core.md).
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
@@ -60,7 +60,7 @@ Detail: LANES, TESTING, TEST-AUTHORING; internal essences BUILD, RELEASE and the
 
 The mesh assumes a closed private network, typically a tailnet, and deploying it that way is the recommendation: peers reach each other over a private subnet rather than the open internet. Wider reach is never wildcard — it is authenticated, explicitly opted into and scoped to one chosen private address, with loopback staying primary.
 
-Detail: MESH, MESH-SERVICES, MESH-BRIDGE; internal essence WEB_ACCESS.
+Detail: Mesh tab; mesh, paste, and service command groups; mesh and service APIs; [core essence](core.md).
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
@@ -70,7 +70,7 @@ Detail: MESH, MESH-SERVICES, MESH-BRIDGE; internal essence WEB_ACCESS.
 
 ## 5. People reach agents through bridges, voice and the web
 
-Detail: INTEGRATIONS, API-INTEGRATIONS, TELEGRAM-SETUP, TEXT-HOOKS, TRANSCRIBE, NOTIFICATIONS.
+Detail: Integrations, bridge topics, notification panel, and web UI; bridge, plugin, notify, and web command groups; bridge, receiver, notification, and web APIs; [core essence](core.md).
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
@@ -83,7 +83,7 @@ Detail: INTEGRATIONS, API-INTEGRATIONS, TELEGRAM-SETUP, TEXT-HOOKS, TRANSCRIBE, 
 
 ## 6. The host owns memory, secrets, plugins and configuration
 
-Detail: MEMORY, MEMORY-USAGE, MEMORY-SERVICES, SECRETS, SKILLS, CONFIG, RUNTIME-CONFIG; internal essence PLUGINS.
+Detail: Memory and Settings surfaces; mem, plugin, and config command groups; memory, secret, plugin, and configuration APIs; [core essence](core.md).
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
@@ -95,7 +95,7 @@ Detail: MEMORY, MEMORY-USAGE, MEMORY-SERVICES, SECRETS, SKILLS, CONFIG, RUNTIME-
 
 ## 7. The product observes and updates itself
 
-Detail: API-STATE, TAB-LIFECYCLE; internal essences RESILIENCE and RELEASE.
+Detail: Health and update surfaces; identify, tab, orchestrator, plan, and update command groups; health and update APIs; [core essence](core.md).
 
 | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |
 |---|---|---|---|---|---|---|
@@ -104,4 +104,16 @@ Detail: API-STATE, TAB-LIFECYCLE; internal essences RESILIENCE and RELEASE.
 | Health and diagnostics | Liveness, running build identity, orchestration and plan consistency | Health API; CLI `identify`, `tab inspect`, `orchestrator status`, `plan doctor` | Debugging starts by confirming the running build matches the source | stable | Service layer, Crash-recovery supervisor | Session continuity |
 | Updates and local install | Signed updates checked, installed and relaunched; a local production build installed on this machine resumes the calling tab | Update UI; CLI `update check`, `update install`; build script local install | A client is offered only an artifact for its own platform; manifests are signature-verified; channel switching is disabled; local install is an explicit operation and development commands never touch production's port or CLI | stable | Service layer, CLI, Crash-recovery supervisor | Session continuity |
 
-<!-- revision: 1 -->
+## Stable capability contracts
+
+### Agent models
+
+Each provider owns its model and reasoning-effort catalog. A live provider catalog defines the models that can be launched: user settings may reorder or describe those entries but cannot add or hide them. Without a live catalog, the provider's static catalog and user settings define the choices; settings merge by model identifier by default, while an explicit full-list setting replaces that static catalog.
+
+Model availability has three honest states: available, unavailable, and unknown. A confirmed unavailable model is disabled. A failed or inconclusive availability check remains unknown and selectable; it is never reported as unavailable. Provider group labels, per-group usage, and quota values come from that provider, and CodeTerm does not infer missing labels or balances. Unsupported reasoning efforts are refused at launch rather than silently downgraded. See the [core essence](core.md) for provider boundaries and session ownership.
+
+### Web UI and health
+
+The web UI serves the complete interface to a phone or browser over the owner's private Tailnet, with no cloud relay and no public exposure by default. Access requires both Tailnet membership and the instance's API token. A paired machine uses its own web address and token. See the [core essence](core.md) for the web client and service boundaries.
+
+The health API is the daemon's liveness signal and reports the running build identity. Memory-intensive background work is bounded and isolated so it cannot take down or starve API handling. An external supervisor owns recovery when the daemon exits or stops answering its liveness check. See the [core essence](core.md) for health and crash-recovery ownership.

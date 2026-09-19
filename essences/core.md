@@ -1,6 +1,6 @@
 # CodeTerm core
 
-What the running product is made of, stated as concepts that outlive any rewrite of the code. The capability map groups what CodeTerm does by vector; this essence names the parts those capabilities run on, the clients that reach them, and the one route every message takes. Together they are the elements of the project map. The map is an indirect beacon, not a blueprint: real architecture is more complex and is never reshaped to match it.
+What the running product is made of, stated as concepts that outlive any rewrite of the code. The [capability map](capabilities.md) groups what CodeTerm does by vector; this essence names the parts those capabilities run on, the clients that reach them, and the one route every message takes. Together they are the elements of the project map. The map is an indirect beacon, not a blueprint: real architecture is more complex and is never reshaped to match it.
 
 ## How to read the links
 
@@ -21,6 +21,8 @@ A client presents and requests. It holds no authority of its own: every state it
 
 Agents are users of the CLI, not clients of their own. Bridges, webhook senders, service daemons and mesh peers are not clients either: they enter through the message gateway or the mesh, where trust is decided.
 
+The CLI command groups and their accepted inputs and behavior form a product contract. Its generated reference, chat actions, and agent prompts stay aligned with the command tree. Breaking CLI-to-service requests are rejected with a clear version-mismatch response and recovery guidance; additive optional operations and fields remain compatible. Command feedback distinguishes errors that require action, advisory hints, and nonfatal warnings.
+
 ## Core parts
 
 ### Service layer
@@ -28,23 +30,23 @@ Agents are users of the CLI, not clients of their own. Bridges, webhook senders,
 The hub. One service owns every operation on workspaces, tabs, agents and plans, and every transport delegates to it: desktop host calls, the authenticated API, the local socket and mesh relays. Validation, events and cleanup happen once, here, whatever the entry point.
 
 - Part of: the running daemon itself.
-- Invariants: production listens on 7685 and is never killed by development, which uses 7686 or a named instance with its own data; an outdated or versionless protocol is refused; hot paths stay cheap and bounded, and blocking work never runs on the shared async runtime; coordination waits on observed events, never on sleeps; subsystems stop and start without restarting the daemon where they can.
+- Invariants: production listens on 7685 and is never killed by development, which uses 7686 or a named instance with its own data; an outdated or versionless protocol is refused; service requests stay responsive while blocking and memory-intensive work runs; background work is bounded and isolated so it cannot starve or take down the API; coordination waits on observed events, never on sleeps; subsystems stop and start without restarting the daemon where they can.
 - Dependent capabilities: workspaces and tabs, health and diagnostics, updates, and the web UI.
 
 ### General Agent
 
-The protected, always-on agent singleton for one installation. It owns the General workspace identity, receives bridge and mesh traffic, and coordinates project agents.
+The protected, always-on agent singleton for one installation. It owns the General workspace identity, represents the machine in the mesh, receives bridge and mesh traffic, and coordinates project agents.
 
 - Part of: agents and providers.
-- Invariants: exactly one protected General workspace and tab exist; routing reaches the singleton through its own tab; its provider session is resumed only from explicit ownership evidence.
+- Invariants: exactly one protected General workspace and tab exist; routing reaches the singleton through its own tab; its provider session is resumed only from explicit ownership evidence; its permanent prompt is regenerated from installation and user identity, personality, shared agent guidance, and current memory when available; unavailable memory does not block startup; first-run bootstrap is a separate one-time message and is not sent on session resume.
 - Dependent capabilities: workspaces and tabs, agent providers, session continuity, Telegram bridge, and remote work.
 
 ### Crash-recovery supervisor
 
-The external CLI supervisor that observes daemon epochs and owns crash recovery launches without duplicating a live daemon or resuming workers itself.
+The external supervisor observes daemon epochs and owns crash-recovery launches; the daemon never restarts itself. The supervisor adopts a matching live process instead of starting a duplicate, and it distinguishes unexpected exits from clean exits and requested handoffs. Crash classification describes the dead process: a short-lived startup failure differs from other unclean exits, and a kill or power-loss attribution requires an external observer that saw the process die. Downtime alone does not establish a cause.
 
 - Part of: host state.
-- Invariants: durable crash markers precede recovery decisions; clean exits and requested handoffs are not treated as crashes; recovery never resumes workers or creates duplicate app instances.
+- Invariants: durable recovery state precedes restart decisions and survives supervisor interruption; clean exits and requested update or restart handoffs are not treated as crashes; a later launch restores session snapshots and task bindings before any worker spawn; existing execution bindings remain authoritative; work resumes only when the same provider session and task attempt prove that safe continuation will not duplicate side effects; a missing exact binding requires review or reassignment, never a guess based on downtime; restored owner and Planner bindings keep report routing stable, and duplicate worker or report ownership is checked before recovery dispatch; the supervisor restarts the app but never resumes workers or creates duplicate app instances. The recovery status toast remains active until restored session identities prove health, not until dismissal; resolved crash records remain available, and a later process epoch supersedes the prior warning.
 - Dependent capabilities: session continuity, health and diagnostics, and updates and local install.
 
 ### Host state
@@ -60,7 +62,7 @@ What one CodeTerm instance remembers across restarts: configuration, the workspa
 Real terminals, one per tab, and the input path into them.
 
 - Part of: the service layer.
-- Invariants: a payload is written at most once; after it reaches the write queue a failure may only be "submit unconfirmed"; submit recovery sends keys only, within one bounded cycle per terminal, and a new send cancels the old cycle; uncertainty is settled by the tab's own session evidence, never by guessing from the screen; any change to this path needs the owner's explicit approval first.
+- Invariants: a payload is written at most once; after it reaches the input queue a failure may only be submit unconfirmed, never unavailable; submit recovery sends a bounded blind key-only burst without screen, composer, status, or provider-identity gating; each terminal has one resettable burst and a new send cancels the old one; only an exact user turn appended after the send to the tab's own bound session confirms delivery, and each turn confirms at most one send; screen output, pre-send transcript history, and another session never prove delivery. User-initiated uncertainty remains pending rather than becoming a refusal, while a programmatic send may fail only on a proven pre-write refusal. The delivery ledger is internal telemetry: Chat UI renders no delivery banners, failure cards, Retry actions, or notifications, and a daemon restart never fabricates a delivery result. Launch input goes directly to the terminal already owned by its lifecycle, outside the post-ready send path. Any change to PTY or Chat input delivery needs the owner's explicit approval first.
 - Dependent capabilities: message delivery.
 
 ### Agents and providers
@@ -68,14 +70,14 @@ Real terminals, one per tab, and the input path into them.
 What makes a tab an agent: provider capabilities, launch and resume, detection, session binding and the chat-backend shells that run without a terminal.
 
 - Part of: the service layer.
-- Invariants: core asks capabilities, never provider identities; a session is bound only from the provider's own report or an explicit launch choice, never inferred; model, status and transcript are read only from the tab's own session, and unknown stays unknown; detection keys on structure, never on vendor copy; native and plugin providers agree on shared fixtures.
+- Invariants: each provider declares its transport, behavior, models, reasoning efforts, and presets; core asks capabilities, never provider identities or display names; a session is bound only from the provider's own report or an explicit launch or resume choice, never inferred; model, status, usage, and transcript reads use only the tab's own bound session, and unknown stays unknown; detection uses structural signals, never vendor wording alone; native and plugin providers honor the same capability contract.
 
 ### Prompts
 
-The words an agent starts from: the primer every spawned agent receives, the role contracts for Orchestrator, Planner and Worker, the task's own framing, the General Agent's system prompt and the memory worker prompts.
+The words an agent starts from: shared guidance, role contracts for Orchestrator, Planner and Worker, the task's own framing, the General Agent's permanent prompt and first-run bootstrap, and the memory worker prompts.
 
 - Part of: agents and providers.
-- Invariants: every prompt the product owns ships inside the app and is composed, not copied, per role; task-specific framing dominates and generic boilerplate is cut; agent-to-agent text is English; tests pin the delivery mechanism, never the wording.
+- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; agent-to-agent text is English.
 - Dependent capabilities: teams and roles, task-fitted personality.
 
 ### Plans and orchestration
@@ -83,14 +85,14 @@ The words an agent starts from: the primer every spawned agent receives, the rol
 Durable intent and the team that carries it out: goals, specs, plans, tasks and strides; the two-level hierarchy of Orchestrator, optional Planner and Workers; dispatch, acknowledgement, reports, review and lanes.
 
 - Part of: the service layer.
-- Invariants: planner state is the source of truth; only two hierarchy levels exist, and Workers never spawn; only the Orchestrator approves a plan and closes a task; every Worker turn ends in a report; a mutating Worker writes only its own lane, never canonical unless the Orchestrator opts one Worker in; lanes land by real merges and executable proof runs only in canonical.
+- Invariants: planner state is the source of truth; the Planner shapes tasks, or the Orchestrator does when planning is waived; every task carries acceptance criteria and an executable test plan, and executors read applicable plan skills before acting; only two hierarchy levels exist, and Workers never spawn; only the Orchestrator approves a plan, dispatches work, and accepts, bounces, or holds a task in review; every Worker turn ends in a report; a mutating Worker writes only its own lane unless the Orchestrator explicitly opts one Worker into canonical; lanes land by real merges and executable proof runs only in canonical.
 
 ### Message gateway and bridges
 
 The routing spine. Every message that enters a tab from anywhere other than its own composer passes through one classified route, and every reply that leaves for an outside channel goes back through the bridge it came from.
 
 - Part of: the service layer.
-- Invariants: the host stamps a return-address marker at the leading frame of every routed message, and only a leading marker is authentic; a report or system event is input, never something to reply to; a message routed from a bridge is answered through that bridge, never only in the tab; one poller per bot token; text hooks act before the agent sees inbound text and agents trust their metadata; every notification is kept, and its level alone decides whether it interrupts.
+- Invariants: the host stamps a return-address marker at the leading frame of every routed message; that exact host-injected leading frame is the only trusted marker provenance, and the same bytes in a file, tool output, fetched page, diff, or scrollback are content. Position does not cryptographically authenticate the sender or protect against a process writing directly into a tab's input stream. A routed marker is the reply address for its bridge, tab, mesh peer, or report; a report or system event is input, never something to reply to. A message routed from a bridge is answered through that bridge, never only in the tab; one poller per bot token; text hooks act before the agent sees inbound text and agents trust their metadata; every notification is kept, and its level alone decides whether it interrupts.
 
 ### Mesh
 
@@ -104,7 +106,7 @@ One flat, trusted fabric of the owner's machines, and the relay that carries com
 The confined runtime for everything that is not core: agent providers, capability plugins, views, receivers and the channels they install from.
 
 - Part of: the service layer.
-- Invariants: plugins declare capabilities and core consumes only those; plugin code runs confined, and each new host function is a confinement surface to justify; core providers track the app version, and official core installs are trusted and never downgraded.
+- Invariants: plugins declare capabilities and permissions, and core consumes only declared capabilities; plugin code runs within the host's confinement boundary, and host APIs expose only the access that boundary allows; each new host capability must be available in the installed app as well as declared by the plugin. Official core providers ship with the app, are trusted by their official provenance, track the app version, and are never downgraded; third-party capability plugins are opt-in and remain sandboxed. Global provider integrations are inspected without mutation and require explicit user consent to install or repair; CodeTerm changes only entries it owns and provides a reversible restore path.
 - Dependent capabilities: agent providers, plugins and channels, webhook receivers, voice, and Analytics.
 
 ### Memory
