@@ -370,7 +370,10 @@ display_name = "Invented"
         !ids.contains(&"invented"),
         "an override must not add a model the provider does not report"
     );
-    assert_eq!(models[0].id, "beta", "the override's featured flag orders it first");
+    assert_eq!(
+        models[0].id, "beta",
+        "the override's featured flag orders it first"
+    );
     assert_eq!(
         models
             .iter()
@@ -979,7 +982,10 @@ fn example_renderer_emits_featured_badge_and_group() {
     };
     let body = render_example("fixture", &defaults, &RegisteredEfforts::default());
 
-    assert!(body.contains("featured = true"), "example must carry featured");
+    assert!(
+        body.contains("featured = true"),
+        "example must carry featured"
+    );
     assert!(
         body.contains("badge = \"own\""),
         "example must carry the badge"

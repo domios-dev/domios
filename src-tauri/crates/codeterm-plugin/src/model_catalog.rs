@@ -333,7 +333,14 @@ pub const DISCOVER_TIMEOUT: Duration = Duration::from_secs(8);
 /// Publish a live discovery snapshot for `provider_id` and persist it to the
 /// on-disk cache so it survives a restart.
 pub fn put_live(provider_id: &str, models: Vec<ModelInfo>, default: Option<String>) {
-    put_live_at(provider_id, models, default, None, Vec::new(), SystemTime::now());
+    put_live_at(
+        provider_id,
+        models,
+        default,
+        None,
+        Vec::new(),
+        SystemTime::now(),
+    );
 }
 
 /// Publish a snapshot together with the identity of the CLI it was captured
@@ -344,7 +351,14 @@ pub fn put_live_against(
     default: Option<String>,
     binary: Option<BinaryFingerprint>,
 ) {
-    put_live_at(provider_id, models, default, binary, Vec::new(), SystemTime::now());
+    put_live_at(
+        provider_id,
+        models,
+        default,
+        binary,
+        Vec::new(),
+        SystemTime::now(),
+    );
 }
 
 /// Publish a snapshot together with both the CLI identity and the credential
@@ -1088,10 +1102,9 @@ fn non_empty(value: &str) -> Option<String> {
 }
 
 mod readme;
-pub use readme::{ensure_readme_installed, refresh_example_files};
 #[cfg(test)]
 pub(crate) use readme::render_example;
-
+pub use readme::{ensure_readme_installed, refresh_example_files};
 
 #[cfg(test)]
 pub(crate) fn model(id: &str, display: &str) -> ModelInfo {
