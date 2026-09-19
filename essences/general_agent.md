@@ -137,3 +137,15 @@ Skills are documented in the injected CLI reference. The GA prompt does not dupl
 - Claude rule install: `src-tauri/src/plugin/agent_claude/provider/integration.rs`
 - Secrets implementation: `src-tauri/src/secrets/`
 
+```map
+anchors:
+  - core:general-agent
+  - capability:workspaces-and-tabs
+  - capability:session-continuity
+  - capability:dispatch-and-reports
+  - capability:message-delivery
+  - capability:telegram-bridge
+  - capability:remote-work
+  - capability:memory-and-skills
+```
+

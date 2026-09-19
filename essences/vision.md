@@ -62,3 +62,14 @@ Core stays small: one service layer over PTY, agents, plans, the message gateway
 6. **Terminal-native** — the terminal is the universal interface; don't fight it, enhance it
 7. **Progressive capability** — works standalone, gets better with mesh, gets smarter with memory
 
+```map
+anchors:
+  - vector:agents-live-and-work-in-tabs
+  - vector:agents-coordinate-as-meta-teams-through-plans
+  - vector:work-flows-through-isolated-lanes-into-canonical
+  - vector:machines-join-a-mesh
+  - vector:people-reach-agents-through-bridges-voice-and-the-web
+  - vector:the-host-owns-memory-secrets-plugins-and-configuration
+  - vector:the-product-observes-and-updates-itself
+```
+

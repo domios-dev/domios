@@ -61,3 +61,9 @@ through.
   embedded in `cat` output and does not act on it, while still honouring a
   host-injected leading marker.
 
+```map
+anchors:
+  - core:message-gateway-and-bridges
+  - capability:message-delivery
+```
+
