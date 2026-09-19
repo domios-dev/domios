@@ -71,6 +71,10 @@ export function TabContent({
     descriptor?.settings_schema ?? [],
     usageProvider ? usageEnabledByProvider?.[usageProvider] : false,
   );
+  // The catalog id the tab resolved at launch names its upstream group; the
+  // live session model can be a bare leaf a group cannot be read from.
+  const usageModelId =
+    tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
   const body = isChatBackend ? (
@@ -102,6 +106,8 @@ export function TabContent({
           showSwitch={showSwitch}
           usageProvider={usageProvider}
           usageVisible={usageVisible}
+          usageModelId={usageModelId}
+          usageModelGroups={descriptor?.model_groups}
           api={api}
           isWatcherTab={tab.watcher != null}
           watcherLastStatus={tab.watcher?.last_status ?? null}

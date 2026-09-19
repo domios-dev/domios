@@ -48,7 +48,10 @@
   "credentials": [
     {
       "id": "opencodeAuth",
-      "file": "~/.local/share/opencode/auth.json"
+      "file": "~/.local/share/opencode/auth.json",
+      "secret": {
+        "deepseekKey": "deepseek.key"
+      }
     }
   ],
   "modelGroups": [
@@ -158,6 +161,13 @@
       "--variant",
       "{effort}"
     ]
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "api.deepseek.com"
+      ]
+    }
   },
   "icon": "icon.svg"
 }

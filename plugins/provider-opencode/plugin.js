@@ -627,17 +627,71 @@ function discoverOpencodeGroupUsage() {
   for (let i = 0; i < rows.length; i++) {
     const group = rows[i].g;
     if (typeof group !== "string" || !group) continue;
-    out.push({
+    const costMicros = Math.round(finiteNumber(rows[i].cost) * 1e6);
+    const entry = {
       group,
       messages: finiteNumber(rows[i].messages),
       input_tokens: finiteNumber(rows[i].input),
       output_tokens: finiteNumber(rows[i].output),
       cache_read_tokens: finiteNumber(rows[i].cache_read),
       cache_write_tokens: finiteNumber(rows[i].cache_write),
-      cost_micros: Math.round(finiteNumber(rows[i].cost) * 1e6)
-    });
+      cost_micros: costMicros
+    };
+    if (costMicros > 0) entry.spend_cents = Math.round(costMicros / 1e4);
+    const remaining = groupBalanceCents(group);
+    if (remaining != null) entry.spend_remaining_cents = remaining;
+    out.push(entry);
   }
   return out;
+}
+var BALANCE_BY_GROUP = {
+  deepseek: { url: "https://api.deepseek.com/user/balance", secret: "deepseekKey" }
+};
+var BALANCE_CREDENTIAL = "opencodeAuth";
+var BALANCE_TTL_MS = 6e4;
+var BALANCE_TIMEOUT_MS = 4e3;
+var balanceCache = null;
+function groupBalanceCents(group) {
+  if (!BALANCE_BY_GROUP[group]) return null;
+  const now = host.unixNowMs();
+  if (balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS) {
+    return balanceCache.cents;
+  }
+  const cents = fetchBalanceCents(group);
+  balanceCache = { group, atMs: now, cents };
+  return cents;
+}
+function fetchBalanceCents(group) {
+  const spec = BALANCE_BY_GROUP[group];
+  if (!spec || typeof host.fetch !== "function") return null;
+  let response = null;
+  try {
+    response = safeJson(host.fetch(JSON.stringify({
+      url: spec.url,
+      method: "GET",
+      timeoutMs: BALANCE_TIMEOUT_MS,
+      credential: {
+        id: BALANCE_CREDENTIAL,
+        headers: { Authorization: "Bearer {" + spec.secret + "}" }
+      }
+    })));
+  } catch (_) {
+    return null;
+  }
+  if (!response || response.status !== 200 || typeof response.body !== "string") return null;
+  const body = safeJson(response.body);
+  const infos = body && Array.isArray(body.balance_infos) ? body.balance_infos : [];
+  let chosen = null;
+  for (let i = 0; i < infos.length; i++) {
+    if (infos[i] && infos[i].currency === "USD") {
+      chosen = infos[i];
+      break;
+    }
+  }
+  if (!chosen && infos.length > 0) chosen = infos[0];
+  if (!chosen || typeof chosen.total_balance !== "string") return null;
+  const total = parseFloat(chosen.total_balance);
+  return Number.isFinite(total) ? Math.round(total * 100) : null;
 }
 function finiteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;

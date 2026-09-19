@@ -826,7 +826,9 @@ export interface ModelGroup {
 }
 
 /** Cumulative usage the provider attributes to one model group. `cost_micros`
- *  is USD × 1_000_000 so the wire stays integer. */
+ *  is USD × 1_000_000 so the wire stays integer. The optional `spend_*` fields
+ *  are the group's spend meter; the limit/remaining pair is present only when
+ *  the provider can read a live quota — absent, never fabricated. */
 export interface ModelGroupUsage {
   group: string;
   messages: number;
@@ -835,6 +837,10 @@ export interface ModelGroupUsage {
   cache_read_tokens: number;
   cache_write_tokens: number;
   cost_micros: number;
+  spend_cents?: number;
+  spend_limit_cents?: number;
+  spend_remaining_cents?: number;
+  spend_resets_at_ms?: number;
 }
 
 export interface ReasoningEffortInfo {

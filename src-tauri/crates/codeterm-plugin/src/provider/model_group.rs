@@ -21,7 +21,12 @@ pub struct ModelGroup {
 /// counts; `cost_micros` is USD × 1_000_000 so the wire stays integer. A group
 /// the provider reports with no observed turns carries zeroes, never `None`:
 /// "connected but unused" and "no such group" are different facts.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The optional `spend_*` fields are the group's spend meter for a token-billed
+/// upstream: `spend_cents` is what the provider observed, the limit/remaining
+/// pair is only present when the provider can read a live quota. A group whose
+/// live limit is unreadable leaves the limit fields `None` rather than guessing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelGroupUsage {
     /// Matches `ModelGroup::id`.
@@ -38,4 +43,12 @@ pub struct ModelGroupUsage {
     pub cache_write_tokens: u64,
     #[serde(default)]
     pub cost_micros: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_cents: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_limit_cents: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_remaining_cents: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_resets_at_ms: Option<i64>,
 }
