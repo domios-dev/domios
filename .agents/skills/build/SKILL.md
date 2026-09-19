@@ -1,3 +1,8 @@
+---
+name: build
+description: "Choose and run CodeTerm build operations, including dev work, local installs, and troubleshooting."
+---
+
 # CodeTerm — Build Guide
 
 ## Prerequisites
@@ -52,8 +57,9 @@ Isolated Worker lanes are source-only.
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
 | Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
+| Compile Rust test profiles without running tests | `./build.sh check-tests` / `.\build.ps1 check-tests` | No | this section |
 | Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
-| Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `essences/release.md` and `github-release` skill |
+| Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `.agents/skills/github-release/SKILL.md` |
 
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
@@ -176,6 +182,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | The CLI docs test reports `API exceeds 24 KiB` | The API index repeats adoption details already owned by `API-ADOPT.md` | Keep `API.md` to the endpoint summary and move the full contract to `API-ADOPT.md`; bump the production doc revision and run `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. Never raise the 24 KiB limit. |
 | The CLI docs test reports `API-TABS exceeds 24 KiB` | The tab API's notification contract repeats channel policy wording | Preserve every contract statement while compacting redundant prose; move a passage to a registered linked doc only if it cannot fit. Bump the production doc revision and rerun the focused docs test; never raise the 24 KiB limit. |
 | `essence_map_contract_committed_artifacts_are_fresh` reports a stale source digest | `essences/capabilities.md` or `essences/core.md` changed after `essences/map.jsonl` was generated | Run `codeterm essence-map generate --root .`, validate with `codeterm essence-map validate --root .`, and commit the generated map. Never edit generated nodes by hand. |
+| A release-time test fails in `#[cfg(test)]` code while `check` is green | `check` compiles non-test targets and does not compile the Rust test profile | Run `./build.ps1 check-tests` on Windows or `./build.sh check-tests` on Unix, fix the test-profile compile error, then rerun the same gate. |
 | A real newly spawned QA tab reports stale identity although its hook binding is live, while fixture-only report tests pass | Plan evidence authorization required a session environment variable that a fresh provider process does not have; tests always supplied one | Exercise `plan_evidence_session_test` with absent session metadata and an attested nonce. Resolve only the exact daemon-registered tab session, retain all grant/session/nonce refusals, and verify the real CLI after installation. |
 | `release-preflight` fails the action-card or Web fork inventory suite after a transport/presentation change | A card fixture bypassed the batch router, or a new platform branch lacked its required transport classification | Test single help invocations in the action card and multi-action batches through `ToolCallBubble`; register the exact Web transport branch in `webForks.test.ts`. Run both focused suites, then repeat preflight. |
 | `build.ps1 verify` fails only `cli_manifest_is_fresh` with sccache `os error 10055` / socket buffer exhaustion | The freshness test launched a nested `cargo run` when no standalone debug CLI binary existed, competing with the parent Cargo test process for compiler/socket resources | Keep freshness generation in-process through `manifest::to_json()` / `to_markdown()`. Run `build.ps1 test-one cli cli_manifest_is_fresh`, then rerun `build.ps1 verify`; do not regenerate committed CLI artifacts for this infrastructure error. |
@@ -294,20 +301,24 @@ group and exits 124, while ordinary child success or failure is propagated.
 
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command builds the release
-CLI, regenerates the three generated CLI artifacts (`essences/cli-manifest.json`, the
-generated block in `essences/cli.md`, and the Chat UI command paths), then installs
+CLI, regenerates the three generated CLI artifacts (`generated/cli/cli-manifest.json`, the
+generated block in `generated/cli/cli.md`, and the Chat UI command paths), then installs
 the binary into the active development data directory, replacing the CLI every
 tab of that dev instance runs. Dev builds never overwrite `~/.codeterm/bin`:
 production CLI updates come from the bundled production app during startup,
 in-app update, or `install-local`.
 
-The generated artifacts are never hand-edited. `cli-manifest --write` writes into
-the checkout the binary was compiled from, so only a CLI built from the checkout
-being changed may regenerate them; the installed `codeterm` on `PATH` is the
-wrong binary. To regenerate without replacing a dev instance's CLI, run
-`./build.sh release-inputs` (it also builds the release CLI, without installing)
-and then run that binary from the CLI release target directory with
-`cli-manifest --write`.
+## Generated artifacts and the embedded-doc boundary
+
+`prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry; `essences/` and `.agents/skills/` remain repository sources and are not embedded.
+
+| Source | Artifact | Regenerate | Verify |
+|---|---|---|---|
+| CLI clap definitions | `generated/cli/cli-manifest.json`, `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` | Build the checkout's CLI, then run `cli-manifest --write` (`./build.sh cli` also installs the CLI into the active dev data directory). Never use the installed `codeterm` from `PATH`. | `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, and `chat_ui_command_paths_are_fresh` |
+| `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `codeterm essence-map generate --root .` | `codeterm essence-map validate --root .` and `essence_map_contract_committed_artifacts_are_fresh` |
+| `prod-docs/*.md` and `cli/src/cmd/docs.rs` | The embedded `codeterm docs` set | Update the source and registry; there is no separate document generator. | `registered_documents_have_one_title_and_fit_the_reading_boundary` and `codeterm docs <NAME>` from the built checkout |
+
+Regenerate each committed artifact in the same lane and commit as its source change, before handoff. A source-only Worker must not run build or validation commands; list the exact regeneration and verification commands under `GATES REQUESTED` for the canonical Orchestrator to run.
 
 ### Crash symbols for dev builds
 
@@ -404,7 +415,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 ## Related documents
 
-Tooling, outputs, platform notes, and repository layout: `essences/build-reference.md`. Test workflows: `essences/testing.md`.
+Tooling, outputs, platform notes, and repository layout: `.agents/skills/build-reference/SKILL.md`. Test workflows: `.agents/skills/testing/SKILL.md`.
 
 ### Windows provider launch verification
 
