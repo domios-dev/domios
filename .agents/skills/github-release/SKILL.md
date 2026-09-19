@@ -88,7 +88,7 @@ the private release and public mirror.
 
 End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/codeterm`.
 
-**Prereqs for the automated path** (one-time, see `essences/build-machine/mac-setup.md`):
+**Prereqs for the automated path** (one-time, see `.agents/skills/build-machine/SKILL.md`):
 - self-hosted runner registered + running (`~/actions-runner`; `./svc.sh install` for always-on);
 - Docker image baked for arm64 Linux: `codeterm-build-linux-arm64`;
 - ROG self-hosted runners provisioned (Windows `windows-build`, x86_64 Linux `linux-build`) — they
@@ -103,7 +103,7 @@ the new `release-X.Y.Z` trigger tag.
 
 > **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
 > you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
-> Linux, the ROG Windows + x86_64-Linux runners, signing) lives in **`essences/build-machine/mac-setup.md`**.
+> Linux, the ROG Windows + x86_64-Linux runners, signing) lives in **`.agents/skills/build-machine/SKILL.md`**.
 
 ---
 
@@ -778,3 +778,204 @@ As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agen
 - Release workflows still need a green dry-run after `PACKAGE_REPOS_TOKEN` rotation; manual mirror fallback above is the escape hatch when source artifacts are valid but mirror upload fails.
 - Brew tap bump is manual — a `scripts/release-bump-brew.sh` could read the release JSON and rewrite the cask in one shot.
 - `tailscale file get` on Windows ignores GUI-Tailscale-received files (they land in `~/Downloads`, not the CLI inbox). Worth verifying / filing upstream.
+
+
+## Build timing and no-waste contract
+
+Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
+`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares both the
+`codeterm` application and `codeterm-embed` bins in one Cargo invocation, so Tauri can reuse
+the dependency graph. The three self-hosted workflows do not use Rust target caches; clean
+checkouts therefore remain explicit and reproducible.
+
+The 1.10.22 baseline was captured from runs `35009190163` (Mac), `35009189838` (Windows),
+and `35009190153` (Linux):
+
+| Lane | Before change | Waste measured |
+|---|---:|---|
+| Mac arm64 / x86_64 | 418s / 427s, sequential | first-arch notarization blocked the second build |
+| Windows arm64 | release-inputs 7m04s; Tauri 5m30s; cache save 42s | app target was selected in separate Cargo invocations; target upload failed |
+| Windows x86_64 | release-inputs 8m01s; Tauri 5m15s; cache save 43s | same separate target selection; target upload failed |
+| Linux x86_64 | release-inputs 18m45s; Tauri 16m05s; cache save 1m33s | release-inputs used `target/release`, Tauri used `target/x86_64-unknown-linux-gnu/release` |
+| Completion signals | Mac queued 19m54s; Windows queued 7m37s | metadata-only jobs waited for `linux-build` |
+
+The Windows logs show the same `CARGO_BUILD_TARGET` and `CARGO_INCREMENTAL=0` in both steps,
+but no Cargo fingerprint or feature diagnostics. The verified source-level cause is that
+`release-inputs` selected `--bin codeterm-embed` and Tauri selected the `codeterm` application
+target in a second Cargo invocation; the new input command selects both bins together.
+
+After the next real release, record the corresponding step durations and tag-to-publish time
+in this table. Read-only timing capture (run IDs are the three workflow runs) is:
+
+```bash
+gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate \
+  --jq '.jobs[] | [.name, .started_at, .completed_at, .conclusion] | @tsv'
+```
+
+The expected observation is one `release-inputs` and one Tauri build per target, no cache-save
+step, overlap between Mac arm64 notarization and x86_64 compilation, and completion jobs
+running on the self-hosted Mac runner `codeterm-builder`. The release remains incomplete until the existing five-platform
+updater-manifest verification passes.
+
+
+## 7. Runner restoration boundaries
+
+Safe for an agent to do unilaterally:
+- Restart a runner service (`./svc.sh start`/`stop` on the Mac; the equivalent runner-service
+  restart on ROG) and confirm it shows **Idle** under repo Settings → Actions → Runners.
+- Re-export an env var whose correct value is already documented/backed up (e.g.
+  `CODETERM_MONTEREY_LIBCXX_DIR` pointing at an existing LLVM libc++ install).
+- Rebuild a Docker image from the checked-in Dockerfile.
+- `gh run rerun --failed` / `gh workflow run … -f tag=vX.Y.Z-rcN` (§5).
+
+Escalate to Andrey before doing:
+- Anything touching signing/notary credentials or the minisign key.
+- Provisioning a **new** runner/VM, or changing which physical machine is registered as
+  `codeterm-builder` / `windows-build` / `linux-build`.
+- A `master` force-push touching commits already present in both local copies, or any public
+  mirror destructive op (delete a release, change the updater endpoint URL, alter the pubkey).
+
+These mirror the catastrophic-ack list in the `github-release` skill's multi-machine protocol.
+
+
+## Issue closure contracts
+
+### Open the living PR body when the train starts, not when it ends
+
+The first act of a release train is `docs/release/<version>-pr.md`, created before the first lane is
+dispatched. It carries the plan id and goal, the slice-to-issue map, and empty "Fixed",
+"Investigated, not fixed", and "Deferred, with reasons" sections. Each slice appends its own block
+there **as its lane merges into `release/X.Y.Z`**, with one `Repository-Issue:` metadata line per
+issue it actually fixed.
+
+This exists because the alternative has failed in practice: reconstructing the closing set from
+`git log` at release time is when issues get missed, and a fix that closed an issue nobody recorded
+leaves that issue open for the next train to rediscover. Writing the entry at merge time costs one
+paragraph while the work is still in the author's head.
+
+Rules the renderer enforces, so they are not optional:
+
+- Only a `Repository-Issue:` line counts. A bare `#123` anywhere in the body fails validation — put
+  issue numbers in backticks in prose, tables, and deferral notes.
+- An issue you investigated but did not fix gets `Refs` and a backticked number, never a closing
+  keyword. Declaring a fix you did not ship is worse than declaring nothing.
+- A deferred issue is named in the body with its reason. "Not in this release" is a decision and
+  belongs in the record; silently dropping it is not.
+
+Before opening the final `release/X.Y.Z` → `master` PR, render the closing block rather than
+hand-writing it:
+
+```bash
+python3 scripts/release_issue_contract.py repository-closes --body-file docs/release/<version>-pr.md
+```
+
+Run it early and often — it is also the validator, and it fails the same way CI will.
+
+### The two-stage contract
+
+Source-repository issues use a separate two-stage contract. Integration PRs targeting
+non-default branches declare one exact line per fixed issue:
+
+```text
+Repository-Issue: rollacode/codeterm#294
+```
+
+The final `release/X.Y.Z` → `master` PR renders those declarations as `Closes #294`; merging that PR
+closes the issue. The validator rejects closing keywords on integration PRs because GitHub ignores
+them outside the default branch.
+
+A private-source PR or commit declares a public issue only with an exact,
+repository-qualified metadata line:
+
+```text
+Public-Issue: rollacode/codeterm-releases#123
+```
+
+Use one line per issue. In PR bodies, duplicates, malformed or wrong-repository metadata, prose
+`#123` references, and GitHub closing keywords fail validation. Commit messages ignore incidental
+issue prose but reject malformed `Public-Issue:` metadata. The validator uses
+`GH_RELEASE_TOKEN` to prove every declared issue exists in `rollacode/codeterm-releases` and
+prints the normalized set in the check summary. This metadata is deliberately not a GitHub
+closing keyword, so merging private source cannot close a public issue prematurely.
+
+After all publisher completion signals are present, `release-manifest-validate.yml` verifies that
+the private and matching public releases are published, that the mirror has `latest.json`, and
+that every version-pinned public updater asset URL resolves. Only then does it resolve commits and
+associated private PRs in the release range, union their validated metadata, and close still-open
+public issues. Each close comment names `vX.Y.Z` and a declaring commit or private PR URL.
+Already-closed issues are skipped, making reruns idempotent.
+
+The close step is downstream of build, private/public publication, and mirror verification.
+Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
+
+### The closure boundary names the run that minted it
+
+`issue-closure-boundary.json` marks the last release whose public mirror was verified, and
+`release_issue_contract.py range-start` reads it to decide where the next release's commit range
+begins. It used to be accepted on presence: v1.10.11 carries a boundary dated a day the validator
+did not run, so a range start was taken from a release nothing had verified.
+
+The minted asset therefore carries `validator_run_id`, `validator_repository` and
+`validator_run_url` — the validator run that produced it. Reading it back, the validator downloads
+each historical boundary, asks Actions for the run it names, and accepts the release only when
+that run is the release manifest validator, concluded `success`, and the boundary's `source_sha`
+is the release's own commit. A boundary with no run id, or one whose run Actions cannot confirm,
+is refused and `range-start` falls back to the previous release that can be confirmed. Refusing
+widens the commit range, which over-reports candidate issues; accepting an unverified boundary
+narrows it, which silently drops shipped work. Reading a run back from the Actions API needs
+`actions: read` on the job token.
+
+Boundaries minted before this gate carry no run id and are refused by design. Re-mint one by
+re-running the validator for that tag with the `workflow_dispatch` fallback above.
+
+Closure authority is evidence-bound, never role-bound. Owning the release is not grounds; the
+grounds are a passing published-manifest verification for **this** release, and the close cites
+that run:
+
+```bash
+node scripts/check-release-closure.mjs \
+  --evidence "$RUNNER_TEMP/manifest-verification.json" \
+  --version "$VER" --issue 55
+```
+
+It refuses, each with its own reason, when the verification never ran, when it failed, when it ran
+without a cache-buster (GitHub serves a replaced asset stale for minutes, so an uncached fetch can
+verify the previous run's bytes and call this release good), when the record belongs to another
+release, when it cites no manifest URL scoped to the public release repo, and when any required
+platform went unverified. Ambiguous evidence is refused rather than treated as a pass. `release.yml` runs it
+before the first `gh issue close`.
+
+Reconcile the release PR body against the range that merged rather than trusting either alone:
+
+```bash
+python3 scripts/release_issue_contract.py reconcile \
+  --body-file <release-pr-body.md> \
+  --commits-file <commits.json> --prs-file <prs.json>
+python3 scripts/release_issue_contract.py audit-commits \
+  --commits-file <commits.json> --body-file <release-pr-body.md>
+```
+
+`reconcile` renders the `Closes #N` block only when the body declares exactly the issues the range
+fixed - no invented entry, no dropped one. `audit-commits` fails on a closing keyword naming an
+issue outside that set and on a fixed issue no commit claims. Put the rendered lines in the final
+PR body verbatim; a hand-typed closing block is a second, unchecked source of the closing set.
+Cross-repository reads and writes always name `rollacode/codeterm-releases` explicitly and use
+`GH_RELEASE_TOKEN`; `$GITHUB_REPOSITORY` is used only to read private source PR associations.
+
+
+## Release notes contract
+
+Every published version has one canonical notes body shared by the private source release and the
+public download mirror. The main release workflow runs `scripts/sync-release-notes.mjs --tag vX.Y.Z`
+after both releases exist and before served-byte verification. An authored source body is preserved;
+an empty or known placeholder body is replaced with the release PR summary, falling back to
+GitHub-generated notes only when no substantive PR body exists.
+
+Backfill the latest published releases with the same fail-closed rule:
+
+```bash
+node scripts/sync-release-notes.mjs --backfill 10
+```
+
+The command refuses missing mirror releases, empty generated notes, and bodies too short to be
+meaningful. It then writes the exact same Markdown to both repositories.

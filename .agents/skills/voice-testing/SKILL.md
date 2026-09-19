@@ -1,3 +1,8 @@
+---
+name: voice-testing
+description: "Exercise CodeTerm voice transcription with the fake Whisper daemon and fallbacks."
+---
+
 # Voice-transcription testing playbook
 
 How to exercise the bridge's voice-transcription path locally without

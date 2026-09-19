@@ -1,3 +1,8 @@
+---
+name: review
+description: "Review CodeTerm changes for evidence, tests, docs, code quality, and integration readiness."
+---
+
 # PR Review Checklist
 
 **Reviewer: verify the following before approval.**
@@ -6,8 +11,8 @@
 - [ ] Verification section contains real command output (not just claims)
 - [ ] New/changed tests use fail-first method: bug fixes show red→green, sabotage tests fail without fix, refactors show all-green three times
 - [ ] Tests assert the true user-journey end state, not just API/status responses
-- [ ] Test layer justified (unit / integration / E2E) per `essences/testing.md` decision tree
-- [ ] Test shape follows `essences/contributing/writing-tests.md` honesty and harness rules
+- [ ] Test layer justified (unit / integration / E2E) per `.agents/skills/testing/SKILL.md` decision tree
+- [ ] Test shape follows `.agents/skills/testing/SKILL.md` honesty and harness rules
 - [ ] Test fixtures used, not raw setup; no hardcoded paths or magic numbers
 
 ## Documentation
@@ -24,4 +29,3 @@
 ## Integration
 - [ ] Changes respect cross-platform constraints (Windows paths, ConPTY, etc.)
 - [ ] No breaking changes to public APIs without documented migration path
-

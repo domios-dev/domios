@@ -162,6 +162,9 @@ fn history_dir(map_path: &Path) -> PathBuf {
     map_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".codeterm")
         .join(HISTORY_DIR_NAME)
 }
 

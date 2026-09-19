@@ -1,3 +1,8 @@
+---
+name: style
+description: "Apply CodeTerm Rust and TypeScript style and architecture guidance."
+---
+
 # Code style: SOLID, DRY, no comments
 
 **SOLID + DRY are non-negotiable.** Single responsibility per module, dependencies flow through explicit interfaces, no repeated logic. Duplicated 20-line blocks across three files is a refactor signal, not a copy-paste signal.
@@ -49,10 +54,9 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 - Daemon subsystems live in `service/`; there is no `services/`.
 - Core (`multiplexer`, `pty`, `mesh`, `config`) has no outward dependencies.
 - Every operation reachable from 3 transports (REST + Socket + Tauri) should live in `dispatch::Command` — not duplicated 3 times.
-- Plugin-ready = isolated module with explicit interface. See `essences/contributing/architecture.md`.
+- Plugin-ready = isolated module with explicit interface. See `essences/core.md`.
 - Design artifacts (screenshots, video) go in PR descriptions, never the source tree; release binaries come from CI only.
 
 ## Dependency advisories
 
 Weekly audits (`cargo audit` + `pnpm audit`) flag known vulnerabilities. Assess reachability: if a vulnerability is in a transitive dependency your code never touches, document it with a bump-rationale comment in the PR; if reachable, upgrade or pin the affected version. Do not ignore advisories.
-
