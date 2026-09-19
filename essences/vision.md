@@ -44,7 +44,7 @@ Tomorrow: the mesh becomes a **unified fabric** where:
 
 ## Plugins
 
-Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/core.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. Provider/plugin architecture: `essences/contributing/architecture.md`.
+Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/core.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. The [core essence](core.md) describes provider and plugin boundaries.
 
 ## Future capabilities
 

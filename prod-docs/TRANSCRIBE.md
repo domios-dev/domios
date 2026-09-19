@@ -134,7 +134,7 @@ adds first-class UX handles CodeTerm alone can provide:
 ### The right home: a plugin, not a bespoke integration
 
 CodeTerm has a plugin system (`src-tauri/src/plugin/`, design in
-`essences/contributing/architecture.md`): `plugin.toml` manifests, tiers
+`../essences/core.md#plugin-host`): `plugin.toml` manifests, tiers
 (`Native`/`Process`/`Wasm`), and a `PluginManager` whose `dispatch_event` routes
 `SystemEvent`s to plugins by their declared `capabilities.hooks`. Dictation is a
 natural **Process-tier plugin** — the plugin process owns mic capture + the
@@ -154,3 +154,5 @@ So: to add a new STT backend, implement `/transcribe` and point a URL at it.
 To drive dictation today, run an external driver and inject via `codeterm send` or
 the tab send API. To do it *right*, build it as a Process-tier plugin on the
 existing plugin contract. Either way — don't put the model in the binary.
+
+<!-- revision: 1 -->
