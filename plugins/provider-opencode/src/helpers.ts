@@ -591,7 +591,6 @@ export function opencodeConfigPath(): string | null {
 }
 
 const CODETERM_OPENCODE_PLUGIN_FILE = "codeterm-session-binding.js";
-const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
 
 export function opencodeBindingPluginPath(): string | null {
   const dir = opencodeConfigDir();
