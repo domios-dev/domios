@@ -200,12 +200,14 @@ impl TopicTransport for FakeTransport {
 
 struct FakeTabs {
     tabs: Mutex<Vec<SenderIdentity>>,
+    hidden: Mutex<Vec<String>>,
 }
 
 impl FakeTabs {
     fn new() -> Self {
         let tabs = Self {
             tabs: Mutex::new(Vec::new()),
+            hidden: Mutex::new(Vec::new()),
         };
         tabs.add(GENERAL, "General", SenderRole::General);
         tabs
@@ -219,6 +221,11 @@ impl FakeTabs {
             workspace: "codeterm".to_string(),
             machine: "BLACKSTAR".to_string(),
         });
+    }
+
+    fn add_hidden(&self, tab_id: &str, title: &str, role: SenderRole) {
+        self.add(tab_id, title, role);
+        self.hidden.lock().push(tab_id.to_string());
     }
 
     fn close(&self, tab_id: &str) {
@@ -249,6 +256,10 @@ impl ThreadTabs for FakeTabs {
 
     fn is_live_tab(&self, tab_id: &str) -> bool {
         self.tabs.lock().iter().any(|tab| tab.tab_id == tab_id)
+    }
+
+    fn is_visible_tab(&self, tab_id: &str) -> bool {
+        self.is_live_tab(tab_id) && !self.hidden.lock().iter().any(|hidden| hidden == tab_id)
     }
 
     fn is_general_tab(&self, tab_id: &str) -> bool {
@@ -496,7 +507,16 @@ fn telegram_topic_notification_from_a_tab_still_reaches_the_chat_whole() {
         .deliver(&host, &Audience(vec![CHAT.to_string()]), &asked)
         .expect("delivered");
     let sent = host.0.lock().pop().expect("enqueued");
-    assert_eq!(sent.route, OutboundRoute::Chat);
+    assert_eq!(
+        sent.route,
+        OutboundRoute::TabNotification {
+            tab_id: PLANCK.to_string()
+        }
+    );
+    assert!(matches!(
+        sent.content,
+        codeterm_bridge::bridge::traits::OutboundContent::Text { text } if text == "Deploy?"
+    ));
     assert!(sent.buttons.is_some(), "choices are preserved");
     assert!(sent.receipt.is_some(), "the placement still comes back");
 
@@ -511,6 +531,47 @@ fn telegram_topic_notification_from_a_tab_still_reaches_the_chat_whole() {
         host.0.lock().pop().expect("enqueued").route,
         OutboundRoute::Chat
     );
+}
+
+#[tokio::test]
+async fn telegram_topic_notification_creates_and_reuses_a_visible_tab_binding() {
+    let transport = FakeTransport::enabled();
+    let tabs = tabs_with_planck();
+    let threads = attached(transport.clone());
+
+    assert!(threads
+        .ensure_notification_thread(&tabs, PLANCK, CHAT)
+        .await);
+    assert!(threads.has_open_binding(PLANCK));
+    assert_eq!(transport.creates(), vec!["Planck".to_string()]);
+
+    assert!(threads
+        .ensure_notification_thread(&tabs, PLANCK, CHAT)
+        .await);
+    assert_eq!(transport.creates(), vec!["Planck".to_string()]);
+}
+
+#[tokio::test]
+async fn telegram_topic_notification_skips_hidden_tabs_and_agent_open_refuses_them() {
+    let transport = FakeTransport::enabled();
+    let tabs = tabs_with_planck();
+    tabs.add_hidden(ROWAN, "Rowan", SenderRole::Worker);
+    let threads = attached(transport.clone());
+
+    assert!(!threads
+        .ensure_notification_thread(&tabs, ROWAN, CHAT)
+        .await);
+    assert!(!threads.has_open_binding(ROWAN));
+    assert!(transport.creates().is_empty());
+    assert_eq!(
+        threads
+            .open(&tabs, tab_caller(ROWAN), ROWAN, CHAT)
+            .await,
+        Err(codeterm_bridge::bridge::threads::ThreadError::HiddenTab(
+            ROWAN.to_string()
+        ))
+    );
+    assert!(transport.creates().is_empty());
 }
 
 #[tokio::test]

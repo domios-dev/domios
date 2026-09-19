@@ -123,6 +123,11 @@ impl PushChannel for TelegramChannel {
             service: SERVICE.to_string(),
             tag: message.record.clone(),
         });
+        let route = message
+            .origin_tab
+            .clone()
+            .map(|tab_id| OutboundRoute::TabNotification { tab_id })
+            .unwrap_or(OutboundRoute::Chat);
         let rejected = chat_ids
             .iter()
             .filter(|chat_id| {
@@ -137,9 +142,7 @@ impl PushChannel for TelegramChannel {
                         buttons: buttons.clone(),
                         edit: None,
                         receipt: receipt.clone(),
-                        // Into the chat, never a tab topic: a push routed as a tab
-                        // arrives as a truncated pointer elsewhere, defeating the alert.
-                        route: OutboundRoute::Chat,
+                        route: route.clone(),
                     },
                 )
                 .is_err()

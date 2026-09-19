@@ -45,6 +45,8 @@ pub enum OutboundRoute {
     /// The addressed chat itself, unattributed.
     #[default]
     Chat,
+    /// A whole notification stays in chat while its visible tab gets a topic.
+    TabNotification { tab_id: String },
     /// A tab's own voice: its topic thread, sender header and main-chat pointer.
     Tab { tab_id: String },
 }
@@ -246,6 +248,22 @@ impl BridgeManager {
                                     receipt,
                                     &super::telegram::locator(chat_id, message_id),
                                 );
+                            }
+                            if placed.is_some() {
+                                if let (OutboundRoute::TabNotification { tab_id }, None) =
+                                    (&out_msg.route, out_msg.edit.as_ref())
+                                {
+                                    let threads = tab.threads();
+                                    if threads.is_attached() {
+                                        threads
+                                            .ensure_notification_thread(
+                                                tab.thread_tabs(),
+                                                tab_id,
+                                                chat_id,
+                                            )
+                                            .await;
+                                    }
+                                }
                             }
                         }
                         ref media_content => {

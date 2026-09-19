@@ -379,6 +379,9 @@ impl ThreadService {
         if tabs.is_general_tab(target_tab_id) {
             return Err(ThreadError::GeneralUsesMainChat);
         }
+        if !tabs.is_visible_tab(target_tab_id) {
+            return Err(ThreadError::HiddenTab(target_tab_id.to_string()));
+        }
         let attached = self.attached().ok_or(ThreadError::BridgeInactive)?;
         let identity = tabs
             .sender_identity(target_tab_id)
@@ -416,6 +419,38 @@ impl ThreadService {
             link,
             created,
         })
+    }
+
+    pub async fn ensure_notification_thread(
+        &self,
+        tabs: &dyn ThreadTabs,
+        tab_id: &str,
+        chat_id: i64,
+    ) -> bool {
+        if !tabs.is_live_tab(tab_id)
+            || !tabs.is_visible_tab(tab_id)
+            || tabs.is_general_tab(tab_id)
+        {
+            return false;
+        }
+        let Some(attached) = self.attached() else {
+            return false;
+        };
+        let Some(identity) = tabs.sender_identity(tab_id) else {
+            return false;
+        };
+        match self
+            .ensure_thread(tabs, &attached, &identity, chat_id, false)
+            .await
+        {
+            Ensured::Bound { .. } => true,
+            Ensured::Fallback { notice_due, .. } => {
+                if notice_due {
+                    self.send_notice(&attached, chat_id).await;
+                }
+                false
+            }
+        }
     }
 
     /// Retire every open thread of a closing tab. Delete first; on failure
@@ -514,6 +549,13 @@ impl ThreadService {
         chat_id: i64,
         probe: bool,
     ) -> Ensured {
+        if !tabs.is_visible_tab(&identity.tab_id) {
+            return Ensured::Fallback {
+                notice_due: false,
+                unavailable: false,
+                reason: None,
+            };
+        }
         let chat = scope(attached.bot_id, chat_id);
         match self.bound(&chat, &identity.tab_id) {
             Some(binding) if !probe && !binding.stale => {
