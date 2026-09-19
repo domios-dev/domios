@@ -2855,6 +2855,14 @@ Install an OS login trigger for the external crash-aware supervisor. The supervi
 
 Tab management
 
+#### `codeterm tab adopt-agent`
+
+Adopt a live PTY as an agent send target without restarting it
+
+- `--force` — Adopt even when the screen is a login shell or non-agent TUI
+- `--provider` — Registered PTY provider to assert. Required; never inferred
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
 #### `codeterm tab auto-confirm`
 
 Opt a tab in or out of auto-confirming provider permission prompts the provider positively recognizes, or show the setting with recent auto-confirmations. Questions, trust dialogs and unrecognized prompts are never answered
