@@ -523,9 +523,8 @@ pub async fn refresh_after_binary_change(
 /// binary itself changed or the last probe could not run at all.
 pub async fn refresh_for_reader(provider: Arc<dyn AgentProvider>) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
-    // Credential state is compared against the live provider, not the registry:
-    // only the provider knows which files it declares, so a file that appeared
-    // or vanished since the snapshot is a change the registry alone can't see.
+    // Compare declared credentials with the live provider; the registry cannot
+    // see files that appeared or vanished since its snapshot.
     let credential_changed = {
         let recorded = registry()
             .read()

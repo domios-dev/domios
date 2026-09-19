@@ -168,10 +168,8 @@ function TeamMenu({
     (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
   );
   const modelUsage = useProviderModelUsage(selectedProvider?.id ?? null);
-  // Opening the model step is an explicit user action, not a poll: ask the
-  // catalog to re-probe. The backend forces a probe when the provider's
-  // credential files changed, so a just-connected provider appears without a
-  // rebuild; otherwise the TTL keeps it to one probe per window.
+  // Opening this step explicitly re-probes, so credential changes surface
+  // without a rebuild; TTL limits unchanged providers to one probe per window.
   useEffect(() => {
     if (!selectedProviderId) return;
     void invoke("refresh_provider_models", { providerId: selectedProviderId }).catch(() => {});
