@@ -129,7 +129,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
-  const shouldAutoExpand = message.type === "thinking" || hasVisibleEdit(item) ||(isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
+  const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
   const persistKey = expansionKey(message, item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);

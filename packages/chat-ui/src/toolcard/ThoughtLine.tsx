@@ -9,7 +9,7 @@ export function thoughtHeadline(text: string): string {
   return line.replace(/^\*\*(.+)\*\*$/, "$1").trim();
 }
 
-export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", testId = "chat-thought", defaultExpanded = true }: {
+export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", testId = "chat-thought", defaultExpanded = false }: {
   text: string;
   expanded?: boolean;
   onToggle?: (next: boolean) => void;
