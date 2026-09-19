@@ -1,0 +1,1 @@
+{"type":"message.part.updated","properties":{"part":{"id":"prt_tool","sessionID":"ses_2","messageID":"msg_2","type":"tool","tool":"bash","state":{"status":"running","input":{"command":"printf X"}}}}}
