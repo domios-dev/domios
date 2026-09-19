@@ -99,6 +99,10 @@ pub struct PluginManifest {
     // Models — plugin.json uses camelCase, ModelInfo (wire format) is snake_case, so we deserialize through a local wrapper.
     #[serde(default)]
     pub models: Vec<SerdeModelInfo>,
+    /// Provider-owned model groupings for the picker (`modelGroups`). Each maps
+    /// a model-id prefix to the label the picker renders. Empty ⇒ one flat list.
+    #[serde(default)]
+    pub model_groups: Vec<crate::provider::ModelGroup>,
     #[serde(default)]
     pub default_model: Option<String>,
 

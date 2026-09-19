@@ -101,6 +101,8 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command launched in a visible shell from an update notification. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
+| `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
+| `credentials` | `[{id, file, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
 | `reasoningEfforts` | `[{id, displayName, description?}]` | Reasoning-effort levels. |
 | `defaultReasoningEffort` | string? | Default effort id. |
@@ -232,6 +234,7 @@ instead.
 | `sessionFilePath(cwd, sessionId)` | cwd, id | path string or `null` | manifest: `sessions.rootDir` + encoded cwd + `<id>.<fileExtension>`. |
 | `sessionExists(cwd, sessionId)` | cwd, id | bool | existence check on `sessionFilePath`. |
 | `sessionUsageSources(sessionFilePath, sessionId)` | the host-resolved session file, id | paths of further usage logs owned by that exact session (e.g. sub-agent transcripts beside it); each is ingested into the KPI ledger with its own cursor | native fallback; else only the session file is ingested. |
+| `usageSources(cwd, sessionId)` | cwd, id | `[{path, sessionId?}]` — every usage log this provider owns for the session. `sessionId` scopes a log shared by many sessions (e.g. one sqlite database) so a sibling's rows are never charged to this tab; a per-session file omits it. | the session file plus `sessionUsageSources`; else no log is ingested. |
 | `detectSessionId(cwd, exclude, maxAgeMs)` | cwd, excluded ids, recency budget (default 300 000) | id or `null` | manifest-driven scan of the sessions dir for a **single** uuid-ish candidate (stem ≥ 32 chars containing `-`) modified within the budget; any ambiguity ⇒ `null` (honest over guessing). |
 | `detectLaunchSession(evidence)` | `{cwd, launchMarker, launchedAtMs, processes: [{pid, depth, startToken}]}` for this tab's own launch; `processes` is its PTY tree with OS start times | `{sessionId, source: "pid_registry" \| "launch_marker"}` or `null` | `null`. Core asks only after a hooked provider missed its launch binding deadline, then binds through the same ownership validation as a hook report. Read only records keyed to this launch (a pid whose recorded start equals `startToken`, or text carrying `launchMarker`); never cwd or recency. |
 | `detectActiveSession(cwd, currentSid)` | cwd, current id | id or `null` | `null`. |
@@ -260,6 +263,7 @@ instead.
 | `parseUsage(rawText, nowMs)` | captured usage screen, epoch ms | UsageSnapshot-shaped object (snake_case fields) or `null` | provider has no usage parser; the poller skips it (pairs with `spawn.usageProbeCommand`). |
 | `fetchUsage(nowMs)` | epoch ms | raw usage payload string or `null` | usage stays probe-based. **Exporting this flips the provider to fetch-based usage** (no TUI probe). |
 | `discoverModels()` | — | `[{id, displayName, description?, available?}]` or `null` | `null` = honest "no live discovery"; the manifest `models` seed stands. A `null` return never falls back to the seed either — it means "nothing new learned". |
+| `modelGroupUsage()` | — | `[{group, messages, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micros, spend_cents?, spend_limit_cents?, spend_remaining_cents?, spend_resets_at_ms?}]` (snake_case; `cost_micros` is USD × 1e6, spend fields are cents) | `[]` — the picker shows no per-group usage. `group` matches a manifest `modelGroups` id (or a bare model-id prefix); core renders it for the selected model's group. The optional `spend_*` fields drive the tab's spend capsule: an absent limit stays null (honest), never a fabricated value, and exporting `modelGroupUsage()` also earns the auto-injected Usage Tracking toggle. |
 | `settingsSchema()` | — | SettingField[] | manifest-derived settings sections. Evaluated **once** and cached — keep it a pure constant. |
 | `notificationsSchema()` | — | SettingField[] | `[]`. Cached with `settingsSchema`. |
 | `providerSelfUpdateCapability()` | — | capability object or `null` | native fallback; else `null`. |

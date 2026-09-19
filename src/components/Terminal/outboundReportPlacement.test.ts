@@ -57,6 +57,28 @@ describe("outbound report placement", () => {
     expect(messageTimeMs(undefined)).toBe(null);
     expect(messageTimeMs("not a date")).toBe(null);
   });
+
+  // opencode stamps chat rows as numeric epoch-ms strings. Date.parse returns
+  // NaN for them, so every row read as untimed and every report trailed.
+  it("numeric epoch-ms message stamps place a report inline instead of trailing", () => {
+    const messages = [
+      { timestamp: "1770000000000" },
+      { timestamp: "1770000060000" },
+      { timestamp: "1770000120000" },
+    ];
+    const stampOf = ({ timestamp }: { timestamp: string }) => messageTimeMs(timestamp);
+    const { afterIndex, trailing } = placeOutboundReports(messages, stampOf, [1770000090000]);
+    expect(afterIndex.get(1)).toEqual([0]);
+    expect(trailing).toEqual([]);
+  });
+
+  it("a report newer than every numeric-stamped message still trails", () => {
+    const messages = [{ timestamp: "1770000000000" }, { timestamp: "1770000060000" }];
+    const stampOf = ({ timestamp }: { timestamp: string }) => messageTimeMs(timestamp);
+    const { afterIndex, trailing } = placeOutboundReports(messages, stampOf, [1770000120000]);
+    expect(afterIndex.size).toBe(0);
+    expect(trailing).toEqual([0]);
+  });
 });
 
 describe("report timestamp unit normalization", () => {

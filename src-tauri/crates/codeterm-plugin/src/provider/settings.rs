@@ -236,6 +236,26 @@ pub fn usage_tracking_section(probe_command: &str) -> SettingField {
     }
 }
 
+/// Usage Tracking section for a provider whose usage comes from its own
+/// session/account store (per-group usage) rather than a probe command. Same
+/// toggle key, so the capsule's visibility gate is uniform across sources.
+pub fn usage_store_tracking_section() -> SettingField {
+    SettingField::Section {
+        title: "Usage Tracking".into(),
+        description: Some(
+            "Surface this provider's own per-model-group usage and spend in the usage pill. \
+             Enabled by default for usage-capable providers."
+                .into(),
+        ),
+        fields: vec![SettingField::Toggle {
+            key: "usage_tracking_enabled".into(),
+            label: "Enable usage tracking".into(),
+            default: true,
+            description: None,
+        }],
+    }
+}
+
 /// Build the "Model" settings section from a provider's available models.
 pub fn model_select_section(
     description: &str,

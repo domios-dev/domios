@@ -201,20 +201,26 @@ impl ServiceContext {
             return None;
         }
         let (agent_type, cwd, session_id) = (agent_type?, cwd?, session_id?);
-        // Additional sources are keyed off the tab's own session file and id only.
-        let paths = self
-            .agent_registry
-            .with_provider(&agent_type, |provider| {
-                let main = provider.session_file_path(&cwd, &session_id)?;
-                let extra = provider.additional_usage_sources(&main, &session_id);
-                Some(std::iter::once(main).chain(extra).collect::<Vec<_>>())
-            })
-            .flatten();
-        if paths.is_none() {
+        // Every source is keyed off the tab's own session id, never a sibling's.
+        let Some(sources) = self.agent_registry.with_provider(&agent_type, |provider| {
+            provider.usage_sources(&cwd, &session_id)
+        }) else {
+            log::debug!("[kpi] tab {tab_id}: provider {agent_type} is not registered");
+            return None;
+        };
+        if sources.is_empty() {
             log::debug!(
-                "[kpi] tab {tab_id}: provider {agent_type} names no session file for {session_id}"
+                "[kpi] tab {tab_id}: provider {agent_type} names no usage source for {session_id}"
             );
         }
-        paths.map(|paths| paths.into_iter().map(UsageSource::new).collect())
+        Some(
+            sources
+                .into_iter()
+                .map(|source| UsageSource {
+                    path: source.path,
+                    session_id: source.session_id,
+                })
+                .collect(),
+        )
     }
 }

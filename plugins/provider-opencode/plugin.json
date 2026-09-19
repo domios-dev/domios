@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.11.4",
-  "minCodeterm": "1.11.4",
+  "version": "1.11.5",
+  "minCodeterm": "1.11.5",
   "hostApi": 2,
   "displayName": "OpenCode",
   "binaryName": "opencode",
@@ -45,39 +45,96 @@
     "supportsStructuredPrompts": true,
     "structuredPromptServer": true
   },
+  "credentials": [
+    {
+      "id": "opencodeAuth",
+      "file": "~/.local/share/opencode/auth.json",
+      "secret": {
+        "deepseekKey": "deepseek.key"
+      }
+    }
+  ],
+  "modelGroups": [
+    {
+      "id": "opencode",
+      "label": "OpenCode Zen"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek"
+    },
+    {
+      "id": "xai",
+      "label": "xAI"
+    }
+  ],
   "models": [
     {
       "id": "anthropic/claude-opus-4-8",
       "displayName": "Claude Opus 4.8",
-      "description": "Anthropic Opus via opencode router."
+      "description": "Anthropic Opus via opencode router.",
+      "group": "Anthropic"
     },
     {
       "id": "anthropic/claude-sonnet-4-6",
       "displayName": "Claude Sonnet 4.6",
-      "description": "Anthropic Sonnet via opencode router."
+      "description": "Anthropic Sonnet via opencode router.",
+      "group": "Anthropic"
     },
     {
       "id": "opencode/gpt-5.4-mini",
       "displayName": "OpenCode Zen GPT-5.4 Mini",
-      "description": "OpenCode Zen hosted GPT model."
+      "description": "OpenCode Zen hosted GPT model.",
+      "group": "OpenCode Zen"
     },
     {
       "id": "opencode/gpt-5.5",
       "displayName": "OpenCode Zen GPT-5.5",
-      "description": "OpenCode Zen hosted GPT model."
+      "description": "OpenCode Zen hosted GPT model.",
+      "group": "OpenCode Zen"
     },
     {
       "id": "opencode/deepseek-v4-flash-free",
       "displayName": "OpenCode Zen DeepSeek V4 Flash Free",
-      "description": "OpenCode Zen hosted free DeepSeek model."
+      "description": "OpenCode Zen hosted free DeepSeek model.",
+      "group": "OpenCode Zen"
     },
     {
       "id": "opencode/big-pickle",
       "displayName": "OpenCode Zen Big Pickle",
-      "description": "OpenCode Zen hosted coding model."
+      "description": "OpenCode Zen hosted coding model.",
+      "group": "OpenCode Zen"
     }
   ],
   "defaultModel": "anthropic/claude-opus-4-8",
+  "reasoningEfforts": [
+    {
+      "id": "minimal",
+      "displayName": "Minimal",
+      "description": "Least reasoning, fastest responses."
+    },
+    {
+      "id": "low",
+      "displayName": "Low",
+      "description": "Lighter reasoning for routine tasks."
+    },
+    {
+      "id": "medium",
+      "displayName": "Medium",
+      "description": "Balanced speed and reasoning depth."
+    },
+    {
+      "id": "high",
+      "displayName": "High",
+      "description": "Greater reasoning depth for complex problems."
+    },
+    {
+      "id": "max",
+      "displayName": "Max",
+      "description": "Maximum reasoning depth."
+    }
+  ],
+  "defaultReasoningEffort": "medium",
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",
     "linux": "curl -fsSL https://opencode.ai/install | bash",
@@ -99,7 +156,18 @@
     "modelLaunchArgsFormat": [
       "-m",
       "{model}"
+    ],
+    "reasoningEffortLaunchArgsFormat": [
+      "--variant",
+      "{effort}"
     ]
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "api.deepseek.com"
+      ]
+    }
   },
   "icon": "icon.svg"
 }

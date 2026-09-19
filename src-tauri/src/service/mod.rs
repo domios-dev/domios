@@ -111,6 +111,7 @@ pub(crate) mod stream_preview;
 pub mod structured_prompt;
 pub mod sync_watcher;
 pub(crate) mod tab;
+pub(crate) mod tab_adopt;
 pub mod tab_budget;
 pub mod tab_chat;
 pub(crate) mod tab_lifecycle;

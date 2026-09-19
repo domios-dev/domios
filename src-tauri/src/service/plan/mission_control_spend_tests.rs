@@ -159,6 +159,54 @@ fn mission_control_spend_records_the_verified_session_model_for_an_unfocused_tab
     );
 }
 
+/// A provider whose usage lives in a log shared by many sessions (opencode's single
+/// sqlite database) declares a session-scoped source. The tab must charge only its
+/// own session's rows, and those rows must reach the same machine spend surface as
+/// every other provider's.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn mission_control_spend_ingests_a_provider_declared_session_scoped_usage_log() {
+    let mut fixture = fixture();
+    let db = fixture.temp.path().join("opencode.db");
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, \
+             time_updated INTEGER, data TEXT);
+             INSERT INTO message VALUES ('m1', 'ses_own', 1, 1,
+               '{\"role\":\"assistant\",\"tokens\":{\"input\":279,\"output\":73,\"reasoning\":247,\"cache\":{\"read\":23296,\"write\":0}},\"time\":{\"created\":1000}}');
+             INSERT INTO message VALUES ('m2', 'ses_sibling', 1, 1,
+               '{\"role\":\"assistant\",\"tokens\":{\"input\":5000,\"output\":500,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":2000}}');",
+        )
+        .unwrap();
+    }
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("opencode")
+            .with_usage_source(db.clone(), "ses_own")
+            .with_session_model("ses_own", "big-pickle"),
+    ));
+
+    let tab = agent_tab(&fixture, "opencode", "ses_own");
+    let ledger = ledger_on(&mut fixture);
+    fixture.service.request_kpi_usage_ingest(&tab);
+    fixture.service.kpi.drain();
+
+    let usage = usage_rows(&ledger);
+    assert_eq!(usage.len(), 1, "only the tab's own session is charged");
+    assert_eq!(usage[0].tab_id, tab);
+    assert_eq!(usage[0].provider, "opencode");
+    assert_eq!(usage[0].model.as_deref(), Some("big-pickle"));
+
+    let spend = super::mission_control_ext::machine_spend(&fixture.service);
+    let models = model_row(&spend.providers, "opencode");
+    assert_eq!(models.len(), 1, "one model bucket on the board");
+    assert_eq!(models[0].model.as_deref(), Some("big-pickle"));
+    assert_eq!(models[0].turns, 1);
+    assert_eq!(models[0].input_tokens, 279 + 23_296);
+    assert_eq!(models[0].uncached_input_tokens, 279);
+    assert_eq!(models[0].output_tokens, 73 + 247);
+}
+
 /// Rows written before the model was resolvable must stay visible as their own bucket.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

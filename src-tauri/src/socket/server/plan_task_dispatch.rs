@@ -703,22 +703,20 @@ pub(super) fn dispatch(
         .and_then(Value::as_f64)
         .map(|value| value as f32)
         .or_else(|| allowance_capability.map(|capability| capability.default_reserve_pct))
-        .unwrap_or(5.0);
+        .unwrap_or(0.0);
     let allowance = if execution_intent == crate::plan::ExecutionIntent::Mutating {
-        let allowance_capability = allowance_capability.ok_or_else(|| {
-            invalid_dispatch("selected provider has no mutation allowance capability")
-        })?;
-        let snapshot = svc
-            .usage_store
-            .get_latest(&resolved_provider, None)
-            .map_err(|error| invalid_dispatch(format!("provider allowance unavailable: {error}")))?
-            .ok_or_else(|| invalid_dispatch("provider allowance telemetry is unknown"))?;
-        Some(crate::plan::ProviderAllowance {
-            remaining_pct: crate::usage::allowance_remaining_pct(&snapshot),
-            observed_at: snapshot.captured_at.max(0) as u64,
-            stale_after_ms: allowance_capability.telemetry_max_age_ms,
-            reserve_pct,
-        })
+        match (
+            allowance_capability,
+            svc.usage_store.get_latest(&resolved_provider, None),
+        ) {
+            (Some(capability), Ok(Some(snapshot))) => Some(crate::plan::ProviderAllowance {
+                remaining_pct: crate::usage::allowance_remaining_pct(&snapshot),
+                observed_at: snapshot.captured_at.max(0) as u64,
+                stale_after_ms: capability.telemetry_max_age_ms,
+                reserve_pct,
+            }),
+            _ => None,
+        }
     } else {
         None
     };

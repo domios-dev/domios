@@ -5,7 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "./Sidebar/OrchestrationPairForm";
 import { TeamUnit } from "./Sidebar/TeamUnit";
-import type { ModelInfo, ProviderDescriptor, Team } from "../lib/types";
+import { __setInvokeForTest } from "../lib/bridge";
+import type { ModelGroupUsage, ModelInfo, ProviderDescriptor, Team } from "../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -239,6 +240,313 @@ test("Team add-member renders exactly the injected descriptor incl. availability
     mutatedButtons.find((b) => b.getAttribute("data-testid") === "team-picker-model-m-delta")!.disabled,
     "team add-member after mutation: mutated availability must disable the entry",
   );
+  await act(async () => root.unmount());
+});
+
+test("a model badge renders as a chip beside its label in the spawn picker", async () => {
+  const models: ModelInfo[] = [
+    { id: "m-own", display_name: "DeepSeek V4 Flash", badge: "own" },
+    { id: "m-zen", display_name: "Zen Model" },
+  ];
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(models)]}
+      providerId="provider-x"
+      modelId="m-own"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      modelTestId="badge-model"
+    />,
+  );
+
+  await openDropdown(host.querySelector('[data-testid="badge-model"]')!);
+  const chip = document.querySelector('[data-badge-for="badge-model-option-m-own"]');
+  assert(chip, "a badged model renders a chip");
+  assert(chip.textContent?.trim() === "own", `chip text must be the badge, got "${chip.textContent}"`);
+  assert(
+    document.querySelector('[data-badge-for="badge-model-option-m-zen"]') === null,
+    "an unbadged model renders no chip",
+  );
+  await act(async () => root.unmount());
+});
+
+function descriptorWithEfforts(models: ModelInfo[]): ProviderDescriptor {
+  return {
+    ...descriptorWith(models),
+    reasoning_efforts: [
+      { id: "low", display_name: "Low" },
+      { id: "medium", display_name: "Medium" },
+      { id: "high", display_name: "High" },
+    ],
+    default_reasoning_effort: "medium",
+  } as ProviderDescriptor;
+}
+
+test("reasoning-effort selector renders and reports the chosen effort", async () => {
+  const changes: string[] = [];
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWithEfforts(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      effortId="medium"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      onEffortChange={(effortId) => changes.push(effortId)}
+      effortTestId="effort-select"
+    />,
+  );
+
+  const trigger = host.querySelector('[data-testid="effort-select"]');
+  assert(trigger, "a provider that declares efforts renders the selector");
+  await openDropdown(trigger!);
+  const high = document.querySelector('[data-testid="effort-select-option-high"]');
+  assert(high, "each declared effort renders as an option");
+  await click(high);
+  assert(changes.join(",") === "high", `chosen effort must be reported, got ${changes.join(",")}`);
+  await act(async () => root.unmount());
+});
+
+test("no reasoning-effort selector when the provider declares none", async () => {
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      onEffortChange={() => {}}
+      effortTestId="effort-select"
+    />,
+  );
+  assert(
+    host.querySelector('[data-testid="effort-select"]') === null,
+    "a provider with no declared efforts must not render an effort selector",
+  );
+  await act(async () => root.unmount());
+});
+
+test("team add-member groups models into collapsible sections", async () => {
+  const models: ModelInfo[] = [
+    { id: "alpha/one", display_name: "Alpha One", group: "alpha" },
+    { id: "beta/one", display_name: "Beta One", group: "beta" },
+  ];
+  const descriptor = descriptorWith(models);
+  const team: Team = { id: "team-grouped", name: "Team", lifecycle: "active", created_at: 0, workspace_id: "ws" };
+  const { host, root } = await render(
+    <TeamUnit
+      team={team}
+      plan={null}
+      tabs={{}}
+      managers={null}
+      managerCount={1}
+      workers={null}
+      workerCount={0}
+      workingWorkerCount={0}
+      providers={[descriptor]}
+      onOpenEffort={() => {}}
+      onAddMember={() => {}}
+    />,
+  );
+
+  await click(host.querySelector('[data-testid="team-menu-trigger"]'));
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes("Add worker")),
+  );
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes(descriptor.display_name)),
+  );
+
+  const alphaHeader = document.querySelector('[data-testid="team-picker-group-alpha"]') as HTMLButtonElement | null;
+  assert(alphaHeader, "a provider section header renders");
+  assert(
+    document.querySelector('[data-testid="team-picker-model-alpha/one"]') !== null,
+    "the section lists its model",
+  );
+  await click(alphaHeader);
+  assert(
+    document.querySelector('[data-testid="team-picker-model-alpha/one"]') === null,
+    "collapsing hides the section's models",
+  );
+  assert(
+    document.querySelector('[data-testid="team-picker-model-beta/one"]') !== null,
+    "other sections stay open",
+  );
+  await act(async () => root.unmount());
+});
+
+test("model dropdown groups models into collapsible provider sections", async () => {
+  const models: ModelInfo[] = [
+    { id: "alpha/one", display_name: "Alpha One", group: "alpha" },
+    { id: "beta/one", display_name: "Beta One", group: "beta" },
+    { id: "alpha/two", display_name: "Alpha Two", group: "alpha" },
+  ];
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(models)]}
+      providerId="provider-x"
+      modelId="alpha/one"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      modelTestId="grouped-model"
+    />,
+  );
+  await openDropdown(host.querySelector('[data-testid="grouped-model"]')!);
+
+  const headers = Array.from(
+    document.querySelectorAll('[data-testid^="grouped-model-group-"]'),
+  ) as HTMLButtonElement[];
+  assert(headers.length === 2, `expected two provider sections, got ${headers.length}`);
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-alpha/two"]') !== null,
+    "a section lists every model that declares it",
+  );
+  assert(
+    headers[0].getAttribute("aria-expanded") === "true",
+    "sections start expanded",
+  );
+
+  await click(headers[0]);
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-alpha/one"]') === null,
+    "collapsing a section hides its models",
+  );
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-beta/one"]') !== null,
+    "collapsing one section leaves the others open",
+  );
+  assert(
+    headers[0].getAttribute("aria-expanded") === "false",
+    "the collapsed header reports its state",
+  );
+
+  await click(headers[0]);
+  assert(
+    document.querySelector('[data-testid="grouped-model-option-alpha/one"]') !== null,
+    "expanding a section restores its models",
+  );
+  await act(async () => root.unmount());
+});
+
+test("model dropdown without groups stays a flat list", async () => {
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWith(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      modelTestId="flat-model"
+    />,
+  );
+  await openDropdown(host.querySelector('[data-testid="flat-model"]')!);
+  assert(
+    document.querySelectorAll('[data-testid^="flat-model-group-"]').length === 0,
+    "no sections are fabricated for an ungrouped catalog",
+  );
+  await act(async () => root.unmount());
+});
+
+test("effort trigger names the control and shows the selected level", async () => {
+  const { host, root } = await render(
+    <OrchestrationRoleRow
+      label="Agent"
+      providers={[descriptorWithEfforts(SEED_MODELS)]}
+      providerId="provider-x"
+      modelId="m-beta"
+      effortId="medium"
+      onProviderChange={() => {}}
+      onModelChange={() => {}}
+      onEffortChange={() => {}}
+      effortTestId="effort-select"
+    />,
+  );
+  const trigger = host.querySelector('[data-testid="effort-select"]')!;
+  assert(trigger.textContent?.includes("Effort"), "the trigger shows the Effort label");
+  assert(trigger.textContent?.includes("Medium"), "the trigger shows the selected level");
+  assert(
+    trigger.getAttribute("aria-label") === "Effort: Medium",
+    `the trigger names control and value, got "${trigger.getAttribute("aria-label")}"`,
+  );
+  await act(async () => root.unmount());
+});
+
+test("the spawn picker shows the selected model's group usage", async () => {
+  const models: ModelInfo[] = [
+    { id: "deepseek/deepseek-v4-flash", display_name: "DeepSeek V4 Flash" },
+    { id: "xai/grok-4.6", display_name: "Grok 4.6" },
+  ];
+  const descriptor: ProviderDescriptor = {
+    ...descriptorWith(models),
+    model_groups: [
+      { id: "deepseek", label: "DeepSeek" },
+      { id: "xai", label: "xAI" },
+    ],
+  } as ProviderDescriptor;
+  const usage: ModelGroupUsage = {
+    group: "deepseek",
+    messages: 2,
+    input_tokens: 4_800_000,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    cost_micros: 1_940_000,
+  };
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "provider_model_usage") return [usage] as T;
+    return undefined as T;
+  });
+
+  const team: Team = { id: "team-1", name: "Team", lifecycle: "active", created_at: 0, workspace_id: "ws" };
+  const { host, root } = await render(
+    <TeamUnit
+      team={team}
+      plan={null}
+      tabs={{}}
+      managers={null}
+      managerCount={1}
+      workers={null}
+      workerCount={0}
+      workingWorkerCount={0}
+      providers={[descriptor]}
+      onOpenEffort={() => {}}
+      onAddMember={() => {}}
+    />,
+  );
+
+  await click(host.querySelector('[data-testid="team-menu-trigger"]'));
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes("Add worker")),
+  );
+  await click(
+    Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .find((button) => button.textContent?.includes(descriptor.display_name)),
+  );
+
+  await act(async () => {
+    for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+  });
+
+  const chip = document.querySelector('[data-testid="team-picker-model-deepseek/deepseek-v4-flash-usage"]');
+  assert(chip, "a model whose group reports usage renders a usage chip");
+  assert(
+    chip.textContent?.includes("$1.94"),
+    `usage chip must show the group cost, got "${chip.textContent}"`,
+  );
+  assert(
+    document.querySelector('[data-testid="team-picker-model-xai/grok-4.6-usage"]') === null,
+    "a group with no reported usage renders no chip",
+  );
+
+  __setInvokeForTest(null);
   await act(async () => root.unmount());
 });
 

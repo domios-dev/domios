@@ -5,6 +5,7 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import {
   agentBadgeLabel,
   agentBracketLabel,
+  agentModelBadgeLabel,
   agentModelForBadge,
   classifyAgentLiveness,
   type AgentLiveness,
@@ -231,6 +232,49 @@ describe("model_badge model evidence", () => {
     const secondTab = { sessionModel: null, providerResolvedModel: "sonnet" };
     expect(agentBadgeLabel("claude", firstTab, "live")).toBe("opus");
     expect(agentBadgeLabel("claude", secondTab, "live")).toBe("sonnet");
+  });
+});
+
+describe("agentModelBadgeLabel", () => {
+  it("shows an uncatalogued model instead of falling back to the provider", () => {
+    const label = agentModelBadgeLabel("opencode", { sessionModel: "deepseek-v4-flash" }, "live");
+    expect(label).not.toBe("opencode");
+    expect((label as string).startsWith("deeps")).toBe(true);
+    expect((label as string).endsWith("...")).toBe(true);
+  });
+
+  it("caps the uncatalogued model to roughly the provider-label width", () => {
+    const label = agentModelBadgeLabel("opencode", { sessionModel: "deepseek-v4-flash" }, "live");
+    expect((label as string).length <= "opencode".length).toBe(true);
+  });
+
+  it("keeps the catalogue short name for a claimed model", () => {
+    expect(agentModelBadgeLabel("codex", { sessionModel: "gpt-5.6-sol" }, "live")).toBe("sol");
+    expect(agentModelBadgeLabel("claude", { sessionModel: "opus" }, "live")).toBe("opus");
+  });
+
+  it("falls back to the provider only when the tab has no model", () => {
+    expect(agentModelBadgeLabel("codex", { sessionModel: null }, "live")).toBe("codex");
+    expect(agentModelBadgeLabel("codex", {}, "absent")).toBe("codex!");
+  });
+
+  it("carries the liveness suffix on the model badge", () => {
+    const unobserved = agentModelBadgeLabel(
+      "opencode",
+      { sessionModel: "deepseek-v4-flash" },
+      "unobserved",
+    ) as string;
+    const absent = agentModelBadgeLabel(
+      "opencode",
+      { sessionModel: "deepseek-v4-flash" },
+      "absent",
+    ) as string;
+    expect(unobserved.endsWith("?")).toBe(true);
+    expect(absent.endsWith("!")).toBe(true);
+  });
+
+  it("writes nothing without a provider", () => {
+    expect(agentModelBadgeLabel(null, { sessionModel: "opus" }, "live")).toBe(null);
   });
 });
 

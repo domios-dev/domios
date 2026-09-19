@@ -1,3 +1,5 @@
+import { timestampMs } from "@codeterm/chat-core";
+
 /**
  * A sent report is never in the sender's own provider transcript, so it carries no
  * position in it. Rendering the cards after the transcript pins them to the bottom,
@@ -48,12 +50,10 @@ export function placeOutboundReports<M>(
   return { afterIndex, trailing };
 }
 
-/** Chat message timestamps are ISO strings and optional; unknown time must not
- *  reorder anything, so it reads as "no position". */
+/** Chat timestamps are provider-shaped: opencode emits numeric epoch-ms strings,
+ *  which Date.parse drops. Delegate to the canonical chat-core parser. */
 export function messageTimeMs(timestamp: string | undefined | null): number | null {
-  if (!timestamp) return null;
-  const parsed = Date.parse(timestamp);
-  return Number.isNaN(parsed) ? null : parsed;
+  return timestampMs(timestamp);
 }
 
 /** Daemon report events stamp epoch-seconds while transcript stamps parse to

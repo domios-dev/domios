@@ -36,6 +36,8 @@ fn plan_task_add_force_and_rm_all_parse() {
         "Draft",
         "--executor-role",
         "rust-backend-dev",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "focused worker",
         "--force",

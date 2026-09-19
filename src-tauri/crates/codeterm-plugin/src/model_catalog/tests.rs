@@ -18,6 +18,9 @@ fn register_and_read_back() {
                 description: None,
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             }],
             default: Some("m1".into()),
         },
@@ -62,6 +65,9 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
         ModelInfo {
             id: "sonnet".into(),
@@ -69,6 +75,9 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
         ModelInfo {
             id: "haiku".into(),
@@ -76,6 +85,9 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
     ];
     let overrides = vec![
@@ -85,6 +97,9 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
         ModelInfo {
             id: "my-finetune".into(),
@@ -92,6 +107,9 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
     ];
     let merged = merge_models(&builtin, &overrides);
@@ -111,6 +129,9 @@ fn merge_with_empty_override_is_builtin_verbatim() {
         description: None,
         available: None,
         availability: None,
+        featured: None,
+        badge: None,
+        group: None,
     }];
     let merged = merge_models(&builtin, &[]);
     assert_eq!(merged.len(), 1);
@@ -125,6 +146,9 @@ fn merge_with_empty_builtin_is_override_verbatim() {
         description: None,
         available: None,
         availability: None,
+        featured: None,
+        badge: None,
+        group: None,
     }];
     let merged = merge_models(&[], &overrides);
     assert_eq!(merged.len(), 1);
@@ -176,6 +200,9 @@ fn register_twice_replaces() {
                 description: None,
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             }],
             default: Some("a".into()),
         },
@@ -189,6 +216,9 @@ fn register_twice_replaces() {
                 description: None,
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             }],
             default: Some("b".into()),
         },
@@ -262,6 +292,98 @@ fn live_cache_subset_never_hides_new_seed_models() {
     cleanup(id);
 }
 
+/// The provider's probe owns the set: a model no seed and no override names is
+/// offered and resolves without falling back the moment the provider reports it.
+#[test]
+fn uncatalogued_live_model_is_offered_and_spawnable() {
+    let id = "test-uncatalogued-live-model";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("known", "Known")],
+            default: Some("known".into()),
+        },
+    );
+    put_live(
+        id,
+        vec![model("known", "Known"), model("brand-new", "Brand New")],
+        Some("brand-new".into()),
+    );
+
+    let models = resolve_models(id);
+    assert!(
+        models.iter().any(|m| m.id == "brand-new"),
+        "a provider-reported model the static lists never named must be offered"
+    );
+    assert_eq!(resolve_default(id).as_deref(), Some("brand-new"));
+    let resolved = resolve_model(id, Some("brand-new"));
+    assert_eq!(resolved.id, "brand-new");
+    assert!(
+        !resolved.fell_back,
+        "the reported model must resolve to itself, not a fallback"
+    );
+    cleanup(id);
+}
+
+/// An override is an overlay on a live catalog, never an allowlist: a live model
+/// it omits stays offered, and it cannot add an id the provider did not report.
+#[test]
+fn override_cannot_restrict_or_invent_against_a_live_catalog() {
+    let id = "test-override-not-allowlist";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("seed", "Seed")],
+            default: Some("seed".into()),
+        },
+    );
+    put_live(
+        id,
+        vec![model("alpha", "Alpha"), model("beta", "Beta")],
+        Some("alpha".into()),
+    );
+    std::fs::write(
+        override_path(id),
+        r#"replace = true
+
+[[models]]
+id = "beta"
+display_name = "Beta Renamed"
+featured = true
+
+[[models]]
+id = "invented"
+display_name = "Invented"
+"#,
+    )
+    .unwrap();
+
+    let models = resolve_models(id);
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert!(
+        ids.contains(&"alpha"),
+        "a live model the override omits must stay offered"
+    );
+    assert!(
+        !ids.contains(&"invented"),
+        "an override must not add a model the provider does not report"
+    );
+    assert_eq!(
+        models[0].id, "beta",
+        "the override's featured flag orders it first"
+    );
+    assert_eq!(
+        models
+            .iter()
+            .find(|m| m.id == "beta")
+            .map(|m| m.display_name.as_str()),
+        Some("Beta Renamed")
+    );
+    cleanup(id);
+}
+
 #[test]
 fn is_stale_uses_injected_now() {
     let id = "test-is-stale-injected-now";
@@ -274,6 +396,9 @@ fn is_stale_uses_injected_now() {
                 description: None,
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             }],
             default: Some("seed".into()),
         },
@@ -287,6 +412,9 @@ fn is_stale_uses_injected_now() {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         }],
         Some("live".into()),
     );
@@ -318,6 +446,9 @@ fn resolve_model_matches_exact_id() {
                     description: None,
                     available: None,
                     availability: None,
+                    featured: None,
+                    badge: None,
+                    group: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
@@ -325,6 +456,9 @@ fn resolve_model_matches_exact_id() {
                     description: None,
                     available: None,
                     availability: None,
+                    featured: None,
+                    badge: None,
+                    group: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -351,6 +485,9 @@ fn resolve_model_matches_display_case_insensitively() {
                 description: None,
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             }],
             default: Some("gpt-5.5".into()),
         },
@@ -379,6 +516,9 @@ fn resolve_model_unknown_falls_back_to_default() {
                     description: None,
                     available: None,
                     availability: None,
+                    featured: None,
+                    badge: None,
+                    group: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
@@ -386,6 +526,9 @@ fn resolve_model_unknown_falls_back_to_default() {
                     description: None,
                     available: None,
                     availability: None,
+                    featured: None,
+                    badge: None,
+                    group: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -406,16 +549,6 @@ fn test_live_fetched_at(provider_id: &str) -> SystemTime {
         .get(provider_id)
         .and_then(|snapshot| snapshot.fetched_at)
         .expect("live snapshot fetched_at")
-}
-
-fn model(id: &str, display: &str) -> ModelInfo {
-    ModelInfo {
-        id: id.into(),
-        display_name: display.into(),
-        description: None,
-        available: None,
-        availability: None,
-    }
 }
 
 /// Minimal provider whose `discover_models` returns a canned result, so the
@@ -469,12 +602,6 @@ impl AgentProvider for DiscoverStub {
     }
 }
 
-fn cleanup(id: &str) {
-    registry().write().remove(id);
-    seed_registry().write().remove(id);
-    let _ = std::fs::remove_file(cache_path(id));
-}
-
 #[test]
 fn put_live_writes_cache_that_survives_restart() {
     let id = "test-cache-survives-restart";
@@ -508,6 +635,7 @@ fn prime_does_not_clobber_a_live_snapshot() {
         models: vec![model("old", "Old")],
         seed_fingerprint: None,
         binary: None,
+        credentials: Vec::new(),
     };
     std::fs::write(cache_path(id), serde_json::to_string(&payload).unwrap()).unwrap();
     put_live(id, vec![model("new", "New")], Some("new".into()));
@@ -682,6 +810,9 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
             description: None,
             available: Some(true),
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         }],
         Some("opus".into()),
     );
@@ -770,6 +901,9 @@ fn availability_flag_is_carried_through_resolve() {
                     description: None,
                     available: Some(false),
                     availability: None,
+                    featured: None,
+                    badge: None,
+                    group: None,
                 },
             ],
             default: Some("opus".into()),
@@ -781,6 +915,85 @@ fn availability_flag_is_carried_through_resolve() {
         .expect("fable present");
     assert_eq!(fable.available, Some(false));
     cleanup(id);
+}
+
+#[test]
+fn featured_models_lead_preserving_catalog_order_within_each_group() {
+    let id = "test-featured-ordering";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![
+                model("a", "A"),
+                ModelInfo {
+                    featured: Some(true),
+                    ..model("b", "B")
+                },
+                model("c", "C"),
+                ModelInfo {
+                    featured: Some(true),
+                    ..model("d", "D")
+                },
+                model("e", "E"),
+            ],
+            default: Some("a".into()),
+        },
+    );
+
+    let resolved = resolve_models(id);
+    let ids: Vec<&str> = resolved.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["b", "d", "a", "c", "e"],
+        "featured models lead, catalog order survives within each group"
+    );
+    cleanup(id);
+}
+
+#[test]
+fn override_parser_reads_featured_badge_and_group() {
+    let parsed = toml::from_str::<CatalogFile>(
+        r#"[[models]]
+id = "deepseek-v4-flash"
+display_name = "DeepSeek V4 Flash"
+featured = true
+badge = "own"
+group = "deepseek"
+"#,
+    )
+    .expect("featured/badge/group must parse");
+
+    assert_eq!(parsed.models[0].featured, Some(true));
+    assert_eq!(parsed.models[0].badge.as_deref(), Some("own"));
+    assert_eq!(parsed.models[0].group.as_deref(), Some("deepseek"));
+}
+
+#[test]
+fn example_renderer_emits_featured_badge_and_group() {
+    let defaults = RegisteredDefaults {
+        models: vec![ModelInfo {
+            featured: Some(true),
+            badge: Some("own".into()),
+            group: Some("deepseek".into()),
+            ..model("deepseek-v4-flash", "DeepSeek V4 Flash")
+        }],
+        default: None,
+    };
+    let body = render_example("fixture", &defaults, &RegisteredEfforts::default());
+
+    assert!(
+        body.contains("featured = true"),
+        "example must carry featured"
+    );
+    assert!(
+        body.contains("badge = \"own\""),
+        "example must carry the badge"
+    );
+    assert!(
+        body.contains("group = \"deepseek\""),
+        "example must carry the group"
+    );
 }
 
 #[test]
@@ -798,6 +1011,9 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
                     description: None,
                     available: Some(false),
                     availability: None,
+                    featured: None,
+                    badge: None,
+                    group: None,
                 },
             ],
             default: Some("stable".into()),
@@ -844,16 +1060,10 @@ fn unknown_model(id: &str, display: &str) -> ModelInfo {
         description: None,
         available: None,
         availability: Some(ModelAvailability::Unknown),
+        featured: None,
+        badge: None,
+        group: None,
     }
-}
-
-fn temp_binary(tag: &str, bytes: &[u8]) -> PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "model_catalog_bin_{tag}_{}",
-        uuid::Uuid::new_v4().simple()
-    ));
-    std::fs::write(&path, bytes).unwrap();
-    path
 }
 
 /// The red line: a probe that could not run must never reach disk as a
@@ -872,6 +1082,9 @@ fn unknown_verdict_never_persists_as_a_negative() {
                 description: None,
                 available: Some(false),
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             },
         ],
         Some("sonnet".into()),
@@ -896,78 +1109,6 @@ fn unknown_verdict_never_persists_as_a_negative() {
         ModelAvailability::Unavailable,
         "a genuine negative is still a negative"
     );
-    cleanup(id);
-}
-
-/// A cached answer describes one binary. Replace that binary and the answer is
-/// no longer authoritative, whatever its TTL says.
-#[test]
-fn cache_is_not_served_when_the_provider_binary_changed() {
-    let id = "test-cache-binary-changed";
-    cleanup(id);
-    let seed = RegisteredDefaults {
-        models: vec![model("opus", "Seed")],
-        default: Some("opus".into()),
-    };
-    register(id, seed.clone());
-    let bin = temp_binary("changed", b"v1");
-    put_live_against(
-        id,
-        vec![model("opus", "Live")],
-        Some("opus".into()),
-        fingerprint_path(&bin),
-    );
-
-    // The CLI self-updates: same path, different bytes.
-    std::fs::write(&bin, b"v2-longer-payload").unwrap();
-    assert!(provider_binary_changed(id));
-
-    registry().write().remove(id);
-    seed_registry().write().remove(id);
-    register(id, seed);
-    prime_from_cache(id);
-
-    let _ = std::fs::remove_file(&bin);
-    assert_eq!(
-        resolve_models(id)[0].display_name,
-        "Seed",
-        "a snapshot captured against a replaced binary must not prime"
-    );
-    assert!(
-        is_stale(id, DEFAULT_TTL, SystemTime::now()),
-        "a rejected snapshot must not carry its TTL forward"
-    );
-    cleanup(id);
-}
-
-/// The same snapshot against an untouched binary is still good, so the
-/// invalidation cannot be a blanket refusal to warm-start.
-#[test]
-fn cache_still_primes_when_the_provider_binary_is_untouched() {
-    let id = "test-cache-binary-untouched";
-    cleanup(id);
-    let seed = RegisteredDefaults {
-        models: vec![model("opus", "Seed")],
-        default: Some("opus".into()),
-    };
-    register(id, seed.clone());
-    let bin = temp_binary("untouched", b"v1");
-    put_live_against(
-        id,
-        vec![model("opus", "Live")],
-        Some("opus".into()),
-        fingerprint_path(&bin),
-    );
-    assert!(!provider_binary_changed(id));
-
-    registry().write().remove(id);
-    seed_registry().write().remove(id);
-    register(id, seed);
-    prime_from_cache(id);
-
-    let display = resolve_models(id)[0].display_name.clone();
-    let _ = std::fs::remove_file(&bin);
-    assert_eq!(display, "Live");
     cleanup(id);
 }
 
@@ -1000,6 +1141,9 @@ async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
             description: None,
             available: Some(true),
             availability: Some(ModelAvailability::Available),
+            featured: None,
+            badge: None,
+            group: None,
         }]),
     });
     let refreshed = refresh_for_reader(provider).await;
@@ -1034,6 +1178,9 @@ async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
             description: None,
             available: Some(true),
             availability: Some(ModelAvailability::Available),
+            featured: None,
+            badge: None,
+            group: None,
         }],
         Some("fable".into()),
     );

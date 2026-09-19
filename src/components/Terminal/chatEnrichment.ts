@@ -41,22 +41,37 @@ function enrichUserMessage(m: ChatMessage, item: TimelineItem): EnrichedChatEntr
   ];
 }
 
+/** One rendered row per message identity. A duplicate occurrence of the same
+ *  message object is dropped; a distinct object with grown content is a streamed
+ *  update and replaces the stale row in place. */
 export function enrichTimelineItems(visible: TimelineItem[], cache: EnrichmentCache): EnrichedChatEntry[] {
   const out: EnrichedChatEntry[] = [];
+  const emittedAt = new Map<string, number>();
+  const append = (entry: EnrichedChatEntry): void => {
+    const at = emittedAt.get(entry.msg.id);
+    if (at === undefined) {
+      emittedAt.set(entry.msg.id, out.length);
+      out.push(entry);
+      return;
+    }
+    const previous = out[at];
+    if (previous.msg === entry.msg || previous.msg.content === entry.msg.content) return;
+    out[at] = entry;
+  };
   for (const item of visible) {
     const m = item.kind === "message" ? item.message : item.event.message;
     if (m.type !== "user") {
-      out.push({ msg: m, item, origin: undefined });
+      append({ msg: m, item, origin: undefined });
       continue;
     }
     const cached = cache.get(m);
     if (cached) {
-      out.push(...cached);
+      for (const entry of cached) append(entry);
       continue;
     }
     const entries = enrichUserMessage(m, item);
     cache.set(m, entries);
-    out.push(...entries);
+    for (const entry of entries) append(entry);
   }
   return out;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type R
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { clampFloatingPosition } from "./floatingPosition";
+import { groupOptionsByLabel } from "../../lib/optionGroups";
 
 const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
 const MENU_ITEM_SELECTOR =
@@ -11,10 +12,13 @@ const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabin
 const ROW_HEIGHT = 28;
 const DESCRIPTION_HEIGHT = 18;
 const SEPARATOR_HEIGHT = 9;
+const GROUP_HEADER_HEIGHT = 24;
 
 export interface DropdownMenuItem {
   label: string;
   icon?: ReactNode;
+  /** Short chip rendered beside the label (e.g. a model's catalog badge). */
+  badge?: string;
   onClick?: () => void;
   submenu?: {
     label: string;
@@ -46,10 +50,28 @@ export interface DropdownMenuSeparator {
   key: string;
 }
 
-export type DropdownMenuEntry = DropdownMenuItem | DropdownMenuSeparator;
+/** A collapsible section of menu items under one heading. */
+export interface DropdownMenuGroup {
+  /** Heading text; an empty label renders the items with no header. */
+  label: string;
+  items: DropdownMenuItem[];
+  /** Stable identity for collapse state; defaults to `label`. */
+  groupKey?: string;
+  "data-testid"?: string;
+}
+
+export type DropdownMenuEntry = DropdownMenuItem | DropdownMenuSeparator | DropdownMenuGroup;
 
 function isSeparator(entry: DropdownMenuEntry): entry is DropdownMenuSeparator {
   return "separator" in entry;
+}
+
+function isGroup(entry: DropdownMenuEntry): entry is DropdownMenuGroup {
+  return "items" in entry;
+}
+
+function groupKeyOf(group: DropdownMenuGroup): string {
+  return group.groupKey ?? group.label;
 }
 
 function itemKey(item: DropdownMenuItem): string {
@@ -61,11 +83,41 @@ function menuItemRole(item: DropdownMenuItem): "menuitem" | "menuitemradio" | "m
   return item.selected === undefined ? "menuitem" : "menuitemradio";
 }
 
-function estimateMenuHeight(entries: DropdownMenuEntry[], chrome: number): number {
-  const rows = entries.reduce(
-    (total, entry) => total + (isSeparator(entry) ? SEPARATOR_HEIGHT : ROW_HEIGHT + (entry.description ? DESCRIPTION_HEIGHT : 0)),
-    0,
-  );
+/** Every actionable item, flattening groups — submenu lookups and focus walks
+ *  operate on leaves, never on section wrappers. */
+function leafItems(entries: DropdownMenuEntry[]): DropdownMenuItem[] {
+  const out: DropdownMenuItem[] = [];
+  for (const entry of entries) {
+    if (isSeparator(entry)) continue;
+    if (isGroup(entry)) out.push(...entry.items);
+    else out.push(entry);
+  }
+  return out;
+}
+
+function estimateMenuHeight(
+  entries: DropdownMenuEntry[],
+  chrome: number,
+  collapsed: ReadonlySet<string>,
+): number {
+  let rows = 0;
+  for (const entry of entries) {
+    if (isSeparator(entry)) {
+      rows += SEPARATOR_HEIGHT;
+      continue;
+    }
+    if (isGroup(entry)) {
+      if (entry.label) rows += GROUP_HEADER_HEIGHT;
+      if (!collapsed.has(groupKeyOf(entry))) {
+        rows += entry.items.reduce(
+          (total, item) => total + ROW_HEIGHT + (item.description ? DESCRIPTION_HEIGHT : 0),
+          0,
+        );
+      }
+      continue;
+    }
+    rows += ROW_HEIGHT + (entry.description ? DESCRIPTION_HEIGHT : 0);
+  }
   return rows + 8 + chrome;
 }
 
@@ -80,6 +132,8 @@ interface DropdownMenuProps {
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   menuLabel?: string;
   menuTestId?: string;
+  /** Pixel cap on the open menu; content beyond it scrolls internally. */
+  maxHeight?: number;
   onOpenChange?: (open: boolean) => void;
 }
 
@@ -96,9 +150,11 @@ export function DropdownMenu({
   contextMenuTargetRef,
   menuLabel = "Actions",
   menuTestId,
+  maxHeight,
   onOpenChange,
 }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
   const focusOnOpenRef = useRef(false);
   const pendingFocusRef = useRef<PendingFocus | null>(null);
   const onOpenChangeRef = useRef(onOpenChange);
@@ -111,28 +167,35 @@ export function DropdownMenu({
   const descriptionIdBase = useId();
   const activeSubmenu = submenuKey === null
     ? undefined
-    : items.find((entry): entry is DropdownMenuItem =>
-      !isSeparator(entry) && entry.submenu !== undefined && itemKey(entry) === submenuKey,
-    )?.submenu;
+    : leafItems(items).find((item) => item.submenu !== undefined && itemKey(item) === submenuKey)?.submenu;
   const inSubmenu = activeSubmenu !== undefined;
-  const visibleItems = activeSubmenu?.items ?? items;
-  const contentHeight = estimateMenuHeight(visibleItems, inSubmenu ? 54 : header ? 42 : 0);
+  const visibleEntries = activeSubmenu?.items ?? items;
+  const contentHeight = estimateMenuHeight(
+    visibleEntries,
+    inSubmenu ? 54 : header ? 42 : 0,
+    collapsedGroups,
+  );
+
+  const capHeight = useCallback(
+    (estimated: number) => Math.min(estimated, maxHeight ?? window.innerHeight - 8, window.innerHeight - 8),
+    [maxHeight],
+  );
 
   const calcPos = useCallback(() => {
     if (!triggerRef.current) return null;
-    const menuHeight = Math.min(contentHeight, window.innerHeight - 8);
+    const menuHeight = capHeight(contentHeight);
     const rect = triggerRef.current.getBoundingClientRect();
     const menuWidth = Math.min(menuRef.current?.offsetWidth || 160, window.innerWidth - 8);
     const spaceBelow = window.innerHeight - rect.bottom;
     const preferredTop = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
     return clampFloatingPosition(rect.left, preferredTop, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
-  }, [contentHeight]);
+  }, [capHeight, contentHeight]);
 
   const contextPos = useCallback((x: number, y: number) => {
-    const menuHeight = Math.min(contentHeight, window.innerHeight - 8);
+    const menuHeight = capHeight(contentHeight);
     const menuWidth = Math.min(menuRef.current?.offsetWidth || 176, window.innerWidth - 8);
     return clampFloatingPosition(x, y, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
-  }, [contentHeight]);
+  }, [capHeight, contentHeight]);
 
   const announceOpen = useCallback(() => {
     document.dispatchEvent(new window.CustomEvent(DROPDOWN_OPEN_EVENT, { detail: ownerRef.current }));
@@ -169,6 +232,15 @@ export function DropdownMenu({
     setSubmenuKey(null);
     pendingFocusRef.current = null;
     if (restoreFocus) triggerRef.current?.querySelector<HTMLElement>(TRIGGER_FOCUSABLE)?.focus();
+  }, []);
+
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }, []);
 
   const enterSubmenu = useCallback((key: string) => {
@@ -297,8 +369,8 @@ export function DropdownMenu({
   const submenuParentAt = (element: EventTarget): DropdownMenuItem | undefined => {
     const key = (element as HTMLElement).getAttribute?.("data-menu-key");
     if (!key) return undefined;
-    return visibleItems.find((entry): entry is DropdownMenuItem =>
-      !isSeparator(entry) && entry.submenu !== undefined && !entry.disabled && itemKey(entry) === key,
+    return leafItems(visibleEntries).find(
+      (item) => item.submenu !== undefined && !item.disabled && itemKey(item) === key,
     );
   };
 
@@ -363,7 +435,7 @@ export function DropdownMenu({
             style={{
               top: pos.top,
               left: pos.left,
-              maxHeight: pos.maxHeight,
+              maxHeight: maxHeight ? Math.min(pos.maxHeight, maxHeight) : pos.maxHeight,
               overflowY: "auto",
               background: "var(--ct-surface, #1e1e2e)",
             }}
@@ -388,8 +460,37 @@ export function DropdownMenu({
                 )}
               </div>
             ) : header}
-            {visibleItems.map((entry, i) => isSeparator(entry) ? (
+            {visibleEntries.map((entry, i) => isSeparator(entry) ? (
               <div key={`separator:${entry.key}`} role="separator" className="mx-2 my-1 border-t border-[var(--ct-border)]" />
+            ) : isGroup(entry) ? (
+              <div key={`group:${groupKeyOf(entry)}`} role="group" aria-label={entry.label || undefined}>
+                {entry.label && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-expanded={!collapsedGroups.has(groupKeyOf(entry))}
+                    data-testid={entry["data-testid"]}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleGroup(groupKeyOf(entry));
+                    }}
+                    className="flex w-[calc(100%-0.25rem)] items-center gap-1 mx-0.5 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)] hover:bg-[rgba(255,255,255,0.08)] rounded-sm"
+                  >
+                    {collapsedGroups.has(groupKeyOf(entry))
+                      ? <ChevronRight aria-hidden size={11} />
+                      : <ChevronDown aria-hidden size={11} />}
+                    <span className="truncate">{entry.label}</span>
+                  </button>
+                )}
+                {!collapsedGroups.has(groupKeyOf(entry)) && entry.items.map((item, j) => (
+                  <DropdownMenuRow
+                    key={`${groupKeyOf(entry)}:${item.label}:${j}`}
+                    item={item}
+                    descriptionId={`${descriptionIdBase}-${i}-${j}`}
+                    onActivate={() => activate(item)}
+                  />
+                ))}
+              </div>
             ) : (
               <DropdownMenuRow
                 key={`${entry.label}:${i}`}
@@ -444,7 +545,18 @@ function DropdownMenuRow({
     >
       {item.icon && <span className="shrink-0 w-3 h-3 flex items-center justify-center">{item.icon}</span>}
       <span className="min-w-0 flex-1 text-left">
-        <span className="block truncate">{item.label}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{item.label}</span>
+          {item.badge && (
+            <span
+              data-badge-for={item["data-testid"]}
+              className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+              style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+            >
+              {item.badge}
+            </span>
+          )}
+        </span>
         {item.description && (
           <span id={descriptionId} className="mt-0.5 block max-w-56 whitespace-normal text-[10px] leading-snug text-[var(--ct-muted-fg)]">
             {item.description}
@@ -464,6 +576,11 @@ export interface DropdownSelectOption {
   disabled?: boolean;
   /** Native-title suffix appended to the label (e.g. " (not installed)"). */
   suffix?: string;
+  /** Short chip rendered beside the option label. */
+  badge?: string;
+  /** Section heading; options sharing it render together under one collapsible
+   *  header. Options without a group stay in a headerless section. */
+  group?: string;
 }
 
 /**
@@ -481,6 +598,8 @@ export function DropdownSelect({
   disabled,
   placeholder,
   leading,
+  prefix,
+  menuMaxHeight,
   className,
   "data-testid": testId,
 }: {
@@ -491,18 +610,33 @@ export function DropdownSelect({
   placeholder?: string;
   /** Leading adornment inside the trigger (e.g. a provider AgentIcon). */
   leading?: ReactNode;
+  /** Static label shown before the value so the control names itself, e.g.
+   *  "Effort" → "Effort Medium". */
+  prefix?: string;
+  /** Pixel cap on the open menu; longer lists scroll internally. */
+  menuMaxHeight?: number;
   className?: string;
   "data-testid"?: string;
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
-  const items: DropdownMenuItem[] = options.map((o) => ({
+  const badge = selected?.badge;
+  const toItem = (o: DropdownSelectOption): DropdownMenuItem => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
+    badge: o.badge,
     disabled: o.disabled,
     icon: o.value === value ? <Check size={12} /> : <span className="w-3 h-3" />,
     onClick: () => onChange(o.value),
     "data-testid": testId ? `${testId}-option-${o.value}` : undefined,
-  }));
+  });
+  const groups = groupOptionsByLabel(options);
+  const items: DropdownMenuEntry[] = groups
+    ? groups.map((section) => ({
+      label: section.label,
+      items: section.options.map(toItem),
+      "data-testid": testId && section.label ? `${testId}-group-${section.label}` : undefined,
+    }))
+    : options.map(toItem);
 
   const trigger = (
     <button
@@ -511,14 +645,36 @@ export function DropdownSelect({
       data-value={value}
       disabled={disabled}
       aria-haspopup="listbox"
+      aria-label={prefix ? `${prefix}: ${label}` : undefined}
       className={`flex items-center gap-1.5 w-full min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
     >
       {leading}
+      {prefix && (
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)]">
+          {prefix}
+        </span>
+      )}
       <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+      {badge && (
+        <span
+          data-testid={testId ? `${testId}-badge` : undefined}
+          className="shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide text-[var(--ct-accent)]"
+          style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
+        >
+          {badge}
+        </span>
+      )}
       <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
     </button>
   );
 
   if (disabled) return trigger;
-  return <DropdownMenu items={items} trigger={trigger} className="w-full min-w-0" />;
+  return (
+    <DropdownMenu
+      items={items}
+      trigger={trigger}
+      className="w-full min-w-0"
+      maxHeight={menuMaxHeight}
+    />
+  );
 }

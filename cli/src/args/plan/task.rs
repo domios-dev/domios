@@ -97,9 +97,10 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name, e.g. Alex, Emma, Leo"
+            value_name = "ONE_WORD_PERSONA",
+            help = "REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'"
         )]
-        personality: Option<String>,
+        personality: String,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -369,8 +370,8 @@ pub enum PlanTaskAction {
         execution_intent: String,
         #[arg(
             long = "provider-reserve-pct",
-            default_value_t = 5.0,
-            help = "Minimum remaining provider allowance for mutating work"
+            default_value_t = 0.0,
+            help = "Optional minimum remaining provider allowance for mutating work (0 = no reserve)"
         )]
         provider_reserve_pct: f32,
     },

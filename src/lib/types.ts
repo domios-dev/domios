@@ -809,6 +809,38 @@ export interface ModelInfo {
   // A probe that could not run reports "unknown" here instead of collapsing
   // into `available: false`. See `lib/modelAvailability.ts`.
   availability?: "available" | "unavailable" | "unknown" | null;
+  /** Catalog marks this model to lead the picker list, ahead of the rest. */
+  featured?: boolean | null;
+  /** Short chip rendered beside the model label in spawn pickers. */
+  badge?: string | null;
+  /** Provider-declared picker section; models sharing it render together. */
+  group?: string | null;
+}
+
+/** Provider-owned grouping of its models, e.g. the upstream company a routed
+ *  model belongs to. `id` matches the model-id prefix; `label` is the text the
+ *  picker renders. Core never maps a vendor id to a label. */
+export interface ModelGroup {
+  id: string;
+  label: string;
+}
+
+/** Cumulative usage the provider attributes to one model group. `cost_micros`
+ *  is USD × 1_000_000 so the wire stays integer. The optional `spend_*` fields
+ *  are the group's spend meter; the limit/remaining pair is present only when
+ *  the provider can read a live quota — absent, never fabricated. */
+export interface ModelGroupUsage {
+  group: string;
+  messages: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_micros: number;
+  spend_cents?: number;
+  spend_limit_cents?: number;
+  spend_remaining_cents?: number;
+  spend_resets_at_ms?: number;
 }
 
 export interface ReasoningEffortInfo {
@@ -914,6 +946,8 @@ export interface ProviderDescriptor {
   icon_svg?: string;
   icon_color?: string;
   available_models: ModelInfo[];
+  /** Provider-owned groupings of `available_models`; empty ⇒ one flat list. */
+  model_groups?: ModelGroup[];
   default_model?: string;
   /// Reasoning-effort levels the provider supports at launch. Empty ⇒ the
   /// provider exposes no effort selector and the UI must not render one.
@@ -974,8 +1008,10 @@ export interface ProviderDescriptor {
 export interface OrchestrationPairInput {
   orchestratorAgent: string;
   orchestratorModel?: string;
+  orchestratorReasoningEffort?: string;
   plannerAgent: string;
   plannerModel?: string;
+  plannerReasoningEffort?: string;
   workspaceId?: string;
   title?: string;
   /** Blank picker tab to claim for the Orchestrator in place (task_e0ddee08) —

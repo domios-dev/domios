@@ -1,8 +1,9 @@
 use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
-    optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
-    public_agent_input_readiness, submit_authenticated_pty_input, wait_for_observed_readiness,
+    is_pre_ready_launch_stage, optimistic_agent_pty_target, provider_frame_ready,
+    provider_or_generic_tui, public_agent_input_readiness, submit_authenticated_pty_input,
+    wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -370,6 +371,48 @@ fn agent_with_a_live_pty_is_routable_without_boot_metadata() {
     tab.boot_stage = None;
     let tab = _mux.get_tab(&tab_id).unwrap();
     assert!(is_tab_routable_for_send(tab));
+}
+
+#[test]
+fn reattached_live_session_accepts_public_input_without_a_spawn() {
+    let (mut mux, tab_id) = fully_routable_tab();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::PtyReattached);
+    assert_eq!(public_agent_input_readiness(tab), Some(Ok(())));
+}
+
+#[test]
+fn pre_ready_launch_stages_are_distinguished_from_unresolved_sessions() {
+    use codeterm_types::pty::BootStage;
+
+    for stage in [
+        BootStage::PtyStarting,
+        BootStage::PtySpawned,
+        BootStage::ReaderReady,
+        BootStage::ShellReady,
+        BootStage::AgentLaunching,
+        BootStage::LaunchWritten,
+        BootStage::ProviderReady,
+        BootStage::PreparingRoleInstructions,
+        BootStage::DeliveringInstructions,
+    ] {
+        assert!(
+            is_pre_ready_launch_stage(stage),
+            "{stage:?} is a launch stage"
+        );
+    }
+    for stage in [
+        BootStage::AgentReady,
+        BootStage::PtyReattached,
+        BootStage::SpawnFailed,
+        BootStage::LaunchDeadlineElapsed,
+        BootStage::LaunchBindingUnconfirmed,
+    ] {
+        assert!(
+            !is_pre_ready_launch_stage(stage),
+            "{stage:?} must not park a send"
+        );
+    }
 }
 
 #[test]

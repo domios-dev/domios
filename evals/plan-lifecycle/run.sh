@@ -100,6 +100,8 @@ TASK_ID="$(dc plan task add "$PLAN_ID" \
   --name "Implement fixture task" \
   --type implement \
   --executor-role rust-backend-dev \
+  --personality "Lifecycle" \
+  --role-guidance "Own the fixture task end to end." \
   --sections "$SPEC_SECTION,$IMPL_SECTION" \
   --body="Touch both sections" \
   --group lifecycle \
@@ -166,7 +168,7 @@ assert_error_contains "unknown plan teaching" \
 
 assert_error_contains "dash-leading text teaching" \
   "--field=value or --field-file" \
-  dc plan task add "$PLAN_ID" --name "dash body" --executor-role docs-sync --body - starts-with-dash
+  dc plan task add "$PLAN_ID" --name "dash body" --executor-role docs-sync --personality "Dash" --body - starts-with-dash
 
 assert_error_contains "loop budget teaching" \
   "codeterm plan loop set $LOOP_ID --budget N" \

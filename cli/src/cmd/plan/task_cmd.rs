@@ -408,9 +408,8 @@ pub(super) fn run_task(
                     "--executor-role names who executes this task and cannot be blank".to_string(),
                 );
             }
-            if let Some(personality) = personality.as_deref() {
-                codeterm_types::plan::validate_executor_name(personality)?;
-            }
+            let personality = codeterm_types::plan::validate_executor_name(&personality)
+                .map_err(|err| format!("--personality: {err}"))?;
             let role_guidance_text =
                 super::resolve_role_guidance(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
@@ -466,9 +465,7 @@ pub(super) fn run_task(
                 params["role_guidance"] = json!(guidance);
             }
             params["executor_role"] = json!(executor_role);
-            if let Some(name) = personality {
-                params["personality"] = json!(name);
-            }
+            params["personality"] = json!(personality);
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
             }

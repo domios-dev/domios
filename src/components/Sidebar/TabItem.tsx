@@ -14,7 +14,7 @@ import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
-import { agentBadgeLabel, agentModelForBadge, classifyAgentLiveness } from "../../lib/agentLabel";
+import { agentModelBadgeLabel, agentModelForBadge, classifyAgentLiveness } from "../../lib/agentLabel";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
@@ -204,11 +204,13 @@ function TabItemInner({
   });
   // Compose from current tab evidence so a cached provider-only label cannot
   // mask a newer runtime model.
-  const tabAgentLabel = agentBadgeLabel(tab.agent_type, modelEvidence, agentLiveness);
+  const tabAgentLabel = agentModelBadgeLabel(tab.agent_type, modelEvidence, agentLiveness);
   // Only a chatBackend shell's own detected model stands alone; a PTY tab that
   // lost its provider must not keep the model half of the identity.
   const shellBadge = shellSessionModel ? formatModelBadge(shellSessionModel) : null;
   const tabModelBadge = tabAgentLabel ?? shellBadge;
+  // The visible badge is width-capped; the tooltip keeps the whole identity.
+  const tabModelTitle = tabModel ? `${providerName} · ${tabModel}` : undefined;
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
@@ -429,7 +431,7 @@ function TabItemInner({
       </span>
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {tabModelBadge && !touchMode ? (
-          <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
+          <SidebarModelBadge label={tabModelBadge} title={tabModelTitle} />
         ) : null}
         {menuEntries.length > 0 && (
           <TabMenu

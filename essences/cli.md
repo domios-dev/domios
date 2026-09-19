@@ -2257,7 +2257,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model`
 - `--name`
 - `--parent`
-- `--personality` — Executor persona name, e.g. Alex, Emma, Leo
+- `--personality` — REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'
 - `<plan_id>`
 - `--primary`
 - `--priority`
@@ -2337,7 +2337,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
-- `--provider-reserve-pct` — Minimum remaining provider allowance for mutating work
+- `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Provider-supported reasoning effort (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
@@ -2854,6 +2854,14 @@ Install an OS login trigger for the external crash-aware supervisor. The supervi
 #### `codeterm tab`
 
 Tab management
+
+#### `codeterm tab adopt-agent`
+
+Adopt a live PTY as an agent send target without restarting it
+
+- `--force` — Adopt even when the screen is a login shell or non-agent TUI
+- `--provider` — Registered PTY provider to assert. Required; never inferred
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab auto-confirm`
 

@@ -3,7 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { OrchestrationPairForm } from "./OrchestrationPairForm";
+import { OrchestrationPairForm, type OrchestrationPairValues } from "./OrchestrationPairForm";
 import type { ProviderDescriptor } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
@@ -82,6 +82,11 @@ async function openDropdown(trigger: Element): Promise<void> {
   });
 }
 
+async function click(element: Element | null | undefined): Promise<void> {
+  assert(element, "expected element to click");
+  await act(async () => (element as HTMLButtonElement).click());
+}
+
 test("card layout renders PairAffordance with orchestrator and planner rows", async () => {
   const { host, root } = await render(
     <OrchestrationPairForm
@@ -151,6 +156,47 @@ test("model selector entries match the provider catalog exactly", async () => {
   const optionValues = Array.from(document.querySelectorAll('[data-testid^="orch-model-option-"]'))
     .map((option) => option.getAttribute("data-testid")?.replace("orch-model-option-", ""));
   assert(optionValues.join(",") === "model-a,model-b", `model entries must equal catalog, got ${optionValues}`);
+  await act(async () => root.unmount());
+});
+
+test("choosing a reasoning effort reports it through onChange", async () => {
+  const providerWithEfforts = {
+    ...PROVIDERS[0],
+    reasoning_efforts: [
+      { id: "low", display_name: "Low" },
+      { id: "high", display_name: "High" },
+    ],
+    default_reasoning_effort: "low",
+  } as ProviderDescriptor;
+  const changes: OrchestrationPairValues[] = [];
+  const { host, root } = await render(
+    <OrchestrationPairForm
+      providers={[providerWithEfforts]}
+      layout="stack"
+      values={{
+        orchestratorProviderId: "provider-a",
+        orchestratorModelId: "model-a",
+        orchestratorEffortId: "low",
+        plannerProviderId: "provider-a",
+        plannerModelId: "model-b",
+        plannerEffortId: "low",
+      }}
+      onChange={(next) => { changes.push(next); }}
+      roleTestIds={{ orchestratorEffort: "orch-effort" }}
+    />,
+  );
+
+  const trigger = host.querySelector('[data-testid="orch-effort"]');
+  assert(trigger, "effort selector renders for a provider that declares efforts");
+  await openDropdown(trigger!);
+  const high = document.querySelector('[data-testid="orch-effort-option-high"]');
+  assert(high, "declared effort renders as an option");
+  await click(high);
+  const latest = changes[changes.length - 1];
+  assert(
+    latest?.orchestratorEffortId === "high",
+    `selected effort must reach onChange, got ${latest?.orchestratorEffortId}`,
+  );
   await act(async () => root.unmount());
 });
 

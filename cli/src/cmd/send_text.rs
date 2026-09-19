@@ -799,6 +799,21 @@ mod tests {
     }
 
     #[test]
+    fn send_after_adopt_delivers_prose_as_agent_not_shell() {
+        let adopted =
+            serde_json::json!({"id": "t1", "agent_type": "mock-pty", "backing_kind": "pty"});
+        assert_eq!(classify_tab_kind(&adopted), TabKind::Agent);
+        assert_eq!(
+            decide_send_eligibility(TabKind::Agent, CHARTER, false, false),
+            SendEligibility::Allow
+        );
+        match decide_send_eligibility(TabKind::RawShell, CHARTER, false, false) {
+            SendEligibility::Refuse(msg) => assert!(msg.contains("--to-shell")),
+            other => panic!("raw shell must still refuse prose, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn classify_raw_shell_when_pty_without_agent() {
         let record = serde_json::json!({"id": "t1", "agent_type": null, "backing_kind": "pty"});
         assert_eq!(classify_tab_kind(&record), TabKind::RawShell);
