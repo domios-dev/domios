@@ -44,7 +44,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
 | Desktop notifications | `notify send "title" [--from-pad PATH] [--severity info\|warning\|error] [--level verbose\|action_needed\|failure] [--event-key ..] [--choice LABEL]...` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. The body is read only from the calling tab's AgentPad; an inline body is refused at parse time. `--level` takes only those three values; `verbose` is progress, `action_needed` is waiting on the user, `failure` is a stop | `docs CONFIG` |
 | Updates | `update check`, `update install --auto` | — |
-| Source-backed essence map | `essence-map generate`, `essence-map validate`, `essence-map record --summary .. --reason ..`, `essence-map release-summary [--since decision-N]`, `essence-map revert --to decision-N` | `docs ESSENCE-MAP` |
+| Source-backed essence map | `essence-map generate`, `essence-map validate`, `essence-map record --summary .. --reason ..`, `essence-map release-summary [--since decision-N]`, `essence-map revert --to decision-N`; validates stable essence `map` anchors against the generated node ids | `docs ESSENCE-MAP` |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
 | Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |
 | Keep system awake | `keepawake start/stop/status` | — |

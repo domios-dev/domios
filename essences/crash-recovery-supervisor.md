@@ -53,3 +53,10 @@ The warning's lifetime ends at proven health, not at user dismissal. Restored la
 - macOS: the loaded LaunchAgent runs one CLI supervisor with `KeepAlive=false`. Repeat the kill, clean-exit, replacement-handoff, and loop-threshold oracle; validate the generated plist with `plutil`.
 - Linux: the enabled user unit runs one CLI supervisor with `Restart=no`. Repeat the same oracle and validate the generated unit with `systemd-analyze --user verify`; quoted `ExecStart` paths must survive spaces.
 
+```map
+anchors:
+  - core:crash-recovery-supervisor
+  - capability:session-continuity
+  - capability:health-and-diagnostics
+```
+
