@@ -1,8 +1,7 @@
-//! OpenCode SSE event → structured prompt mapping (pure).
+//! OpenCode SSE event → structured chat and prompt mapping (pure).
 //!
-//! Maps the local opencode server's `/event` bus payloads onto a
-//! provider-agnostic [`PendingPrompt`] plus the routing needed to answer over
-//! HTTP. Event and endpoint shapes are proven live.
+//! Maps live OpenCode `/event` frames onto normalized chat parts and a
+//! provider-agnostic [`PendingPrompt`]. Frames were captured on OpenCode 1.18.31.
 //!
 //! Pure + deterministic: no I/O, no locks. The subscriber thread feeds raw
 //! `data:` JSON in and gets a [`ParsedEvent`] back; the HTTP layer turns a
@@ -10,11 +9,14 @@
 
 use serde_json::{json, Value};
 
+use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
 /// What the host does in response to one SSE line.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedEvent {
+    MessageUpdated { message: MessageMeta },
+    PartUpdated { update: ChatPartUpdate },
     /// A new structured prompt is pending — surface it and remember its route.
     Prompt {
         prompt: PendingPrompt,
@@ -22,8 +24,25 @@ pub enum ParsedEvent {
     },
     /// A prompt was answered (by us or elsewhere) — clear it.
     Replied { request_id: String },
-    /// Anything else (server.connected, deltas, …) — ignore.
+    /// Anything else (server.connected, session lifecycle, …) — ignore.
     Ignored,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MessageMeta {
+    pub session_id: String,
+    pub message_id: String,
+    pub role: String,
+    pub timestamp: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChatPartUpdate {
+    pub session_id: String,
+    pub message_id: String,
+    pub part_id: String,
+    pub part: Value,
+    pub delta: Option<String>,
 }
 
 /// Everything needed to answer an opencode structured prompt over HTTP.
@@ -46,12 +65,14 @@ pub enum PromptKind {
 const PERMISSION_OPTIONS: [(&str, &str); 3] =
     [("once", "Once"), ("always", "Always"), ("reject", "Reject")];
 
-/// Parse one SSE `data:` JSON object. Unknown / non-prompt events map to
-/// [`ParsedEvent::Ignored`].
+/// Parse one SSE `data:` JSON object. Unknown events map to [`ParsedEvent::Ignored`].
 pub fn parse_event(value: &Value) -> ParsedEvent {
     let event_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
     let props = value.get("properties").unwrap_or(&Value::Null);
     match event_type {
+        "message.updated" => parse_message_updated(props),
+        "message.part.delta" => parse_part_delta(props),
+        "message.part.updated" => parse_part_updated(props),
         "question.asked" | "question.v2.asked" => parse_question(props),
         "permission.asked" => parse_permission(props),
         "question.replied" | "permission.replied" => props
@@ -63,6 +84,255 @@ pub fn parse_event(value: &Value) -> ParsedEvent {
             .unwrap_or(ParsedEvent::Ignored),
         _ => ParsedEvent::Ignored,
     }
+}
+
+fn parse_message_updated(props: &Value) -> ParsedEvent {
+    let Some(info) = props.get("info") else {
+        return ParsedEvent::Ignored;
+    };
+    let (Some(message_id), Some(session_id), Some(role)) = (
+        info.get("id").and_then(|v| v.as_str()),
+        info.get("sessionID").and_then(|v| v.as_str()),
+        info.get("role").and_then(|v| v.as_str()),
+    ) else {
+        return ParsedEvent::Ignored;
+    };
+    let timestamp = info
+        .get("time")
+        .and_then(|t| t.get("created"))
+        .and_then(timestamp_string);
+    ParsedEvent::MessageUpdated {
+        message: MessageMeta {
+            session_id: session_id.to_string(),
+            message_id: message_id.to_string(),
+            role: role.to_string(),
+            timestamp,
+        },
+    }
+}
+
+fn parse_part_delta(props: &Value) -> ParsedEvent {
+    let (Some(session_id), Some(message_id), Some(part_id), Some(delta)) = (
+        props.get("sessionID").and_then(|v| v.as_str()),
+        props.get("messageID").and_then(|v| v.as_str()),
+        props.get("partID").and_then(|v| v.as_str()),
+        props.get("delta").and_then(|v| v.as_str()),
+    ) else {
+        return ParsedEvent::Ignored;
+    };
+    if props.get("field").and_then(|v| v.as_str()) != Some("text") {
+        return ParsedEvent::Ignored;
+    }
+    ParsedEvent::PartUpdated {
+        update: ChatPartUpdate {
+            session_id: session_id.to_string(),
+            message_id: message_id.to_string(),
+            part_id: part_id.to_string(),
+            part: json!({
+                "id": part_id,
+                "sessionID": session_id,
+                "messageID": message_id,
+                "type": "text"
+            }),
+            delta: Some(delta.to_string()),
+        },
+    }
+}
+
+fn parse_part_updated(props: &Value) -> ParsedEvent {
+    let Some(part) = props.get("part") else {
+        return ParsedEvent::Ignored;
+    };
+    let (Some(part_id), Some(session_id), Some(message_id)) = (
+        part.get("id").and_then(|v| v.as_str()),
+        part.get("sessionID").and_then(|v| v.as_str()),
+        part.get("messageID").and_then(|v| v.as_str()),
+    ) else {
+        return ParsedEvent::Ignored;
+    };
+    ParsedEvent::PartUpdated {
+        update: ChatPartUpdate {
+            session_id: session_id.to_string(),
+            message_id: message_id.to_string(),
+            part_id: part_id.to_string(),
+            part: part.clone(),
+            delta: props.get("delta").and_then(|v| v.as_str()).map(String::from),
+        },
+    }
+}
+
+fn timestamp_string(value: &Value) -> Option<String> {
+    match value {
+        Value::Number(_) => Some(value.to_string()),
+        Value::String(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+/// Produce the same stable-id `ChatMsg` shape as the sqlite reader. The part's
+/// full text wins over `delta`; the latter is only a fallback for delta-only frames.
+pub fn normalize_chat_part(
+    update: &ChatPartUpdate,
+    message: &MessageMeta,
+    previous_text: Option<&str>,
+) -> Option<ChatMsg> {
+    if update.session_id != message.session_id || update.message_id != message.message_id {
+        return None;
+    }
+    let part_type = update.part.get("type").and_then(|v| v.as_str())?;
+    let timestamp = update
+        .part
+        .get("time")
+        .and_then(|t| t.get("created"))
+        .and_then(timestamp_string)
+        .or_else(|| message.timestamp.clone());
+    match part_type {
+        "text" | "reasoning" => {
+            let text = update
+                .part
+                .get("text")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| {
+                    let delta = update.delta.as_deref()?;
+                    Some(format!("{}{}", previous_text.unwrap_or_default(), delta))
+                })?;
+            if text.trim().is_empty() {
+                return None;
+            }
+            Some(ChatMsg {
+                id: update.part_id.clone(),
+                kind: if part_type == "reasoning" {
+                    "thinking".into()
+                } else if message.role == "user" {
+                    "user".into()
+                } else {
+                    "assistant".into()
+                },
+                content: text,
+                timestamp,
+                ..Default::default()
+            })
+        }
+        "tool" => normalize_tool_part(update, timestamp),
+        _ => None,
+    }
+}
+
+fn normalize_tool_part(update: &ChatPartUpdate, timestamp: Option<String>) -> Option<ChatMsg> {
+    let tool_name = update.part.get("tool").and_then(|v| v.as_str()).unwrap_or("tool");
+    let state = update.part.get("state").unwrap_or(&Value::Null);
+    let input = state.get("input");
+    let metadata = state.get("metadata").unwrap_or(&Value::Null);
+    let time = state.get("time").unwrap_or(&Value::Null);
+    let start = time.get("start").and_then(Value::as_i64);
+    let end = time.get("end").and_then(Value::as_i64);
+    let exit_code = metadata.get("exit").and_then(Value::as_i64);
+    let (tool_kind, tool_summary, tool_detail, tool_edits) = canonical_tool_fields(tool_name, input);
+    Some(ChatMsg {
+        id: update.part_id.clone(),
+        kind: "tool_call".into(),
+        content: String::new(),
+        timestamp: time
+            .get("start")
+            .and_then(timestamp_string)
+            .or_else(|| time.get("end").and_then(timestamp_string))
+            .or(timestamp),
+        tool_name: Some(tool_name.to_string()),
+        tool_input: input.cloned(),
+        tool_result: state.get("output").and_then(|v| v.as_str()).map(String::from),
+        tool_id: update.part.get("callID").and_then(|v| v.as_str()).map(String::from),
+        tool_title: state.get("title").and_then(|v| v.as_str()).map(String::from),
+        tool_exit_code: exit_code,
+        tool_duration_ms: start.zip(end).and_then(|(start, end)| {
+            u64::try_from(end.saturating_sub(start)).ok()
+        }),
+        tool_error: exit_code.map(|code| code != 0),
+        tool_kind: Some(tool_kind),
+        tool_summary: Some(tool_summary),
+        tool_detail: Some(tool_detail),
+        tool_edits: Some(Value::Array(tool_edits)),
+        ..Default::default()
+    })
+}
+
+fn canonical_tool_fields(
+    tool_name: &str,
+    input: Option<&Value>,
+) -> (String, String, String, Vec<Value>) {
+    let null = Value::Null;
+    let value = input.filter(|v| v.is_object()).unwrap_or(&null);
+    let command = first_string(value, &["command", "cmd"]).unwrap_or_default();
+    let path = first_string(value, &["file_path", "filePath", "path"]).unwrap_or_default();
+    let pattern = first_string(value, &["pattern"]).unwrap_or_default();
+    let lower = tool_name.trim().to_lowercase();
+    let edits = canonical_edits(value, &path);
+    let fields = if ["bash", "shell", "exec", "run"].contains(&lower.as_str()) {
+        ("command", clean_tool_text(command, "Command"), command.to_string())
+    } else if ["edit", "multiedit", "write"].contains(&lower.as_str()) {
+        ("edit", nonempty_or(path, "File edit"), path.to_string())
+    } else if lower == "read" {
+        ("read", nonempty_or(path, "Read file"), path.to_string())
+    } else if ["glob", "grep", "search"].contains(&lower.as_str()) {
+        let detail = nonempty_or(pattern, path);
+        ("search", clean_tool_text(detail, "Search"), detail.to_string())
+    } else {
+        ("generic", clean_tool_text(tool_name, "Tool"), tool_name.to_string())
+    };
+    (fields.0.into(), fields.1, fields.2, edits)
+}
+
+fn first_string<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(|v| v.as_str()))
+}
+
+fn nonempty_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
+    if value.is_empty() {
+        fallback
+    } else {
+        value
+    }
+}
+
+fn clean_tool_text(value: &str, fallback: &str) -> String {
+    let cleaned = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.is_empty() {
+        return fallback.to_string();
+    }
+    if cleaned.chars().count() > 120 {
+        return format!("{}...", cleaned.chars().take(117).collect::<String>());
+    }
+    cleaned
+}
+
+fn canonical_edits(input: &Value, parent_path: &str) -> Vec<Value> {
+    let mut source = Vec::new();
+    if let Some(edits) = input.get("edits").and_then(|v| v.as_array()) {
+        source.extend(edits.iter());
+    } else {
+        source.push(input);
+    }
+    source
+        .into_iter()
+        .filter_map(|item| {
+            if !item.is_object() {
+                return None;
+            }
+            let old = first_string(item, &["old_string", "oldString"]);
+            let new = first_string(item, &["new_string", "newString"]);
+            if old.is_none() && new.is_none() {
+                return None;
+            }
+            let path = first_string(item, &["file_path", "filePath", "path"])
+                .unwrap_or(parent_path);
+            Some(json!({
+                "path": path,
+                "old": old.unwrap_or_default(),
+                "new": new.unwrap_or_default(),
+            }))
+        })
+        .collect()
 }
 
 fn parse_question(props: &Value) -> ParsedEvent {
@@ -137,6 +407,7 @@ fn parse_permission(props: &Value) -> ParsedEvent {
         .get("description")
         .and_then(|v| v.as_str())
         .or_else(|| meta.get("command").and_then(|v| v.as_str()))
+        .or_else(|| props.get("title").and_then(|v| v.as_str()))
         .or_else(|| props.get("permission").and_then(|v| v.as_str()))
         .unwrap_or("Permission requested")
         .to_string();
@@ -324,13 +595,175 @@ mod tests {
 
     #[test]
     fn server_connected_and_unknown_are_ignored() {
+        let observed: Value =
+            serde_json::from_str(include_str!("fixtures/observed_server_connected.json"))
+                .expect("captured server.connected frame");
+        assert_eq!(parse_event(&observed), ParsedEvent::Ignored);
         assert_eq!(
-            parse_event(&json!({"type": "server.connected"})),
+            parse_event(&json!({"type": "unrecognized.event"})),
+            ParsedEvent::Ignored
+        );
+    }
+
+    #[test]
+    fn live_text_deltas_grow_in_place_then_full_part_text_replaces_them() {
+        let message_frame: Value = serde_json::from_str(include_str!(
+            "fixtures/captured_message_updated.json"
+        ))
+        .unwrap();
+        let message = parse_event(&message_frame);
+        let ParsedEvent::MessageUpdated { message } = message else {
+            panic!("expected message metadata");
+        };
+        assert_eq!(message.message_id, "msg_1");
+        assert_eq!(message.session_id, "ses_1");
+        assert_eq!(message.role, "assistant");
+        assert_eq!(message.timestamp.as_deref(), Some("1789814516718"));
+
+        let first_frame: Value = serde_json::from_str(include_str!(
+            "fixtures/captured_message_part_delta_first.json"
+        ))
+        .unwrap();
+        let first = parse_event(&first_frame);
+        let ParsedEvent::PartUpdated { update } = first else {
+            panic!("expected part delta");
+        };
+        assert_eq!(update.part_id, "prt_text");
+        assert_eq!(update.delta.as_deref(), Some("121"));
+        let partial = normalize_chat_part(&update, &message, None).unwrap();
+        assert_eq!(partial.id, "prt_text");
+        assert_eq!(partial.kind, "assistant");
+        assert_eq!(partial.content, "121");
+        assert_eq!(partial.timestamp.as_deref(), Some("1789814516718"));
+
+        let second_frame: Value = serde_json::from_str(include_str!(
+            "fixtures/captured_message_part_delta_second.json"
+        ))
+        .unwrap();
+        let second = parse_event(&second_frame);
+        let ParsedEvent::PartUpdated { update } = second else {
+            panic!("expected part delta");
+        };
+        let grown = normalize_chat_part(&update, &message, Some("121")).unwrap();
+        assert_eq!(grown.id, partial.id);
+        assert_eq!(grown.content, "121932");
+
+        let full_frame: Value = serde_json::from_str(include_str!(
+            "fixtures/captured_message_part_updated_text.json"
+        ))
+        .unwrap();
+        let ParsedEvent::PartUpdated { update } = parse_event(&full_frame) else {
+            panic!("expected completed text part");
+        };
+        assert_eq!(update.delta, None);
+        let completed = normalize_chat_part(&update, &message, Some(&grown.content)).unwrap();
+        assert_eq!(completed.id, partial.id);
+        assert_eq!(completed.content, "121932631112635269");
+    }
+
+    #[test]
+    fn live_reasoning_and_tool_lifecycle_keep_their_part_identity() {
+        let message = MessageMeta {
+            session_id: "ses_2".into(),
+            message_id: "msg_2".into(),
+            role: "assistant".into(),
+            timestamp: Some("1789814516718".into()),
+        };
+        let reasoning_frame: Value = serde_json::from_str(include_str!(
+            "fixtures/captured_message_part_reasoning.json"
+        ))
+        .unwrap();
+        let ParsedEvent::PartUpdated { update: reasoning } = parse_event(&reasoning_frame) else {
+            panic!("expected reasoning part update");
+        };
+        let thinking = normalize_chat_part(&reasoning, &message, None).unwrap();
+        assert_eq!(thinking.kind, "thinking");
+        assert_eq!(thinking.content, "<redacted reasoning text>");
+
+        let pending = parse_tool_fixture(
+            include_str!("fixtures/captured_message_part_tool_pending.json"),
+            &message,
+        );
+        let running = parse_tool_fixture(
+            include_str!("fixtures/captured_message_part_tool_running.json"),
+            &message,
+        );
+        let completed = parse_tool_fixture(
+            include_str!("fixtures/captured_message_part_tool_completed.json"),
+            &message,
+        );
+        assert_eq!(pending.id, "prt_tool");
+        assert_eq!(pending.id, running.id);
+        assert_eq!(running.id, completed.id);
+        assert_eq!(pending.kind, "tool_call");
+        assert_eq!(
+            running.tool_input.as_ref().unwrap()["command"],
+            "<redacted bash command>"
+        );
+        assert_eq!(completed.tool_name.as_deref(), Some("bash"));
+        assert_eq!(completed.tool_id.as_deref(), Some("<redacted call>"));
+        assert_eq!(completed.tool_result.as_deref(), Some("<redacted output>"));
+        assert_eq!(completed.tool_title.as_deref(), Some("<redacted bash command>"));
+        assert_eq!(completed.tool_exit_code, Some(0));
+        assert_eq!(completed.tool_duration_ms, Some(10_204_218));
+        assert_eq!(completed.timestamp.as_deref(), Some("1789814520476"));
+    }
+
+    fn parse_tool_fixture(frame: &str, message: &MessageMeta) -> ChatMsg {
+        let frame: Value = serde_json::from_str(frame).unwrap();
+        let ParsedEvent::PartUpdated { update } = parse_event(&frame) else {
+            panic!("expected tool part update");
+        };
+        normalize_chat_part(&update, message, None).unwrap()
+    }
+
+    #[test]
+    fn part_update_requires_matching_message_and_session() {
+        let message = MessageMeta {
+            session_id: "ses_owner".into(),
+            message_id: "msg_owner".into(),
+            role: "assistant".into(),
+            timestamp: None,
+        };
+        let part = ChatPartUpdate {
+            session_id: "ses_sibling".into(),
+            message_id: "msg_owner".into(),
+            part_id: "prt_sibling".into(),
+            part: json!({"type":"text", "text":"sibling"}),
+            delta: Some("sibling".into()),
+        };
+        assert!(normalize_chat_part(&part, &message, None).is_none());
+    }
+
+    #[test]
+    fn parses_live_permission_asked_and_replied_shapes() {
+        let event: Value = serde_json::from_str(include_str!(
+            "fixtures/captured_permission_asked.json"
+        ))
+        .unwrap();
+        let ParsedEvent::Prompt { prompt, route } = parse_event(&event) else {
+            panic!("expected prompt");
+        };
+        assert_eq!(prompt.question, "<redacted bash command>");
+        assert_eq!(route.request_id, "per_probe");
+        assert_eq!(route.session_id, "ses_5");
+        assert_eq!(
+            parse_event(&json!({
+                "type": "permission.updated",
+                "properties": {"id": "legacy", "sessionID": "ses_5"}
+            })),
             ParsedEvent::Ignored
         );
         assert_eq!(
-            parse_event(&json!({"type": "message.part.updated"})),
-            ParsedEvent::Ignored
+            parse_event(
+                &serde_json::from_str(include_str!(
+                    "fixtures/captured_permission_replied.json"
+                ))
+                .unwrap()
+            ),
+            ParsedEvent::Replied {
+                request_id: "per_probe".into()
+            }
         );
     }
 

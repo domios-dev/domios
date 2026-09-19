@@ -1,0 +1,1 @@
+{"id":"evt_redacted","type":"message.part.updated","properties":{"sessionID":"ses_2","part":{"type":"tool","tool":"bash","callID":"<redacted call>","state":{"status":"pending","input":{"command":"<redacted bash command>"}},"id":"prt_tool","sessionID":"ses_2","messageID":"msg_2"}}}
