@@ -214,7 +214,7 @@ fn build_opencode_db(path: &std::path::Path) {
     conn.execute_batch(
         "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_created INTEGER);
          CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
-         CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT);",
+         CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);",
     )
     .unwrap();
     conn.execute(
@@ -233,11 +233,12 @@ fn build_opencode_db(path: &std::path::Path) {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             "p1",
             "msg1",
             SES_ID,
+            TC_PART,
             TC_PART,
             r#"{"type":"text","text":"hello from opencode"}"#
         ],
@@ -291,11 +292,12 @@ fn sqlite_backed_session_capabilities() {
 
     let conn = rusqlite::Connection::open(db_dir.join("opencode.db")).unwrap();
     conn.execute(
-        "INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             "p0",
             "msg1",
             SES_ID,
+            TC_PART,
             TC_PART,
             r#"{"type":"text","text":"same timestamp peer"}"#
         ],
@@ -310,6 +312,29 @@ fn sqlite_backed_session_capabilities() {
     assert_eq!(peer_cursor, format!(r#"[{TC_PART},["p0","p1"]]"#));
     let empty = j.read_structured_chat("/work/proj", SES_ID, Some(&peer_cursor));
     assert!(empty.messages.is_empty(), "{:#?}", empty.messages);
+
+    // A streamed part keeps its id and creation instant while its content grows;
+    // the cursor tracks the update instant, so the growth must be re-delivered.
+    let grown_updated = TC_PART + 1_000;
+    let conn = rusqlite::Connection::open(db_dir.join("opencode.db")).unwrap();
+    conn.execute(
+        "UPDATE part SET time_updated = ?1, data = ?2 WHERE id = ?3",
+        rusqlite::params![
+            grown_updated,
+            r#"{"type":"text","text":"hello from opencode, grown"}"#,
+            "p1"
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    let grown = j.read_structured_chat("/work/proj", SES_ID, Some(&peer_cursor));
+    assert_eq!(grown.messages.len(), 1, "{:#?}", grown.messages);
+    assert_eq!(grown.messages[0].content, "hello from opencode, grown");
+    let grown_cursor = grown.cursor.expect("grown cursor");
+    assert_eq!(grown_cursor, format!(r#"[{grown_updated},["p1"]]"#));
+    let settled = j.read_structured_chat("/work/proj", SES_ID, Some(&grown_cursor));
+    assert!(settled.messages.is_empty(), "{:#?}", settled.messages);
 
     for malformed in ["1000", "not-json", r#"[1000,"legacy-id"]"#] {
         let refused = j.read_structured_chat("/work/proj", SES_ID, Some(malformed));

@@ -99,6 +99,9 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: Some("alpha".into()),
         },
         ModelInfo {
             id: "live-b".into(),
@@ -106,6 +109,9 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: Some("second".into()),
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
         // A probe that could not run is a capability answer of its own, so the
         // native and JS paths must agree it is unknown, not unavailable.
@@ -115,6 +121,9 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: None,
             available: None,
             availability: Some(crate::provider::ModelAvailability::Unknown),
+            featured: None,
+            badge: None,
+            group: None,
         },
     ]
 }
@@ -297,6 +306,9 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             description: Some("ready".into()),
             available: Some(true),
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
         ModelInfo {
             id: "sentinel-b".into(),
@@ -304,6 +316,9 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             description: Some("offline".into()),
             available: Some(false),
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         },
     ]
 }
@@ -424,7 +439,7 @@ async fn discover_models_native_js_parity() {
             module.exports.default = {
                 discoverModels() {
                     return [
-                        { id: 'live-a', displayName: 'Live A' },
+                        { id: 'live-a', displayName: 'Live A', group: 'alpha' },
                         { id: 'live-b', displayName: 'Live B', description: 'second' },
                         { id: 'live-c', displayName: 'Live C', availability: 'unknown' }
                     ];
@@ -1161,6 +1176,8 @@ mod context_owner;
 mod cursor;
 mod find_session;
 mod manifest_launch_template;
+mod model_groups;
 mod opencode;
 mod record_identity;
 mod trust_grant;
+mod usage_sources;

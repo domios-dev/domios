@@ -7,6 +7,7 @@
  */
 
 import { shortModelName } from "./agentModelName";
+import { formatModelBadge, modelBadgeWidthForProvider } from "./formatModelBadge";
 
 export type AgentLiveness = "live" | "absent" | "unobserved";
 
@@ -101,11 +102,32 @@ export function agentBracketLabel(
   if (!providerText) return null;
   const modelText = model?.trim();
   const identity = (modelText ? shortModelName(modelText) : null) ?? providerText;
+  return withLiveness(identity, liveness);
+}
+
+function withLiveness(identity: string, liveness: AgentLiveness): string {
   if (liveness === "live") return identity;
   return liveness === "absent" ? `${identity}!` : `${identity}?`;
 }
 
-/** The sidebar's single label path, including model evidence and liveness. */
+/** Sidebar badge identity: the model whenever the tab has one — catalogue short
+ *  name when claimed, else a provider-width-capped id; provider only if no model. */
+export function agentModelBadgeLabel(
+  provider: string | null | undefined,
+  evidence: AgentModelEvidence,
+  liveness: AgentLiveness,
+): string | null {
+  const providerText = provider?.trim();
+  if (!providerText) return null;
+  const modelText = agentModelForBadge(evidence);
+  if (!modelText) return withLiveness(providerText, liveness);
+  const identity =
+    shortModelName(modelText) ??
+    formatModelBadge(modelText, modelBadgeWidthForProvider(providerText));
+  return withLiveness(identity, liveness);
+}
+
+/** The bracket rule applied to model evidence; the CLI's bracket mirror. */
 export function agentBadgeLabel(
   provider: string | null | undefined,
   evidence: AgentModelEvidence,

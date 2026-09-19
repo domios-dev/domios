@@ -248,11 +248,11 @@ fn seed_cursor_from_ledger(ledger: &KpiLedger, ingestor: &mut UsageIngestor, sou
     if ingestor.cursor(source).is_some() {
         return;
     }
-    let path = source.path.to_string_lossy();
-    match ledger.load_usage_cursor(&path) {
+    let key = source.key();
+    match ledger.load_usage_cursor(&key) {
         Ok(Some(state)) => ingestor.seed_cursor(source, UsageCursor::from_persisted(state)),
         Ok(None) => {}
-        Err(e) => log::warn!("[kpi] usage cursor load {} failed: {}", path, e),
+        Err(e) => log::warn!("[kpi] usage cursor load {} failed: {}", key, e),
     }
 }
 
@@ -307,7 +307,7 @@ fn ingest_into_ledger(
         .iter()
         .map(|record| usage_event(attribution, record))
         .collect();
-    match ledger.insert_usage_batch(&events, &source.path.to_string_lossy(), cursor.persisted()) {
+    match ledger.insert_usage_batch(&events, &source.key(), cursor.persisted()) {
         Ok(()) => committed.record(&events),
         Err(e) => log::warn!("[kpi] usage insert failed: {}", e),
     }

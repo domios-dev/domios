@@ -135,6 +135,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(super::tab_repair_routes::repair_tab),
         )
         .route(
+            "/api/tabs/{id}/adopt-agent",
+            post(super::tab_adopt_routes::adopt_agent),
+        )
+        .route(
             "/api/tabs/{id}/session/binding-state",
             get(super::session_binding_routes::binding_state),
         )

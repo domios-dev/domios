@@ -700,6 +700,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     agentId: string,
     cwd?: string,
     model?: string,
+    reasoningEffort?: string,
   ): Promise<SpawnedTab | null> => {
     const useRestSpawn = IS_WEB;
     if (useRestSpawn) {
@@ -709,6 +710,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           workspace_id: workspaceId,
           cwd,
           model,
+          reasoning_effort: reasoningEffort,
           activate: true,
         });
         await refreshFromBackend();
@@ -724,7 +726,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model },
+        params: { agentId, workspaceId, cwd, model, reasoningEffort },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {
@@ -755,8 +757,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const body = {
         orchestrator_agent: input.orchestratorAgent,
         orchestrator_model: input.orchestratorModel,
+        orchestrator_reasoning_effort: input.orchestratorReasoningEffort,
         planner_agent: input.plannerAgent,
         planner_model: input.plannerModel,
+        planner_reasoning_effort: input.plannerReasoningEffort,
         workspace_id: input.workspaceId,
         title: input.title,
         existing_tab_id: input.existingTabId,

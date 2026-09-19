@@ -125,6 +125,7 @@ pub enum PathOpenKind {
 mod availability;
 mod capabilities;
 mod launch_session;
+mod model_group;
 mod model_info;
 mod settings;
 mod spawn_strategy;
@@ -132,6 +133,7 @@ mod usage_snapshot;
 pub use availability::*;
 pub use capabilities::*;
 pub use launch_session::*;
+pub use model_group::*;
 pub use model_info::*;
 pub use settings::*;
 pub use spawn_strategy::*;
@@ -155,6 +157,11 @@ pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_color: Option<String>,
     pub available_models: Vec<ModelInfo>,
+    /// Provider-owned groupings of `available_models` (for example the upstream
+    /// company a routed model belongs to). Empty ⇒ one flat list. Core never
+    /// maps a vendor id to a label; the provider declares both.
+    #[serde(default)]
+    pub model_groups: Vec<ModelGroup>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
     /// Reasoning-effort levels this provider supports at launch. Empty ⇒ the
@@ -268,7 +275,46 @@ pub struct ProviderDescriptor {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 15;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 16;
+
+/// One provider-owned usage log to ingest for a session. `session_id` scopes a
+/// log shared by many sessions (e.g. one sqlite database); a per-session file
+/// leaves it `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageSourceSpec {
+    pub path: PathBuf,
+    pub session_id: Option<String>,
+}
+
+impl UsageSourceSpec {
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            session_id: None,
+        }
+    }
+}
+
+/// The default usage-source set: the session file plus the provider's own extra
+/// logs beside it. Shared by the trait default and the JS bridge so a plugin that
+/// exports nothing keeps the native answer.
+pub fn usage_sources_from_session_file<P: AgentProvider + ?Sized>(
+    provider: &P,
+    cwd: &str,
+    session_id: &str,
+) -> Vec<UsageSourceSpec> {
+    let Some(main) = provider.session_file_path(cwd, session_id) else {
+        return Vec::new();
+    };
+    std::iter::once(UsageSourceSpec::file(main.clone()))
+        .chain(
+            provider
+                .additional_usage_sources(&main, session_id)
+                .into_iter()
+                .map(UsageSourceSpec::file),
+        )
+        .collect()
+}
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -344,6 +390,15 @@ pub trait AgentProvider: Send + Sync {
     /// (e.g. sub-agent transcripts). Never another session's; empty when none.
     fn additional_usage_sources(&self, _session_file: &Path, _session_id: &str) -> Vec<PathBuf> {
         Vec::new()
+    }
+
+    /// Every usage log this provider owns for exactly this session, each scoped to
+    /// the session whose rows it holds. Defaults to the session file plus the
+    /// provider's additional sources; a provider whose usage lives in a log shared
+    /// by many sessions (e.g. one sqlite database) overrides this with a
+    /// session-scoped source instead of a fabricated per-session file.
+    fn usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
+        usage_sources_from_session_file(self, cwd, session_id)
     }
 
     /// Detect the most recent session ID for the given working directory.
@@ -866,6 +921,36 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Provider-owned groupings of its models, declared as pure data (no I/O):
+    /// the picker renders one section per group and core carries the labels
+    /// through untouched. Empty ⇒ one flat list.
+    fn model_groups(&self) -> Vec<ModelGroup> {
+        Vec::new()
+    }
+
+    /// Cumulative usage per model group, from whatever source the provider
+    /// declares. May do I/O, so it is never called from `describe()` — only
+    /// from the on-demand picker command. Empty ⇒ the provider publishes no
+    /// per-group usage and the picker shows none.
+    fn model_group_usage(&self) -> Vec<ModelGroupUsage> {
+        Vec::new()
+    }
+
+    /// Cheap, pure predicate: this provider publishes per-group usage even
+    /// without a usage parser. It drives the auto-injected Usage Tracking
+    /// toggle, so a group-spend capsule is gated like any other usage surface.
+    fn reports_group_usage(&self) -> bool {
+        false
+    }
+
+    /// Files whose change means this provider's credentialed model availability
+    /// changed. The catalog fingerprints them and re-probes when one moves, so
+    /// connecting a provider surfaces its models without a rebuild. Empty ⇒ the
+    /// provider's catalog does not depend on an observable credential file.
+    fn model_credential_files(&self) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
+
     fn icon_hint(&self) -> Option<&str> {
         None
     }
@@ -930,6 +1015,8 @@ pub trait AgentProvider: Send + Sync {
         if self.usage_parser().is_some() {
             let probe_cmd = self.usage_probe_command().unwrap_or("/usage");
             settings.push(usage_tracking_section(probe_cmd));
+        } else if self.reports_group_usage() {
+            settings.push(usage_store_tracking_section());
         }
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
@@ -941,6 +1028,7 @@ pub trait AgentProvider: Send + Sync {
             // Keep unavailable entries: `available` greys a model out in the
             // picker, it must not vanish it. Matches chatbackend describe().
             available_models: self.available_models(),
+            model_groups: self.model_groups(),
             default_model: self.default_model(),
             reasoning_efforts: self.reasoning_efforts(),
             default_reasoning_effort: self.default_reasoning_effort(),

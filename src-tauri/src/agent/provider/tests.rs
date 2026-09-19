@@ -39,7 +39,11 @@ fn provider_descriptor_round_trip() {
                 description: Some("first model".into()),
                 available: None,
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             }],
+            model_groups: Vec::new(),
             default_model: Some("model-1".into()),
             reasoning_efforts: vec![ReasoningEffortInfo {
                 id: "high".into(),
@@ -290,6 +294,9 @@ impl AgentProvider for StubProvider {
                 description: None,
                 available: Some(true),
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             },
             ModelInfo {
                 id: "unsupported".into(),
@@ -297,6 +304,9 @@ impl AgentProvider for StubProvider {
                 description: None,
                 available: Some(false),
                 availability: None,
+                featured: None,
+                badge: None,
+                group: None,
             },
         ]
     }

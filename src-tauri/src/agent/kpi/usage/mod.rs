@@ -20,20 +20,55 @@ use crate::agent::kpi_ledger::{TokenCounts, UsageCursorState};
 
 const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 
-/// A provider-written session log to ingest. `path` comes from the provider capability
-/// (`AgentProvider::session_file_path`), never from a hardcoded per-provider layout.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A provider-written usage log to ingest. `path` comes from the provider capability
+/// (`AgentProvider::usage_sources`), never from a hardcoded per-provider layout.
+/// `session_id` scopes a log shared by many sessions; a per-session file leaves it
+/// `None`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UsageSource {
     pub path: PathBuf,
+    pub session_id: Option<String>,
 }
+
+/// Separates a source's path from its session scope in the persisted cursor key.
+/// A control character no filesystem path may contain.
+const SCOPE_SEP: char = '\u{1}';
 
 impl UsageSource {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            session_id: None,
+        }
     }
 
-    fn key(&self) -> String {
-        self.path.to_string_lossy().into_owned()
+    pub fn scoped(path: impl Into<PathBuf>, session_id: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            session_id: Some(session_id.into()),
+        }
+    }
+
+    /// Rebuilds a source from its persisted cursor key (see [`UsageSource::key`]).
+    pub fn from_key(key: &str) -> Self {
+        match key.split_once(SCOPE_SEP) {
+            Some((path, session_id)) => Self {
+                path: PathBuf::from(path),
+                session_id: Some(session_id.to_string()),
+            },
+            None => Self::new(key),
+        }
+    }
+
+    /// Stable identity for this source's cursor and dedup keys. Two sessions that
+    /// share one log must not share a cursor.
+    pub fn key(&self) -> String {
+        match &self.session_id {
+            Some(session_id) => {
+                format!("{}{}{}", self.path.to_string_lossy(), SCOPE_SEP, session_id)
+            }
+            None => self.path.to_string_lossy().into_owned(),
+        }
     }
 }
 
@@ -121,15 +156,15 @@ impl UsageBatch {
 
 #[derive(Default)]
 pub struct UsageIngestor {
-    cursors: HashMap<PathBuf, UsageCursor>,
+    cursors: HashMap<UsageSource, UsageCursor>,
 }
 
 impl UsageIngestor {
     /// Returns only records appended since the previous call for this source.
     pub fn ingest(&mut self, source: &UsageSource) -> Result<UsageBatch, String> {
-        let cursor = self.cursors.get(&source.path).copied().unwrap_or_default();
+        let cursor = self.cursors.get(source).copied().unwrap_or_default();
         let (batch, next) = read_source(source, cursor, None)?;
-        self.cursors.insert(source.path.clone(), next);
+        self.cursors.insert(source.clone(), next);
         Ok(batch)
     }
 
@@ -142,7 +177,7 @@ impl UsageIngestor {
     }
 
     pub fn cursor(&self, source: &UsageSource) -> Option<UsageCursor> {
-        self.cursors.get(&source.path).copied()
+        self.cursors.get(source).copied()
     }
 
     /// Current forward-only read position for a source, if it has been ingested at
@@ -154,12 +189,12 @@ impl UsageIngestor {
     /// Resumes a source from a previously persisted watermark instead of byte/rowid
     /// zero. A no-op if this source already has a cursor for the current run.
     pub fn seed_cursor(&mut self, source: &UsageSource, cursor: UsageCursor) {
-        self.cursors.entry(source.path.clone()).or_insert(cursor);
+        self.cursors.entry(source.clone()).or_insert(cursor);
     }
 
     /// Drops the in-process cursor so the next pass resumes from the persisted one.
     pub fn forget(&mut self, source: &UsageSource) {
-        self.cursors.remove(&source.path);
+        self.cursors.remove(source);
     }
 }
 
@@ -299,14 +334,27 @@ fn read_sqlite_since(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
     )
     .map_err(|e| format!("open sqlite {:?}: {}", path, e))?;
+    // A shared log holds every session's rows, so a scoped source reads only its
+    // own. `session_id` is a column of the message table, not a JSON field.
+    let sql = if source.session_id.is_some() {
+        "SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 \
+         AND session_id = ?3 ORDER BY rowid ASC"
+    } else {
+        "SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 ORDER BY rowid ASC"
+    };
     let mut stmt = conn
-        .prepare(
-            "SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 ORDER BY rowid ASC",
-        )
+        .prepare(sql)
         .map_err(|e| format!("prepare message scan: {}", e))?;
     let upper = until.map_or(i64::MAX, |end| i64::try_from(end).unwrap_or(i64::MAX));
+    let mut params: Vec<rusqlite::types::Value> = vec![
+        rusqlite::types::Value::Integer(cursor.offset as i64),
+        rusqlite::types::Value::Integer(upper),
+    ];
+    if let Some(session_id) = &source.session_id {
+        params.push(rusqlite::types::Value::Text(session_id.clone()));
+    }
     let rows = stmt
-        .query_map([cursor.offset as i64, upper], |r| {
+        .query_map(rusqlite::params_from_iter(params), |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, Option<String>>(1)?,

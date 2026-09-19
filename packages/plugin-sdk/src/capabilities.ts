@@ -204,6 +204,8 @@ export interface AgentProvider {
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
   /** Further usage logs owned by this exact session file (e.g. sub-agent transcripts beside it). */
   sessionUsageSources?(sessionFilePath: string, sessionId: string): string[];
+  /** Every usage log this provider owns for the session; `sessionId` scopes a log shared by many sessions. */
+  usageSources?(cwd: string, sessionId: string): { path: string; sessionId?: string }[];
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
@@ -225,6 +227,9 @@ export interface AgentProvider {
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
   discoverModels?(): ModelInfo[] | null;
+  /** Cumulative usage per model group (matching manifest `modelGroups` ids, or a
+   *  bare model-id prefix). The picker shows it for the selected model's group. */
+  modelGroupUsage?(): ModelGroupUsage[];
   parseSessionMessages?(text: string): unknown[];
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
@@ -421,9 +426,45 @@ export interface ModelInfo {
   // A probe that could not run reports "unknown" here and publishes no
   // `available` boolean: unavailable must mean the CLI answered no.
   availability?: "available" | "unavailable" | "unknown";
+  // Marks this model to lead the picker list, ahead of the rest.
+  featured?: boolean;
+  // Short chip rendered beside the model label in spawn pickers.
+  badge?: string;
+  // Provider-declared picker section label. Models sharing a group render
+  // together under that heading; omitted models stay in the flat list.
+  group?: string;
 }
 
 export interface Model extends ModelInfo {
+}
+
+/** Provider-owned grouping of its models, e.g. the upstream company a routed
+ *  model belongs to. `id` matches a model-id prefix; `label` is rendered. */
+export interface ModelGroup {
+  id: string;
+  label: string;
+}
+
+/** Cumulative usage the provider attributes to one model group. snake_case to
+ *  match the host wire shape; `cost_micros` is USD × 1_000_000. */
+export interface ModelGroupUsage {
+  group: string;
+  messages: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_micros: number;
+  /** Spend observed for this group, in cents. Absent when unreported. */
+  spend_cents?: number;
+  /** Included allowance for the group's billing cycle, in cents. Absent when
+   *  the provider cannot read a live limit — never a fabricated value. */
+  spend_limit_cents?: number;
+  /** Remaining allowance for the group's billing cycle, in cents. Absent when
+   *  the provider cannot read a live balance. */
+  spend_remaining_cents?: number;
+  /** Billing-cycle reset for the group's spend, in epoch ms. */
+  spend_resets_at_ms?: number;
 }
 
 export interface PresetInfo {

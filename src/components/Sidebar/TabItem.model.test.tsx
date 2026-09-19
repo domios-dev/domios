@@ -263,6 +263,35 @@ async function main() {
     await view.dispose();
   }
 
+  // Every provider shows its model in the sidebar badge — width-capped to the
+  // provider-label width, with the whole identity kept in the tooltip.
+  {
+    const longModel = "deepseek-v4-flash";
+    const view = await mount(
+      generalAgentTab({
+        id: "tab-opencode",
+        agent_type: "opencode",
+        agent_session_model: longModel,
+        boot_stage: "agent_ready",
+      }),
+      "Idle",
+    );
+    const badge = view.host.querySelector<HTMLElement>(".sidebar-tab-badge");
+    assert(badge, "the opencode row renders no model badge");
+    const text = (badge.textContent ?? "").toLowerCase();
+    assert(!text.includes("opencode"), `the badge fell back to the provider: ${text}`);
+    assert(text.startsWith("deeps"), `the badge does not show the model: ${text}`);
+    assert(text.endsWith("..."), `the long model is not ellipsized: ${text}`);
+    assert(
+      text.length <= "opencode".length,
+      `the badge is wider than the provider label: ${text}`,
+    );
+    const title = badge.getAttribute("title") ?? "";
+    assert(title.includes("deepseek-v4-flash"), `the tooltip lost the full model: ${title}`);
+    assert(title.includes("OpenCode"), `the tooltip lost the provider: ${title}`);
+    await view.dispose();
+  }
+
   console.log("TabItem model menu: ok");
 }
 

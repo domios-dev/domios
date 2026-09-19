@@ -9,6 +9,7 @@ use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
 pub(crate) const INVALID_REMOTE_TAB_ID: &str = "invalid remote tab id";
 
+mod adopt;
 mod capture;
 mod chat_view;
 mod inspect;
@@ -19,6 +20,7 @@ mod repair;
 mod search;
 mod team_utility;
 mod workspace_topology;
+use adopt::handle_tab_adopt_agent;
 use capture::handle_tab_capture;
 use chat_view::print_tab_chat;
 use inspect::handle_tab_inspect;
@@ -669,6 +671,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             from_journal,
             tab,
         ),
+        TabAction::AdoptAgent {
+            provider,
+            force,
+            tab,
+        } => handle_tab_adopt_agent(client, json, provider, force, tab),
         TabAction::Stop { tab } => {
             match tab.as_deref().map(classify_remote_tab_id) {
                 Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
@@ -885,6 +892,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         | TabAction::AutoConfirm { tab, .. }
         | TabAction::Rebind { tab, .. }
         | TabAction::Repair { tab, .. }
+        | TabAction::AdoptAgent { tab, .. }
         | TabAction::Stop { tab }
         | TabAction::Chat { tab, .. } => tab.as_deref().filter(|value| invalid(value)),
         TabAction::Capture { action } => match action {

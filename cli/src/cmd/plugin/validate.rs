@@ -56,6 +56,7 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ("parseSessionDelta", "none — chat tailing yields no messages"),
     ("sessionJsonlPath", "native fallback (bundled drop-ins only); chat UI stays off without it"),
     ("sessionUsageSources", "native fallback (bundled drop-ins only), else none — KPI ingests only the main session log"),
+    ("usageSources", "the session file plus sessionUsageSources, else none — KPI ingests no log"),
     ("usesStructuredChat", "native fallback (bundled drop-ins only), else false"),
     ("readStructuredChat", "native fallback (bundled drop-ins only), else empty"),
     ("parseInteractiveEvents", "native fallback (bundled drop-ins only); also requires spawn.interactiveEvents"),

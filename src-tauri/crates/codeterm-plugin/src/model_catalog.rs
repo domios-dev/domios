@@ -32,6 +32,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
+mod grouping;
+
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
 #[derive(Debug, Deserialize)]
@@ -42,6 +44,12 @@ struct CatalogModel {
     description: Option<String>,
     #[serde(default)]
     available: Option<bool>,
+    #[serde(default)]
+    featured: Option<bool>,
+    #[serde(default)]
+    badge: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +140,31 @@ fn fingerprint_bin(bin: &str) -> Option<BinaryFingerprint> {
     fingerprint_path(&crate::js_runtime::resolved_bin_path(bin)?)
 }
 
+/// Fingerprint the provider's declared credential files. A file that does not
+/// exist yet is simply absent from the list — its later appearance is the
+/// "provider connected" signal a credential-scoped catalog must notice.
+fn credential_fingerprints(provider: &dyn AgentProvider) -> Vec<BinaryFingerprint> {
+    provider
+        .model_credential_files()
+        .iter()
+        .filter_map(|path| fingerprint_path(path))
+        .collect()
+}
+
+/// True when the provider's declared credential files no longer match the
+/// fingerprints captured with the active snapshot, including a file that
+/// appeared (connected) or vanished (disconnected).
+fn credentials_changed(provider: &dyn AgentProvider, recorded: &[BinaryFingerprint]) -> bool {
+    credential_fingerprints(provider) != recorded
+}
+
+/// True when any recorded credential file is no longer the file it was.
+fn credentials_moved(recorded: &[BinaryFingerprint]) -> bool {
+    recorded
+        .iter()
+        .any(|fp| fingerprint_path(std::path::Path::new(&fp.path)).as_ref() != Some(fp))
+}
+
 #[derive(Debug, Clone)]
 struct ProviderModels {
     models: Vec<ModelInfo>,
@@ -140,6 +173,10 @@ struct ProviderModels {
     /// Wall-clock fetch time (not `Instant`) so the TTL survives a restart via the on-disk cache.
     fetched_at: Option<SystemTime>,
     binary: Option<BinaryFingerprint>,
+    /// Fingerprints of the credential files the snapshot's availability depended
+    /// on. A file that appeared, vanished, or changed voids the snapshot: the
+    /// catalog is credential-scoped, so a new token means a new model list.
+    credentials: Vec<BinaryFingerprint>,
 }
 
 impl ProviderModels {
@@ -150,6 +187,7 @@ impl ProviderModels {
             source: Source::Seed,
             fetched_at: None,
             binary: None,
+            credentials: Vec::new(),
         }
     }
 
@@ -160,11 +198,17 @@ impl ProviderModels {
             source: Source::Live,
             fetched_at: Some(fetched_at),
             binary: None,
+            credentials: Vec::new(),
         }
     }
 
     fn against_binary(mut self, binary: Option<BinaryFingerprint>) -> Self {
         self.binary = binary;
+        self
+    }
+
+    fn against_credentials(mut self, credentials: Vec<BinaryFingerprint>) -> Self {
+        self.credentials = credentials;
         self
     }
 }
@@ -289,7 +333,14 @@ pub const DISCOVER_TIMEOUT: Duration = Duration::from_secs(8);
 /// Publish a live discovery snapshot for `provider_id` and persist it to the
 /// on-disk cache so it survives a restart.
 pub fn put_live(provider_id: &str, models: Vec<ModelInfo>, default: Option<String>) {
-    put_live_at(provider_id, models, default, None, SystemTime::now());
+    put_live_at(
+        provider_id,
+        models,
+        default,
+        None,
+        Vec::new(),
+        SystemTime::now(),
+    );
 }
 
 /// Publish a snapshot together with the identity of the CLI it was captured
@@ -300,7 +351,33 @@ pub fn put_live_against(
     default: Option<String>,
     binary: Option<BinaryFingerprint>,
 ) {
-    put_live_at(provider_id, models, default, binary, SystemTime::now());
+    put_live_at(
+        provider_id,
+        models,
+        default,
+        binary,
+        Vec::new(),
+        SystemTime::now(),
+    );
+}
+
+/// Publish a snapshot together with both the CLI identity and the credential
+/// files its model list depended on. A later change to either invalidates it.
+pub fn put_live_with_credentials(
+    provider_id: &str,
+    models: Vec<ModelInfo>,
+    default: Option<String>,
+    binary: Option<BinaryFingerprint>,
+    credentials: Vec<BinaryFingerprint>,
+) {
+    put_live_at(
+        provider_id,
+        models,
+        default,
+        binary,
+        credentials,
+        SystemTime::now(),
+    );
 }
 
 fn put_live_at(
@@ -308,10 +385,12 @@ fn put_live_at(
     models: Vec<ModelInfo>,
     default: Option<String>,
     binary: Option<BinaryFingerprint>,
+    credentials: Vec<BinaryFingerprint>,
     fetched_at: SystemTime,
 ) {
-    let snapshot =
-        ProviderModels::live(honest_verdicts(&models), default, fetched_at).against_binary(binary);
+    let snapshot = ProviderModels::live(honest_verdicts(&models), default, fetched_at)
+        .against_binary(binary)
+        .against_credentials(credentials);
     persist_cache(provider_id, &snapshot);
     registry().write().insert(provider_id.to_string(), snapshot);
 }
@@ -357,6 +436,12 @@ pub fn prime_from_cache(provider_id: &str) {
         );
         return;
     }
+    if credentials_moved(&cached.credentials) {
+        log::info!(
+            "[model_catalog] {provider_id} cache describes credential files that changed underneath it — keeping the registered seed until a fresh probe"
+        );
+        return;
+    }
     {
         let reg = registry().read();
         if reg.get(provider_id).map(|s| s.source) == Some(Source::Live) {
@@ -366,7 +451,8 @@ pub fn prime_from_cache(provider_id: &str) {
     registry().write().insert(
         provider_id.to_string(),
         ProviderModels::live(cached.models, cached.default, fetched_at)
-            .against_binary(cached.binary),
+            .against_binary(cached.binary)
+            .against_credentials(cached.credentials),
     );
 }
 
@@ -437,7 +523,19 @@ pub async fn refresh_after_binary_change(
 /// binary itself changed or the last probe could not run at all.
 pub async fn refresh_for_reader(provider: Arc<dyn AgentProvider>) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
-    let must_retry = provider_binary_changed(&provider_id) || has_unknown_verdict(&provider_id);
+    // Compare declared credentials with the live provider; the registry cannot
+    // see files that appeared or vanished since its snapshot.
+    let credential_changed = {
+        let recorded = registry()
+            .read()
+            .get(&provider_id)
+            .map(|snapshot| snapshot.credentials.clone())
+            .unwrap_or_default();
+        credentials_changed(provider.as_ref(), &recorded)
+    };
+    let must_retry = provider_binary_changed(&provider_id)
+        || credential_changed
+        || has_unknown_verdict(&provider_id);
     if !must_retry && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
         return None;
     }
@@ -475,7 +573,8 @@ pub async fn refresh_live(
         }
         let default = resolve_live_default(&models, default);
         let binary = provider.cli_binary().and_then(fingerprint_bin);
-        put_live_against(&provider_id, models.clone(), default, binary);
+        let credentials = credential_fingerprints(provider.as_ref());
+        put_live_with_credentials(&provider_id, models.clone(), default, binary, credentials);
         Some(models)
     });
     match tokio::time::timeout(timeout_duration, task).await {
@@ -522,22 +621,40 @@ fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> O
 }
 
 /// Read-side: returns the resolved model list using these rules —
-///   * No override file        → registered defaults
-///   * Override + `replace=true`  → override list verbatim (no merge)
-///   * Override + `replace=false` (default) → registered defaults merged
-///     with the user's `[[models]]` by id: same id replaces the built-in
-///     (keeps position), new id is appended. This is the friendlier
-///     default — built-in upgrades flow in automatically without
-///     stomping user additions.
+///   * No override file → registered defaults.
+///   * Live snapshot present → the provider's own probe is the SET of spawnable
+///     models. An override may only decorate an id the provider reports
+///     (featured, badge, display name, description) and order it; it can neither
+///     restrict the set nor add an id the provider does not have, so an override
+///     is an overlay, never an allowlist. This is what keeps a model we never
+///     named in `<provider>.toml` spawnable the moment the provider offers it.
+///   * No live snapshot + `replace=true` → override list verbatim (the static
+///     list is all there is, so the user's pin stands).
+///   * No live snapshot + `replace=false` (default) → registered defaults merged
+///     with the user's `[[models]]` by id: same id replaces the built-in (keeps
+///     position), a new id is appended.
 ///
 /// Unregistered provider returns the override list as-is (or empty).
 pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     let registered = registered_models(provider_id);
-    match load_override(provider_id) {
+    let live = registry()
+        .read()
+        .get(provider_id)
+        .is_some_and(|snapshot| snapshot.source == Source::Live);
+    let mut models = match load_override(provider_id) {
         None => registered,
+        Some(o) if live => overlay_only(&registered, &o.models),
         Some(o) if o.replace => o.models,
-        Some(o) => merge_models(&registered, &o.models),
-    }
+        Some(o) => {
+            let mut merged = merge_models(&registered, &o.models);
+            grouping::inherit_provider_groups(&mut merged, &registered);
+            merged
+        }
+    };
+    // Featured models lead, but the catalog's own order survives within each
+    // group — `sort_by_key` is stable, so nothing else is reordered.
+    models.sort_by_key(|model| !model.is_featured());
+    models
 }
 
 fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
@@ -710,6 +827,11 @@ struct CachedSnapshot {
     /// snapshot never primes, because it answers about a file that is gone.
     #[serde(default)]
     binary: Option<BinaryFingerprint>,
+    /// Credential files the snapshot's availability depended on. A recorded file
+    /// that moved → the snapshot never primes; the model list it captured was
+    /// scoped to a token that changed.
+    #[serde(default)]
+    credentials: Vec<BinaryFingerprint>,
 }
 
 impl CachedSnapshot {
@@ -733,6 +855,7 @@ fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
         models: honest_verdicts(&snapshot.models),
         seed_fingerprint: Some(seed_fingerprint(provider_id)),
         binary: snapshot.binary.clone(),
+        credentials: snapshot.credentials.clone(),
     };
     let path = cache_path(provider_id);
     match serde_json::to_string_pretty(&payload) {
@@ -848,6 +971,9 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             description: m.description,
                             available: m.available,
                             availability: None,
+                            featured: m.featured,
+                            badge: m.badge,
+                            group: m.group,
                         })
                         .collect(),
                     default_effort: p.default_effort,
@@ -891,6 +1017,34 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
 /// stick around, user re-titles of built-ins win.
 fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo> {
     merge_by_id(builtin, overrides, |model| model.id.as_str())
+}
+
+/// Overlay an override onto a live catalog: every base model stays, matching
+/// ids take the override's presentation (display name, description, featured,
+/// badge), and an id the base does not report is dropped — the live probe owns
+/// the set. Availability always comes from the base, so an override can never
+/// mark a model available that the provider did not report.
+fn overlay_only(base: &[ModelInfo], overlay: &[ModelInfo]) -> Vec<ModelInfo> {
+    base.iter()
+        .map(|model| {
+            let Some(o) = overlay
+                .iter()
+                .find(|o| o.id.eq_ignore_ascii_case(&model.id))
+            else {
+                return model.clone();
+            };
+            ModelInfo {
+                id: model.id.clone(),
+                display_name: o.display_name.clone(),
+                description: o.description.clone().or_else(|| model.description.clone()),
+                available: model.available,
+                availability: model.availability,
+                featured: o.featured.or(model.featured),
+                badge: o.badge.clone().or_else(|| model.badge.clone()),
+                group: o.group.clone().or_else(|| model.group.clone()),
+            }
+        })
+        .collect()
 }
 
 fn merge_efforts(
@@ -946,217 +1100,40 @@ fn non_empty(value: &str) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-/// Auto-install the README documenting the catalog format. Called once on
-/// startup so the user discovers the directory naturally.
-pub fn ensure_readme_installed() {
-    let dir = models_dir();
-    let readme = dir.join("README.md");
-    if readme.exists() {
-        return;
-    }
-    if let Err(e) = std::fs::write(&readme, README_BODY) {
-        log::warn!(
-            "[model_catalog] could not write {}: {}",
-            readme.display(),
-            e
-        );
+mod readme;
+#[cfg(test)]
+pub(crate) use readme::render_example;
+pub use readme::{ensure_readme_installed, refresh_example_files};
+
+#[cfg(test)]
+pub(crate) fn model(id: &str, display: &str) -> ModelInfo {
+    ModelInfo {
+        id: id.into(),
+        display_name: display.into(),
+        ..ModelInfo::default()
     }
 }
 
-/// Refresh `<id>.example.toml` for every registered provider. The .example
-/// files are ALWAYS overwritten so they reflect the current build's
-/// defaults — that's their whole point. The user's `<id>.toml` (no
-/// `.example`) is the override and is never touched here. To enable an
-/// override the user copies `claude.example.toml` → `claude.toml`,
-/// edits, and saves.
-pub fn refresh_example_files() {
-    let dir = models_dir();
-    let registered_efforts = effort_registry().read().clone();
-    let snapshot: Vec<(String, RegisteredDefaults, RegisteredEfforts)> = seed_registry()
-        .read()
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                v.clone(),
-                registered_efforts.get(k).cloned().unwrap_or_default(),
-            )
-        })
-        .collect();
-    for (id, defaults, efforts) in snapshot {
-        let path = dir.join(format!("{}.example.toml", id));
-        let body = render_example(&id, &defaults, &efforts);
-        if let Err(e) = std::fs::write(&path, body) {
-            log::warn!("[model_catalog] could not write {}: {}", path.display(), e);
-        }
-    }
+#[cfg(test)]
+pub(crate) fn cleanup(id: &str) {
+    registry().write().remove(id);
+    seed_registry().write().remove(id);
+    override_cache().write().remove(id);
+    let _ = std::fs::remove_file(cache_path(id));
+    let _ = std::fs::remove_file(override_path(id));
 }
 
-fn render_example(
-    provider_id: &str,
-    defaults: &RegisteredDefaults,
-    effort_defaults: &RegisteredEfforts,
-) -> String {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "# Example model catalog for `{0}`.\n\
-         #\n\
-         # To enable an override, copy this file to `{0}.toml` (drop the\n\
-         # `.example` suffix). CodeTerm picks up `{0}.toml` on the next read\n\
-         # — no restart. Delete it to fall back to built-in defaults.\n\
-         #\n\
-         # ## Merge semantics (default)\n\
-         #\n\
-         # By default, `[[models]]` and `[[efforts]]` MERGE with built-ins by id:\n\
-         #   - Same id          → your entry replaces the built-in (keeps order).\n\
-         #   - New id           → your entry is APPENDED at the end.\n\
-         #   - Built-in id you didn't mention → stays, auto-updates on release.\n\
-         #\n\
-         # That means: adding one custom model doesn't freeze the rest of\n\
-         # your list — when a new CodeTerm release ships an updated built-in\n\
-         # catalog, it arrives automatically alongside your customizations.\n\
-         #\n\
-         # ## Full replacement\n\
-         #\n\
-         # If you want absolute control and no built-in updates ever, set\n\
-         # `replace = true` at the top. Then this file is the entire list,\n\
-         # and built-ins are ignored.\n\
-         #\n\
-         # This `.example` file is regenerated on every CodeTerm start so you\n\
-         # can always see what the current build ships with.\n\n",
-        provider_id
+#[cfg(test)]
+pub(crate) fn temp_binary(tag: &str, bytes: &[u8]) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "model_catalog_bin_{tag}_{}",
+        uuid::Uuid::new_v4().simple()
     ));
-    out.push_str("# replace = true   # uncomment to disable merge with built-ins\n\n");
-    if let Some(d) = &defaults.default {
-        out.push_str(&format!("default = \"{}\"\n\n", d));
-    }
-    if let Some(default) = &effort_defaults.default {
-        out.push_str(&format!("default_effort = \"{}\"\n\n", default));
-    }
-    for m in &defaults.models {
-        out.push_str("[[models]]\n");
-        out.push_str(&format!("id = \"{}\"\n", m.id));
-        out.push_str(&format!(
-            "display_name = \"{}\"\n",
-            m.display_name.replace('"', "\\\"")
-        ));
-        if let Some(desc) = &m.description {
-            out.push_str(&format!(
-                "description = \"{}\"\n",
-                desc.replace('"', "\\\"")
-            ));
-        }
-        out.push('\n');
-    }
-    for effort in &effort_defaults.efforts {
-        out.push_str("[[efforts]]\n");
-        out.push_str(&format!("id = \"{}\"\n", effort.id));
-        out.push_str(&format!(
-            "display_name = \"{}\"\n",
-            effort.display_name.replace('"', "\\\"")
-        ));
-        if let Some(description) = &effort.description {
-            out.push_str(&format!(
-                "description = \"{}\"\n",
-                description.replace('"', "\\\"")
-            ));
-        }
-        out.push('\n');
-    }
-    out
+    std::fs::write(&path, bytes).unwrap();
+    path
 }
 
-const README_BODY: &str = r#"# CodeTerm Model Catalog
-
-This folder lets you override the model list for any agent provider without
-rebuilding CodeTerm. Useful when upstream ships new models faster than we cut
-releases.
-
-## Quick start
-
-For every provider with a model picker, CodeTerm drops a
-`<provider>.example.toml` here on each startup. To enable an override:
-
-```bash
-cd ~/.codeterm/models/
-cp claude.example.toml claude.toml
-# edit claude.toml — change models or reasoning efforts, set defaults
-```
-
-CodeTerm picks `claude.toml` up immediately (no restart). Static provider
-catalogs merge overrides by default; dynamic providers may treat an override as
-a pinned list. Delete `claude.toml` (the override; NOT the `.example` file) to
-fall back to provider defaults.
-
-## Files
-
-- `claude.toml`, `codex.toml`, `opencode.toml` — **your overrides** (only
-  present if you copied the example). Never touched by CodeTerm.
-- `claude.example.toml`, etc. — **always-current built-ins**, rewritten on
-  every startup so you can see what ships with this build.
-- `README.md` — this file. Auto-installed on first run.
-
-## Format
-
-```toml
-# Optional: which model is selected by default for fresh sessions.
-default = "example-model"
-default_effort = "medium"
-
-[[models]]
-id = "example-model"
-display_name = "Example Model (extended context)"
-description = "Best for everyday, complex tasks."
-
-[[models]]
-id = "example-model-mini"
-display_name = "Example Model Mini"
-description = "Efficient for routine tasks."
-
-[[efforts]]
-id = "xhigh"
-display_name = "Extra high"
-description = "Maximum reasoning depth."
-```
-
-- `id` MUST match what the underlying CLI accepts (`claude --model <id>`,
-  `codex -m <id>`, `opencode --model <provider>/<model>`). Wrong ids cause
-  launch failures.
-- `display_name` is what the picker UI shows.
-- `description` is optional secondary text.
-- `[[efforts]]` entries extend or replace accepted reasoning-effort ids using
-  the same merge rules as models.
-
-## Merge vs replace
-
-By default, your override **merges** with built-ins by id:
-- Same id      → your entry replaces the built-in (keeps original order).
-- New id       → your entry is appended at the end.
-- Built-in id you didn't mention → stays. Auto-updates on each CodeTerm
-  release.
-
-That's the default because it's what most people want: add one custom
-model, keep getting upstream updates for everything else.
-
-If you want absolute control and no built-in updates ever, set
-`replace = true` at the top of your `<provider>.toml`. Then your file is
-the entire list, period.
-
-## Lookup precedence
-
-1. `<this dir>/<provider>.toml` (override) merged with built-ins, OR replacing
-   them entirely if `replace = true`.
-2. Provider defaults: either the provider's live CLI catalog when available,
-   or plugin defaults shipped with the current CodeTerm build.
-
-Syntax error or no `[[models]]` / `[[efforts]]` entries? CodeTerm logs a warning
-and falls back to built-ins — the picker never goes empty.
-
-## Full docs
-
-See `essences/models.md` in the CodeTerm repository for the long-form reference
-(plugin contract, how to add a new provider, etc.).
-"#;
-
+#[cfg(test)]
+mod credential_tests;
 #[cfg(test)]
 mod tests;

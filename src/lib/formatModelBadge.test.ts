@@ -1,6 +1,6 @@
 // Run: npx tsx src/lib/formatModelBadge.test.ts
 
-import { formatModelBadge, MODEL_BADGE_MAX_CHARS } from "./formatModelBadge";
+import { formatModelBadge, modelBadgeWidthForProvider, MODEL_BADGE_MAX_CHARS } from "./formatModelBadge";
 
 const tests: Array<[string, () => void]> = [];
 function test(name: string, fn: () => void) {
@@ -40,6 +40,19 @@ test("ellipsizes very long ids within the cap", () => {
   const badge = formatModelBadge("ACME/THIS-MODEL-FAMILY-NAME-IS-TOO-LONG-120B");
   assert(badge.length <= MODEL_BADGE_MAX_CHARS, `badge should fit cap, got ${badge.length}`);
   assert(badge.endsWith("..."), `badge should end-ellipsize, got ${badge}`);
+});
+
+test("caps the badge to roughly the provider-label width", () => {
+  assertEqual(String(modelBadgeWidthForProvider("opencode")), "8", "opencode label is eight wide");
+  assertEqual(String(modelBadgeWidthForProvider("codex")), "8", "a short provider keeps the floor");
+  const badge = formatModelBadge("deepseek-v4-flash", modelBadgeWidthForProvider("opencode"));
+  assert(badge.length <= 8, `badge should fit the provider width, got ${badge.length}`);
+  assert(badge.endsWith("..."), `badge should end-ellipsize, got ${badge}`);
+});
+
+test("never exceeds the shared maximum for a very long provider label", () => {
+  const width = modelBadgeWidthForProvider("a-very-long-provider-label");
+  assert(width === MODEL_BADGE_MAX_CHARS, `provider width should clamp to the cap, got ${width}`);
 });
 
 let failed = 0;

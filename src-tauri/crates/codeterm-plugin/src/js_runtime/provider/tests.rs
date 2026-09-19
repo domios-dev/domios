@@ -420,6 +420,9 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
             description: Some("from catalog".into()),
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         }],
         Some("live".into()),
     );
@@ -462,6 +465,9 @@ fn settings_model_options_follow_catalog_changes() {
             description: None,
             available: None,
             availability: None,
+            featured: None,
+            badge: None,
+            group: None,
         }],
         Some("live".into()),
     );

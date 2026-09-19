@@ -65,8 +65,8 @@ codeterm plan goal set <plan> --vector "<how success is proven>" "<goal text>"
 codeterm plan section add <plan> --title "..." --body "..."   # HOW / phases
 codeterm plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
     --body "..." --criterion "..." --test-plan "..." --correctness "..." \
-    --sections <sec_id> --model <provider>:<model> --personality <name> \
-    --executor-role <role> --role-guidance "You are ..."       # conditioning is required
+    --sections <sec_id> --model <provider>:<model> \
+    --executor-role <role> --personality <name> --role-guidance "You are ..."   # all three required
 codeterm plan doctor <plan> --kind quality          # self-review before handing back
 codeterm plan get <plan> --sections                 # structure only, cheap
 codeterm task show <task_id>                         # one task, cheap
@@ -88,7 +88,7 @@ Orchestrator side: `codeterm docs LANES`.
    carries: a body (what to do), acceptance criteria (how the Orchestrator
    proves it done), a test plan (the exact command/surface — a vague test plan
    is a bounce reason), a correctness vector, section links, an executor role,
-   AND worker conditioning (see below).
+   a one-word persona name, AND worker conditioning (see below).
 5. **Self-review** — `codeterm plan doctor <plan> --kind quality`; fix coverage
    gaps and vague briefs before handing structure back to the Orchestrator.
 
@@ -164,15 +164,15 @@ runs between `structure_ready` and `approved` on every plan.
 
 ## Worker conditioning and routing
 
-Every task carries an executor role and task-specific worker conditioning.
-`--model` and `--personality` remain optional routing choices; use them when the
-task needs an explicit provider/model or named persona.
+Every task carries an executor role, a one-word persona, and worker
+conditioning. `--model` remains an optional routing choice.
 
-- `--personality <name>` — the executor's one-word name, shown on its tab. Pick a
-  word a person can easily say. When one word captures the essence of the work,
-  use it (`Cartographer` for a docs-map task); otherwise choose an ordinary,
-  memorable, widely known Latin-script name, occasionally a funny one if it
-  sticks. Never a name that is hard to read or pronounce.
+- `--personality <name>` — the executor's one-word name. **Required by
+  `plan task add`** (a task without one dispatches a worker titled `Worker`);
+  `plan task update` can set it and refuses to blank it. Pick a word a person can
+  easily say: when one word captures the work, use it (`Cartographer` for a
+  docs-map task); otherwise an ordinary, memorable Latin-script name, sometimes
+  a funny one if it sticks. Never a name hard to read or pronounce.
 - `--executor-role <role>` — the specialization (e.g. `rust-backend-dev`,
   `frontend-dev`, `docs-sync`). Scopes what surface they own. **Required by
   `plan task add`**, and `plan task update` refuses to blank it. The check is
@@ -200,4 +200,4 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

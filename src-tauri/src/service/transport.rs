@@ -27,6 +27,10 @@ pub struct AtomicSpawnParams {
     /// Explicit model for the spawned agent (PTY launch args / chat session model).
     #[serde(default)]
     pub model: Option<String>,
+    /// Explicitly requested reasoning effort. Capability-gated against the
+    /// provider: an unsupported value contributes no launch flag.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 /// Authoritative result the client applies once. PTY and chat launch work stays
@@ -49,6 +53,7 @@ pub struct TransportLaunchCtx<'a> {
     pub skip_permissions: bool,
     pub config: serde_json::Value,
     pub model: Option<&'a str>,
+    pub reasoning_effort: Option<&'a str>,
 }
 
 /// The runtime half of a provider. Callers put blocking transports on a
@@ -104,6 +109,19 @@ impl AgentTransport for PtyTransport {
                     .with_provider(ctx.provider_id, |p| p.model_launch_args(model))
             })
             .unwrap_or_default();
+        let mut args = model_args;
+        if let Some(effort) = ctx.reasoning_effort.filter(|e| !e.trim().is_empty()) {
+            if let Some(effort_args) = svc
+                .agent_registry
+                .with_provider(ctx.provider_id, |p| {
+                    p.supports_reasoning_effort(effort)
+                        .then(|| p.reasoning_effort_launch_args(effort))
+                })
+                .flatten()
+            {
+                args.extend(effort_args);
+            }
+        }
         let cwd = svc
             .mux
             .read()
@@ -138,7 +156,7 @@ impl AgentTransport for PtyTransport {
             agent_name: None,
             task: launch_task.clone(),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
-            args: (!model_args.is_empty()).then_some(model_args),
+            args: (!args.is_empty()).then_some(args),
             skip_permissions: ctx.skip_permissions,
             session_id: None,
             structured_prompt_server,
@@ -328,6 +346,7 @@ impl ServiceContext {
                     skip_permissions: permission_bypass,
                     config: params.config.clone().unwrap_or(serde_json::Value::Null),
                     model: params.model.as_deref(),
+                    reasoning_effort: params.reasoning_effort.as_deref(),
                 },
             ),
             || {

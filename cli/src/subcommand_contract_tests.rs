@@ -11,6 +11,7 @@ use clap::{CommandFactory, Parser};
 mod agent;
 mod context;
 mod sessions;
+mod tab_adopt;
 mod tab_repair;
 mod transport;
 mod workspace;
@@ -522,6 +523,8 @@ fn plan_task_add_with_required_worker_fields_parses() {
         "y",
         "--executor-role",
         "rust-backend-dev",
+        "--personality",
+        "Ada",
         "--role-guidance",
         "focused worker",
     ])

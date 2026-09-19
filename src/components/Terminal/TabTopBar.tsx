@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
-import type { ApiConfig, Tab } from "../../lib/types";
+import type { ApiConfig, ModelGroup, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
@@ -33,6 +33,10 @@ interface TabTopBarProps {
   /** Usage provider id, or null to omit the usage pill. */
   usageProvider?: string | null;
   usageVisible?: boolean;
+  /** The tab's selected model + its provider-declared groups, so a group-spend
+   *  capsule shows for the upstream the tab is actually running. */
+  usageModelId?: string | null;
+  usageModelGroups?: ModelGroup[];
   api?: ApiConfig;
   /** Watcher tabs surface health from `tab.watcher.last_status` in the header. */
   watcherLastStatus?: string | null;
@@ -79,6 +83,8 @@ export function TabTopBar({
   showSwitch,
   usageProvider,
   usageVisible,
+  usageModelId,
+  usageModelGroups,
   watcherLastStatus,
   isWatcherTab = false,
   isActive = false,
@@ -201,7 +207,14 @@ export function TabTopBar({
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
-        {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
+        {usageProvider && (
+          <UsageBubble
+            provider={usageProvider}
+            trackingEnabled={!!usageVisible}
+            modelId={usageModelId}
+            modelGroups={usageModelGroups}
+          />
+        )}
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

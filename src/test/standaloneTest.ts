@@ -90,6 +90,7 @@ export function expect(actual: unknown) {
     toThrow,
     not: {
       toContain(expected: unknown) { assert.equal(contains(actual, expected), false); },
+      toBe(expected: unknown) { assert.notEqual(actual, expected); },
       toBeNull() { assert.notEqual(actual, null); },
       toHaveBeenCalled() {
         assert.equal((actual as MockFunction).mock.calls.length, 0);

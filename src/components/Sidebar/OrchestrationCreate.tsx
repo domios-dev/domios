@@ -1,13 +1,16 @@
 import { useState } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
-import { OrchestrationPairForm } from "./OrchestrationPairForm";
+import { resolveEffort } from "../../lib/newSessionChoice";
+import { OrchestrationPairForm, type OrchestrationPairValues } from "./OrchestrationPairForm";
 import { Button } from "../shared/Button";
 
 export interface OrchestrationCreateResult {
   orchestratorAgent: string;
   orchestratorModel?: string;
+  orchestratorReasoningEffort?: string;
   plannerAgent: string;
   plannerModel?: string;
+  plannerReasoningEffort?: string;
 }
 
 export function OrchestrationCreate({
@@ -20,11 +23,13 @@ export function OrchestrationCreate({
   onConfirm: (result: OrchestrationCreateResult) => void;
 }) {
   const defaultProviderId = providers[0]?.id ?? "";
-  const [pairValues, setPairValues] = useState({
+  const [pairValues, setPairValues] = useState<OrchestrationPairValues>({
     orchestratorProviderId: defaultProviderId,
     orchestratorModelId: providers[0]?.default_model ?? "",
+    orchestratorEffortId: resolveEffort(providers[0]),
     plannerProviderId: defaultProviderId,
     plannerModelId: providers[0]?.default_model ?? "",
+    plannerEffortId: resolveEffort(providers[0]),
   });
   const canConfirm = pairValues.orchestratorProviderId.length > 0 && pairValues.plannerProviderId.length > 0;
 
@@ -33,8 +38,10 @@ export function OrchestrationCreate({
     onConfirm({
       orchestratorAgent: pairValues.orchestratorProviderId,
       orchestratorModel: pairValues.orchestratorModelId || undefined,
+      orchestratorReasoningEffort: pairValues.orchestratorEffortId,
       plannerAgent: pairValues.plannerProviderId,
       plannerModel: pairValues.plannerModelId || undefined,
+      plannerReasoningEffort: pairValues.plannerEffortId,
     });
   };
 

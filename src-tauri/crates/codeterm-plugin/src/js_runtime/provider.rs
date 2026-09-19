@@ -18,10 +18,10 @@ use wire::{
 };
 
 use crate::provider::{
-    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelInfo,
-    ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
+    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelGroup, ModelGroupUsage,
+    ModelInfo, ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
     SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
-    TaskDelivery, VerifySubmitStrategy,
+    TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
 };
 
 use super::{
@@ -202,6 +202,15 @@ impl JsProvider {
                 .join(format!("{}.{}", session_id, cfg.file_extension)),
         )
     }
+}
+
+/// `usageSources` wire row: a path plus the session that scopes a shared log.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireUsageSource {
+    path: String,
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -446,6 +455,24 @@ impl AgentProvider for JsProvider {
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .collect()
+    }
+
+    fn usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
+        if self.has_js("usageSources") {
+            // An exported `usageSources` is authoritative: a null or failed reply
+            // declares no source and must not fall back to a fabricated file.
+            return self
+                .try_call::<Vec<WireUsageSource>>("usageSources", &[json!(cwd), json!(session_id)])
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|source| !source.path.is_empty())
+                .map(|source| UsageSourceSpec {
+                    path: PathBuf::from(source.path),
+                    session_id: source.session_id.filter(|id| !id.is_empty()),
+                })
+                .collect();
+        }
+        provider::usage_sources_from_session_file(self, cwd, session_id)
     }
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
@@ -999,6 +1026,23 @@ impl AgentProvider for JsProvider {
     fn default_model(&self) -> Option<String> {
         crate::model_catalog::resolve_default(&self.manifest.id)
             .or_else(|| self.manifest.default_model.clone())
+    }
+
+    fn model_groups(&self) -> Vec<ModelGroup> {
+        self.manifest.model_groups.clone()
+    }
+
+    fn model_group_usage(&self) -> Vec<ModelGroupUsage> {
+        self.try_call::<Vec<ModelGroupUsage>>("modelGroupUsage", &[])
+            .unwrap_or_default()
+    }
+
+    fn reports_group_usage(&self) -> bool {
+        self.has_js("modelGroupUsage")
+    }
+
+    fn model_credential_files(&self) -> Vec<PathBuf> {
+        super::host_credentials::declared_files(&self.manifest.credentials)
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {

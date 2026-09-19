@@ -65,9 +65,9 @@ pub fn provider_allowance_preflight(
     if *intent != ExecutionIntent::Mutating {
         return Ok(());
     }
-    let allowance = allowance.ok_or_else(|| {
-        PlanError::Io("mutating dispatch requires provider allowance telemetry".into())
-    })?;
+    let Some(allowance) = allowance else {
+        return Ok(());
+    };
     if allowance.permits(intent, now_ms) {
         Ok(())
     } else {

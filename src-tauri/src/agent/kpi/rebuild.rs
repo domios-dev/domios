@@ -11,7 +11,7 @@ pub(super) fn rebuild_usage(
     let mut outcome = UsageRebuildOutcome::default();
     let mut transcript_lines = Vec::new();
     for (path, cursor) in ledger.list_usage_cursors()? {
-        let source = UsageSource::new(path.as_str());
+        let source = UsageSource::from_key(&path);
         if !source.path.is_file() {
             outcome.missing_sources += 1;
             continue;

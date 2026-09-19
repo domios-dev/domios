@@ -209,6 +209,65 @@ fn ingested_usage_lands_as_attributed_token_and_compaction_events() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// An opencode-shaped sqlite log holds every session's rows. A provider-declared,
+/// session-scoped source must charge only this tab's session, and its rows must reach
+/// the same board aggregates every other provider's do.
+#[test]
+fn opencode_scoped_sqlite_usage_reaches_the_analytics_board() {
+    use codeterm_plan::service_plan::state::analytics::BucketBound;
+
+    let dir = scratch("opencode-board");
+    let db = dir.join("opencode.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, \
+         time_updated INTEGER, data TEXT);
+         INSERT INTO message VALUES ('msg_own_1', 'ses_own', 1, 1,
+           '{\"role\":\"assistant\",\"modelID\":\"big-pickle\",\"providerID\":\"opencode\",\"tokens\":{\"total\":23895,\"input\":279,\"output\":73,\"reasoning\":247,\"cache\":{\"read\":23296,\"write\":0}},\"time\":{\"created\":1000}}');
+         INSERT INTO message VALUES ('msg_own_2', 'ses_own', 1, 1,
+           '{\"role\":\"assistant\",\"modelID\":\"big-pickle\",\"providerID\":\"opencode\",\"tokens\":{\"total\":32221,\"input\":21,\"output\":400,\"reasoning\":100,\"cache\":{\"read\":30000,\"write\":1700}},\"time\":{\"created\":2000}}');
+         INSERT INTO message VALUES ('msg_sibling', 'ses_sibling', 1, 1,
+           '{\"role\":\"assistant\",\"modelID\":\"other-model\",\"providerID\":\"opencode\",\"tokens\":{\"total\":5000,\"input\":5000,\"output\":500,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":3000}}');",
+    )
+    .unwrap();
+    drop(conn);
+
+    let ledger = Arc::new(KpiLedger::open(&dir).unwrap());
+    let recorder = KpiRecorder::with_ledger(ledger.clone());
+    let attribution = KpiAttribution::for_tab("tab-oc")
+        .provider(Some("opencode".into()))
+        .model(Some("big-pickle".into()));
+    recorder.request_ingest(UsageSource::scoped(&db, "ses_own"), attribution);
+    recorder.drain();
+
+    let rows = ledger.list_all().unwrap();
+    assert_eq!(rows.len(), 2, "only the tab's own session is charged");
+    assert!(rows
+        .iter()
+        .all(|row| row.tab_id == "tab-oc" && row.provider == "opencode"));
+
+    let buckets = [BucketBound {
+        start: 0,
+        end: 10_000,
+        label: "all".into(),
+    }];
+    let aggregates = ledger.analytics_aggregates(&buckets).unwrap();
+    assert_eq!(
+        aggregates.tokens.len(),
+        1,
+        "one provider/model bucket on the board"
+    );
+    let board = &aggregates.tokens[0];
+    assert_eq!(board.provider, "opencode");
+    assert_eq!(board.model.as_deref(), Some("big-pickle"));
+    assert_eq!(board.turns, 2, "both of this session's responses are turns");
+    assert_eq!(board.input_tokens, 279 + 23_296 + 21 + 1_700 + 30_000);
+    assert_eq!(board.uncached_input_tokens, 279 + 21 + 1_700);
+    assert_eq!(board.output_tokens, 73 + 247 + 400 + 100);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A daemon restart replaces the `KpiRecorder` (and its in-process `UsageIngestor`)
 /// but keeps the same `kpi_ledger.db` — the persisted cursor is what must carry the
 /// forward-only position across that boundary, or every session gets fully re-ingested

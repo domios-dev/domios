@@ -72,6 +72,8 @@ const ocHost = (over: Record<string, unknown>) => ({
   expandHome: (v: string) => v,
   envGet: () => null,
   exec: () => JSON.stringify({ code: 1, stdout: "", stderr: "not available" }),
+  unixNowMs: () => 1_000_000,
+  fetch: () => JSON.stringify({ error: "no network in tests" }),
   log: () => {},
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
   ...over,
@@ -127,24 +129,50 @@ console.log("\n--- exclusive structured cursor ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
   const rows: Array<Record<string, unknown>> = [
-    { id: "p1", ts: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
   ];
   const p = loadOpencodeWithHost(ocHost({
     fs: {
       fileExists: (pth: string) => pth === dbPath,
       sqliteQuery: (_db: string, _sql: string, params: unknown[]) => {
         const sinceTs = Number(params[1] || 0);
-        return rows.filter((row) => Number(row.ts) >= sinceTs);
+        return rows.filter((row) => Number(row.ts_updated) >= sinceTs);
       },
     },
   }));
   const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: unknown[]; cursor: string };
   eq(first.cursor, '[1000,["p1"]]', "cursor includes timestamp and seen peer ids");
-  rows.push({ id: "p0", ts: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
+  rows.push({ id: "p0", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
   const peer = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string }>; cursor: string };
   eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
   const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
   eq(empty.messages, [], "cursor excludes every previously returned part");
+}
+
+console.log("\n--- streamed part growth is re-delivered (same id, newer update) ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const rows: Array<Record<string, unknown>> = [
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "Hel" }), msg: JSON.stringify({ role: "assistant" }) },
+  ];
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: (_db: string, _sql: string, params: unknown[]) => {
+        const sinceTs = Number(params[1] || 0);
+        return rows.filter((row) => Number(row.ts_updated) >= sinceTs);
+      },
+    },
+  }));
+  const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: Array<{ content: string }>; cursor: string };
+  eq(first.messages.map((message) => message.content), ["Hel"], "first read delivers the partial part");
+  // The part keeps its id and creation instant while its text grows.
+  rows[0] = { ...rows[0], ts_updated: 1200, part: JSON.stringify({ type: "text", text: "Hello world" }) };
+  const grown = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string; id: string }>; cursor: string };
+  eq(grown.messages.map((message) => message.content), ["Hello world"], "grown content is re-delivered past the cursor");
+  eq(grown.messages.map((message) => message.id), ["p1"], "the grown row keeps its part id");
+  const settled = p.readStructuredChat("/work/proj", "ses_owned", grown.cursor) as { messages: unknown[] };
+  eq(settled.messages, [], "an unchanged part is not replayed");
 }
 
 console.log("\n--- malformed structured cursor fails closed ---\n");
@@ -239,8 +267,8 @@ console.log("\n--- discoverModels ---\n");
   eq(
     p.discoverModels(),
     [
-      { id: "opencode/big-pickle", displayName: "OpenCode Zen Big Pickle" },
-      { id: "anthropic/claude-opus-4-8", displayName: "Claude Opus 4.8" },
+      { id: "opencode/big-pickle", displayName: "OpenCode Zen Big Pickle", group: "OpenCode Zen" },
+      { id: "anthropic/claude-opus-4-8", displayName: "Claude Opus 4.8", group: "anthropic" },
     ],
     "discoverModels: clean labels (OpenCode Zen prefix + dotted version), no availability signal → unset",
   );
@@ -253,7 +281,7 @@ console.log("\n--- discoverModels ---\n");
   }));
   eq(
     p.discoverModels(),
-    [{ id: "opencode/gpt-5.5", displayName: "OpenCode Zen GPT 5.5" }],
+    [{ id: "opencode/gpt-5.5", displayName: "OpenCode Zen GPT 5.5", group: "OpenCode Zen" }],
     "embedding + whisper filtered out; chat model kept with clean label",
   );
 }
@@ -264,6 +292,122 @@ console.log("\n--- discoverModels ---\n");
     p.discoverModels(),
     [{ id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" }],
     "discoverModels falls back to manifest seed when opencode models probe is unavailable",
+  );
+}
+
+// Image/video generation ids are not chat models.
+{
+  const p = loadOpencodeWithHost(ocHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "xai/grok-4.6\nxai/grok-imagine-image\nxai/grok-imagine-video-1.5\n" }),
+  }));
+  eq(
+    p.discoverModels(),
+    [{ id: "xai/grok-4.6", displayName: "Grok 4.6", group: "xai" }],
+    "image/video generation models are filtered; the chat model is kept",
+  );
+}
+
+// Per-group usage is read from opencode's store and keyed by providerID.
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { g: "deepseek", messages: 2, input: 100, output: 40, cache_read: 10, cache_write: 0, cost: 1.9425 },
+        { g: null, messages: 9, input: 1, output: 1, cache_read: 0, cache_write: 0, cost: 0 },
+      ],
+    },
+  }));
+  eq(
+    p.modelGroupUsage(),
+    [{
+      group: "deepseek",
+      messages: 2,
+      input_tokens: 100,
+      output_tokens: 40,
+      cache_read_tokens: 10,
+      cache_write_tokens: 0,
+      cost_micros: 1_942_500,
+      spend_cents: 194,
+    }],
+    "modelGroupUsage maps rows to snake_case groups, adds observed spend, and drops a null provider",
+  );
+}
+
+// A group with a live balance endpoint carries remaining credit; the limit is
+// left absent because the endpoint exposes no included allowance.
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  let fetched = "";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { g: "deepseek", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 3.39 },
+        { g: "xai", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 118.75 },
+      ],
+    },
+    fetch: (opts: string) => {
+      fetched = opts;
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({
+          is_available: true,
+          balance_infos: [{ currency: "USD", total_balance: "0.62", topped_up_balance: "0.62" }],
+        }),
+      });
+    },
+  }));
+  const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
+  const deepseek = rows.find((r) => r.group === "deepseek");
+  const xai = rows.find((r) => r.group === "xai");
+  assert(
+    fetched.indexOf("api.deepseek.com") !== -1 &&
+      fetched.indexOf("opencodeAuth") !== -1 &&
+      fetched.indexOf("deepseekKey") !== -1,
+    "the balance read names its own URL and the declared credential secret",
+  );
+  eq(deepseek?.spend_remaining_cents, 62, "deepseek remaining credit is read live");
+  eq(deepseek?.spend_limit_cents, undefined, "no included limit is invented");
+  eq(xai?.spend_cents, 11875, "xai spend comes from its own observed cost");
+  eq(xai?.spend_remaining_cents, undefined, "a group without a balance endpoint has no remaining");
+  eq(xai?.spend_limit_cents, undefined, "a group without a live limit reports null, never a guess");
+}
+
+// A failed balance read still reports the observed spend, with no fabricated limit.
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [
+        { g: "deepseek", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 1.0 },
+      ],
+    },
+    fetch: () => JSON.stringify({ error: "request failed: timed out" }),
+  }));
+  const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
+  eq(rows[0].spend_cents, 100, "observed spend survives a failed balance read");
+  eq(rows[0].spend_remaining_cents, undefined, "an unreadable balance leaves remaining absent");
+}
+
+{
+  const p = loadOpencodeWithHost(ocHost({ fs: { fileExists: () => false } }));
+  eq(p.modelGroupUsage(), [], "no session store ⇒ no usage, never a guess");
+}
+
+// The manifest declares the balance credential secret and the network host the
+// plugin's balance read reaches — core never learns either.
+{
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"),
+  );
+  const cred = (manifest.credentials || []).find((c: { id?: string }) => c.id === "opencodeAuth");
+  assert(cred?.secret?.deepseekKey === "deepseek.key", "auth credential declares the deepseek key secret");
+  assert(
+    (manifest.permissions?.network?.allow || []).includes("api.deepseek.com"),
+    "manifest allows the deepseek balance host",
   );
 }
 
@@ -458,6 +602,23 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
     },
   }));
   eq(own.detectSessionModel("/cwd", "ses_mine"), "anthropic/claude-own", "this session's own model is returned");
+}
+
+console.log("\n--- usageSources (session-scoped sqlite log) ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: { fileExists: (pth: string) => pth === dbPath },
+  }));
+  eq(
+    p.usageSources("/work/proj", "ses_owned"),
+    [{ path: dbPath, sessionId: "ses_owned" }],
+    "OpenCode declares the shared sqlite log scoped to the tab's own session",
+  );
+  eq(p.usageSources("/work/proj", ""), [], "an empty session id declares no source");
+
+  const absent = loadOpencodeWithHost(ocHost({ fs: { fileExists: () => false } }));
+  eq(absent.usageSources("/work/proj", "ses_owned"), [], "a missing db declares no source");
 }
 
 console.log("\n--- canonical tool fields ---\n");
