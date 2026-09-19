@@ -3,14 +3,9 @@
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
   CODETERM_OPENCODE_PLUGIN_MARKER,
-  QUESTION_MENU_RE,
-  QUESTION_MENU_SELECTORS,
-  PICKER_TITLE_RE,
   lastPromptShape,
   parsePermissionPrompt,
-  collectQuestionMenuPrompt,
   parseQuestionMenuPrompt,
-  collectModalPickerPrompt,
   parseModalPickerPrompt,
   chunkHasQuestionMenuRow,
   findModalPickerTitle,

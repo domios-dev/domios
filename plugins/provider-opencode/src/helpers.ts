@@ -1,4 +1,4 @@
-import type { ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
+import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 
 // Constants and regexes
 export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
@@ -270,7 +270,7 @@ export function isQuestionMenuFooter(line: string): boolean {
 }
 
 // Model discovery (requires host.exec, host.fs, etc. passed as parameter or from global host)
-declare const host: any;
+declare const host: Host;
 
 export function discoverOpencodeModels(): ModelInfo[] | null {
   const raw = host.exec(JSON.stringify({
