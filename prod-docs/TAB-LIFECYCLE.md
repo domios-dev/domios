@@ -42,7 +42,7 @@ absent — does not change that decision.
    the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place.
 7. A team member whose provider exited to its shell before shutdown restores as
    that shell and is not relaunched. The report names it `agent_exited_before_shutdown`
-   with `exited_session_id`; `agent restart` recovers it (`essences/contributing/agent-restart-testing.md`).
+   with `exited_session_id`; `agent restart` recovers it (`.agents/skills/agent-restart/SKILL.md`).
 
 ## Restore reporting and observed liveness
 
@@ -68,7 +68,7 @@ time is never an input.
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown,
 so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or
 model label, and the existing guarded-input refusal arms with it.
-In-tab provider relaunch, exit recovery and routed-slash behaviour: `essences/contributing/agent-restart-testing.md`.
+In-tab provider relaunch, exit recovery and routed-slash behaviour: `.agents/skills/agent-restart/SKILL.md`.
 
 Role strings still pass through the literal legacy migration
 (`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a
@@ -236,4 +236,4 @@ transaction, so the intermediate state is never observable.
   checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
-<!-- revision: 25 -->
+<!-- revision: 26 -->

@@ -3,7 +3,7 @@
 //! generated/cli/cli-manifest.json + generated/cli/cli.md. The tests `cli_manifest_is_fresh`,
 //! `docs_cli_md_is_fresh`, and `prompt_cli_commands_exist` (cli/src/cmd/manifest.rs)
 //! plus the chat-ui `recognize.test.ts` fail CI if anything drifts.
-//! See essences/contributing/cli.md.
+//! See .agents/skills/cli-contributor/SKILL.md.
 
 use clap::{Parser, Subcommand};
 

@@ -2,7 +2,7 @@
 //!
 //! Bump `PROTOCOL_VERSION` together with
 //! `src-tauri/src/socket/server/protocol.rs` on a breaking wire contract
-//! change — see essences/contributing/cli.md (consumer audit).
+//! change — see .agents/skills/cli-contributor/SKILL.md (consumer audit).
 
 /// One integer presented on every socket and mesh RPC request envelope.
 pub const PROTOCOL_VERSION: u64 = 1;
