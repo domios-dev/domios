@@ -9,17 +9,18 @@ use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
 pub(crate) const INVALID_REMOTE_TAB_ID: &str = "invalid remote tab id";
 
+mod adopt;
 mod capture;
 mod chat_view;
 mod inspect;
 pub(crate) mod labels;
 pub(crate) mod remote_target;
 mod render;
-mod adopt;
 mod repair;
 mod search;
 mod team_utility;
 mod workspace_topology;
+use adopt::handle_tab_adopt_agent;
 use capture::handle_tab_capture;
 use chat_view::print_tab_chat;
 use inspect::handle_tab_inspect;
@@ -33,7 +34,6 @@ use render::format_tab_row;
 pub use render::render_tab_tree_with_scope;
 #[cfg(test)]
 use render::{render_tab_tree, render_tab_tree_with_current};
-use adopt::handle_tab_adopt_agent;
 use repair::handle_tab_repair;
 pub use search::print_tab_find_results;
 #[cfg(test)]
