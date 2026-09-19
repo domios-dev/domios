@@ -14,12 +14,14 @@ use serde_json::Value;
 
 use super::manifest::{CredentialConfig, PluginManifest};
 
-/// Resolve a dotted path (`tokens.access_token`) inside a JSON document.
-fn value_at<'a>(doc: &'a Value, dotted: &str) -> Option<&'a Value> {
-    dotted
-        .split('.')
-        .try_fold(doc, |node, key| node.get(key))
-        .filter(|v| !v.is_null())
+/// Resolve a dotted path or JSON Pointer inside a JSON document.
+fn value_at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
+    let value = if path.starts_with('/') {
+        doc.pointer(path)
+    } else {
+        path.split('.').try_fold(doc, |node, key| node.get(key))
+    };
+    value.filter(|v| !v.is_null())
 }
 
 fn read_document(cred: &CredentialConfig) -> Option<Value> {
