@@ -97,8 +97,8 @@ surfaces as agents:
   collapsible "System prompt" card; tool-call / tool-result messages render via the
   existing chat-UI message rendering.
 
-Authoring a `chatBackend` plugin, the open-shell loop, presets, the curated text
-tool protocol, and the worked lmstudio example: see **`essences/plugins.md`**.
+The stable plugin-host and open-shell contracts are described in the
+[core essence](../essences/core.md#plugin-host).
 
 ## Command Palette
 
@@ -149,4 +149,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
