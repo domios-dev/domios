@@ -163,7 +163,7 @@ Roleless responses instead include `identity.actions.promotion` and `identity.ac
 
 Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
 
-Session binding model: `essences/contributing/architecture.md` §3 (provider-reported binding).
+Session binding model: [core essence](../essences/core.md#agents-and-providers) (provider-reported binding).
 
 #### Configuration
 | Method | Path | Body / Query | Description |
@@ -216,4 +216,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

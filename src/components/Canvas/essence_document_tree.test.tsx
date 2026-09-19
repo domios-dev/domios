@@ -19,13 +19,13 @@ const node = (id: string, path: string): EssenceMapProject["nodes"][number] => (
 describe("essence_document_tree", () => {
   it("essence_tree_source lists the on-disk set and keeps map context", () => {
     const entries = essenceDocumentEntries(project([
-      node("a", "essences/core.md"), node("b", "essences/core.md"), node("c", "essences/contributing/architecture.md"),
-    ], ["essences/core.md", "essences/contributing/architecture.md", "essences/crash-recovery-supervisor.md"]));
+      node("a", "essences/core.md"), node("b", "essences/core.md"), node("c", "essences/vision.md"),
+    ], ["essences/core.md", "essences/vision.md", "essences/capabilities.md"]));
     expect(entries.map((entry) => entry.path)).toEqual([
-      "essences/core.md", "essences/contributing/architecture.md", "essences/crash-recovery-supervisor.md",
+      "essences/core.md", "essences/vision.md", "essences/capabilities.md",
     ]);
     expect(entries[0].node.id).toBe("a");
-    expect(entries[2].node.id).toBe("document:essences/crash-recovery-supervisor.md");
+    expect(entries[2].node.id).toBe("document:essences/capabilities.md");
   });
 
   it("rejects traversal and paths outside essences", () => {

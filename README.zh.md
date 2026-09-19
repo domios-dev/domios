@@ -78,7 +78,7 @@ CodeTerm 是一款从零开始为 AI 辅助开发而设计的跨平台终端复�
 ### 自更新与韧性
 - **自更新** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`。清单使用 ed25519 签名，在触碰任何二进制前都会先验证；自动安装执行 9 步优雅关机（mem WAL 检查点、停止监督进程、签名二进制热替换），随后窗格自动恢复 —— 上下文不会因升级丢失
 - **子进程监督器** — 重型 mem 操作（dreaming、Librarian 提取）在子进程中运行并配有熔断器（60 秒内 3 次失败即开路）。worker 崩溃不会拖垮 API；重型 mem 请求上的 `503` 超时让守护进程保持响应
-- **外部看门狗** — `/api/health` 上的健康探针；针对 Windows 任务计划程序、launchd 与 systemd 的设置配方见 [essences/resilience.md](essences/resilience.md)
+- **崩溃恢复** — 守护进程的健康状态与重启责任约定见 [essences/core.md](essences/core.md#crash-recovery-supervisor)
 
 ### 主题
 - **8 个内置主题** — GitHub Dark、Dracula、Catppuccin Mocha、One Dark、Nord、GitHub Light、Solarized Light、Pip-Boy
