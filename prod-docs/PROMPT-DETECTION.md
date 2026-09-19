@@ -107,6 +107,6 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 ## Reviewer's checklist
 
-Before approving a PR, use **`essences/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
+Before approving a PR, use **`.agents/skills/review/SKILL.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

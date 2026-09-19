@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "essences/**"
+      - ".agents/skills/**"
       - "prod-docs/**"
       - "src-tauri/prompts/**"
       - "src-tauri/src/prompts.rs"

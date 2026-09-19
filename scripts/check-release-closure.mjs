@@ -22,7 +22,7 @@ const REQUIRED_PLATFORMS = [
 // Not silently certified: each is absent for a documented reason, so a run
 // reports which shipped instead of pretending the set is always complete.
 const OPTIONAL_PLATFORMS = new Map([
-  // essences/release.md records shipping without it when the ARM64 runner is
+  // .agents/skills/github-release/SKILL.md records shipping without it when the ARM64 runner is
   // unavailable and forbids synthesizing the asset; 1.7.2 shipped without it.
   ['windows-aarch64', 'the windows-build ARM64 runner was unavailable'],
   // publish-release.sh emits the fragment only when LINUX_ARM_SIG is set.
