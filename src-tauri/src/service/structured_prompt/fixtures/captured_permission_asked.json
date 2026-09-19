@@ -1,0 +1,1 @@
+{"id":"evt_redacted","type":"permission.asked","properties":{"id":"per_probe","sessionID":"ses_5","permission":"bash","patterns":["<redacted bash command>"],"metadata":{"command":"<redacted bash command>"},"always":["<redacted approval pattern>"],"tool":{"messageID":"msg_5","callID":"<redacted call>"}}}
