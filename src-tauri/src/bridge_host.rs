@@ -161,6 +161,14 @@ impl ThreadTabs for ServiceBridgeTabPort {
         self.0.bridge_is_live_tab(tab_id)
     }
 
+    fn is_visible_tab(&self, tab_id: &str) -> bool {
+        self.0
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| !tab.hidden && tab.show_in_tabbar)
+    }
+
     fn is_general_tab(&self, tab_id: &str) -> bool {
         self.0.bridge_is_general_tab(tab_id)
     }
