@@ -109,6 +109,9 @@ pub(crate) fn render_example(
         if let Some(badge) = &m.badge {
             out.push_str(&format!("badge = \"{}\"\n", badge.replace('"', "\\\"")));
         }
+        if let Some(group) = &m.group {
+            out.push_str(&format!("group = \"{}\"\n", group.replace('"', "\\\"")));
+        }
         out.push('\n');
     }
     for effort in &effort_defaults.efforts {
