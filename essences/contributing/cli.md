@@ -5,12 +5,11 @@ The clap tree in `cli/src/args/*.rs` is the single source of truth.
 When you add/rename/remove a command or flag:
 
 1. Edit the clap definition in `cli/src/args/`.
-2. In canonical, regenerate `essences/cli-manifest.json`, the auto-block of
-   `essences/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` with
-   `cli-manifest --write` run by the CLI built from this checkout (`./build.sh cli`
-   does both, and also installs into the active dev data directory; see
-   `essences/build.md` for regenerating without installing). Never hand-edit these
-   three files, and never regenerate them with the installed `codeterm`.
+2. Regenerate the three CLI artifacts with `cli-manifest --write` run by the CLI
+   built from this checkout; never hand-edit them, and never regenerate them with
+   the installed `codeterm`. The artifact list, the regenerate/verify commands and
+   the same-lane regeneration rule are in
+   `essences/build.md#generated-artifacts-and-the-embedded-doc-boundary`.
 3. If agent-facing behavior changed, update the wording in
    `src-tauri/prompts/codeterm_cli.md` (it is validated, not generated). For
    tab messaging behavior, also check `prod-docs/SKILLS.md`.
