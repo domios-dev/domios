@@ -396,7 +396,10 @@ fn pre_ready_launch_stages_are_distinguished_from_unresolved_sessions() {
         BootStage::PreparingRoleInstructions,
         BootStage::DeliveringInstructions,
     ] {
-        assert!(is_pre_ready_launch_stage(stage), "{stage:?} is a launch stage");
+        assert!(
+            is_pre_ready_launch_stage(stage),
+            "{stage:?} is a launch stage"
+        );
     }
     for stage in [
         BootStage::AgentReady,

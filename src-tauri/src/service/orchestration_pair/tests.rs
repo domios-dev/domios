@@ -537,6 +537,9 @@ fn pair_params_carry_reasoning_effort_for_both_roles() {
     });
     let params: OrchestrationPairParams = serde_json::from_value(body).unwrap();
 
-    assert_eq!(params.orchestrator_reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(
+        params.orchestrator_reasoning_effort.as_deref(),
+        Some("high")
+    );
     assert_eq!(params.planner_reasoning_effort.as_deref(), Some("low"));
 }

@@ -455,15 +455,13 @@ mod tests {
             .adopt_live_pty_as_agent(&target_id, &human, "not-a-provider", false)
             .unwrap_err();
         assert_eq!(unknown.code(), TAB_ADOPT_UNKNOWN_PROVIDER);
-        assert!(
-            fixture
-                .service
-                .mux
-                .read()
-                .get_tab(&target_id)
-                .unwrap()
-                .agent_type
-                .is_none()
-        );
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&target_id)
+            .unwrap()
+            .agent_type
+            .is_none());
     }
 }

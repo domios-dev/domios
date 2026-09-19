@@ -52,12 +52,7 @@ impl AgentProvider for ModelGroupNativeStub {
         None
     }
 
-    fn detect_session_id(
-        &self,
-        _: &str,
-        _: &[String],
-        _: Option<Duration>,
-    ) -> Option<String> {
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
         None
     }
 
