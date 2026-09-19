@@ -705,7 +705,7 @@ mod tests {
         assert_eq!(completed.tool_result.as_deref(), Some("<redacted output>"));
         assert_eq!(completed.tool_title.as_deref(), Some("<redacted bash command>"));
         assert_eq!(completed.tool_exit_code, Some(0));
-        assert_eq!(completed.tool_duration_ms, Some(10_204_218));
+        assert_eq!(completed.tool_duration_ms, Some(102_042));
         assert_eq!(completed.timestamp.as_deref(), Some("1789814520476"));
     }
 
