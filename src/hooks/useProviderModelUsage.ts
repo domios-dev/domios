@@ -1,9 +1,10 @@
 /**
- * Per-model-group usage for the picker, as declared by the provider plugin.
- * The backend command carries the provider's own answer, so a new provider
- * needs no change here. Fetches on provider change and after a catalog refresh.
+ * Per-model-group usage for the picker and the usage capsule, as declared by
+ * the provider plugin. The backend command carries the provider's own answer,
+ * so a new provider needs no change here. Fetches on provider change and after
+ * an explicit refresh.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../lib/bridge";
 import type { ModelGroupUsage } from "../lib/types";
 
@@ -13,12 +14,22 @@ export function modelGroupUsageFromResponse(result: unknown): ModelGroupUsage[] 
   return Array.isArray(result) ? (result as ModelGroupUsage[]) : EMPTY_USAGE;
 }
 
-export function useProviderModelUsage(providerId: string | null): ModelGroupUsage[] {
+export interface ProviderModelUsageState {
+  usage: ModelGroupUsage[];
+  /** Re-reads the provider's own usage source; the capsule's refresh action. */
+  refresh: () => void;
+}
+
+export function useProviderModelUsageState(
+  providerId: string | null,
+  enabled = true,
+): ProviderModelUsageState {
   const [usage, setUsage] = useState<ModelGroupUsage[]>(EMPTY_USAGE);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     let active = true;
-    if (!providerId) {
+    if (!providerId || !enabled) {
       setUsage(EMPTY_USAGE);
       return;
     }
@@ -33,7 +44,13 @@ export function useProviderModelUsage(providerId: string | null): ModelGroupUsag
     return () => {
       active = false;
     };
-  }, [providerId]);
+  }, [providerId, enabled, refreshToken]);
 
-  return usage;
+  const refresh = useCallback(() => setRefreshToken((v) => v + 1), []);
+
+  return { usage, refresh };
+}
+
+export function useProviderModelUsage(providerId: string | null): ModelGroupUsage[] {
+  return useProviderModelUsageState(providerId).usage;
 }

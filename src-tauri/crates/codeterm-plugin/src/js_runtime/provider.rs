@@ -1037,6 +1037,10 @@ impl AgentProvider for JsProvider {
             .unwrap_or_default()
     }
 
+    fn reports_group_usage(&self) -> bool {
+        self.has_js("modelGroupUsage")
+    }
+
     fn model_credential_files(&self) -> Vec<PathBuf> {
         super::host_credentials::declared_files(&self.manifest.credentials)
     }

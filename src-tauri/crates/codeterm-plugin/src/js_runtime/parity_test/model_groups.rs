@@ -87,7 +87,15 @@ impl AgentProvider for ModelGroupNativeStub {
             cache_read_tokens: 10,
             cache_write_tokens: 5,
             cost_micros: 1_500_000,
+            spend_cents: Some(150.0),
+            spend_limit_cents: None,
+            spend_remaining_cents: Some(62.0),
+            spend_resets_at_ms: None,
         }]
+    }
+
+    fn reports_group_usage(&self) -> bool {
+        true
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
@@ -108,7 +116,8 @@ fn model_groups_usage_and_credentials_match_native_and_js() {
     }"#;
     let plugin_js = "module.exports.default = { modelGroupUsage() { return [\
         {group:'alpha',messages:3,input_tokens:120,output_tokens:40,\
-         cache_read_tokens:10,cache_write_tokens:5,cost_micros:1500000}]; } };";
+         cache_read_tokens:10,cache_write_tokens:5,cost_micros:1500000,\
+         spend_cents:150,spend_remaining_cents:62}]; } };";
     let manifest: super::super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
     let vm = super::super::PluginVm::from_source_with(
         "model-group-fixture",
@@ -122,5 +131,17 @@ fn model_groups_usage_and_credentials_match_native_and_js() {
     assert_eq!(js.model_groups(), native.model_groups());
     assert_eq!(js.model_group_usage(), native.model_group_usage());
     assert_eq!(js.model_credential_files(), native.model_credential_files());
+    assert_eq!(js.reports_group_usage(), native.reports_group_usage());
     assert_eq!(js.describe().model_groups, native.describe().model_groups);
+    // A provider that publishes per-group usage still earns the Usage Tracking
+    // toggle, so the group-spend capsule is gated like any other usage surface.
+    assert_eq!(
+        js.describe().settings_schema,
+        native.describe().settings_schema,
+        "group-usage providers must expose identical usage-tracking settings"
+    );
+    assert!(
+        !native.describe().settings_schema.is_empty(),
+        "the native group-usage stub must contribute a settings section"
+    );
 }

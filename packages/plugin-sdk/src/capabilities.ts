@@ -455,6 +455,16 @@ export interface ModelGroupUsage {
   cache_read_tokens: number;
   cache_write_tokens: number;
   cost_micros: number;
+  /** Spend observed for this group, in cents. Absent when unreported. */
+  spend_cents?: number;
+  /** Included allowance for the group's billing cycle, in cents. Absent when
+   *  the provider cannot read a live limit — never a fabricated value. */
+  spend_limit_cents?: number;
+  /** Remaining allowance for the group's billing cycle, in cents. Absent when
+   *  the provider cannot read a live balance. */
+  spend_remaining_cents?: number;
+  /** Billing-cycle reset for the group's spend, in epoch ms. */
+  spend_resets_at_ms?: number;
 }
 
 export interface PresetInfo {

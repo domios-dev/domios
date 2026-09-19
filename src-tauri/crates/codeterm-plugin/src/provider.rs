@@ -936,6 +936,13 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Cheap, pure predicate: this provider publishes per-group usage even
+    /// without a usage parser. It drives the auto-injected Usage Tracking
+    /// toggle, so a group-spend capsule is gated like any other usage surface.
+    fn reports_group_usage(&self) -> bool {
+        false
+    }
+
     /// Files whose change means this provider's credentialed model availability
     /// changed. The catalog fingerprints them and re-probes when one moves, so
     /// connecting a provider surfaces its models without a rebuild. Empty ⇒ the
@@ -1008,6 +1015,8 @@ pub trait AgentProvider: Send + Sync {
         if self.usage_parser().is_some() {
             let probe_cmd = self.usage_probe_command().unwrap_or("/usage");
             settings.push(usage_tracking_section(probe_cmd));
+        } else if self.reports_group_usage() {
+            settings.push(usage_store_tracking_section());
         }
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
