@@ -270,8 +270,8 @@ List CLI commands and clearly marked RPC-only/internal methods
 
 Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
 
-- `--markdown` — Emit the essences/cli.md auto-block markdown instead of JSON
-- `--write` — Regenerate committed artifacts (essences/cli-manifest.json + essences/cli.md)
+- `--markdown` — Emit the generated/cli/cli.md auto-block markdown instead of JSON
+- `--write` — Regenerate committed artifacts (generated/cli/cli-manifest.json + generated/cli/cli.md)
 
 #### `codeterm config`
 
