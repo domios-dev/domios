@@ -25,6 +25,7 @@ pub const SERVICE: &str = "telegram";
 pub enum ThreadError {
     ForeignTarget { caller: String, target: String },
     UnknownTab(String),
+    HiddenTab(String),
     GeneralUsesMainChat,
     BridgeInactive,
     NoOwnerChat,
@@ -47,6 +48,9 @@ impl std::fmt::Display for ThreadError {
                  only the General Agent may open a thread for another tab ({target})"
             ),
             Self::UnknownTab(tab_id) => write!(f, "no live tab '{tab_id}'"),
+            Self::HiddenTab(tab_id) => {
+                write!(f, "hidden tab '{tab_id}' does not have a Telegram topic")
+            }
             Self::GeneralUsesMainChat => {
                 write!(
                     f,
