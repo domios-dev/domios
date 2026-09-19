@@ -198,12 +198,32 @@ fn public_agent_input_readiness(
     }
     match tab.boot_stage {
         Some(codeterm_types::pty::BootStage::AgentReady) => Some(Ok(())),
+        // A reattached PTY proved its live session without a spawn.
+        Some(codeterm_types::pty::BootStage::PtyReattached) => Some(Ok(())),
         Some(codeterm_types::pty::BootStage::SpawnFailed) => Some(Err(tab
             .boot_failure_reason
             .clone()
             .unwrap_or_else(|| "agent launch failed".to_string()))),
         _ => None,
     }
+}
+
+/// Non-provisional stages between PTY materialization and `AgentReady`. The
+/// launch command is still on the wire, so a write here races and corrupts it.
+fn is_pre_ready_launch_stage(stage: codeterm_types::pty::BootStage) -> bool {
+    use codeterm_types::pty::BootStage;
+    matches!(
+        stage,
+        BootStage::PtyStarting
+            | BootStage::PtySpawned
+            | BootStage::ReaderReady
+            | BootStage::ShellReady
+            | BootStage::AgentLaunching
+            | BootStage::LaunchWritten
+            | BootStage::ProviderReady
+            | BootStage::PreparingRoleInstructions
+            | BootStage::DeliveringInstructions
+    )
 }
 
 #[derive(Clone)]
@@ -590,6 +610,20 @@ impl ServiceContext {
             });
         if completed {
             return observed.expect("completed public input readiness");
+        }
+        // A launch still on the wire is not an unresolved session: writing now
+        // would corrupt the launch command. Refuse so the user send parks and
+        // replays at AgentReady instead of landing in the shell.
+        let still_launching = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.boot_stage)
+                .is_some_and(is_pre_ready_launch_stage)
+        };
+        if still_launching {
+            return Err(format!(
+                "Agent in Tab {tab_id} is still launching — input would be lost"
+            ));
         }
         // Owner exception: no definitive verdict arrived within the bounded wait.
         // Deliver anyway — a live PTY with an unconfirmed session isn't a dead one.
