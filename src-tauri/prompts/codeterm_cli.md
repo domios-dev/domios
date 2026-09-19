@@ -1,7 +1,7 @@
 # CodeTerm CLI reference
 
 <!-- Do not document commands or flags that don't exist. Full generated
-     reference: essences/cli.md; the validation contract is essences/contributing/cli.md. -->
+     reference: generated/cli/cli.md; the validation contract is essences/contributing/cli.md. -->
 
 You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
 
@@ -72,7 +72,7 @@ words below resolve; the flags are the corrections.
 - Agents CAN join a Team. `codeterm agent spawn <provider> --team <team-id>` attaches a fresh roleless agent (mirrors `tab new --team`); `codeterm team adopt-agent <team-id> <tab-id>` attaches one that is already running. Both authorize on YOUR OWN membership — `$CODETERM_TEAM_ID` must already be that Team — and refuse a non-member caller. `--team` is rejected with `--plan-task` (that binding carries its own Team) and is local-only, never with `--mesh`. Adopting a tab that already has a Team or a role is refused; `codeterm team show <team-id>` lists the member tabs.
 - A Team whose Orchestrator is gone gets a new one with `codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. Removing the final Orchestrator retains the discoverable Team and active Plan identity/history so that command can still name them. It is the ONLY `--role` `--team` accepts, needs no `--workspace`, and carries no other spawn flag. The new Orchestrator takes the Team's active Plan over — owner and owner history move; descendant role bindings follow ordinary unlink rules. A takeover failure removes the spawned replacement and its lane without changing that retained Team or Plan history. A Team that still HAS a live Orchestrator refuses the second one by error code (`team_orchestrator_already_live`); a removed or dead Orchestrator does not count as live.
 
-Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the generated `essences/cli.md`; `~/.claude/skills/codeterm` mirrors the repo `skills/codeterm`.
+Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the generated `generated/cli/cli.md`; `~/.claude/skills/codeterm` mirrors the repo `skills/codeterm`.
 
 ## Mesh (remote peers)
 

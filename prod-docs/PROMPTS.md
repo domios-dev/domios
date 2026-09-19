@@ -86,7 +86,7 @@ Delivery tests assert constant identity, never wording: `prompt_compose::tests` 
 
 A fragment names a command once and points at its owning document for the rest.
 `prompt_cli_references_exist_in_manifest` resolves every surviving command reference
-against `essences/cli-manifest.json`, so a rename cannot leave dead guidance. It validates
+against `generated/cli/cli-manifest.json`, so a rename cannot leave dead guidance. It validates
 references, never prompt wording.
 
 ## Memory worker prompts
@@ -227,4 +227,4 @@ owning loader module (pub const &str)
 - `prod-docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->
