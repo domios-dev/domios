@@ -1,3 +1,8 @@
+---
+name: pty-delivery
+description: "Review or change CodeTerm PTY input delivery under its owner-approval and evidence rules."
+---
+
 # PTY input delivery — the contract
 
 PTY delivery is core infrastructure and it is fragile: every provider TUI
@@ -124,4 +129,3 @@ refusal never re-writes the payload: the single write already happened upstream.
 | Chat send ledger + turn-evidence reconciliation | `service/chat_send_transaction.rs` |
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
-

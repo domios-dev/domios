@@ -1,3 +1,8 @@
+---
+name: cli-contributor
+description: "Change CodeTerm CLI commands and audit generated contracts and consumers."
+---
+
 # Changing the CLI
 
 The clap tree in `cli/src/args/*.rs` is the single source of truth.
@@ -5,11 +10,11 @@ The clap tree in `cli/src/args/*.rs` is the single source of truth.
 When you add/rename/remove a command or flag:
 
 1. Edit the clap definition in `cli/src/args/`.
-2. In canonical, regenerate `essences/cli-manifest.json`, the auto-block of
-   `essences/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` with
+2. In canonical, regenerate `generated/cli/cli-manifest.json`, the auto-block of
+   `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` with
    `cli-manifest --write` run by the CLI built from this checkout (`./build.sh cli`
    does both, and also installs into the active dev data directory; see
-   `essences/build.md` for regenerating without installing). Never hand-edit these
+   `.agents/skills/build/SKILL.md` for regenerating without installing). Never hand-edit these
    three files, and never regenerate them with the installed `codeterm`.
 3. If agent-facing behavior changed, update the wording in
    `src-tauri/prompts/codeterm_cli.md` (it is validated, not generated). For
@@ -37,10 +42,9 @@ CI (`.github/workflows/cli-source-of-truth.yml`) runs all of the above.
   surface offers as a runnable `codeterm …` command resolves to a real
   subcommand chain, and every `--long` on it is an option of that leaf or an
   inherited global. Corpus: the embedded `DOCS`, `skills/**`,
-  `src-tauri/prompts/**`, `essences/cli.md`, and all clap help text.
-- `every_docs_md_is_embedded_or_explicitly_excluded` — a new `docs/*.md` must
-  either join `cmd::docs::DOCS` or be named in `DOCS_EXCLUDED_FROM_EMBEDDING`
-  with a reason. Coverage is a decision, never a default.
+  `src-tauri/prompts/**`, `generated/cli/cli.md`, and all clap help text.
+- `every_doc_embedded_lives_in_prod_docs_and_nothing_else` — an unregistered
+  `prod-docs/*.md` or a registered document outside `prod-docs/` fails.
 - `prompt_cli_commands_exist` — subcommand existence only, over
   `codeterm_cli.md` alone. It trims to the longest resolvable prefix, so it does
   **not** validate flags.
@@ -93,4 +97,3 @@ variants, so they appear in the manifest and docs. The `essence-map` command
 reads only `essences/capabilities.md` and `essences/core.md`; its JSONL contract
 and source-digest checks are documented in `codeterm docs ESSENCE-MAP`. Do not
 reintroduce a separate hand-rolled arg parser.
-

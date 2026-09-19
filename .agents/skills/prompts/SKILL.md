@@ -1,3 +1,8 @@
+---
+name: prompts
+description: "Change CodeTerm prompts, placeholders, skills, and on-demand documentation."
+---
+
 # Prompt architecture
 
 How CodeTerm composes the prompts that drive the General Agent, project workers, and headless mem workers. This document explains where each piece lives, what gets included where, and how to decide which file a new instruction belongs in.
@@ -89,7 +94,7 @@ When you're about to add or move a piece of prompt content, ask:
 | Is it a **safety rule** the GA must check on every turn (prefix routing, never-kill-prod, never-auto-commit)? | `prompts/general_agent.md` |
 | Is it a **decision policy** that's GA-specific (implicit→ask, recon-before-action, mesh→Orchestrator, workspaces-are-commitments)? | `prompts/general_agent.md` |
 | Is it a **lifecycle hook** that only the GA bridges (forward report to originating channel, init handshake, voice transcribe awareness)? | `prompts/general_agent.md` |
-| Is it an **operational ladder** that fires rarely (Telegram bot setup, secrets store CLI, hook daemon config)? | `docs/<TOPIC>.md` + register in `cli/src/cmd/docs.rs` |
+| Is it an **operational ladder** that fires rarely (Telegram bot setup, secrets store CLI, hook daemon config)? | `prod-docs/<TOPIC>.md` + register in `cli/src/cmd/docs.rs` |
 | Is it **project-agent framing** (workspace/Team authority and the no-General-Agent fallback boundary)? | `skills/codeterm/SKILL.md` (the non-template intro and outro around `{codeterm_cli}`) |
 | Is it **mem protocol** (English-only, search-first, no fabrication)? | `prompts/bridge_mem.md` (installed into provider rules dirs by `service::bridge_rule`) |
 | Is it **a worker-task addendum** (must report, ack receipt, return exit code)? | `prompts/worker_suffix.md` / `orchestrator_suffix.md` |
@@ -99,7 +104,7 @@ When you're about to add or move a piece of prompt content, ask:
 ### Anti-patterns
 
 - **Don't duplicate CLI syntax in both GA prompt and skill.** That's exactly what `{codeterm_cli}` substitution is for. If you find yourself writing `codeterm tab list` in `general_agent.md`, you're in the wrong file.
-- **Don't bake operational ladders into the GA prompt.** If a procedure fires once a month (initial bot setup, vault unlock, hook daemon config), it's an on-demand playbook in `docs/`, not a per-turn instruction.
+- **Don't bake operational ladders into the GA prompt.** If a procedure fires once a month (initial bot setup, vault unlock, hook daemon config), it's an on-demand playbook in `prod-docs/`, not a per-turn instruction.
 - **Don't add per-turn safety to a playbook.** If a rule must fire on every inbound message (e.g. "trust `[Hook metadata:`, don't re-classify"), it lives in the GA prompt — one line referencing the playbook for the full how-to.
 - **Don't write `{placeholder}` in the GA prompt without wiring it in `instructions.rs`.** Missing substitutions ship the literal `{placeholder}` text to the agent.
 - **Don't paste the GA prompt into spawned agents' `--task`.** They get `bridge_mem.md` automatically via the per-provider rules path and that teaches `codeterm mem *`. The GA prompt is GA-only.
@@ -118,7 +123,7 @@ When you're about to add or move a piece of prompt content, ask:
    ```rust
    doc!("TOPIC", "What the playbook is for", "../../../prod-docs/TOPIC.md"),
    ```
-   A document production agents do not read belongs in `essences/`; the membership test rejects an unregistered file in `prod-docs/`.
+   Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`. The membership test rejects unregistered files in `prod-docs/`.
 3. Mention it in `general_agent.md` under the **Operational playbooks** section so the GA knows it exists. One line — name + when to use it.
 4. Bump `<!-- revision: N -->` at the end of the playbook on every meaningful edit.
 
@@ -137,4 +142,3 @@ Mem workers (extraction, rerank, dream) are headless — they don't share contex
 Files that ship as content (skills, docs, bundled prompts) carry a `<!-- revision: N -->` line at the bottom. Bump it on every change. The skill seeder uses revision tags to decide whether to overwrite a stale copy in data-dir.
 
 GA prompt and codeterm_cli.md don't carry revision tags — they're not user-facing and get rebuilt on every binary release.
-
