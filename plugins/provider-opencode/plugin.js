@@ -713,9 +713,8 @@ var plugin = {
   discoverModels() {
     return discoverOpencodeModels() || manifestModels();
   },
-  // Cumulative usage per upstream company, read from opencode's own session
-  // store. Groups are keyed by the model-id prefix (providerID) so the picker
-  // can match a model to its usage without core knowing any vendor.
+  // Cumulative usage per upstream company comes from OpenCode's session store.
+  // Model-id prefixes match picker groups, keeping vendor knowledge out of core.
   modelGroupUsage() {
     return discoverOpencodeGroupUsage();
   },
