@@ -376,11 +376,20 @@ fn tab_title_matches_friendly_name() {
 fn tab_title_contains_outranks_title_contains() {
     // Tab title is more user-facing than the raw tab.title; "fib" should hit Fibonacci's tab over a tab that just has "fib" in its title.
     let tabs = vec![
-        json!({"id": "aa11", "title": "ignore-me-fib"}),
+        json!({"id": "aa11", "title": "ignore-me-fib", "tab_title": "Other"}),
         json!({"id": "bb22", "title": "claude", "tab_title": "Fibonacci"}),
     ];
     let ranked = rank_ids("fib", &tabs);
     assert_eq!(ranked.first().map(String::as_str), Some("bb22"));
+}
+
+#[test]
+fn title_only_tab_name_is_rendered_and_searchable() {
+    let tab = json!({"id":"abcd1234", "title":"Dalton"});
+    let ranked = rank_ids("dalton", std::slice::from_ref(&tab));
+
+    assert_eq!(ranked, vec!["abcd1234".to_string()]);
+    assert!(format_tab_row(&tab).contains("Dalton"));
 }
 
 #[test]

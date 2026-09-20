@@ -1,9 +1,9 @@
 # Spawned-agent primer
 
 This prompt eval proves that every spawned agent knows the shared rendering
-surface, its sandbox limits, batched-edit discipline, role-scoped notification and
-reporting rules, and that a question for the user goes through notify rather
-than a provider-native ask tool.
+surface, its sandbox limits, tab identity, batched-edit discipline, role-scoped
+notification and reporting rules, and that a question for the user goes through
+notify rather than a provider-native ask tool.
 
 ## Run
 
@@ -16,7 +16,7 @@ python .agents/skills/prompt-evaluator/runner.py \
 
 ## Pass
 
-The report shows all six cases passing for all three samples and the runner
+The report shows all seven cases passing for all three samples and the runner
 exits zero.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

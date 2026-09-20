@@ -222,6 +222,10 @@ pub async fn create_shell_tab(
     Json(mut body): Json<CreateShellTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if let Some(title) = body.title.as_deref() {
+        crate::service::tab::validate_tab_title(title)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    }
     if body.creator_tab_id.is_none() {
         body.creator_tab_id = caller_tab_header(&headers);
     }
@@ -650,6 +654,8 @@ pub async fn rename_tab(
     Json(body): Json<RenameTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    crate::service::tab::validate_tab_title(&body.title)
+        .map_err(|_| (StatusCode::BAD_REQUEST, crate::service::tab::TAB_TITLE_ERROR))?;
     let tab_id = resolve_tab(&state, &raw_tab_id)?;
     let result = crate::dispatch::dispatch(
         &crate::dispatch::Command::TabRename {

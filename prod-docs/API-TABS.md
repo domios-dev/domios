@@ -11,8 +11,8 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `id` | `string` | Unique tab ID (8-char hex, e.g. `a3f1b2c7`) |
 | `pty_id` | `string` | Associated PTY process ID |
 | `tab_type` | `string` | `"Terminal"` or `"Choice"` |
-| `title` | `string` | Display title (user-pinned or auto-detected) |
-| `description` | `string?` | Short tab summary, max 200 chars. Shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
+| `title` | `string` | The tab's single-word name. This is the sole name field in tab payloads. |
+| `description` | `string?` | Short tab summary, max 200 chars. Put activity prose here; shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
@@ -236,4 +236,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
