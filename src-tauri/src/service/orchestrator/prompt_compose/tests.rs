@@ -16,6 +16,12 @@ fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
         spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
     assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
+    assert_eq!(
+        prompt
+            .matches(crate::prompts::ORCH_CHILD_PTY_RECOVERY_TRIGGER)
+            .count(),
+        1
+    );
 }
 
 #[test]

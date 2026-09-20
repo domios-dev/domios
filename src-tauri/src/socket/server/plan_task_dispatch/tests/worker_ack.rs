@@ -305,6 +305,17 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
         event["attempt_state"],
         crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
     );
+    assert_eq!(
+        event["recovery"]["capability"],
+        crate::prompts::INTERACTIVE_CHILD_PTY_CAPABILITY_ID
+    );
+    assert_eq!(event["recovery"]["target_tab_id"], "tab");
+    assert_eq!(event["recovery"]["attempt_id"], "attempt");
+    assert!(event["recovery"]["primitives"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|primitive| primitive.as_str() == Some("codeterm tab get-text --tab tab")));
     assert!(event.get("cleanup").is_none());
     assert!(event.get("cleanup_error").is_none());
 }

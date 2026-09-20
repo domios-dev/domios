@@ -24,7 +24,8 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 
 | File | Const | Category | Placeholders | Injection point |
 |---|---|---|---|---|
-| `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
+| `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` `{interactive_child_pty_operation}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
+| `interactive_child_pty.md` | `INTERACTIVE_CHILD_PTY_OPERATION` | Shared child PTY recovery procedure | — | `service/general_agent/instructions.rs`, `prompts.rs`, and `commands/skills.rs` — delivered to the General Agent and codeterm skill; the Orchestrator trigger refers to it by capability id |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
 | `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/prompt_compose.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
 | `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker CodeTerm context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
@@ -38,7 +39,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `team_creation_contract.md` | `TEAM_CREATION_CONTRACT` | Shared Team-boundary fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that can create agents and the role that must ask for them share one contract |
 | `task_sequencing_contract.md` | `TASK_SEQUENCING_CONTRACT` | Orchestrator sequencing fragment | — | `prompts.rs` — substituted into `orchestrator_suffix.md`: which tasks are actionable, group regression and retrospective records, and the rare plan-level pause |
 | `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role prefix | `{test_author_guidance}` `{planning_compaction_contract}` `{team_creation_contract}` | `prompts.rs` — rendered before the complete embedded `prod-docs/PLANNER.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role prefix | `{task_sequencing_contract}` `{planning_compaction_contract}` `{team_creation_contract}` | `prompts.rs` — rendered before the complete embedded `prod-docs/ORCHESTRATION.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
+| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role prefix | `{task_sequencing_contract}` `{planning_compaction_contract}` `{team_creation_contract}` `{child_pty_recovery_trigger}` | `prompts.rs` — rendered before the complete embedded `prod-docs/ORCHESTRATION.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
 | `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
 | `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
@@ -80,7 +81,7 @@ Substitution is plain, ordered `String::replace()` with no template engine:
 - **General Agent** — `general_cli_reference()` appends it to the CLI reference unconditionally, so a moved section heading cannot drop it.
 - **`codeterm` skill** — `commands/skills.rs` substitutes it into `skills/codeterm/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
 
-Delivery tests assert constant identity, never wording: `prompt_compose::tests` covers each launch class, `skills_seed_tests::seed_renders_agent_pad_rule_from_constant` covers the skill, the GA writer covers `AGENT.md`/`AGENTS.md`, and `prompts.rs::agent_pad_rule_has_exactly_one_source` rejects duplicate sources.
+Delivery tests assert constant identity, never wording: `prompt_compose::tests` covers each launch class, `skills_seed_tests::seed_renders_shared_codeterm_fragments_from_constants` covers the skill, the GA writer covers `AGENT.md`/`AGENTS.md`, and `prompts.rs::agent_pad_rule_has_exactly_one_source` rejects duplicate sources.
 
 ### CLI grammar in prompts
 
@@ -227,4 +228,4 @@ owning loader module (pub const &str)
 - `prod-docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

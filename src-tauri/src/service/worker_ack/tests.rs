@@ -128,6 +128,26 @@ fn worker_ack_timeout_reports_a_surviving_finalized_attempt() {
     assert_eq!(event["kind"], "worker_ack_startup_failed");
     assert_eq!(event["tab_state"], TAB_STATE_ALIVE_AWAITING_INSPECTION);
     assert_eq!(event["attempt_state"], ATTEMPT_STATE_FINALIZED);
+    assert_eq!(
+        event["recovery"]["capability"],
+        crate::prompts::INTERACTIVE_CHILD_PTY_CAPABILITY_ID
+    );
+    assert_eq!(event["recovery"]["target_tab_id"], "tab");
+    assert_eq!(event["recovery"]["attempt_id"], "attempt");
+    let primitives = event["recovery"]["primitives"].as_array().unwrap();
+    for primitive in [
+        "codeterm tab inspect --tab tab",
+        "codeterm tab status --tab tab",
+        "codeterm tab get-text --tab tab",
+        "codeterm tab respond OPTION --tab tab",
+    ] {
+        assert!(primitives
+            .iter()
+            .any(|value| value.as_str() == Some(primitive)));
+    }
+    assert!(primitives.iter().any(|value| value
+        .as_str()
+        .is_some_and(|value| value.starts_with("codeterm send --tab tab --actions "))));
     assert!(event.get("cleanup").is_none());
     assert!(event.get("cleanup_error").is_none());
     assert_eq!(
@@ -446,6 +466,12 @@ fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
     );
     assert_eq!(event["tab_state"], TAB_STATE_ALIVE_AWAITING_INSPECTION);
     assert_eq!(
+        event["recovery"]["capability"],
+        crate::prompts::INTERACTIVE_CHILD_PTY_CAPABILITY_ID
+    );
+    assert_eq!(event["recovery"]["target_tab_id"], "child");
+    assert_eq!(event["recovery"]["attempt_id"], "launch-a");
+    assert_eq!(
         event["hold"],
         "codeterm agent startup-hold --tab child --attempt launch-a"
     );
@@ -472,6 +498,10 @@ fn expired_startup_reports_a_surviving_tab_without_cleanup_schema() {
         (AGENT_STARTUP_NOTICE_TIMEOUT + AGENT_STARTUP_FINAL_TIMEOUT).as_secs()
     );
     assert_eq!(event["tab_state"], TAB_STATE_ALIVE_AWAITING_INSPECTION);
+    assert_eq!(
+        event["recovery"]["capability"],
+        crate::prompts::INTERACTIVE_CHILD_PTY_CAPABILITY_ID
+    );
     assert!(event.get("cleanup").is_none());
     assert!(event.get("cleanup_error").is_none());
     assert_eq!(event["provider"]["exit_code"], 17);
