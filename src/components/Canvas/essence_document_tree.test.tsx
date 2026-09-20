@@ -19,13 +19,13 @@ const node = (id: string, path: string): EssenceMapProject["nodes"][number] => (
 describe("essence_document_tree", () => {
   it("essence_tree_source lists the on-disk set and keeps map context", () => {
     const entries = essenceDocumentEntries(project([
-      node("a", "essences/core.md"), node("b", "essences/core.md"), node("c", "essences/contributing/style.md"),
-    ], ["essences/core.md", "essences/contributing/style.md", "essences/build-machine/README.md"]));
+      node("a", "essences/core.md"), node("b", "essences/core.md"), node("c", "essences/vision.md"),
+    ], ["essences/core.md", "essences/vision.md", "essences/capabilities.md"]));
     expect(entries.map((entry) => entry.path)).toEqual([
-      "essences/core.md", "essences/contributing/style.md", "essences/build-machine/README.md",
+      "essences/core.md", "essences/vision.md", "essences/capabilities.md",
     ]);
     expect(entries[0].node.id).toBe("a");
-    expect(entries[2].node.id).toBe("document:essences/build-machine/README.md");
+    expect(entries[2].node.id).toBe("document:essences/capabilities.md");
   });
 
   it("rejects traversal and paths outside essences", () => {
@@ -34,7 +34,7 @@ describe("essence_document_tree", () => {
 
   it("essence_tree_source selects an unreferenced document through the exact source panel", async () => {
     const source = { path: "essences/core.md", anchor: "capability:core", sha256: "a".repeat(64) };
-    const map: EssenceMapProject = project([{ kind: "node", id: "capability:core", type: "capability", label: "Core", vector: null, status: "stable", source }], ["essences/core.md", "essences/contributing/unreferenced.md"]);
+    const map: EssenceMapProject = project([{ kind: "node", id: "capability:core", type: "capability", label: "Core", vector: null, status: "stable", source }], ["essences/core.md", "essences/vision.md"]);
     const workspace: Workspace = { id: "ws", name: "Workspace", tabs: [], active_tab_id: null, cwd: "/repo" };
     const sourceReader = vi.fn(async () => "# exact core source");
     const host = document.createElement("div");
@@ -47,11 +47,11 @@ describe("essence_document_tree", () => {
     expect(host.querySelector('[data-testid="essence-map-projects"]')).toBeNull();
     expect(host.querySelector('[data-testid="essence-map-document-surface"]')).not.toBeNull();
     expect(host.querySelectorAll('[data-testid="essence-document"]')).toHaveLength(2);
-    const unreferenced = host.querySelector<HTMLButtonElement>('[data-document-path="essences/contributing/unreferenced.md"]');
+    const unreferenced = host.querySelector<HTMLButtonElement>('[data-document-path="essences/vision.md"]');
     expect(unreferenced).not.toBeNull();
     await act(async () => unreferenced?.click());
     await act(async () => { await Promise.resolve(); });
-    expect(sourceReader).toHaveBeenCalledWith("/repo", "essences/contributing/unreferenced.md");
+    expect(sourceReader).toHaveBeenCalledWith("/repo", "essences/vision.md");
     expect(host.querySelector('[data-testid="essence-source-panel"]')?.textContent).toContain("exact core source");
     await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="essence-map-view-toggle"]')?.click());
     expect(host.querySelector('[data-testid="essence-document-tree"]')).toBeNull();

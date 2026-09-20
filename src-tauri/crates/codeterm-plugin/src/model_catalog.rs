@@ -19,7 +19,7 @@
 //!
 //! ## User override format
 //!
-//! See `essences/models.md`. README is auto-installed to
+//! See `essences/capabilities.md#agent-models`. README is auto-installed to
 //! `<data_dir>/models/README.md` on first run.
 
 use std::collections::HashMap;

@@ -1,6 +1,6 @@
 *.sh text eol=lf
-essences/cli.md text eol=lf
-essences/cli-manifest.json text eol=lf
+generated/cli/cli.md text eol=lf
+generated/cli/cli-manifest.json text eol=lf
 
 .codeterm/plans/**/strides.jsonl merge=union
 
