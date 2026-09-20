@@ -5,24 +5,25 @@ description: "Provision or restore CodeTerm self-hosted build machines and runne
 
 ## Build machine setup
 
-How this Mac was turned into a local, all-platform CodeTerm build machine — able to produce
+How the Mac and ROG runners produce
 signed/notarized macOS, Windows (NSIS), and Linux (`.deb`) artifacts **without GitHub Actions
-minutes**, in clean builds, 3 architectures in parallel per wave.
+minutes**, in clean builds.
 
 > Scaffolding lives in [`.codeterm/build-machine/`](../../.codeterm/build-machine) (Dockerfiles +
 > orchestrator). The release pipeline itself is the `github-release` skill
 > (`.agents/skills/github-release/`). This doc is the from-scratch *setup* record.
 
-## Topology: 3 engines × 2 waves
+## Topology: platform jobs across three runners
 
-One physical Mac drives three independent build engines; each builds **one** arch per wave, so
-three artifacts build concurrently. Two waves (arm64 family, then x86_64 family) cover all six.
+The single release workflow starts three platform jobs in parallel. The Mac job overlaps its two
+macOS architectures and builds arm64 Linux in Docker; the ROG runners build x86_64 Linux and both
+Windows architectures.
 
 | Engine | Where | Builds |
 |--------|-------|--------|
-| **mac host** | native Apple Silicon | macOS aarch64 + x86_64 (`.dmg` + updater `.app.tar.gz`, Developer ID + notarized) |
-| **docker** | baked Linux images on the arm64 Docker host | Linux arm64 `.deb` + x86_64 `.deb` (cross) |
-| **windows (ROG)** | self-hosted runner `release-windows.yml` (RETIRED Mac/QEMU/SSH path) | Windows arm64 + x86_64 NSIS `.exe` |
+| **mac host + Docker** | native Apple Silicon and baked Linux arm64 image | macOS aarch64 + x86_64 (`.dmg` + updater `.app.tar.gz`, Developer ID + notarized); Linux arm64 `.deb` + `.AppImage` |
+| **Linux (ROG/WSL2)** | self-hosted runner `release-linux.yml` | Linux x86_64 `.deb` + `.AppImage`, native |
+| **Windows (ROG)** | self-hosted runner `release-windows.yml` (RETIRED Mac/QEMU/SSH path) | Windows arm64 + x86_64 NSIS `.exe` |
 
 Builds are **clean**: each engine fresh-clones the tag (via an auth-free `git bundle`), no cargo
 target cache leaks. The slow parts (toolchains, system deps) are pre-baked into the Docker images
@@ -34,7 +35,8 @@ Orchestrate: `.codeterm/build-machine/scripts/build-all.sh vX.Y.Z`.
 
 ## Engine 1 — macOS native
 
-The Mac builds the macOS artifacts directly and is the only place the signing keys live.
+The Mac builds and signs macOS artifacts; its local minisign key also signs the arm64 Linux
+AppImage.
 
 **Prereqs (once):**
 - Xcode + command line tools.
@@ -48,8 +50,8 @@ The Mac builds the macOS artifacts directly and is the only place the signing ke
   xcrun notarytool store-credentials codeterm \
     --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
   ```
-- Minisign updater key at `~/.tauri/codeterm.key` (+ `.pub`). **The private key never leaves the
-  Mac** — Windows/Linux installers are pulled back here and signed locally.
+- Minisign updater key at `~/.tauri/codeterm.key` (+ `.pub`) for macOS and arm64 Linux. Windows and
+  x86_64 Linux updater bundles use `TAURI_SIGNING_PRIVATE_KEY` from Actions secrets on their runners.
 
 **Secrets — restore from the Bitwarden vault** (`codeterm mem secret get --name <slug>`):
 
@@ -83,22 +85,20 @@ The Mac no longer builds Windows. The old path — a headless Windows-11-on-ARM 
 over SSH (`vm.sh`, `~/.ssh/codeterm-win-build`, `WIN_SSH*`/`WIN_VM_SSHPASS`, the
 `build-windows.sh`/`setup-win-ssh-key.sh` scripts) — is **gone**. Windows now builds + signs
 **natively on the ROG self-hosted runner** (`ROG-windows-build`, label `windows-build`) via
-`.github/workflows/release-windows.yml`, fired by the same `release-X.Y.Z` tag. Runner toolchain
-and provisioning: `.codeterm/build-machine/README.md`.
+the reusable Windows job in `.github/workflows/release-windows.yml`, called by the single
+`.github/workflows/release.yml` run for `release-X.Y.Z`. Runner toolchain and provisioning:
+`.codeterm/build-machine/README.md`.
 
 ---
 
-## Engine 3 — Linux via Docker (arm64 native + x86_64 cross)
+## Engine 3 — Linux via Docker (arm64 native; x86_64 on ROG/WSL2)
 
 Two baked images in [`.codeterm/build-machine/docker/`](../../.codeterm/build-machine/docker):
 
 - **`Dockerfile.linux-arm64`** — `rust:1-trixie` + webkit2gtk-4.1 / gtk3 / etc. dev libs + Node 22
   + pnpm + Rust 1.95. Native aarch64 build → `.deb` (+ AppImage).
-- **`Dockerfile.linux-x64`** — same base + `crossbuild-essential-amd64` + the **amd64 dev libs
-  installed into the system via multiarch** (`dpkg --add-architecture amd64`, then
-  `apt-get install --force-overwrite libwebkit2gtk-4.1-dev:amd64 …`). `rustc` runs **native arm64**;
-  target code is linked for x86_64 with `x86_64-linux-gnu-gcc` against the real
-  `/usr/lib/x86_64-linux-gnu`. → x86_64 `.deb`.
+- **`Dockerfile.linux-x64`** — retained for ad-hoc cross-builds. Release x86_64 Linux builds
+  natively on the ROG's WSL2 Ubuntu runner because the x86_64 AppImage tool cannot run on arm64.
 
 ```bash
 cd .codeterm/build-machine/docker
@@ -106,15 +106,16 @@ docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .
 docker build -t codeterm-build-linux-x64   -f Dockerfile.linux-x64   .
 ```
 
-Run: `build-linux.sh <tag> [bundles]` inside the image (clone tag → `pnpm install` → `tauri build`
-→ collect). **Docker Desktop memory must be ≳20 GiB** — the `codeterm` lib crate needs ~8 GiB to
-compile and the OOM killer otherwise SIGKILLs `rustc`.
+Run: `build-linux.sh <tag> [bundles]` inside the image for arm64 release builds or ad-hoc
+cross-builds (clone tag → `pnpm install` → `tauri build` → collect). **Docker Desktop memory must
+be ≳20 GiB** — the `codeterm` lib crate needs ~8 GiB to compile and the OOM killer otherwise
+SIGKILLs `rustc`.
 
 ### Why these exact choices (hard-won)
 
-- **x86_64 Linux is cross-compiled, never emulated.** QEMU user-mode amd64 (`docker --platform
-  linux/amd64` / `cross`) **segfaults `rustc`** on an arm64 host. Native arm64 `rustc` +
-  cross-linker is the only reliable path.
+- **Release x86_64 Linux runs natively on the ROG's WSL2 runner.** The retained Docker x64 image
+  uses native arm64 `rustc` plus a cross-linker for ad-hoc `.deb` builds; QEMU user-mode amd64
+  (`docker --platform linux/amd64` / `cross`) **segfaults `rustc`** on an arm64 host.
 - **System multiarch libs, not a hand-built sysroot.** Extracting `.deb`s into a `/sysroot` misses
   the usrmerge `/lib`→`/usr/lib`, `/lib64/ld-linux-x86-64.so.2`, and transitive `.pc` chain →
   endless "cannot find … inside /sysroot" / "gdk-3.0 not found" whack-a-mole. Installing the amd64
@@ -136,24 +137,22 @@ compile and the OOM killer otherwise SIGKILLs `rustc`.
 
 Driven by the `github-release` skill. Summary:
 
-1. Bump version on master, tag `vX.Y.Z`, build from the tag.
-2. Build all engines (orchestrator, or per-engine).
-3. macOS: signed + notarized DMGs + `.app.tar.gz` updater bundles (minisign).
-4. Windows/Linux installers pulled to the Mac, updater-signed there.
-5. Upload source artifacts to private **`rollacode/codeterm`**; mirror artifacts + signed
-   updater manifests to public **`rollacode/codeterm-releases`** (the GUI updater endpoint baked
-   into `tauri.conf.json` points at the public mirror — private-repo assets aren't anonymously
-   reachable).
-6. `latest.json` covers `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64` (+ `linux-x86_64`
-   only when a real x86_64 Linux AppImage exists). `latest-deb.json` covers deb-installed Linux.
-   Verify anon `HTTP 200` on every updater URL and that `codeterm update check` sees the new
-   version.
+1. Bump version on master and push the single `release-X.Y.Z` trigger tag.
+2. One `release.yml` run prepares draft releases, then starts Mac + arm64 Linux, x86_64 Linux,
+   and Windows platform jobs in parallel.
+3. macOS builds signed + notarized DMGs and `.app.tar.gz` updater bundles; Linux builds AppImage
+   and Debian packages; Windows builds signed NSIS installers.
+4. Each platform job uploads its source artifacts and mirrors large assets. The final manifest job
+   waits for every platform job, merges the updater fragments, publishes signed manifests to the
+   public **`rollacode/codeterm-releases`** mirror, marks releases, and verifies served bytes.
+5. `latest.json` keeps the Tauri updater platform records; `latest-deb.json` remains separate for
+   Debian-installed Linux. Verification checks every shipped updater URL before issue closure.
 
 ## Tag-driven CI (implemented) + persistence
 
-This is live as of v1.4.5. `.github/workflows/release.yml` runs on the self-hosted runner; pushing
-a `release-X.Y.Z` tag builds+signs+notarizes+publishes all platforms hands-off (see the
-`github-release` skill "Default release path"). Self-hosted runner minutes are free.
+This is live as of v1.4.5. Pushing a `release-X.Y.Z` tag starts one `.github/workflows/release.yml`
+run with parallel self-hosted platform jobs and a final manifest verifier (see the `github-release`
+skill "Default release path"). Self-hosted runner minutes are free.
 
 For the machine to survive reboots / crashes without anyone babysitting a terminal, the three
 engines must each be self-starting:
@@ -175,10 +174,11 @@ engines must each be self-starting:
    Optionally also enable Docker Desktop → Settings → General → "Start Docker Desktop when you sign
    in". Docker memory ≥ 11 GiB with `CARGO_BUILD_JOBS=2` (set in the images), or ≥ 20 GiB for `=6`.
 
-3. **Windows + x86_64 Linux — their own ROG runners.** Windows builds on the ROG self-hosted runner
-   (`release-windows.yml`) and x86_64 Linux on the ROG's WSL2 runner (`release-linux.yml`), both
-   fired by the same `release-X.Y.Z` tag. No QEMU VM, no SSH, no `WIN_VM_SSHPASS` — each runner
-   builds, signs, and publishes itself. Provisioning: `.codeterm/build-machine/README.md`.
+3. **Windows + x86_64 Linux — their own ROG runners.** The single release run calls the reusable
+   Windows job (`release-windows.yml`) and x86_64 Linux job (`release-linux.yml`) on the ROG's
+   self-hosted runners. No QEMU VM, no SSH, no `WIN_VM_SSHPASS`; each platform job builds and signs
+   its artifacts before the final manifest job publishes the release. Provisioning:
+   `.codeterm/build-machine/README.md`.
 
 ## Redeploying on a fresh Mac (checklist)
 
