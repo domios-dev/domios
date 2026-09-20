@@ -957,13 +957,13 @@ fn acknowledge_authenticated_launch(
     report_nonce: Option<&str>,
 ) -> bool {
     authenticated_launch_identity(mux, tab_id, claim, report_nonce).is_some_and(|binding| {
-        // The same proof the launch registry takes is this launch's readiness.
-        crate::service::launch_readiness::note_acknowledged(
+        let launch_acknowledged = crate::service::record_provider_session(tab_id, &binding);
+        let readiness_acknowledged = crate::service::launch_readiness::note_acknowledged(
             tab_id,
             &binding.pty_id,
             &binding.binding_nonce,
         );
-        crate::service::record_provider_session(tab_id, &binding)
+        launch_acknowledged || readiness_acknowledged
     })
 }
 
