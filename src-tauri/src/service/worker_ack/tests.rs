@@ -209,6 +209,34 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
 }
 
 #[test]
+fn repeated_startup_ack_is_an_explicit_no_op_for_the_same_attempt() {
+    let registry = WorkerAckRegistry::default();
+    let ready = registry.arm_startup(creator_authority("tab-a", "launch-a"));
+
+    assert_eq!(
+        registry.acknowledge_startup("tab-a", "launch-a"),
+        Some(AgentStartupAcknowledgement::Acknowledged)
+    );
+    assert_eq!(ready.recv().unwrap(), AgentStartupSignal::Ready);
+    assert_eq!(
+        registry.acknowledge_startup("tab-a", "launch-a"),
+        Some(AgentStartupAcknowledgement::AlreadyAcknowledged)
+    );
+    assert_eq!(registry.acknowledge_startup("tab-a", "launch-b"), None);
+
+    let replacement = registry.arm_startup(creator_authority("tab-a", "launch-b"));
+    assert_eq!(
+        registry.acknowledge_startup("tab-a", "launch-a"),
+        None
+    );
+    assert_eq!(
+        registry.acknowledge_startup("tab-a", "launch-b"),
+        Some(AgentStartupAcknowledgement::Acknowledged)
+    );
+    assert_eq!(replacement.recv().unwrap(), AgentStartupSignal::Ready);
+}
+
+#[test]
 fn launch_command_finish_cannot_outrank_readiness() {
     let registry = WorkerAckRegistry::default();
     let receiver = registry.arm_startup(creator_authority("tab-a", "launch-a"));
@@ -448,4 +476,73 @@ fn expired_startup_reports_a_surviving_tab_without_cleanup_schema() {
     assert!(event.get("cleanup_error").is_none());
     assert_eq!(event["provider"]["exit_code"], 17);
     assert_eq!(event["provider"]["output"], "synthetic provider rejection");
+}
+
+#[test]
+fn worker_ack_notice_is_a_short_single_line_with_agent_provider_and_attempt() {
+    let notice = worker_lifecycle_notice(
+        "Otto",
+        Some("opencode"),
+        None,
+        &json!({
+            "kind": "worker_ack",
+            "task_id": "task_g94uu5",
+            "attempt_id": "attempt_rjd7ab",
+        }),
+    );
+
+    assert_eq!(notice.lines().count(), 1);
+    assert!(!notice.starts_with('{'));
+    assert!(notice.contains("Otto"));
+    assert!(notice.contains("opencode"));
+    assert!(notice.contains("task_g94uu5"));
+    assert!(notice.contains("attempt_rjd7ab"));
+    assert!(notice.len() < 180);
+}
+
+#[test]
+fn provider_startup_failure_is_in_the_single_line_notice() {
+    let notice = worker_lifecycle_notice(
+        "Nora",
+        Some("opencode"),
+        None,
+        &json!({
+            "kind": "agent_startup_failed",
+            "attempt_id": "attempt-launch",
+            "provider": {
+                "exit_code": 1,
+                "output": "provider dialog\nInsufficient account funds",
+            },
+        }),
+    );
+
+    assert_eq!(notice.lines().count(), 1);
+    assert!(!notice.starts_with('{'));
+    assert!(notice.contains("Nora"));
+    assert!(notice.contains("opencode"));
+    assert!(notice.contains("attempt-launch"));
+    assert!(notice.contains("Insufficient account funds"));
+    assert!(notice.len() < 280);
+}
+
+#[test]
+fn task_startup_failure_detail_is_in_the_short_worker_notice() {
+    let notice = worker_lifecycle_notice(
+        "Otto",
+        Some("opencode"),
+        Some("Insufficient account funds"),
+        &json!({
+            "kind": "worker_ack_startup_failed",
+            "task_id": "task_g94uu5",
+            "attempt_id": "attempt_rjd7ab",
+        }),
+    );
+
+    assert_eq!(notice.lines().count(), 1);
+    assert!(notice.contains("Otto"));
+    assert!(notice.contains("opencode"));
+    assert!(notice.contains("task_g94uu5"));
+    assert!(notice.contains("attempt_rjd7ab"));
+    assert!(notice.contains("Insufficient account funds"));
+    assert!(notice.len() < 280);
 }

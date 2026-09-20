@@ -575,7 +575,8 @@ impl PlanStore {
         tab_id: &str,
         attempt_id: &str,
         now_ms: u64,
-    ) -> Result<super::task_attempts::TaskAttemptCreated, PlanError> {
+    ) -> Result<super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
+        let _writer_turn = self.mutation_writer.enter();
         let current_task = self.read_task_for_verification(plan_id, task_id)?;
         let Some((current_attempt, competitive)) =
             startup_attempt(&current_task, tab_id, attempt_id)
@@ -586,17 +587,12 @@ impl PlanStore {
             ));
         };
         if current_attempt.acknowledged_at.is_some() {
-            if current_task.status != crate::plan::TaskStatus::InProgress {
-                return Err(Self::task_readback_error(
-                    "task_dispatch_ack",
-                    "acknowledged attempt no longer owns an acknowledged task",
-                ));
-            }
             let attempt = current_attempt.clone();
-            return Ok(super::task_attempts::TaskAttemptCreated {
+            return Ok(super::task_attempts::TaskAttemptAcknowledgement {
                 plan_id: plan_id.to_string(),
                 task_id: current_task.id,
                 attempt,
+                already_acknowledged: true,
             });
         }
         if !startup_status_allows(&current_task) {
@@ -606,7 +602,7 @@ impl PlanStore {
             ));
         }
         let mut acknowledged = None;
-        let write = self.with_plan(plan_id, now_ms, |plan| {
+        let write = self.with_plan_in_writer(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt_index = plan.tasks[task_index]
@@ -671,10 +667,11 @@ impl PlanStore {
             Ok(())
         })();
         pending_after_verified(write, verified, Some(task_id.to_string()))?;
-        Ok(super::task_attempts::TaskAttemptCreated {
+        Ok(super::task_attempts::TaskAttemptAcknowledgement {
             plan_id: plan_id.to_string(),
             task_id: task_id.to_string(),
             attempt,
+            already_acknowledged: false,
         })
     }
 
@@ -741,12 +738,14 @@ impl PlanStore {
         plan_hint: Option<&str>,
         task_hint: Option<&str>,
         now_ms: u64,
-    ) -> Result<super::task_attempts::TaskAttemptCreated, PlanError> {
+    ) -> Result<super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
         let bound = self.live_task_attempts_for_tab(tab_id);
         let acknowledgeable = bound
             .iter()
             .filter(|candidate| {
-                candidate.plan_active && candidate.task_status.counts_as_open_work()
+                candidate.plan_active
+                    && (candidate.task_status.counts_as_open_work()
+                        || candidate.attempt.acknowledged_at.is_some())
             })
             .collect::<Vec<_>>();
         let selected = match acknowledgeable.len() {

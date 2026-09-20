@@ -46,6 +46,12 @@ pub(crate) enum AgentStartupSignal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentStartupAcknowledgement {
+    Acknowledged,
+    AlreadyAcknowledged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AgentStartupNoticeOutcome {
     Resolved,
     Overdue { exit_code: Option<i32> },
@@ -112,6 +118,7 @@ fn startup_ack_owns_attempt(
 pub(crate) struct WorkerAckRegistry {
     waiters: Mutex<HashMap<String, WorkerAckWaiter>>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
+    startup_acknowledged: Mutex<HashMap<String, String>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
 }
@@ -158,41 +165,56 @@ impl WorkerAckRegistry {
 
     pub(crate) fn arm_startup(&self, authority: StartupAuthority) -> Receiver<AgentStartupSignal> {
         let (sender, receiver) = mpsc::channel();
-        let previous = self.startup_waiters.lock().insert(
+        let mut startup_waiters = self.startup_waiters.lock();
+        self.startup_acknowledged
+            .lock()
+            .remove(&authority.child_tab_id);
+        let previous = startup_waiters.insert(
             authority.child_tab_id.clone(),
             AgentStartupWaiter { authority, sender },
         );
+        drop(startup_waiters);
         if let Some(previous) = previous {
             let _ = previous.sender.send(AgentStartupSignal::Superseded);
         }
         receiver
     }
 
-    /// Retire the exact matching waiter and, when it carried a Team lease,
-    /// release that lease: a started attempt makes its Team a normal Team.
-    fn retire_startup_waiter(
+    pub(crate) fn mark_startup_ready(&self, tab_id: &str, attempt_id: &str) -> bool {
+        self.acknowledge_startup(tab_id, attempt_id).is_some()
+    }
+
+    pub(crate) fn acknowledge_startup(
         &self,
         tab_id: &str,
         attempt_id: &str,
-        signal: AgentStartupSignal,
-    ) -> Option<StartupAuthority> {
-        let waiter = {
+    ) -> Option<AgentStartupAcknowledgement> {
+        let (acknowledgement, team_id) = {
             let mut waiters = self.startup_waiters.lock();
-            match waiters.get(tab_id) {
-                Some(waiter) if waiter.authority.attempt_id == attempt_id => waiters.remove(tab_id),
-                _ => None,
+            if waiters
+                .get(tab_id)
+                .is_some_and(|waiter| waiter.authority.attempt_id == attempt_id)
+            {
+                let waiter = waiters.remove(tab_id)?;
+                let AgentStartupWaiter { authority, sender } = waiter;
+                let _ = sender.send(AgentStartupSignal::Ready);
+                self.startup_acknowledged
+                    .lock()
+                    .insert(tab_id.to_string(), attempt_id.to_string());
+                (AgentStartupAcknowledgement::Acknowledged, authority.team_id)
+            } else {
+                let acknowledged = self.startup_acknowledged.lock();
+                if acknowledged.get(tab_id).is_some_and(|id| id == attempt_id) {
+                    (AgentStartupAcknowledgement::AlreadyAcknowledged, None)
+                } else {
+                    return None;
+                }
             }
-        }?;
-        let AgentStartupWaiter { authority, sender } = waiter;
-        if let Some(team_id) = authority.team_id.as_deref() {
+        };
+        if let Some(team_id) = team_id.as_deref() {
             self.release_startup_lease(team_id);
         }
-        sender.send(signal).is_ok().then_some(authority)
-    }
-
-    pub(crate) fn mark_startup_ready(&self, tab_id: &str, attempt_id: &str) -> bool {
-        self.retire_startup_waiter(tab_id, attempt_id, AgentStartupSignal::Ready)
-            .is_some()
+        Some(acknowledgement)
     }
 
     /// Authorize and hold under one lock so a replacement attempt armed
@@ -397,7 +419,95 @@ fn agent_startup_failed_event(
     })
 }
 
+fn compact_notice_text(value: &str, max_chars: usize) -> String {
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    value.chars().take(max_chars).collect()
+}
+
+fn compact_provider_failure(value: &str) -> String {
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let chars = value.chars().collect::<Vec<_>>();
+    let start = chars.len().saturating_sub(120);
+    chars[start..].iter().collect::<String>()
+}
+
+fn worker_lifecycle_notice(
+    title: &str,
+    provider: Option<&str>,
+    provider_output: Option<&str>,
+    payload: &Value,
+) -> String {
+    let title = compact_notice_text(title, 32);
+    let provider = provider
+        .map(|provider| compact_notice_text(provider, 32))
+        .filter(|provider| !provider.is_empty())
+        .unwrap_or_else(|| "unknown provider".to_string());
+    let attempt_id = payload
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .map(|attempt| compact_notice_text(attempt, 40))
+        .filter(|attempt| !attempt.is_empty())
+        .unwrap_or_else(|| "unknown attempt".to_string());
+    let task_id = payload
+        .get("task_id")
+        .and_then(Value::as_str)
+        .map(|task| compact_notice_text(task, 40));
+    let kind = payload
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let action = match kind {
+        "worker_ack" => format!(
+            "acknowledged task {}",
+            task_id.as_deref().unwrap_or("unknown task")
+        ),
+        "worker_ack_startup_failed" => format!(
+            "did not acknowledge task {}",
+            task_id.as_deref().unwrap_or("unknown task")
+        ),
+        "agent_startup_failed" => "failed to start".to_string(),
+        "agent_startup_overdue" => "is still starting".to_string(),
+        _ => "reported a lifecycle update".to_string(),
+    };
+    let detail = if matches!(kind, "agent_startup_failed" | "worker_ack_startup_failed") {
+        payload
+            .pointer("/provider/output")
+            .and_then(Value::as_str)
+            .map(compact_provider_failure)
+            .filter(|detail| !detail.is_empty())
+            .or_else(|| provider_output.map(compact_provider_failure))
+            .filter(|detail| !detail.is_empty())
+            .or_else(|| {
+                payload
+                    .pointer("/provider/exit_code")
+                    .and_then(Value::as_i64)
+                    .map(|code| format!("provider exit code {code}"))
+            })
+    } else {
+        None
+    };
+    let message = match detail {
+        Some(detail) => {
+            format!("Agent {title} ({provider}) {action}, attempt {attempt_id}: {detail}")
+        }
+        None => format!("Agent {title} ({provider}) {action}, attempt {attempt_id}."),
+    };
+    compact_notice_text(&message, 280)
+}
+
 impl ServiceContext {
+    fn startup_provider_output(&self, attempt_id: &str) -> Option<String> {
+        self.screen_state
+            .lock()
+            .get_screen_text(attempt_id)
+            .map(|output| {
+                crate::service::launch_diagnostics::redact_secrets(
+                    &crate::service::launch_diagnostics::tail_bytes(&output, 4096),
+                )
+            })
+            .filter(|output| !output.trim().is_empty())
+    }
+
     pub(crate) fn register_agent_startup_supervision(
         &self,
         supervisor_tab_id: &str,
@@ -519,7 +629,12 @@ impl ServiceContext {
         agent_title: &str,
         payload: Value,
     ) {
-        let message = payload.to_string();
+        let provider = self
+            .mux
+            .read()
+            .get_tab(agent_tab_id)
+            .and_then(|tab| tab.agent_type.clone());
+        let message = worker_lifecycle_notice(agent_title, provider.as_deref(), None, &payload);
         let report = self.report_store.lock().add_detailed(
             supervisor_tab_id,
             agent_tab_id,
@@ -568,7 +683,7 @@ impl ServiceContext {
         caller_tab_id: &str,
         attempt_id: &str,
         binding_nonce: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<AgentStartupAcknowledgement, String> {
         let authorized = self
             .mux
             .read()
@@ -579,9 +694,13 @@ impl ServiceContext {
                 "startup acknowledgement does not own attempt {attempt_id} for Tab {caller_tab_id}"
             ));
         }
-        Ok(self
-            .worker_ack
-            .mark_startup_ready(caller_tab_id, attempt_id))
+        self.worker_ack
+            .acknowledge_startup(caller_tab_id, attempt_id)
+            .ok_or_else(|| {
+                format!(
+                    "startup attempt {attempt_id} for Tab {caller_tab_id} is not awaiting acknowledgement"
+                )
+            })
     }
 
     pub(crate) fn observe_agent_startup_launch_command_finished(
@@ -687,16 +806,7 @@ impl ServiceContext {
             if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
-            let provider_output = service
-                .screen_state
-                .lock()
-                .get_screen_text(&attempt_id)
-                .map(|output| {
-                    crate::service::launch_diagnostics::redact_secrets(
-                        &crate::service::launch_diagnostics::tail_bytes(&output, 4096),
-                    )
-                })
-                .filter(|output| !output.trim().is_empty());
+            let provider_output = service.startup_provider_output(&attempt_id);
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
@@ -764,7 +874,37 @@ impl ServiceContext {
         task_id: &str,
         payload: Value,
     ) {
-        let message = payload.to_string();
+        let attempt_id = payload.get("attempt_id").and_then(Value::as_str);
+        let tab_provider = {
+            self.mux
+                .read()
+                .get_tab(worker_tab_id)
+                .and_then(|tab| tab.agent_type.clone())
+        };
+        let provider = tab_provider.or_else(|| {
+            let plan = self.plan_store.get(plan_id)?;
+            let task = crate::plan::task_key::find_task(&plan.tasks, task_id)?;
+            task.execution_attempts
+                .iter()
+                .find(|attempt| attempt_id.is_some_and(|id| attempt.id == id))
+                .and_then(|attempt| attempt.agent_type.clone().or(attempt.provider.clone()))
+        });
+        let provider_output = if payload.get("kind").and_then(Value::as_str)
+            == Some("worker_ack_startup_failed")
+        {
+            payload
+                .get("attempt_id")
+                .and_then(Value::as_str)
+                .and_then(|attempt_id| self.startup_provider_output(attempt_id))
+        } else {
+            None
+        };
+        let message = worker_lifecycle_notice(
+            worker_title,
+            provider.as_deref(),
+            provider_output.as_deref(),
+            &payload,
+        );
         let details = ReportDetails {
             plan_id: Some(plan_id.to_string()),
             task_id: Some(task_id.to_string()),
