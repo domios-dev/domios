@@ -187,7 +187,7 @@ impl PlanStore {
         self.with_plan_in_writer(id, now_ms, f)
     }
 
-    pub(super) fn with_plan_in_writer<T, F>(
+    pub(in crate::service_plan) fn with_plan_in_writer<T, F>(
         &self,
         id: &str,
         now_ms: u64,

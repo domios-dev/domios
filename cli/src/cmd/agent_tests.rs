@@ -313,11 +313,26 @@ fn agent_ack_prints_task_and_attempt() {
     let response = serde_json::json!({
         "task_id": "task_demo",
         "attempt_id": "attempt_demo",
+        "already_acknowledged": false,
     });
 
     assert_eq!(
         render_agent_ack(&response).unwrap(),
         "ACKNOWLEDGED — task task_demo, attempt attempt_demo. Continue work."
+    );
+}
+
+#[test]
+fn repeated_agent_ack_prints_already_acknowledged_task_and_attempt() {
+    let response = serde_json::json!({
+        "task_id": "task_demo",
+        "attempt_id": "attempt_demo",
+        "already_acknowledged": true,
+    });
+
+    assert_eq!(
+        render_agent_ack(&response).unwrap(),
+        "ALREADY ACKNOWLEDGED — task task_demo, attempt attempt_demo. Continue work."
     );
 }
 

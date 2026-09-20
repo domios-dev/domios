@@ -56,6 +56,8 @@ These are the plan/task flags agents most often guess by analogy and get wrong.
 Verified against the clap tree; `codeterm <cmd> --help` has the rest. The command
 words below resolve; the flags are the corrections.
 
+Task-bound Workers use `codeterm agent ack` to move their assigned task to in-progress. A repeated acknowledgement reports already acknowledged for the same task and attempt, without changing the assignment.
+
 - `codeterm plan create --title "..."` — NO `--goal`. Optional `--from-spec <id>`, `--kinds`, `--project`. The goal is set separately, after creation.
 - `codeterm plan goal set <plan> "<goal>" --vector "<how success is proven>"` — the goal text is an optional trailing positional; `--vector` is REQUIRED. `--vision`/`--vision-file`, `--constraint`, `--postulate` are optional.
 - `codeterm plan task add <plan> --name "..." --sections <csv> --criterion "..."` — the flags are `--name` (NOT --title), `--sections` (NOT --section), `--criterion` (repeatable; NOT --acceptance). Body: `--body`/`--body-file`. Quality (each has a `-file` twin): `--test-plan`/`--test-plan-file`, `--correctness`/`--correctness-file`, `--qa-plan`/`--qa-plan-file`, `--criterion-file`. Worker contract: `--executor-role`, `--personality`, and `--role-guidance`/`--role-guidance-file` are REQUIRED, and `update` refuses to blank any of them. Routing stays optional: `--model <provider>:<model>`, `--why`, `--intent`. Here `--execution-intent` is the enum `repository_mutation|non_repository`.

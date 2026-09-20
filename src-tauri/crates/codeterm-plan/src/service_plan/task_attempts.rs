@@ -98,6 +98,14 @@ pub struct TaskAttemptCreated {
     pub attempt: TaskExecutionAttempt,
 }
 
+#[derive(Debug, Clone)]
+pub struct TaskAttemptAcknowledgement {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt: TaskExecutionAttempt,
+    pub already_acknowledged: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BoundWorkerReport {
     pub message: String,
