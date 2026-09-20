@@ -554,7 +554,7 @@ impl ServiceContext {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn arm_worker_ack_deadline(
-        self: &Arc<Self>,
+        &self,
         parent_tab_id: &str,
         worker_tab_id: &str,
         worker_title: &str,
@@ -611,7 +611,7 @@ impl ServiceContext {
         let Some(receiver) = arm.receiver else {
             return;
         };
-        let service = Arc::clone(self);
+        let service = Arc::new((*self).clone());
         let parent_tab_id = parent_tab_id.to_string();
         let worker_tab_id = worker_tab_id.to_string();
         let worker_title = worker_title.to_string();
@@ -692,7 +692,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn arm_bound_worker_ack_deadline_for_tab(
-        self: &Arc<Self>,
+        &self,
         tab_id: &str,
         spawn_command: String,
     ) -> Result<bool, String> {
