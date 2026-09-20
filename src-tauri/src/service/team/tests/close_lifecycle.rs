@@ -122,3 +122,39 @@ fn close_team_removes_chat_backend_member_and_registry() {
         vec![("chat-backend".into(), "session-1".into())]
     );
 }
+
+#[test]
+fn close_team_detaches_cartographer_manager_with_every_member_tab() {
+    let (mut mux, team_id, orchestrator, _planner, _worker) = team_members();
+    let (_plan_dir, plan_store) = isolated_plan_store();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let cartographer = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role_kind(
+        &cartographer,
+        AgentRole::Manager,
+        Some(codeterm_types::agent::role_kind::builtins::CARTOGRAPHER),
+        Some(&orchestrator),
+    )
+    .unwrap();
+    mux.get_tab_mut(&cartographer).unwrap().agent_type = Some("provider-neutral".into());
+    let events = crate::api::events::EventBroadcaster::new();
+
+    let (_, cleanup, _) = close_team_with_state_change(
+        &mut mux,
+        &events,
+        &plan_store,
+        &team_id,
+        &TeamMutationCaller::AgentTab(orchestrator),
+        1,
+    )
+    .expect("Team close removes the attached Cartographer");
+
+    assert!(mux.get_team(&team_id).is_none());
+    assert!(mux.get_tab(&cartographer).is_none());
+    assert!(cleanup.member_tab_ids.contains(&cartographer));
+    assert!(mux
+        .snapshot()
+        .tabs
+        .values()
+        .all(|tab| tab.team_id.as_deref() != Some(team_id.as_str())));
+}

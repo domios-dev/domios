@@ -8,7 +8,7 @@ import type {
   Team,
   Workspace,
 } from "../../lib/types";
-import { anchorsTeam } from "../../lib/roleKind";
+import { anchorsTeam, CARTOGRAPHER_KIND, roleKind } from "../../lib/roleKind";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
@@ -90,13 +90,13 @@ function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
 }
 
 /// Every role a Team with a spawn-capable manager can place.
-const TEAM_MEMBER_ROLES = ["orchestrator", "planner", "worker"] as const;
+const TEAM_MEMBER_ROLES = ["orchestrator", "planner", "cartographer", "worker"] as const;
 /// With no spawner inside, only an anchoring role can be placed: it takes no
 /// parent, so it is the door through which a stalled Team gets one.
 const BOOTSTRAP_ONLY_ROLES = ["orchestrator"] as const;
 /// A Team holds at most one live Orchestrator, so once it has one the role is
 /// not on offer — the daemon refuses it by code either way.
-const STAFFED_TEAM_ROLES = ["planner", "worker"] as const;
+const STAFFED_TEAM_ROLES = ["planner", "cartographer", "worker"] as const;
 
 function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
   return members.find(isEligibleTeamStaffingManager)?.tab.id ?? null;
@@ -112,8 +112,17 @@ export function addableTeamRoles(
   members: readonly TeamTabMember[],
   managerTabId: string | null,
 ): readonly TeamMemberRole[] {
-  if (hasLiveOrchestrator(members)) return managerTabId ? STAFFED_TEAM_ROLES : [];
-  return managerTabId ? TEAM_MEMBER_ROLES : BOOTSTRAP_ONLY_ROLES;
+  const hasCartographer = members.some(
+    (member) => member.tab.role === "Manager" && roleKind(member.tab) === CARTOGRAPHER_KIND,
+  );
+  const withoutExistingCartographer = (roles: readonly TeamMemberRole[]): readonly TeamMemberRole[] =>
+    hasCartographer ? roles.filter((role) => role !== "cartographer") : roles;
+  if (hasLiveOrchestrator(members)) {
+    return managerTabId ? withoutExistingCartographer(STAFFED_TEAM_ROLES) : [];
+  }
+  return managerTabId
+    ? withoutExistingCartographer(TEAM_MEMBER_ROLES)
+    : BOOTSTRAP_ONLY_ROLES;
 }
 
 export interface SidebarWorkspaceTabsProps {
