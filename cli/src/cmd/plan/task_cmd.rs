@@ -173,6 +173,16 @@ fn render_dispatch_response(value: &Value) -> String {
             .unwrap_or("dispatch_ready");
         return format!("Accepted {agent} worker Tab {tab}; awaiting {event}\n");
     }
+    // A spawned Worker is not an accepted dispatch: binding is async, so the
+    // response names the spawn and the event still owed.
+    if state == "awaiting_worker_ack" && !ready {
+        let event = value
+            .get("readiness")
+            .and_then(|readiness| readiness.get("awaiting_event"))
+            .and_then(Value::as_str)
+            .unwrap_or("worker_ack");
+        return format!("Spawned {agent} worker Tab {tab}; awaiting {event}\n");
+    }
     format!("Dispatched {agent} worker Tab {tab}\n")
 }
 

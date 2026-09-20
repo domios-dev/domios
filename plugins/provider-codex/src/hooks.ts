@@ -5,6 +5,15 @@ import type { CodexHookEntry } from "./plugin";
 export const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 export const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 
+/// Per-event budget Codex grants the hook. A Windows PowerShell cold start can
+/// exceed the old 5s under load, which killed the session-start report before it
+/// reached the daemon; the budget must cover the cold start, not the request.
+export const CODEX_HOOK_TIMEOUT_SECS = 60;
+
+/// The helper script's own HTTP budget. Separate from the hook budget: it bounds
+/// one request once PowerShell is up, not the cold start around it.
+export const CODEX_HOOK_REQUEST_TIMEOUT_SECS = 30;
+
 export function codexWindowsHookScript(): string {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
@@ -23,7 +32,7 @@ export function codexWindowsHookScript(): string {
     "}",
     '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/$HookEvent" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/$HookEvent" -Headers $headers -Body $body -TimeoutSec ' + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' | Out-Null',
     'if ($HookEvent -eq "session_start") {',
     "  $profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
     '  $profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
@@ -79,7 +88,22 @@ export const CODEX_HOOK_SCRIPT_CONTRACT = [
   "CODETERM_API_TOKEN",
   "CODETERM_SESSION_BINDING_NONCE",
   "/api/tabs/",
+  "-TimeoutSec " + CODEX_HOOK_REQUEST_TIMEOUT_SECS,
 ];
+
+/// True when every command in a CodeTerm-owned entry grants the hook the
+/// cold-start-tolerant budget. A hook still carrying the old 5s budget reads as
+/// stale so Repair rewrites it — otherwise the fix would never reach an install
+/// that predates it.
+export function hasAdequateCodexHookTimeout(entry: CodexHookEntry | undefined): boolean {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks) || hooks.length === 0) return false;
+  return hooks.every((hook) => {
+    const timeout = hook && hook.timeout;
+    return typeof timeout === "number" && Number.isFinite(timeout)
+      && timeout >= CODEX_HOOK_TIMEOUT_SECS;
+  });
+}
 
 /**
  * Stable hash of hook content. Codex trusts a hook by content hash, so content

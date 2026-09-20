@@ -1856,6 +1856,8 @@ function grantCodexHookTrust(opts) {
 // plugins/provider-codex/src/hooks.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
+var CODEX_HOOK_TIMEOUT_SECS = 60;
+var CODEX_HOOK_REQUEST_TIMEOUT_SECS = 30;
 function codexWindowsHookScript() {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
@@ -1874,7 +1876,7 @@ function codexWindowsHookScript() {
     "}",
     '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/$HookEvent" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/$HookEvent" -Headers $headers -Body $body -TimeoutSec ' + CODEX_HOOK_REQUEST_TIMEOUT_SECS + " | Out-Null",
     'if ($HookEvent -eq "session_start") {',
     "  $profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
     '  $profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
@@ -1921,8 +1923,17 @@ var CODEX_HOOK_SCRIPT_CONTRACT = [
   "CODETERM_API_URL",
   "CODETERM_API_TOKEN",
   "CODETERM_SESSION_BINDING_NONCE",
-  "/api/tabs/"
+  "/api/tabs/",
+  "-TimeoutSec " + CODEX_HOOK_REQUEST_TIMEOUT_SECS
 ];
+function hasAdequateCodexHookTimeout(entry) {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks) || hooks.length === 0) return false;
+  return hooks.every((hook) => {
+    const timeout = hook && hook.timeout;
+    return typeof timeout === "number" && Number.isFinite(timeout) && timeout >= CODEX_HOOK_TIMEOUT_SECS;
+  });
+}
 function codexHookContentHash(text5) {
   let hash = 2166136261;
   for (let i = 0; i < text5.length; i++) {
@@ -1976,7 +1987,7 @@ function checkIntegration() {
       return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && !hasLiteralPort(command) && command.indexOf("/api/tabs/") !== -1;
     });
   });
-  const current = installed && windowsReady && contractOk;
+  const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
   const trustState = codexHookTrustState(path);
   const trustOk = trustState !== "disabled";
   const integrationState = !installed ? CODEX_INTEGRATION_STATE_ABSENT : !trustOk || trustState === "missing" || trustState === "unknown" ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : !current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED;
@@ -2136,7 +2147,7 @@ function installIntegration(apiPort, options) {
       type: "command",
       command: hookCmd("session_start"),
       commandWindows: winCmd("session_start"),
-      timeout: 5,
+      timeout: CODEX_HOOK_TIMEOUT_SECS,
       _source: CODETERM_CODEX_HOOK_MARKER
     }]
   });
@@ -2145,7 +2156,7 @@ function installIntegration(apiPort, options) {
       type: "command",
       command: hookCmd("stop"),
       commandWindows: winCmd("stop"),
-      timeout: 5,
+      timeout: CODEX_HOOK_TIMEOUT_SECS,
       _source: CODETERM_CODEX_HOOK_MARKER
     }]
   });
@@ -2262,7 +2273,8 @@ function ensureIntegrationOnStartup(apiPort, install) {
     );
   });
   const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
-  if (!scriptStale && !commandStale && stopOwned) return { ok: true, changed: false };
+  const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
+  if (!scriptStale && !commandStale && !timeoutStale && stopOwned) return { ok: true, changed: false };
   return {
     ok: false,
     changed: false,
@@ -2278,6 +2290,10 @@ function codexHooksPath() {
 }
 function hasLiteralPort(value) {
   return /:\d{2,5}/.test(value);
+}
+function hookTimeoutsAdequate(sessionStart, stop) {
+  const owned = [...sessionStart || [], ...stop || []].filter(isCodetermCodexHook);
+  return owned.length > 0 && owned.every(hasAdequateCodexHookTimeout);
 }
 function codexConfigPath() {
   const home = host.homeDir();
