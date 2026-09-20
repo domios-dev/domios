@@ -1043,6 +1043,15 @@ fn render_agent_ack(value: &serde_json::Value) -> Result<String, String> {
         .get("attempt_id")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "daemon response omitted attempt identity".to_string())?;
+    if value
+        .get("already_acknowledged")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        return Ok(format!(
+            "ALREADY ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
+        ));
+    }
     Ok(format!(
         "ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
     ))
