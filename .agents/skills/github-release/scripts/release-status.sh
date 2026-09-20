@@ -38,10 +38,8 @@ else
   echo "manifest: missing"
 fi
 
-# CI workflow runs for this tag
-echo "ci:"
-for wf in release-macos.yml release-linux.yml release-windows.yml; do
-  ROW=$(gh run list --workflow "$wf" --branch "$TAG" --limit 1 --json status,conclusion,databaseId 2>/dev/null \
-    | jq -r '.[0] | if . == null then "no-runs" else "\(.status) \(.conclusion // "—") id=\(.databaseId)" end')
-  printf "  %-22s %s\n" "${wf%.yml}" "$ROW"
-done
+# One caller run contains the platform jobs and final manifest verifier.
+TRIGGER_TAG="release-$VER"
+ROW=$(gh run list --workflow release.yml --branch "$TRIGGER_TAG" --limit 1 --json status,conclusion,databaseId 2>/dev/null \
+  | jq -r '.[0] | if . == null then "no-runs" else "\(.status) \(.conclusion // "—") id=\(.databaseId)" end')
+echo "ci:  $ROW"

@@ -1,35 +1,29 @@
-name: release-manifest-validate
+name: Release manifest publisher and verifier
 
-# The publishing workflows emit release assets before this coordinating gate runs.
-# An absent signal is pending; a terminal failure signal fails with its reason.
 on:
-  workflow_run:
-    workflows:
-      - "Release (self-hosted build machine)"
-      - "release-windows"
-      - "release-linux"
-      - "release-macos"
-    types:
-      - completed
-  workflow_dispatch:
+  workflow_call:
     inputs:
       tag:
-        description: 'Published release tag to verify (for example v1.10.11)'
         required: true
         type: string
+      source_ref:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      mirror:
+        required: true
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   actions: read
 
-concurrency:
-  group: release-manifest-${{ github.event.workflow_run.head_branch || inputs.tag }}
-  cancel-in-progress: false
-
 jobs:
   validate:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push' }}
+    name: publish and verify all platform manifests
     runs-on: [self-hosted, linux-build]
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
@@ -39,6 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -49,31 +44,20 @@ jobs:
       - name: Resolve release tag
         id: release
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_REF: ${{ github.event.workflow_run.head_branch }}
           INPUT_TAG: ${{ inputs.tag }}
-          EVENT_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          ref="$WORKFLOW_REF"
-          source_sha="$EVENT_SOURCE_SHA"
-          [ "$EVENT_NAME" = workflow_dispatch ] && ref="$INPUT_TAG"
-          case "$ref" in
-            release-*) tag="v${ref#release-}" ;;
-            v*) tag="$ref" ;;
-            [0-9]*) tag="v$ref" ;;
-            *)
-              trigger=$(git tag --points-at "$source_sha" --list 'release-*' | head -n1)
-              [ -n "$trigger" ] || { echo "::error::cannot derive release tag from '$ref'"; exit 1; }
-              tag="v${trigger#release-}"
-              ;;
+          case "$INPUT_TAG" in
+            release-*) tag="v${INPUT_TAG#release-}" ;;
+            v*) tag="$INPUT_TAG" ;;
+            *) echo "::error::cannot derive release tag from '$INPUT_TAG'"; exit 1 ;;
           esac
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::invalid release tag '$tag'"; exit 1; }
           version="${tag#v}"
-          if [ -z "$source_sha" ]; then
-            source_sha=$(git rev-parse "release-${version}^{commit}" 2>/dev/null \
-              || git rev-parse "$tag^{commit}")
-          fi
+          source_sha=$(git rev-parse "$INPUT_SOURCE_SHA^{commit}")
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
@@ -93,109 +77,99 @@ jobs:
             echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Collect published completion signals
+      - name: Merge and upload final channel manifests
         env:
           TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
           MANIFEST: ${{ steps.channel.outputs.manifest }}
-          TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
-          TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          PUBLISH_MIRROR: ${{ inputs.mirror }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          signal_dir="$RUNNER_TEMP/release-completion"
-          mirror_dir="$RUNNER_TEMP/public-mirror"
-          mkdir -p "$signal_dir" "$mirror_dir"
+          case "$MANIFEST" in
+            latest.json) DEB_MANIFEST=latest-deb.json ;;
+            latest-rc.json) DEB_MANIFEST=latest-rc-deb.json ;;
+            latest-nightly.json) DEB_MANIFEST=latest-nightly-deb.json ;;
+            *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
+          esac
+          rm -rf "$RUNNER_TEMP/release-fragments" "$RUNNER_TEMP/release-base"
+          mkdir -p "$RUNNER_TEMP/release-fragments/raw" \
+            "$RUNNER_TEMP/release-fragments/main" "$RUNNER_TEMP/release-fragments/deb" \
+            "$RUNNER_TEMP/release-base"
           gh release download "$TAG" --repo "$SOURCE_REPO" \
-            --pattern 'release-completion-*.json' --dir "$signal_dir" 2>/dev/null || true
-          gh release download "$TAG" --repo "$MIRROR_REPO" \
-            --pattern "$MANIFEST" --dir "$mirror_dir" 2>/dev/null || true
-          python3 - "$signal_dir" "$mirror_dir/$MANIFEST" "$TAG" \
-            "$TRIGGER_WORKFLOW" "$TRIGGER_CONCLUSION" > "$RUNNER_TEMP/matrix-fixture.json" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
+            --pattern 'updater-*.json' --dir "$RUNNER_TEMP/release-fragments/raw"
+          main_count=0
+          deb_count=0
+          for fragment in "$RUNNER_TEMP"/release-fragments/raw/updater-*.json; do
+            [ -f "$fragment" ] || continue
+            name=$(basename "$fragment" .json)
+            if [[ "$name" == *-deb ]]; then
+              destination="$RUNNER_TEMP/release-fragments/deb/$name"
+              deb_count=$((deb_count + 1))
+            else
+              destination="$RUNNER_TEMP/release-fragments/main/$name"
+              main_count=$((main_count + 1))
+            fi
+            mkdir -p "$destination"
+            cp "$fragment" "$destination/latest.json"
+          done
+          [ "$main_count" -gt 0 ] || { echo "::error::no platform updater fragments were published"; exit 1; }
+          [ "$deb_count" -gt 0 ] || { echo "::error::no Debian updater fragment was published"; exit 1; }
 
-          signal_dir, manifest_path, tag, trigger, conclusion = sys.argv[1:]
-          names = {
-              "Release (self-hosted build machine)": "release",
-              "release-linux": "release-linux",
-              "release-windows": "release-windows",
-              "release-macos": "release-macos",
-          }
-          file_names = {
-              "release-completion-release.json": "release",
-              "release-completion-release-linux.json": "release-linux",
-              "release-completion-release-windows.json": "release-windows",
-              "release-completion-release-macos.json": "release-macos",
-          }
-          signals = {}
-          for path in sorted(Path(signal_dir).glob("release-completion-*.json")):
-              lane = file_names.get(path.name)
-              if lane not in ("release", "release-linux", "release-windows"):
-                  continue
-              try:
-                  signal = json.loads(path.read_text(encoding="utf-8"))
-              except (OSError, json.JSONDecodeError):
-                  signals[lane] = {
-                      "status": "failure",
-                      "reason": "completion signal is not valid JSON",
-                  }
-                  continue
-              if signal.get("release_tag") != tag:
-                  signals[lane] = {
-                      "status": "failure",
-                      "reason": "completion signal names a different release tag",
-                  }
-                  continue
-              if names.get(signal.get("workflow")) != lane:
-                  signals[lane] = {
-                      "status": "failure",
-                      "reason": "completion signal names a different workflow",
-                  }
-                  continue
-              signals[lane] = signal
+          base_args=()
+          if gh release download "$TAG" --repo "$SOURCE_REPO" \
+              --pattern "$MANIFEST" --dir "$RUNNER_TEMP/release-base" 2>/dev/null; then
+            base_args=(--base "$RUNNER_TEMP/release-base/$MANIFEST")
+          fi
+          node scripts/merge-latest-json.js \
+            --in "$RUNNER_TEMP/release-fragments/main" --out "$MANIFEST" "${base_args[@]}"
+          node scripts/merge-latest-json.js \
+            --in "$RUNNER_TEMP/release-fragments/deb" --out "$DEB_MANIFEST"
+          jq -e --arg ver "$VER" '.version == $ver' "$MANIFEST" >/dev/null
+          for platform in darwin-aarch64 darwin-x86_64 windows-x86_64 windows-aarch64 linux-x86_64 linux-aarch64; do
+            jq -e --arg platform "$platform" \
+              '.platforms[$platform].signature | type == "string" and length > 0' \
+              "$MANIFEST" >/dev/null
+          done
+          jq -e --arg ver "$VER" \
+            '(.version == $ver) and (.platforms["linux-x86_64"].signature | type == "string" and length > 0)' \
+            "$DEB_MANIFEST" >/dev/null
+          gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" \
+            --repo "$SOURCE_REPO" --clobber
 
-          current_lane = names.get(trigger)
-          if current_lane in ("release", "release-linux", "release-windows") \
-                  and current_lane not in signals:
-              if conclusion == "success":
-                  reason = "successful workflow did not publish its completion signal"
-              else:
-                  reason = f"workflow concluded {conclusion or 'unknown'} before publishing completion signal"
-              signals[current_lane] = {
-                  "status": "failure",
-                  "reason": reason,
-              }
-
-          published = []
-          try:
-              manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
-              published = sorted((manifest.get("platforms") or {}).keys())
-          except (OSError, json.JSONDecodeError):
-              pass
-          print(json.dumps({"signals": signals, "published_platforms": published}))
-          PY
-
-      - name: Check matrix completion signal
-        id: matrix
-        env:
-          FIXTURE: ${{ runner.temp }}/matrix-fixture.json
-        shell: bash
-        run: |
-          set +e
-          output=$(bash scripts/check-release-verification-order.sh "$FIXTURE" 2>&1)
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          [ "$status" -eq 0 ] || exit "$status"
-          if [[ "$output" == MATRIX_COMPLETE:* ]]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
+          if [ "$PUBLISH_MIRROR" = true ]; then
+            export GH_TOKEN="$MIRROR_TOKEN"
+            gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" \
+              --repo "$MIRROR_REPO" --clobber
           fi
 
+      - name: Mark source and public releases published
+        if: inputs.mirror
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false
+          export GH_TOKEN="$MIRROR_TOKEN"
+          if [ "$MANIFEST" = latest.json ]; then
+            gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false --latest
+          else
+            gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false
+          fi
+
+      - name: Sync full release notes to source and public mirror
+        if: inputs.mirror
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: node scripts/sync-release-notes.mjs --tag "$TAG"
+
       - name: Verify published public mirror
-        if: steps.matrix.outputs.ready == 'true'
+        if: inputs.mirror
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
@@ -203,6 +177,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/public-mirror"
           source_release=$(gh release view "$TAG" --repo "$SOURCE_REPO" \
             --json isDraft,publishedAt)
           test "$(printf '%s' "$source_release" | jq -r .isDraft)" = false
@@ -221,6 +196,8 @@ jobs:
             and (.platforms["darwin-aarch64"].url | endswith("/CodeTerm_aarch64.app.tar.gz"))
             and (.platforms["darwin-x86_64"].signature | type == "string" and length > 0)
             and (.platforms["darwin-x86_64"].url | endswith("/CodeTerm_x64.app.tar.gz"))
+            and (.platforms | has("windows-x86_64") and has("windows-aarch64"))
+            and (.platforms | has("linux-x86_64") and has("linux-aarch64"))
           ' "$RUNNER_TEMP/public-mirror/$MANIFEST" >/dev/null
           jq -r '.platforms[].url' "$RUNNER_TEMP/public-mirror/$MANIFEST" \
             | while IFS= read -r url; do
@@ -237,7 +214,9 @@ jobs:
             --require-platform darwin-aarch64 \
             --require-platform darwin-x86_64 \
             --require-platform windows-x86_64 \
+            --require-platform windows-aarch64 \
             --require-platform linux-x86_64 \
+            --require-platform linux-aarch64 \
             --evidence "$RUNNER_TEMP/manifest-verification.json" || verification=$?
           gh release upload "$TAG" "$RUNNER_TEMP/manifest-verification.json" \
             --repo "$MIRROR_REPO" --clobber || true
@@ -246,7 +225,7 @@ jobs:
           fi
 
       - name: Verify published Debian manifest
-        if: steps.matrix.outputs.ready == 'true'
+        if: inputs.mirror
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
@@ -266,7 +245,7 @@ jobs:
             --require-platform linux-x86_64
 
       - name: Mint issue closure boundary
-        if: steps.matrix.outputs.ready == 'true'
+        if: inputs.mirror
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
@@ -289,7 +268,7 @@ jobs:
             --repo "$MIRROR_REPO" --clobber
 
       - name: Resolve included private source public issues
-        if: steps.matrix.outputs.ready == 'true'
+        if: inputs.mirror
         env:
           VER: ${{ steps.release.outputs.version }}
           SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
@@ -400,7 +379,7 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Close shipped public issues
-        if: steps.matrix.outputs.ready == 'true'
+        if: inputs.mirror
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}

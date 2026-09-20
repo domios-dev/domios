@@ -233,27 +233,32 @@ class ReleaseIssueContractTest(unittest.TestCase):
             self.assertEqual(json.loads(second.stdout), [])
 
     def test_publishing_workflow_mutates_no_issue(self):
-        """Publication and issue mutation live in different workflows now, so the
-        publisher's half of the ordering guarantee is that it closes nothing."""
+        """The caller delegates issue closure to its final manifest job."""
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("- name: Publish (private archive + public mirror + signed latest.json)", workflow)
+        self.assertIn("macos-linux-arm64:", workflow)
+        self.assertIn("linux-x86_64:", workflow)
+        self.assertIn("windows:", workflow)
+        self.assertIn("release-manifest:", workflow)
+        self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", workflow)
         self.assertNotIn("gh issue close", workflow)
         self.assertNotIn("- name: Close shipped public issues", workflow)
 
     def test_issue_mutation_is_after_verified_publication(self):
         workflow = (ROOT / ".github" / "workflows" / "release-manifest-validate.yml").read_text(encoding="utf-8")
-        gate = workflow.index("- name: Check matrix completion signal")
+        merge = workflow.index("- name: Merge and upload final channel manifests")
+        mark = workflow.index("- name: Mark source and public releases published")
         verify = workflow.index("- name: Verify published public mirror")
         boundary = workflow.index("- name: Mint issue closure boundary")
         resolve = workflow.index("- name: Resolve included private source public issues")
         close = workflow.index("- name: Close shipped public issues")
-        self.assertLess(gate, verify)
+        self.assertLess(merge, mark)
+        self.assertLess(mark, verify)
         self.assertLess(verify, boundary)
         self.assertLess(boundary, resolve)
         self.assertLess(resolve, close)
         for start in (verify, boundary, resolve, close):
             step = workflow[start:workflow.index("shell: bash", start)]
-            self.assertIn("if: steps.matrix.outputs.ready == 'true'", step)
+            self.assertIn("if: inputs.mirror", step)
         close_step = workflow[close:]
         self.assertNotIn("if: always()", close_step)
         self.assertNotIn("continue-on-error", close_step)
@@ -424,7 +429,7 @@ class ClosureBoundaryAuthorityTest(unittest.TestCase):
     of mirror verification. The asset is a claim; the validator run Actions still
     reports is the evidence."""
 
-    VALIDATOR_PATH = ".github/workflows/release-manifest-validate.yml"
+    VALIDATOR_PATH = ".github/workflows/release.yml"
     PREVIOUS_SHA = "1" * 40
     LATEST_SHA = "2" * 40
 
@@ -482,6 +487,17 @@ class ClosureBoundaryAuthorityTest(unittest.TestCase):
         result = self.range_start(
             [self.previous(), self.release("1.10.11", self.LATEST_SHA, 33978726809)]
         )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.LATEST_SHA)
+
+    def test_legacy_validator_run_remains_a_valid_boundary(self):
+        latest = self.release(
+            "1.10.11",
+            self.LATEST_SHA,
+            33978726809,
+            run={"path": ".github/workflows/release-manifest-validate.yml"},
+        )
+        result = self.range_start([self.previous(), latest])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), self.LATEST_SHA)
 
