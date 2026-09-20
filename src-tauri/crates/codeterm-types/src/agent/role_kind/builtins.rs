@@ -5,8 +5,8 @@ pub const GENERAL_AGENT: &str = "general_agent";
 pub const PLANNER: &str = "planner";
 pub const WATCHER: &str = "watcher";
 pub const WORKER: &str = "worker";
-/// Leaf that authors the essence map. Structurally a Worker: it owns one
-/// boundary generation and reports, and it never spawns or anchors.
+/// Manager-kind leaf that authors the essence map. It is non-anchoring and
+/// carries no spawn, plan, release or team-staffing authority.
 pub const CARTOGRAPHER: &str = "cartographer";
 
 // Embedded in the binary and non-overridable: a disk overlay able to rewrite
@@ -15,9 +15,9 @@ static BUILTINS: [RoleKindDescriptor; 6] = [
     RoleKindDescriptor::anchoring(ORCHESTRATOR, "Orchestrator"),
     RoleKindDescriptor::anchoring(GENERAL_AGENT, "General Agent"),
     RoleKindDescriptor::managing_leaf(PLANNER, "Planner"),
-    RoleKindDescriptor::managing_leaf(WATCHER, "Watcher"),
+    RoleKindDescriptor::managing_leaf_observer(WATCHER, "Watcher"),
     RoleKindDescriptor::leaf(WORKER, "Worker"),
-    RoleKindDescriptor::leaf(CARTOGRAPHER, "Cartographer"),
+    RoleKindDescriptor::managing_leaf_withheld(CARTOGRAPHER, "Cartographer"),
 ];
 
 pub fn all() -> &'static [RoleKindDescriptor] {

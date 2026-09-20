@@ -75,7 +75,7 @@ fn occasion_ids_round_trip_and_are_unique() {
 #[test]
 fn every_builtin_manager_kind_reaches_the_same_resolver() {
     for descriptor in builtins::all() {
-        if matches!(descriptor.id(), builtins::WORKER | builtins::CARTOGRAPHER) {
+        if descriptor.id() == builtins::WORKER {
             continue;
         }
         let preset = manager_preset(descriptor.id());

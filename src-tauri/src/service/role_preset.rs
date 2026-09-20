@@ -109,13 +109,14 @@ impl PresetOverlays for NoOverlays {
 }
 
 /// Bundled guidance for a builtin kind. `general_agent` is absent on purpose:
-/// the machine agent composes its own instructions file.
+/// the machine agent composes its own instructions file. Cartographer carries
+/// its own Manager contract and never the Worker base.
 pub(crate) fn builtin_guidance(kind_id: &str) -> Option<String> {
     match kind_id {
         builtins::ORCHESTRATOR => Some(crate::prompts::orchestrator_suffix()),
         builtins::PLANNER | builtins::WATCHER => Some(crate::prompts::planner_suffix()),
         builtins::WORKER => Some(crate::prompts::worker_suffix()),
-        builtins::CARTOGRAPHER => Some(crate::prompts::cartographer_suffix()),
+        builtins::CARTOGRAPHER => Some(crate::prompts::CARTOGRAPHER_SUFFIX.to_string()),
         _ => None,
     }
 }
@@ -151,18 +152,21 @@ pub(crate) fn resolve_in(
         .map(str::to_string)
         .or_else(|| role_kind::kind_label(role, role_profile).map(str::to_string))
         .unwrap_or_else(|| kind_id.clone());
+    let kind_manages = builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.manages());
     let mut fragments = Vec::new();
     match builtin_guidance(&kind_id) {
         Some(guidance) => fragments.push(PresetFragment {
             source: FragmentSource::Builtin,
             text: guidance,
         }),
-        // Only a leaf overlay inherits a base; an unknown manager kind carries
-        // no bundled authority text and must state its own.
-        None if role == Some(AgentRole::Worker) => fragments.push(PresetFragment {
-            source: FragmentSource::InheritedBase,
-            text: crate::prompts::worker_suffix(),
-        }),
+        // Only a leaf overlay inherits a base; a Manager-kind role carries its
+        // own contract and an unknown manager kind must state its own.
+        None if role == Some(AgentRole::Worker) && !kind_manages => {
+            fragments.push(PresetFragment {
+                source: FragmentSource::InheritedBase,
+                text: crate::prompts::worker_suffix(),
+            })
+        }
         None => {}
     }
     if let Some((guidance, path)) = overlays.guidance_for(&kind_id) {
