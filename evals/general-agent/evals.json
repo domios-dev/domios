@@ -55,7 +55,8 @@
       "expectations": [
         "Rechecks the exact tab with `codeterm tab get-text --tab child_7` before the fallback",
         "Uses exactly one bounded `codeterm send --tab child_7 --actions \"enter\"` fallback because the desired visible option is already selected",
-        "Verifies the child agent is running afterward and does not resend the assigned task payload or guess provider-specific keys"
+        "Uses `codeterm tab status --tab child_7` afterward to verify the child resumed",
+        "Does not resend the assigned task payload or guess provider-specific keys"
       ]
     },
     {
@@ -72,13 +73,64 @@
     {
       "id": 7,
       "name": "recovers-exited-provider-in-place",
-      "prompt": "`codeterm tab list` shows tab child_4 as absent at shell_ready: its Claude agent exited back to its shell, and the tab still has its role. The user wants that same conversation back in that tab. Explain the commands.",
+      "prompt": "`codeterm tab inspect --tab child_4` confirms `backing.kind=pty` and a verified Claude session. `codeterm tab get-text --tab child_4` shows a shell prompt after the provider exited. The user wants that same conversation back in that tab. Explain the commands.",
       "expected_output": "The General Agent recovers the exited provider in place with agent restart, verifies liveness afterward, and falls back to a fresh spawn only when that restart refuses.",
       "expectations": [
         "Uses `codeterm agent restart --tab child_4` as the recovery command",
         "Does NOT spawn a new agent or open a new tab before trying that restart, and does NOT use `--force`",
+        "Uses the verified session evidence from `codeterm tab inspect --tab child_4` and the visible screen from `codeterm tab get-text --tab child_4`",
         "After the `codeterm agent restart --tab child_4` command, checks that child_4 is live (for example with `codeterm tab list`)",
+        "Checks `codeterm tab inspect --tab child_4` or `codeterm tab status --tab child_4` after restart",
         "Names spawning a fresh agent only as the fallback for when that restart refuses (no verified session, or no owning provider)"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "changes-visible-model-picker-one-step-at-a-time",
+      "prompt": "The assigned route explicitly authorizes choosing Model B for child_10. `codeterm tab inspect --tab child_10` confirms a PTY and the child's bound provider session. The visible model picker has Model A selected and Model B immediately below it; this is a navigable list, not a numbered provider prompt. Give the exact bounded commands and verification order.",
+      "expected_output": "The General Agent reads the current picker, moves down once, rereads to confirm Model B is selected, presses Enter once, then rereads and verifies the model and session remain correct.",
+      "expectations": [
+        "Uses `codeterm tab get-text --tab child_10` before acting",
+        "Moves one visible step with `codeterm send --tab child_10 --actions \"down\"` and rereads before Enter",
+        "Presses Enter only after confirming Model B is selected, then rereads the screen",
+        "Checks `codeterm tab status --tab child_10` afterward for session and acknowledgement state",
+        "Changes the model only because the route explicitly authorizes Model B"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "repairs-authorized-shell-command-from-visible-error",
+      "prompt": "The route explicitly authorizes running `git status --short` in child_11. `codeterm tab inspect --tab child_11` confirms `backing.kind=pty` and no live agent session owns the shell input. `codeterm tab get-text --tab child_11` shows the attempted command `git status --shrot`, its unknown-option error, and a new PowerShell prompt. Explain how to correct and verify this command without inspecting another surface.",
+      "expected_output": "The General Agent uses the authorized command and visible typo as evidence, sends only `git status --short` to that shell with Enter, then rereads the same tab to verify the result.",
+      "expectations": [
+        "Confirms the exact target is a PTY shell with `codeterm tab inspect --tab child_11`",
+        "Confirms there is no live agent session owning the shell input",
+        "Uses only the route-authorized `git status --short` command and does not invent another shell command",
+        "Sends the command as PTY text with Enter and rereads `codeterm tab get-text --tab child_11` afterward",
+        "Does not use external UI automation"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "escalates-unknown-interactive-screen-without-keys",
+      "prompt": "Startup acknowledgement is missing for child_12. `codeterm tab inspect --tab child_12` confirms a PTY, but `codeterm tab get-text --tab child_12` shows an unfamiliar full-screen prompt with no readable title, option labels, or selected item. Explain what you do next.",
+      "expected_output": "The General Agent preserves the tab and escalates with the observed state, without sending text or keys based on a guess.",
+      "expectations": [
+        "Does not use `tab respond`, `send --actions`, or a shell command on child_12",
+        "Escalates the ambiguous screen to the responsible owner with the observed state",
+        "Does not restart, rebind, or repair the tab without evidence"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "never-runs-shell-command-in-chat-backend",
+      "prompt": "An assigned child named child_13 has not acknowledged startup. `codeterm tab inspect --tab child_13` shows `backing.kind=chat_backend`; there is no terminal screen or shell. The route allows asking the child whether it is ready. Explain the safe contact and recovery boundary.",
+      "expected_output": "The General Agent uses chat text if needed, reports that the child has no shell, and never gives it a shell command or terminal key sequence.",
+      "expectations": [
+        "Identifies `backing.kind=chat_backend` as having no shell",
+        "Uses chat text only for the authorized contact",
+        "Does NOT send a shell command, `tab exec` request, or `send --actions` sequence to child_13",
+        "Does not claim that a chat response is the PTY startup acknowledgement"
       ]
     }
   ]
