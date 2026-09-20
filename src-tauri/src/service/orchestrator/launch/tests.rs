@@ -3,12 +3,13 @@ use super::{
     take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
     LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
 };
+use super::startup_readiness::reused_provider_tui_owns_launch;
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
     PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
 };
-use crate::service::boot_stage::BootStageSink;
+use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::inject_verify::InjectionResult;
 use crate::service::launch_delivery::{LaunchConsumptionOutcome, LaunchDeliveryGate};
 use crate::service::orchestrator::prompt_compose::spawn_onboarding_task;
@@ -399,6 +400,7 @@ fn process_death_faults_void_the_binding_proof_that_deadlines_do_not() {
         LaunchFailure::ShellReadyTimeout,
         LaunchFailure::LaunchWrite("write refused".into()),
         LaunchFailure::TaskDelivery("submit_unconfirmed".into()),
+        LaunchFailure::SessionBindingNotObserved("deadline elapsed".into()),
     ] {
         assert!(
             !failure.proves_process_gone(),
@@ -477,6 +479,38 @@ fn provider_binding_with_a_wrong_nonce_is_ignored() {
             binding_nonce: "nonce-b".into()
         }
     ));
+}
+
+#[test]
+fn launch_readiness_requires_binding_evidence_not_screen_heuristics() {
+    use crate::service::launch_readiness::LaunchSettlement;
+
+    assert!(LaunchSettlement::Ready.authorizes_agent_ready(true));
+    assert!(!LaunchSettlement::Ready.authorizes_agent_ready(false));
+    let provisional = LaunchSettlement::Provisional {
+        stage: BootStage::LaunchDeadlineElapsed,
+        reason: "binding was not observed".into(),
+    };
+    assert!(!provisional.authorizes_agent_ready(false));
+    assert!(provisional.authorizes_agent_ready(true));
+    assert!(!reused_provider_tui_owns_launch(
+        true,
+        false,
+        Some("codex"),
+        "codex",
+        true,
+    ));
+    assert!(reused_provider_tui_owns_launch(
+        true,
+        true,
+        Some("codex"),
+        "codex",
+        true,
+    ));
+    assert_eq!(
+        LaunchFailure::SessionBindingNotObserved("deadline elapsed".into()).reason(),
+        "SessionBindingNotObserved: deadline elapsed"
+    );
 }
 
 #[test]
