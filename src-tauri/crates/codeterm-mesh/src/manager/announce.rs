@@ -38,7 +38,12 @@ impl MeshManager {
                 });
             }
         }
-        crate::reachability::advertised_addresses(&self.ready_listeners, &out, self.api_port)
+        crate::reachability::advertised_addresses_with_verified_forward(
+            &self.ready_listeners,
+            &out,
+            self.api_port,
+            self.local_web_ui.as_ref(),
+        )
     }
 
     pub fn build_announce(&self) -> types::PeerAnnounce {
