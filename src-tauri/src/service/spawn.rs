@@ -433,7 +433,6 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             agent.spawned_by_tab_id.as_deref(),
         );
-        let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
         // `can_spawn` is only forced when the caller explicitly passed
         // --can-spawn (Some), preserving the kind's default.
         if let Some(ref role_str) = agent.role {
@@ -487,6 +486,7 @@ impl ServiceContext {
                 );
             }
         }
+        let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
         // After role placement, which owns parent/team for a roled tab, and
         // before launch so the PTY inherits CODETERM_TEAM_ID.
         if let Some(attachment) = &team_attachment {
