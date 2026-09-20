@@ -8,16 +8,7 @@ fn sfield<'a>(v: &'a serde_json::Value, key: &str) -> &'a str {
 /// so the user gets the same info they see in the sidebar.
 pub fn format_tab_row(p: &serde_json::Value) -> String {
     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    // One label — the sidebar name. Tab title wins (that's what the user sees and what `tab rename` updates); falls back to tab.title only when the tab title is missing.
-    let label = {
-        let tab_title = p.get("tab_title").and_then(|v| v.as_str()).unwrap_or("");
-        let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
-        if !tab_title.is_empty() {
-            tab_title
-        } else {
-            title
-        }
-    };
+    let label = crate::tab_name::tab_name(p);
     let agent_label = super::labels::agent_label(p).unwrap_or_else(|| "-".to_string());
     let description = p.get("description").and_then(|v| v.as_str()).unwrap_or("");
     let description_part = format_description_suffix(description);
@@ -119,13 +110,7 @@ pub fn render_tab_tree_with_current(
         if id.is_empty() {
             continue;
         }
-        let tab_title = sfield(p, "tab_title");
-        let label = if !tab_title.is_empty() {
-            tab_title
-        } else {
-            sfield(p, "title")
-        }
-        .to_string();
+        let label = crate::tab_name::tab_name(p).to_string();
         let model = super::labels::agent_label(p).unwrap_or_default();
         let description = sfield(p, "description").to_string();
         let role = super::labels::role_label(p);

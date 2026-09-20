@@ -48,7 +48,7 @@ fn worker_params(spawned_by: Option<&str>) -> SpawnAgentParams {
 // Live bounce oracle (dev aa793130a, notification 958a78b0): POST
 // /api/agents/spawn with audience=automation still minted a user bell.
 #[test]
-fn ordinary_pty_tab_creation_carries_automation_audience_from_params() {
+fn ordinary_pty_tab_creation_carries_description_and_audience_from_params() {
     use crate::multiplexer::types::TabAudience;
     let mut state = crate::multiplexer::state::MultiplexerState::empty();
     let ws_id = state.create_workspace("ws".to_string(), None).id;
@@ -56,6 +56,7 @@ fn ordinary_pty_tab_creation_carries_automation_audience_from_params() {
     let params = SpawnAgentParams {
         agent: Some("claude".into()),
         audience: TabAudience::Automation,
+        description: Some("Reviews plans and records task progress".into()),
         ..Default::default()
     };
 
@@ -65,6 +66,10 @@ fn ordinary_pty_tab_creation_carries_automation_audience_from_params() {
         state.get_tab(&tab_id).expect("tab").audience,
         TabAudience::Automation,
         "audience declared on SpawnAgentParams must survive into the ordinary PTY tab record"
+    );
+    assert_eq!(
+        state.get_tab(&tab_id).expect("tab").description.as_deref(),
+        Some("Reviews plans and records task progress")
     );
 }
 

@@ -23,6 +23,9 @@ You cannot spawn anything under a Worker. You cannot put a Worker above an Orche
 
 Check `$CODETERM_ROLE` at startup. Empty = you are the Orchestrator.
 
+Tab titles are single-word names. Pass a short activity summary with
+`--description`; for an existing tab, record it with `codeterm tab describe`.
+
 ## Decision tree: which role to spawn?
 
 Answer these in order. The first "yes" picks the role.
@@ -32,7 +35,7 @@ Answer these in order. The first "yes" picks the role.
 
 ```bash
 WS=$(codeterm workspace create "Task Name" --cwd /absolute/project/path --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn \
+codeterm agent spawn claude --title "Orchestrator" --description "Coordinates workers in the task workspace" --role Orchestrator --workspace $WS --can-spawn \
   --task-file - <<'BRIEF'
 You are the orchestrator. [full user request].
 Spawn workers as needed, collect reports, notify when done.
@@ -50,7 +53,7 @@ command — stays fine.
 → Spawn as **Worker** under yourself (you must be the Orchestrator).
 
 ```bash
-codeterm agent spawn claude --title "Scout" --role Worker --parent-tab $CODETERM_TAB_ID \
+codeterm agent spawn claude --title "Scout" --description "Inspects service files" --role Worker --parent-tab $CODETERM_TAB_ID \
   --task-file - <<'BRIEF'
 Run `codeterm mem get <role_skill_id>` first.
 TASK: list .rs files in src-tauri/src/service/. Do not spawn.
@@ -99,3 +102,5 @@ TASK: <concrete leaf task>
 
 When done, run: codeterm agent report "what you did, result, any followup"
 ```
+
+<!-- revision: 1 -->

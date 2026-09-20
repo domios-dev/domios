@@ -8,6 +8,26 @@ use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
+pub(crate) const TAB_TITLE_ERROR: &str =
+    "tab title must be one word with no whitespace; put descriptive text in description";
+
+pub(crate) fn validate_tab_title(title: &str) -> Result<(), String> {
+    if title.is_empty() || title.chars().any(char::is_whitespace) {
+        Err(TAB_TITLE_ERROR.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn normalize_optional_tab_description(
+    value: Option<String>,
+) -> Result<Option<String>, String> {
+    value
+        .as_deref()
+        .map(normalize_tab_description)
+        .transpose()
+        .map(Option::flatten)
+}
 
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
@@ -238,6 +258,7 @@ impl ServiceContext {
     }
 
     pub fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String> {
+        validate_tab_title(title)?;
         {
             let mux = self.mux.read();
             let tab = mux
@@ -253,6 +274,7 @@ impl ServiceContext {
     }
 
     pub fn set_tab_title(&self, tab_id: &str, title: &str) -> Result<(), String> {
+        validate_tab_title(title)?;
         self.mux
             .write()
             .rename_tab_at_level(tab_id, title, TitleLevel::Agent)?;
@@ -747,5 +769,20 @@ mod self_close_tests {
     fn plain_worker_is_not_coordinator() {
         assert!(!is_coordinator(Some(AgentRole::Worker), None, false, false));
         assert!(!is_coordinator(None, None, false, false));
+    }
+}
+
+#[cfg(test)]
+mod tab_title_tests {
+    use super::{validate_tab_title, TAB_TITLE_ERROR};
+
+    #[test]
+    fn accepts_one_word_and_rejects_prose() {
+        assert!(validate_tab_title("Dalton").is_ok());
+        assert_eq!(
+            validate_tab_title("Warehouse party").unwrap_err(),
+            TAB_TITLE_ERROR
+        );
+        assert_eq!(validate_tab_title("Review\u{00a0}queue").unwrap_err(), TAB_TITLE_ERROR);
     }
 }

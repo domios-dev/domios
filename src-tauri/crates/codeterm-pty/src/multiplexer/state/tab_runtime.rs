@@ -483,12 +483,12 @@ mod display_label_tests {
             .set_task_binding_once(&tab_id, binding.clone())
             .unwrap());
         // The pane renames itself repeatedly as its understanding evolves.
-        state.rename_tab(&tab_id, "iv gate holdings").unwrap();
+        state.rename_tab(&tab_id, "Holdings").unwrap();
         state
-            .rename_tab_at_level(&tab_id, "something else", TitleLevel::Agent)
+            .rename_tab_at_level(&tab_id, "Update", TitleLevel::Agent)
             .unwrap();
         let tab = state.get_tab(&tab_id).unwrap();
-        assert_eq!(tab.title, "iv gate holdings");
+        assert_eq!(tab.title, "Holdings");
         assert_eq!(
             tab.task_binding.as_ref(),
             Some(&binding),

@@ -44,7 +44,8 @@ Each task also carries a one-word `personality` — the executor's persona name
 shown on its tab. `plan task add` requires it: a task created without one
 dispatches a worker that falls back to the title `Worker`. `plan task update`
 can set it on an existing task and refuses to blank it. The name must be one
-word of letters, e.g. `Alex`, `Emma`, `Leo`.
+word of letters, e.g. `Alex`, `Emma`, `Leo`. Pass the task summary with spawn
+`--description`; update progress with `codeterm tab describe` as the assignment moves.
 
 ## Role Model
 

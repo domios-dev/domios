@@ -255,6 +255,16 @@ pub async fn spawn_agent(
         status: s,
         body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
     })?;
+    crate::service::spawn_title::validate_agent_tab_title(
+        body.title.as_deref(),
+        body.agent_name.as_deref(),
+    )
+    .map_err(|message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message))?;
+    if let Some(description) = body.description.as_deref() {
+        crate::service::normalize_tab_description(description).map_err(|message| {
+            SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message)
+        })?;
+    }
     let require_delivery_ack = body.require_delivery_ack;
     let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
         |(s, m)| SpawnRejection {

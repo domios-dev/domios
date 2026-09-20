@@ -83,13 +83,13 @@ The `task` field is baked into the launch command via the `-p` flag, so the agen
 
 ```bash
 # Spawn a Worker under the Orchestrator
-codeterm agent spawn claude --title "Worker-1" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
+codeterm agent spawn claude --title "Worker-1" --description "Runs focused tests" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
 
 # Spawn defaults to claude if no agent specified
-codeterm agent spawn --title "Helper" --role Worker --parent-tab $CODETERM_TAB_ID
+codeterm agent spawn --title "Helper" --description "Helps with repository work" --role Worker --parent-tab $CODETERM_TAB_ID
 
 # Cross-workspace spawn
-codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab $CODETERM_TAB_ID
+codeterm agent spawn claude --workspace WS_ID --title "Remote" --description "Audits the remote workspace" --role Worker --parent-tab $CODETERM_TAB_ID
 ```
 
 Returns: tab_id, tab_id, pty_id, agent, title, role.
@@ -105,9 +105,9 @@ curl -X POST http://localhost:7685/api/batch \
   -H "Content-Type: application/json" \
   -d '{
     "commands": [
-      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "can_spawn": true}},
-      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
-      {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_tab_id": "$boss", "task": "run tests"}}
+      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "Orchestrator", "can_spawn": true}},
+      {"method": "spawn", "params": {"title": "W1", "description": "Analyzes the code", "role": "Worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
+      {"method": "spawn", "params": {"title": "W2", "description": "Runs focused tests", "role": "Worker", "parent_tab_id": "$boss", "task": "run tests"}}
     ]
   }'
 ```
@@ -129,4 +129,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

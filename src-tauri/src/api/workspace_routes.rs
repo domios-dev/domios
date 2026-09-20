@@ -269,6 +269,8 @@ pub async fn rename_tab(
     Json(body): Json<RenameTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    crate::service::tab::validate_tab_title(&body.title)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     state
         .svc
         .rename_tab(&tab_id, &body.title)

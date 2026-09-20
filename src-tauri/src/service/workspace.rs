@@ -316,6 +316,7 @@ impl ServiceContext {
     }
 
     pub fn create_named_tab(&self, workspace_id: &str, title: &str) -> Result<String, String> {
+        super::tab::validate_tab_title(title)?;
         let tab_id = {
             let mut mux = self.mux.write();
             let tab_id = mux.create_tab(workspace_id)?;
