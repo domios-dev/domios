@@ -1001,14 +1001,15 @@ for (const [name, fixture] of [
   );
 }
 
-// Startup remains read-only; a hook carrying the binding nonce is current.
+// Startup remains read-only; a hook carrying the binding nonce and the
+// cold-start-tolerant budget is current.
 {
-  const sessionStartHook = (cmd: string) =>
+  const sessionStartHook = (cmd: string, timeout = 60) =>
     baseHost({
       fs: {
         fileExists: () => true,
         readFile: () => "",
-        readJson: () => ({ hooks: { SessionStart: [{ hooks: [{ command: cmd }] }] } }),
+        readJson: () => ({ hooks: { SessionStart: [{ hooks: [{ command: cmd, timeout }] }] } }),
         writeJson: () => true,
         writeFile: () => true,
       },
@@ -1028,6 +1029,81 @@ for (const [name, fixture] of [
   assert(
     current.checkIntegration().session_start_hook === true,
     "hook carrying the binding-nonce header reads as current",
+  );
+}
+
+console.log("\n--- hook cold-start budget (Windows PowerShell spawn) ---\n");
+
+// The per-event budget Codex grants the hook must outlive a Windows PowerShell
+// cold start; the old 5s budget killed the session-start report before it
+// reached the daemon, so no session id ever appeared.
+{
+  let writtenJson: any = null;
+  let writtenScript = "";
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: () => false,
+      readJson: () => null,
+      readFile: () => null,
+      writeJson: (_p: string, json: unknown) => { writtenJson = json; return true; },
+      writeFile: (_p: string, body: string) => { writtenScript = body; return true; },
+    },
+  }));
+  const res = p.installIntegration(7686, { consent: true });
+  assert(!!res && res.ok === true, "timeout-aware install succeeds", JSON.stringify(res));
+  for (const event of ["SessionStart", "Stop"]) {
+    const timeout = Number(writtenJson?.hooks?.[event]?.[0]?.hooks?.[0]?.timeout);
+    assert(timeout >= 60, `${event} hook budget tolerates a Windows cold start`, String(timeout));
+  }
+  assert(
+    writtenScript.indexOf("-TimeoutSec 30") !== -1,
+    "the helper script's request budget is not the old 5s",
+    writtenScript,
+  );
+}
+
+// An install that predates the budget fix must read as stale so Repair rewrites
+// it; otherwise the 5s budget would survive the fix forever.
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
+  const nonceCommand =
+    "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+    "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+    '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-';
+  const stopCommand = nonceCommand.replace("/hook/session_start", "/hook/stop");
+  const ownedHook = (command: string, timeout: number) => ({
+    type: "command", command, timeout, _source: "codeterm-codex-session-binding-v1",
+  });
+  const hooksJson = (timeout: number) => JSON.stringify({
+    hooks: {
+      SessionStart: [{ hooks: [ownedHook(nonceCommand, timeout)] }],
+      Stop: [{ hooks: [ownedHook(stopCommand, timeout)] }],
+    },
+  });
+  const load = (timeout: number) => loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (file: string) => file === hooksPath || file === configPath,
+      readFile: (file: string) => (file === configPath ? 'model = "gpt-5.6"\n' : ""),
+      readJson: (file: string) => (file === hooksPath ? JSON.parse(hooksJson(timeout)) : null),
+      writeJson: () => true,
+      writeFile: () => true,
+      removeFile: () => true,
+    },
+  }));
+  assert(
+    load(5).checkIntegration().session_start_hook === false,
+    "a hook carrying the old 5s budget is stale",
+  );
+  assert(
+    load(5).ensureIntegrationOnStartup(7686).actionable === true,
+    "startup asks for a consented repair of the old budget",
+  );
+  assert(
+    load(60).checkIntegration().session_start_hook === true,
+    "a hook carrying the cold-start budget is current",
   );
 }
 

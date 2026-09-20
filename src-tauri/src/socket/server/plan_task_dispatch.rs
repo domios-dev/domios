@@ -182,14 +182,32 @@ fn apply_dispatch_starting_contract(
     if let Some(fields) = spawn_metadata.as_object_mut() {
         fields.remove("tab_id");
     }
-    result["accepted"] = json!(true);
-    result["state"] = json!("awaiting_dispatch_ready");
+    // A spawned Worker is not an accepted dispatch. Binding is async: the
+    // durable acceptance arrives later as `dispatch_ready` once the session
+    // binds, so the immediate response names the spawn and the event still owed.
+    result["accepted"] = json!(false);
+    result["spawned"] = json!(true);
+    result["state"] = json!("awaiting_worker_ack");
     result["readiness"] = json!({
         "ready": false,
-        "awaiting_event": "dispatch_ready",
+        "awaiting_event": "worker_ack",
     });
     result["tab_id"] = json!(tab_id);
     result["spawn"] = spawn_metadata;
+}
+
+/// A dispatch whose only missing evidence is the session binding is not a failed
+/// dispatch. The Worker is alive under its tab and the binding may still land
+/// through the provider's own detection, so it is spawned-and-awaiting rather
+/// than failed; the worker-ack deadline already owns the follow-up.
+fn session_binding_timeout_is_recoverable(error: &JsonRpcError) -> bool {
+    let data = error.data.as_ref();
+    let stage = data.and_then(|data| data.get("stage")).and_then(Value::as_str);
+    let worker_may_be_alive = data
+        .and_then(|data| data.get("worker_may_be_alive"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    stage == Some("session_binding") && worker_may_be_alive
 }
 
 /// Decide placement first — occupancy only applies to a checkout the task
@@ -434,6 +452,23 @@ impl DispatchStartup {
                         &nudges,
                     ),
                 );
+            }
+            Err(error) if session_binding_timeout_is_recoverable(&error) => {
+                // Binding is late, not absent. Arm the ack deadline and let the
+                // provider's own detection or the hook settle the session; no
+                // lane, tab, or task state is touched and nothing is reported as
+                // a failure.
+                arm_worker_ack_deadline(
+                    &self.svc,
+                    &self.parent_tab_id,
+                    &self.tab_id,
+                    &self.worker_title,
+                    &self.plan_id,
+                    &self.task_id,
+                    &self.attempt_id,
+                    self.spawn_command.clone(),
+                );
+                emit_plan_changed(&self.app, &self.plan_id);
             }
             Err(error) => {
                 let stage = error

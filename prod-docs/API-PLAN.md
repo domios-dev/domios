@@ -180,4 +180,14 @@ mandatory skills as soon as it launches, before any session id exists, while
 stale, mismatched, partial, or foreign identities are refused. Reading a plan
 skill as evidence still requires a current task binding for that plan.
 
-<!-- revision: 7 -->
+### A spawned Worker is not an accepted dispatch
+
+The immediate response to `plan.task.dispatch` reports `state`
+`awaiting_worker_ack` with `spawned: true` and `accepted: false`. Durable
+acceptance is the later `dispatch_ready` block, emitted once the session binds. A
+session binding that is merely late — the tab is alive but has not bound before
+the deadline — is not a dispatch failure: the dispatch stays spawned-and-awaiting
+and the provider's own launch detection or the worker-ack deadline settles it.
+Only a confirmed-gone tab fails the dispatch.
+
+<!-- revision: 8 -->

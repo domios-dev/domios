@@ -6,8 +6,10 @@ import {
   isCodetermCodexHook,
   removeOwnedCodexHooks,
   isOwnedCodexWindowsHookScript,
+  hasAdequateCodexHookTimeout,
   CODETERM_CODEX_HOOK_MARKER,
   CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+  CODEX_HOOK_TIMEOUT_SECS,
 } from "./hooks";
 
 declare const host: {
@@ -84,7 +86,7 @@ export function checkIntegration(): unknown {
             command.indexOf("/api/tabs/") !== -1;
         });
       }));
-  const current = installed && windowsReady && contractOk;
+  const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
   const trustState = codexHookTrustState(path);
   const trustOk = trustState !== "disabled";
   const integrationState = !installed
@@ -276,7 +278,7 @@ export function installIntegration(
       type: "command",
       command: hookCmd("session_start"),
       commandWindows: winCmd("session_start"),
-      timeout: 5,
+      timeout: CODEX_HOOK_TIMEOUT_SECS,
       _source: CODETERM_CODEX_HOOK_MARKER,
     }],
   });
@@ -285,7 +287,7 @@ export function installIntegration(
       type: "command",
       command: hookCmd("stop"),
       commandWindows: winCmd("stop"),
-      timeout: 5,
+      timeout: CODEX_HOOK_TIMEOUT_SECS,
       _source: CODETERM_CODEX_HOOK_MARKER,
     }],
   });
@@ -417,7 +419,8 @@ export function ensureIntegrationOnStartup(
     );
   });
   const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
-  if (!scriptStale && !commandStale && stopOwned) return { ok: true, changed: false };
+  const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
+  if (!scriptStale && !commandStale && !timeoutStale && stopOwned) return { ok: true, changed: false };
 
   return {
     ok: false,
@@ -436,6 +439,16 @@ function codexHooksPath(): string | null {
 
 function hasLiteralPort(value: string): boolean {
   return /:\d{2,5}/.test(value);
+}
+
+/// A CodeTerm-owned entry is only current when every one of its hooks grants the
+/// cold-start-tolerant budget; the old 5s value is the bug this repairs.
+function hookTimeoutsAdequate(
+  sessionStart: CodexHookEntry[] | undefined,
+  stop: CodexHookEntry[] | undefined,
+): boolean {
+  const owned = [...(sessionStart || []), ...(stop || [])].filter(isCodetermCodexHook);
+  return owned.length > 0 && owned.every(hasAdequateCodexHookTimeout);
 }
 
 function codexConfigPath(): string | null {
