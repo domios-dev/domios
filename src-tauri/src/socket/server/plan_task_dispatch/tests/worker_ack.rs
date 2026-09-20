@@ -496,21 +496,45 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     let ack = store
         .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 10)
         .unwrap();
+    assert!(!ack.already_acknowledged);
     assert_eq!(ack.attempt.acknowledged_at, Some(10));
     let acknowledged = store.show_task(&task_id).unwrap().task;
     assert_eq!(acknowledged.status, TaskStatus::InProgress);
     assert_eq!(acknowledged.status_label.as_deref(), Some("acknowledged"));
     let first_changed_at = acknowledged.status_changed_at;
+    let first_task_updated_at = acknowledged.updated_at;
+    let first_plan_updated_at = store.get(&plan.id).unwrap().updated_at;
 
     let replay = store
         .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 11)
         .unwrap();
+    assert!(replay.already_acknowledged);
     assert_eq!(replay.attempt.acknowledged_at, Some(10));
     let after_replay = store.show_task(&task_id).unwrap().task;
     assert_eq!(after_replay.status_changed_at, first_changed_at);
     assert_eq!(after_replay.status_label.as_deref(), Some("acknowledged"));
+    assert_eq!(after_replay.updated_at, first_task_updated_at);
+    assert_eq!(after_replay.assigned_tab_id.as_deref(), Some("tab-worker"));
+    assert_eq!(after_replay.lane.tab_id.as_deref(), Some("tab-worker"));
+    assert_eq!(after_replay.execution_attempts.len(), 1);
+    assert_eq!(store.get(&plan.id).unwrap().updated_at, first_plan_updated_at);
+
+    let third_ack = store
+        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 12)
+        .unwrap();
+    assert!(third_ack.already_acknowledged);
+    assert_eq!(third_ack.attempt.id, attempt_id);
+    assert_eq!(third_ack.attempt.acknowledged_at, Some(10));
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.updated_at,
+        first_task_updated_at
+    );
+    assert_eq!(
+        store.get(&plan.id).unwrap().updated_at,
+        first_plan_updated_at
+    );
     assert!(store
-        .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 12)
+        .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 13)
         .is_err());
     let after_stale = store.show_task(&task_id).unwrap().task;
     assert_eq!(after_stale.status_changed_at, first_changed_at);
