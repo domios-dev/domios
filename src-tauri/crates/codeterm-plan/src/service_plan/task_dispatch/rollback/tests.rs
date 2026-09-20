@@ -179,6 +179,38 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
 }
 
 #[test]
+fn final_startup_deadline_releases_the_worker_tab_assignment() {
+    let (_dir, store, plan_id, original) = pending_task();
+    let task_id = original.id.clone();
+    let attempt = store
+        .begin_task_dispatch(
+            &plan_id,
+            &task_id,
+            STALE_TAB,
+            "Ada",
+            TaskLaneMetadata {
+                tab_id: Some(STALE_TAB.into()),
+                worktree_path: Some("/tmp/worker-lane".into()),
+                branch: Some("lane/worker".into()),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+
+    assert!(store
+        .mark_worker_startup_deadline(&plan_id, &task_id, STALE_TAB, &attempt, true, 4)
+        .unwrap());
+
+    let failed = task_of(&store, &task_id);
+    assert!(failed.assigned_tab_id.is_none());
+    assert!(failed.lane.tab_id.is_none());
+    assert!(store.task_bindings_for_tab(STALE_TAB).is_empty());
+    assert_eq!(failed.lane.worktree_path.as_deref(), Some("/tmp/worker-lane"));
+    assert_eq!(failed.lane.branch.as_deref(), Some("lane/worker"));
+}
+
+#[test]
 fn late_attempt_failure_of_a_surviving_current_attempt_records_history() {
     let (_dir, store, plan_id, original) = pending_task();
     let task_id = original.id.clone();
