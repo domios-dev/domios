@@ -7,6 +7,7 @@ use crate::multiplexer::types::{
 };
 use crate::pty::manager::PtyManager;
 use crate::service::inject_verify::{InjectionError, InjectionResult};
+use crate::service::test_fixture::ServiceFixture;
 use codeterm_pty::pty::screen_state::ScreenState;
 use codeterm_types::pty::BootStage;
 use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
@@ -540,6 +541,65 @@ fn tab_scoped_retry_claim_is_single_owner() {
     assert!(tab.agent_booting);
     assert_eq!(tab.boot_stage, Some(BootStage::PtyStarting));
     assert!(tab.boot_failure_reason.is_none());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
+    let mut mux = MultiplexerState::empty();
+    super::super::workspace::ensure_general_workspace(&mut mux, true);
+    let general_id = mux
+        .resolve_tab_id(super::GENERAL_ALIAS)
+        .expect("general Tab");
+    let tab = mux.get_tab_mut(&general_id).expect("general Tab");
+    tab.agent_type = Some("codex".into());
+    tab.agent_type_locked = true;
+    tab.agent_session_id = Some("session-1".into());
+    tab.session_binding_nonce = Some("nonce-1".into());
+    tab.reported_session_binding_nonce = Some("nonce-1".into());
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    let fixture = ServiceFixture::new(mux);
+
+    {
+        let _claim =
+            super::AutomaticLaunchClaim::acquire(&fixture.service.mux, &general_id).unwrap();
+        {
+            let mut state = fixture.service.mux.write();
+            let tab = state.get_tab_mut(&general_id).expect("general Tab");
+            assert!(tab.agent_booting);
+            assert_eq!(tab.boot_stage, Some(BootStage::PtyStarting));
+            tab.boot_stage = Some(BootStage::ProviderReady);
+        }
+        assert!(!fixture
+            .service
+            .note_provider_exit_in_surviving_shell(&general_id));
+        let state = fixture.service.mux.read();
+        let tab = state.get_tab(&general_id).expect("general Tab");
+
+        assert!(tab.agent_booting);
+        assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
+        assert_eq!(tab.agent_type.as_deref(), Some("codex"));
+        assert_eq!(tab.agent_session_id.as_deref(), Some("session-1"));
+        assert_eq!(tab.session_binding_nonce.as_deref(), Some("nonce-1"));
+    }
+
+    {
+        let state = fixture.service.mux.read();
+        let tab = state.get_tab(&general_id).expect("general Tab");
+        assert!(!tab.agent_booting);
+        assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
+    }
+    assert!(fixture
+        .service
+        .note_provider_exit_in_surviving_shell(&general_id));
+    let state = fixture.service.mux.read();
+    let tab = state.get_tab(&general_id).expect("general Tab");
+    assert!(tab.agent_type.is_none());
+    assert!(tab.agent_session_id.is_none());
+    assert!(tab.session_binding_nonce.is_none());
 }
 
 #[test]
