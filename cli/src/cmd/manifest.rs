@@ -243,8 +243,9 @@ mod tests {
 
     #[test]
     fn cli_manifest_is_fresh() {
-        let committed = std::fs::read_to_string(output_path("cli-manifest.json"))
-            .expect("generated/cli/cli-manifest.json missing — run `codeterm cli-manifest --write`");
+        let committed = std::fs::read_to_string(output_path("cli-manifest.json")).expect(
+            "generated/cli/cli-manifest.json missing — run `codeterm cli-manifest --write`",
+        );
         assert_eq!(
             normalize_newlines(&committed),
             normalize_newlines(&to_json()),
@@ -254,8 +255,8 @@ mod tests {
 
     #[test]
     fn docs_cli_md_is_fresh() {
-        let md = std::fs::read_to_string(output_path("cli.md"))
-            .expect("generated/cli/cli.md missing");
+        let md =
+            std::fs::read_to_string(output_path("cli.md")).expect("generated/cli/cli.md missing");
         let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
         let end = md.find(MD_END).expect("missing cli:auto-end marker");
         let block = &md[start..end];
@@ -527,11 +528,7 @@ mod tests {
     }
 
     // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
-    const PRESCRIPTION_CORPUS: &[&str] = &[
-        "skills",
-        "src-tauri/prompts",
-        "generated/cli/cli.md",
-    ];
+    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "generated/cli/cli.md"];
 
     fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {

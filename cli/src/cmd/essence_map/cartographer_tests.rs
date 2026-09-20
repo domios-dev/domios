@@ -200,7 +200,10 @@ fn cartographer_map_revert_restores_the_recorded_map_and_stays_append_only() {
     let history = root
         .join(".codeterm/map-history")
         .join(format!("{baseline}.jsonl"));
-    assert!(history.is_file(), "superseded map is retained outside essences");
+    assert!(
+        history.is_file(),
+        "superseded map is retained outside essences"
+    );
     assert!(!root.join("essences/map-history").exists());
 
     let outcome = journal::revert(&map, &decisions, "decision-0001").expect("take the revert");
