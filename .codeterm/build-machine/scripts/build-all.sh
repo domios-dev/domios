@@ -8,8 +8,8 @@
 #   mac host      native macOS          macOS aarch64 + x86_64 DMGs
 #   docker        baked Linux image     linux arm64 .deb+.AppImage (optional)
 #
-# NOT built here, each on its own ROG self-hosted GitHub Actions runner (tag-triggered):
-#   - Windows x64+arm64 -> release-windows.yml   (label windows-build)
+# Other jobs in the single release.yml run use the ROG self-hosted runners:
+#   - Windows x64+arm64 -> release-windows.yml (label windows-build)
 #   - x86_64 Linux .deb+.AppImage -> release-linux.yml (label linux-build, native in WSL2)
 # x86_64 Linux moved off this Mac because the AppImage can't be cross-built on ARM.
 #
@@ -131,7 +131,7 @@ cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$
 cp -f "$REPO/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg" "$ART/" 2>/dev/null || true
 
 # Sign updater-capable bundles with the minisign updater key (key stays on the Mac).
-# Windows installers are signed on the ROG runner (release-windows.yml), not here.
+# Windows installers are signed by the Windows reusable job, not here.
 for bundle in "$ART"/CodeTerm_${VER}_*.AppImage; do
   [ -f "$bundle" ] && ( cd "$REPO" && set -a; . ~/.claude/.secrets/apple-notary.env; set +a; pnpm tauri signer sign "$bundle" )
 done

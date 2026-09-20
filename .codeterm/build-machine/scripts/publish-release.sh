@@ -10,12 +10,9 @@
 #
 # Manifest model: this script publishes ONLY its own per-platform updater
 # fragments (darwin-aarch64, darwin-x86_64, linux-aarch64) to the source
-# release, then rebuilds latest.json by merging ALL fragments present plus the
-# existing manifest (monotonic, see merge-latest-json.js --base). The Windows
-# (release-windows.yml) and x86_64-Linux (release-linux.yml) workflows publish
-# their own fragments + run the same merge — so whichever finishes last yields a
-# complete manifest, and no workflow can ever drop another's platform. The .sig
-# blobs feed the fragment `signature` field but are NOT published as assets (the
+# release. The Windows (release-windows.yml) and x86_64 Linux (release-linux.yml)
+# jobs also upload fragments; the final release-manifest job merges them all.
+# Signature blobs feed each fragment's `signature` field but are NOT published as assets (the
 # Tauri updater reads the signature string from latest.json, never the .sig).
 #
 # Usage: publish-release.sh <ver> [artifacts-dir]
@@ -25,6 +22,8 @@ ART="${2:-/tmp/codeterm-${VER}-artifacts}"
 SRC=rollacode/codeterm
 MIRROR=rollacode/codeterm-releases
 TAG="v$VER"
+DEFER_RELEASE_FINALIZE="${DEFER_RELEASE_FINALIZE:-0}"
+PUBLISH_PUBLIC_MIRROR="${PUBLISH_PUBLIC_MIRROR:-true}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 MERGE="$REPO_ROOT/scripts/merge-latest-json.js"
@@ -38,8 +37,8 @@ cp -f "CodeTerm_${VER}_x64.app.tar.gz.sig"     CodeTerm_x64.app.tar.gz.sig
 
 ARM_SIG=$(tr -d '\n' < CodeTerm_aarch64.app.tar.gz.sig)
 X64_SIG=$(tr -d '\n' < CodeTerm_x64.app.tar.gz.sig)
-# Linux lane disabled for v1.9.5: the arm64 AppImage sig is optional; when absent
-# the linux-aarch64 fragment is simply not emitted and Linux sees no update offer.
+# The arm64 AppImage sig is optional for direct publisher use; the combined
+# release job enables the arm64 Linux build and expects this fragment.
 LINUX_ARM_SIG=""
 [ -f "CodeTerm_${VER}_aarch64.AppImage.sig" ] && LINUX_ARM_SIG=$(tr -d '\n' < "CodeTerm_${VER}_aarch64.AppImage.sig")
 PUB=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -78,51 +77,52 @@ gh release view "$TAG" --repo "$SRC" >/dev/null 2>&1 || \
   gh release create "$TAG" --repo "$SRC" --draft --title "$TAG" --notes "CodeTerm $TAG"
 gh release upload "$TAG" --repo "$SRC" --clobber "${PRIV_ASSETS[@]}"
 gh release upload "$TAG" --repo "$SRC" --clobber _frags/updater-*.json
-gh release edit "$TAG" --repo "$SRC" --draft=false
 
-echo "### rebuild merged latest.json (fragments + existing manifest, monotonic)"
-rm -rf _merge && mkdir -p _merge
-gh release download "$TAG" --repo "$SRC" --pattern 'updater-*.json' --dir _merge 2>/dev/null || true
-# subdir-per-fragment so the recursive finder treats each as a fragment. The -deb
-# fragment claims the same linux-x86_64 key as the AppImage one — it owns
-# latest-deb.json only, and merged here it would win and break AppImage updates.
-i=0; for f in _merge/updater-*.json; do
-  case "$(basename "$f")" in *-deb.json) rm -f "$f"; continue ;; esac
-  d="_merge/frag-$i"; mkdir -p "$d"; mv "$f" "$d/latest.json"; i=$((i+1))
-done
-gh release download "$TAG" --repo "$SRC" --pattern 'latest.json' --dir _merge 2>/dev/null || true
-BASE_ARG=()
-[ -f _merge/latest.json ] && BASE_ARG=(--base _merge/latest.json)
-# _frags is what THIS run signed; everything in _merge came back through the
-# release assets, where a re-run can read a cached copy of the asset it just
-# replaced. Overlay last so a rebuilt artifact never ships a stale signature.
-# macOS ships bash 3.2, where "${arr[@]}" on an EMPTY array is an unbound
-# variable under set -u. The +expansion form is the portable empty-safe one.
-node "$MERGE" --in _merge --out latest.json ${BASE_ARG[@]+"${BASE_ARG[@]}"} --overlay _frags
-python3 -m json.tool latest.json >/dev/null
+if [ "$DEFER_RELEASE_FINALIZE" = "1" ]; then
+  echo "### updater manifests and release publication are deferred to release-manifest"
+else
+  gh release edit "$TAG" --repo "$SRC" --draft=false
 
-echo "### publish merged manifest (source + public mirror)"
-gh release upload "$TAG" --repo "$SRC" --clobber latest.json
-gh release view "$TAG" --repo "$MIRROR" >/dev/null 2>&1 || \
-  gh release create "$TAG" --repo "$MIRROR" --draft --title "CodeTerm $TAG" --notes "Auto-mirrored release artifacts for CodeTerm $TAG."
-gh release upload "$TAG" --repo "$MIRROR" --clobber "${PRIV_ASSETS[@]}" latest.json
-gh release edit "$TAG" --repo "$MIRROR" --draft=false --latest
+  echo "### rebuild merged latest.json (fragments + existing manifest, monotonic)"
+  rm -rf _merge && mkdir -p _merge
+  gh release download "$TAG" --repo "$SRC" --pattern 'updater-*.json' --dir _merge 2>/dev/null || true
+  i=0; for f in _merge/updater-*.json; do
+    case "$(basename "$f")" in *-deb.json) rm -f "$f"; continue ;; esac
+    d="_merge/frag-$i"; mkdir -p "$d"; mv "$f" "$d/latest.json"; i=$((i+1))
+  done
+  gh release download "$TAG" --repo "$SRC" --pattern 'latest.json' --dir _merge 2>/dev/null || true
+  BASE_ARG=()
+  [ -f _merge/latest.json ] && BASE_ARG=(--base _merge/latest.json)
+  node "$MERGE" --in _merge --out latest.json ${BASE_ARG[@]+"${BASE_ARG[@]}"} --overlay _frags
+  python3 -m json.tool latest.json >/dev/null
+  gh release upload "$TAG" --repo "$SRC" --clobber latest.json
+fi
 
-echo "### verify anon updater URLs"
-VERIFY_URLS=(latest.json CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz)
-# Linux lane disabled for v1.9.5: verify the AppImage only when this run shipped it.
-[ -n "$LINUX_ARM_SIG" ] && VERIFY_URLS+=("CodeTerm_${VER}_aarch64.AppImage")
-for u in "${VERIFY_URLS[@]}"; do
-  code=$(curl -sIL -o /dev/null -w '%{http_code}' "$B/$u")
-  echo "  $code  $u"; [ "$code" = 200 ] || { echo "::error::updater URL $u -> $code"; exit 1; }
-done
-LIVE=$(curl -sL "$B/latest.json?cb=$(date +%s)" | python3 -c "import json,sys;print(json.load(sys.stdin)['version'])")
-[ "$LIVE" = "$VER" ] || { echo "::error::manifest=$LIVE != $VER"; exit 1; }
-# A 200 says nothing about installability: verify every signature against the
-# bytes actually served, with the key the shipped app uses.
-node "$REPO_ROOT/scripts/verify-updater-manifest.mjs" \
-  --manifest "$B/latest.json?cb=$(date +%s)" \
-  --require-platform darwin-aarch64 \
-  --require-platform darwin-x86_64 || {
-  echo "::error::published manifest is not installable (signature/bytes mismatch)"; exit 1; }
-echo "PUBLISH_OK v$VER is live"
+if [ "$PUBLISH_PUBLIC_MIRROR" = "true" ]; then
+  if [ "$DEFER_RELEASE_FINALIZE" = "1" ]; then
+    gh release view "$TAG" --repo "$MIRROR" >/dev/null
+    gh release upload "$TAG" --repo "$MIRROR" --clobber "${PRIV_ASSETS[@]}"
+  else
+    gh release view "$TAG" --repo "$MIRROR" >/dev/null 2>&1 || \
+      gh release create "$TAG" --repo "$MIRROR" --draft --title "CodeTerm $TAG" \
+        --notes "Auto-mirrored release artifacts for CodeTerm $TAG."
+    gh release upload "$TAG" --repo "$MIRROR" --clobber "${PRIV_ASSETS[@]}" latest.json
+    gh release edit "$TAG" --repo "$MIRROR" --draft=false --latest
+
+    echo "### verify anon updater URLs"
+    VERIFY_URLS=(latest.json CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz)
+    [ -n "$LINUX_ARM_SIG" ] && VERIFY_URLS+=("CodeTerm_${VER}_aarch64.AppImage")
+    for u in "${VERIFY_URLS[@]}"; do
+      code=$(curl -sIL -o /dev/null -w '%{http_code}' "$B/$u")
+      echo "  $code  $u"; [ "$code" = 200 ] || { echo "::error::updater URL $u -> $code"; exit 1; }
+    done
+    LIVE=$(curl -sL "$B/latest.json?cb=$(date +%s)" | python3 -c "import json,sys;print(json.load(sys.stdin)['version'])")
+    [ "$LIVE" = "$VER" ] || { echo "::error::manifest=$LIVE != $VER"; exit 1; }
+    node "$REPO_ROOT/scripts/verify-updater-manifest.mjs" \
+      --manifest "$B/latest.json?cb=$(date +%s)" \
+      --require-platform darwin-aarch64 \
+      --require-platform darwin-x86_64 || {
+      echo "::error::published manifest is not installable (signature/bytes mismatch)"; exit 1; }
+    echo "PUBLISH_OK v$VER is live"
+  fi
+fi

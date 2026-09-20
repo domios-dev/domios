@@ -265,7 +265,10 @@ def plan_close(resolved: dict, states: dict, version: str) -> list[dict]:
     return actions
 
 
-VALIDATOR_WORKFLOW_PATH = ".github/workflows/release-manifest-validate.yml"
+VALIDATOR_WORKFLOW_PATHS = {
+    ".github/workflows/release-manifest-validate.yml",
+    ".github/workflows/release.yml",
+}
 
 
 def boundary_run_id(boundary: object) -> str | None:
@@ -305,7 +308,7 @@ def closure_boundary_refusal(release: dict) -> str | None:
         return f"validator run {run_id} is not readable from Actions"
     if str(run.get("id")) != run_id:
         return f"Actions returned run {run.get('id')} for claimed run {run_id}"
-    if run.get("path") != VALIDATOR_WORKFLOW_PATH:
+    if run.get("path") not in VALIDATOR_WORKFLOW_PATHS:
         return f"run {run_id} is not the release manifest validator"
     if run.get("conclusion") != "success":
         return f"validator run {run_id} concluded {run.get('conclusion') or 'nothing'}"
