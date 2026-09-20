@@ -18,7 +18,7 @@ pub(super) fn reused_provider_tui_owns_launch(
 }
 
 pub(super) fn emit_agent_ready(
-    launch: &LaunchGeneration,
+    launch: &mut LaunchGeneration,
     svc: &ServiceContext,
     settlement: LaunchSettlement,
 ) -> Result<(), String> {
