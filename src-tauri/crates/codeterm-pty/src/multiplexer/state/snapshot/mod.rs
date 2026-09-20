@@ -580,7 +580,14 @@ fn install_leaf(
             watcher: watcher.clone(),
             parent_tab_id: parent_tab_id.clone(),
             pending_paired_planner_tab_id: None,
-            can_spawn: *can_spawn,
+            can_spawn: if codeterm_types::agent::is_legacy_cartographer_worker_binding(
+                role.as_deref(),
+                role_profile.as_deref(),
+            ) {
+                false
+            } else {
+                *can_spawn
+            },
             depth: *depth,
             // spawner / report target instead of hardcoding None.
             report_target_tab_id: report_target_tab_id.clone(),
