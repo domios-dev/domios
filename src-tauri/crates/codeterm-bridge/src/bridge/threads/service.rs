@@ -427,9 +427,7 @@ impl ThreadService {
         tab_id: &str,
         chat_id: i64,
     ) -> bool {
-        if !tabs.is_live_tab(tab_id)
-            || !tabs.is_visible_tab(tab_id)
-            || tabs.is_general_tab(tab_id)
+        if !tabs.is_live_tab(tab_id) || !tabs.is_visible_tab(tab_id) || tabs.is_general_tab(tab_id)
         {
             return false;
         }
