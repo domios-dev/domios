@@ -269,7 +269,7 @@ class SingleRunGraphTest(unittest.TestCase):
 
     def test_manifest_release_gate_follows_all_parallel_jobs(self):
         caller = read("release.yml")
-        platform_jobs = [caller.index(f"  {name}:") for name in ("macos-linux-arm64:", "linux-x86_64:", "windows:")]
+        platform_jobs = [caller.index(f"  {name}") for name in ("macos-linux-arm64:", "linux-x86_64:", "windows:")]
         manifest_job = caller.index("  release-manifest:")
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
