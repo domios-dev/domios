@@ -7,6 +7,7 @@ use rand::Rng;
 use super::cache::{LayoutCache, Position};
 
 pub const COORD_RANGE: f32 = 1000.0;
+#[cfg(feature = "embeddings")]
 const KNN_K: usize = 8;
 const JITTER: f32 = COORD_RANGE * 0.004;
 
