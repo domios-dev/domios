@@ -184,6 +184,13 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
+        spawn_title::validate_agent_tab_title(
+            params.title.as_deref(),
+            params.agent_name.as_deref(),
+        )?;
+        params.description = crate::service::tab::normalize_optional_tab_description(
+            params.description.take(),
+        )?;
         params.normalize_role_profile()?;
         if params.role_profile.as_deref() == Some(builtins::PLANNER)
             && params.parent_tab_id.is_none()
@@ -280,6 +287,13 @@ impl ServiceContext {
         emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
+        spawn_title::validate_agent_tab_title(
+            params.title.as_deref(),
+            params.agent_name.as_deref(),
+        )?;
+        params.description = crate::service::tab::normalize_optional_tab_description(
+            params.description.take(),
+        )?;
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;
@@ -984,6 +998,9 @@ pub(crate) fn initialize_ordinary_pty_agent_tab(
 ) {
     tab.role_profile = params.role_profile.clone();
     tab.audience = params.audience;
+    if params.description.is_some() {
+        tab.description = params.description.clone();
+    }
     tab.agent_booting = true;
     crate::service::boot_stage::apply_boot_stage(
         tab,

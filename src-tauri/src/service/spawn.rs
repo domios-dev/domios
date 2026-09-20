@@ -39,6 +39,9 @@ pub(crate) use spawn_identity::{
     task_binding_from_spawn,
 };
 
+#[path = "spawn_tab_identity.rs"]
+mod spawn_tab_identity;
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
     #[serde(default)]
@@ -212,10 +215,11 @@ impl ServiceContext {
 
     pub(crate) fn spawn_tab_with_ready_and_state_change(
         &self,
-        spec: SpawnTabSpec,
+        mut spec: SpawnTabSpec,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        spawn_tab_identity::prepare_tab_identity(&mut spec)?;
         match (&spec.visibility, &spec.command) {
             (TabVisibility::Visible, TabCommand::Agent(_)) => {
                 self.spawn_visible_agent_impl(spec, ready_tx)

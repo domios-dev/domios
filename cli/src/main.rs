@@ -4,6 +4,7 @@ mod local_api;
 mod mesh_cli;
 mod protocol;
 mod stdout;
+mod tab_name;
 mod transport;
 
 use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};

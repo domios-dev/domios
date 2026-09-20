@@ -1,5 +1,19 @@
 pub(crate) use crate::multiplexer::spawn_title::creation_title_override;
 
+pub(crate) fn validate_agent_tab_title(
+    explicit: Option<&str>,
+    agent_name: Option<&str>,
+) -> Result<(), String> {
+    let explicit = explicit.map(normalize_agent_title_value);
+    let agent_name = agent_name
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
+    if let Some(title) = explicit.or(agent_name) {
+        crate::service::tab::validate_tab_title(&title)?;
+    }
+    Ok(())
+}
+
 const MSYS_ROOT_PREFIXES: &[&str] = &[
     "c:/program files/git/",
     "c:/program files (x86)/git/",
@@ -68,8 +82,8 @@ mod tests {
     #[test]
     fn explicit_title_wins_at_user_level() {
         assert_eq!(
-            creation_title_override(Some("my task"), Some("Watson")),
-            Some(("my task".to_string(), TitleLevel::User))
+            creation_title_override(Some("Scout"), Some("Watson")),
+            Some(("Scout".to_string(), TitleLevel::User))
         );
     }
 
@@ -84,5 +98,13 @@ mod tests {
     #[test]
     fn provider_id_is_never_returned_as_a_fallback_title() {
         assert_eq!(creation_title_override(None, None), None);
+    }
+
+    #[test]
+    fn agent_title_accepts_one_word_and_rejects_prose() {
+        assert!(validate_agent_tab_title(Some("Scout"), None).is_ok());
+        let error = validate_agent_tab_title(Some("Warehouse party"), None).unwrap_err();
+        assert!(error.contains("one word"));
+        assert!(error.contains("description"));
     }
 }

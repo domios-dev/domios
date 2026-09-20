@@ -308,22 +308,7 @@ fn enrich_send_body_with_local_source(
     }) else {
         return body;
     };
-    let title = tab
-        .get("title")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .trim();
-    let tab_title = tab
-        .get("tab_title")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .trim();
-    // Mirror display_label_for_tab: tab title wins only when it differs.
-    let label = if !tab_title.is_empty() && tab_title != title {
-        tab_title
-    } else {
-        title
-    };
+    let label = crate::tab_name::tab_name(tab);
     if !label.is_empty() {
         v["source_label"] = serde_json::json!(label);
     }

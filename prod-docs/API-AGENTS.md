@@ -155,6 +155,7 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
   "agent": "claude",           // agent command (default: "claude")
   "agent_name": "architect",   // maps to --agent flag (.claude/agents/ file)
   "title": "Worker-1",         // tab title (default: agent_name or agent command)
+  "description": "Reviews API contracts", // tab activity summary; title is one word
   "cwd": "C:/project",         // working directory
   "role": "Worker",            // Orchestrator or Worker (Conductor accepted as alias for Orchestrator)
   "parent_tab_id": "a3f1b2c7", // parent Orchestrator for a Worker (8-char hex ID)
@@ -171,7 +172,7 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` spawn needs no task binding when `execution_intent` is `read_only` — the canonical verification Worker: it owns no task, so it can report against none and transition none, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced). A task-bound spawn with `execution_intent: "mutating"` is also refused before tab creation unless its effective `cwd` verifies as an isolated lane this task may write in: naming no checkout, naming a directory that is not a worktree on a branch, naming the plan's canonical checkout, or naming another task's recorded lane all fail closed, and the refusal names `codeterm plan task dispatch`, which provisions the lane. Read-only verification keeps its existing contract and still runs in the canonical checkout. A `Worker` may also carry a `role_profile` naming a leaf kind, such as the builtin `cartographer`, which layers that kind's contract onto the Worker base; a managing kind id (`planner`, `watcher`, `orchestrator`, `general_agent`) is refused rather than downgraded. `codeterm plan task dispatch` sets it from the task's `executor_role` when that role names a builtin leaf.
+All fields are optional. `agent` defaults to `"claude"`. Tab titles are one word; put activity summaries in `description`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` spawn needs no task binding when `execution_intent` is `read_only` — the canonical verification Worker: it owns no task, so it can report against none and transition none, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced). A task-bound spawn with `execution_intent: "mutating"` is also refused before tab creation unless its effective `cwd` verifies as an isolated lane this task may write in: naming no checkout, naming a directory that is not a worktree on a branch, naming the plan's canonical checkout, or naming another task's recorded lane all fail closed, and the refusal names `codeterm plan task dispatch`, which provisions the lane. Read-only verification keeps its existing contract and still runs in the canonical checkout. A `Worker` may also carry a `role_profile` naming a leaf kind, such as the builtin `cartographer`, which layers that kind's contract onto the Worker base; a managing kind id (`planner`, `watcher`, `orchestrator`, `general_agent`) is refused rather than downgraded. `codeterm plan task dispatch` sets it from the task's `executor_role` when that role names a builtin leaf.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -200,9 +201,9 @@ Execute multiple operations in a single HTTP request. Commands run sequentially.
 ```json
 {
   "commands": [
-    {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
-    {"method": "spawn", "params": {"title": "Worker-1", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude", "task": "analyze code"}},
-    {"method": "spawn", "params": {"title": "Worker-2", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude"}},
+    {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "Orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
+    {"method": "spawn", "params": {"title": "Worker-1", "description": "Analyzes the code", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude", "task": "analyze code"}},
+    {"method": "spawn", "params": {"title": "Worker-2", "description": "Runs focused tests", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude"}},
     {"method": "notify", "params": {"title": "All spawned", "body": "4 agents ready"}}
   ]
 }
@@ -223,7 +224,7 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 | Method | Required params | Optional params |
 |--------|----------------|-----------------|
-| `spawn` | — | `agent`, `agent_name`, `title`, `cwd`, `role`, `parent_tab_id`, `can_spawn`, `task`, `args` |
+| `spawn` | — | `agent`, `agent_name`, `title`, `description`, `cwd`, `role`, `parent_tab_id`, `can_spawn`, `task`, `args` |
 | `send` | `tab_id`, | `text`, `enter` (default: true) |
 | `rename` | `tab_id`, `title` | — |
 | `close` | `tab_id` | — |
@@ -234,4 +235,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->
