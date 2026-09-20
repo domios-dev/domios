@@ -152,12 +152,9 @@ mod tests {
         let listeners = ["127.0.0.1:7690".parse().unwrap()];
         let candidates = [PeerAddress::from_ip("100.84.159.37")];
 
-        assert!(advertised_addresses_with_verified_forward(
-            &listeners,
-            &candidates,
-            7690,
-            None,
-        )
-        .is_empty());
+        assert!(
+            advertised_addresses_with_verified_forward(&listeners, &candidates, 7690, None,)
+                .is_empty()
+        );
     }
 }
