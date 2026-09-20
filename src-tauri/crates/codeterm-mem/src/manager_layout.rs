@@ -6,6 +6,7 @@ use super::graph_layout::cache::LayoutCache;
 use super::graph_layout::{project, snapshot};
 use super::MemManager;
 
+#[cfg(feature = "embeddings")]
 const REBUILD_MISSING_RATIO: f64 = 0.20;
 
 impl MemManager {
