@@ -150,8 +150,8 @@ mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
-    provision_isolated_lane, same_path, verify_worker_lane, LaneProtection, ProvisionedWorkerLane,
-    WorkerLaneProvenance,
+    is_linked_worktree, provision_isolated_lane, same_path, verify_worker_lane, LaneProtection,
+    ProvisionedWorkerLane, WorkerLaneProvenance,
 };
 mod worker_persona;
 mod workspace;
