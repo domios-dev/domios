@@ -185,6 +185,45 @@ fn build_announce_skips_public_local_ip() {
 }
 
 #[test]
+fn loopback_listener_with_verified_serve_announces_online() {
+    let mut m = MeshManager::new("test-host".into(), 7685);
+    m.disk_persist = false;
+    m.local_http_healthy = true;
+    m.ready_listeners = vec!["127.0.0.1:7685".parse().unwrap()];
+    m.tailscale_ip = Some("100.65.0.30".into());
+    m.local_web_ui = Some(WebUiAnnouncement {
+        protocol_version: types::RELAY_PROTOCOL_VERSION,
+        endpoints: vec![WebUiEndpoint::TailscaleHttp {
+            ip: "100.65.0.30".parse().unwrap(),
+            port: 7685,
+        }],
+    });
+
+    let announcement = m.build_announce();
+
+    assert!(announcement.online);
+    assert_eq!(announcement.addresses.len(), 1);
+    assert_eq!(announcement.addresses[0].ip, "100.65.0.30");
+    assert!(announcement.addresses[0].is_tailscale);
+    assert_eq!(announcement.web_ui, m.local_web_ui);
+}
+
+#[test]
+fn loopback_listener_without_verified_serve_stays_offline() {
+    let mut m = MeshManager::new("test-host".into(), 7685);
+    m.disk_persist = false;
+    m.local_http_healthy = true;
+    m.ready_listeners = vec!["127.0.0.1:7685".parse().unwrap()];
+    m.tailscale_ip = Some("100.65.0.30".into());
+
+    let announcement = m.build_announce();
+
+    assert!(!announcement.online);
+    assert!(announcement.addresses.is_empty());
+    assert!(announcement.web_ui.is_none());
+}
+
+#[test]
 fn mesh_reachability_remote_loss_withdraws_paired_cached_addresses() {
     let mut sender = MeshManager::new("sender".into(), 7690);
     sender.disk_persist = false;

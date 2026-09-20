@@ -18,7 +18,8 @@ export function prepareLocalInstallCache(target) {
     fs.mkdirSync(absolute, { recursive: true });
     return null;
   }
-  if (normalized(fs.realpathSync(absolute)) !== normalized(absolute)) {
+  const expected = path.join(fs.realpathSync(parent), path.basename(absolute));
+  if (normalized(fs.realpathSync(absolute)) !== normalized(expected)) {
     throw new Error("Refusing a redirected local-install cache");
   }
   const build = path.join(absolute, "release", "build");
