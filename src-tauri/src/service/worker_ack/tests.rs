@@ -187,6 +187,21 @@ fn startup_hold_survives_session_binding_rearm_for_the_same_launch_nonce() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn bound_worker_ack_deadline_accepts_a_borrowed_service_context() {
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service: &ServiceContext = &fixture.service;
+
+    assert!(!service
+        .arm_bound_worker_ack_deadline_for_tab(&tab_id, "dispatch".into())
+        .unwrap());
+}
+
+#[test]
 fn a_new_binding_supersedes_the_old_identity_and_rejects_its_ack() {
     let registry = WorkerAckRegistry::default();
     let old_identity = ack_identity("attempt-a");
