@@ -19,7 +19,7 @@ fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
 }
 
 #[test]
-fn cartographer_prompt_orchestrator_composition_delivers_boundary_notice() {
+fn cartographer_prompt_orchestrator_composition_delivers_manager_notice() {
     let prompt =
         spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
     let notice = crate::prompts::ORCH_CARTOGRAPHER_CONTRACT_NOTICE;
@@ -40,6 +40,8 @@ fn cartographer_prompt_cartographer_composition_delivers_contract_and_assignment
     let contract = crate::prompts::CARTOGRAPHER_SUFFIX.trim();
     assert_eq!(prompt.matches(contract).count(), 1);
     assert_eq!(prompt.matches(ASSIGNMENT_TOKEN).count(), 1);
+    assert!(!prompt.contains(crate::prompts::WORKER_SUFFIX.trim()));
+    assert!(!prompt.contains(crate::prompts::planner_suffix().trim()));
     assert!(!prompt.contains("{cartographer_contract_notice}"));
     assert!(prompt.len() <= crate::prompts::COMPOSED_ROLE_PROMPT_MAX_BYTES);
 }

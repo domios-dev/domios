@@ -138,6 +138,14 @@ static TABLE: &[OccasionRules] = &[
                 },
             ),
             (Selector::Kind(builtins::WATCHER), Placement::SILENT),
+            (
+                Selector::Kind(builtins::CARTOGRAPHER),
+                Placement {
+                    slot: Slot::Contract,
+                    separator: "\n\n",
+                    standalone: true,
+                },
+            ),
             (Selector::Kind(builtins::GENERAL_AGENT), Placement::SILENT),
             (
                 Selector::WorkerLeaf,
