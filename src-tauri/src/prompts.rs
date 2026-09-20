@@ -96,9 +96,9 @@ pub const ORCH_ROLELESS_DRAFT_REJECTION: &str = "reject any task that names no e
 pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
     "reject any draft whose worker guidance says nothing";
 
-/// Stable Orchestrator delivery token for the opt-in Cartographer boundary.
+/// Stable Orchestrator delivery token for the optional Cartographer Manager.
 pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
-    "Cartographer purpose: regenerate the project's essence map at boundaries only; this map feature is opt-in and off by default, never a continuous cadence.";
+    "Cartographer: optional Manager for project-specific normative essences, including from zero; no spawn, approval or release authority, no continuous cadence.";
 
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
@@ -181,8 +181,8 @@ pub const NOTIFY_VERBOSE_COMPLETION_CLAUSE: &str = "A short completion or progre
 /// information rather than an error and does not retry a recorded notification.
 pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried.";
 
-/// Map-authoring contract for the Cartographer leaf. Layered on the Worker
-/// suffix, which still owns lane discipline and the report handoff.
+/// Standalone Manager contract for project-specific normative essences.
+/// It carries its own bounded authority and canonical verification discipline.
 pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../prompts/cartographer_suffix.md");
 
 /// Compact control context placed after a Worker's task-owned identity.
@@ -361,14 +361,10 @@ pub fn planner_suffix() -> String {
     )
 }
 
-/// The Cartographer contract: Worker discipline first, then the map-authoring
-/// checklist this kind adds to it.
+/// The Cartographer Manager has its own contract, without Worker or Planner
+/// task lifecycle instructions granting contradictory authority.
 pub fn cartographer_suffix() -> String {
-    format!(
-        "{}\n\n{}",
-        worker_suffix().trim(),
-        CARTOGRAPHER_SUFFIX.trim()
-    )
+    CARTOGRAPHER_SUFFIX.trim().to_string()
 }
 
 /// Upper bound for a composed role prompt. Not a style preference: every byte

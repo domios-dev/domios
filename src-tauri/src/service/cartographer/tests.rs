@@ -196,64 +196,45 @@ fn cartographer_map_boundary_needs_a_delivered_wave() {
     assert_eq!(pending_boundary(&open, enabled), None);
 }
 
-/// The role's own contract is delivered through the shared preset seam, layered
-/// on the Worker base it narrows, and the task-owned persona still leads.
+/// The optional Manager receives its own contract without Worker or Planner authority.
 #[test]
-fn cartographer_map_role_contract_layers_on_the_worker_base() {
+fn cartographer_map_role_contract_is_a_standalone_manager() {
     use codeterm_types::agent::role_kind::builtins;
-
     use crate::multiplexer::types::AgentRole;
     use crate::service::persona::{self, Occasion};
 
-    const TASK_PERSONA_TOKEN: &str = "OPAQUE-CARTOGRAPHER-PERSONA-4b71d";
-
     let preset = persona::resolve_ambient(
-        Some(AgentRole::Worker),
+        Some(AgentRole::Manager),
         Some(builtins::CARTOGRAPHER),
-        Some(TASK_PERSONA_TOKEN),
+        None,
     )
-    .expect("the cartographer kind resolves a preset");
+    .expect("the Cartographer Manager resolves a preset");
     assert_eq!(preset.kind_id, builtins::CARTOGRAPHER);
     assert_eq!(preset.label, "Cartographer");
 
     let contract = persona::guidance_for(
         Occasion::LaunchAssignment,
-        Some(AgentRole::Worker),
+        Some(AgentRole::Manager),
         Some(builtins::CARTOGRAPHER),
-        Some(TASK_PERSONA_TOKEN),
+        None,
     );
-    for fragment in [
-        crate::prompts::WORKER_SUFFIX.trim(),
-        crate::prompts::CARTOGRAPHER_SUFFIX.trim(),
-    ] {
-        assert!(!fragment.is_empty(), "an empty fragment proves nothing");
-        assert_eq!(
-            contract.matches(fragment).count(),
-            1,
-            "the cartographer contract carries each fragment exactly once"
-        );
-    }
-    assert!(
-        !contract.contains(TASK_PERSONA_TOKEN),
-        "the task persona is the identity slot, not the kind contract"
+    assert_eq!(
+        contract.matches(crate::prompts::CARTOGRAPHER_SUFFIX.trim()).count(),
+        1
     );
-
-    let identity = persona::guidance_for(
-        Occasion::WorkerLaunchIdentity,
-        Some(AgentRole::Worker),
+    assert!(!contract.contains(crate::prompts::WORKER_SUFFIX.trim()));
+    assert!(!contract.contains(crate::prompts::planner_suffix().trim()));
+    let bootstrap = persona::guidance_for(
+        Occasion::ManagerBootstrap,
+        Some(AgentRole::Manager),
         Some(builtins::CARTOGRAPHER),
-        Some(TASK_PERSONA_TOKEN),
+        None,
     );
-    assert_eq!(identity.trim(), TASK_PERSONA_TOKEN);
+    assert_eq!(bootstrap.trim(), crate::prompts::CARTOGRAPHER_SUFFIX.trim());
 }
 
-/// Measured after the prompt diet, normalized to LF so a CRLF checkout measures
-/// the same bytes. The Worker base plus one checklist, and no second manual.
-///
-/// Re-measured for the project contract that 7244934d6 taught this role while
-/// the gate was not being run; it put the surface 47 bytes over the previous
-/// 7_600. Raised to the new measurement rather than trimming the contract that
-/// was deliberately added.
+/// Preserve the existing byte budget while replacing Worker boilerplate with
+/// the Manager's discovery, normative contract and evolution instructions.
 const CARTOGRAPHER_CONTRACT_MAX_BYTES: usize = 7_650;
 
 #[test]
@@ -288,49 +269,27 @@ fn slot_residue(text: &str) -> bool {
     false
 }
 
-/// The launch a dispatched Cartographer actually receives: the task-owned
-/// identity leads, and the kind contract rides behind it in one composition.
+/// An attached Manager can receive a request or start without source essences;
+/// neither launch inherits the Worker task identity or report lifecycle.
 #[test]
-fn cartographer_map_launch_carries_the_kind_contract_behind_the_task_identity() {
-    use codeterm_types::agent::role_kind::builtins;
-
-    use crate::service::plan::worker_identity::{
-        attach_worker_identity, compose_worker_identity_contract,
-    };
+fn cartographer_map_manager_launch_delivers_request_once() {
     use crate::service::role_onboarding_task;
-
-    const NAME: &str = "Mercator";
-    const GUIDANCE: &str = "OPAQUE-CARTOGRAPHER-GUIDANCE-8f2a1";
-    const TASK: &str = "OPAQUE-CARTOGRAPHER-TASK-3d90c";
-
-    let identity = compose_worker_identity_contract(
-        Some(NAME),
-        Some(GUIDANCE),
-        Some(builtins::CARTOGRAPHER),
-        TASK,
-    );
-    let brief = attach_worker_identity(&identity, &format!("# {TASK}\n\nbody\n"));
-    let launched = role_onboarding_task(Some(&brief), Some("Worker"), Some(builtins::CARTOGRAPHER))
-        .expect("a cartographer launch composes");
-    let plain =
-        role_onboarding_task(Some(&brief), Some("Worker"), None).expect("a worker launch composes");
-
+    const REQUEST: &str = "OPAQUE-CARTOGRAPHER-REQUEST-3d90c";
     let contract = crate::prompts::CARTOGRAPHER_SUFFIX.trim();
-    assert_eq!(launched.matches(contract).count(), 1);
-    assert_eq!(
-        launched
-            .matches(crate::prompts::WORKER_SUFFIX.trim())
-            .count(),
-        1,
-        "the subtype layers on the Worker base rather than replacing it"
-    );
-    assert!(
-        !plain.contains(contract),
-        "a plain Worker receives no map contract"
-    );
-
-    let guidance_at = launched.find(GUIDANCE).expect("task guidance delivered");
-    let contract_at = launched.find(contract).expect("kind contract delivered");
-    assert!(guidance_at < contract_at, "task framing leads the launch");
-    assert_eq!(launched.matches(GUIDANCE).count(), 1);
+    for request in [None, Some(REQUEST)] {
+        let launched = role_onboarding_task(request, Some("Manager"), Some("cartographer"))
+            .expect("a Cartographer Manager launch composes");
+        assert_eq!(launched.matches(contract).count(), 1);
+        assert_eq!(
+            launched.matches(REQUEST).count(),
+            usize::from(request.is_some())
+        );
+        assert!(!launched.contains(crate::prompts::WORKER_SUFFIX.trim()));
+        assert!(!launched.contains(crate::prompts::planner_suffix().trim()));
+        assert!(launched.len() <= crate::prompts::COMPOSED_ROLE_PROMPT_MAX_BYTES);
+    }
+    let plain = role_onboarding_task(Some(REQUEST), Some("Worker"), None)
+        .expect("a plain Worker launch composes");
+    assert!(!plain.contains(contract));
+    assert!(plain.contains(crate::prompts::WORKER_SUFFIX.trim()));
 }
