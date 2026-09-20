@@ -43,7 +43,7 @@ fn with_app_webview_origins(
 }
 
 fn cors_layer(cors_enabled: bool, configured_origins: &[String]) -> CorsLayer {
-    let mut origins = if cors_enabled {
+    let origins = if cors_enabled {
         configured_origins
             .iter()
             .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
@@ -52,9 +52,14 @@ fn cors_layer(cors_enabled: bool, configured_origins: &[String]) -> CorsLayer {
         Vec::new()
     };
     #[cfg(debug_assertions)]
-    if !cors_enabled {
-        origins.extend(debug_vite_origins());
-    }
+    let origins = if !cors_enabled {
+        origins
+            .into_iter()
+            .chain(debug_vite_origins())
+            .collect::<Vec<_>>()
+    } else {
+        origins
+    };
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(with_app_webview_origins(origins)))
         .allow_methods(Any)
