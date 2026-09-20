@@ -302,4 +302,3 @@ fn cartographer_map_manager_launch_delivers_request_once() {
     assert!(!plain.contains(contract));
     assert!(plain.contains(crate::prompts::WORKER_SUFFIX.trim()));
 }
-}
