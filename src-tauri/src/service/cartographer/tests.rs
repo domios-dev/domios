@@ -196,10 +196,10 @@ fn cartographer_map_boundary_needs_a_delivered_wave() {
     assert_eq!(pending_boundary(&open, enabled), None);
 }
 
-/// The role's own contract is delivered through the shared preset seam, layered
-/// on the Worker base it narrows, and the task-owned persona still leads.
+/// The role's own contract is delivered through the shared preset seam as a
+/// Manager kind: its bundled contract, never the Worker base it used to inherit.
 #[test]
-fn cartographer_map_role_contract_layers_on_the_worker_base() {
+fn cartographer_map_role_contract_is_a_manager_contract_without_the_worker_base() {
     use codeterm_types::agent::role_kind::builtins;
 
     use crate::multiplexer::types::AgentRole;
@@ -208,57 +208,53 @@ fn cartographer_map_role_contract_layers_on_the_worker_base() {
     const TASK_PERSONA_TOKEN: &str = "OPAQUE-CARTOGRAPHER-PERSONA-4b71d";
 
     let preset = persona::resolve_ambient(
-        Some(AgentRole::Worker),
+        Some(AgentRole::Manager),
         Some(builtins::CARTOGRAPHER),
         Some(TASK_PERSONA_TOKEN),
     )
     .expect("the cartographer kind resolves a preset");
     assert_eq!(preset.kind_id, builtins::CARTOGRAPHER);
     assert_eq!(preset.label, "Cartographer");
+    assert_eq!(
+        preset
+            .fragments
+            .iter()
+            .map(|fragment| fragment.source.label())
+            .collect::<Vec<_>>(),
+        vec!["builtin"],
+        "a Manager kind composes its own contract, never an inherited Worker base"
+    );
 
     let contract = persona::guidance_for(
         Occasion::LaunchAssignment,
-        Some(AgentRole::Worker),
+        Some(AgentRole::Manager),
         Some(builtins::CARTOGRAPHER),
         Some(TASK_PERSONA_TOKEN),
     );
-    for fragment in [
-        crate::prompts::WORKER_SUFFIX.trim(),
-        crate::prompts::CARTOGRAPHER_SUFFIX.trim(),
-    ] {
-        assert!(!fragment.is_empty(), "an empty fragment proves nothing");
-        assert_eq!(
-            contract.matches(fragment).count(),
-            1,
-            "the cartographer contract carries each fragment exactly once"
-        );
-    }
+    assert_eq!(
+        contract
+            .matches(crate::prompts::CARTOGRAPHER_SUFFIX.trim())
+            .count(),
+        1,
+        "the cartographer contract is delivered exactly once"
+    );
+    assert!(
+        !contract.contains(crate::prompts::WORKER_SUFFIX.trim()),
+        "the Worker base contract is no longer composed for the Cartographer"
+    );
     assert!(
         !contract.contains(TASK_PERSONA_TOKEN),
         "the task persona is the identity slot, not the kind contract"
     );
-
-    let identity = persona::guidance_for(
-        Occasion::WorkerLaunchIdentity,
-        Some(AgentRole::Worker),
-        Some(builtins::CARTOGRAPHER),
-        Some(TASK_PERSONA_TOKEN),
-    );
-    assert_eq!(identity.trim(), TASK_PERSONA_TOKEN);
 }
 
 /// Measured after the prompt diet, normalized to LF so a CRLF checkout measures
-/// the same bytes. The Worker base plus one checklist, and no second manual.
-///
-/// Re-measured for the project contract that 7244934d6 taught this role while
-/// the gate was not being run; it put the surface 47 bytes over the previous
-/// 7_600. Raised to the new measurement rather than trimming the contract that
-/// was deliberately added.
+/// the same bytes. The Cartographer's own Manager contract, with no Worker base.
 const CARTOGRAPHER_CONTRACT_MAX_BYTES: usize = 7_650;
 
 #[test]
 fn cartographer_map_contract_stays_within_its_measured_ceiling() {
-    let rendered = crate::prompts::cartographer_suffix().replace("\r\n", "\n");
+    let rendered = crate::prompts::CARTOGRAPHER_SUFFIX.replace("\r\n", "\n");
     assert!(
         rendered.len() <= CARTOGRAPHER_CONTRACT_MAX_BYTES,
         "the cartographer contract is {} bytes, over its {CARTOGRAPHER_CONTRACT_MAX_BYTES}-byte ceiling",
@@ -289,7 +285,8 @@ fn slot_residue(text: &str) -> bool {
 }
 
 /// The launch a dispatched Cartographer actually receives: the task-owned
-/// identity leads, and the kind contract rides behind it in one composition.
+/// identity leads, and the Manager kind contract rides behind it in one
+/// composition, with no Worker base layered underneath.
 #[test]
 fn cartographer_map_launch_carries_the_kind_contract_behind_the_task_identity() {
     use codeterm_types::agent::role_kind::builtins;
@@ -310,19 +307,17 @@ fn cartographer_map_launch_carries_the_kind_contract_behind_the_task_identity() 
         TASK,
     );
     let brief = attach_worker_identity(&identity, &format!("# {TASK}\n\nbody\n"));
-    let launched = role_onboarding_task(Some(&brief), Some("Worker"), Some(builtins::CARTOGRAPHER))
-        .expect("a cartographer launch composes");
+    let launched =
+        role_onboarding_task(Some(&brief), Some("Manager"), Some(builtins::CARTOGRAPHER))
+            .expect("a cartographer launch composes");
     let plain =
         role_onboarding_task(Some(&brief), Some("Worker"), None).expect("a worker launch composes");
 
     let contract = crate::prompts::CARTOGRAPHER_SUFFIX.trim();
     assert_eq!(launched.matches(contract).count(), 1);
-    assert_eq!(
-        launched
-            .matches(crate::prompts::WORKER_SUFFIX.trim())
-            .count(),
-        1,
-        "the subtype layers on the Worker base rather than replacing it"
+    assert!(
+        !launched.contains(crate::prompts::WORKER_SUFFIX.trim()),
+        "the Manager Cartographer carries no Worker base contract"
     );
     assert!(
         !plain.contains(contract),
