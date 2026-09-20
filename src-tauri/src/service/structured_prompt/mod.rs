@@ -371,12 +371,19 @@ fn emit_chat_part(
     let Some(message) = chat_state.messages.get(&update.message_id) else {
         return;
     };
-    let previous_text = chat_state.part_text.get(&update.part_id).map(String::as_str);
+    let previous_text = chat_state
+        .part_text
+        .get(&update.part_id)
+        .map(String::as_str);
     let Some(chat_message) = normalize_chat_part(update, message, previous_text) else {
         return;
     };
-    if matches!(update.part.get("type").and_then(|v| v.as_str()), Some("text" | "reasoning")) {
-        if chat_state.part_text.len() >= 512 && !chat_state.part_text.contains_key(&update.part_id) {
+    if matches!(
+        update.part.get("type").and_then(|v| v.as_str()),
+        Some("text" | "reasoning")
+    ) {
+        if chat_state.part_text.len() >= 512 && !chat_state.part_text.contains_key(&update.part_id)
+        {
             chat_state.part_text.clear();
         }
         chat_state

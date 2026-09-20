@@ -539,15 +539,19 @@ async fn telegram_topic_notification_creates_and_reuses_a_visible_tab_binding() 
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
 
-    assert!(threads
-        .ensure_notification_thread(&tabs, PLANCK, CHAT)
-        .await);
+    assert!(
+        threads
+            .ensure_notification_thread(&tabs, PLANCK, CHAT)
+            .await
+    );
     assert!(threads.has_open_binding(PLANCK));
     assert_eq!(transport.creates(), vec!["Planck".to_string()]);
 
-    assert!(threads
-        .ensure_notification_thread(&tabs, PLANCK, CHAT)
-        .await);
+    assert!(
+        threads
+            .ensure_notification_thread(&tabs, PLANCK, CHAT)
+            .await
+    );
     assert_eq!(transport.creates(), vec!["Planck".to_string()]);
 }
 
@@ -558,15 +562,11 @@ async fn telegram_topic_notification_skips_hidden_tabs_and_agent_open_refuses_th
     tabs.add_hidden(ROWAN, "Rowan", SenderRole::Worker);
     let threads = attached(transport.clone());
 
-    assert!(!threads
-        .ensure_notification_thread(&tabs, ROWAN, CHAT)
-        .await);
+    assert!(!threads.ensure_notification_thread(&tabs, ROWAN, CHAT).await);
     assert!(!threads.has_open_binding(ROWAN));
     assert!(transport.creates().is_empty());
     assert_eq!(
-        threads
-            .open(&tabs, tab_caller(ROWAN), ROWAN, CHAT)
-            .await,
+        threads.open(&tabs, tab_caller(ROWAN), ROWAN, CHAT).await,
         Err(codeterm_bridge::bridge::threads::ThreadError::HiddenTab(
             ROWAN.to_string()
         ))
