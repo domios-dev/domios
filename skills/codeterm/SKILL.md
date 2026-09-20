@@ -26,6 +26,10 @@ The protected General Agent home tab (`main` / `general`) is the exception: its 
 
 ---
 
+{interactive_child_pty_operation}
+
+---
+
 {agent_pad_rule}
 
 ---
@@ -61,4 +65,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 65 -->
+<!-- revision: 66 -->

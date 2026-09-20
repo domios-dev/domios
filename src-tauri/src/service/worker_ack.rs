@@ -31,6 +31,21 @@ const AGENT_STARTUP_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEA
 const WORKER_ACK_REMINDER: &str = "The startup binding for this tab looks wrong. Check whether CODETERM_TASK_ID names a task with no live attempt or whether this session never bound. If the assignment is live, acknowledge it with codeterm agent ack.";
 pub(crate) const WORKER_ACK_CONTEXT: &str = "worker-ack";
 
+fn interactive_child_pty_recovery(tab_id: &str, attempt_id: &str) -> Value {
+    json!({
+        "capability": crate::prompts::INTERACTIVE_CHILD_PTY_CAPABILITY_ID,
+        "target_tab_id": tab_id,
+        "attempt_id": attempt_id,
+        "primitives": [
+            format!("codeterm tab inspect --tab {tab_id}"),
+            format!("codeterm tab status --tab {tab_id}"),
+            format!("codeterm tab get-text --tab {tab_id}"),
+            format!("codeterm tab respond OPTION --tab {tab_id}"),
+            format!("codeterm send --tab {tab_id} --actions <bounded-visible-state-derived-actions>"),
+        ],
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WorkerAckSignal {
     Acknowledged,
@@ -357,6 +372,7 @@ pub(crate) fn worker_ack_timeout_event(
         "spawn_command": spawn_command,
         "tab_state": TAB_STATE_ALIVE_AWAITING_INSPECTION,
         "attempt_state": ATTEMPT_STATE_FINALIZED,
+        "recovery": interactive_child_pty_recovery(tab_id, attempt_id),
         "deadline_basis": {
             "measurement_method": COLD_START_MEASUREMENT_METHOD,
             "claude_cold_start_seconds": MEASURED_CLAUDE_COLD_START_SECS,
@@ -364,7 +380,7 @@ pub(crate) fn worker_ack_timeout_event(
             "selected_phase_seconds": COLD_START_DEADLINE_SECS,
         },
         "impact": "Worker startup did not acknowledge; the attempt was finalized while its tab remains alive for inspection.",
-        "fallback": "Inspect the surviving tab before dispatching a replacement Worker.",
+        "fallback": "Invoke recovery.capability for this exact tab and attempt before dispatching a replacement Worker.",
     })
 }
 
@@ -389,7 +405,8 @@ fn agent_startup_notice_event(tab_id: &str, title: &str, attempt_id: &str) -> Va
         ],
         "respond": format!("codeterm tab respond OPTION --tab {tab_id}"),
         "hold": format!("codeterm agent startup-hold --tab {tab_id} --attempt {attempt_id}"),
-        "fallback": "Inspect first. If the exact provider picker remains visible after tab respond, use one bounded send --actions sequence derived from its current selection. Never resend the assigned task payload.",
+        "recovery": interactive_child_pty_recovery(tab_id, attempt_id),
+        "fallback": "Invoke recovery.capability for this exact tab and attempt. Never resend the assigned task payload.",
     })
 }
 
@@ -407,6 +424,7 @@ fn agent_startup_failed_event(
         "attempt_id": attempt_id,
         "deadline_seconds": (AGENT_STARTUP_NOTICE_TIMEOUT + AGENT_STARTUP_FINAL_TIMEOUT).as_secs(),
         "tab_state": TAB_STATE_ALIVE_AWAITING_INSPECTION,
+        "recovery": interactive_child_pty_recovery(tab_id, attempt_id),
         "deadline_basis": {
             "measurement_method": COLD_START_MEASUREMENT_METHOD,
             "claude_cold_start_seconds": MEASURED_CLAUDE_COLD_START_SECS,
@@ -415,7 +433,7 @@ fn agent_startup_failed_event(
         },
         "provider": { "exit_code": exit_code, "output": provider_output },
         "impact": "Provider startup expired; the tab remains alive for inspection.",
-        "fallback": "Inspect the surviving tab before spawning a replacement.",
+        "fallback": "Invoke recovery.capability for this exact tab and attempt before spawning a replacement.",
     })
 }
 
