@@ -354,6 +354,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> Stri
          - This tab owns an execution-mode plan with unfinished work; act on actionable tasks, and let dependency-waiting or machine-paused tasks wait.\n\
          - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
          - Worker reports are pushed into this tab automatically; judge each incoming report without polling an inbox.\n\
+         - After dispatching a worker, end your turn immediately. Never sleep, wait, poll, or call `tab inspect`, `tab get-text`, `orchestrator status`, or inbox checks just to keep the turn open or watch progress; resume only when a worker report, user message, or system event is delivered automatically. Periodic-progress duties do not apply while waiting on a pushed report.\n\
          - Read the compact plan-owned status with `{status}`.\n\
          - Use `codeterm orchestrator inspect --plan {plan_id} --json` only when a specific discrepancy requires full report bodies or raw lane state.\n\
          - Reconcile live tabs against the plan with `codeterm plan reconcile {plan_id}`.\n\
