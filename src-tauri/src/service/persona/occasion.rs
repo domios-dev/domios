@@ -133,19 +133,11 @@ static TABLE: &[OccasionRules] = &[
                 Selector::Kind(builtins::CARTOGRAPHER),
                 Placement {
                     slot: Slot::Contract,
-                    separator: "",
-                    standalone: false,
-                },
-            ),
-            (Selector::Kind(builtins::WATCHER), Placement::SILENT),
-            (
-                Selector::Kind(builtins::CARTOGRAPHER),
-                Placement {
-                    slot: Slot::Contract,
                     separator: "\n\n",
                     standalone: true,
                 },
             ),
+            (Selector::Kind(builtins::WATCHER), Placement::SILENT),
             (Selector::Kind(builtins::GENERAL_AGENT), Placement::SILENT),
             (
                 Selector::WorkerLeaf,
@@ -189,6 +181,24 @@ fn rules(occasion: Occasion) -> &'static OccasionRules {
         .iter()
         .find(|rules| rules.occasion == occasion)
         .expect("every occasion declares a row set")
+}
+
+#[cfg(test)]
+mod selector_tests {
+    use super::TABLE;
+
+    #[test]
+    fn delivery_occasions_have_no_shadowed_duplicate_selectors() {
+        for rules in TABLE {
+            for (index, (selector, _)) in rules.rows.iter().enumerate() {
+                assert!(
+                    !rules.rows[..index].iter().any(|(earlier, _)| earlier == selector),
+                    "{:?} repeats selector {selector:?}; first-match delivery shadows the later row",
+                    rules.occasion
+                );
+            }
+        }
+    }
 }
 
 fn placement(occasion: Occasion, preset: Option<&RolePreset>) -> Option<Placement> {
