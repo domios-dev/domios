@@ -81,6 +81,7 @@ impl ServiceFixture {
             )),
             events: Arc::new(crate::api::events::EventBroadcaster::new()),
             app_handle: app.handle().clone(),
+            cartographer_attach_locks: Default::default(),
             agent_tracker: Arc::new(TimedMutex::new(
                 "agent_tracker",
                 crate::agent::status::TabStatusTracker::new(),
