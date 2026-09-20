@@ -3,6 +3,18 @@ use crate::service::message_gateway::{DeliverySeam, KeyStroke, MessageGateway};
 use crate::service::messenger::{Delivery, MessageEnvelope};
 use crate::service::pty_io::SendBatchItem;
 use std::cell::RefCell;
+use std::sync::Arc;
+
+fn ack_identity(attempt_id: &str) -> WorkerAckIdentity {
+    WorkerAckIdentity {
+        plan_id: "plan".into(),
+        task_id: "task".into(),
+        attempt_id: attempt_id.into(),
+        tab_id: "tab".into(),
+        session_id: Some("session".into()),
+        binding_nonce: Some("nonce".into()),
+    }
+}
 
 #[derive(Default)]
 struct ReminderDeliverySeam {
@@ -61,31 +73,161 @@ fn agent_ack_reminder_keeps_its_own_context_constant() {
 #[test]
 fn acknowledgement_resolves_only_the_matching_attempt() {
     let registry = WorkerAckRegistry::default();
-    let receiver = registry.arm("tab", "attempt-a");
+    let identity = ack_identity("attempt-a");
+    let receiver = registry.arm(identity.clone()).receiver.unwrap();
 
-    assert!(!registry.acknowledge("tab", "attempt-b"));
-    assert!(registry.acknowledge("tab", "attempt-a"));
+    assert!(!registry.acknowledge(&ack_identity("attempt-b")));
+    assert!(registry.acknowledge(&identity));
     assert_eq!(receiver.recv().unwrap(), WorkerAckSignal::Acknowledged);
 }
 
 #[test]
-fn rearm_supersedes_the_previous_deadline() {
+fn double_arm_for_the_same_identity_keeps_one_supervisor_and_accepts_ack() {
     let registry = WorkerAckRegistry::default();
-    let previous = registry.arm("tab", "attempt-a");
-    let current = registry.arm("tab", "attempt-b");
+    let identity = ack_identity("attempt-a");
+    let first = registry.arm(identity.clone());
+    let starts_supervisor = first.starts_supervisor;
+    let receiver = first.receiver.unwrap();
+    let second = registry.arm(identity.clone());
 
-    assert_eq!(previous.recv().unwrap(), WorkerAckSignal::Superseded);
-    assert!(registry.acknowledge("tab", "attempt-b"));
-    assert_eq!(current.recv().unwrap(), WorkerAckSignal::Acknowledged);
+    assert!(starts_supervisor);
+    assert!(!second.starts_supervisor);
+    assert!(second.receiver.is_none());
+    assert!(!second.identity_conflict);
+    assert!(registry.acknowledge(&identity));
+    assert_eq!(receiver.recv().unwrap(), WorkerAckSignal::Acknowledged);
+}
+
+#[test]
+fn reminder_delivery_and_same_attempt_arm_preserve_the_ack_waiter() {
+    let registry = WorkerAckRegistry::default();
+    let gateway = MessageGateway::new();
+    let seam = ReminderDeliverySeam::default();
+    let identity = ack_identity("attempt-a");
+    let receiver = registry.arm(identity.clone()).receiver.unwrap();
+
+    gateway
+        .submit(&seam, worker_ack_reminder_message("tab", "attempt-a"))
+        .unwrap();
+    let rearm = registry.arm(identity.clone());
+
+    assert_eq!(seam.targets.borrow().as_slice(), &[String::from("tab")]);
+    assert!(!rearm.starts_supervisor);
+    assert!(registry.acknowledge(&identity));
+    assert_eq!(receiver.recv().unwrap(), WorkerAckSignal::Acknowledged);
+}
+
+#[test]
+fn startup_hold_and_same_attempt_arm_keep_the_ack_waiter() {
+    let registry = WorkerAckRegistry::default();
+    let identity = ack_identity("attempt-a");
+    let receiver = registry.arm(identity.clone()).receiver.unwrap();
+    let startup_receiver = registry.arm_startup(creator_authority("tab", "launch-a"));
+
+    assert!(registry
+        .hold_startup_authorized(
+            "creator",
+            "tab",
+            "launch-a",
+            Some(&live_child("launch-a", None))
+        )
+        .is_ok());
+    assert_eq!(startup_receiver.recv().unwrap(), AgentStartupSignal::Held);
+    assert!(registry.extend_deadline(&identity));
+    let rearm = registry.arm(identity.clone());
+    assert!(!rearm.starts_supervisor);
+    assert!(registry.acknowledge(&identity));
+    assert_eq!(
+        await_worker_ack(&receiver, Duration::from_secs(1)),
+        WorkerAckWaitOutcome::Resolved
+    );
+}
+
+#[test]
+fn startup_hold_before_arm_is_applied_to_the_same_ack_identity() {
+    let registry = WorkerAckRegistry::default();
+    let identity = ack_identity("attempt-a");
+
+    assert!(registry.extend_deadline(&identity));
+    let arm = registry.arm(identity.clone());
+    let starts_supervisor = arm.starts_supervisor;
+    let receiver = arm.receiver.unwrap();
+
+    assert!(starts_supervisor);
+    assert!(registry.acknowledge(&identity));
+    assert_eq!(
+        await_worker_ack(&receiver, Duration::from_secs(1)),
+        WorkerAckWaitOutcome::Resolved
+    );
+}
+
+#[test]
+fn startup_hold_survives_session_binding_rearm_for_the_same_launch_nonce() {
+    let registry = WorkerAckRegistry::default();
+    let old_identity = WorkerAckIdentity {
+        session_id: None,
+        ..ack_identity("attempt-a")
+    };
+    let old_receiver = registry.arm(old_identity.clone()).receiver.unwrap();
+    let new_identity = WorkerAckIdentity {
+        session_id: Some("session-bound".into()),
+        ..old_identity.clone()
+    };
+
+    assert!(registry.extend_deadline(&new_identity));
+    let new_receiver = registry.arm(new_identity.clone()).receiver.unwrap();
+
+    assert_eq!(old_receiver.recv().unwrap(), WorkerAckSignal::StartupHeld);
+    assert_eq!(old_receiver.recv().unwrap(), WorkerAckSignal::Superseded);
+    assert!(registry.acknowledge(&new_identity));
+    assert_eq!(
+        await_worker_ack(&new_receiver, Duration::from_secs(1)),
+        WorkerAckWaitOutcome::Resolved
+    );
+}
+
+#[test]
+fn a_new_binding_supersedes_the_old_identity_and_rejects_its_ack() {
+    let registry = WorkerAckRegistry::default();
+    let old_identity = ack_identity("attempt-a");
+    let old_receiver = registry.arm(old_identity.clone()).receiver.unwrap();
+    let new_identity = WorkerAckIdentity {
+        binding_nonce: Some("nonce-new".into()),
+        ..old_identity.clone()
+    };
+    let new_receiver = registry.arm(new_identity.clone()).receiver.unwrap();
+
+    assert_eq!(old_receiver.recv().unwrap(), WorkerAckSignal::Superseded);
+    assert!(!registry.acknowledge(&old_identity));
+    assert!(registry.acknowledge(&new_identity));
+    assert_eq!(new_receiver.recv().unwrap(), WorkerAckSignal::Acknowledged);
+}
+
+#[test]
+fn a_subject_mismatch_for_the_same_attempt_and_binding_keeps_the_existing_waiter() {
+    let registry = WorkerAckRegistry::default();
+    let identity = ack_identity("attempt-a");
+    let receiver = registry.arm(identity.clone()).receiver.unwrap();
+    let conflicting = WorkerAckIdentity {
+        task_id: "other-task".into(),
+        ..identity.clone()
+    };
+
+    let conflict = registry.arm(conflicting);
+    assert!(conflict.identity_conflict);
+    assert!(!conflict.starts_supervisor);
+    assert!(registry.acknowledge(&identity));
+    assert_eq!(receiver.recv().unwrap(), WorkerAckSignal::Acknowledged);
 }
 
 #[test]
 fn expiry_removes_only_the_matching_deadline() {
     let registry = WorkerAckRegistry::default();
-    let receiver = registry.arm("tab", "attempt-a");
+    let identity = ack_identity("attempt-a");
+    let receiver = registry.arm(identity.clone()).receiver.unwrap();
 
-    assert!(!registry.expire("tab", "attempt-b"));
-    assert!(registry.expire("tab", "attempt-a"));
+    assert!(!registry.expire(&ack_identity("attempt-b")));
+    assert!(registry.expire(&identity));
     assert!(receiver.recv().is_err());
 }
 
@@ -108,10 +250,11 @@ fn startup_deadlines_exceed_measured_provider_cold_starts() {
 #[test]
 fn worker_ack_final_deadline_expires_once() {
     let registry = WorkerAckRegistry::default();
-    let receiver = registry.arm("tab", "attempt");
+    let identity = ack_identity("attempt");
+    let receiver = registry.arm(identity.clone()).receiver.unwrap();
 
-    assert!(registry.expire("tab", "attempt"));
-    assert!(!registry.expire("tab", "attempt"));
+    assert!(registry.expire(&identity));
+    assert!(!registry.expire(&identity));
     assert!(receiver.recv().is_err());
 }
 
@@ -170,6 +313,16 @@ fn worker_ack_timeout_reports_a_surviving_finalized_attempt() {
         event["deadline_basis"]["selected_phase_seconds"],
         COLD_START_DEADLINE_SECS
     );
+}
+
+#[test]
+fn worker_ack_timeout_keeps_spawn_prose_as_opaque_json_data() {
+    let spawn_command = "codeterm agent spawn --plan-task task; Write-Output 'opaque text'";
+    let event = worker_ack_timeout_event("plan", "task", "tab", "attempt", spawn_command);
+
+    assert_eq!(event["spawn_command"], spawn_command);
+    assert!(event["spawn_command"].is_string());
+    assert!(serde_json::to_string(&event).unwrap().contains("opaque text"));
 }
 
 fn creator_authority(child_tab_id: &str, attempt_id: &str) -> StartupAuthority {
