@@ -1856,35 +1856,43 @@ function grantCodexHookTrust(opts) {
 // plugins/provider-codex/src/hooks.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
+var LEGACY_CODEX_HOOK_COMMANDS = /* @__PURE__ */ new Set([
+  `curl -s -X POST http://localhost:\${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true`,
+  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' --data-binary @- > /dev/null 2>&1 || true"
+]);
+for (const event of ["session_start", "stop"]) {
+  LEGACY_CODEX_HOOK_COMMANDS.add(
+    'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + event + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true; fi`
+  );
+}
 var CODEX_HOOK_TIMEOUT_SECS = 60;
 var CODEX_HOOK_REQUEST_TIMEOUT_SECS = 30;
 function codexWindowsHookScript() {
   return [
-    "# " + CODETERM_CODEX_HOOK_MARKER,
-    "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
-    'param([string]$HookEvent = "session_start")',
-    '$ErrorActionPreference = "SilentlyContinue"',
-    "$tab = $env:CODETERM_TAB_ID",
-    "if ([string]::IsNullOrWhiteSpace($tab) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_URL) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_TOKEN)) { exit 0 }",
-    '$base = $env:CODETERM_API_URL.TrimEnd("/")',
-    "$headers = @{",
-    '  "Content-Type" = "application/json"',
-    '  "X-CodeTerm-Agent-Provider" = "codex"',
-    "}",
-    "if ($env:CODETERM_SESSION_BINDING_NONCE) {",
-    '  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE',
-    "}",
-    '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
-    "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/$HookEvent" -Headers $headers -Body $body -TimeoutSec ' + CODEX_HOOK_REQUEST_TIMEOUT_SECS + " | Out-Null",
-    'if ($HookEvent -eq "session_start") {',
-    "  $profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
-    '  $profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
-    "  Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
-    "}",
-    "exit 0",
+    "@echo off",
+    "setlocal DisableDelayedExpansion",
+    "rem " + CODETERM_CODEX_HOOK_MARKER,
+    "rem " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+    "if not defined CODETERM_TAB_ID exit /b 0",
+    "if not defined CODETERM_API_URL exit /b 0",
+    "if not defined CODETERM_API_TOKEN exit /b 0",
+    "if not defined CODETERM_SESSION_BINDING_NONCE exit /b 0",
+    'set "hookEvent=%~1"',
+    'set "hookMarker=%~2 %~3"',
+    'if /I not "%hookMarker%"=="X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '" exit /b 0',
+    'if /I "%hookEvent%"=="session_start" goto post_event',
+    'if /I "%hookEvent%"=="stop" goto post_event',
+    "exit /b 0",
+    ":post_event",
+    'set "apiBase=%CODETERM_API_URL%"',
+    'if "%apiBase:~-1%"=="/" set "apiBase=%apiBase:~0,-1%"',
+    'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
+    "curl.exe --silent --show-error --max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
+    'if exist "%responseFile%" del /F /Q "%responseFile%"',
+    'if /I "%hookEvent%"=="session_start" if defined USERPROFILE if exist "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml" del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"',
+    "exit /b 0",
     ""
-  ].join("\n");
+  ].join("\r\n");
 }
 function isCodetermCodexHook(entry) {
   const hooks = entry && entry.hooks;
@@ -1911,20 +1919,26 @@ function removeOwnedCodexHooks(entries) {
 }
 function isOwnedCodexHook(hook) {
   if (!hook) return false;
+  const command = String(hook.command || "");
+  const fullCommand = command + "\n" + String(hook.commandWindows || "");
+  if (fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1) return true;
   if (hook._source !== void 0) return hook._source === CODETERM_CODEX_HOOK_MARKER;
-  const cmd = String(hook.command || "");
-  return (cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/hook/stop") !== -1) && cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1;
+  return LEGACY_CODEX_HOOK_COMMANDS.has(command);
 }
 var CODEX_HOOK_SCRIPT_CONTRACT = [
   CODETERM_CODEX_HOOK_MARKER,
   CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
-  "$HookEvent",
+  "hookEvent",
   "CODETERM_TAB_ID",
   "CODETERM_API_URL",
   "CODETERM_API_TOKEN",
   "CODETERM_SESSION_BINDING_NONCE",
+  "X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER,
   "/api/tabs/",
-  "-TimeoutSec " + CODEX_HOOK_REQUEST_TIMEOUT_SECS
+  "curl.exe",
+  "--max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS,
+  "responseFile",
+  "--output"
 ];
 function hasAdequateCodexHookTimeout(entry) {
   const hooks = entry && entry.hooks;
@@ -1956,7 +1970,7 @@ function isCurrentCodexHookScriptContent(text5) {
 }
 function isOwnedCodexWindowsHookScript(path) {
   const text5 = host.fs.readFile(path);
-  return typeof text5 === "string" && isCurrentCodexHookScriptContent(text5);
+  return typeof text5 === "string" && isOwnedCodexHookScriptContent(text5);
 }
 
 // plugins/provider-codex/src/integration.ts
@@ -1979,12 +1993,12 @@ function checkIntegration() {
   const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook) && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
   const winScript = codexWindowsHookScriptPath();
   const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
-  const windowsReady = host.platform() !== "windows" || !!winScript && winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
-  const contractOk = host.platform() === "windows" ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && winScriptText.indexOf("CODETERM_TAB_ID") !== -1 && winScriptText.indexOf("CODETERM_API_URL") !== -1 && winScriptText.indexOf("CODETERM_API_TOKEN") !== -1 && !hasLiteralPort(winScriptText) && winScriptText.indexOf("/api/tabs/") !== -1 : Array.isArray(arr) && arr.some((entry) => {
+  const windowsReady = host.platform() !== "windows" || !!winScript && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
+  const contractOk = host.platform() === "windows" ? isCurrentCodexHookScriptContent(winScriptText) : Array.isArray(arr) && arr.some((entry) => {
     const hk = entry && entry.hooks;
     return Array.isArray(hk) && hk.some((h) => {
       const command = String(h?.command || "");
-      return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && !hasLiteralPort(command) && command.indexOf("/api/tabs/") !== -1;
+      return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 && !hasLiteralPort(command) && command.indexOf("/api/tabs/") !== -1;
     });
   });
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
@@ -2090,6 +2104,9 @@ function installIntegration(apiPort, options) {
     return { ok: false, error: "could not read existing hook script at " + scriptPath };
   }
   const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
+  if (scriptPath && scriptExisted && !isOwnedCodexWindowsHookScript(scriptPath)) {
+    return { ok: false, error: "refusing to replace unowned hook script at " + scriptPath };
+  }
   const ownershipPath = codexHookTrustOwnershipPath();
   const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
   if (ownershipPath && !ownershipSnapshot) {
@@ -2135,9 +2152,10 @@ function installIntegration(apiPort, options) {
   }
   const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
   const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-  const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-  const hookCmd = (route) => guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + nonceH + " " + authH + " --data-binary @- > /dev/null 2>&1 || true; fi";
-  const winCmd = (route) => scriptPath ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '" -HookEvent ' + route : hookCmd(route);
+  const markerH = '-H "X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '"';
+  const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ] && [ -n "${CODETERM_SESSION_BINDING_NONCE:-}" ]; then ';
+  const hookCmd = (route) => guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + markerH + " " + nonceH + " " + authH + " --data-binary @- > /dev/null 2>&1 || true; fi";
+  const winCmd = (route) => scriptPath ? '"' + scriptPath + '" ' + route + " X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER : hookCmd(route);
   if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
     return fail("writeFile failed for " + scriptPath);
   }
@@ -2262,13 +2280,13 @@ function ensureIntegrationOnStartup(apiPort, install) {
     return { ok: true, changed: false, reason: "Codex hook trust is disabled" };
   }
   const scriptPath = codexWindowsHookScriptPath();
-  const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isOwnedCodexWindowsHookScript(scriptPath));
+  const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
   const commandStale = owned.some((entry) => {
     const hooks = entry && entry.hooks || [];
     return hooks.some(
       (hook) => {
         const command = String(hook && hook.command || "");
-        return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || hasLiteralPort(command);
+        return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command);
       }
     );
   });
@@ -2305,7 +2323,7 @@ function codexWindowsHookScriptPath() {
   const home = host.homeDir();
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
+  return home + sep + ".codex" + sep + "codeterm-session-hook.cmd";
 }
 function codexHookTrustOwnershipPath() {
   const config = codexConfigPath();
@@ -2402,9 +2420,11 @@ function hasCodetermCodexWindowsCommand(entry) {
   if (!Array.isArray(hooks)) return false;
   for (let i = 0; i < hooks.length; i++) {
     const hook = hooks[i];
-    if (!hook || hook._source !== CODETERM_CODEX_HOOK_MARKER) continue;
+    if (!hook) continue;
     const command = String(hook.commandWindows || "");
-    if (command.indexOf("codeterm-session-start.ps1") !== -1) {
+    const fullCommand = String(hook.command || "") + "\n" + command;
+    const owned = fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1 || hook._source === CODETERM_CODEX_HOOK_MARKER;
+    if (owned && command.indexOf("codeterm-session-hook.cmd") !== -1) {
       return true;
     }
   }
