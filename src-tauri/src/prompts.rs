@@ -361,16 +361,6 @@ pub fn planner_suffix() -> String {
     )
 }
 
-/// The Cartographer contract: Worker discipline first, then the map-authoring
-/// checklist this kind adds to it.
-pub fn cartographer_suffix() -> String {
-    format!(
-        "{}\n\n{}",
-        worker_suffix().trim(),
-        CARTOGRAPHER_SUFFIX.trim()
-    )
-}
-
 /// Upper bound for a composed role prompt. Not a style preference: every byte
 /// here is spent on every launch of that role, so growth needs a decision.
 pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 32 * 1024;

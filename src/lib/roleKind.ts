@@ -6,9 +6,17 @@ export const GENERAL_AGENT_KIND = "general_agent";
 export const PLANNER_KIND = "planner";
 export const WATCHER_KIND = "watcher";
 export const WORKER_KIND = "worker";
+export const CARTOGRAPHER_KIND = "cartographer";
 
 /** Kinds that anchor a Team — the only ones that take no parent and spawn. */
 const ANCHOR_KINDS = new Set([ORCHESTRATOR_KIND, GENERAL_AGENT_KIND]);
+/** Manager-kind roles. A Worker naming one collapses to the plain Worker. */
+const MANAGING_KINDS = new Set([
+  ...ANCHOR_KINDS,
+  PLANNER_KIND,
+  WATCHER_KIND,
+  CARTOGRAPHER_KIND,
+]);
 /** Kinds that may manage the Team they belong to (anchors plus managing leaves). */
 const TEAM_AUTHORITY_KINDS = new Set([...ANCHOR_KINDS, PLANNER_KIND, WATCHER_KIND]);
 
@@ -18,6 +26,7 @@ const KIND_LABELS: Record<string, string> = {
   [PLANNER_KIND]: "Planner",
   [WATCHER_KIND]: "Watcher",
   [WORKER_KIND]: "Worker",
+  [CARTOGRAPHER_KIND]: "Cartographer",
 };
 
 type RoleCarrier = Pick<Tab, "role" | "role_profile">;
@@ -30,7 +39,7 @@ export function roleKind(tab: RoleCarrier | null | undefined): string | null {
   if (!tab?.role) return null;
   const profile = tab.role_profile?.trim() || null;
   if (tab.role === "Worker") {
-    return profile && !TEAM_AUTHORITY_KINDS.has(profile) ? profile : WORKER_KIND;
+    return profile && !MANAGING_KINDS.has(profile) ? profile : WORKER_KIND;
   }
   return profile;
 }
