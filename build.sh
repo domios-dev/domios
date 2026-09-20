@@ -1438,6 +1438,7 @@ CodeTerm build commands
   dev-prebuilt                Restart a validated dev build without Cargo
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
+  check-tests                 Compile app and CLI test profiles
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
@@ -1556,6 +1557,13 @@ EOF
     prepare_bundle_stubs
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
+    ;;
+  check-tests)
+    prepare_exceptional_worktree_target
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+    cargo check --manifest-path cli/Cargo.toml --all-targets
     ;;
   frontend)
     enter_build_gateway "$CMD ${*:2}"
@@ -1985,7 +1993,7 @@ EOF
     # dev-dependent API integration tests run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
     # an EXECUTED layer failed (SKIP never fails the run). Behaviour benches and
-    # the suspended Playwright suite are excluded — see essences/testing.md.
+    # the suspended Playwright suite are excluded — see .agents/skills/testing/SKILL.md.
     ta_names=(); ta_status=()
     ta_record() { ta_names+=("$1"); ta_status+=("$2"); }
     ta_run() { # name, cmd...

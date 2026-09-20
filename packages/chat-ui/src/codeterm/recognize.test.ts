@@ -90,7 +90,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TEMPLATE_PATHS } from "./template-paths";
 
-const manifestPath = fileURLToPath(new URL("../../../../essences/cli-manifest.json", import.meta.url));
+const manifestPath = fileURLToPath(new URL("../../../../generated/cli/cli-manifest.json", import.meta.url));
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
 function resolve(node: any, path: string[]): boolean {

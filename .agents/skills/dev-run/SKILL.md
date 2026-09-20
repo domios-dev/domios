@@ -10,7 +10,7 @@ Run, restart, and diagnose the CodeTerm dev instance inside this repo. Dev is is
 **Never touch prod.** Prod listens on 7685, dev on 7686. If you ever kill a process, verify by port first.
 
 This skill owns only development instances. Local production installation is
-`essences/build.md#local-production-build-and-self-install`; public publishing is
+`.agents/skills/build/SKILL.md#local-production-build-and-self-install`; public publishing is
 the `github-release` skill. Do not use `dev` output as an installer artifact.
 
 ## The one command

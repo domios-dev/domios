@@ -14,7 +14,7 @@ fn topic_posts(transport: &FakeTransport, thread_id: i64) -> usize {
 }
 
 #[tokio::test]
-async fn telegram_topic_attach_is_idempotent_and_posts_the_intro_once() {
+async fn telegram_topic_agent_can_create_and_bind_its_thread_on_demand() {
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     let threads = attached(transport.clone());
@@ -29,6 +29,8 @@ async fn telegram_topic_attach_is_idempotent_and_posts_the_intro_once() {
         .expect("reopened");
 
     assert!(first.created);
+    assert_eq!(first.tab_id, PLANCK);
+    assert!(threads.has_open_binding(PLANCK));
     assert_eq!(
         second,
         OpenedThread {

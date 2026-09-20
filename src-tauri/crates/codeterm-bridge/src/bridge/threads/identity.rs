@@ -70,6 +70,7 @@ pub trait ThreadTabs: Send + Sync {
     /// `(tab_id, title)` for every live tab.
     fn live_tab_titles(&self) -> Vec<(String, String)>;
     fn is_live_tab(&self, tab_id: &str) -> bool;
+    fn is_visible_tab(&self, tab_id: &str) -> bool;
     fn is_general_tab(&self, tab_id: &str) -> bool;
 }
 

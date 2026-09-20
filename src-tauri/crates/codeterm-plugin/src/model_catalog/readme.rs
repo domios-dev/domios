@@ -228,6 +228,6 @@ and falls back to built-ins — the picker never goes empty.
 
 ## Full docs
 
-See `essences/models.md` in the CodeTerm repository for the long-form reference
-(plugin contract, how to add a new provider, etc.).
+See `essences/capabilities.md#agent-models` in the CodeTerm repository for the
+stable model catalog contract.
 "#;
