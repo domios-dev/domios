@@ -1103,7 +1103,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 reason: "launch readiness observer stopped before session binding".into(),
             }
         });
-        if let Err(error) = startup_readiness::emit_agent_ready(&launch, &svc, readiness) {
+        if let Err(error) = startup_readiness::emit_agent_ready(&mut launch, &svc, readiness) {
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
