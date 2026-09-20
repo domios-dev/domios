@@ -147,6 +147,28 @@ fn awaiting_dispatch_ready_is_not_rendered_as_completed_dispatch() {
 }
 
 #[test]
+fn spawned_worker_is_not_rendered_as_an_accepted_dispatch() {
+    let response = json!({
+        "accepted": false,
+        "spawned": true,
+        "state": "awaiting_worker_ack",
+        "tab_id": "tab-1",
+        "agent": "codex",
+        "readiness": {
+            "ready": false,
+            "awaiting_event": "worker_ack"
+        }
+    });
+
+    let rendered = render_dispatch_response(&response);
+
+    assert!(!rendered.contains("Dispatched"), "{rendered}");
+    assert!(!rendered.contains("Accepted"), "{rendered}");
+    assert!(rendered.contains("Spawned codex worker Tab tab-1"), "{rendered}");
+    assert!(rendered.contains("awaiting worker_ack"), "{rendered}");
+}
+
+#[test]
 fn hidden_summary_names_each_hidden_status_and_all_flag() {
     let tasks = vec![
         json!({ "task": { "status": "pending" } }),
