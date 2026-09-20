@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.11.5"
+version = "1.11.6"
 dependencies = [
  "aes-gcm",
  "annembed",
