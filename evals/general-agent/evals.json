@@ -49,13 +49,13 @@
     },
     {
       "id": 5,
-      "name": "recovers-child-startup-prompt",
-      "prompt": "You spawned a Team Orchestrator in tab child_7 with an assigned task. The tab remains Waiting. Its visible numbered provider picker already selects option 1, Yes. `codeterm tab respond 1 --tab child_7` returned success, but a second inspection shows the exact same picker. Explain the next bounded recovery commands.",
-      "expected_output": "The General Agent verifies the exact child screen, presses only Enter for the already-selected visible option, then verifies that the agent resumed without resending its task.",
+      "name": "stops-after-unresolved-structured-startup-response",
+      "prompt": "You spawned a Worker in tab child_7. Current lifecycle and screen evidence identify a safe startup prompt and the authorized response was `codeterm tab respond 1 --tab child_7`. A fresh inspection still shows the same prompt, and no new authority was provided. Explain the next steps.",
+      "expected_output": "The General Agent rechecks the exact child, keeps the attempt blocked, and raises a structured action-needed event instead of trying raw input or resending work.",
       "expectations": [
-        "Rechecks the exact tab with `codeterm tab get-text --tab child_7` before the fallback",
-        "Uses exactly one bounded `codeterm send --tab child_7 --actions \"enter\"` fallback because the desired visible option is already selected",
-        "Verifies the child agent is running afterward and does not resend the assigned task payload or guess provider-specific keys"
+        "Reinspects lifecycle and current screen for the exact tab after the structured response",
+        "Does NOT use raw keys, `--actions`, or blind Enter as a fallback",
+        "Keeps task content blocked until authoritative session binding and Worker ACK, and raises a structured action-needed event"
       ]
     },
     {
@@ -79,6 +79,17 @@
         "Does NOT spawn a new agent or open a new tab before trying that restart, and does NOT use `--force`",
         "After the `codeterm agent restart --tab child_4` command, checks that child_4 is live (for example with `codeterm tab list`)",
         "Names spawning a fresh agent only as the fallback for when that restart refuses (no verified session, or no owning provider)"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "blocks-unknown-startup-prompt",
+      "prompt": "Worker tab child_8 has no session binding or task ACK. Its current screen shows a prompt, but the tab's declared provider classifier does not recognize it. The exact PTY attempt is pty_8. Explain the recovery action without inventing what the prompt means.",
+      "expected_output": "The General Agent holds only the exact live attempt when evidence supports it, leaves the unknown prompt unanswered, and raises a structured action-needed event for parent or user judgment.",
+      "expectations": [
+        "Does NOT run `codeterm tab respond` for an unrecognized prompt",
+        "Uses startup-hold only for the exact tab and PTY attempt when current lifecycle evidence says it is prompt-bound",
+        "Raises structured action-needed and sends no task brief or ACK reminder to the child"
       ]
     }
   ]
