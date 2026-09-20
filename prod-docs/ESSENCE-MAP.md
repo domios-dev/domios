@@ -42,6 +42,6 @@ Generation keeps the bytes it replaces under `.codeterm/map-history/<digest>.jso
 
 ## Who authors the map
 
-The `cartographer` role kind is a Worker leaf that owns one boundary generation. It is offered only when `[orchestration.map] enabled` is on and the workspace root carries the source essences, and only at a natural boundary: a plan wave closing, or a plan reaching release. The offer is one-shot — a `map_requested` or `map_generated` milestone on the plan disarms it, so a dispatched Cartographer is never spawned again for the same boundary.
+The `cartographer` role kind is a non-anchoring Manager leaf with no Team-management, plan, release, or spawn authority. A Team may attach one optional Cartographer Manager; repeated requests reuse the same tab, and Team close removes its membership. At natural boundaries, a Cartographer may also be dispatched for one map generation when `[orchestration.map] enabled` is on and the workspace root carries the source essences. The boundary offer remains one-shot: a `map_requested` or `map_generated` milestone disarms it for that plan boundary.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
