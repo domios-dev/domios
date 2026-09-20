@@ -86,7 +86,7 @@ Delivery tests assert constant identity, never wording: `prompt_compose::tests` 
 
 A fragment names a command once and points at its owning document for the rest.
 `prompt_cli_references_exist_in_manifest` resolves every surviving command reference
-against `essences/cli-manifest.json`, so a rename cannot leave dead guidance. It validates
+against `generated/cli/cli-manifest.json`, so a rename cannot leave dead guidance. It validates
 references, never prompt wording.
 
 ## Memory worker prompts
@@ -221,10 +221,10 @@ owning loader module (pub const &str)
 
 ## Related docs
 
-- `essences/general_agent.md` — GA lifecycle and behavior spec (what `general_agent.md` is trying to produce)
+- [Core essence](../essences/core.md#general-agent) — General Agent lifecycle and behavior contract
 - `prod-docs/MEMORY.md` — memory system including the behavioral protocol from `bridge_mem.md`
 - `prod-docs/API.md` — "Agent Prompts" section lists the same files from an API-consumer angle
 - `prod-docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 36 -->
+<!-- revision: 38 -->

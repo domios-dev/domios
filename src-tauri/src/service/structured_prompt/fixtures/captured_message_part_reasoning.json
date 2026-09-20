@@ -1,0 +1,1 @@
+{"id":"evt_redacted","type":"message.part.updated","properties":{"sessionID":"ses_2","part":{"id":"prt_reasoning","messageID":"msg_2","sessionID":"ses_2","type":"reasoning","text":"<redacted reasoning text>","time":{"start":1789814518824}},"time":1789814518824}}

@@ -87,6 +87,6 @@ check still runs to catch tab-payload regressions.
 
 When the dev signing keypair rotates, regenerate the embedded pubkey in
 `src-tauri/tauri.conf.json` (see
-[essences/contributing/auto-update-signing.md](../../../essences/contributing/auto-update-signing.md))
+[.agents/skills/release-signing/SKILL.md](../../../.agents/skills/release-signing/SKILL.md))
 and rebuild both versions — the OLD installed binary must trust the new
 key or the apply step will reject the manifest.

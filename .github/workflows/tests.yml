@@ -10,6 +10,7 @@ on:
     branches: [master]
     paths-ignore:
       - '.codeterm/**'
+      - '.agents/skills/**'
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:

@@ -15,12 +15,17 @@ fn fixture_root() -> TempDir {
     let temp = tempfile::tempdir().expect("create essence map fixture");
     let essences = temp.path().join("essences");
     fs::create_dir_all(&essences).expect("create fixture essences");
-    for name in ["capabilities.md", "core.md"] {
-        fs::copy(
-            source_root().join("essences").join(name),
-            essences.join(name),
-        )
-        .expect("copy source essence");
+    let source_essences = source_root().join("essences");
+    for entry in fs::read_dir(&source_essences).expect("list source essences") {
+        let entry = entry.expect("read source essence entry");
+        let source = entry.path();
+        if entry.file_type().expect("inspect source essence").is_file()
+            && source
+                .extension()
+                .is_some_and(|extension| extension == "md")
+        {
+            fs::copy(&source, essences.join(entry.file_name())).expect("copy source essence");
+        }
     }
     temp
 }
@@ -61,7 +66,7 @@ fn valid_map(root: &Path) -> (PathBuf, PathBuf, MapSummary) {
 }
 
 #[test]
-fn essence_map_contract_accepts_current_source_inventory() {
+fn essence_map_contract_accepts_valid_document_anchor_sets() {
     let fixture = fixture_root();
     let (map, decisions, summary) = valid_map(fixture.path());
 
@@ -75,6 +80,48 @@ fn essence_map_contract_accepts_current_source_inventory() {
     assert_eq!(summary.part_of, 11);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
+}
+
+#[test]
+fn essence_map_contract_rejects_a_stable_doc_without_a_map_block() {
+    let fixture = fixture_root();
+    let (map, decisions, _) = valid_map(fixture.path());
+    fs::write(fixture.path().join("essences/vision.md"), "# Vision\n")
+        .expect("remove vision map block");
+
+    let error = validate(fixture.path(), &map, &decisions).expect_err("missing map block fails");
+    assert!(error.contains("vision.md"));
+    assert!(error.contains("missing a fenced `map` block"));
+}
+
+#[test]
+fn essence_map_contract_rejects_an_empty_anchor_list() {
+    let fixture = fixture_root();
+    let (map, decisions, _) = valid_map(fixture.path());
+    fs::write(
+        fixture.path().join("essences/vision.md"),
+        "# Vision\n\n```map\nanchors:\n```\n",
+    )
+    .expect("empty vision anchors");
+
+    let error = validate(fixture.path(), &map, &decisions).expect_err("empty anchors fail");
+    assert!(error.contains("empty `anchors:` list"));
+}
+
+#[test]
+fn essence_map_contract_rejects_an_unknown_document_anchor() {
+    let fixture = fixture_root();
+    let (map, decisions, _) = valid_map(fixture.path());
+    let vision = fixture.path().join("essences/vision.md");
+    let contents = fs::read_to_string(&vision)
+        .expect("read vision")
+        .replace("\r\n", "\n");
+    let changed = contents.replacen("anchors:\n", "anchors:\n  - capability:not-a-node\n", 1);
+    fs::write(&vision, changed).expect("add unknown vision anchor");
+
+    let error = validate(fixture.path(), &map, &decisions).expect_err("unknown anchor fails");
+    assert!(error.contains("capability:not-a-node"));
+    assert!(error.contains("unknown map anchor"));
 }
 
 #[test]

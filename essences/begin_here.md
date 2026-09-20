@@ -1,34 +1,33 @@
-# Begin here: the documentation contract
+# Begin here: documentation contract
 
-Read this before creating or editing any document in this repository.
+Read this before creating or editing a document in this repository.
 
-## Two areas, split by audience
+## Documentation areas
 
-- **`essences/`** is the internal foundation for building CodeTerm and never ships: the vision, the capability map, this contract, the build, release and testing references, the plugin ecosystem map, the generated CLI reference and the contributor guides.
-- **`prod-docs/`** is what production agents read. Each file is `prod-docs/<NAME>.md`, embedded in the binary through the docs registry and served by `codeterm docs <NAME>`; nothing else lives there, and a test holds that membership in both directions.
-- **Skills** in `.agents/skills/` own the step-by-step procedures an agent executes. They are not a third docs area: an essence that needs a procedure points to its skill instead of repeating it.
+- **Essences** contain stable product documents, plus the generated map.jsonl and append-only decisions.jsonl. The stable foundation is the [capability map](capabilities.md), [core essence](core.md), [vision](vision.md), and detailed stable contracts.
+- **prod-docs** contains product help available through the CLI docs command group.
+- **Skills** contain the step-by-step procedures agents use to complete operational tasks.
 
-## Kinds of documents
+## Stable essence contract
 
-- **Stable docs** describe what a capability is and the contracts around it: the capability map, the core essence (core parts, clients and the routing spine) and one detailed doc per area. They name UI surfaces, command groups and API areas, never code identifiers, file paths or line numbers.
-- **The project map** is generated from the capability map and the core essence: vectors, capabilities, core parts and clients, linked by runs on, feeds, part of and client of, within about one hundred nodes. When it grows past that, simplify the essences; never reshape the architecture to fit the map.
-- **Reference docs** are the one internal source for building, releasing and testing. They may name commands and files; the executable steps live in the matching skill.
-- **The vision** (`essences/vision.md`) says why the capabilities exist.
+Stable docs describe lasting product behavior and invariants through UI surfaces, CLI command groups, and API areas. They do not narrate implementation mechanics. Implementation code may refer to the relevant essences; essence documents link only to other essence files.
+
+The capability map describes product vectors, capabilities, entry points, invariants, status, and relationships. The core essence describes core parts, clients, and message routing. The vision says why the product capabilities exist. The map is generated from the capability map and core essence; it is a navigation aid, not an architecture blueprint, and the architecture is never reshaped to fit it. The decision journal records why the map changed and is append-only.
 
 ## When to edit a stable doc
 
-Only when a capability changes how it works: its behaviour, its entry points or its invariants. That change updates its capability map entry and the one detailed doc for its area together.
+Edit a stable doc when product behavior, an entry point, or an invariant changes. Update the relevant capability entry and the detailed contract for its area together.
 
-Never edit a stable doc to restate code, narrate a refactor, record a fix, add the example of the day or tidy wording.
+Do not use a stable doc to restate code, narrate a refactor, record a fix, add a temporary example, or tidy wording without a product change.
 
-## Where everything else belongs
+## Where other information belongs
 
 | Information | Home |
 |---|---|
-| Implementation detail | the code |
-| How to build, release and test | the build, release and testing references in `essences/`, and the matching skill |
-| Decisions and incident history | plan strides and commit messages |
-| Transient work | the plan |
+| Implementation detail | The code |
+| Step-by-step procedure | A project skill |
+| Decisions and incident history | Plan strides and commit messages |
+| Transient work | The plan |
 
 ## When a doc and the product disagree
 
@@ -36,9 +35,7 @@ Verify the product first, then fix whichever is wrong. A doc edit never papers o
 
 ## Every change
 
-- Bump the revision tag at the bottom of each `prod-docs/` doc you change; essence docs carry no revision tag. Write in English.
-- A document production agents read goes in `prod-docs/`, is registered in the docs registry and stays within its reading limit; every other document goes in `essences/`. There is no third docs directory.
-- Prefer deleting stale or duplicated text over rewording it.
-
-The map itself: `essences/capabilities.md`.
-
+- Write in English.
+- Keep stable statements precise and avoid duplicating them across documents.
+- Product help uses revision markers; stable essence docs do not. Prefer removing stale or duplicated statements over restating them.
+- Link from an essence only to another essence file.
