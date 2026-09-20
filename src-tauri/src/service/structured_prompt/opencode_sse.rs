@@ -15,15 +15,21 @@ use crate::multiplexer::types::{PendingPrompt, PromptOption};
 /// What the host does in response to one SSE line.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedEvent {
-    MessageUpdated { message: MessageMeta },
-    PartUpdated { update: ChatPartUpdate },
+    MessageUpdated {
+        message: MessageMeta,
+    },
+    PartUpdated {
+        update: ChatPartUpdate,
+    },
     /// A new structured prompt is pending — surface it and remember its route.
     Prompt {
         prompt: PendingPrompt,
         route: ResponseRoute,
     },
     /// A prompt was answered (by us or elsewhere) — clear it.
-    Replied { request_id: String },
+    Replied {
+        request_id: String,
+    },
     /// Anything else (server.connected, session lifecycle, …) — ignore.
     Ignored,
 }
@@ -156,7 +162,10 @@ fn parse_part_updated(props: &Value) -> ParsedEvent {
             message_id: message_id.to_string(),
             part_id: part_id.to_string(),
             part: part.clone(),
-            delta: props.get("delta").and_then(|v| v.as_str()).map(String::from),
+            delta: props
+                .get("delta")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         },
     }
 }
@@ -220,7 +229,11 @@ pub fn normalize_chat_part(
 }
 
 fn normalize_tool_part(update: &ChatPartUpdate, timestamp: Option<String>) -> Option<ChatMsg> {
-    let tool_name = update.part.get("tool").and_then(|v| v.as_str()).unwrap_or("tool");
+    let tool_name = update
+        .part
+        .get("tool")
+        .and_then(|v| v.as_str())
+        .unwrap_or("tool");
     let state = update.part.get("state").unwrap_or(&Value::Null);
     let input = state.get("input");
     let metadata = state.get("metadata").unwrap_or(&Value::Null);
@@ -228,7 +241,8 @@ fn normalize_tool_part(update: &ChatPartUpdate, timestamp: Option<String>) -> Op
     let start = time.get("start").and_then(Value::as_i64);
     let end = time.get("end").and_then(Value::as_i64);
     let exit_code = metadata.get("exit").and_then(Value::as_i64);
-    let (tool_kind, tool_summary, tool_detail, tool_edits) = canonical_tool_fields(tool_name, input);
+    let (tool_kind, tool_summary, tool_detail, tool_edits) =
+        canonical_tool_fields(tool_name, input);
     Some(ChatMsg {
         id: update.part_id.clone(),
         kind: "tool_call".into(),
@@ -240,13 +254,23 @@ fn normalize_tool_part(update: &ChatPartUpdate, timestamp: Option<String>) -> Op
             .or(timestamp),
         tool_name: Some(tool_name.to_string()),
         tool_input: input.cloned(),
-        tool_result: state.get("output").and_then(|v| v.as_str()).map(String::from),
-        tool_id: update.part.get("callID").and_then(|v| v.as_str()).map(String::from),
-        tool_title: state.get("title").and_then(|v| v.as_str()).map(String::from),
+        tool_result: state
+            .get("output")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        tool_id: update
+            .part
+            .get("callID")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        tool_title: state
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         tool_exit_code: exit_code,
-        tool_duration_ms: start.zip(end).and_then(|(start, end)| {
-            u64::try_from(end.saturating_sub(start)).ok()
-        }),
+        tool_duration_ms: start
+            .zip(end)
+            .and_then(|(start, end)| u64::try_from(end.saturating_sub(start)).ok()),
         tool_error: exit_code.map(|code| code != 0),
         tool_kind: Some(tool_kind),
         tool_summary: Some(tool_summary),
@@ -268,16 +292,36 @@ fn canonical_tool_fields(
     let lower = tool_name.trim().to_lowercase();
     let edits = canonical_edits(value, &path);
     let fields = if ["bash", "shell", "exec", "run"].contains(&lower.as_str()) {
-        ("command", clean_tool_text(command, "Command"), command.to_string())
+        (
+            "command",
+            clean_tool_text(command, "Command"),
+            command.to_string(),
+        )
     } else if ["edit", "multiedit", "write"].contains(&lower.as_str()) {
-        ("edit", nonempty_or(path, "File edit").to_string(), path.to_string())
+        (
+            "edit",
+            nonempty_or(path, "File edit").to_string(),
+            path.to_string(),
+        )
     } else if lower == "read" {
-        ("read", nonempty_or(path, "Read file").to_string(), path.to_string())
+        (
+            "read",
+            nonempty_or(path, "Read file").to_string(),
+            path.to_string(),
+        )
     } else if ["glob", "grep", "search"].contains(&lower.as_str()) {
         let detail = nonempty_or(pattern, path);
-        ("search", clean_tool_text(detail, "Search"), detail.to_string())
+        (
+            "search",
+            clean_tool_text(detail, "Search"),
+            detail.to_string(),
+        )
     } else {
-        ("generic", clean_tool_text(tool_name, "Tool"), tool_name.to_string())
+        (
+            "generic",
+            clean_tool_text(tool_name, "Tool"),
+            tool_name.to_string(),
+        )
     };
     (fields.0.into(), fields.1, fields.2, edits)
 }
@@ -324,8 +368,8 @@ fn canonical_edits(input: &Value, parent_path: &str) -> Vec<Value> {
             if old.is_none() && new.is_none() {
                 return None;
             }
-            let path = first_string(item, &["file_path", "filePath", "path"])
-                .unwrap_or(parent_path);
+            let path =
+                first_string(item, &["file_path", "filePath", "path"]).unwrap_or(parent_path);
             Some(json!({
                 "path": path,
                 "old": old.unwrap_or_default(),
@@ -607,10 +651,8 @@ mod tests {
 
     #[test]
     fn live_text_deltas_grow_in_place_then_full_part_text_replaces_them() {
-        let message_frame: Value = serde_json::from_str(include_str!(
-            "fixtures/captured_message_updated.json"
-        ))
-        .unwrap();
+        let message_frame: Value =
+            serde_json::from_str(include_str!("fixtures/captured_message_updated.json")).unwrap();
         let message = parse_event(&message_frame);
         let ParsedEvent::MessageUpdated { message } = message else {
             panic!("expected message metadata");
@@ -703,7 +745,10 @@ mod tests {
         assert_eq!(completed.tool_name.as_deref(), Some("bash"));
         assert_eq!(completed.tool_id.as_deref(), Some("<redacted call>"));
         assert_eq!(completed.tool_result.as_deref(), Some("<redacted output>"));
-        assert_eq!(completed.tool_title.as_deref(), Some("<redacted bash command>"));
+        assert_eq!(
+            completed.tool_title.as_deref(),
+            Some("<redacted bash command>")
+        );
         assert_eq!(completed.tool_exit_code, Some(0));
         assert_eq!(completed.tool_duration_ms, Some(102_042));
         assert_eq!(completed.timestamp.as_deref(), Some("1789814520476"));
@@ -737,10 +782,8 @@ mod tests {
 
     #[test]
     fn parses_live_permission_asked_and_replied_shapes() {
-        let event: Value = serde_json::from_str(include_str!(
-            "fixtures/captured_permission_asked.json"
-        ))
-        .unwrap();
+        let event: Value =
+            serde_json::from_str(include_str!("fixtures/captured_permission_asked.json")).unwrap();
         let ParsedEvent::Prompt { prompt, route } = parse_event(&event) else {
             panic!("expected prompt");
         };
@@ -756,10 +799,8 @@ mod tests {
         );
         assert_eq!(
             parse_event(
-                &serde_json::from_str(include_str!(
-                    "fixtures/captured_permission_replied.json"
-                ))
-                .unwrap()
+                &serde_json::from_str(include_str!("fixtures/captured_permission_replied.json"))
+                    .unwrap()
             ),
             ParsedEvent::Replied {
                 request_id: "per_probe".into()
