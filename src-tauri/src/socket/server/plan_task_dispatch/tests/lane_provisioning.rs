@@ -235,7 +235,7 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
     let pending_task = fixture.store.show_task(&fixture.mine).unwrap().task;
     let resolved = resolved_from_workspace(&fixture.project, &pending_task.lane);
     let placement =
-        plan_dispatch_lane_placement(&pending_plan, &pending_task, &pending_task.lane, resolved)
+        plan_dispatch_lane_placement(&pending_plan, pending_task.id.as_str(), &pending_task.lane, resolved)
             .expect("the reopened task receives a freshly provisioned isolated lane");
     let DispatchLanePlacement::Provision { base_checkout } = placement else {
         panic!("expected fresh lane provisioning, got {placement:?}");
