@@ -3,6 +3,9 @@ use crate::{
     service::orchestrator::types::SpawnAgentParams,
     service::{boot_stage::BootStage, ServiceContext},
 };
+
+#[path = "launch/generation.rs"]
+mod generation;
 pub(crate) fn skip_local_worker_role(
     role: &crate::multiplexer::types::AgentRole,
     parent_tab_id: Option<&str>,
@@ -151,6 +154,7 @@ enum LaunchFailure {
     TabClosed,
     LaunchWrite(String),
     TaskDelivery(String),
+    StartupSupervision(String),
 }
 impl LaunchFailure {
     fn reason(&self) -> String {
@@ -164,6 +168,7 @@ impl LaunchFailure {
             Self::TabClosed => "TabClosedBeforePtyLink".into(),
             Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
+            Self::StartupSupervision(error) => format!("StartupSupervisionFailed: {error}"),
         }
     }
 
@@ -215,84 +220,6 @@ pub(crate) fn arm_provider_session_for_test(
         .bind_provider_session(&launch, nonce.to_string());
     launch
 }
-impl LaunchGeneration {
-    fn begin(tab_id: &str, pty_id: String) -> Self {
-        LAUNCH_REGISTRY.lock().begin(tab_id, pty_id)
-    }
-
-    fn capture_binding_nonce(&mut self, svc: &ServiceContext) {
-        let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
-        self.binding_nonce = Some(nonce.clone());
-        LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
-        svc.activate_agent_startup_supervision(&self.tab_id, &self.pty_id);
-    }
-
-    fn transition(&mut self, stage: BootStage) {
-        self.stage = stage;
-    }
-
-    fn reuse(&mut self) {
-        self.reused = true;
-        self.transition(BootStage::AgentReady);
-    }
-
-    fn replace(&mut self, pty_id: String) {
-        let tab_id = self.tab_id.clone();
-        *self = Self::begin(&tab_id, pty_id);
-    }
-
-    fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
-        self.transition(stage);
-        self.commit_if_current(|| {
-            svc.emit_boot_stage(&self.tab_id, stage, None);
-        })
-    }
-
-    fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
-        // A fault that shows the process died voids the proof it left behind,
-        // so an honest failure is never outranked by a dead agent's binding.
-        if failure.proves_process_gone() {
-            svc.void_launch_session_proof(&self.tab_id);
-        }
-        let reason = failure.reason();
-        self.finish_if_current(|| {
-            svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
-        })
-    }
-
-    fn write_if_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
-        let registry = LAUNCH_REGISTRY.lock();
-        registry.owns(self).then(write)
-    }
-
-    pub(crate) fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
-        let mut ready = self.provider_ack.ready.lock();
-        if *ready {
-            return true;
-        }
-        self.provider_ack.changed.wait_for(&mut ready, timeout);
-        *ready
-    }
-
-    fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
-        let registry = LAUNCH_REGISTRY.lock();
-        if !registry.owns(self) {
-            return false;
-        }
-        commit();
-        true
-    }
-
-    fn finish_if_current(&self, commit: impl FnOnce()) -> bool {
-        let mut registry = LAUNCH_REGISTRY.lock();
-        if !registry.finish(self) {
-            return false;
-        }
-        commit();
-        true
-    }
-}
-
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
         svc.void_launch_session_proof(&launch.tab_id);
@@ -534,6 +461,7 @@ pub(crate) fn launch_agent_in_background(
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     launch_agent_in_background_with_env(
@@ -545,6 +473,7 @@ pub(crate) fn launch_agent_in_background(
         task,
         fallback_spec,
         Default::default(),
+        task_identity,
         ready_tx,
     );
 }
@@ -559,6 +488,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     launch_env: std::collections::HashMap<String, String>,
+    task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
@@ -720,6 +650,14 @@ pub(crate) fn launch_agent_in_background_with_env(
                 agent_cmd,
                 pty_id
             );
+            if let Err(error) = launch.capture_current_binding(&svc, task_identity.as_ref()) {
+                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
             launch.reuse();
             launch.emit(&svc, launch.stage);
             LAUNCH_REGISTRY.lock().finish(&launch);
@@ -729,7 +667,14 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
             return;
         }
-        launch.capture_binding_nonce(&svc);
+        if let Err(error) = launch.capture_binding_nonce(&svc, task_identity.as_ref()) {
+            launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
         let mut wrapped_launch_cmd = command_with_binding_nonce(
             &launch_cmd,
             launch
@@ -836,7 +781,16 @@ pub(crate) fn launch_agent_in_background_with_env(
                                 }
                             };
                         launch.replace(pty_id.clone());
-                        launch.capture_binding_nonce(&svc);
+                        if let Err(error) =
+                            launch.capture_binding_nonce(&svc, task_identity.as_ref())
+                        {
+                            launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                            set_booting(false);
+                            if let Some(tx) = ready_tx {
+                                let _ = tx.send(Err(error));
+                            }
+                            return;
+                        }
                         wrapped_launch_cmd = command_with_binding_nonce(
                             &launch_cmd,
                             launch

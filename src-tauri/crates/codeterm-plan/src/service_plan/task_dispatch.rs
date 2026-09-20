@@ -707,23 +707,27 @@ impl PlanStore {
     pub fn superseded_attempt_for_tab(
         &self,
         tab_id: &str,
-    ) -> Option<(String, String, Option<String>)> {
+    ) -> Option<(String, String, String, String, String)> {
         self.list_full().into_iter().find_map(|plan| {
             let plan_id = plan.id.clone();
             plan.tasks.into_iter().find_map(|task| {
-                let owned = task
+                let owned_index = task
                     .execution_attempts
                     .iter()
-                    .rfind(|attempt| attempt.executor_tab_id == tab_id)?;
+                    .rposition(|attempt| attempt.executor_tab_id == tab_id)?;
+                let owned = &task.execution_attempts[owned_index];
                 owned.closed_at?;
                 let live = task
                     .execution_attempts
                     .iter()
-                    .rfind(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none());
+                    .skip(owned_index + 1)
+                    .rfind(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())?;
                 Some((
                     plan_id.clone(),
                     task.id.clone(),
-                    live.map(|attempt| attempt.executor_tab_id.clone()),
+                    owned.id.clone(),
+                    live.id.clone(),
+                    live.executor_tab_id.clone(),
                 ))
             })
         })
@@ -752,8 +756,10 @@ impl PlanStore {
             1 => acknowledgeable[0],
             0 => {
                 let cause = match self.superseded_attempt_for_tab(tab_id) {
-                    Some((plan_id, task_id, live_tab)) if bound.is_empty() => {
-                        superseded_subject_cause(tab_id, &plan_id, &task_id, live_tab.as_deref())
+                    Some((plan_id, task_id, retired, live, live_tab)) if bound.is_empty() => {
+                        superseded_subject_cause(
+                            tab_id, &plan_id, &task_id, &retired, &live, &live_tab,
+                        )
                     }
                     _ => unresolved_subject_cause(tab_id, &bound),
                 };
