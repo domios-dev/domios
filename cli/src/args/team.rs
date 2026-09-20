@@ -35,6 +35,17 @@ pub enum TeamAction {
         /// Tab ID of the running agent
         tab_id: String,
     },
+    /// Attach the one optional Cartographer Manager to a Team
+    AttachCartographer {
+        /// Team ID
+        team_id: String,
+        /// Agent provider ID
+        #[arg(long)]
+        provider: String,
+        /// Provider model ID
+        #[arg(long)]
+        model: Option<String>,
+    },
     /// Create an Orchestrator + Planner Team in one action. The Plan stays
     /// unbound until the first goal.
     Pair {
@@ -94,6 +105,31 @@ mod tests {
     #[test]
     fn adopt_agent_requires_both_positionals() {
         assert!(Cli::try_parse_from(["codeterm", "team", "adopt-agent", "team_alpha"]).is_err());
+    }
+
+    #[test]
+    fn attach_cartographer_parses_provider_and_model() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "team",
+            "attach-cartographer",
+            "team_alpha",
+            "--provider",
+            "provider-neutral",
+            "--model",
+            "model-1",
+        ])
+        .expect("team cartographer attachment parses");
+        assert!(matches!(
+            parsed.command,
+            Commands::Team {
+                action: TeamAction::AttachCartographer {
+                    team_id,
+                    provider,
+                    model,
+                }
+            } if team_id == "team_alpha" && provider == "provider-neutral" && model.as_deref() == Some("model-1")
+        ));
     }
 
     #[test]
