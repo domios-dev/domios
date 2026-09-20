@@ -19,38 +19,15 @@ import { MeshWebUiControl, type WebUiAction } from "../Titlebar/MeshWebUiControl
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
 import {
-  buildWebAccessUrls,
   planServeSetup,
   startWebAccessSetupHelper,
-  webLinkWithToken,
   webLinkWithTokenAndRelay,
   type ServeSetupPlan,
   type ServeStatus,
 } from "../../lib/webAccess";
+import { buildWebUiTarget, type NetworkInfo, type WebUiTarget } from "./webUiTarget";
 
 const TABS: MeshTab[] = ["inventory", "activity", "network"];
-
-interface NetworkInfo {
-  local_ip?: string | null;
-  tailscale_ip?: string | null;
-  tailscale_https_url?: string | null;
-  api_port?: number;
-}
-
-interface WebUiTarget {
-  link: string;
-  usingFallback: boolean;
-  port: number;
-}
-
-function buildWebUiTarget(config: AppConfig, network: NetworkInfo | null): WebUiTarget {
-  const picked = buildWebAccessUrls(network, config.api.port);
-  return {
-    link: webLinkWithToken(picked.primary, config.api.token),
-    usingFallback: picked.usingFallback,
-    port: network?.api_port ?? config.api.port,
-  };
-}
 
 interface ServeResult {
   ok: boolean;
@@ -86,8 +63,8 @@ function WebUiModal({
         invoke<ServeStatus>("get_serve_status").catch(() => null),
       ]);
       if (cancelled) return;
-      setTarget(buildWebUiTarget(config, network));
       setServe(status);
+      setTarget(buildWebUiTarget(config, network, status));
     }
     void load();
     return () => {
@@ -110,8 +87,8 @@ function WebUiModal({
           invoke<NetworkInfo>("get_network_info").catch(() => null),
           invoke<ServeStatus>("get_serve_status").catch(() => null),
         ]);
-        setTarget(buildWebUiTarget(config, network));
         setServe(status);
+        setTarget(buildWebUiTarget(config, network, status));
         setSetupMsg(res.warning ?? "HTTPS enabled via Tailscale.");
       } else {
         setSetupMsg(`Couldn't enable automatically (${res.code}). Try "Set up with AI".`);
