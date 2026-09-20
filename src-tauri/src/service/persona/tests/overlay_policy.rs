@@ -90,6 +90,10 @@ fn an_overlay_cannot_declare_structural_capability() {
         "requires_parent = false",
         "capability = \"anchoring\"",
         "origin = \"builtin\"",
+        "manages = true",
+        "plan_approval = true",
+        "plan_edit = true",
+        "release = true",
     ] {
         let reason = sole_rejection(&format!("{GOOD}{claim}\n"));
         assert!(
@@ -117,6 +121,11 @@ fn an_overlay_cannot_claim_an_anchoring_or_team_authority_base() {
             }
         );
     }
+    let reason = sole_rejection(&format!("{GOOD}base = \"{}\"\n", builtins::CARTOGRAPHER));
+    assert!(
+        matches!(reason, RejectionReason::CapabilityEscalation { .. }),
+        "a Manager-kind base without team authority is still refused: {reason:?}"
+    );
 }
 
 #[test]

@@ -20,7 +20,9 @@ pub fn kind_id(role: Option<AgentRole>, role_profile: Option<&str>) -> Option<&s
 /// as the subtype: they already resolve to leaf capability.
 fn is_worker_subtype(kind_id: &&str) -> bool {
     match builtins::lookup(kind_id) {
-        Some(descriptor) => !descriptor.has_team_authority() && !descriptor.anchors_team(),
+        Some(descriptor) => {
+            !descriptor.manages() && !descriptor.has_team_authority() && !descriptor.anchors_team()
+        }
         None => true,
     }
 }
@@ -67,4 +69,21 @@ pub fn can_spawn(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
 /// Whether this kind may rename, adopt into, or close the Team it belongs to.
 pub fn has_team_authority(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
     capability_or_leaf(role, role_profile).has_team_authority()
+}
+
+/// Whether this kind is a Manager-kind role rather than a leaf.
+pub fn manages(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    capability_or_leaf(role, role_profile).manages()
+}
+
+pub fn plan_approval(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    capability_or_leaf(role, role_profile).plan_approval()
+}
+
+pub fn plan_edit(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    capability_or_leaf(role, role_profile).plan_edit()
+}
+
+pub fn release(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    capability_or_leaf(role, role_profile).release()
 }
