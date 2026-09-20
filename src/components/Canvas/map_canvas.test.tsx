@@ -52,7 +52,7 @@ const node = (id: string, type: EssenceMapNode["type"], label: string, vector: s
   type,
   label,
   vector,
-  source,
+  source: { ...source, anchor: id, path: type === "core" || type === "client" ? "essences/core.md" : "essences/capabilities.md" },
   ...(type === "capability" ? { status: "stable" } : {}),
 });
 
@@ -61,7 +61,7 @@ const edge = (from: string, to: string, type: EssenceMapEdge["type"]): EssenceMa
   from,
   to,
   type,
-  source,
+  source: { ...source, anchor: from },
 });
 
 function mapFile(projectPath: string, records: unknown[]): EssenceMapFile {
@@ -141,19 +141,13 @@ async function settle() {
 const validRecords = [
   node("vector:one", "vector", "One vector"),
   node("capability:one", "capability", "One capability"),
-  {
-    kind: "edge",
-    from: "vector:one",
-    to: "capability:one",
-    type: "feeds",
-    source,
-  },
+  edge("vector:one", "capability:one", "feeds"),
 ];
 
 const graphVectors = Array.from({ length: 7 }, (_, index) => node(`vector:${index}`, "vector", `Vector ${index}`));
 const graphCapabilities = graphVectors.flatMap((vector, vectorIndex) => [
-  node(`capability:${vectorIndex}:a`, "capability", `Capability ${vectorIndex} A`, vector.id),
-  node(`capability:${vectorIndex}:b`, "capability", `Capability ${vectorIndex} B`, vector.id),
+  node(`capability:${vectorIndex}-a`, "capability", `Capability ${vectorIndex} A`, vector.id),
+  node(`capability:${vectorIndex}-b`, "capability", `Capability ${vectorIndex} B`, vector.id),
 ]);
 const graphCore = [
   node("core:agents", "core", "Agents and providers"),
@@ -164,7 +158,7 @@ const graphClients = [node("client:cli", "client", "CLI"), node("client:ui", "cl
 const graphNodes = [...graphVectors, ...graphCapabilities, ...graphCore, ...graphClients];
 const graphEdges = [
   ...graphCapabilities.map((capability, index) => edge(capability.id, graphCore[index % graphCore.length].id, "runs_on")),
-  edge("capability:0:a", "capability:0:b", "feeds"),
+  edge("capability:0-a", "capability:0-b", "feeds"),
   edge("core:agents", "core:plans", "part_of"),
   edge("client:cli", "core:host", "client_of"),
   edge("client:ui", "core:agents", "client_of"),
@@ -199,12 +193,12 @@ describe("map_canvas workspace essence map", () => {
     const doc = [
       "# CodeTerm capability map",
       "",
-      "## 1. Agents live and work in tabs",
+      "## 1. Agents live and work in tabs {#vector:agents-live-and-work-in-tabs}",
       "",
-      "| Capability | What it enables | Status |",
+      "| ID | Capability | What it enables | Status |",
       "|---|---|---|",
-      "| Workspaces and tabs | Shells grouped by project | stable |",
-      "| Agent providers | Claude and Codex run in a PTY | stable |",
+      "| capability:workspaces-and-tabs | Workspaces and tabs | Shells grouped by project | stable |",
+      "| capability:agent-providers | Agent providers | Claude and Codex run in a PTY | stable |",
     ].join("\n");
     const section = extractEssenceSection(doc, "capability:agent-providers");
     expect(section).toContain("**Agent providers**");
@@ -213,15 +207,24 @@ describe("map_canvas workspace essence map", () => {
     expect(section).not.toContain("CodeTerm capability map");
     expect(section).not.toContain("Workspaces and tabs");
     expect(section).not.toContain("|");
+    expect(extractEssenceSection(doc, "Agent providers")).toBe(doc);
   });
 
   it("map_canvas_source returns the vector's own heading section and falls back whole", () => {
-    const doc = ["# Map", "", "## 1. Agents live in tabs", "", "Body A", "", "## 2. Machines join a mesh", "", "Body B"].join("\n");
+    const doc = ["# Map", "", "## 1. Agents live in tabs {#vector:agents-live-and-work-in-tabs}", "", "Body A", "", "## 2. Distributed parts {#vector:machines-join-a-mesh}", "", "Body B"].join("\n");
     const section = extractEssenceSection(doc, "vector:machines-join-a-mesh");
-    expect(section).toContain("Machines join a mesh");
+    expect(section).toContain("Distributed parts");
     expect(section).toContain("Body B");
     expect(section).not.toContain("Body A");
     expect(extractEssenceSection(doc, "capability:nothing-matches-this")).toBe(doc);
+  });
+
+  it("map_canvas_requires stable IDs that match source anchors and graph references", () => {
+    const canonical = node("capability:agent-providers", "capability", "Agent providers");
+    expect(parseEssenceMapJsonl(JSON.stringify(canonical)).status).toBe("valid");
+    expect(parseEssenceMapJsonl(JSON.stringify({ ...canonical, id: "Agent providers", source: { ...canonical.source, anchor: "Agent providers" } })).status).toBe("malformed");
+    expect(parseEssenceMapJsonl(JSON.stringify({ ...canonical, source: { ...canonical.source, anchor: "capability:other" } })).status).toBe("malformed");
+    expect(parseEssenceMapJsonl(JSON.stringify(edge("Agent providers", "capability:agent-providers", "feeds"))).status).toBe("malformed");
   });
 
   it("keeps only valid source-backed records", () => {
@@ -325,21 +328,31 @@ describe("map_canvas workspace essence map", () => {
   });
 
   it("opens the exact referenced essence in an accessible side panel", async () => {
-    const exactSource = "# exact referenced essence\ncapability:workspaces-and-tabs";
+    const exactSource = [
+      "# CodeTerm capability map",
+      "",
+      "## 1. Agents live and work in tabs {#vector:agents-live-and-work-in-tabs}",
+      "",
+      "| ID | Capability | What it enables | Status |",
+      "|---|---|---|---|",
+      "| capability:agent-providers | Agent providers | Exact stable source row | stable |",
+      "| capability:other | Other capability | Must stay hidden | stable |",
+    ].join("\n");
     const sourceReader = vi.fn(async (projectPath: string, sourcePath: string) => {
       expect(projectPath).toBe("/repo/a");
       expect(sourcePath).toBe("essences/capabilities.md");
       return exactSource;
     });
-    const { host } = await renderMap([mapFile("/repo/a", validRecords)], sourceReader);
-    const button = host.querySelector<HTMLButtonElement>('[data-node-id="capability:one"]');
+    const capability = node("capability:agent-providers", "capability", "Agent providers");
+    const { host } = await renderMap([mapFile("/repo/a", [capability])], sourceReader);
+    const button = host.querySelector<HTMLButtonElement>('[data-node-id="capability:agent-providers"]');
     expect(button).not.toBeNull();
     await act(async () => button?.click());
     await settle();
     const panel = host.querySelector('[data-testid="essence-source-panel"]');
     expect(panel?.getAttribute("role")).toBe("dialog");
-    expect(panel?.textContent).toContain("exact referenced essence");
-    expect(panel?.textContent).toContain("capability:workspaces-and-tabs");
+    expect(panel?.textContent).toContain("Exact stable source row");
+    expect(panel?.textContent).not.toContain("Must stay hidden");
     expect(sourceReader).toHaveBeenCalledTimes(1);
   });
 
