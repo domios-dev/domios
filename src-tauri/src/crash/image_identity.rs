@@ -113,6 +113,7 @@ fn read_at(file: &mut std::fs::File, offset: u64, len: usize) -> Option<Vec<u8>>
     Some(buf)
 }
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn u16_at(buf: &[u8], off: usize) -> Option<u16> {
     Some(u16::from_le_bytes(buf.get(off..off + 2)?.try_into().ok()?))
 }
