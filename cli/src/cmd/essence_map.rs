@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::args::essence_map::{EssenceMapAction, EssenceMapPaths};
 
+mod documents;
 pub(crate) mod journal;
 
 pub(crate) const MAX_NODE_COUNT: usize = 100;
@@ -391,6 +392,7 @@ fn build_inventory(root: &Path) -> Result<Inventory, String> {
     if node_ids.len() != nodes.len() {
         return Err("source essences produce duplicate node ids".to_string());
     }
+    documents::validate(root, &node_ids)?;
     let mut labels = BTreeMap::new();
     for node in &nodes {
         labels.insert(label_key(&node.label), node.id.clone());
@@ -1166,7 +1168,5 @@ fn print_release(release: &journal::ReleaseSummary) {
 
 #[cfg(test)]
 mod cartographer_tests;
-#[cfg(test)]
-mod coverage_tests;
 #[cfg(test)]
 mod tests;

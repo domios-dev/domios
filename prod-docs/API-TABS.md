@@ -42,7 +42,7 @@ is **not** fire-and-forget â€” the tab is resolved before anything is written an
 the response is returned only after delivery is accepted. A failure serializes
 the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`,
 `pty_unavailable`, `submit_unconfirmed`) documented in
-`essences/contributing/pty-delivery.md`.
+`.agents/skills/pty-delivery/SKILL.md`.
 
 `POST .../chat-send` is the Chat UI user turn. It additionally opens a ledger
 entry so the send can be reconciled later; `GET .../chat-send` reads that
@@ -236,4 +236,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

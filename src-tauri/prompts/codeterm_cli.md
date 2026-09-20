@@ -1,7 +1,7 @@
 # CodeTerm CLI reference
 
 <!-- Do not document commands or flags that don't exist. Full generated
-     reference: essences/cli.md; the validation contract is essences/contributing/cli.md. -->
+     reference: generated/cli/cli.md; the validation contract is .agents/skills/cli-contributor/SKILL.md. -->
 
 You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
 
@@ -44,7 +44,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
 | Desktop notifications | `notify send "title" [--from-pad PATH] [--severity info\|warning\|error] [--level verbose\|action_needed\|failure] [--event-key ..] [--choice LABEL]...` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. The body is read only from the calling tab's AgentPad; an inline body is refused at parse time. `--level` takes only those three values; `verbose` is progress, `action_needed` is waiting on the user, `failure` is a stop | `docs CONFIG` |
 | Updates | `update check`, `update install --auto` | — |
-| Source-backed essence map | `essence-map generate`, `essence-map validate`, `essence-map record --summary .. --reason ..`, `essence-map release-summary [--since decision-N]`, `essence-map revert --to decision-N` | `docs ESSENCE-MAP` |
+| Source-backed essence map | `essence-map generate`, `essence-map validate`, `essence-map record --summary .. --reason ..`, `essence-map release-summary [--since decision-N]`, `essence-map revert --to decision-N`; validates stable essence `map` anchors against the generated node ids | `docs ESSENCE-MAP` |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
 | Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |
 | Keep system awake | `keepawake start/stop/status` | — |
@@ -72,7 +72,7 @@ words below resolve; the flags are the corrections.
 - Agents CAN join a Team. `codeterm agent spawn <provider> --team <team-id>` attaches a fresh roleless agent (mirrors `tab new --team`); `codeterm team adopt-agent <team-id> <tab-id>` attaches one that is already running. Both authorize on YOUR OWN membership — `$CODETERM_TEAM_ID` must already be that Team — and refuse a non-member caller. `--team` is rejected with `--plan-task` (that binding carries its own Team) and is local-only, never with `--mesh`. Adopting a tab that already has a Team or a role is refused; `codeterm team show <team-id>` lists the member tabs.
 - A Team whose Orchestrator is gone gets a new one with `codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. Removing the final Orchestrator retains the discoverable Team and active Plan identity/history so that command can still name them. It is the ONLY `--role` `--team` accepts, needs no `--workspace`, and carries no other spawn flag. The new Orchestrator takes the Team's active Plan over — owner and owner history move; descendant role bindings follow ordinary unlink rules. A takeover failure removes the spawned replacement and its lane without changing that retained Team or Plan history. A Team that still HAS a live Orchestrator refuses the second one by error code (`team_orchestrator_already_live`); a removed or dead Orchestrator does not count as live.
 
-Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the generated `essences/cli.md`; `~/.claude/skills/codeterm` mirrors the repo `skills/codeterm`.
+Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the generated `generated/cli/cli.md`; `~/.claude/skills/codeterm` mirrors the repo `skills/codeterm`.
 
 ## Mesh (remote peers)
 
