@@ -1,20 +1,21 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use clap::Parser;
 use tempfile::TempDir;
 
-use super::{generate, sha256, validate, MapSummary};
+use super::{generate, generate_from_paths, sha256, validate, MapSummary};
+use crate::args::essence_map::EssenceMapPaths;
 use crate::{Cli, Commands};
 
 fn source_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
-fn fixture_root() -> TempDir {
-    let temp = tempfile::tempdir().expect("create essence map fixture");
-    let essences = temp.path().join("essences");
-    fs::create_dir_all(&essences).expect("create fixture essences");
+fn copy_essences(essences: &Path) {
+    fs::create_dir_all(essences).expect("create fixture essences");
     let source_essences = source_root().join("essences");
     for entry in fs::read_dir(&source_essences).expect("list source essences") {
         let entry = entry.expect("read source essence entry");
@@ -27,7 +28,37 @@ fn fixture_root() -> TempDir {
             fs::copy(&source, essences.join(entry.file_name())).expect("copy source essence");
         }
     }
+}
+
+fn fixture_root() -> TempDir {
+    let temp = tempfile::tempdir().expect("create essence map fixture");
+    copy_essences(&temp.path().join("essences"));
     temp
+}
+
+fn run_git(root: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .expect("run git fixture command");
+    assert!(
+        output.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn node_ids(map: &Path) -> BTreeSet<String> {
+    super::read_map(map)
+        .expect("read generated map")
+        .into_iter()
+        .filter_map(|record| match record {
+            super::MapRecord::Node(node) => Some(node.id),
+            super::MapRecord::Edge(_) => None,
+        })
+        .collect()
 }
 
 fn paths(root: &Path) -> (PathBuf, PathBuf) {
@@ -377,4 +408,173 @@ fn essence_map_contract_rejects_non_append_decisions() {
 
     let error = validate(fixture.path(), &map, &decisions).expect_err("decision order fails");
     assert!(error.contains("strictly increasing"));
+}
+
+#[test]
+fn essence_map_stable_ids_survive_a_display_rename() {
+    let fixture = fixture_root();
+    let (map, _, _) = valid_map(fixture.path());
+    let capabilities = fixture.path().join("essences/capabilities.md");
+    let source = fs::read_to_string(&capabilities).expect("read capabilities");
+    let renamed = source
+        .replace(
+            "Agents live and work in tabs {#vector:agents-live-and-work-in-tabs}",
+            "Agents dwell in tabs {#vector:agents-live-and-work-in-tabs}",
+        )
+        .replace(
+            "| capability:agent-providers | Agent providers |",
+            "| capability:agent-providers | Model providers |",
+        );
+    assert_ne!(renamed, source, "the fixture rename must apply");
+    fs::write(&capabilities, renamed).expect("write renamed source");
+
+    generate(fixture.path(), &map).expect("regenerate after the rename");
+    let ids = node_ids(&map);
+    assert!(ids.contains("vector:agents-live-and-work-in-tabs"));
+    assert!(ids.contains("capability:agent-providers"));
+    let label = super::read_map(&map)
+        .expect("read regenerated map")
+        .into_iter()
+        .find_map(|record| match record {
+            super::MapRecord::Node(node) if node.id == "capability:agent-providers" => {
+                Some(node.label)
+            }
+            _ => None,
+        })
+        .expect("renamed capability node");
+    assert_eq!(label, "Model providers");
+}
+
+#[test]
+fn essence_map_migrates_label_derived_ids_to_authored_ids() {
+    let fixture = fixture_root();
+    let capabilities = fixture.path().join("essences/capabilities.md");
+    let source = fs::read_to_string(&capabilities).expect("read capabilities");
+    // The authored id deliberately differs from the label's slug, so a node id
+    // can only come from metadata, never from the heading or display text.
+    let migrated = source.replace(
+        "| capability:team-observer | Team observer |",
+        "| capability:local-observer | Team observer |",
+    );
+    assert_ne!(migrated, source, "the fixture migration must apply");
+    fs::write(&capabilities, migrated).expect("write migrated source");
+
+    let map = fixture.path().join("essences/map.jsonl");
+    generate(fixture.path(), &map).expect("generate from authored ids");
+    let ids = node_ids(&map);
+    assert!(ids.contains("capability:local-observer"));
+    assert!(!ids.contains("capability:team-observer"));
+}
+
+#[test]
+fn essence_map_rejects_a_relation_to_an_unknown_stable_id() {
+    let fixture = fixture_root();
+    let capabilities = fixture.path().join("essences/capabilities.md");
+    let source = fs::read_to_string(&capabilities).expect("read capabilities");
+    let changed = source.replace(
+        "| client:ui | capability:message-delivery |",
+        "| client:ui | capability:missing |",
+    );
+    assert_ne!(changed, source, "the dangling reference must apply");
+    fs::write(&capabilities, changed).expect("write dangling source");
+
+    let error = generate(fixture.path(), &fixture.path().join("essences/map.jsonl"))
+        .expect_err("a dangling stable id fails");
+    assert!(error.contains("capability:missing"));
+}
+
+#[test]
+fn essence_map_requires_explicit_id_metadata() {
+    let fixture = fixture_root();
+    let capabilities = fixture.path().join("essences/capabilities.md");
+    let source = fs::read_to_string(&capabilities).expect("read capabilities");
+    let changed = source.replace("{#vector:agents-live-and-work-in-tabs}", "");
+    assert_ne!(changed, source, "the id metadata removal must apply");
+    fs::write(&capabilities, changed).expect("write source without id metadata");
+
+    let error = generate(fixture.path(), &fixture.path().join("essences/map.jsonl"))
+        .expect_err("a missing stable id fails");
+    assert!(error.contains("{#"));
+}
+
+#[test]
+fn essence_map_represents_a_clientless_library_topology() {
+    let fixture = tempfile::tempdir().expect("create library fixture");
+    let essences = fixture.path().join("essences");
+    fs::create_dir_all(&essences).expect("create library essences");
+    fs::write(
+        essences.join("capabilities.md"),
+        "# Capabilities\n\n\
+         ## 1. A vector {#vector:a-vector}\n\n\
+         | ID | Capability | What it enables | Entry points | Invariants | Status | Runs on | Feeds |\n\
+         |---|---|---|---|---|---|---|---|\n\
+         | capability:reader | Reader | Reads input | CLI | stays pure | stable | core:library | capability:writer |\n\
+         | capability:writer | Writer | Writes output | CLI | stays pure | stable | core:library | — (sink) |\n",
+    )
+    .expect("write library capabilities");
+    fs::write(
+        essences.join("core.md"),
+        "# Library core\n\n\
+         ## Core parts\n\n\
+         ### Library {#core:library}\n\n\
+         - Root: true.\n\
+         - Invariants: stays a library.\n",
+    )
+    .expect("write library core");
+
+    let map = essences.join("map.jsonl");
+    let summary = generate(fixture.path(), &map).expect("generate a clientless map");
+    assert_eq!(summary.clients, 0);
+    assert_eq!(summary.client_of, 0);
+    assert_eq!(summary.core, 1);
+    assert_eq!(summary.nodes, 4);
+}
+
+#[test]
+fn essence_map_refuses_a_linked_worktree() {
+    let fixture = tempfile::tempdir().expect("create git fixture");
+    let canonical = fixture.path().join("canonical");
+    let worktree = fixture.path().join("worktree");
+    fs::create_dir(&canonical).expect("create canonical checkout");
+    run_git(&canonical, &["init", "--quiet"]);
+    run_git(
+        &canonical,
+        &[
+            "-c",
+            "user.name=Map Test",
+            "-c",
+            "user.email=map-test@example.invalid",
+            "commit",
+            "--allow-empty",
+            "--message",
+            "map fixture",
+        ],
+    );
+    run_git(
+        &canonical,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "--detach",
+            worktree.to_str().expect("worktree path is UTF-8"),
+            "HEAD",
+        ],
+    );
+    copy_essences(&canonical.join("essences"));
+
+    let canonical_paths = EssenceMapPaths {
+        root: canonical.clone(),
+        map: None,
+        decisions: None,
+    };
+    generate_from_paths(&canonical_paths).expect("the canonical checkout is accepted");
+
+    let worktree_paths = EssenceMapPaths {
+        root: worktree.clone(),
+        map: None,
+        decisions: None,
+    };
+    let error = generate_from_paths(&worktree_paths).expect_err("a linked worktree is refused");
+    assert!(error.contains("linked worktree"));
 }
