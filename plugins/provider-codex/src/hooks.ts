@@ -92,7 +92,7 @@ function isOwnedCodexHook(hook: NonNullable<CodexHookEntry["hooks"]>[number] | u
 /// the hook's contract, not its prose: it is instance-agnostic by construction,
 /// so dev and prod satisfy it identically.
 export const CODEX_HOOK_SCRIPT_CONTRACT = [
-  CODETERM_CODEX_HOOK_MARKER,
+  "rem " + CODETERM_CODEX_HOOK_MARKER,
   CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
   "hookEvent",
   "CODETERM_TAB_ID",
