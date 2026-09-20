@@ -780,13 +780,22 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     "session_start hook curl carries the binding-nonce header",
     cmd,
   );
+  assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+    "session_start hook command carries its ownership marker", cmd);
   assert(
     writtenScript.includes("codeterm-profile-cleanup-v1") &&
-      writtenScript.includes('codeterm-$profileSuffix.config.toml') &&
-      writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
+      writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
+      writtenScript.includes("del /F /Q") &&
+      writtenScript.includes("curl.exe") &&
+      writtenScript.includes("--max-time 30") &&
+      writtenScript.includes("X-CodeTerm-Hook: "),
     "Windows session_start removes the tab-scoped profile after Codex loads it",
     writtenScript,
   );
+  const windowsCommand = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
+  assert(windowsCommand.indexOf("powershell") === -1, "Windows hook command avoids a PowerShell spawn", windowsCommand);
+  assert(windowsCommand.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+    "Windows hook command carries the in-command ownership marker", windowsCommand);
 }
 
 {
@@ -886,12 +895,12 @@ for (const [name, fixture] of [
 {
   const hooksPath = "/tmp/home\\.codex\\hooks.json";
   const configPath = "/tmp/home\\.codex\\config.toml";
-  const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-hook.cmd";
   const ownershipPath = configPath + ".codeterm-hook-trust-owned";
   const initial = new Map<string, string>([
     [hooksPath, '{"foreign":"hooks"}'],
     [configPath, `[hooks.state."${hooksPath}:session_start:owned"]\nenabled = false\nforeign = "config"\n`],
-    [scriptPath, "# foreign script\r\n"],
+    [scriptPath, "rem codeterm-codex-session-binding-v1\r\n"],
     [ownershipPath, "foreign ownership bytes"],
     [hooksPath + ".codeterm-backup", "prior hooks backup"],
     [configPath + ".codeterm-backup", "prior config backup"],
@@ -925,7 +934,7 @@ for (const [name, fixture] of [
 
 {
   const hooksPath = "/tmp/home\\.codex\\hooks.json";
-  const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-hook.cmd";
   const files = new Map<string, string>([
     [hooksPath, '{"hooks":{"SessionStart":[]}}'],
     [scriptPath, "# user-owned replacement\nWrite-Host foreign\n"],
@@ -950,7 +959,7 @@ for (const [name, fixture] of [
   const p = loadCodexWithHost(baseHost({
     platform: () => "windows",
     fs: {
-      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-hook.cmd"),
       readJson: () => ({
         hooks: {
           SessionStart: [{ hooks: [{
@@ -959,7 +968,7 @@ for (const [name, fixture] of [
           }] }],
         },
       }),
-      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? staleScript : "",
+      readFile: (path: string) => path.endsWith("codeterm-session-hook.cmd") ? staleScript : "",
       writeJson: () => true,
       writeFile: () => true,
     },
@@ -981,7 +990,7 @@ for (const [name, fixture] of [
   const p = loadCodexWithHost(baseHost({
     platform: () => "windows",
     fs: {
-      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-hook.cmd"),
       readJson: () => ({
         hooks: {
           SessionStart: [{ hooks: [{
@@ -990,7 +999,7 @@ for (const [name, fixture] of [
           }] }],
         },
       }),
-      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? stalePaneScript : "",
+      readFile: (path: string) => path.endsWith("codeterm-session-hook.cmd") ? stalePaneScript : "",
       writeJson: () => true,
       writeFile: () => true,
     },
@@ -1017,6 +1026,7 @@ for (const [name, fixture] of [
   const preNonce =
     "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
     "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
     '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @-';
   const old = loadCodexWithHost(sessionStartHook(preNonce));
   assert(
@@ -1032,37 +1042,6 @@ for (const [name, fixture] of [
   );
 }
 
-console.log("\n--- hook cold-start budget (Windows PowerShell spawn) ---\n");
-
-// The per-event budget Codex grants the hook must outlive a Windows PowerShell
-// cold start; the old 5s budget killed the session-start report before it
-// reached the daemon, so no session id ever appeared.
-{
-  let writtenJson: any = null;
-  let writtenScript = "";
-  const p = loadCodexWithHost(baseHost({
-    platform: () => "windows",
-    fs: {
-      fileExists: () => false,
-      readJson: () => null,
-      readFile: () => null,
-      writeJson: (_p: string, json: unknown) => { writtenJson = json; return true; },
-      writeFile: (_p: string, body: string) => { writtenScript = body; return true; },
-    },
-  }));
-  const res = p.installIntegration(7686, { consent: true });
-  assert(!!res && res.ok === true, "timeout-aware install succeeds", JSON.stringify(res));
-  for (const event of ["SessionStart", "Stop"]) {
-    const timeout = Number(writtenJson?.hooks?.[event]?.[0]?.hooks?.[0]?.timeout);
-    assert(timeout >= 60, `${event} hook budget tolerates a Windows cold start`, String(timeout));
-  }
-  assert(
-    writtenScript.indexOf("-TimeoutSec 30") !== -1,
-    "the helper script's request budget is not the old 5s",
-    writtenScript,
-  );
-}
-
 // An install that predates the budget fix must read as stale so Repair rewrites
 // it; otherwise the 5s budget would survive the fix forever.
 {
@@ -1071,6 +1050,7 @@ console.log("\n--- hook cold-start budget (Windows PowerShell spawn) ---\n");
   const nonceCommand =
     "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
     "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
     '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
     '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-';
   const stopCommand = nonceCommand.replace("/hook/session_start", "/hook/stop");
@@ -1117,6 +1097,7 @@ console.log("\n--- hook cold-start budget (Windows PowerShell spawn) ---\n");
           command:
             "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start " +
             "-H 'X-CodeTerm-Agent-Provider: codex' " +
+            '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
             '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-',
         }],
       }],
@@ -1194,6 +1175,7 @@ console.log("\n--- hook cold-start budget (Windows PowerShell spawn) ---\n");
         command:
           "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
           '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+          '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
           '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"',
       }] }],
       Stop: [],
