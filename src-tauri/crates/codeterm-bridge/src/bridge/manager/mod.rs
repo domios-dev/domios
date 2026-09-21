@@ -206,61 +206,16 @@ impl BridgeManager {
                         continue;
                     }
 
-                    if threaded::send_notification(&tab, chat_id, &out_msg).await {
-                        continue;
-                    }
-
-                    if let (OutboundRoute::Tab { tab_id }, None) = (&out_msg.route, out_msg.edit.as_ref()) {
-                        if tab.threads().is_attached() {
-                            threaded::send_for_tab(&tab, &client, &api_base, &token, chat_id, tab_id, &out_msg).await;
-                            continue;
-                        }
-                    }
-
-                    match out_msg.content {
-                        OutboundContent::Text { ref text } => {
-                            // A rewrite addresses one already-sent message, so it never touches the last-message state the append path keeps.
-                            if let Some(edit) = out_msg.edit.as_ref() {
-                                log::info!("[bridge-outbound] rewriting message {} in {}", edit.message_id, chat_id);
-                                rewrite_message(
-                                    &client,
-                                    &api_base,
-                                    &token,
-                                    chat_id,
-                                    edit.message_id,
-                                    text,
-                                    out_msg.buttons.as_ref(),
-                                )
-                                .await;
-                                continue;
-                            }
-                            log::info!("[bridge-outbound] {} {} chars to {}",
-                                if out_msg.append { "appending" } else { "sending" }, text.len(), chat_id);
-                            let placed = route_text_outbound(
-                                &client,
-                                &api_base,
-                                &token,
-                                chat_id,
-                                text,
-                                out_msg.append,
-                                out_msg.buttons.as_ref(),
-                                &mut chat_states,
-                            )
-                            .await;
-                            if let (Some(receipt), Some(message_id)) = (out_msg.receipt.as_ref(), placed) {
-                                tab.record_channel_placement(
-                                    receipt,
-                                    &super::telegram::locator(chat_id, message_id),
-                                );
-                            }
-                        }
-                        ref media_content => {
-                            log::info!("[bridge-outbound] sending media {:?} to {}", std::mem::discriminant(media_content), chat_id);
-                            if let Err(e) = send_media(&client, &api_base, &token, chat_id, None, media_content).await {
-                                log::error!("[bridge-outbound] media send failed: {}", e);
-                            }
-                        }
-                    }
+                    threaded::send_outbound(
+                        &tab,
+                        &client,
+                        &api_base,
+                        &token,
+                        chat_id,
+                        &out_msg,
+                        &mut chat_states,
+                    )
+                    .await;
                 }
 
                 else => {
