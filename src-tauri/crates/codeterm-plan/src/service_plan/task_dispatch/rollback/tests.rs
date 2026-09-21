@@ -175,7 +175,14 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
         .unwrap();
 
     assert_eq!(rollback, DispatchRollback::Restored);
-    assert_eq!(task_of(&store, &task_id), original);
+    let restored = task_of(&store, &task_id);
+    assert_eq!(restored.status, original.status);
+    assert_eq!(restored.assigned_tab_id, original.assigned_tab_id);
+    assert_eq!(restored.lane, original.lane);
+    assert_eq!(restored.interruption, original.interruption);
+    assert_eq!(restored.execution_attempts.len(), 1);
+    assert_eq!(restored.execution_attempts[0].id, attempt);
+    assert_eq!(restored.execution_attempts[0].closed_at, Some(4));
 }
 
 #[test]

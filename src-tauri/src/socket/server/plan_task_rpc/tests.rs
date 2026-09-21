@@ -1,15 +1,15 @@
 use super::super::plan_task_authority::plan_owner_may_recover;
 use super::{
-    dependency_vec_field, dispatch, external_ref_values, validate_model_field,
+    dependency_vec_field, dispatch, dispatch_with_spawn, external_ref_values, validate_model_field,
     verify_owner_epoch_for_task_mutation,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
-use crate::plan::{OrchestratorRef, Plan, TaskStatus};
+use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier, Mutex};
 
 /// The exact live owner identity the update seam authorizes against:
 /// tab id, bound session and the nonce the tab itself reported back.
@@ -440,6 +440,434 @@ fn recovered_task(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> cra
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap()
+}
+
+fn starting_worker_with_live_pty(
+    fixture: &ServiceFixture,
+    plan_id: &str,
+    task_id: &str,
+    owner_tab: &str,
+) -> (String, String, String) {
+    let worker_tab = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(owner_tab).unwrap();
+        mux.create_tab(&workspace).unwrap()
+    };
+    let (worker_pty, _) = fixture
+        .service
+        .pty
+        .lock()
+        .spawn(
+            Some("cmd.exe".into()),
+            None,
+            80,
+            24,
+            std::collections::HashMap::new(),
+        )
+        .unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let worker = mux.get_tab_mut(&worker_tab).unwrap();
+        worker.pty_id = Some(worker_pty.clone());
+        worker.agent_type = Some("test-provider".into());
+        worker.agent_booting = true;
+        worker.task_binding = Some(crate::multiplexer::types::TaskBinding {
+            plan_id: Some(plan_id.to_string()),
+            task_id: Some(task_id.to_string()),
+            spawn_handle: None,
+            bound_at: 5,
+        });
+    }
+    let attempt_id = fixture
+        .service
+        .plan_store
+        .begin_task_dispatch(
+            plan_id,
+            task_id,
+            &worker_tab,
+            "Worker",
+            TaskLaneMetadata::default(),
+            5,
+        )
+        .unwrap();
+    (worker_tab, worker_pty, attempt_id)
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn destination_update_during_startup_keeps_attempt_tab_and_lane() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let (worker_tab, worker_pty, attempt_id) =
+        starting_worker_with_live_pty(&fixture, &plan_id, &task_id, &owner);
+    let mut params = owner_params(&owner);
+    params.insert("plan_id".into(), json!(plan_id.clone()));
+    params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("owner_epoch".into(), json!(1));
+    params.insert("lane".into(), json!({"destination": "release/1.10.1"}));
+    let params = Some(serde_json::Value::Object(params));
+    let service = Arc::new(fixture.service.clone());
+
+    dispatch(
+        "plan.task.update",
+        &params,
+        &fixture.service.app_handle,
+        &service,
+        6,
+    )
+    .expect("integration metadata update should preserve a live startup attempt");
+
+    let starting = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        starting.assigned_tab_id.as_deref(),
+        Some(worker_tab.as_str())
+    );
+    assert_eq!(starting.lane.tab_id.as_deref(), Some(worker_tab.as_str()));
+    assert_eq!(starting.lane.destination.as_deref(), Some("release/1.10.1"));
+    assert_eq!(starting.execution_attempts.len(), 1);
+    assert_eq!(starting.execution_attempts[0].id, attempt_id);
+    assert_eq!(starting.execution_attempts[0].closed_at, None);
+    assert_eq!(starting.execution_attempts[0].acknowledged_at, None);
+
+    fixture
+        .service
+        .plan_store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            &worker_tab,
+            &attempt_id,
+            "worker-session",
+            "worker-nonce",
+            TaskLaneMetadata::default(),
+            7,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .acknowledge_task_attempt(&plan_id, &task_id, &worker_tab, &attempt_id, 8)
+        .unwrap();
+
+    let acknowledged = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        acknowledged.assigned_tab_id.as_deref(),
+        Some(worker_tab.as_str())
+    );
+    assert_eq!(
+        acknowledged.lane.tab_id.as_deref(),
+        Some(worker_tab.as_str())
+    );
+    assert_eq!(
+        acknowledged.lane.destination.as_deref(),
+        Some("release/1.10.1")
+    );
+    assert_eq!(acknowledged.execution_attempts[0].closed_at, None);
+    assert_eq!(acknowledged.execution_attempts[0].acknowledged_at, Some(8));
+    fixture.service.pty.lock().kill(&worker_pty).unwrap();
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn dispatch_refuses_live_startup_owner_before_spawning_another_worker() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    fixture
+        .service
+        .plan_store
+        .set_planning_state(
+            &plan_id,
+            crate::plan::PlanningState::Approved,
+            crate::plan::PlanningAuthor::User,
+            None,
+            5,
+        )
+        .unwrap();
+    let (worker_tab, worker_pty, attempt_id) =
+        starting_worker_with_live_pty(&fixture, &plan_id, &task_id, &owner);
+    let service = Arc::new(fixture.service.clone());
+    let params = Some(json!({
+        "plan_id": plan_id.clone(),
+        "task_id": task_id.clone(),
+        "caller_tab_id": owner.clone(),
+        "session_id": "owner-session",
+        "session_binding_nonce": "owner-nonce"
+    }));
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+
+    let refusal = super::super::plan_task_dispatch::dispatch(
+        &params,
+        &fixture.service.app_handle,
+        &service,
+        6,
+    )
+    .expect_err("a second dispatch must be refused before spawning");
+
+    assert_eq!(refusal.code, crate::service::plan::RPC_DISPATCH_IN_FLIGHT);
+    assert_eq!(refusal.data.as_ref().unwrap()["type"], "dispatch_in_flight");
+    assert!(refusal.message.contains(&attempt_id));
+    assert!(refusal.message.contains(&worker_tab));
+    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), tabs_before);
+    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.assigned_tab_id.as_deref(), Some(worker_tab.as_str()));
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts[0].closed_at, None);
+    assert!(fixture.service.pty.lock().get_session(&worker_pty).is_some());
+    fixture.service.pty.lock().kill(&worker_pty).unwrap();
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn dispatch_spawn_failure_closes_attempt_and_reserved_tab() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    fixture
+        .service
+        .plan_store
+        .set_planning_state(
+            &plan_id,
+            crate::plan::PlanningState::Approved,
+            crate::plan::PlanningAuthor::User,
+            None,
+            5,
+        )
+        .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "dispatch-failure-provider",
+        )));
+    let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
+    plan.tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .execution_intent = crate::plan::TaskExecutionIntent::NonRepository;
+    fixture.service.plan_store.save(&mut plan, 6).unwrap();
+
+    let service = Arc::new(fixture.service.clone());
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let params = Some(json!({
+        "plan_id": plan_id.clone(),
+        "task_id": task_id.clone(),
+        "caller_tab_id": owner,
+        "session_id": "owner-session",
+        "session_binding_nonce": "owner-nonce",
+        "agent": "dispatch-failure-provider",
+        "execution_intent": "read_only"
+    }));
+
+    let error = dispatch_with_spawn(
+        &params,
+        &fixture.service.app_handle,
+        &service,
+        7,
+        |_, _, _| Err("provider rejected launch".into()),
+        || {},
+    )
+    .expect_err("a definitive provider spawn failure rolls back the dispatch");
+
+    assert_eq!(error.data.as_ref().unwrap()["stage"], "agent_spawn");
+    assert!(error.message.contains("provider rejected launch"));
+    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), tabs_before);
+    let failed = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert_eq!(failed.status, TaskStatus::Pending);
+    assert!(failed.assigned_tab_id.is_none());
+    assert_eq!(failed.execution_attempts.len(), 1);
+    assert_eq!(failed.execution_attempts[0].closed_at, Some(7));
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    fixture
+        .service
+        .plan_store
+        .set_planning_state(
+            &plan_id,
+            crate::plan::PlanningState::Approved,
+            crate::plan::PlanningAuthor::User,
+            None,
+            5,
+        )
+        .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "dispatch-test-provider",
+        )));
+    let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
+    plan.tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .execution_intent = crate::plan::TaskExecutionIntent::NonRepository;
+    fixture.service.plan_store.save(&mut plan, 6).unwrap();
+
+    let service = Arc::new(fixture.service.clone());
+    let spawned_tabs = Arc::new(Mutex::new(Vec::new()));
+    let ready_senders = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let observations = Arc::new(Barrier::new(2));
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let params = Arc::new(Some(json!({
+        "plan_id": plan_id.clone(),
+        "task_id": task_id.clone(),
+        "caller_tab_id": owner.clone(),
+        "session_id": "owner-session",
+        "session_binding_nonce": "owner-nonce",
+        "agent": "dispatch-test-provider",
+        "execution_intent": "read_only"
+    })));
+    let starts = [0, 1].map(|_| {
+        let service = service.clone();
+        let app = fixture.service.app_handle.clone();
+        let params = params.clone();
+        let spawned_tabs = spawned_tabs.clone();
+        let ready_senders = ready_senders.clone();
+        let observations = observations.clone();
+        std::thread::spawn(move || {
+            dispatch_with_spawn(
+                params.as_ref(),
+                &app,
+                &service,
+                7,
+                move |svc, spawn_params, ready_tx| {
+                    let plan_id = spawn_params.plan_id.clone().unwrap();
+                    let task_id = spawn_params.task_id.clone().unwrap();
+                    let parent_tab_id = spawn_params.parent_tab_id.clone().unwrap();
+                    let agent = spawn_params.agent.clone().unwrap();
+                    let title = spawn_params
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| "Worker".into());
+                    let role = spawn_params.role.clone();
+                    let role_profile = spawn_params.role_profile.clone();
+                    let description = spawn_params.description.clone();
+                    let tab_id = spawn_params.existing_tab_id.clone().unwrap();
+                    {
+                        let mut mux = svc.mux.write();
+                        let tab = mux.get_tab_mut(&tab_id).unwrap();
+                        let session_id = format!("session-{tab_id}");
+                        let binding_nonce = format!("nonce-{tab_id}");
+                        tab.parent_tab_id = Some(parent_tab_id);
+                        tab.agent_type = Some(agent.clone());
+                        tab.agent_booting = true;
+                        tab.agent_session_id = Some(session_id.clone());
+                        tab.session_binding_nonce = Some(binding_nonce.clone());
+                        tab.reported_session_binding_nonce = Some(binding_nonce.clone());
+                        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                            plan_id: Some(plan_id),
+                            task_id: Some(task_id),
+                            spawn_handle: None,
+                            bound_at: 7,
+                        });
+                    }
+                    spawned_tabs.lock().unwrap().push(tab_id.clone());
+                    ready_senders
+                        .lock()
+                        .unwrap()
+                        .insert(tab_id.clone(), ready_tx.unwrap());
+                    Ok(crate::service::SpawnResult {
+                        tab_id,
+                        pty_id: String::new(),
+                        agent,
+                        model: None,
+                        planned_model: None,
+                        requested_model: None,
+                        provider_resolved_model: None,
+                        actual_model: None,
+                        reasoning_effort: None,
+                        reasoning_effort_provenance: Default::default(),
+                        title,
+                        description,
+                        role,
+                        role_profile,
+                        warning: None,
+                        model_fallback: None,
+                        budget_notice: None,
+                    })
+                },
+                move || {
+                    observations.wait();
+                },
+            )
+        })
+    });
+
+    let outcomes = starts.map(|start| start.join().unwrap());
+    let mut winner = None;
+    let mut refusal = None;
+    for outcome in outcomes {
+        match outcome {
+            Ok(response) => {
+                assert!(winner.replace(response).is_none());
+            }
+            Err(error) => {
+                assert_eq!(error.code, crate::service::plan::RPC_DISPATCH_IN_FLIGHT);
+                assert_eq!(error.data.as_ref().unwrap()["type"], "dispatch_in_flight");
+                assert!(refusal.replace(error).is_none());
+            }
+        }
+    }
+    let winner = winner.expect("exactly one production dispatch succeeds");
+    let refusal = refusal.expect("the competing production dispatch is refused");
+    let winner_attempt = winner["attempt_id"].as_str().unwrap().to_string();
+    let winner_tab = winner["tab_id"].as_str().unwrap().to_string();
+    assert!(refusal.message.contains(&winner_attempt));
+    assert!(refusal.message.contains(&winner_tab));
+
+    let tabs = spawned_tabs.lock().unwrap().clone();
+    assert_eq!(tabs, vec![winner_tab.clone()]);
+    assert!(fixture.service.mux.read().get_tab(&winner_tab).is_some());
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        tabs_before + 1,
+        "the refused dispatch must not spawn or leave its reserved tab"
+    );
+    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.assigned_tab_id.as_deref(), Some(winner_tab.as_str()));
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts[0].id, winner_attempt);
+    assert_eq!(task.execution_attempts[0].closed_at, None);
+
+    let session = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&winner_tab)
+        .map(|tab| {
+            (
+                tab.agent_session_id.clone().unwrap(),
+                tab.session_binding_nonce.clone().unwrap(),
+            )
+        })
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            &winner_tab,
+            &winner_attempt,
+            &session.0,
+            &session.1,
+            task.lane.clone(),
+            8,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .acknowledge_task_attempt(&plan_id, &task_id, &winner_tab, &winner_attempt, 9)
+        .unwrap();
+    ready_senders
+        .lock()
+        .unwrap()
+        .remove(&winner_tab)
+        .unwrap()
+        .send(Ok(()))
+        .unwrap();
 }
 
 fn spawn_rebound_tab(fixture: &ServiceFixture, live_session_id: &str) -> String {

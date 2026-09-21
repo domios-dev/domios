@@ -202,6 +202,15 @@ impl DispatchStartup {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let reason = error.message.clone();
+                log::warn!(
+                    "[task-dispatch] dispatch_startup_failed plan={} task={} tab={} attempt={} stage={} cause={}",
+                    self.plan_id,
+                    self.task_id,
+                    self.tab_id,
+                    self.attempt_id,
+                    stage,
+                    reason
+                );
                 let attempt_finalized = if worker_may_be_alive {
                     match self.svc.plan_store.mark_worker_startup_deadline(
                         &self.plan_id,
