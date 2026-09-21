@@ -72,6 +72,36 @@ fn trust_context_above_bypass_has_no_native_or_js_folder_trust_response() {
 }
 
 #[test]
+fn underscore_joined_trust_token_is_rejected_by_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen = std::fs::read_to_string(fixtures_dir().join("quick-safety-no-first.txt"))
+        .expect("quick safety fixture");
+    let underscore_screen = screen
+        .lines()
+        .map(|line| {
+            let option = line.trim_start().trim_start_matches('❯').trim_start();
+            if option
+                .get(..3)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("yes"))
+            {
+                line.replace("trust", "_trust")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert_eq!(native.directory_trust_prompt_response(&underscore_screen), None);
+    assert_eq!(js.directory_trust_prompt_response(&underscore_screen), None);
+    assert_eq!(native.parse_prompt(&underscore_screen), None);
+    assert_eq!(js.parse_prompt(&underscore_screen), None);
+}
+
+#[test]
 fn quick_safety_prompt_and_response_native_js_parity() {
     if require_plugins().is_none() {
         return;

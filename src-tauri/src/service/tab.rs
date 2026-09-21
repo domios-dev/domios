@@ -810,6 +810,9 @@ mod respond_prompt_tests {
         tab.agent_type = Some("claude".into());
         tab.pending_prompt = Some(prompt.clone());
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture.service.agent_registry.register_provider(Box::new(
+            crate::plugin::agent_claude::ClaudeProvider::new(),
+        ));
         fixture
             .service
             .prompt_detector

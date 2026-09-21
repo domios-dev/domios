@@ -384,7 +384,7 @@ mod tests {
         let underscore_screen = screen
             .lines()
             .map(|line| {
-                if leads_with(option_row(line).label, "yes") {
+                if leads_with(option_row(content(line)).label, "yes") {
                     line.replace("trust", "_trust")
                 } else {
                     line.to_string()
@@ -392,6 +392,7 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        assert!(!has_trust_token("i_trust"));
         assert_eq!(response(&underscore_screen), None);
         assert_eq!(parse_prompt(&underscore_screen), None);
         assert_eq!(current_option_index(&underscore_screen), None);
