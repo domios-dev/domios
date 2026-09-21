@@ -17,7 +17,9 @@ pub(crate) fn configured_level(enabled: bool) -> Option<log::Level> {
 }
 
 fn choose_level(enabled: bool, debug_enabled: bool, info_enabled: bool) -> Option<log::Level> {
-    if enabled && info_enabled {
+    if !enabled {
+        None
+    } else if info_enabled {
         Some(log::Level::Info)
     } else if debug_enabled {
         Some(log::Level::Debug)
@@ -582,8 +584,10 @@ mod tests {
     #[test]
     fn disabled_diagnostics_skip_observation_and_enabled_runtime_uses_info() {
         assert_eq!(choose_level(false, false, false), None);
-        assert_eq!(choose_level(false, true, true), Some(log::Level::Debug));
+        assert_eq!(choose_level(false, true, true), None);
+        assert_eq!(choose_level(false, true, false), None);
         assert_eq!(choose_level(true, true, true), Some(log::Level::Info));
+        assert_eq!(choose_level(true, true, false), Some(log::Level::Debug));
         assert_eq!(choose_level(true, false, false), None);
     }
 
@@ -621,6 +625,9 @@ mod tests {
     fn output_length_counts_json_escapes_without_decoding_the_text() {
         assert_eq!(json_string_bytes(r#""a\n\uD83D\uDE00""#), Some(6));
         assert_eq!(json_string_bytes(r#""plain 😀""#), Some(10));
+        assert_eq!(json_string_bytes(r#""a\"b""#), Some(3));
+        assert_eq!(json_string_bytes(r#""a\\b""#), Some(3));
+        assert_eq!(json_string_bytes(r#""\uD800""#), None);
         assert_eq!(json_string_bytes("true"), None);
     }
 }
