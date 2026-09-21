@@ -1,5 +1,6 @@
 //! Inbound grouping by conversation, and a tab's outbound traffic through its thread.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::{send_media, OutboundMessage};
