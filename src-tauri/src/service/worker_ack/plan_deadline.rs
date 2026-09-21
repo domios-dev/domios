@@ -227,7 +227,7 @@ impl ServiceContext {
             })
     }
 
-    fn publish_agent_startup_report(
+    pub(crate) fn publish_agent_startup_report(
         &self,
         supervisor_tab_id: &str,
         agent_tab_id: &str,
@@ -248,7 +248,9 @@ impl ServiceContext {
             ReportDetails::default(),
             None,
         );
-        if !self.report_store.lock().claim(&report.id) {
+        let recipient_can_receive =
+            self.hierarchy_report_recipient_can_receive_prose(supervisor_tab_id, &report.id);
+        if recipient_can_receive && !self.report_store.lock().claim(&report.id) {
             return;
         }
         self.events.broadcast(
@@ -266,6 +268,9 @@ impl ServiceContext {
                 "report": report.clone(),
             }),
         );
+        if !recipient_can_receive {
+            return;
+        }
         let envelope =
             crate::service::messenger::MessageEnvelope::report(agent_title, agent_tab_id);
         if self
@@ -615,7 +620,9 @@ impl ServiceContext {
             details,
             None,
         );
-        if !self.report_store.lock().claim(&report.id) {
+        let recipient_can_receive =
+            self.hierarchy_report_recipient_can_receive_prose(parent_tab_id, &report.id);
+        if recipient_can_receive && !self.report_store.lock().claim(&report.id) {
             return;
         }
         self.events.broadcast(
@@ -636,6 +643,9 @@ impl ServiceContext {
                 "report": report.clone(),
             }),
         );
+        if !recipient_can_receive {
+            return;
+        }
         let envelope =
             crate::service::messenger::MessageEnvelope::report(worker_title, worker_tab_id);
         if let Err(error) = self.gateway_deliver(
