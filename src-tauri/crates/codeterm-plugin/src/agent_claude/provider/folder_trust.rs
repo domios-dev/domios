@@ -43,8 +43,7 @@ pub(super) fn response(screen: &str) -> Option<DirectoryTrustPromptResponse> {
     }
 
     if let Some(path) = rows.iter().position(|row| is_path_row(row)) {
-        let trust = (path + 1..rows.len())
-            .find(|&i| rows[i].to_lowercase().contains("trust"))?;
+        let trust = (path + 1..rows.len()).find(|&i| rows[i].to_lowercase().contains("trust"))?;
         (trust + 1..rows.len()).find(|&i| pointer_label(rows[i]).is_some())?;
         if !rows[..path].iter().any(|row| row.ends_with(':')) {
             return Some(DirectoryTrustPromptResponse::Hold);
@@ -80,10 +79,7 @@ struct TrustPrompt<'a> {
     focused: usize,
 }
 
-fn answer(
-    options: &[OptionRow<'_>],
-    has_path: bool,
-) -> Option<DirectoryTrustPromptResponse> {
+fn answer(options: &[OptionRow<'_>], has_path: bool) -> Option<DirectoryTrustPromptResponse> {
     if has_path || options.len() != 2 {
         return None;
     }
@@ -201,8 +197,8 @@ fn is_footer(row: &str) -> bool {
 
 fn choice_rows<'a>(rows: &[&'a str], header_end: usize) -> Option<TrustChoices<'a>> {
     let footer = (header_end + 1..rows.len()).find(|&index| is_footer(rows[index]))?;
-    let start = (header_end + 1..footer)
-        .find(|&index| is_trust_option(option_row(rows[index]).label))?;
+    let start =
+        (header_end + 1..footer).find(|&index| is_trust_option(option_row(rows[index]).label))?;
     let mut options = Vec::new();
     for row in &rows[start..footer] {
         if row.is_empty() {
@@ -348,9 +344,8 @@ mod tests {
     fn enter_is_only_sent_while_the_affirmative_row_is_focused() {
         let screen = std::fs::read_to_string(fixtures().join("quick-safety-no-first.txt"))
             .expect("unfocused trust fixture");
-        let affirmative =
-            std::fs::read_to_string(fixtures().join("quick-safety-yes-focused.txt"))
-                .expect("affirmative focus fixture");
+        let affirmative = std::fs::read_to_string(fixtures().join("quick-safety-yes-focused.txt"))
+            .expect("affirmative focus fixture");
         assert_eq!(
             response(&screen),
             Some(DirectoryTrustPromptResponse::Answer {
@@ -367,10 +362,8 @@ mod tests {
 
     #[test]
     fn trust_context_above_bypass_is_not_a_folder_trust_prompt() {
-        let screen = std::fs::read_to_string(
-            fixtures().join("trust-mentioned-bypass-warning.txt"),
-        )
-        .expect("bypass fixture");
+        let screen = std::fs::read_to_string(fixtures().join("trust-mentioned-bypass-warning.txt"))
+            .expect("bypass fixture");
         assert_eq!(response(&screen), None);
         assert_eq!(parse_prompt(&screen), None);
         assert_eq!(current_option_index(&screen), None);

@@ -81,8 +81,7 @@ pub(crate) enum LaunchSettlement {
 
 impl LaunchSettlement {
     pub(crate) fn authorizes_agent_ready(&self, session_authenticated: bool) -> bool {
-        session_authenticated
-            && matches!(self, Self::Ready | Self::Provisional { .. })
+        session_authenticated && matches!(self, Self::Ready | Self::Provisional { .. })
     }
 }
 

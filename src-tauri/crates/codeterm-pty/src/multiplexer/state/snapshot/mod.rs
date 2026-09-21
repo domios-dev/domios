@@ -356,13 +356,11 @@ impl MultiplexerState {
                 .position(|ws| ws.id == ws_snap.id)
                 .or_else(|| {
                     workspace_cwd.as_deref().and_then(|cwd| {
-                        self.workspaces
-                            .iter()
-                            .position(|ws| {
-                                ws.cwd.as_deref().is_some_and(|existing| {
-                                    codeterm_paths::paths_equal(existing, cwd)
-                                })
-                            })
+                        self.workspaces.iter().position(|ws| {
+                            ws.cwd
+                                .as_deref()
+                                .is_some_and(|existing| codeterm_paths::paths_equal(existing, cwd))
+                        })
                     })
                 });
             match target {

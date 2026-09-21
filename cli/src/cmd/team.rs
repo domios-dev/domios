@@ -394,7 +394,10 @@ mod tests {
             Some("Attached Cartographer Manager as Tab cartographer-tab in Team team_a.")
         );
         assert_eq!(
-            cartographer_attachment_summary(&json!({ "reused": true, "tab_id": "cartographer-tab", "team": { "id": "team_a" } })).as_deref(),
+            cartographer_attachment_summary(
+                &json!({ "reused": true, "tab_id": "cartographer-tab", "team": { "id": "team_a" } })
+            )
+            .as_deref(),
             Some("Reused existing Cartographer Manager as Tab cartographer-tab in Team team_a.")
         );
     }

@@ -510,8 +510,7 @@ mod tests {
         );
         let prompt = params.task.unwrap();
         assert!(prompt.starts_with("You are Ada. Keep the change bounded."));
-        let ack_instruction =
-            codeterm_plan::service_plan::worker_identity::WORKER_ACK_INSTRUCTION;
+        let ack_instruction = codeterm_plan::service_plan::worker_identity::WORKER_ACK_INSTRUCTION;
         let ack = prompt.find(ack_instruction).unwrap();
         let body = prompt.find("Implement the task-owned behavior.").unwrap();
         let criteria = prompt.find("The focused oracle passes.").unwrap();

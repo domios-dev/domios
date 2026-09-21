@@ -226,20 +226,16 @@ fn metadata_update_preserves_startup_owner(
     else {
         return false;
     };
-    svc.plan_store.worker_startup_attempt_owns(
-        plan_id,
-        &task.id,
-        tab_id,
-        &owner.attempt_id,
-        None,
-    ) && (svc.plan_store.task_dispatch_startup_reservation_owns(
-        plan_id,
-        &task.id,
-        &owner.attempt_id,
-        tab_id,
-    ) || super::plan_task_dispatch::dispatch_startup_owner_is_live(
-        svc, plan_id, &task.id, tab_id,
-    ))
+    svc.plan_store
+        .worker_startup_attempt_owns(plan_id, &task.id, tab_id, &owner.attempt_id, None)
+        && (svc.plan_store.task_dispatch_startup_reservation_owns(
+            plan_id,
+            &task.id,
+            &owner.attempt_id,
+            tab_id,
+        ) || super::plan_task_dispatch::dispatch_startup_owner_is_live(
+            svc, plan_id, &task.id, tab_id,
+        ))
 }
 
 fn lane_metadata_only_task_update(method: &str, params: &Option<Value>) -> bool {
@@ -255,7 +251,10 @@ fn lane_metadata_only_task_update(method: &str, params: &Option<Value>) -> bool 
     if lane.is_empty()
         || lane.contains_key("tab_id")
         || !lane.keys().all(|key| {
-            matches!(key.as_str(), "destination" | "cleanup_status" | "cleanup_hints")
+            matches!(
+                key.as_str(),
+                "destination" | "cleanup_status" | "cleanup_hints"
+            )
         })
     {
         return false;

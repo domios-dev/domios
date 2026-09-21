@@ -474,11 +474,11 @@ fn startup_ack_from_a_task_bound_tab_refuses_and_names_agent_ack() {
         .get_tab_mut(&worker_tab_id)
         .expect("worker tab")
         .task_binding = Some(crate::multiplexer::types::TaskBinding {
-            plan_id: Some("plan-a".into()),
-            task_id: Some("task-a".into()),
-            spawn_handle: None,
-            bound_at: 1,
-        });
+        plan_id: Some("plan-a".into()),
+        task_id: Some("task-a".into()),
+        spawn_handle: None,
+        bound_at: 1,
+    });
 
     let error = fixture
         .service
@@ -495,18 +495,13 @@ fn task_bound_startup_supervision_completes_on_task_ack() {
         task_id: "task-a".into(),
         attempt_id: "attempt-a".into(),
     };
-    registry.register_startup_supervisor(
-        "child",
-        "parent",
-        "Worker",
-        None,
-        Some(identity.clone()),
-    );
+    registry.register_startup_supervisor("child", "parent", "Worker", None, Some(identity.clone()));
     let authority = StartupAuthority::new("parent", "child", "pty-a")
         .for_task(Some(identity.clone()))
         .for_binding(Some("session-a"), "nonce-a");
     let receiver = startup_receiver(&registry, authority);
-    let ack_identity = task_startup_ack_identity(&identity, "pty-a", Some("session-a"), Some("nonce-a"));
+    let ack_identity =
+        task_startup_ack_identity(&identity, "pty-a", Some("session-a"), Some("nonce-a"));
 
     assert_eq!(
         registry.acknowledge_task_startup("child", &identity, &ack_identity),
@@ -526,12 +521,8 @@ fn task_bound_startup_supervision_completes_on_task_ack() {
         None,
         Some(early_identity.clone()),
     );
-    let early_ack_identity = task_startup_ack_identity(
-        &early_identity,
-        "pty-b",
-        Some("session-b"),
-        Some("nonce-b"),
-    );
+    let early_ack_identity =
+        task_startup_ack_identity(&early_identity, "pty-b", Some("session-b"), Some("nonce-b"));
     assert_eq!(
         registry.acknowledge_task_startup("child", &early_identity, &early_ack_identity),
         Some(AgentStartupAcknowledgement::Acknowledged)
@@ -566,12 +557,7 @@ fn early_task_ack_requires_the_same_pty_attempt_session_and_nonce() {
             None,
             Some(expected.clone()),
         );
-        let stale_ack = task_startup_ack_identity(
-            &expected,
-            ack_attempt,
-            ack_session,
-            ack_nonce,
-        );
+        let stale_ack = task_startup_ack_identity(&expected, ack_attempt, ack_session, ack_nonce);
         assert_eq!(
             registry.acknowledge_task_startup("child", &expected, &stale_ack),
             Some(AgentStartupAcknowledgement::Acknowledged)
@@ -1153,7 +1139,11 @@ fn startup_notice_to_a_plain_shell_parent_is_never_written() {
         &delivery,
     );
 
-    let pending = fixture.service.report_store.lock().pending_for(&parent_tab_id);
+    let pending = fixture
+        .service
+        .report_store
+        .lock()
+        .pending_for(&parent_tab_id);
     assert_eq!(pending.len(), 1);
     assert!(delivery.writes.lock().is_empty());
 }
@@ -1163,17 +1153,23 @@ fn startup_notice_to_a_plain_shell_parent_is_never_written() {
 fn worker_ack_notice_to_unbound_parent_remains_pending() {
     let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
     let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
-    fixture.service.publish_worker_lifecycle_report_with_delivery(
-        &parent_tab_id,
-        &worker_tab_id,
-        "Worker",
-        "plan-a",
-        "task-a",
-        json!({ "kind": "worker_ack_startup_failed", "attempt_id": "attempt-a" }),
-        &delivery,
-    );
+    fixture
+        .service
+        .publish_worker_lifecycle_report_with_delivery(
+            &parent_tab_id,
+            &worker_tab_id,
+            "Worker",
+            "plan-a",
+            "task-a",
+            json!({ "kind": "worker_ack_startup_failed", "attempt_id": "attempt-a" }),
+            &delivery,
+        );
 
-    let pending = fixture.service.report_store.lock().pending_for(&parent_tab_id);
+    let pending = fixture
+        .service
+        .report_store
+        .lock()
+        .pending_for(&parent_tab_id);
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].task_id.as_deref(), Some("task-a"));
     assert!(delivery.writes.lock().is_empty());

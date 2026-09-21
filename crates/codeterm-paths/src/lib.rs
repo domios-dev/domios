@@ -147,9 +147,7 @@ pub fn canonical_cwd(raw: &str) -> String {
 /// Slash-separated `//?/` spellings are accepted too.
 /// No-op on Unix paths.
 pub fn strip_verbatim_prefix(p: &str) -> String {
-    let rest = p
-        .strip_prefix(r"\\?\")
-        .or_else(|| p.strip_prefix("//?/"));
+    let rest = p.strip_prefix(r"\\?\").or_else(|| p.strip_prefix("//?/"));
     let Some(rest) = rest else {
         return p.to_string();
     };
@@ -167,11 +165,7 @@ pub fn strip_verbatim_prefix(p: &str) -> String {
         }
     }
     let bytes = normalized.as_bytes();
-    if bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && bytes[2] == b'\\'
-    {
+    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\' {
         return normalized;
     }
     p.to_string()
@@ -228,7 +222,10 @@ mod tests {
         let unc = format!("//?/UNC/server/share/{tail}");
 
         assert_eq!(strip_verbatim_prefix(&drive), format!(r"C:\{tail}"));
-        assert_eq!(strip_verbatim_prefix(&unc), format!(r"\\server\share\{tail}"));
+        assert_eq!(
+            strip_verbatim_prefix(&unc),
+            format!(r"\\server\share\{tail}")
+        );
         assert!(drive.len() > 260);
         assert!(unc.len() > 260);
     }
@@ -259,10 +256,7 @@ mod tests {
 
     #[test]
     fn paths_equal_ignores_verbatim_drive_and_unc_prefixes() {
-        assert!(paths_equal(
-            r"\\?\C:\lanes\worker\",
-            r"C:/lanes/worker"
-        ));
+        assert!(paths_equal(r"\\?\C:\lanes\worker\", r"C:/lanes/worker"));
         assert!(paths_equal(
             r"\\?\unc\server\share\lane",
             r"\\server\share\lane"

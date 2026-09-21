@@ -42,8 +42,7 @@ fn restored_snapshot_normalizes_verbatim_cwd_before_agent_materialization() {
     );
     let mut legacy_snapshot = snapshot.clone();
     legacy_snapshot.workspaces[0].cwd = Some(r"\\?\C:\workspace\project".into());
-    legacy_snapshot.workspaces[0].provisioned_cwd =
-        Some(r"\\?\C:\workspace\project".into());
+    legacy_snapshot.workspaces[0].provisioned_cwd = Some(r"\\?\C:\workspace\project".into());
     let crate::session::store::SplitNodeSnapshot::Leaf {
         cwd,
         agent_identity,
@@ -65,7 +64,11 @@ fn restored_snapshot_normalizes_verbatim_cwd_before_agent_materialization() {
         Some(r"C:\workspace\project")
     );
     assert_eq!(
-        restored.get_tab(&tab_id).unwrap().provisioned_cwd.as_deref(),
+        restored
+            .get_tab(&tab_id)
+            .unwrap()
+            .provisioned_cwd
+            .as_deref(),
         Some(r"C:\workspace\project")
     );
     let restored_workspace = restored

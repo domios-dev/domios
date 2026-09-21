@@ -605,12 +605,20 @@ fn dispatch_refuses_live_startup_owner_before_spawning_another_worker() {
     assert_eq!(refusal.data.as_ref().unwrap()["type"], "dispatch_in_flight");
     assert!(refusal.message.contains(&attempt_id));
     assert!(refusal.message.contains(&worker_tab));
-    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), tabs_before);
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        tabs_before
+    );
     let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
     assert_eq!(task.assigned_tab_id.as_deref(), Some(worker_tab.as_str()));
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].closed_at, None);
-    assert!(fixture.service.pty.lock().get_session(&worker_pty).is_some());
+    assert!(fixture
+        .service
+        .pty
+        .lock()
+        .get_session(&worker_pty)
+        .is_some());
     fixture.service.pty.lock().kill(&worker_pty).unwrap();
 }
 
@@ -629,12 +637,9 @@ fn dispatch_spawn_failure_closes_attempt_and_reserved_tab() {
             5,
         )
         .unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
-            "dispatch-failure-provider",
-        )));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("dispatch-failure-provider"),
+    ));
     let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
     plan.tasks
         .iter_mut()
@@ -667,7 +672,10 @@ fn dispatch_spawn_failure_closes_attempt_and_reserved_tab() {
 
     assert_eq!(error.data.as_ref().unwrap()["stage"], "agent_spawn");
     assert!(error.message.contains("provider rejected launch"));
-    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), tabs_before);
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        tabs_before
+    );
     let failed = fixture.service.plan_store.show_task(&task_id).unwrap().task;
     assert_eq!(failed.status, TaskStatus::Pending);
     assert!(failed.assigned_tab_id.is_none());
@@ -690,12 +698,9 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
             5,
         )
         .unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
-            "dispatch-test-provider",
-        )));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("dispatch-test-provider"),
+    ));
     let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
     plan.tasks
         .iter_mut()

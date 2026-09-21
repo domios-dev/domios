@@ -342,8 +342,7 @@ pub(crate) fn startup_starter_prompt(
     supervised: bool,
     task_bound: bool,
 ) -> Option<crate::agent::provider::StarterPrompt> {
-    (supervised && !task_bound)
-        .then_some(crate::agent::provider::StarterPrompt::StartupHandshake)
+    (supervised && !task_bound).then_some(crate::agent::provider::StarterPrompt::StartupHandshake)
 }
 
 pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {

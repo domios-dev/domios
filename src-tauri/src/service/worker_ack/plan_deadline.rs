@@ -307,9 +307,7 @@ impl ServiceContext {
             .startup_supervisor(caller_tab_id)
             .is_some_and(|supervisor| supervisor.task_identity.is_some());
         if task_binding || supervised_task {
-            return Err(
-                "task-bound startup must be acknowledged with `codeterm agent ack`".into(),
-            );
+            return Err("task-bound startup must be acknowledged with `codeterm agent ack`".into());
         }
         let session_id = self.mux.read().get_tab(caller_tab_id).and_then(|tab| {
             startup_ack_owns_attempt(tab, attempt_id, binding_nonce)

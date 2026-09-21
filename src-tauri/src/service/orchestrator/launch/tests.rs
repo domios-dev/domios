@@ -1,9 +1,9 @@
+use super::startup_readiness::reused_provider_tui_owns_launch;
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
     take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
     LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
 };
-use super::startup_readiness::reused_provider_tui_owns_launch;
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{

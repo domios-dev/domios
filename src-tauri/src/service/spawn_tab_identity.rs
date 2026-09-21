@@ -10,7 +10,8 @@ pub(super) fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String
     } else if let Some(title) = spec.title.as_deref() {
         crate::service::tab::validate_tab_title(title)?;
     }
-    spec.description = crate::service::tab::normalize_optional_tab_description(spec.description.take())?;
+    spec.description =
+        crate::service::tab::normalize_optional_tab_description(spec.description.take())?;
     Ok(())
 }
 

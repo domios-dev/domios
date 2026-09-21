@@ -144,7 +144,11 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
     let (_dir, store, plan, task) = setup();
     store
         .with_plan(&plan, 3, |plan| {
-            let task_ref = plan.tasks.iter_mut().find(|candidate| candidate.id == task).unwrap();
+            let task_ref = plan
+                .tasks
+                .iter_mut()
+                .find(|candidate| candidate.id == task)
+                .unwrap();
             task_ref.lane.tab_id = Some("stale-lane-tab".into());
             Ok(())
         })
@@ -159,7 +163,12 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
         },
         3,
     );
-    assert!(store.show_task(&task).unwrap().task.assigned_tab_id.is_none());
+    assert!(store
+        .show_task(&task)
+        .unwrap()
+        .task
+        .assigned_tab_id
+        .is_none());
 
     let attempt_id = store
         .begin_task_dispatch_with_policy(
@@ -175,7 +184,13 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
         )
         .unwrap();
     assert_eq!(
-        store.show_task(&task).unwrap().task.lane.destination.as_deref(),
+        store
+            .show_task(&task)
+            .unwrap()
+            .task
+            .lane
+            .destination
+            .as_deref(),
         Some("release/pre-dispatch")
     );
     let startup_metadata = TaskLaneUpdate {

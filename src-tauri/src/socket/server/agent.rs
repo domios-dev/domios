@@ -216,12 +216,7 @@ pub(super) fn dispatch(
             };
             let plan_id = acknowledged.plan_id.clone();
             let task_id = acknowledged.task_id.clone();
-            svc.acknowledge_worker_ack(
-                &plan_id,
-                &task_id,
-                &tab_id,
-                &acknowledged.attempt,
-            );
+            svc.acknowledge_worker_ack(&plan_id, &task_id, &tab_id, &acknowledged.attempt);
             if acknowledged.already_acknowledged {
                 return Ok(task_ack_success_response(
                     &plan_id,
@@ -519,14 +514,7 @@ mod tests {
         let attempt_id = fixture
             .service
             .plan_store
-            .begin_task_dispatch(
-                &plan.id,
-                &task_id,
-                &worker_tab_id,
-                "Ada",
-                lane.clone(),
-                4,
-            )
+            .begin_task_dispatch(&plan.id, &task_id, &worker_tab_id, "Ada", lane.clone(), 4)
             .unwrap();
         fixture
             .service
@@ -549,11 +537,11 @@ mod tests {
             .get_tab_mut(&worker_tab_id)
             .unwrap()
             .task_binding = Some(TaskBinding {
-                plan_id: Some(plan.id.clone()),
-                task_id: Some(task_id.clone()),
-                spawn_handle: None,
-                bound_at: 1,
-            });
+            plan_id: Some(plan.id.clone()),
+            task_id: Some(task_id.clone()),
+            spawn_handle: None,
+            bound_at: 1,
+        });
 
         let armed = fixture.service.worker_ack.arm(WorkerAckIdentity {
             plan_id: plan.id.clone(),

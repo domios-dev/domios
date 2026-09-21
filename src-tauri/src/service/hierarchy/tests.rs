@@ -459,7 +459,11 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
         if report_status == ReportStatus::Partial {
             store
                 .with_plan(&plan.id, index as u64 + 3, |plan| {
-                    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+                    let task = plan
+                        .tasks
+                        .iter_mut()
+                        .find(|task| task.id == task_id)
+                        .unwrap();
                     task.status = crate::plan::TaskStatus::InProgress;
                     task.status_changed_at = index as u64 + 3;
                     Ok(())

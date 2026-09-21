@@ -164,7 +164,10 @@ fn spawned_worker_is_not_rendered_as_an_accepted_dispatch() {
 
     assert!(!rendered.contains("Dispatched"), "{rendered}");
     assert!(!rendered.contains("Accepted"), "{rendered}");
-    assert!(rendered.contains("Spawned codex worker Tab tab-1"), "{rendered}");
+    assert!(
+        rendered.contains("Spawned codex worker Tab tab-1"),
+        "{rendered}"
+    );
     assert!(rendered.contains("awaiting worker_ack"), "{rendered}");
 }
 

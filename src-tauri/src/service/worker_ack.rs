@@ -324,10 +324,7 @@ impl WorkerAckRegistry {
                 self.startup_acknowledged
                     .lock()
                     .insert(tab_id.to_string(), authority.clone());
-                (
-                    AgentStartupAcknowledgement::Acknowledged,
-                    Some(authority),
-                )
+                (AgentStartupAcknowledgement::Acknowledged, Some(authority))
             } else if self
                 .startup_acknowledged
                 .lock()
@@ -342,9 +339,7 @@ impl WorkerAckRegistry {
                 .startup_supervisors
                 .lock()
                 .get(tab_id)
-                .is_some_and(|supervisor| {
-                    supervisor.task_identity.as_ref() == Some(task_identity)
-                })
+                .is_some_and(|supervisor| supervisor.task_identity.as_ref() == Some(task_identity))
             {
                 self.pending_task_startup_acks
                     .lock()

@@ -89,16 +89,13 @@ mod tests {
         let status = fixture.service.get_tab_status(&tab_id).unwrap();
 
         assert_eq!(
-            status
-                .pending_prompt
-                .as_ref()
-                .map(|prompt| {
-                    prompt
-                        .options
-                        .iter()
-                        .map(|option| option.value.as_str())
-                        .collect::<Vec<_>>()
-                }),
+            status.pending_prompt.as_ref().map(|prompt| {
+                prompt
+                    .options
+                    .iter()
+                    .map(|option| option.value.as_str())
+                    .collect::<Vec<_>>()
+            }),
             Some(vec!["1", "2"])
         );
     }

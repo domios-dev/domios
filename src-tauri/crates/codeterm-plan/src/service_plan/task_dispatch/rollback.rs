@@ -97,7 +97,9 @@ impl PlanStore {
             .and_then(|plan| {
                 let task = crate::plan::task_key::find_task(&plan.tasks, &task_id)
                     .ok_or(PlanError::TaskNotFound)?;
-                if restored_task.as_ref().is_some_and(|restored| task == restored)
+                if restored_task
+                    .as_ref()
+                    .is_some_and(|restored| task == restored)
                     && plan.mode == plan_mode
                 {
                     Ok(())

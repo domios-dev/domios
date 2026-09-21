@@ -10,10 +10,7 @@ pub(crate) fn tab_name(tab: &Value) -> &str {
 }
 
 fn text<'a>(tab: &'a Value, field: &str) -> &'a str {
-    tab.get(field)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
+    tab.get(field).and_then(Value::as_str).unwrap_or("").trim()
 }
 
 #[cfg(test)]

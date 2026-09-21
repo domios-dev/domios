@@ -1,14 +1,14 @@
-mod rollback;
 mod reservation;
+mod rollback;
 mod worker_ack_subject;
 
 use super::lane_metadata::normalize_lane_metadata;
 use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
-pub use rollback::DispatchRollback;
 pub(super) use reservation::DispatchReservationOwner;
 pub use reservation::TaskDispatchReservation;
+pub use rollback::DispatchRollback;
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
     ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
@@ -94,13 +94,12 @@ fn startup_status_allows(task: &crate::plan::Task) -> bool {
     )
 }
 
-fn current_dispatch_startup_owner(
-    task: &crate::plan::Task,
-) -> Option<DispatchStartupOwner> {
+fn current_dispatch_startup_owner(task: &crate::plan::Task) -> Option<DispatchStartupOwner> {
     let tab_id = task.assigned_tab_id.as_deref()?;
-    let attempt = task.execution_attempts.iter().rfind(|attempt| {
-        attempt.closed_at.is_none() && attempt.retired_at.is_none()
-    })?;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .rfind(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())?;
     if attempt.executor_tab_id != tab_id
         || attempt.executor_title.is_none()
         || attempt.acknowledged_at.is_some()
@@ -496,8 +495,7 @@ impl PlanStore {
             let current_owner = current_dispatch_startup_owner(task);
             let dispatch_in_flight = startup_owner_observation_made
                 && current_owner.as_ref().is_some_and(|owner| {
-                    observed_startup_owner.as_ref() != Some(owner)
-                        || observed_startup_owner_is_live
+                    observed_startup_owner.as_ref() != Some(owner) || observed_startup_owner_is_live
                 });
             if dispatch_in_flight {
                 let owner = current_owner.expect("in-flight owner must be present");

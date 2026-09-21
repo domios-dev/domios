@@ -63,10 +63,8 @@ fn trust_context_above_bypass_has_no_native_or_js_folder_trust_response() {
         return;
     }
     let (native, js) = pair();
-    let screen = std::fs::read_to_string(
-        fixtures_dir().join("trust-mentioned-bypass-warning.txt"),
-    )
-    .expect("bypass fixture");
+    let screen = std::fs::read_to_string(fixtures_dir().join("trust-mentioned-bypass-warning.txt"))
+        .expect("bypass fixture");
     assert_eq!(native.directory_trust_prompt_response(&screen), None);
     assert_eq!(js.directory_trust_prompt_response(&screen), None);
 }
@@ -95,7 +93,10 @@ fn underscore_joined_trust_token_is_rejected_by_native_and_js() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert_eq!(native.directory_trust_prompt_response(&underscore_screen), None);
+    assert_eq!(
+        native.directory_trust_prompt_response(&underscore_screen),
+        None
+    );
     assert_eq!(js.directory_trust_prompt_response(&underscore_screen), None);
     assert_eq!(native.parse_prompt(&underscore_screen), None);
     assert_eq!(js.parse_prompt(&underscore_screen), None);
@@ -131,8 +132,14 @@ fn quick_safety_prompt_and_response_native_js_parity() {
         };
 
         assert_eq!(prompt.options.len(), 2, "two choices {file}");
-        assert!(prompt.options[0].label.to_ascii_lowercase().starts_with("no"));
-        assert!(prompt.options[1].label.to_ascii_lowercase().starts_with("yes"));
+        assert!(prompt.options[0]
+            .label
+            .to_ascii_lowercase()
+            .starts_with("no"));
+        assert!(prompt.options[1]
+            .label
+            .to_ascii_lowercase()
+            .starts_with("yes"));
         assert_eq!(prompt.options[0].value, "1");
         assert_eq!(prompt.options[1].value, "2");
         let native_steps = native.build_prompt_response(1, &screen);

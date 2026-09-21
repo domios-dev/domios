@@ -1,8 +1,7 @@
 use super::{
     is_plan_owner_authority_method, is_recovery_method, lane_metadata_only_task_update,
-    plan_owner_may_recover,
-    verify_owner_epoch_for_task_mutation, JsonRpcError, TaskAuthorityRefusal,
-    PLAN_OWNER_AUTHORITY_METHODS, RECOVERY_METHODS,
+    plan_owner_may_recover, verify_owner_epoch_for_task_mutation, JsonRpcError,
+    TaskAuthorityRefusal, PLAN_OWNER_AUTHORITY_METHODS, RECOVERY_METHODS,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{

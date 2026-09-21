@@ -104,8 +104,7 @@ pub(crate) fn existing_cartographer_attachment(
         .tabs
         .values()
         .filter(|tab| {
-            tab.team_id.as_deref() == Some(team_id)
-                && tab.role_kind_id() == Some(CARTOGRAPHER)
+            tab.team_id.as_deref() == Some(team_id) && tab.role_kind_id() == Some(CARTOGRAPHER)
         })
         .map(|tab| tab.id.clone())
         .min()?;

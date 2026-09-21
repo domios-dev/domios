@@ -213,7 +213,10 @@ fn final_startup_deadline_releases_the_worker_tab_assignment() {
     assert!(failed.assigned_tab_id.is_none());
     assert!(failed.lane.tab_id.is_none());
     assert!(store.task_bindings_for_tab(STALE_TAB).is_empty());
-    assert_eq!(failed.lane.worktree_path.as_deref(), Some("/tmp/worker-lane"));
+    assert_eq!(
+        failed.lane.worktree_path.as_deref(),
+        Some("/tmp/worker-lane")
+    );
     assert_eq!(failed.lane.branch.as_deref(), Some("lane/worker"));
 }
 

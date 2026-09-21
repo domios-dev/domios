@@ -671,10 +671,11 @@ impl ServiceContext {
         let pending_option_count = crate::service::structured_prompt::pending_for_tab(tab_id)
             .map(|prompt| prompt.options.len())
             .or_else(|| {
-                self.mux
-                    .read()
-                    .get_tab(tab_id)
-                    .and_then(|tab| tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()))
+                self.mux.read().get_tab(tab_id).and_then(|tab| {
+                    tab.pending_prompt
+                        .as_ref()
+                        .map(|prompt| prompt.options.len())
+                })
             });
         if pending_option_count.is_some_and(|count| option_index >= count) {
             return Ok(RespondPromptOutcome::InvalidOption);
@@ -810,9 +811,10 @@ mod respond_prompt_tests {
         tab.agent_type = Some("claude".into());
         tab.pending_prompt = Some(prompt.clone());
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        fixture.service.agent_registry.register_provider(Box::new(
-            crate::plugin::agent_claude::ClaudeProvider::new(),
-        ));
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
         fixture
             .service
             .prompt_detector
@@ -827,14 +829,7 @@ mod respond_prompt_tests {
             .service
             .pty
             .lock()
-            .spawn_with_id(
-                Some(pty_id.clone()),
-                None,
-                None,
-                80,
-                24,
-                Default::default(),
-            )
+            .spawn_with_id(Some(pty_id.clone()), None, None, 80, 24, Default::default())
             .expect("test PTY");
         (fixture, tab_id, pty_id)
     }
@@ -976,9 +971,8 @@ mod respond_prompt_tests {
             serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"})
         );
 
-        let invalid = crate::api::agent_routes::respond_prompt_response(
-            RespondPromptOutcome::InvalidOption,
-        );
+        let invalid =
+            crate::api::agent_routes::respond_prompt_response(RespondPromptOutcome::InvalidOption);
         assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 }
@@ -1038,6 +1032,9 @@ mod tab_title_tests {
             validate_tab_title("Warehouse party").unwrap_err(),
             TAB_TITLE_ERROR
         );
-        assert_eq!(validate_tab_title("Review\u{00a0}queue").unwrap_err(), TAB_TITLE_ERROR);
+        assert_eq!(
+            validate_tab_title("Review\u{00a0}queue").unwrap_err(),
+            TAB_TITLE_ERROR
+        );
     }
 }

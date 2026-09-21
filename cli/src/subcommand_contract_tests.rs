@@ -622,7 +622,14 @@ fn team_non_pair_actions_keep_meshrpc_path() {
         vec!["codeterm", "team", "rename", "team_1", "name"],
         vec!["codeterm", "team", "close", "team_1"],
         vec!["codeterm", "team", "adopt-plan", "team_1", "pl_1"],
-        vec!["codeterm", "team", "attach-cartographer", "team_1", "--provider", "provider-neutral"],
+        vec![
+            "codeterm",
+            "team",
+            "attach-cartographer",
+            "team_1",
+            "--provider",
+            "provider-neutral",
+        ],
     ] {
         let command = Cli::try_parse_from(argv.clone())
             .unwrap_or_else(|error| panic!("{argv:?} must parse: {error}"))

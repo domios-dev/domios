@@ -1178,9 +1178,7 @@ pub(crate) fn build_agent_command_with_launch_marker(
         structured_prompt_server: params.structured_prompt_server.clone(),
         launch_marker: launch_marker.map(str::to_string),
     };
-    let cmd = match registry
-        .with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
-    {
+    let cmd = match registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params)) {
         Some(command) if command.trim().is_empty() => return String::new(),
         Some(command) => crate::agent::stub_launch::apply(agent_cmd, command),
         None => {

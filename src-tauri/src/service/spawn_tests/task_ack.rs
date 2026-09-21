@@ -16,10 +16,8 @@ fn task_bound_visible_spawn_keeps_the_assigned_task_starter() {
         true,
         true,
     );
-    let startup = crate::service::launch_delivery::startup_starter_prompt(
-        true,
-        task_identity.is_some(),
-    );
+    let startup =
+        crate::service::launch_delivery::startup_starter_prompt(true, task_identity.is_some());
 
     assert_eq!(startup, None);
     assert_eq!(selection.confirmed_first_turn, None);

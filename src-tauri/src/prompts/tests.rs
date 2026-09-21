@@ -19,10 +19,7 @@ fn cli_teaching_fragments() -> [(&'static str, &'static str); 10] {
         ("general_agent.md", GENERAL_AGENT_TEMPLATE),
         ("codeterm_rule.md", CODETERM_RULE),
         ("codeterm_cli.md", CODETERM_CLI),
-        (
-            "interactive_child_pty.md",
-            INTERACTIVE_CHILD_PTY_OPERATION,
-        ),
+        ("interactive_child_pty.md", INTERACTIVE_CHILD_PTY_OPERATION),
         ("planner_suffix.md", PLANNER_SUFFIX),
         ("orchestrator_suffix.md", ORCHESTRATOR_SUFFIX),
         ("worker_suffix.md", WORKER_SUFFIX),

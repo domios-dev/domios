@@ -536,7 +536,11 @@ mod tests {
         let task_id = add_task(&store, &plan.id, "reviewed task", 2);
         store
             .with_plan(&plan.id, 3, |plan| {
-                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
                 task.status = TaskStatus::InReview;
                 Ok(())
             })
