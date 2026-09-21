@@ -3,9 +3,17 @@ use codeterm_types::team::Team;
 use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{AgentRole, TabBacking, TabCloseReason};
+use crate::multiplexer::types::{AgentRole, TabCloseReason};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
+
+mod close;
+pub(crate) use close::{close_team_with_state_change, CloseTeamCleanup};
+use close::{
+    commit_prepared_team_close, finish_team_lane_cleanup, prepare_team_close, team_close_lanes,
+};
+#[cfg(test)]
+use close::close_team_with_state_change_using;
 
 #[derive(Debug)]
 pub(crate) enum TeamPlanError {
@@ -256,17 +264,35 @@ impl ServiceContext {
         team_id: &str,
         caller: TeamMutationCaller,
     ) -> Result<Team, String> {
-        let (team, cleanup, changed_plan_ids) = {
-            let mut mux = self.mux.write();
-            close_team_with_state_change(
-                &mut mux,
-                &self.events,
-                &self.plan_store,
-                team_id,
-                &caller,
-                now_ms(),
-            )?
+        let close_at = now_ms();
+        let prepared = {
+            let mux = self.mux.read();
+            prepare_team_close(&mux, team_id, &caller)?
         };
+        let lanes = team_close_lanes(
+            &self.plan_store.list_full(),
+            team_id,
+            &prepared.member_tab_ids,
+        );
+        let plan_transaction = self
+            .plan_store
+            .close_team_task_attempts_transaction(team_id, &prepared.member_tab_ids, close_at)
+            .map_err(|error| error.to_string())?;
+        let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
+        let commit = {
+            let mut mux = self.mux.write();
+            commit_prepared_team_close(&mut mux, team_id, &caller, &prepared)
+        };
+        let (team, cleanup) = match commit {
+            Ok(closed) => closed,
+            Err(error) => {
+                self.plan_store
+                    .rollback_team_plan_archive(plan_transaction)
+                    .map_err(|rollback| format!("{error}; plan rollback failed: {rollback}"))?;
+                return Err(error);
+            }
+        };
+        crate::service::publish_mux_state_changed(&self.events);
         // Persist the authorized reduction before any fallible cleanup can
         // early-return and leave last.json still holding the member tabs.
         crate::service::session_persist::persist_session_after_close(self);
@@ -286,6 +312,7 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        finish_team_lane_cleanup(&self.plan_store, &lanes, close_at)?;
         for tab_id in &cleanup.member_tab_ids {
             self.revoke_agent_pad(tab_id)?;
         }
@@ -657,114 +684,6 @@ fn team_plan_owner(
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct CloseTeamCleanup {
-    member_tab_ids: Vec<String>,
-    chat_backings: Vec<(String, String)>,
-    pty_ids: Vec<String>,
-}
-
-pub(crate) fn rename_team_core(
-    mux: &mut MultiplexerState,
-    team_id: &str,
-    name: String,
-    caller: &TeamMutationCaller,
-) -> Result<Team, String> {
-    authorize_team_manager(mux, team_id, caller)?;
-    mux.rename_team(team_id, name)
-}
-
-pub(crate) fn rename_team_with_state_change(
-    mux: &mut MultiplexerState,
-    events: &crate::api::events::EventBroadcaster,
-    team_id: &str,
-    name: String,
-    caller: &TeamMutationCaller,
-) -> Result<Team, String> {
-    let team = rename_team_core(mux, team_id, name, caller)?;
-    crate::service::publish_mux_state_changed(events);
-    Ok(team)
-}
-
-pub(crate) fn close_team_with_state_change(
-    mux: &mut MultiplexerState,
-    events: &crate::api::events::EventBroadcaster,
-    plan_store: &crate::service::plan::PlanStore,
-    team_id: &str,
-    caller: &TeamMutationCaller,
-    now_ms: u64,
-) -> Result<(Team, CloseTeamCleanup, Vec<String>), String> {
-    close_team_with_state_change_using(
-        mux,
-        events,
-        plan_store,
-        team_id,
-        caller,
-        now_ms,
-        |mux, tab_id| mux.close_tab_for_team_close(tab_id),
-    )
-}
-
-fn close_team_with_state_change_using<F>(
-    mux: &mut MultiplexerState,
-    events: &crate::api::events::EventBroadcaster,
-    plan_store: &crate::service::plan::PlanStore,
-    team_id: &str,
-    caller: &TeamMutationCaller,
-    now_ms: u64,
-    mut close_member: F,
-) -> Result<(Team, CloseTeamCleanup, Vec<String>), String>
-where
-    F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
-{
-    let member_tab_ids: Vec<String> = mux
-        .snapshot()
-        .tabs
-        .values()
-        .filter(|tab| tab.team_id.as_deref() == Some(team_id))
-        .map(|tab| tab.id.clone())
-        .collect();
-    authorize_team_close(mux, team_id, caller, &member_tab_ids)?;
-    let chat_backings = member_tab_ids
-        .iter()
-        .filter_map(|tab_id| match mux.get_tab(tab_id)?.backing.clone() {
-            TabBacking::ChatBackend {
-                plugin_id,
-                session_id,
-            } => Some((plugin_id, session_id)),
-            TabBacking::Pty => None,
-        })
-        .collect();
-    let mut pty_ids = Vec::new();
-    let mut closed_roots = Vec::new();
-    let mut mux_transaction = mux.begin_team_close_transaction();
-    for tab_id in &member_tab_ids {
-        if mux_transaction.state_mut().get_tab(tab_id).is_some() {
-            pty_ids.extend(close_member(mux_transaction.state_mut(), tab_id)?);
-            closed_roots.push(tab_id.clone());
-        }
-    }
-    let team = mux_transaction
-        .state_mut()
-        .remove_team(team_id)
-        .ok_or_else(|| format!("Team {team_id} not found"))?;
-    let plan_transaction = plan_store
-        .archive_and_detach_team_plans_transaction(team_id, now_ms)
-        .map_err(|error| error.to_string())?;
-    let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
-    mux_transaction.commit(mux, &closed_roots);
-    crate::service::publish_mux_state_changed(events);
-    Ok((
-        team,
-        CloseTeamCleanup {
-            member_tab_ids,
-            chat_backings,
-            pty_ids,
-        },
-        changed_plan_ids,
-    ))
-}
-
 #[cfg(test)]
 pub(crate) fn reconcile_dangling_team_plan_bindings(
     mux: &MultiplexerState,
@@ -856,7 +775,7 @@ pub(super) fn authorize_team_manager(
 /// that needs an existing member's authority — there is nothing left to
 /// protect. Every other mutation (rename, add member, adopt a plan) keeps the
 /// stricter `authorize_team_manager` gate.
-fn authorize_team_close(
+pub(super) fn authorize_team_close(
     mux: &MultiplexerState,
     team_id: &str,
     caller: &TeamMutationCaller,

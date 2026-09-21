@@ -13,6 +13,7 @@ use crate::plan::{
     PlannerRequestState,
 };
 use crate::service::hierarchy::team_plan_creation::create_team_plan_for_orchestrator;
+use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::{NewTask, PlanError, PlanStore};
 use crate::service::TeamPlanCreationError;
 use crate::{lock_hold::TimedRwLock, multiplexer::commands::MuxState};
@@ -420,20 +421,85 @@ fn planner_request_envelope_preserves_shell_metacharacters_as_chat_data() {
 }
 
 #[test]
-fn report_status_policy_maps_worker_outcomes_to_task_transitions() {
+fn bound_blocked_report_and_hierarchy_mapping_agree() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan_ids = Vec::new();
+    let mut task_ids = Vec::new();
+    for (index, report_status) in [
+        ReportStatus::InReview,
+        ReportStatus::Partial,
+        ReportStatus::Blocked,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut plan = Plan::new(
+            format!("Report status {index}"),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        store.save(&mut plan, index as u64 + 1).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: format!("status task {index}"),
+                    kind: "implement".into(),
+                    acceptance_criteria: vec!["status persists".into()],
+                    ..Default::default()
+                },
+                index as u64 + 2,
+            )
+            .unwrap();
+        store
+            .assign_task(&plan.id, &task_id, "worker", None, index as u64 + 3)
+            .unwrap();
+        let message = format!("reason {index}");
+        store
+            .ingest_bound_worker_report(
+                &plan.id,
+                &task_id,
+                &crate::plan::AgentRef::from_tab("worker"),
+                BoundWorkerReport {
+                    message,
+                    status: Some(report_status),
+                    ..Default::default()
+                },
+                index as u64 + 4,
+            )
+            .unwrap();
+        plan_ids.push(plan.id);
+        task_ids.push(task_id);
+    }
+
+    for (index, report_status) in [
+        ReportStatus::InReview,
+        ReportStatus::Partial,
+        ReportStatus::Blocked,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let task_status = store
+            .get(&plan_ids[index])
+            .unwrap()
+            .tasks
+            .into_iter()
+            .find(|task| task.id == task_ids[index])
+            .unwrap()
+            .status
+            .key();
+        assert_eq!(
+            report_task_status_transition(Some(report_status)).unwrap(),
+            Some(task_status),
+        );
+        assert_eq!(
+            report_status.task_transition().unwrap().map(|status| status.key()),
+            Some(task_status),
+        );
+    }
     assert_eq!(report_task_status_transition(None).unwrap(), None);
-    assert_eq!(
-        report_task_status_transition(Some(ReportStatus::Partial)).unwrap(),
-        None
-    );
-    assert_eq!(
-        report_task_status_transition(Some(ReportStatus::InReview)).unwrap(),
-        Some("in_review")
-    );
-    assert_eq!(
-        report_task_status_transition(Some(ReportStatus::Blocked)).unwrap(),
-        Some("blocked")
-    );
 }
 
 #[test]

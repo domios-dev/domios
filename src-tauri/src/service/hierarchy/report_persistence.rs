@@ -69,6 +69,7 @@ pub(super) fn persist_authorized_local_task_report(
             "report caller binding is stale, spoofed, or rebound",
         ));
     }
+    drop(mux);
     let result = persist_local_task_report(
         &svc.plan_store,
         tab_id,
@@ -81,7 +82,6 @@ pub(super) fn persist_authorized_local_task_report(
         milestone_kind,
         now_ms,
     );
-    drop(mux);
     result
 }
 
