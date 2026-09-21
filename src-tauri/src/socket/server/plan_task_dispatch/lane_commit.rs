@@ -46,6 +46,14 @@ pub(super) fn lane_metadata_for_dispatch(
     lane
 }
 
+pub(super) fn clear_replaced_lane_routing_fields(lane: &mut TaskLaneMetadata) {
+    lane.tab_id = None;
+    lane.workspace_id = None;
+    lane.workspace_name = None;
+    lane.worktree_path = None;
+    lane.branch = None;
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct DispatchEvidence {
     pub(super) session_id: String,
