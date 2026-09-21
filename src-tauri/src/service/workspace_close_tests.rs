@@ -429,12 +429,12 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
     assert_eq!(view[0].group_id, view[1].group_id);
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn close_team_via_service_persists_the_reduced_desk() {
+async fn close_team_via_service_persists_the_reduced_desk() {
     use crate::service::TeamMutationCaller;
     use crate::session::store::SessionStore;
     use tauri::Manager;
@@ -484,6 +484,7 @@ fn close_team_via_service_persists_the_reduced_desk() {
     fixture
         .service
         .close_team(&team_id, TeamMutationCaller::Human)
+        .await
         .unwrap();
 
     let after = session

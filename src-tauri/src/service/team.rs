@@ -8,7 +8,9 @@ use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
 mod close;
-pub(crate) use close::{close_team_with_state_change, CloseTeamCleanup};
+pub(crate) use close::CloseTeamCleanup;
+#[cfg(test)]
+pub(crate) use close::close_team_with_state_change;
 use close::{
     commit_prepared_team_close, finish_team_lane_cleanup, prepare_team_close, team_close_lanes,
 };
@@ -259,7 +261,7 @@ impl ServiceContext {
         Ok(team)
     }
 
-    pub(crate) fn close_team(
+    pub(crate) async fn close_team(
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
@@ -269,15 +271,28 @@ impl ServiceContext {
             let mux = self.mux.read();
             prepare_team_close(&mux, team_id, &caller)?
         };
-        let lanes = team_close_lanes(
-            &self.plan_store.list_full(),
-            team_id,
-            &prepared.member_tab_ids,
-        );
-        let plan_transaction = self
-            .plan_store
-            .close_team_task_attempts_transaction(team_id, &prepared.member_tab_ids, close_at)
-            .map_err(|error| error.to_string())?;
+        let lane_plan_store = std::sync::Arc::clone(&self.plan_store);
+        let lane_team_id = team_id.to_string();
+        let lane_member_ids = prepared.member_tab_ids.clone();
+        let lanes = tokio::task::spawn_blocking(move || {
+            let plans = lane_plan_store.list_full();
+            team_close_lanes(&plans, &lane_team_id, &lane_member_ids)
+        })
+        .await
+        .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
+        let plan_store = std::sync::Arc::clone(&self.plan_store);
+        let transaction_team_id = team_id.to_string();
+        let transaction_member_ids = prepared.member_tab_ids.clone();
+        let plan_transaction = tokio::task::spawn_blocking(move || {
+            plan_store.close_team_task_attempts_transaction(
+                &transaction_team_id,
+                &transaction_member_ids,
+                close_at,
+            )
+        })
+        .await
+        .map_err(|error| format!("Team plan close task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
         let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
         let commit = {
             let mut mux = self.mux.write();
@@ -286,9 +301,13 @@ impl ServiceContext {
         let (team, cleanup) = match commit {
             Ok(closed) => closed,
             Err(error) => {
-                self.plan_store
-                    .rollback_team_plan_archive(plan_transaction)
-                    .map_err(|rollback| format!("{error}; plan rollback failed: {rollback}"))?;
+                let rollback_store = std::sync::Arc::clone(&self.plan_store);
+                tokio::task::spawn_blocking(move || {
+                    rollback_store.rollback_team_plan_archive(plan_transaction)
+                })
+                .await
+                .map_err(|rollback| format!("{error}; plan rollback task failed: {rollback}"))?
+                .map_err(|rollback| format!("{error}; plan rollback failed: {rollback}"))?;
                 return Err(error);
             }
         };
@@ -296,9 +315,6 @@ impl ServiceContext {
         // Persist the authorized reduction before any fallible cleanup can
         // early-return and leave last.json still holding the member tabs.
         crate::service::session_persist::persist_session_after_close(self);
-        for plan_id in changed_plan_ids {
-            self.emit_plan_changed(&plan_id);
-        }
         for tab_id in &cleanup.member_tab_ids {
             self.chat_registry.shutdown_tab(tab_id);
         }
@@ -312,12 +328,25 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
-        finish_team_lane_cleanup(&self.plan_store, &lanes, close_at)?;
+        let plan_store = std::sync::Arc::clone(&self.plan_store);
+        let lane_cleanup = tokio::task::spawn_blocking(move || {
+            finish_team_lane_cleanup(&plan_store, &lanes, close_at)
+        })
+        .await
+        .map_err(|error| format!("Team lane cleanup task failed: {error}"))
+        .and_then(|result| result);
+        if let Err(error) = &lane_cleanup {
+            log::error!("{error}");
+        }
+        for plan_id in changed_plan_ids {
+            self.emit_plan_changed(&plan_id);
+        }
         for tab_id in &cleanup.member_tab_ids {
             self.revoke_agent_pad(tab_id)?;
         }
         self.delete_team_crons(team_id);
         self.emit_state_changed_after_bus_publish();
+        lane_cleanup?;
         Ok(team)
     }
 

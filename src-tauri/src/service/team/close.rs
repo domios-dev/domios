@@ -11,6 +11,8 @@ use crate::plan::{Plan, TaskStatus};
 use crate::process_util;
 use crate::service::plan::{PlanStore, TaskLaneUpdate};
 
+const LANE_BRANCH_PREFIX: &str = "lane/";
+
 #[derive(Debug)]
 pub(crate) struct CloseTeamCleanup {
     pub(super) member_tab_ids: Vec<String>,
@@ -26,7 +28,7 @@ pub(super) struct TeamCloseLane {
     worktree_path: Option<String>,
     branch: Option<String>,
     base: Option<String>,
-    holds_work: bool,
+    hold_reason: Option<String>,
 }
 
 pub(super) struct PreparedTeamClose {
@@ -42,6 +44,7 @@ struct StagedTeamClose {
     transaction: TeamCloseTransaction,
 }
 
+#[cfg(test)]
 pub(crate) fn close_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &crate::api::events::EventBroadcaster,
@@ -61,6 +64,7 @@ pub(crate) fn close_team_with_state_change(
     )
 }
 
+#[cfg(test)]
 pub(super) fn close_team_with_state_change_using<F>(
     mux: &mut MultiplexerState,
     events: &crate::api::events::EventBroadcaster,
@@ -208,10 +212,18 @@ pub(super) fn finish_team_lane_cleanup(
     lanes: &[TeamCloseLane],
     now_ms: u64,
 ) -> Result<(), String> {
+    let assessed_lanes: Vec<_> = lanes
+        .iter()
+        .cloned()
+        .map(|mut lane| {
+            lane.hold_reason = lane_hold_reason(&lane);
+            lane
+        })
+        .collect();
     let mut outcomes = HashMap::<(String, String), Vec<(&TeamCloseLane, Option<String>)>>::new();
-    for lane in lanes {
-        let failure = if lane.holds_work {
-            Some("lane contains changes or commits beyond its base".to_string())
+    for lane in &assessed_lanes {
+        let failure = if let Some(reason) = &lane.hold_reason {
+            Some(reason.clone())
         } else {
             cleanup_lane(lane).err()
         };
@@ -354,59 +366,94 @@ fn push_lane(
     }) {
         return;
     }
-    let mut lane = TeamCloseLane {
+    lanes.push(TeamCloseLane {
         plan_id: plan_id.into(),
         task_id: task_id.into(),
         project_path: project_path.into(),
         worktree_path,
         branch,
         base: non_empty(base),
-        holds_work: false,
-    };
-    lane.holds_work = lane_holds_work(&lane);
-    lanes.push(lane);
+        hold_reason: None,
+    });
 }
 
-fn lane_holds_work(lane: &TeamCloseLane) -> bool {
+fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
     if lane
         .worktree_path
         .as_deref()
         .is_some_and(|path| crate::service::worker_lane::same_path(path, &lane.project_path))
     {
-        return true;
+        return Some("worktree points to the canonical project checkout".into());
     }
-    if let Some(path) = lane.worktree_path.as_deref().filter(|path| Path::new(path).exists()) {
-        let Ok(status) = git_output(path, &["status", "--porcelain", "--untracked-files=all"])
-        else {
-            return true;
-        };
-        if !status.status.success() || !status.stdout.is_empty() {
-            return true;
+    if let Some(path) = lane
+        .worktree_path
+        .as_deref()
+        .filter(|path| Path::new(path).exists())
+    {
+        match git_output(path, &["status", "--porcelain", "--untracked-files=all"]) {
+            Err(error) => return Some(error),
+            Ok(status) if !status.status.success() => {
+                return Some(git_output_error("status", path, &status));
+            }
+            Ok(status) if !status.stdout.is_empty() => {
+                return Some(format!(
+                    "git status found uncommitted or untracked changes: {}",
+                    String::from_utf8_lossy(&status.stdout).trim()
+                ));
+            }
+            Ok(_) => {}
         }
     }
-    let reference = lane
-        .branch
-        .as_deref()
-        .or_else(|| lane.worktree_path.as_deref().filter(|path| Path::new(path).exists()).map(|_| "HEAD"));
-    let Some(reference) = reference else {
-        return false;
+    let branch = lane.branch.as_deref();
+    if let Some(branch) = branch {
+        if lane.base.as_deref() == Some(branch) {
+            return Some(format!("branch {branch} is the recorded base branch"));
+        }
+        if !branch.starts_with(LANE_BRANCH_PREFIX) {
+            return Some(format!(
+                "branch {branch} is outside the {LANE_BRANCH_PREFIX} namespace"
+            ));
+        }
+    }
+    let (cwd, reference) = match branch {
+        Some(branch) => (lane.project_path.as_str(), branch),
+        None => match lane
+            .worktree_path
+            .as_deref()
+            .filter(|path| Path::new(path).exists())
+        {
+            Some(path) => (path, "HEAD"),
+            None => return None,
+        },
     };
     let Some(base) = lane.base.as_deref() else {
-        return true;
+        return Some("lane base is not recorded; cannot verify branch commits".into());
     };
     let range = format!("{base}..{reference}");
-    let Ok(output) = git_output(&lane.project_path, &["rev-list", "--count", &range]) else {
-        return true;
+    let output = match git_output(cwd, &["rev-list", "--count", &range]) {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => return Some(git_output_error("rev-list", cwd, &output)),
+        Err(error) => return Some(error),
     };
-    !output.status.success()
-        || String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse::<u64>()
-            .map(|count| count > 0)
-            .unwrap_or(true)
+    match String::from_utf8_lossy(&output.stdout).trim().parse::<u64>() {
+        Ok(0) => None,
+        Ok(count) => Some(format!("branch contains {count} commits beyond base {base}")),
+        Err(_) => Some(format!(
+            "git rev-list returned an invalid commit count: {}",
+            String::from_utf8_lossy(&output.stdout).trim()
+        )),
+    }
 }
 
 fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
+    if let Some(branch) = lane.branch.as_deref() {
+        if lane.base.as_deref() == Some(branch) {
+            return Err(format!("refusing to delete recorded base branch {branch}"));
+        }
+        if !branch.starts_with(LANE_BRANCH_PREFIX) {
+            return Err(format!("refusing to delete non-lane branch {branch}"));
+        }
+    }
     if let Some(path) = lane
         .worktree_path
         .as_deref()
@@ -415,20 +462,28 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
         run_git(&lane.project_path, &["worktree", "remove", path])
             .map_err(|error| format!("worktree {path} could not be removed: {error}"))?;
     }
-    if let Some(branch) = lane.branch.as_deref().filter(|branch| branch_exists(lane, branch)) {
-        run_git(&lane.project_path, &["branch", "-d", branch])
-            .map_err(|error| format!("branch {branch} could not be deleted: {error}"))?;
+    if let Some(branch) = lane.branch.as_deref() {
+        if branch_exists(lane, branch)? {
+            run_git(&lane.project_path, &["branch", "-d", branch])
+                .map_err(|error| format!("branch {branch} could not be deleted: {error}"))?;
+        }
     }
     Ok(())
 }
 
-fn branch_exists(lane: &TeamCloseLane, branch: &str) -> bool {
+fn branch_exists(lane: &TeamCloseLane, branch: &str) -> Result<bool, String> {
     let reference = format!("refs/heads/{branch}");
-    git_output(
+    let output = git_output(
         &lane.project_path,
         &["show-ref", "--verify", "--quiet", &reference],
-    )
-    .is_ok_and(|output| output.status.success())
+    )?;
+    if output.status.success() {
+        Ok(true)
+    } else if output.status.code() == Some(1) {
+        Ok(false)
+    } else {
+        Err(git_output_error("show-ref", &lane.project_path, &output))
+    }
 }
 
 fn lane_hint(lane: &TeamCloseLane, reason: &str) -> String {
@@ -453,10 +508,45 @@ fn git_output(cwd: &str, args: &[&str]) -> Result<Output, String> {
         .map_err(|error| format!("git could not run in '{cwd}': {error}"))
 }
 
+fn git_output_error(operation: &str, cwd: &str, output: &Output) -> String {
+    format!(
+        "git {operation} failed in '{cwd}' (exit {}): {}",
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
+}
+
 fn run_git(cwd: &str, args: &[&str]) -> Result<(), String> {
     let output = git_output(cwd, args)?;
     if output.status.success() {
         return Ok(());
     }
-    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    Err(git_output_error(&args.join(" "), cwd, &output))
+}
+
+#[cfg(test)]
+mod lane_safety_tests {
+    use super::*;
+
+    fn lane(branch: &str, base: &str) -> TeamCloseLane {
+        TeamCloseLane {
+            plan_id: "plan".into(),
+            task_id: "task".into(),
+            project_path: String::new(),
+            worktree_path: None,
+            branch: Some(branch.into()),
+            base: Some(base.into()),
+            hold_reason: None,
+        }
+    }
+
+    #[test]
+    fn team_close_refuses_to_delete_the_base_branch() {
+        assert!(cleanup_lane(&lane("main", "main")).is_err());
+    }
+
+    #[test]
+    fn team_close_refuses_to_delete_non_lane_branches() {
+        assert!(cleanup_lane(&lane("release/retained", "base")).is_err());
+    }
 }

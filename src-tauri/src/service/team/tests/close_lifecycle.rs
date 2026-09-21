@@ -1,5 +1,6 @@
 use super::*;
 use crate::service::plan::NewTask;
+use crate::service::test_fixture::ServiceFixture;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -271,6 +272,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let base = git(&repo, &["rev-parse", "HEAD"]);
     let clean_lane = dir.path().join("clean-lane");
     let work_lane = dir.path().join("work-lane");
+    let retained_lane = dir.path().join("retained-lane");
     git(
         &repo,
         &[
@@ -279,6 +281,17 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
             "-b",
             "lane/clean",
             clean_lane.to_str().unwrap(),
+            &base,
+        ],
+    );
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "release/retained",
+            retained_lane.to_str().unwrap(),
             &base,
         ],
     );
@@ -329,6 +342,16 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &base,
         3,
     );
+    let retained_task = add_team_lane_task(
+        &store,
+        &plan.id,
+        "non-lane branch",
+        &worker,
+        &retained_lane,
+        "release/retained",
+        &base,
+        4,
+    );
     let events = crate::api::events::EventBroadcaster::new();
 
     close_team_with_state_change(
@@ -337,7 +360,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &store,
         &team_id,
         &TeamMutationCaller::AgentTab(orchestrator),
-        4,
+        5,
     )
     .unwrap();
 
@@ -345,10 +368,16 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let normalized_worktrees = worktrees.replace('\\', "/");
     let clean_lane_path = clean_lane.display().to_string().replace('\\', "/");
     let work_lane_path = work_lane.display().to_string().replace('\\', "/");
+    let retained_lane_path = retained_lane.display().to_string().replace('\\', "/");
     assert!(!normalized_worktrees.contains(&clean_lane_path));
     assert!(normalized_worktrees.contains(&work_lane_path));
+    assert!(normalized_worktrees.contains(&retained_lane_path));
     assert!(!git_status_success(&repo, &["show-ref", "--verify", "--quiet", "refs/heads/lane/clean"]));
     assert!(git_status_success(&repo, &["show-ref", "--verify", "--quiet", "refs/heads/lane/work"]));
+    assert!(git_status_success(
+        &repo,
+        &["show-ref", "--verify", "--quiet", "refs/heads/release/retained"]
+    ));
 
     let closed = store.get(&plan.id).unwrap();
     let clean = closed.tasks.iter().find(|task| task.id == clean_task).unwrap();
@@ -361,6 +390,100 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     assert_eq!(work.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
     assert!(work.lane.cleanup_hints.iter().any(|hint| {
         hint.contains(work_lane.to_str().unwrap()) && hint.contains("lane/work")
+    }));
+    let retained = closed.tasks.iter().find(|task| task.id == retained_task).unwrap();
+    assert_eq!(retained.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
+    assert_eq!(
+        retained.lane.worktree_path.as_deref(),
+        Some(retained_lane.to_str().unwrap())
+    );
+    assert!(retained
+        .lane
+        .cleanup_hints
+        .iter()
+        .any(|hint| hint.contains("outside the lane/ namespace")));
+}
+
+#[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init"]);
+    git(&repo, &["config", "user.name", "CodeTerm Tests"]);
+    git(&repo, &["config", "user.email", "tests@codeterm.invalid"]);
+    fs::write(repo.join("base.txt"), "base\n").unwrap();
+    git(&repo, &["add", "base.txt"]);
+    git(&repo, &["commit", "-m", "base"]);
+    git(&repo, &["branch", "-M", "main"]);
+    let base = git(&repo, &["rev-parse", "HEAD"]);
+    let worktree = dir.path().join("untracked-lane");
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/untracked",
+            worktree.to_str().unwrap(),
+            &base,
+        ],
+    );
+    let untracked = worktree.join("keep.txt");
+    fs::write(&untracked, "keep this work\n").unwrap();
+
+    let (mux, team_id, orchestrator, _, worker) = team_members();
+    let fixture = ServiceFixture::new(mux);
+    let store = &fixture.service.plan_store;
+    let plan = store
+        .create_plan_for_team(
+            "Service lane close".into(),
+            repo.display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&orchestrator),
+            team_id.clone(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = add_team_lane_task(
+        store,
+        &plan.id,
+        "untracked work",
+        &worker,
+        &worktree,
+        "lane/untracked",
+        &base,
+        2,
+    );
+
+    fixture
+        .service
+        .close_team(
+            &team_id,
+            TeamMutationCaller::AgentTab(orchestrator),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(fs::read_to_string(&untracked).unwrap(), "keep this work\n");
+    let worktrees = git(&repo, &["worktree", "list", "--porcelain"]).replace('\\', "/");
+    let worktree_path = worktree.display().to_string().replace('\\', "/");
+    assert!(worktrees.contains(&worktree_path));
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
+    assert_eq!(task.lane.worktree_path.as_deref(), Some(worktree.to_str().unwrap()));
+    assert!(task.lane.cleanup_hints.iter().any(|hint| {
+        hint.contains("keep.txt") && hint.contains("lane/untracked")
     }));
 }
 

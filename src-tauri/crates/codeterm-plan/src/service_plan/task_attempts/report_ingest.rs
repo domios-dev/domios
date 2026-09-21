@@ -70,9 +70,6 @@ impl PlanStore {
             .transpose()
             .map_err(|error| PlanError::Io(error.into()))?
             .flatten();
-        let committed_review = transition == Some(TaskStatus::InReview);
-        let blocked_reason = (transition == Some(TaskStatus::Blocked))
-            .then(|| report.message.clone());
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -129,7 +126,20 @@ impl PlanStore {
             if matches!(current, TaskStatus::Done | TaskStatus::Cancelled) {
                 return Ok(false);
             }
-            if let Some(next) = transition.as_ref().filter(|next| *next != &current) {
+            let accepted_transition = if current == TaskStatus::InReview
+                && transition == Some(TaskStatus::Blocked)
+            {
+                None
+            } else {
+                transition.clone()
+            };
+            let committed_review = accepted_transition == Some(TaskStatus::InReview);
+            let blocked_reason = (accepted_transition == Some(TaskStatus::Blocked))
+                .then(|| report.message.clone());
+            if let Some(next) = accepted_transition
+                .as_ref()
+                .filter(|next| *next != &current)
+            {
                 let incoming_label = (next == &TaskStatus::Blocked)
                     .then_some(Some(report.message.as_str()));
                 crate::service_plan::mutations::validate_task_status_transition(
@@ -187,7 +197,7 @@ impl PlanStore {
                 attempt.reported_at = Some(now_ms);
             }
             let entering_review = committed_review && task.status != TaskStatus::InReview;
-            if let Some(next) = transition.as_ref() {
+            if let Some(next) = accepted_transition.as_ref() {
                 if &task.status != next {
                     task.status = next.clone();
                     task.status_changed_at = now_ms;
