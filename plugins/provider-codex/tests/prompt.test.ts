@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import plugin from "../src/index";
+import plugin from "../src/plugin";
 
 let passed = 0;
 let failed = 0;
