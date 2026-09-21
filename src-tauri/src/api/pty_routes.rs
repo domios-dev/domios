@@ -210,7 +210,7 @@ pub async fn claim_resize_owner(
     headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ResizeOwnerBody>,
-) -> Result<Json<crate::resize_owner::ResizeOwner>, (StatusCode, String)> {
+) -> Result<Json<crate::resize_owner::ResizeOwnerClaim>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let owner = state.resize_owner.lock().claim(
         tab_id,
@@ -220,11 +220,20 @@ pub async fn claim_resize_owner(
         body.rows,
         body.force,
     );
+    let current_size = state
+        .svc
+        .pty
+        .lock()
+        .size(&owner.pty_id)
+        .map(crate::resize_owner::ResizePtySize::from);
     state
         .events
         .publish(crate::api::events::SystemEvent::Generic {
             event_type: "pty-resize-owner-changed".to_string(),
             data: serde_json::to_value(&owner).unwrap_or_default(),
         });
-    Ok(Json(owner))
+    Ok(Json(crate::resize_owner::ResizeOwnerClaim {
+        owner,
+        current_size,
+    }))
 }
