@@ -1,6 +1,7 @@
 //! The decision journal a Cartographer writes: one record per change, one
 //! summary per release, and a revert the owner can actually take.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -67,6 +68,66 @@ fn touch_source(root: &Path) {
     let core = root.join("essences/core.md");
     let text = fs::read_to_string(&core).expect("read fixture core essence");
     fs::write(&core, format!("{text}\n<!-- cartographer fixture -->\n")).expect("edit fixture");
+}
+
+fn label_derived_records(contents: &str) -> String {
+    let mut records: Vec<serde_json::Value> = contents
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("parse generated map record"))
+        .collect();
+    let labels: BTreeMap<String, String> = records
+        .iter()
+        .filter(|record| record["kind"].as_str() == Some("node"))
+        .filter_map(|record| {
+            Some((
+                record["id"].as_str()?.to_string(),
+                record["label"].as_str()?.to_string(),
+            ))
+        })
+        .collect();
+
+    for record in &mut records {
+        let pointers: &[&str] = if record["kind"].as_str() == Some("node") {
+            &["/id", "/vector", "/source/anchor"]
+        } else {
+            &["/from", "/to", "/source/anchor"]
+        };
+        for pointer in pointers {
+            let id = record.pointer(pointer).and_then(serde_json::Value::as_str);
+            let label = id.and_then(|id| labels.get(id)).cloned();
+            if let Some(label) = label {
+                *record.pointer_mut(pointer).expect("map field exists") =
+                    serde_json::Value::String(label);
+            }
+        }
+    }
+
+    let mut legacy = records
+        .iter()
+        .map(|record| serde_json::to_string(record).expect("serialize legacy record"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    legacy.push('\n');
+    legacy
+}
+
+#[test]
+fn cartographer_map_rewrites_label_derived_graph_refs_idempotently() {
+    let temp = fixture_root();
+    let root = temp.path();
+    let (map, _) = paths(root);
+    generate(root, &map).expect("generate source-backed map");
+    let canonical = fs::read_to_string(&map).expect("read generated map");
+    let legacy = label_derived_records(&canonical);
+    assert_ne!(legacy, canonical);
+    assert!(!legacy.contains("capability:"));
+
+    fs::write(&map, legacy).expect("write label-derived map fixture");
+    generate(root, &map).expect("rewrite graph references from source ids");
+    assert_eq!(fs::read_to_string(&map).expect("read rewritten map"), canonical);
+
+    generate(root, &map).expect("regenerate migrated map");
+    assert_eq!(fs::read_to_string(&map).expect("read second generation"), canonical);
 }
 
 #[test]

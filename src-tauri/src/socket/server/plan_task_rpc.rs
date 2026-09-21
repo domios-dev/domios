@@ -918,6 +918,7 @@ pub(super) fn dispatch(
                 plan_id: id.clone(),
                 task_id: tid.clone(),
                 tab_id: spawn.tab_id.clone(),
+                startup_attempt_id: spawn.pty_id.clone(),
                 attempt_id: created.attempt.id.clone(),
                 parent_tab_id,
                 worker_title: spawn.title.clone(),

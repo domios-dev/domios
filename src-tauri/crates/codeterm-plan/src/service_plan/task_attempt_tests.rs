@@ -1,5 +1,7 @@
 use super::*;
-use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
+use crate::plan::{
+    AgentRef, OrchestratorRef, Plan, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus,
+};
 use codeterm_types::agent::ReportStatus;
 
 mod plan_skill_evidence;
@@ -235,6 +237,78 @@ fn partial_report_keeps_bound_task_actionable() {
     assert_eq!(task.status, TaskStatus::Pending);
     assert!(task.execution_attempts[0].report.is_some());
     assert_eq!(task.milestones.len(), 1);
+}
+
+#[test]
+fn partial_report_then_redispatch_reuses_its_own_lane() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let lane = TaskLaneMetadata {
+        worktree_path: Some("/repo/lane".into()),
+        branch: Some("lane/partial".into()),
+        base: Some("base-commit".into()),
+        ..Default::default()
+    };
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            task.lane = lane.clone();
+            task.execution_attempts[0].worktree_path = lane.worktree_path.clone();
+            task.execution_attempts[0].branch = lane.branch.clone();
+            task.execution_attempts[0].base = lane.base.clone();
+            Ok(())
+        })
+        .unwrap();
+    assert!(!store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::Partial, Some("abc123")),
+            5,
+        )
+        .unwrap());
+
+    let reported = store.show_task(&task_id).unwrap().task;
+    assert_eq!(reported.status, TaskStatus::Pending);
+    let old_attempt_id = reported.execution_attempts[0].id.clone();
+    let old_reported_at = reported.execution_attempts[0].reported_at;
+    let replacement_id = store
+        .begin_task_dispatch(&plan_id, &task_id, "replacement", "Worker", lane, 6)
+        .unwrap();
+    let redispatched = store.show_task(&task_id).unwrap().task;
+    let old_attempt = redispatched
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == old_attempt_id)
+        .unwrap();
+
+    assert_eq!(old_reported_at, Some(5));
+    assert_eq!(old_attempt.closed_at, Some(6));
+    assert_eq!(old_attempt.worktree_path.as_deref(), Some("/repo/lane"));
+    assert_eq!(old_attempt.branch.as_deref(), Some("lane/partial"));
+    assert_eq!(old_attempt.base.as_deref(), Some("base-commit"));
+    assert_eq!(redispatched.lane.worktree_path.as_deref(), Some("/repo/lane"));
+    assert_eq!(redispatched.lane.branch.as_deref(), Some("lane/partial"));
+    assert!(redispatched
+        .execution_attempts
+        .iter()
+        .any(|attempt| attempt.id == replacement_id && attempt.closed_at.is_none()));
+
+    let mut attempts = redispatched.execution_attempts;
+    let replacement = TaskExecutionAttempt {
+        id: "later-replacement".into(),
+        executor_tab_id: "later-worker".into(),
+        ..Default::default()
+    };
+    task_attempts::record_noncompetitive_replacement_attempt(&mut attempts, replacement, 7);
+    assert_eq!(
+        attempts
+            .iter()
+            .find(|attempt| attempt.id == old_attempt_id)
+            .unwrap()
+            .closed_at,
+        Some(6)
+    );
 }
 
 #[test]
@@ -656,11 +730,11 @@ fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let lane = TaskLaneMetadata::default();
 
-    store
+    let stale_attempt = store
         .begin_task_dispatch(&plan_id, &task_id, "loser-tab", "Worker", lane.clone(), 3)
         .unwrap();
     // A second dispatch closes the first attempt by design (last writer wins).
-    store
+    let live_attempt = store
         .begin_task_dispatch(&plan_id, &task_id, "winner-tab", "Worker", lane, 4)
         .unwrap();
 
@@ -676,6 +750,8 @@ fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
         message.contains("winner-tab"),
         "the refusal must name the tab that now holds the task, got: {message}"
     );
+    assert!(message.contains(&stale_attempt));
+    assert!(message.contains(&live_attempt));
     assert!(
         !message.contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT),
         "'owns no live attempt' reads as a bug and makes the worker retry, got: {message}"
@@ -696,4 +772,63 @@ fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
     store
         .acknowledge_live_task_attempt_for_tab("winner-tab", Some(&plan_id), Some(&task_id), 7)
         .expect("the live attempt must still acknowledge");
+}
+
+#[test]
+fn repeated_runtime_binding_keeps_one_plan_attempt() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let attempt_id = store
+        .begin_task_dispatch(
+            &plan_id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            3,
+        )
+        .unwrap();
+    let attempts_before = store.show_task(&task_id).unwrap().task.execution_attempts.len();
+
+    for now_ms in [4, 5] {
+        let ready = store
+            .mark_live_task_attempt_runtime_ready_for_tab("worker-tab", "session", now_ms)
+            .unwrap()
+            .expect("the same live attempt remains bindable");
+        assert_eq!(ready.attempt.id, attempt_id);
+    }
+
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.execution_attempts.len(), attempts_before);
+    let bound: Vec<_> = task
+        .execution_attempts
+        .iter()
+        .filter(|attempt| attempt.id == attempt_id)
+        .collect();
+    assert_eq!(bound.len(), 1);
+    assert_eq!(bound[0].session_id.as_deref(), Some("session"));
+}
+
+#[test]
+fn a_closed_attempt_without_a_newer_live_dispatch_is_not_reported_as_superseded() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let attempt_id = store
+        .begin_task_dispatch(
+            &plan_id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            3,
+        )
+        .unwrap();
+    assert!(store
+        .mark_worker_startup_deadline(&plan_id, &task_id, "worker-tab", &attempt_id, true, 4)
+        .unwrap());
+
+    let refusal = store
+        .acknowledge_live_task_attempt_for_tab("worker-tab", Some(&plan_id), Some(&task_id), 5)
+        .expect_err("a closed attempt without a replacement is not acknowledgeable");
+    let message = refusal.to_string();
+    assert!(message.contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT));
+    assert!(!message.contains(super::task_dispatch::ACK_CAUSE_ATTEMPT_SUPERSEDED));
 }

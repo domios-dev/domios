@@ -49,6 +49,14 @@ fn merge_criteria(
     Ok(criterion)
 }
 
+fn render_attempt_timestamp(attempt: &Value, field: &str) -> String {
+    attempt
+        .get(field)
+        .and_then(Value::as_u64)
+        .map(|timestamp| timestamp.to_string())
+        .unwrap_or_else(|| "none".into())
+}
+
 fn render_attempts(value: &Value) -> String {
     let attempts = value
         .get("attempts")
@@ -77,14 +85,12 @@ fn render_attempts(value: &Value) -> String {
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         let model = attempt.get("model").and_then(|v| v.as_str()).unwrap_or("-");
-        let when = attempt
-            .get("reported_at")
-            .or_else(|| attempt.get("assigned_at"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        let assigned_at = render_attempt_timestamp(&attempt, "assigned_at");
+        let acknowledged_at = render_attempt_timestamp(&attempt, "acknowledged_at");
+        let reported_at = render_attempt_timestamp(&attempt, "reported_at");
+        let closed_at = render_attempt_timestamp(&attempt, "closed_at");
         out.push_str(&format!(
-            "{:<24} {:<24} {:<10} {:<10} {:<18} at={}\n",
-            id, tab, status, provider, model, when
+            "attempt_id={id} executor_tab_id={tab} status={status} provider={provider} model={model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} closed_at={closed_at}\n"
         ));
     }
     out

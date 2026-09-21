@@ -106,6 +106,10 @@ fn team_member_role_accepts_builtin_team_roles() {
         team_member_role("orchestrator").unwrap(),
         ("Manager".into(), Some("orchestrator".into()))
     );
+    assert_eq!(
+        team_member_role("Cartographer").unwrap(),
+        ("Manager".into(), Some("cartographer".into()))
+    );
     assert!(team_member_role("manager").is_err());
 }
 

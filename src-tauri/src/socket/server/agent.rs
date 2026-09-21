@@ -217,7 +217,8 @@ pub(super) fn dispatch(
             let plan_id = acknowledged.plan_id.clone();
             let task_id = acknowledged.task_id.clone();
             if acknowledged.already_acknowledged {
-                return Ok(task_ack_success_response(
+                let delivery = acknowledged_worker_brief_state(svc, &acknowledged);
+                let mut response = task_ack_success_response(
                     &plan_id,
                     &task_id,
                     &tab_id,
@@ -225,10 +226,16 @@ pub(super) fn dispatch(
                     acknowledged.attempt.acknowledged_at,
                     acknowledged.attempt.session_id.is_some(),
                     true,
-                ));
+                );
+                include_task_brief_delivery(&mut response, delivery);
+                return Ok(response);
             }
-            svc.worker_ack
-                .acknowledge(&tab_id, &acknowledged.attempt.id);
+            svc.acknowledge_worker_ack(
+                &plan_id,
+                &task_id,
+                &tab_id,
+                &acknowledged.attempt,
+            );
             svc.gateway.require_worker_report(&tab_id);
             super::plan::emit_plan_changed(_app, &plan_id);
             let runtime_ready = acknowledged.attempt.session_id.is_some();
@@ -263,7 +270,8 @@ pub(super) fn dispatch(
                     payload,
                 );
             }
-            Ok(task_ack_success_response(
+            let delivery = acknowledged_worker_brief_state(svc, &acknowledged);
+            let mut response = task_ack_success_response(
                 &plan_id,
                 &task_id,
                 &tab_id,
@@ -271,7 +279,9 @@ pub(super) fn dispatch(
                 acknowledged.attempt.acknowledged_at,
                 runtime_ready,
                 false,
-            ))
+            );
+            include_task_brief_delivery(&mut response, delivery);
+            Ok(response)
         }
 
         "agent.startup_ack" => {
@@ -397,6 +407,76 @@ fn task_ack_refusal_class(message: &str) -> &'static str {
         "worker_ack_attempt_missing"
     } else {
         "worker_ack_refused"
+    }
+}
+
+fn acknowledged_worker_brief_state(
+    svc: &ServiceState,
+    acknowledged: &crate::service::plan::task_attempts::TaskAttemptAcknowledgement,
+) -> Option<Value> {
+    if acknowledged.attempt.session_id.is_none() {
+        return None;
+    }
+    let attempt_id = &acknowledged.attempt.id;
+    let outcome = super::plan_task_dispatch::deliver_deferred_task_brief(
+        svc,
+        &acknowledged.plan_id,
+        &acknowledged.task_id,
+        &acknowledged.attempt.executor_tab_id,
+        attempt_id,
+    );
+    match outcome {
+        super::plan_task_dispatch::TaskBriefDelivery::NotReady => {
+            Some(serde_json::json!({"state": "awaiting_durable_prerequisites"}))
+        }
+        super::plan_task_dispatch::TaskBriefDelivery::Submitted => {
+            Some(serde_json::json!({"state": "submitted"}))
+        }
+        super::plan_task_dispatch::TaskBriefDelivery::AlreadySubmitted => {
+            Some(serde_json::json!({"state": "already_submitted"}))
+        }
+        super::plan_task_dispatch::TaskBriefDelivery::Failed(error) => {
+            let parent_tab_id = acknowledged
+                .attempt
+                .orchestrator_tab_id
+                .as_deref()
+                .or(acknowledged.attempt.parent_tab_id.as_deref());
+            if let Some(parent_tab_id) = parent_tab_id {
+                let worker_title = svc
+                    .mux
+                    .read()
+                    .get_tab(&acknowledged.attempt.executor_tab_id)
+                    .map(|tab| tab.title.clone())
+                    .unwrap_or_else(|| "Worker".into());
+                super::plan_task_dispatch::publish_action_needed_event(
+                    svc,
+                    parent_tab_id,
+                    &acknowledged.attempt.executor_tab_id,
+                    &worker_title,
+                    super::plan_task_dispatch::task_brief_delivery_event(
+                        &acknowledged.plan_id,
+                        &acknowledged.task_id,
+                        &acknowledged.attempt.executor_tab_id,
+                        attempt_id,
+                        &error,
+                    ),
+                );
+            } else {
+                log::error!(
+                    "[worker-task-brief] delivery failed without parent attempt={attempt_id}: {error}"
+                );
+            }
+            Some(serde_json::json!({
+                "state": "action_needed",
+                "error": error,
+            }))
+        }
+    }
+}
+
+fn include_task_brief_delivery(response: &mut Value, delivery: Option<Value>) {
+    if let Some(delivery) = delivery {
+        response["task_brief_delivery"] = delivery;
     }
 }
 

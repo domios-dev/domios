@@ -208,6 +208,7 @@ pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
+pub(crate) use team::TeamCartographerAttachLocks;
 pub(crate) use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance,
@@ -225,6 +226,7 @@ pub struct ServiceContext {
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
     pub app_handle: tauri::AppHandle,
+    pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
     pub agent_tracker: AgentTrackerState,
     /// Per-pty shell-integration capability accumulators (OSC 133/633/7 ->
     /// command list + cwd). Fed from `process_pty_output`; consumed by chat.

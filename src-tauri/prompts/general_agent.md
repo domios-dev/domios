@@ -44,7 +44,9 @@ codeterm send "<objective>" --tab <orchestrator-tab-id>
 
 `team pair` returns both tab ids. The Orchestrator anchors the new Team inside that project workspace and the Planner is already attached to it, so the Team is ready for `codeterm send` with no further wiring, and it reports back to you.
 
-An agent-created child receives a startup handshake in its first launch turn and the child acknowledges it with `codeterm agent startup-ack`; CodeTerm validates the exact tab, PTY attempt, and launch nonce. The parent never acknowledges on the child's behalf. If the acknowledgement is absent after 30 seconds, inspect that exact tab with `tab status` and `tab get-text`: a provider may require a numbered choice before the agent can start. Prefer `codeterm tab respond <option> --tab <id>`, then read the screen again. If the same picker remains visible, run `tab get-text` immediately before one bounded navigation sequence derived from its visible current selection, such as `codeterm send --tab <id> --actions "enter"` or `--actions "down,enter"`, then verify again. Use `codeterm agent startup-hold --tab <id> --attempt <attempt-id>` after inspection when a legitimate slow start must remain open - only for a child you spawned, and only for its current attempt; a hold only cancels closure, and the child must still run `startup-ack` when it receives control. Otherwise CodeTerm closes only that exact attempt at 60 seconds. `tab inspect` metadata is not a substitute for reading the picker. Never guess keys, resend the assigned task payload, or treat a shell prompt as a live agent.
+An agent-created child acknowledges its own startup with codeterm agent startup-ack; the parent never acknowledges on its behalf. Task-bound Workers run codeterm agent ack before acting and wait until the actionable brief is delivered. Missing child startup ACK, session binding, or Worker ACK triggers the shared interactive child PTY operation below for that exact tab and attempt.
+
+{interactive_child_pty_operation}
 
 Two-step form, when the Orchestrator is created first:
 

@@ -48,11 +48,15 @@ fn find_bundled_skills_dir() -> std::path::PathBuf {
 
 const CODETERM_SKILL_ID: &str = "codeterm";
 
-/// Placeholder → the one semantic source that fills it. Both fragments also reach
-/// the GA prompt, so the skill file carries no second copy of either text.
-fn codeterm_skill_render_map() -> [(&'static str, &'static str); 2] {
+/// Placeholder → the one semantic source that fills it. Shared fragments also
+/// reach coordinating prompts, so the skill file carries no second copy.
+fn codeterm_skill_render_map() -> [(&'static str, &'static str); 3] {
     [
         ("{codeterm_cli}", crate::prompts::CODETERM_CLI),
+        (
+            "{interactive_child_pty_operation}",
+            crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim(),
+        ),
         ("{agent_pad_rule}", crate::prompts::AGENT_PAD_RULE.trim()),
     ]
 }
@@ -308,10 +312,16 @@ mod skill_block_tests {
 mod skills_seed_tests {
     use super::*;
 
-    const BUNDLED_SKILL: &str =
-        "# CodeTerm\n\n{codeterm_cli}\n\n---\n\n{agent_pad_rule}\n\n<!-- revision: 7 -->\n";
+    const BUNDLED_SKILL: &str = concat!(
+        "# CodeTerm\n\n",
+        "{codeterm_cli}\n\n",
+        "{interactive_child_pty_operation}\n\n",
+        "---\n\n",
+        "{agent_pad_rule}\n\n",
+        "<!-- revision: 7 -->\n",
+    );
 
-    /// A bundled fixture carrying both placeholders, plus one `references/` file
+    /// A bundled fixture carrying its render slots, plus one `references/` file
     /// so the directory-scoped rungs have something to compare beyond SKILL.md.
     fn bundled_fixture(root: &std::path::Path, skill_body: &str, reference: &str) {
         let dir = root.join(CODETERM_SKILL_ID);
@@ -328,7 +338,7 @@ mod skills_seed_tests {
     /// substituted, and no placeholder residue survives. The fragment is an opaque
     /// token here — its wording belongs to `agent_pad_rule.md`.
     #[test]
-    fn seed_renders_agent_pad_rule_from_constant() {
+    fn seed_renders_shared_codeterm_fragments_from_constants() {
         let tmp = tempfile::tempdir().unwrap();
         let bundled = tmp.path().join("bundled");
         let canonical = tmp.path().join("canonical");
@@ -345,6 +355,12 @@ mod skills_seed_tests {
             "the rendered skill must carry the AgentPad rule exactly once"
         );
         assert_eq!(rendered.matches(crate::prompts::CODETERM_CLI).count(), 1);
+        assert_eq!(
+            rendered
+                .matches(crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim())
+                .count(),
+            1
+        );
         for (slot, _) in codeterm_skill_render_map() {
             assert!(
                 !rendered.contains(slot),
