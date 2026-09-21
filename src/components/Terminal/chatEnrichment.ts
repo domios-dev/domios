@@ -1,5 +1,10 @@
 import type { NormalizedChatMessage as ChatMessage, TimelineItem } from "@codeterm/chat-core";
-import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
+import {
+  detectChatPrefix,
+  splitChatPrefixedMessages,
+  stripPastedContentTags,
+  type ChatOrigin,
+} from "../../lib/chatPrefixes";
 
 export interface EnrichedChatEntry {
   msg: ChatMessage;
@@ -11,7 +16,11 @@ export interface EnrichedChatEntry {
  *  reusing them keeps MessageBubble memo props stable across streamed chunks. */
 export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 
-function enrichUserMessage(m: ChatMessage, item: TimelineItem): EnrichedChatEntry[] {
+function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
+  const content = stripPastedContentTags(raw.content);
+  const m = content === raw.content ? raw : { ...raw, content };
+  const item =
+    m === raw || rawItem.kind !== "message" ? rawItem : { kind: "message" as const, message: m };
   const pluginId = m.fromPlugin?.trim();
   if (pluginId) {
     const origin: ChatOrigin = {
