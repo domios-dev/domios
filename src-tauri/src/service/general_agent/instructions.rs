@@ -104,7 +104,11 @@ fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_sectio
         .replace("{identity}", &identity_section)
         .replace("{soul}", &soul_section)
         .replace("{wake_up}", wake_up_section)
-        .replace("{codeterm_cli}", &general_cli_reference());
+        .replace("{codeterm_cli}", &general_cli_reference())
+        .replace(
+            "{interactive_child_pty_operation}",
+            crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim(),
+        );
     compose_system_prompt(&role_contract)
 }
 
@@ -320,6 +324,15 @@ mod tests {
         assert!(!rendered.contains("{wake_up}"));
         assert!(!rendered.contains("L0 — Identity"));
         assert!(!rendered.contains("L1 — Critical context"));
+    }
+
+    #[test]
+    fn general_agent_receives_shared_child_pty_operation() {
+        let rendered = render_agent_md("claude", "");
+        let operation = crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim();
+
+        assert_eq!(rendered.matches(operation).count(), 1);
+        assert!(!rendered.contains("{interactive_child_pty_operation}"));
     }
 
     #[test]

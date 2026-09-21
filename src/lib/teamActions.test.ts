@@ -41,6 +41,16 @@ async function run() {
     }),
     "staffing uses the selected manager as caller identity and keeps UI-only ids off the wire",
   );
+  await actions.onAddTeamMember("team-1", "cartographer", "registry-provider", "manager-tab");
+  assert(
+    JSON.stringify(calls[calls.length - 1]?.args) === JSON.stringify({
+      teamId: "team-1",
+      role: "cartographer",
+      provider: "registry-provider",
+      callerTabId: "manager-tab",
+    }),
+    "Cartographer uses the same role-kind staffing contract as other Team members",
+  );
   await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-tab");
   const noModelCall = calls[calls.length - 1];
   assert(

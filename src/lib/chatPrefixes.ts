@@ -18,6 +18,14 @@ export interface PrefixMatch {
 const CMD_TAG_RE =
   /<(local-command-caveat|command-name|command-message|command-args|local-command-stdout)>([\s\S]*?)<\/\1>/g;
 
+const PASTED_CONTENT_TAG_RE = /<[\\/]{0,2}pasted_content(?:\s+id="[^"]*")?\s*>/g;
+
+/** Claude transcripts wrap pasted text in `<pasted_content id="…">` tags, which hide leading markers. */
+export function stripPastedContentTags(content: string): string {
+  if (!content.includes("pasted_content")) return content;
+  return content.replace(PASTED_CONTENT_TAG_RE, "").trim();
+}
+
 // Matches a bare /command line (new claude JSONL format).
 const INLINE_CMD_RE = /^\/([\w-]+)\s*(.*)$/;
 

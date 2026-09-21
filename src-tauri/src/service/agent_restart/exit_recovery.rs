@@ -185,6 +185,7 @@ impl ServiceContext {
             None,
             None,
             None,
+            None,
         );
 
         let ready = self.finish_observed_restart(

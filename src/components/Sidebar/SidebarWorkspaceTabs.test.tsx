@@ -102,6 +102,29 @@ test("team_renders_flat_sections", async () => {
   await act(async () => root.unmount());
 });
 
+test("an attached Cartographer renders beside the default Team managers", async () => {
+  const tabs: Record<string, Tab> = {
+    orch: tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
+    planner: tab({ id: "planner", title: "Planner", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
+    cartographer: tab({ id: "cartographer", title: "Cartographer", role: "Manager", role_profile: "cartographer", team_id: TEAM.id }),
+  };
+  const sortedTabs = Object.keys(tabs).map((id, index) => tab(`tab-${id}`, id, index));
+  const { host, root } = await renderSidebar({ tabs, sortedTabs });
+  const managers = host.querySelector('[data-testid="managers-section"]');
+  const titles = Array.from(managers?.querySelectorAll('[data-testid="tab-title"]') ?? [])
+    .map((element) => element.textContent);
+
+  assert(
+    titles.join(",") === "Orchestrator,Planner,Cartographer",
+    `attached Cartographer appears beside the unchanged default pair: ${titles.join(",")}`,
+  );
+  assert(
+    Boolean(managers?.querySelector('[data-testid="role-badge-cartographer"]')),
+    "Cartographer retains its Manager role-kind badge",
+  );
+  await act(async () => root.unmount());
+});
+
 test("plans have only a Team-owned sidebar home", async () => {
   const tabs = {
     orch: tab({ id: "orch", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),

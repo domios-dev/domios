@@ -12,14 +12,14 @@ pub fn superseded_subject_cause(
     tab_id: &str,
     plan_id: &str,
     task_id: &str,
-    live_tab: Option<&str>,
+    previous_attempt_id: &str,
+    current_attempt_id: &str,
+    live_tab: &str,
 ) -> String {
-    let owner = live_tab
-        .map(|tab| format!(", now held by tab {tab}"))
-        .unwrap_or_default();
     format!(
-        "{ACK_CAUSE_ATTEMPT_SUPERSEDED}: tab {tab_id} was superseded by a newer dispatch of \
-         {plan_id}/{task_id}{owner}. Stop and exit; do not retry the ack."
+        "{ACK_CAUSE_ATTEMPT_SUPERSEDED}: attempt {previous_attempt_id} on tab {tab_id} was \
+         superseded by attempt {current_attempt_id} of {plan_id}/{task_id}, now held by tab \
+         {live_tab}. Stop and exit; do not retry the ack."
     )
 }
 
