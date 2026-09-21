@@ -1,8 +1,7 @@
 use serde_json::json;
 
-use crate::plan::{ExecutionIntent, Plan, Task, TaskLaneMetadata};
+use crate::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
 use crate::service::lane_removal::{lane_release_command, recorded_lane_remnant};
-use crate::service::plan::{PlanStore, TaskLaneUpdate};
 use crate::service::{
     classify_mutating_lane, recorded_lane_matches, verify_worker_lane, LaneProtection,
     UnsafeMutatingLane, WorkerLaneProvenance,
@@ -202,50 +201,4 @@ pub(super) fn plan_dispatch_lane_placement(
         ExecutionIntent::Mutating,
     )?;
     Ok(DispatchLanePlacement::Existing(resolved))
-}
-
-pub(super) fn clear_vanished_dispatch_lane(
-    store: &PlanStore,
-    plan: &mut Plan,
-    task: &mut Task,
-    canonical_cwd: &str,
-    now_ms: u64,
-) -> Result<bool, String> {
-    let worktree_path = task.lane.worktree_path.as_deref();
-    let branch = task.lane.branch.as_deref();
-    if worktree_path.is_none() && branch.is_none() {
-        return Ok(false);
-    }
-    if recorded_lane_remnant(worktree_path, branch, canonical_cwd)?.is_some() {
-        return Ok(false);
-    }
-    store
-        .update_task_lane(
-            &plan.id,
-            &task.id,
-            TaskLaneUpdate {
-                tab_id: Some(None),
-                workspace_id: Some(None),
-                workspace_name: Some(None),
-                worktree_path: Some(None),
-                branch: Some(None),
-                ..Default::default()
-            },
-            now_ms,
-        )
-        .map_err(|error| format!("cannot clear vanished lane references: {error}"))?;
-    clear_lane_routing_fields(task);
-    if let Some(plan_task) = plan.tasks.iter_mut().find(|entry| entry.id == task.id) {
-        clear_lane_routing_fields(plan_task);
-    }
-    Ok(true)
-}
-
-fn clear_lane_routing_fields(task: &mut Task) {
-    task.assigned_tab_id = None;
-    task.lane.tab_id = None;
-    task.lane.workspace_id = None;
-    task.lane.workspace_name = None;
-    task.lane.worktree_path = None;
-    task.lane.branch = None;
 }

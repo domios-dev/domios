@@ -354,7 +354,15 @@ pub async fn task_update(
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
-    task_update_core(&state.svc, &headers, &id, &tid, body)
+    let service = state.svc.clone();
+    tokio::task::spawn_blocking(move || task_update_core(&service, &headers, &id, &tid, body))
+        .await
+        .map_err(|error| {
+            text_err(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("task update worker failed: {error}"),
+            )
+        })?
 }
 
 fn task_update_core(
@@ -410,7 +418,14 @@ fn task_update_core(
         tid,
         lane,
     )
-    .map_err(|message| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, message))?;
+    .map_err(|error| match error {
+        crate::service::lane_removal::CleanupStatusDoneError::Refused(message) => {
+            text_err(axum::http::StatusCode::CONFLICT, message)
+        }
+        crate::service::lane_removal::CleanupStatusDoneError::Verification(message) => {
+            text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, message)
+        }
+    })?;
     let depends_on = optional_string_vec_field(&body, "depends_on", "dependency_task_ids")
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
     // The edit panel submits the whole array, so this surface is Replace-only.

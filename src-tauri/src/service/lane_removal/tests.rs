@@ -172,6 +172,32 @@ fn lane_removal_succeeds_when_worktree_unheld() {
 }
 
 #[test]
+fn lane_removal_refuses_unmerged_branch_before_deleting_worktree() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "unmerged").unwrap();
+    std::fs::write(Path::new(&lane.cwd).join("work.txt"), "unmerged work").unwrap();
+    git(Path::new(&lane.cwd), &["add", "work.txt"]);
+    git(Path::new(&lane.cwd), &["commit", "-qm", "unmerged work"]);
+
+    let error = remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+        },
+        &[],
+    )
+    .unwrap_err();
+
+    assert!(error.contains("commits not merged"), "{error}");
+    assert!(error.contains("codeterm plan lane-remove"), "{error}");
+    assert!(!error.contains("branch -D"), "{error}");
+    assert!(Path::new(&lane.cwd).is_dir());
+    assert!(branch_exists(&project, &lane.branch));
+}
+
+#[test]
 fn canonical_checkout_is_refused_as_a_lane() {
     let root = tempfile::tempdir().unwrap();
     let project = fixture_project(root.path());
@@ -233,6 +259,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
     assert!(outcome.worktree_already_removed);
     assert!(outcome.branch_already_removed);
     let task = store.show_task(&task_id).unwrap().task;
+    assert!(task.assigned_tab_id.is_none());
     assert!(task.lane.tab_id.is_none());
     assert!(task.lane.workspace_id.is_none());
     assert!(task.lane.workspace_name.is_none());
@@ -253,8 +280,28 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
     let lane = provision_lane_for_test(project.to_str().unwrap(), "missing-directory").unwrap();
     let lane_path = lane.cwd.clone();
     let branch = lane.branch.clone();
+    let unrelated_path = root.path().join("other-stale-worktree");
+    git(
+        &project,
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            "-q",
+            unrelated_path.to_str().unwrap(),
+            "HEAD",
+        ],
+    );
     std::fs::remove_dir_all(&lane_path).unwrap();
+    std::fs::remove_dir_all(&unrelated_path).unwrap();
     assert!(worktree_registered(project.to_str().unwrap(), &lane_path).unwrap());
+    let verbatim_path = format!("\\\\?\\{}", lane_path.replace('/', "\\"));
+    assert!(worktree_registered(project.to_str().unwrap(), &verbatim_path).unwrap());
+    assert!(worktree_registered(
+        project.to_str().unwrap(),
+        &unrelated_path.display().to_string()
+    )
+    .unwrap());
 
     let outcome = remove_lane(
         &LaneRemovalRequest {
@@ -269,6 +316,11 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
     assert!(outcome.worktree_already_removed);
     assert!(!outcome.branch_already_removed);
     assert!(!worktree_registered(project.to_str().unwrap(), &lane_path).unwrap());
+    assert!(worktree_registered(
+        project.to_str().unwrap(),
+        &unrelated_path.display().to_string()
+    )
+    .unwrap());
     assert!(!branch_exists(&project, &branch));
 }
 
@@ -354,10 +406,46 @@ fn cleanup_status_done_clears_vanished_lane_references() {
     assert!(task.lane.workspace_name.is_none());
     assert!(task.lane.worktree_path.is_none());
     assert!(task.lane.branch.is_none());
+    assert!(task.assigned_tab_id.is_none());
     assert_eq!(task.lane.cleanup_status.as_deref(), Some("done"));
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(
         task.execution_attempts[0].worktree_path.as_deref(),
         Some(lane_path.as_str())
     );
+}
+
+#[test]
+fn cleanup_status_done_clears_removed_worktree_with_merged_branch_kept() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "merged-branch-kept").unwrap();
+    let lane_path = lane.cwd.clone();
+    let branch = lane.branch.clone();
+    let (store, plan_id, task_id) = task_store(root.path(), &project);
+    record_lane(&store, &plan_id, &task_id, &lane);
+    git(&project, &["worktree", "remove", "--force", &lane_path]);
+
+    let update = clear_vanished_lane_on_cleanup_done(
+        &store,
+        &plan_id,
+        &task_id,
+        Some(TaskLaneUpdate {
+            cleanup_status: Some(Some("done".into())),
+            ..Default::default()
+        }),
+    )
+    .unwrap()
+    .unwrap();
+    store
+        .update_task_lane(&plan_id, &task_id, update, 5)
+        .unwrap();
+
+    let task = store.show_task(&task_id).unwrap().task;
+    assert!(branch_exists(&project, &branch));
+    assert!(task.assigned_tab_id.is_none());
+    assert!(task.lane.tab_id.is_none());
+    assert!(task.lane.worktree_path.is_none());
+    assert!(task.lane.branch.is_none());
+    assert_eq!(task.lane.cleanup_status.as_deref(), Some("done"));
 }
