@@ -65,7 +65,15 @@ pub(crate) fn log_launch_environment(
             .map(|value| (name.to_string(), value))
     })
     .collect();
-    let summary = summarize_launch_environment(tab_id, launch_env, &inherited_env);
+    let cli_path = launch_env
+        .get("CODETERM_CLI_PATH")
+        .map(|path| std::ffi::OsString::from(path.as_str()))
+        .or_else(|| std::env::var_os("CODETERM_CLI_PATH"));
+    let cli_dir = cli_path
+        .as_deref()
+        .and_then(crate::pty::manager::cli_dir_of);
+    let summary =
+        summarize_launch_environment(tab_id, launch_env, &inherited_env, cli_dir.as_deref());
     log::info!(
         "[agent-launch-env] origin={} tab={} api_target={} api_target_source={} tab_id_present={} tab_id_matches={} api_token_present={} api_token_source={} binding_nonce_present={} binding_nonce_source={} codex_home_present={} codex_home_source={} path_system32_present={} comspec_present={} path_entry_count={}",
         origin,
@@ -90,6 +98,7 @@ fn summarize_launch_environment(
     tab_id: &str,
     launch_env: &std::collections::HashMap<String, String>,
     inherited_env: &std::collections::HashMap<String, String>,
+    cli_dir: Option<&std::path::Path>,
 ) -> LaunchEnvironmentSummary {
     let (api_url, api_target_source) =
         effective_env_value(launch_env, inherited_env, "CODETERM_API_URL");
@@ -104,13 +113,17 @@ fn summarize_launch_environment(
     let (path, _) = effective_env_value_case_insensitive(launch_env, inherited_env, "PATH");
     let (comspec, _) =
         effective_env_value_case_insensitive(launch_env, inherited_env, "ComSpec");
-    let path_entries = path
+    let mut path_entries = path
         .as_deref()
         .map(|value| std::env::split_paths(value))
         .into_iter()
         .flatten()
         .filter(|entry| !entry.as_os_str().is_empty())
         .collect::<Vec<_>>();
+    if let Some(cli_dir) = cli_dir {
+        path_entries.retain(|entry| entry != cli_dir);
+        path_entries.insert(0, cli_dir.to_path_buf());
+    }
     LaunchEnvironmentSummary {
         api_target: api_target(api_url.as_deref()),
         api_target_source,
@@ -140,20 +153,14 @@ fn effective_env_value_case_insensitive(
     inherited_env: &std::collections::HashMap<String, String>,
     name: &str,
 ) -> (Option<String>, &'static str) {
-    let launch_value = launch_env
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value);
+    let launch_value = case_insensitive_env_value(launch_env, name);
     if let Some(value) = launch_value {
         return (
             (!value.trim().is_empty()).then(|| value.clone()),
             "launch",
         );
     }
-    let inherited_value = inherited_env
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value);
+    let inherited_value = case_insensitive_env_value(inherited_env, name);
     match inherited_value {
         Some(value) => (
             (!value.trim().is_empty()).then(|| value.clone()),
@@ -161,6 +168,18 @@ fn effective_env_value_case_insensitive(
         ),
         None => (None, "unset"),
     }
+}
+
+fn case_insensitive_env_value<'a>(
+    env: &'a std::collections::HashMap<String, String>,
+    name: &str,
+) -> Option<&'a String> {
+    env.get(name).or_else(|| {
+        env.iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case(name))
+            .min_by(|(left, _), (right, _)| left.cmp(right))
+            .map(|(_, value)| value)
+    })
 }
 
 fn effective_env_value(
@@ -338,7 +357,7 @@ mod tests {
         ]);
         let inherited_env = std::collections::HashMap::new();
 
-        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env);
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env, None);
         assert_eq!(summary.api_target, "127.0.0.1:7686");
         assert_eq!(summary.api_target_source, "launch");
         assert!(summary.tab_id_present);
@@ -369,13 +388,59 @@ mod tests {
         ]);
         let inherited_env = std::collections::HashMap::new();
 
-        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env);
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env, None);
         assert!(summary.path_system32_present);
         assert!(summary.comspec_present);
         assert_eq!(summary.path_entry_count, 2);
         let rendered = format!("{summary:?}");
         assert!(!rendered.contains("root"));
         assert!(!rendered.contains("private-bin"));
+    }
+
+    #[test]
+    fn launch_environment_summary_counts_the_prepended_cli_directory() {
+        let cli_dir = std::path::PathBuf::from("codeterm-bin");
+        let launch_env = std::collections::HashMap::from([(
+            "PATH".into(),
+            std::env::join_paths([
+                std::path::PathBuf::from("System32"),
+                std::path::PathBuf::from("provider-bin"),
+            ])
+            .unwrap()
+            .to_string_lossy()
+            .to_string(),
+        )]);
+        let inherited_env = std::collections::HashMap::new();
+
+        let summary =
+            summarize_launch_environment("tab-1", &launch_env, &inherited_env, Some(&cli_dir));
+
+        assert_eq!(summary.path_entry_count, 3);
+    }
+
+    #[test]
+    fn launch_environment_summary_resolves_path_casing_deterministically() {
+        let canonical_path = std::env::join_paths([
+            std::path::PathBuf::from("root/System32"),
+            std::path::PathBuf::from("canonical-bin"),
+        ])
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+        let alias_path = std::env::join_paths([std::path::PathBuf::from("alias-bin")])
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let launch_env = std::collections::HashMap::from([
+            ("Path".into(), alias_path),
+            ("PATH".into(), canonical_path),
+        ]);
+        let inherited_env = std::collections::HashMap::new();
+
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env, None);
+
+        assert!(summary.path_system32_present);
+        assert_eq!(summary.path_entry_count, 2);
     }
 
     #[test]
@@ -389,7 +454,7 @@ mod tests {
             ("ComSpec".into(), r"C:\Windows\System32\cmd.exe".into()),
         ]);
 
-        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env);
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env, None);
         assert!(!summary.path_system32_present);
         assert!(!summary.comspec_present);
         assert_eq!(summary.path_entry_count, 0);
@@ -412,7 +477,7 @@ mod tests {
             ("ComSpec".into(), "command-processor".into()),
         ]);
 
-        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env);
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env, None);
         assert!(summary.path_system32_present);
         assert!(summary.comspec_present);
         assert_eq!(summary.path_entry_count, 2);
@@ -447,7 +512,7 @@ mod tests {
             ),
         ]);
 
-        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env);
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env, None);
         assert!(summary.token_present);
         assert_eq!(summary.token_source, "inherited");
         assert!(summary.binding_nonce_present);
@@ -466,7 +531,7 @@ mod tests {
         ]);
         let inherited_env = std::collections::HashMap::new();
 
-        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env);
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env, None);
         assert_eq!(summary.api_target, "invalid");
         assert_eq!(summary.api_target_source, "launch");
         assert!(summary.tab_id_present);

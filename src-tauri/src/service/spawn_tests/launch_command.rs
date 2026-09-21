@@ -41,7 +41,8 @@ fn task_specific_empty_provider_command_is_refused_after_real_build_and_rolls_ba
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "task-sensitive-empty-launch",
-        ),
+        )
+        .with_launch_binary("cmd.exe"),
     ));
     fixture
         .service

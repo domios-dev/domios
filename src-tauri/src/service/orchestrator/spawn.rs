@@ -737,8 +737,6 @@ impl ServiceContext {
             return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
         }
         if let Err(error) = self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id) {
-            self.cancel_agent_startup_supervision(&tab_id);
-            crate::service::launch_session_detection::clear_launch_marker(&tab_id);
             return Err(error);
         }
         let fallback_delivery = self
