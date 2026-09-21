@@ -299,35 +299,15 @@ impl ServiceContext {
             let (session_id, session_binding_nonce) = binding.unwrap_or_default();
             (title, session_id, session_binding_nonce)
         };
-        let binding = (|| {
-            let intent = params
-                .execution_intent
-                .clone()
-                .ok_or_else(|| "plan-task spawn requires explicit execution_intent".to_string())?;
-            let allowance = self.provider_allowance_for_spawn(params, now_ms)?;
-            let authority = params
-                .task_launch_authority
-                .as_ref()
-                .ok_or_else(|| "plan-task spawn is missing launch authority".to_string())?;
-            let manifest = params.plan_skill_manifest.clone().ok_or_else(|| {
-                "plan-task spawn is missing its prepared plan skill manifest".to_string()
-            })?;
-            bind_worker_task_to_tab(
-                &self.plan_store,
-                params.plan_id.as_deref(),
-                task_ref,
-                tab_id,
-                &title,
-                session_id.as_deref(),
-                session_binding_nonce.as_deref(),
-                intent,
-                allowance,
-                params.agent.as_deref(),
-                &authority.attempt_id,
-                manifest,
-                now_ms,
-            )
-        })();
+        let binding = self.create_worker_task_binding(
+            params,
+            task_ref,
+            tab_id,
+            &title,
+            session_id.as_deref(),
+            session_binding_nonce.as_deref(),
+            now_ms,
+        );
         let binding = match binding {
             Ok(binding) => binding,
             Err(error) => return Err(self.rollback_failed_agent_spawn(tab_id, &error)),
@@ -342,6 +322,45 @@ impl ServiceContext {
             }),
         );
         Ok(())
+    }
+
+    fn create_worker_task_binding(
+        &self,
+        params: &SpawnAgentParams,
+        task_ref: &str,
+        tab_id: &str,
+        title: &str,
+        session_id: Option<&str>,
+        session_binding_nonce: Option<&str>,
+        now_ms: u64,
+    ) -> Result<WorkerTaskBinding, String> {
+        let intent = params
+            .execution_intent
+            .clone()
+            .ok_or_else(|| "plan-task spawn requires explicit execution_intent".to_string())?;
+        let allowance = self.provider_allowance_for_spawn(params, now_ms)?;
+        let authority = params
+            .task_launch_authority
+            .as_ref()
+            .ok_or_else(|| "plan-task spawn is missing launch authority".to_string())?;
+        let manifest = params.plan_skill_manifest.clone().ok_or_else(|| {
+            "plan-task spawn is missing its prepared plan skill manifest".to_string()
+        })?;
+        bind_worker_task_to_tab(
+            &self.plan_store,
+            params.plan_id.as_deref(),
+            task_ref,
+            tab_id,
+            title,
+            session_id,
+            session_binding_nonce,
+            intent,
+            allowance,
+            params.agent.as_deref(),
+            &authority.attempt_id,
+            manifest,
+            now_ms,
+        )
     }
 
     fn provider_allowance_for_spawn(
