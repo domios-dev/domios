@@ -548,6 +548,10 @@ export interface TerminalConfigSettings {
   copy_on_select: boolean;
 }
 
+export interface DiagnosticsConfigSettings {
+  terminal_transport: boolean;
+}
+
 export interface NotificationConfig {
   desktop: boolean;
   /** The chime's master mute. Which levels chime is each level's own answer on
@@ -784,6 +788,7 @@ export interface AppConfig {
   theme: ThemeConfig;
   font: FontConfig;
   terminal: TerminalConfigSettings;
+  diagnostics: DiagnosticsConfigSettings;
   notifications: NotificationConfig;
   keybindings: KeybindingsConfig;
   socket: SocketConfigSettings;

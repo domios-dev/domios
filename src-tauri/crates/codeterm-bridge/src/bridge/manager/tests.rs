@@ -990,3 +990,5 @@ async fn spent_question_a_placed_message_reports_where_it_landed() {
         "a locator round-trips through the one place that spells it"
     );
 }
+
+mod notification_dispatch;
