@@ -1,3 +1,5 @@
+use crate::api::access_policy::check_access;
+use crate::api::routes::{check_auth, AppState};
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
@@ -5,9 +7,6 @@ use axum::{
     response::Response,
     Json,
 };
-
-use crate::api::access_policy::check_access;
-use crate::api::routes::{check_auth, AppState};
 
 pub async fn mesh_sync(
     AxumState(state): AxumState<AppState>,
@@ -965,6 +964,9 @@ pub async fn mesh_relay_stream(
     Query(q): Query<RelayStreamQuery>,
 ) -> Result<Response, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let diagnostic_level = crate::api::stream_diagnostics::configured_level(
+        state.config.lock().diagnostics.terminal_transport,
+    );
 
     let bare = q.path.split('?').next().unwrap_or(&q.path);
     if !is_streamable_relay_path(bare) {
@@ -975,9 +977,11 @@ pub async fn mesh_relay_stream(
     }
     // so a raw append needs no percent-encoding.
     let mut path = q.path.clone();
+    let mut stream_tab_id = None;
     if let Some(ordinary_id) = q.tab.as_deref() {
         let owner = super::remote_tabs::validate_remote_stream_owner(&q.peer, ordinary_id, bare)
             .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+        stream_tab_id = Some(owner.tab_id.clone());
         path = format!("{bare}?tab_id={}", owner.tab_id);
     } else if bare == "/api/output/stream" {
         return Err((
@@ -1029,7 +1033,18 @@ pub async fn mesh_relay_stream(
     }
 
     let content_type = copy_content_type(&resp, "text/event-stream");
-    let mut out = Response::new(Body::from_stream(resp.bytes_stream()));
+    let body = if bare == "/api/output/stream" {
+        super::relay_stream::output_body(
+            resp,
+            diagnostic_level,
+            q.tab.clone().unwrap_or_else(|| "*".into()),
+            stream_tab_id,
+            q.since.as_deref(),
+        )
+    } else {
+        Body::from_stream(resp.bytes_stream())
+    };
+    let mut out = Response::new(body);
     out.headers_mut().insert(header::CONTENT_TYPE, content_type);
     out.headers_mut()
         .insert("x-accel-buffering", HeaderValue::from_static("no"));
