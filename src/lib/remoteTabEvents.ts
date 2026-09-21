@@ -21,6 +21,7 @@ const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean 
 
 interface SubscriptionRecord {
   event: string;
+  kind: "chat" | "resize-owner";
   ordinaryTabId: string;
   peerId: string;
   remoteTabId: string;
@@ -81,9 +82,19 @@ function connect(record: SubscriptionRecord): void {
           if (message.boot && typeof message.seq === "number") {
             progressed = record.recovery.noteProgress(generation, { boot: message.boot, seq: message.seq });
           }
-          if (progressed && message.event_type === `tab-chat-msg-${record.remoteTabId}` && message.data) {
+          if (progressed && message.data && record.kind === "chat"
+            && message.event_type === `tab-chat-msg-${record.remoteTabId}`) {
             publishRemoteTransportState(record.ordinaryTabId, "chat", "available");
             record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
+          } else if (progressed && message.data && record.kind === "resize-owner"
+            && message.event_type === "pty-resize-owner-changed"
+            && message.data.tab_id === record.remoteTabId
+            && typeof message.data.pty_id === "string") {
+            record.handler({ payload: {
+              ...message.data,
+              tab_id: record.ordinaryTabId,
+              pty_id: `mesh:${record.peerId}/${message.data.pty_id}`,
+            } });
           }
         }
         boundary = buffer.indexOf("\n\n");
@@ -99,7 +110,9 @@ function connect(record: SubscriptionRecord): void {
     if (controller.signal.aborted) return;
     const decision = record.recovery.handleStreamEnd(generation, reason);
     if (decision === "reconnect") connect(record);
-    else if (decision === "wait") publishRemoteTransportState(record.ordinaryTabId, "chat", "reconnecting");
+    else if (decision === "wait" && record.kind === "chat") {
+      publishRemoteTransportState(record.ordinaryTabId, "chat", "reconnecting");
+    }
   });
 }
 
@@ -107,9 +120,13 @@ export function subscribeRemoteTabEvent<T>(
   event: string,
   handler: (value: { payload: T }) => void,
 ): (() => void) | null {
-  const prefix = "tab-chat-msg-";
-  if (!event.startsWith(prefix)) return null;
-  const eventTarget = event.slice(prefix.length);
+  const chatPrefix = "tab-chat-msg-";
+  const ownerPrefix = "pty-resize-owner-changed:";
+  const kind = event.startsWith(chatPrefix) ? "chat"
+    : event.startsWith(ownerPrefix) ? "resize-owner"
+      : null;
+  if (!kind) return null;
+  const eventTarget = event.slice(kind === "chat" ? chatPrefix.length : ownerPrefix.length);
   if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
     throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
   }
@@ -118,12 +135,16 @@ export function subscribeRemoteTabEvent<T>(
   subscriptions.get(event)?.controller?.abort();
   const record: SubscriptionRecord = {
     event,
+    kind,
     ordinaryTabId: identity.ordinaryTabId,
     peerId: identity.peerId,
     remoteTabId: identity.remoteTabId,
     handler: handler as (value: { payload: unknown }) => void,
     controller: null,
-    recovery: createRemoteChannelRecovery<ChatCursor>({ channel: "chat", advanced: chatCursorAdvanced }),
+    recovery: createRemoteChannelRecovery<ChatCursor>({
+      channel: kind === "chat" ? "chat" : "control",
+      advanced: chatCursorAdvanced,
+    }),
     disposed: false,
     settlements: new Map(),
   };

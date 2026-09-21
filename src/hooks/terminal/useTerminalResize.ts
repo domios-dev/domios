@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { invoke, IS_WEB, listen } from "../../lib/bridge";
+import { resizeOwnerChangedEvent, type ResizeOwner } from "../../lib/resizeOwner";
 import { tabResizeChanged } from "./tabResize";
 
 export interface UseTerminalResizeOptions {
@@ -9,6 +10,7 @@ export interface UseTerminalResizeOptions {
   termRef: React.MutableRefObject<Terminal | null>;
   fitAddonRef: React.MutableRefObject<FitAddon | null>;
   connectedPtyRef: React.MutableRefObject<string | null>;
+  tabId?: string;
   ptyId?: string | null;
   termReady: boolean;
   isFocused: boolean;
@@ -18,6 +20,13 @@ export interface UseTerminalResizeOptions {
 
 export interface UseTerminalResizeReturn {
   commitResize: (force?: boolean) => void;
+  setResizeOwner: (
+    owner: ResizeOwner,
+    ptyId: string,
+    currentSize: { cols: number; rows: number } | null,
+  ) => void;
+  loseResizeOwnership: () => void;
+  refitAndCommitResize: () => void;
 }
 
 interface TerminalSize {
@@ -47,6 +56,7 @@ export function useTerminalResize({
   termRef,
   fitAddonRef,
   connectedPtyRef,
+  tabId,
   ptyId,
   termReady,
   isFocused,
@@ -57,8 +67,12 @@ export function useTerminalResize({
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const committedSizeRef = useRef<TerminalSize | null>(null);
   const nativeResizeActiveRef = useRef(false);
+  const ownsResizeRef = useRef(false);
+  const suppressCommitRef = useRef(false);
 
   const commitResize = useCallback((force = false) => {
+    if (!ownsResizeRef.current || suppressCommitRef.current) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     const term = termRef.current;
     const currentPtyId = connectedPtyRef.current ?? ptyId ?? null;
     if (!term || !currentPtyId || !resizeClientId) return;
@@ -76,6 +90,26 @@ export function useTerminalResize({
       if (sameSize(committedSizeRef.current, next)) committedSizeRef.current = null;
     });
   }, [connectedPtyRef, ptyId, resizeClientId, termRef]);
+
+  const loseResizeOwnership = useCallback(() => {
+    ownsResizeRef.current = false;
+    committedSizeRef.current = null;
+  }, []);
+
+  const setResizeOwner = useCallback((
+    owner: ResizeOwner,
+    ownerPtyId: string,
+    currentSize: { cols: number; rows: number } | null,
+  ) => {
+    const isOwner = owner.client_id === resizeClientId
+      && owner.pty_id === ownerPtyId
+      && (connectedPtyRef.current ?? ptyId ?? null) === ownerPtyId;
+    ownsResizeRef.current = isOwner;
+    pendingSizeRef.current = null;
+    committedSizeRef.current = isOwner && currentSize
+      ? { ptyId: ownerPtyId, ...currentSize }
+      : null;
+  }, [connectedPtyRef, ptyId, resizeClientId]);
 
   const fitMeasuredContainer = useCallback(() => {
     const el = containerRef.current;
@@ -97,6 +131,44 @@ export function useTerminalResize({
       term.refresh(0, term.rows - 1);
     } catch { /* teardown */ }
   }, [containerRef, fitAddonRef, termRef]);
+
+  const refitAndCommitResize = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
+    suppressCommitRef.current = true;
+    try {
+      forceFitMeasuredContainer();
+    } finally {
+      suppressCommitRef.current = false;
+    }
+    const term = termRef.current;
+    if (!term) return;
+    pendingSizeRef.current = { cols: term.cols, rows: term.rows };
+    commitResize();
+  }, [commitResize, containerRef, forceFitMeasuredContainer, termRef]);
+
+  useEffect(() => {
+    ownsResizeRef.current = false;
+    committedSizeRef.current = null;
+  }, [ptyId, resizeClientId]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void listen<ResizeOwner>(resizeOwnerChangedEvent(tabId), (event) => {
+      const owner = event.payload;
+      const currentPtyId = connectedPtyRef.current ?? ptyId;
+      if (owner?.pty_id !== currentPtyId || owner.client_id === resizeClientId) return;
+      loseResizeOwnership();
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [connectedPtyRef, loseResizeOwnership, ptyId, resizeClientId, tabId]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -174,5 +246,5 @@ export function useTerminalResize({
     return () => cancelAnimationFrame(animationFrame);
   }, [isFocused, resizeEnabled, termReady, termRef]);
 
-  return { commitResize };
+  return { commitResize, setResizeOwner, loseResizeOwnership, refitAndCommitResize };
 }
