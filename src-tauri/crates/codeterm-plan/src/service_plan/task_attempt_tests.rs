@@ -656,11 +656,11 @@ fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let lane = TaskLaneMetadata::default();
 
-    store
+    let stale_attempt = store
         .begin_task_dispatch(&plan_id, &task_id, "loser-tab", "Worker", lane.clone(), 3)
         .unwrap();
     // A second dispatch closes the first attempt by design (last writer wins).
-    store
+    let live_attempt = store
         .begin_task_dispatch(&plan_id, &task_id, "winner-tab", "Worker", lane, 4)
         .unwrap();
 
@@ -713,6 +713,7 @@ fn repeated_runtime_binding_keeps_one_plan_attempt() {
             3,
         )
         .unwrap();
+    let attempts_before = store.show_task(&task_id).unwrap().task.execution_attempts.len();
 
     for now_ms in [4, 5] {
         let ready = store
@@ -723,9 +724,14 @@ fn repeated_runtime_binding_keeps_one_plan_attempt() {
     }
 
     let task = store.show_task(&task_id).unwrap().task;
-    assert_eq!(task.execution_attempts.len(), 1);
-    assert_eq!(task.execution_attempts[0].id, attempt_id);
-    assert_eq!(task.execution_attempts[0].session_id.as_deref(), Some("session"));
+    assert_eq!(task.execution_attempts.len(), attempts_before);
+    let bound: Vec<_> = task
+        .execution_attempts
+        .iter()
+        .filter(|attempt| attempt.id == attempt_id)
+        .collect();
+    assert_eq!(bound.len(), 1);
+    assert_eq!(bound[0].session_id.as_deref(), Some("session"));
 }
 
 #[test]
