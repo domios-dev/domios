@@ -222,8 +222,8 @@ fn commit_reported_session(
         match report_nonce {
             Some(reported) if reported != expected => {
                 log::warn!(
-                    "[hook_session_start] rejecting sid {} for Tab {} provider={}: binding nonce mismatch",
-                    session_id, tab_id, provider_id,
+                    "[hook-refusal] tab={} event=session_start reason=nonce_mismatch provider={}",
+                    tab_id, provider_id,
                 );
                 return Err((
                     StatusCode::CONFLICT,

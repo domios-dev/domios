@@ -3,7 +3,7 @@
 import type { CodexHookEntry } from "./plugin";
 
 export const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
-export const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
+export const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v2";
 const LEGACY_CODEX_HOOK_COMMANDS = new Set([
   'curl -s -X POST http://localhost:${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H \'Content-Type: application/json\' -H \'X-CodeTerm-Agent-Provider: codex\' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true',
   'curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H \'Content-Type: application/json\' -H \'X-CodeTerm-Agent-Provider: codex\' --data-binary @- > /dev/null 2>&1 || true',
@@ -32,22 +32,22 @@ export function codexWindowsHookScript(): string {
     "rem " + CODETERM_CODEX_HOOK_MARKER,
     "rem " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     "if not defined CODETERM_TAB_ID exit /b 0",
-    "if not defined CODETERM_API_URL exit /b 0",
-    "if not defined CODETERM_API_TOKEN exit /b 0",
-    "if not defined CODETERM_SESSION_BINDING_NONCE exit /b 0",
     'set "hookEvent=%~1"',
     'set "hookMarker=%~2 %~3"',
     'if /I not "%hookMarker%"=="X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '" exit /b 0',
-    'if /I "%hookEvent%"=="session_start" goto post_event',
-    'if /I "%hookEvent%"=="stop" goto post_event',
+    'if /I "%hookEvent%"=="session_start" goto cleanup_profile',
+    'if /I "%hookEvent%"=="stop" goto cleanup_profile',
     "exit /b 0",
-    ":post_event",
+    ":cleanup_profile",
+    'if defined USERPROFILE if exist "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml" del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"',
+    "if not defined CODETERM_API_URL exit /b 0",
+    "if not defined CODETERM_API_TOKEN exit /b 0",
+    "if not defined CODETERM_SESSION_BINDING_NONCE exit /b 0",
     'set "apiBase=%CODETERM_API_URL%"',
     'if "%apiBase:~-1%"=="/" set "apiBase=%apiBase:~0,-1%"',
     'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
     'curl.exe --silent --show-error --max-time ' + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
     'if exist "%responseFile%" del /F /Q "%responseFile%"',
-    'if /I "%hookEvent%"=="session_start" if defined USERPROFILE if exist "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml" del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"',
     "exit /b 0",
     "",
   ].join("\r\n");
@@ -105,6 +105,10 @@ export const CODEX_HOOK_SCRIPT_CONTRACT = [
   "--max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS,
   "responseFile",
   "--output",
+  "codeterm-%CODETERM_TAB_ID%.config.toml",
+  "del /F /Q",
+  ":cleanup_profile",
+  "goto cleanup_profile",
 ];
 
 /// True when every command in a CodeTerm-owned entry grants the hook the
