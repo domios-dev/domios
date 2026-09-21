@@ -611,6 +611,12 @@ fn remote_tab_action_outcome(
         && response
             .data
             .as_ref()
+            .and_then(|data| data.get("ok"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+        && response
+            .data
+            .as_ref()
             .and_then(|data| data.get("reason"))
             .and_then(serde_json::Value::as_str)
             == Some("prompt_not_on_screen")
@@ -1057,11 +1063,11 @@ mod tests {
         let unrelated = crate::mesh::types::RelayResponse {
             ok: false,
             status: 409,
-            data: Some(serde_json::json!({"reason": "prompt_not_on_screen"})),
+            data: Some(serde_json::json!({"ok": true, "reason": "prompt_not_on_screen"})),
             error: Some("HTTP 409".into()),
         };
         assert_eq!(
-            remote_tab_action_outcome("/chat-send", unrelated),
+            remote_tab_action_outcome("/prompt/respond", unrelated),
             Err("HTTP 409".into())
         );
     }

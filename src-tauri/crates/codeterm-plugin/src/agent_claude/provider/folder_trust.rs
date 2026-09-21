@@ -17,6 +17,12 @@ pub(super) fn response(screen: &str) -> Option<DirectoryTrustPromptResponse> {
             .any(|row| pointer_label(row).is_some())
         {
             let choices = choice_rows(&rows, header.end);
+            if choices
+                .as_ref()
+                .is_some_and(|choices| !has_folder_trust_affirmative(&choices.options))
+            {
+                return None;
+            }
             let has_path = choices.as_ref().map_or_else(
                 || rows[header.start..].iter().any(|row| is_path_row(row)),
                 |choices| {
@@ -201,6 +207,9 @@ fn trust_choice_indices(options: &[OptionRow<'_>]) -> Option<(usize, usize)> {
     let yes = options
         .iter()
         .position(|option| leads_with(option.label, "yes"))?;
+    if !has_trust_token(options[yes].label) {
+        return None;
+    }
     let no = options
         .iter()
         .position(|option| leads_with(option.label, "no"))?;
@@ -209,6 +218,19 @@ fn trust_choice_indices(options: &[OptionRow<'_>]) -> Option<(usize, usize)> {
         .to_lowercase()
         .contains("exit")
         .then_some((yes, no))
+}
+
+fn has_folder_trust_affirmative(options: &[OptionRow<'_>]) -> bool {
+    options
+        .iter()
+        .find(|option| leads_with(option.label, "yes"))
+        .is_some_and(|option| has_trust_token(option.label))
+}
+
+fn has_trust_token(label: &str) -> bool {
+    label
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|token| token.eq_ignore_ascii_case("trust"))
 }
 
 fn is_trust_option(label: &str) -> bool {
