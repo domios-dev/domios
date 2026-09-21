@@ -106,7 +106,7 @@ fn summarize_launch_environment(
         effective_env_value_case_insensitive(launch_env, inherited_env, "ComSpec");
     let path_entries = path
         .as_deref()
-        .map(std::env::split_paths)
+        .map(|value| std::env::split_paths(value))
         .into_iter()
         .flatten()
         .filter(|entry| !entry.as_os_str().is_empty())
@@ -122,14 +122,17 @@ fn summarize_launch_environment(
         binding_nonce_source,
         codex_home_present: codex_home.is_some(),
         codex_home_source,
-        path_system32_present: path_entries.iter().any(|entry| {
-            entry
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("System32"))
-        }),
+        path_system32_present: path_entries.iter().any(is_system32_path_entry),
         comspec_present: comspec.is_some(),
         path_entry_count: path_entries.len(),
     }
+}
+
+fn is_system32_path_entry(entry: &std::path::PathBuf) -> bool {
+    let entry = entry.as_os_str().to_string_lossy();
+    std::path::Path::new(entry.trim_matches('"'))
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("System32"))
 }
 
 fn effective_env_value_case_insensitive(
@@ -390,6 +393,32 @@ mod tests {
         assert!(!summary.path_system32_present);
         assert!(!summary.comspec_present);
         assert_eq!(summary.path_entry_count, 0);
+    }
+
+    #[test]
+    fn launch_environment_summary_reads_inherited_path_and_comspec() {
+        let launch_env = std::collections::HashMap::new();
+        let inherited_env = std::collections::HashMap::from([
+            (
+                "Path".into(),
+                std::env::join_paths([
+                    std::path::PathBuf::from("root").join("System32"),
+                    std::path::PathBuf::from("inherited-bin"),
+                ])
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+            ),
+            ("ComSpec".into(), "command-processor".into()),
+        ]);
+
+        let summary = summarize_launch_environment("tab-1", &launch_env, &inherited_env);
+        assert!(summary.path_system32_present);
+        assert!(summary.comspec_present);
+        assert_eq!(summary.path_entry_count, 2);
+        let rendered = format!("{summary:?}");
+        assert!(!rendered.contains("inherited-bin"));
+        assert!(!rendered.contains("command-processor"));
     }
 
     #[test]
