@@ -186,9 +186,8 @@ fn apply_dispatch_starting_contract(
     if let Some(fields) = spawn_metadata.as_object_mut() {
         fields.remove("tab_id");
     }
-    // A spawned Worker is not an accepted dispatch. Binding is async: the
-    // durable acceptance arrives later as `dispatch_ready` once the session
-    // binds, so the immediate response names the spawn and the event still owed.
+    // A spawn is not acceptance: `dispatch_ready` arrives once the session
+    // binds, so the response names the spawn and the event still owed.
     result["accepted"] = json!(false);
     result["spawned"] = json!(true);
     result["state"] = json!("awaiting_worker_ack");
