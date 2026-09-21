@@ -1178,14 +1178,16 @@ pub(crate) fn build_agent_command_with_launch_marker(
         structured_prompt_server: params.structured_prompt_server.clone(),
         launch_marker: launch_marker.map(str::to_string),
     };
-    let cmd = registry
-        .with_provider(agent_cmd, |p| {
-            crate::agent::stub_launch::apply(agent_cmd, p.build_launch_command(&launch_params))
-        })
-        .unwrap_or_else(|| {
+    let cmd = match registry
+        .with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
+    {
+        Some(command) if command.trim().is_empty() => return String::new(),
+        Some(command) => crate::agent::stub_launch::apply(agent_cmd, command),
+        None => {
             let mut parts: Vec<String> = vec![agent_cmd.to_string()];
             parts.extend(args.iter().cloned());
             parts.join(" ")
-        });
+        }
+    };
     cmd
 }

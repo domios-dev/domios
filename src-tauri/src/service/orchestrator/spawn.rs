@@ -725,7 +725,22 @@ impl ServiceContext {
                 None => t,
             })
         };
-        self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id)?;
+        let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+            &tab_id,
+            &agent_cmd,
+            &params,
+            bg_task.as_deref(),
+            launch_session_id.as_deref(),
+            &self.agent_registry,
+        );
+        if launch_cmd.trim().is_empty() {
+            return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
+        }
+        if let Err(error) = self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id) {
+            self.cancel_agent_startup_supervision(&tab_id);
+            crate::service::launch_session_detection::clear_launch_marker(&tab_id);
+            return Err(error);
+        }
         let fallback_delivery = self
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
@@ -760,18 +775,12 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
+                self.cancel_agent_startup_supervision(&tab_id);
+                crate::service::launch_session_detection::clear_launch_marker(&tab_id);
                 let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
-            &tab_id,
-            &agent_cmd,
-            &params,
-            bg_task.as_deref(),
-            launch_session_id.as_deref(),
-            &self.agent_registry,
-        );
         launch_agent_in_background(
             self.clone(),
             tab_id.clone(),
