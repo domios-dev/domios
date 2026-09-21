@@ -55,7 +55,7 @@
       "expectations": [
         "Reinspects lifecycle and current screen for the exact tab after the structured response",
         "Does NOT use raw keys, `--actions`, or blind Enter as a fallback",
-        "Keeps task content blocked until authoritative session binding and Worker ACK, and raises a structured action-needed event"
+        "Treats the attempt as unready until authoritative session binding and the child's own Worker ACK, and raises a structured action-needed event"
       ]
     },
     {
@@ -94,7 +94,7 @@
       "expectations": [
         "Does NOT run `codeterm tab respond` for an unrecognized prompt",
         "Uses startup-hold only for the exact tab and PTY attempt when current lifecycle evidence says it is prompt-bound",
-        "Raises structured action-needed and sends no task brief or ACK reminder to the child"
+        "Raises a structured action-needed event for an unknown prompt"
       ]
     },
     {
@@ -114,13 +114,13 @@
       "id": 10,
       "name": "keeps-unbound-shell-fallback-blocked",
       "prompt": "Task-bound Worker child_11 has no session binding or Worker ACK. tab inspect confirms a PTY but no live agent session, and tab get-text shows a plain shell prompt. The assigned task is still pending. Explain the safe recovery action.",
-      "expected_output": "The General Agent keeps the task brief blocked, sends no task or ACK prose or raw keys to the shell, and escalates or finalizes only from authoritative lifecycle evidence.",
+      "expected_output": "The General Agent inspects the exact child, sends no text or raw keys to the shell, and escalates or finalizes only from authoritative lifecycle evidence.",
       "expectations": [
         "Inspects lifecycle and current screen for the exact child tab",
         "Does not send the assigned task or an ACK reminder into the shell",
         "Does not use raw keys, blind Enter, tab exec, or shell commands as a startup recovery",
         "Does not restart, rebind, or repair without verified session evidence",
-        "Keeps the brief gate closed and raises structured action-needed or requests clean finalization"
+        "Raises structured action-needed or requests clean finalization from current lifecycle evidence"
       ]
     },
     {

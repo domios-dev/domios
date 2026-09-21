@@ -7,6 +7,7 @@ import { tabFieldsEqual, selectTab } from "../../store/multiplexer/selectors";
 import {
   useXterm,
   useTerminalResize,
+  useTerminalActivationResize,
   useShellIntegration,
   useTabCompletion,
   usePtyConnection,
@@ -32,7 +33,7 @@ import { TabSessionChat } from "./TabSessionChat";
 import { isTabUiModeEvent, type TabUiMode } from "../../lib/chatUiMode";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { ApiConfig, TabStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
-import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
+import { getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
 import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
@@ -118,27 +119,24 @@ export const TerminalTab = memo(function TerminalTab({
     renderEnabled: renderTerminal,
   });
   const resizeClientId = useMemo(() => getResizeClientId(), []);
-  const { commitResize } = useTerminalResize({
+  const {
+    commitResize,
+    setResizeOwner,
+    loseResizeOwnership,
+    hasResizeOwnership,
+    refitAndCommitResize,
+  } = useTerminalResize({
     containerRef,
     termRef,
     fitAddonRef,
     connectedPtyRef,
+    tabId,
     ptyId,
     termReady,
     isFocused,
-    resizeEnabled: terminalVisible,
+    resizeEnabled: terminalVisible && isVisible,
     resizeClientId,
   });
-  const claimTerminalOwnership = useCallback((force = false) => {
-    if (!ownsLivePty && !force) return;
-    const term = termRef.current;
-    const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
-    if (!term || !ptyIdNow) return;
-    if (term.cols <= 0 || term.rows <= 0) return;
-    void claimResizeOwner(tabId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
-      .then(() => commitResize(true))
-      .catch(() => {});
-  }, [tabId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef, commitResize]);
 
   const shell = useShellIntegration({
     termRef, connectedPtyRef, tabId, ptyId, termReady,
@@ -149,19 +147,34 @@ export const TerminalTab = memo(function TerminalTab({
   });
 
   const { writePty } = usePtyConnection({
-    termRef, fitAddonRef, connectedPtyRef, tabId, ptyId, termReady,
+    termRef, connectedPtyRef, tabId, ptyId, termReady,
     onPtySpawned,
     onShellReady: shell.markReady,
     onOutputChunk: (text) => {
       shell.feedOutput(text);
       completion.feedOutput(text);
     },
-    localFitEnabled: terminalVisible,
     ioEnabled: ownsLivePty,
     renderEnabled: renderTerminal,
-    resizeClientId,
     onHistoryReplayStateChange: setHistoryReplaying,
     onConnectionStateChange: setTerminalIoReady,
+  });
+
+  const activateTerminal = useTerminalActivationResize({
+    active: isVisible && terminalVisible,
+    isFocused,
+    termReady: termReady && terminalIoReady,
+    tabId,
+    ptyId,
+    resizeClientId,
+    containerRef,
+    termRef,
+    fitAddonRef,
+    connectedPtyRef,
+    setResizeOwner,
+    loseResizeOwnership,
+    hasResizeOwnership,
+    refitAndCommitResize,
   });
 
   useAgentDetection({ termRef, tabId, termReady });
@@ -206,12 +219,6 @@ export const TerminalTab = memo(function TerminalTab({
   const FB_HEADER = "2.5rem";
   const FB_BOTTOM = "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))";
   const FB_SHADOW = "0 24px 64px rgba(0,0,0,0.5)";
-
-  useEffect(() => {
-    if (isFocused && ownsLivePty) {
-      claimTerminalOwnership();
-    }
-  }, [isFocused, ownsLivePty, claimTerminalOwnership]);
 
   useEffect(() => {
     const desired = computeMode();
@@ -331,9 +338,9 @@ export const TerminalTab = memo(function TerminalTab({
 
   const handleClick = useCallback(() => {
     onFocus?.(tabId);
-    claimTerminalOwnership(true);
+    activateTerminal();
     termRef.current?.focus();
-  }, [onFocus, tabId, termRef, claimTerminalOwnership]);
+  }, [onFocus, tabId, termRef, activateTerminal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -370,11 +377,8 @@ export const TerminalTab = memo(function TerminalTab({
 
   const openTerminalFallback = useCallback(() => {
     setTerminalFallbackOpen(true);
-    requestAnimationFrame(() => {
-      claimTerminalOwnership(true);
-      termRef.current?.focus();
-    });
-  }, [claimTerminalOwnership, termRef]);
+    termRef.current?.focus();
+  }, [termRef]);
 
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
