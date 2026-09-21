@@ -207,6 +207,73 @@ fn owner_session_is_live(
         .is_some_and(|tab| tab.agent_session_id.as_deref() == Some(session_id))
 }
 
+fn metadata_update_preserves_startup_owner(
+    svc: &ServiceState,
+    plan_id: &str,
+    task: &crate::plan::Task,
+) -> bool {
+    // Dispatch records task ownership before the launch session is persisted.
+    if task.interruption.owner_session_id.is_some() {
+        return false;
+    }
+    let Some(tab_id) = task.interruption.owner_tab_id.as_deref() else {
+        return false;
+    };
+    let Some(owner) = svc
+        .plan_store
+        .dispatch_startup_owner_candidate(plan_id, &task.id)
+        .filter(|owner| owner.tab_id == tab_id)
+    else {
+        return false;
+    };
+    svc.plan_store.worker_startup_attempt_owns(
+        plan_id,
+        &task.id,
+        tab_id,
+        &owner.attempt_id,
+        None,
+    ) && (svc.plan_store.task_dispatch_startup_reservation_owns(
+        plan_id,
+        &task.id,
+        &owner.attempt_id,
+        tab_id,
+    ) || super::plan_task_dispatch::dispatch_startup_owner_is_live(
+        svc, plan_id, &task.id, tab_id,
+    ))
+}
+
+fn lane_metadata_only_task_update(method: &str, params: &Option<Value>) -> bool {
+    if method != "plan.task.update" {
+        return false;
+    }
+    let Some(root) = params.as_ref().and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(lane) = root.get("lane").and_then(Value::as_object) else {
+        return false;
+    };
+    if lane.is_empty()
+        || lane.contains_key("tab_id")
+        || !lane.keys().all(|key| {
+            matches!(key.as_str(), "destination" | "cleanup_status" | "cleanup_hints")
+        })
+    {
+        return false;
+    }
+    root.keys().all(|key| {
+        matches!(
+            key.as_str(),
+            "plan_id"
+                | "task_id"
+                | "caller_tab_id"
+                | "session_id"
+                | "session_binding_nonce"
+                | "owner_epoch"
+                | "lane"
+        )
+    })
+}
+
 /// True only for a live Plan owner reclaiming a task whose owner SESSION is gone
 /// (tab absent, or tab present with a dead/rebound session). Keyed on owner
 /// identity, not bare tab presence, so it agrees with reconcile's TabGone.
@@ -260,6 +327,8 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
     if planner_may_edit_structure(method, params, svc, &detail.plan_id) {
         return Ok(());
     }
+    let metadata_update_preserves_startup = lane_metadata_only_task_update(method, params)
+        && metadata_update_preserves_startup_owner(svc, &detail.plan_id, &detail.task);
     if plan_owner_may_recover(
         method,
         params,
@@ -267,7 +336,8 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         &detail.plan_id,
         detail.task.interruption.owner_tab_id.as_deref(),
         detail.task.interruption.owner_session_id.as_deref(),
-    ) {
+    ) && !metadata_update_preserves_startup
+    {
         // Retire-and-recover is ONE transition: the verb cannot proceed until the
         // stale attempt is fenced, so a later dispatch_ready is already dead.
         svc.plan_store
