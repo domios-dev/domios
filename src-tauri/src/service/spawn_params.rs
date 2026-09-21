@@ -95,6 +95,7 @@ impl SpawnTabSpec {
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
                 provisioned_cwd: params.provisioned_cwd.clone(),
+                existing_tab_id: params.existing_tab_id.clone(),
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
