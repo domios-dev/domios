@@ -125,8 +125,7 @@ and output-byte counts, offsets, truncation and boot changes. It also writes
 that PTY is current for the tab. These diagnostics never include terminal
 output or input text, tokens, or credentials.
 
-Toggle it live with `codeterm config set diagnostics.terminal_transport true`
-and turn it off with `codeterm config set diagnostics.terminal_transport false`.
+Toggle it live with `codeterm config set diagnostics.terminal_transport true|false`.
 The next output-stream session and PTY write use the new setting; an open stream
 keeps the setting it started with. For mesh traces, enable it on both the local
 relaying daemon and the peer. No restart is required.
@@ -238,4 +237,4 @@ agent command. Source-only workers do not build or test in their lane.
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->

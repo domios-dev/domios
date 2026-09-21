@@ -201,10 +201,15 @@ mod tests {
         .unwrap();
 
         let members = team_members(&mux, &team_id);
-        assert_eq!(members[0]["tab_id"], cartographer);
-        assert_eq!(members[0]["role"], "cartographer");
-        assert_eq!(members[0]["role_type"], "Manager");
-        assert_eq!(members[0]["role_profile"], "cartographer");
+        let member = members
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|member| member["tab_id"] == cartographer)
+            .expect("cartographer is a Team member");
+        assert_eq!(member["role"], "cartographer");
+        assert_eq!(member["role_type"], "Manager");
+        assert_eq!(member["role_profile"], "cartographer");
     }
 
     #[test]

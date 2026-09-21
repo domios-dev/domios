@@ -102,11 +102,12 @@ fn store_concurrent_dispatch_cleanup_releases_losing_lane_and_tab() {
     .unwrap_err();
     assert_eq!(refusal.data.unwrap()["type"], "dispatch_in_flight");
     assert!(!losing_worktree.exists());
-    let remaining_branches = std::process::Command::new("git")
+    let mut branch_list = std::process::Command::new("git");
+    branch_list
         .current_dir(&project)
-        .args(["branch", "--list", &losing_branch])
-        .output()
-        .unwrap();
+        .args(["branch", "--list", &losing_branch]);
+    crate::process_util::no_window_std(&mut branch_list);
+    let remaining_branches = branch_list.output().unwrap();
     assert!(String::from_utf8(remaining_branches.stdout)
         .unwrap()
         .trim()
