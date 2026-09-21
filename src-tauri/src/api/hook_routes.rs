@@ -46,15 +46,20 @@ fn resolve_hook_tab(
         Ok(tab_id) => Ok(tab_id),
         Err((status, message)) => {
             if status == StatusCode::NOT_FOUND {
+                let log_tab_id = escaped_hook_log_field(raw_tab_id);
                 log::warn!(
                     "[hook-refusal] tab={} event={} reason=unknown_tab",
-                    raw_tab_id,
+                    log_tab_id,
                     event
                 );
             }
             Err((status, message.to_string()))
         }
     }
+}
+
+fn escaped_hook_log_field(value: &str) -> String {
+    format!("{value:?}")
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
