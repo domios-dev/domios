@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
@@ -58,7 +59,7 @@ use lane_resolution::{
 };
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
-    refuse_unsafe_mutating_write,
+    refuse_unsafe_mutating_write, reported_executor_tab_statuses,
 };
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 pub(super) use recovery::publish_action_needed_event;
@@ -250,11 +251,18 @@ fn preflight_dispatch_placement(
     spawn_cwd: &str,
     lane_protection: LaneProtection,
     will_provision_lane: bool,
+    reported_executor_tab_statuses: &HashMap<(String, String), Option<String>>,
 ) -> Result<(), JsonRpcError> {
     if will_provision_lane {
         return Ok(());
     }
-    preflight_checkout_occupancy(plan, task_id, spawn_cwd, lane_protection)
+    preflight_checkout_occupancy(
+        plan,
+        task_id,
+        spawn_cwd,
+        lane_protection,
+        reported_executor_tab_statuses,
+    )
 }
 
 fn epoch_ms() -> u64 {
@@ -653,6 +661,15 @@ pub(super) fn dispatch(
                     .unwrap_or_else(|| canonical_cwd.clone())
             }),
     };
+    let reported_executor_tabs = if requires_repository
+        && !will_provision_lane
+        && !lane_protection.is_waived()
+    {
+        let mux = svc.mux.read();
+        reported_executor_tab_statuses(&plan, &task_id, |tab_id| mux.get_tab(tab_id).is_some())
+    } else {
+        HashMap::new()
+    };
     if requires_repository {
         preflight_dispatch_placement(
             &plan,
@@ -660,6 +677,7 @@ pub(super) fn dispatch(
             &spawn_cwd,
             lane_protection,
             will_provision_lane,
+            &reported_executor_tabs,
         )?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
