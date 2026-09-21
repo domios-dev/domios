@@ -20,21 +20,16 @@ impl super::ServiceContext {
         super::session_persist::persist_session_after_close(self);
     }
 
-    pub(crate) fn rollback_empty_agent_launch(&self, tab_id: &str, provider_id: &str) -> String {
+    pub(crate) fn rollback_failed_agent_spawn(&self, tab_id: &str, failure: &str) -> String {
         self.cancel_agent_startup_supervision(tab_id);
         super::launch_session_detection::clear_launch_marker(tab_id);
-        let message = format!(
-            "Agent provider '{}' did not resolve a launch command",
-            provider_id
-        );
         let Err(close_error) = self.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)
         else {
-            return message;
+            return failure.to_string();
         };
         log::warn!(
-            "[spawn] tab={} provider={} rollback close failed: {}",
+            "[spawn] tab={} rollback close failed: {}",
             tab_id,
-            provider_id,
             close_error
         );
 
@@ -52,17 +47,17 @@ impl super::ServiceContext {
             super::session_persist::persist_session_after_close(self);
             self.emit_state_changed();
             return format!(
-                "{message}; close reported an error after removing Tab {tab_id}: {close_error}"
+                "{failure}; close reported an error after removing Tab {tab_id}: {close_error}"
             );
         }
         if let Some(membership_error) = membership_error {
             return format!(
-                "{message}; cleanup is owned by the active workspace close for Tab {tab_id}: {membership_error}; close error: {close_error}"
+                "{failure}; cleanup is owned by the active workspace close for Tab {tab_id}: {membership_error}; close error: {close_error}"
             );
         }
         let Some(workspace_id) = workspace_id else {
             return format!(
-                "{message}; cleanup failed because Tab {tab_id} has no owning workspace; close error: {close_error}"
+                "{failure}; cleanup failed because Tab {tab_id} has no owning workspace; close error: {close_error}"
             );
         };
 
@@ -71,14 +66,22 @@ impl super::ServiceContext {
         self.emit_state_changed();
         if self.mux.read().get_tab(tab_id).is_some() {
             return format!(
-                "{message}; cleanup failed because Tab {tab_id} remains; close error: {close_error}"
+                "{failure}; cleanup failed because Tab {tab_id} remains; close error: {close_error}"
             );
         }
         if let Some(cleanup_error) = cleanup_error {
             return format!(
-                "{message}; Tab {tab_id} was removed but ancillary cleanup failed: {cleanup_error}; close error: {close_error}"
+                "{failure}; Tab {tab_id} was removed but ancillary cleanup failed: {cleanup_error}; close error: {close_error}"
             );
         }
-        format!("{message}; fallback cleanup recovered from close error: {close_error}")
+        format!("{failure}; fallback cleanup recovered from close error: {close_error}")
+    }
+
+    pub(crate) fn rollback_empty_agent_launch(&self, tab_id: &str, provider_id: &str) -> String {
+        let failure = format!(
+            "Agent provider '{}' did not resolve a launch command",
+            provider_id
+        );
+        self.rollback_failed_agent_spawn(tab_id, &failure)
     }
 }
