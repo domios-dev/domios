@@ -70,7 +70,7 @@ pub(super) fn persist_authorized_local_task_report(
         ));
     }
     drop(mux);
-    let result = persist_local_task_report(
+    persist_local_task_report(
         &svc.plan_store,
         tab_id,
         plan_id,
@@ -81,8 +81,7 @@ pub(super) fn persist_authorized_local_task_report(
         task_status,
         milestone_kind,
         now_ms,
-    );
-    result
+    )
 }
 
 fn persist_authorized_plan_evidence_report(
@@ -303,6 +302,8 @@ fn persist_explicit_report(
                 client_id: None,
                 task: task_id.to_string(),
                 status: status.to_string(),
+                status_label: (details.status == Some(ReportStatus::Blocked))
+                    .then(|| message.to_string()),
             });
         }
     }
@@ -483,6 +484,43 @@ mod tests {
         assert!(bound.tasks[0].milestones.is_empty());
         let explicit = store.get(&explicit_plan.id).unwrap();
         assert_eq!(explicit.tasks[0].milestones[0].text, "EXPLICIT_MARKER");
+    }
+
+    #[test]
+    fn blocked_explicit_report_sets_status_and_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut plan = Plan::new(
+            "explicit blocked report".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = add_task(&store, &plan.id, "blocked task", 2);
+        let reason = "explicit worker report reason";
+        let details = ReportDetails {
+            status: Some(ReportStatus::Blocked),
+            ..Default::default()
+        };
+
+        persist_local_task_report(
+            &store,
+            "worker",
+            &plan.id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            reason,
+            &details,
+            Some("blocked"),
+            Some("worker_report"),
+            3,
+        )
+        .unwrap();
+
+        let task = store.get(&plan.id).unwrap().tasks.remove(0);
+        assert_eq!(task.status, TaskStatus::Blocked);
+        assert_eq!(task.status_label.as_deref(), Some(reason));
+        assert_eq!(task.milestones.len(), 1);
     }
 
     #[test]

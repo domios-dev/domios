@@ -204,18 +204,49 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
         )
         .unwrap();
     store.assign_task(&plan.id, &task_id, &worker, None, 3).unwrap();
+    let review_task_id = add_team_lane_task(
+        &store,
+        &plan.id,
+        "reviewable task",
+        &worker,
+        &dir.path().join("review-lane"),
+        "lane/review",
+        "missing-base",
+        4,
+    );
     let mut plan = store.get(&plan.id).unwrap();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
-    task.status = crate::plan::TaskStatus::InProgress;
-    let mut second_attempt = task.execution_attempts[0].clone();
-    second_attempt.id = "attempt_second".into();
-    task.execution_attempts.push(second_attempt);
+    {
+        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+        task.status = crate::plan::TaskStatus::InProgress;
+        let mut second_attempt = task.execution_attempts[0].clone();
+        second_attempt.id = "attempt_second".into();
+        task.execution_attempts.push(second_attempt);
+    }
+    let review_before = {
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == review_task_id)
+            .unwrap();
+        task.status = crate::plan::TaskStatus::InReview;
+        task.review_stage = crate::plan::ReviewStage::Qa;
+        task.qa_state = Some(crate::plan::QaState::Queued);
+        task.review_round = 3;
+        task.review_oracle = Some("review oracle".into());
+        task.status_label = Some("review remains open".into());
+        task.lane.worktree_path = Some(dir.path().join("review-lane").display().to_string());
+        task.lane.branch = Some("lane/review".into());
+        task.lane.base = Some("missing-base".into());
+        task.lane.cleanup_status = Some("review-retained".into());
+        task.lane.cleanup_hints = vec!["retain for review".into()];
+        task.clone()
+    };
     plan.tasks
         .iter_mut()
         .find(|task| task.id == orphan_task_id)
         .unwrap()
         .status = crate::plan::TaskStatus::InProgress;
-    store.save(&mut plan, 4).unwrap();
+    store.save(&mut plan, 6).unwrap();
     let events = crate::api::events::EventBroadcaster::new();
 
     close_team_with_state_change(
@@ -224,7 +255,7 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
         &store,
         &team_id,
         &TeamMutationCaller::AgentTab(orchestrator),
-        5,
+        7,
     )
     .unwrap();
 
@@ -234,7 +265,7 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
     assert_eq!(task.assigned_tab_id, None);
     assert_eq!(task.execution_attempts.len(), 2);
     assert!(task.execution_attempts.iter().all(|attempt| {
-        attempt.closed_at == Some(5) && attempt.closure_reason.as_deref() == Some("team_closed")
+        attempt.closed_at == Some(7) && attempt.closure_reason.as_deref() == Some("team_closed")
     }));
     assert!(task.milestones.iter().any(|milestone| {
         milestone.kind == "team_close" && milestone.text.contains(&team_id)
@@ -255,6 +286,86 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
         .tasks
         .iter()
         .all(|task| task.status != crate::plan::TaskStatus::InProgress));
+    let review = closed
+        .tasks
+        .iter()
+        .find(|task| task.id == review_task_id)
+        .unwrap();
+    assert_eq!(review.status, crate::plan::TaskStatus::InReview);
+    assert_eq!(review.review_stage, review_before.review_stage);
+    assert_eq!(review.qa_state, review_before.qa_state);
+    assert_eq!(review.review_round, review_before.review_round);
+    assert_eq!(review.review_oracle, review_before.review_oracle);
+    assert_eq!(review.status_label, review_before.status_label);
+    assert_eq!(review.lane, review_before.lane);
+    assert_eq!(review.assigned_tab_id, review_before.assigned_tab_id);
+    assert_eq!(review.execution_attempts.len(), 1);
+    assert_eq!(review.execution_attempts[0].closed_at, Some(7));
+    assert_eq!(
+        review.execution_attempts[0].closure_reason.as_deref(),
+        Some("team_closed")
+    );
+}
+
+#[test]
+fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+    let (mut mux, team_id, orchestrator, _, worker) = team_members();
+    let plan = store
+        .create_plan_for_team(
+            "Historical lane".into(),
+            dir.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&orchestrator),
+            team_id.clone(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let closed_lane = dir.path().join("historical-lane");
+    let task_id = add_team_lane_task(
+        &store,
+        &plan.id,
+        "completed task",
+        &worker,
+        &closed_lane,
+        "lane/completed",
+        "main",
+        2,
+    );
+    let mut plan = store.get(&plan.id).unwrap();
+    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    task.status = crate::plan::TaskStatus::Done;
+    task.assigned_tab_id = None;
+    task.lane.tab_id = None;
+    task.lane.cleanup_status = Some("previous_cleanup_debt".into());
+    task.lane.cleanup_hints = vec!["preserve historical lane record".into()];
+    task.execution_attempts[0].closed_at = Some(3);
+    task.execution_attempts[0].retired_at = Some(3);
+    task.execution_attempts[0].closure_reason = Some("completed".into());
+    let lane_before = task.lane.clone();
+    store.save(&mut plan, 4).unwrap();
+
+    let events = crate::api::events::EventBroadcaster::new();
+    close_team_with_state_change(
+        &mut mux,
+        &events,
+        &store,
+        &team_id,
+        &TeamMutationCaller::AgentTab(orchestrator),
+        5,
+    )
+    .unwrap();
+
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.status, crate::plan::TaskStatus::Done);
+    assert_eq!(task.lane, lane_before);
 }
 
 #[test]

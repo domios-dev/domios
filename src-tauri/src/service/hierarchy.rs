@@ -559,6 +559,8 @@ impl ServiceContext {
                         h_task.to_string(),
                         from_ref.clone(),
                         task_status,
+                        (details.status == Some(ReportStatus::Blocked))
+                            .then(|| message.to_string()),
                         milestone_text(message, details.status),
                         milestone_kind.unwrap_or("status_update").to_string(),
                     ) {
@@ -879,6 +881,7 @@ impl ServiceContext {
         task_id: String,
         from_ref: AgentRef,
         task_status: Option<&'static str>,
+        status_label: Option<String>,
         ms_text: String,
         ms_kind: String,
     ) -> Result<(), String> {
@@ -900,6 +903,7 @@ impl ServiceContext {
                 "op": "set_task_status",
                 "task": task_id,
                 "status": status,
+                "status_label": status_label,
             }));
         }
         ops.push(serde_json::json!({

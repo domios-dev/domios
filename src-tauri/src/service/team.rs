@@ -496,6 +496,28 @@ impl ServiceContext {
     }
 }
 
+pub(crate) fn rename_team_core(
+    mux: &mut MultiplexerState,
+    team_id: &str,
+    name: String,
+    caller: &TeamMutationCaller,
+) -> Result<Team, String> {
+    authorize_team_manager(mux, team_id, caller)?;
+    mux.rename_team(team_id, name)
+}
+
+pub(crate) fn rename_team_with_state_change(
+    mux: &mut MultiplexerState,
+    events: &crate::api::events::EventBroadcaster,
+    team_id: &str,
+    name: String,
+    caller: &TeamMutationCaller,
+) -> Result<Team, String> {
+    let team = rename_team_core(mux, team_id, name, caller)?;
+    crate::service::publish_mux_state_changed(events);
+    Ok(team)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn commit_team_member_with_plan_takeover<F>(
     mux: &mut MultiplexerState,
