@@ -128,6 +128,8 @@ pub struct AgentSpawnSpec {
     pub extra_args: Vec<String>,
     #[serde(default, skip_deserializing)]
     pub provisioned_cwd: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub existing_tab_id: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -369,7 +371,10 @@ impl ServiceContext {
 
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?;
+            let result = match agent.existing_tab_id.as_deref() {
+                Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
+                None => create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?,
+            };
             if let Some(ref dir) = resolved_cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
