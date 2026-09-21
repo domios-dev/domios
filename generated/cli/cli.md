@@ -1715,8 +1715,8 @@ Set the declared milestone kind columns (CSV)
 
 Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
 
-- `--branch` — Lane branch to delete after the worktree is gone
-- `--project` — Canonical checkout that owns the lane (default: derived from the lane itself)
+- `--branch` — Lane branch to delete after worktree removal, if merged into project HEAD
+- `--project` — Canonical checkout (needed for a missing worktree unless its task identifies the project)
 - `<worktree>` — Lane worktree path to remove
 
 #### `codeterm plan lanes`

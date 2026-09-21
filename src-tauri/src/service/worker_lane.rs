@@ -101,6 +101,11 @@ pub(crate) struct ProvisionedWorkerLane {
 }
 
 impl ProvisionedWorkerLane {
+    #[cfg(test)]
+    pub(crate) fn base(&self) -> &str {
+        &self.base
+    }
+
     pub(crate) fn verify(&self) -> Result<WorkerLaneProvenance, String> {
         verify_worker_lane(
             &self.canonical_cwd,
