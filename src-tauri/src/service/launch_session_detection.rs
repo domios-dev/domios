@@ -50,6 +50,10 @@ fn mint_launch_marker(tab_id: &str) -> String {
     marker
 }
 
+pub(crate) fn clear_launch_marker(tab_id: &str) {
+    LAUNCH_MARKERS.lock().remove(tab_id);
+}
+
 /// A launch command carrying the inert marker this launch registers for its
 /// tab. Minted for every provider; the provider alone decides whether to use it.
 pub(crate) fn marked_agent_command(
@@ -70,7 +74,7 @@ pub(crate) fn marked_agent_command(
         Some(&marker),
     );
     if command.trim().is_empty() {
-        LAUNCH_MARKERS.lock().remove(tab_id);
+        clear_launch_marker(tab_id);
     }
     command
 }

@@ -22,31 +22,63 @@ impl super::ServiceContext {
 
     pub(crate) fn rollback_empty_agent_launch(&self, tab_id: &str, provider_id: &str) -> String {
         self.cancel_agent_startup_supervision(tab_id);
-        if let Err(error) = self.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback) {
-            log::warn!(
-                "[spawn] tab={} provider={} rollback close failed: {}",
-                tab_id,
-                provider_id,
-                error
-            );
-            let _ = self.finish_tab_close(tab_id);
-            self.rollback_provisional_tab_via_close(tab_id);
-            if self.mux.read().get_tab(tab_id).is_some() {
-                if let Some(workspace_id) = self.mux.read().find_workspace_for_tab(tab_id) {
-                    self.rollback_provisional_tab(&workspace_id, tab_id);
-                }
-            }
-            self.emit_state_changed();
-            if self.mux.read().get_tab(tab_id).is_some() {
-                return format!(
-                    "Agent provider '{}' did not resolve a launch command; cleanup failed for Tab {}: {}",
-                    provider_id, tab_id, error
-                );
-            }
-        }
-        format!(
+        super::launch_session_detection::clear_launch_marker(tab_id);
+        let message = format!(
             "Agent provider '{}' did not resolve a launch command",
             provider_id
-        )
+        );
+        let Err(close_error) = self.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)
+        else {
+            return message;
+        };
+        log::warn!(
+            "[spawn] tab={} provider={} rollback close failed: {}",
+            tab_id,
+            provider_id,
+            close_error
+        );
+
+        let (tab_exists, workspace_id, membership_error) = {
+            let mux = self.mux.read();
+            let workspace_id = mux.find_workspace_for_tab(tab_id);
+            let membership_error = workspace_id
+                .as_deref()
+                .and_then(|workspace_id| {
+                    mux.ensure_workspace_membership_mutable(workspace_id).err()
+                });
+            (mux.get_tab(tab_id).is_some(), workspace_id, membership_error)
+        };
+        if !tab_exists {
+            super::session_persist::persist_session_after_close(self);
+            self.emit_state_changed();
+            return format!(
+                "{message}; close reported an error after removing Tab {tab_id}: {close_error}"
+            );
+        }
+        if let Some(membership_error) = membership_error {
+            return format!(
+                "{message}; cleanup is owned by the active workspace close for Tab {tab_id}: {membership_error}; close error: {close_error}"
+            );
+        }
+        let Some(workspace_id) = workspace_id else {
+            return format!(
+                "{message}; cleanup failed because Tab {tab_id} has no owning workspace; close error: {close_error}"
+            );
+        };
+
+        let cleanup_error = self.finish_tab_close(tab_id).err();
+        self.rollback_provisional_tab(&workspace_id, tab_id);
+        self.emit_state_changed();
+        if self.mux.read().get_tab(tab_id).is_some() {
+            return format!(
+                "{message}; cleanup failed because Tab {tab_id} remains; close error: {close_error}"
+            );
+        }
+        if let Some(cleanup_error) = cleanup_error {
+            return format!(
+                "{message}; Tab {tab_id} was removed but ancillary cleanup failed: {cleanup_error}; close error: {close_error}"
+            );
+        }
+        format!("{message}; fallback cleanup recovered from close error: {close_error}")
     }
 }
