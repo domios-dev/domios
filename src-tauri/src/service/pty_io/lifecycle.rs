@@ -128,14 +128,9 @@ pub(crate) fn claim_restored_launch(
     let Some(provider_id) = tab.agent_type.clone() else {
         return Ok(None);
     };
-    let cwd_matches = match (tab.cwd.as_deref(), observed_cwd) {
-        (Some(current), Some(observed)) => ServiceContext::paths_equal(current, observed),
-        (None, None) => true,
-        _ => false,
-    };
     if provider_id != observed_provider_id
         || tab.agent_session_id.as_deref() != observed_session_id
-        || !cwd_matches
+        || tab.cwd.as_deref() != observed_cwd
     {
         return Ok(None);
     }

@@ -6,6 +6,13 @@ use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
+fn visible_spawn_starter_prompt(
+    startup_handshake: Option<crate::agent::provider::StarterPrompt>,
+    provider_starter: Option<crate::agent::provider::StarterPrompt>,
+) -> Option<crate::agent::provider::StarterPrompt> {
+    startup_handshake.or(provider_starter)
+}
+
 pub(crate) use super::spawn_cli::{
     cli_binary_on_path, create_cleared_agent_tab, provider_launch_preflight,
 };
@@ -621,10 +628,11 @@ impl ServiceContext {
         };
 
         let mut legacy_params = spec.to_agent_params()?;
-        if let Some(prompt) = startup_handshake {
+        if let Some(prompt) = visible_spawn_starter_prompt(
+            startup_handshake,
+            task_selection.provider_starter,
+        ) {
             legacy_params.starter_prompt = prompt;
-        } else if let Some(starter) = task_selection.provider_starter {
-            legacy_params.starter_prompt = starter;
         }
         legacy_params.skip_permissions = Some(permission_bypass);
         legacy_params.permission_bypass_authorization = permission_bypass_authorization;

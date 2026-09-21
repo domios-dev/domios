@@ -160,12 +160,12 @@ owns one subscription and takes a fresh snapshot on reactivation or resync.
 |--------|------|------|-------------|
 | POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Set tab role (`Orchestrator` or `Worker`; `Conductor` accepted as an alias for `Orchestrator`). A `Manager` with `role_profile: "planner"` requires `plan_id` and resolves its parent from the plan's live Orchestrator owner when `parent_tab_id` is omitted, rather than refusing; an explicit `parent_tab_id` still wins when given. |
 | DELETE | `/api/tabs/{id}/role` | — | Clear role: detach a Worker from its Orchestrator, or retire an Orchestrator while retaining the final anchor's Team and active Plan for replacement |
-| GET | `/api/tabs/{id}/status` | — | Tab status + role + children info |
+| GET | `/api/tabs/{id}/status` | — | Tab status + role + children info, including `pending_prompt` when a numbered provider prompt is active (`question` and `options`). `codeterm tab status --json` returns the same prompt data. |
 | POST | `/api/tabs/{id}/report` | `{message, caller_tab_id?, caller_session_id?, session_binding_nonce?, plan_id?, task_id?, status?, ...}` | Send an authenticated hierarchy report. A Plan-authorized task-less reporter uses `plan_id` without `task_id`/`status`; success returns `plan_report` and persists a task-less Plan stride before Orchestrator delivery. |
 | GET | `/api/tabs/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
 | POST | `/api/tabs/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether tab can spawn children |
 | POST | `/api/tabs/{id}/agent-type` | `{agent_type}` | Mark a tab as running a specific agent provider |
-| POST | `/api/tabs/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
+| POST | `/api/tabs/{id}/prompt/respond` | `{value}` | Respond to the active numbered prompt. `codeterm tab respond <option> --tab <id>` uses the one-based option shown by status and refuses when the prompt is no longer on screen. |
 | POST | `/api/tabs/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | Shared provider catalog for UI, CLI, cron, and memory jobs. Entries expose `id`, `display_name`, models, reasoning efforts/defaults, settings, and `kind`: `agent` (PTY) or `shell` (chat backend). Shells also expose presets and Chat UI support. `availability` is `available`, `unavailable`, or `unknown`; PTY launch lookup uses `binary_name`, while backends use optional `cli_binary`. Spawn refuses unavailable before creating a tab; unknown proceeds with a warning. Resolver and cache details: [provider contract](../.agents/skills/provider-authoring/SKILL.md#launch-binary-availability). |
 | GET | `/api/providers` | — | Authenticated provider list alias for agent/provider selectors |
@@ -228,4 +228,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related docs: `API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
 `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 161 -->
+<!-- revision: 162 -->

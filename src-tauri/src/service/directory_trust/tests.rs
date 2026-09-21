@@ -3,9 +3,9 @@ use std::cell::Cell;
 use codeterm_plugin::provider::DirectoryTrustPromptResponse;
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_provenance, directory_trust_skip_reason,
-    inherited_workspace_provenance, legacy_auto_approve_permitted, DirectoryTrustRefusal,
-    TrustDecision, TrustLedger,
+    decide, directory_trust_check_applies, directory_trust_provenance,
+    directory_trust_prompt_candidate, directory_trust_skip_reason, inherited_workspace_provenance,
+    legacy_auto_approve_permitted, DirectoryTrustRefusal, TrustDecision, TrustLedger,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -75,6 +75,25 @@ fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
         directory_trust_provenance(state.get_tab(&tab_id).unwrap()),
         Ok(())
     );
+}
+
+#[test]
+fn directory_trust_prompt_candidate_uses_active_path_choice_structure() {
+    let trust = "> You are in D:\\workspace\\project\n\nShould this folder's guidance be loaded? Project rules can alter how the running agent behaves while working in this folder.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
+    let approval = "Do you want to apply this change? It can modify the selected files in your project.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
+    let bypass = "> D:\\workspace\\project\n\nShould this folder's local rules be loaded? This enables a bypass for the configured policies and removes the usual restrictions.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
+    let model_picker = "> You are in D:\\workspace\\project\n\nSelect a model\n\n  1. Model A\n> 2. Model B\n  3. Model C\n\nPress enter to select";
+    let answer_list = "> You are in D:\\workspace\\project\n\nHere are the choices we discussed:\n  1. First answer\n  2. Second answer\n  3. Third answer";
+    let one_paragraph_approval = "> D:\\workspace\\project\n\nWould you like to apply this change? It updates the selected files and records the result in the project history.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
+    let unselected_trust = trust.replace("> 2. No", " 2. No");
+
+    assert!(directory_trust_prompt_candidate(trust));
+    assert!(!directory_trust_prompt_candidate(approval));
+    assert!(!directory_trust_prompt_candidate(bypass));
+    assert!(!directory_trust_prompt_candidate(model_picker));
+    assert!(!directory_trust_prompt_candidate(answer_list));
+    assert!(!directory_trust_prompt_candidate(one_paragraph_approval));
+    assert!(!directory_trust_prompt_candidate(&unselected_trust));
 }
 
 #[test]

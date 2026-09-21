@@ -1,0 +1,7 @@
+> D:\workspace\project
+
+Here are the possible approaches from the previous answer:
+
+  1. Keep the current implementation
+  2. Add a compatibility layer
+  3. Remove the old behavior

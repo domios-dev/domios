@@ -1,112 +1,37 @@
 # Prompt detection
 
-Prompt detection architecture, state, structural fingerprints, and verification.
+How provider prompts reach tab status and how `tab respond` answers the active choice.
 
-## Prompt Detection Architecture
+## Live path
 
-The permission prompt detection pipeline detects when AI agents show interactive prompts (e.g., "Do you want to proceed? 1. Yes 2. No") and renders clickable approval buttons in the chat UI.
+1. PTY output updates the per-tab terminal screen held by `ScreenState`.
+2. `process_pty_output()` checks that visible screen when an event, active prompt, auto-approve setting, or changed-screen trust candidate requires it.
+3. Structured providers contribute their pending prompt from the structured-prompt store. Native screen detection handles supported generic prompt shapes. Codex folder trust uses the dedicated `parseDirectoryTrustPrompt` provider capability after a native check for an active two-choice menu, its footer, directory context, and trust-related content. The general Codex `parsePrompt` parser is not used on this live path.
+4. `PromptDetector` stores the resulting question and options as `pending_prompt` on the tab and emits the updated mux state.
+5. `codeterm tab status` shows the question and one-based options. `codeterm tab status --json` includes the `pending_prompt` object.
+6. `codeterm tab respond <option> --tab <id>` rechecks that the prompt is still active on screen, asks the provider for response keys, and writes nothing if the prompt has gone away.
 
-### Pipeline
+Directory trust auto-response is separate from prompt display. It requires CodeTerm-owned directory provenance before answering. A trust dialog without that authority can still be surfaced through the dedicated prompt parser, so an Orchestrator can inspect the numbered choices and respond through the tab command.
 
-1. **PTY output arrives** -- `OutputBuffer` appends raw bytes and feeds them into a per-tab VT100 parser (`vt100` crate).
-2. **`process_pty_output()`** (`src-tauri/src/service/output.rs`) calls `has_event_markers()` on the cleaned chunk text. This is a cheap string check that gates the expensive path.
-3. **If markers found** -- `get_screen_text()` on `OutputBuffer` returns the actual terminal screen content (what the user sees), correctly handling cursor positioning, alternate screen, and TUI overlays.
-4. **`PromptDetector.evaluate_pty_output()`** (`src-tauri/src/agent/prompt.rs`) runs the state machine. It delegates to `parse_permission_prompt()` for structural fingerprint detection.
-5. **If prompt found** -- returns a `PromptDecision::NewPrompt` or `PromptDecision::PromptUpdated`. `apply_prompt_decision()` sets `pending_prompt` on the Tab and emits `mux-state-changed`.
-6. **Frontend** (`TabSessionChat.tsx`) reads mux state, sees the pending prompt, and renders response controls. User responds, which calls `mux_respond_prompt()` and sends the chosen keystroke to the PTY.
+## Classifier boundaries
 
-### Key source files
+The native detector checks menu structure and screen position rather than question wording. The Codex trust classifier also requires a directory path context, a folder/directory/workspace trust or load question, a description of local policy material, exactly two numbered Yes/No choices, one active selection, and an active footer. Bypass-style warnings, generic approvals, model pickers, and numbered answer lists do not qualify as folder trust.
+
+The Codex provider's general parser remains separate from the live trust parser. This prevents a numbered list in an agent answer from becoming a false active prompt. Provider parsing runs only after the screen changed and the native trust precheck matched.
+
+## Sources
 
 | File | Role |
 |------|------|
-| `src-tauri/src/agent/prompt.rs` | `PromptDetector` state machine (Idle -> Active -> Cooldown -> Idle) |
-| `src-tauri/src/agent/detector.rs` | Structural fingerprint detection (`detect_interactive_prompt`, `parse_permission_prompt`) + event detection (`detect_claude_events`) |
-| `src-tauri/src/pty/manager.rs` | `OutputBuffer` with per-tab VT100 parser, `get_screen_text()` |
-| `src-tauri/src/service/output.rs` | `process_pty_output()` orchestration + `apply_prompt_decision()` |
-| `src/components/Terminal/TabSessionChat.tsx` | Frontend prompt state + response controls |
+| `src-tauri/src/agent/prompt.rs` | Prompt state machine and decisions |
+| `src-tauri/src/agent/detector.rs` | Native structural prompt detection |
+| `src-tauri/src/service/output.rs` | Changed-screen gating and live prompt application |
+| `src-tauri/src/service/directory_trust.rs` | Trust provenance, cheap candidate check, and guarded response |
+| `plugins/provider-codex/src/prompt.ts` | Dedicated Codex trust classifier and response mapping |
+| `src-tauri/src/service/tab.rs` | On-screen recheck and `tab respond` handling |
 
-### State machine: PromptDetector
+## Verification surfaces
 
-Each tab has independent state:
+Coverage includes generic numbered choices, active Codex trust choices, trust-dialog negative fixtures, stale-screen refusal, native/JavaScript parity, and the response path. Canonical QA should run the focused Rust and plugin tests from the task report after refreshing the generated Codex plugin bundle.
 
-```
-Idle ──[prompt detected]──> Active ──[user responds]──> Cooldown ──[500ms]──> Idle
-                               │                                                │
-                               ├──[same options]──> (no-op)                     │
-                               └──[different options]──> PromptUpdated          │
-                                                                                │
-Cooldown ──[hook arrives]──> Active  (hooks bypass cooldown)                    │
-```
-
-- **Idle**: No active prompt. Output is parsed for prompts.
-- **Active**: Prompt is shown to the user. Same-options output is suppressed. Changed options trigger `PromptUpdated`.
-- **Cooldown**: User responded (500ms). PTY auto-detection is suppressed to avoid re-detecting the same prompt before the agent clears it. Hooks (API path) bypass cooldown since they are authoritative.
-
-### Structural fingerprint detection (false positive prevention)
-
-Detection uses structural patterns, never hardcoded question text. This makes it agent-agnostic and resilient to wording changes.
-
-**Requirements for a positive match:**
-- 2+ numbered options in `N. label` format (e.g., `1. Yes`, `2. No`)
-- PLUS at least one of:
-  - A `>` or `❯` selector prefix on one of the options
-  - A keyboard hint footer containing `Esc`/`Enter` with `cancel`/`amend`/`confirm`
-- Options and footer/selector must be within **8 lines** proximity (prevents matching a numbered list in the answer that sits far above the actual prompt)
-- Only the last **20 lines** of screen content are scanned (prompt is always at the bottom)
-
-**What does NOT match:**
-- Plain numbered lists (no selector or footer)
-- Source code containing prompt-like strings (wrong structure)
-- Numbered log timestamps
-- Markdown numbered lists in agent answers
-
-### Idle detection and status tracking
-
-The status tracker (`agent_tracker`) determines whether an agent is Working, Waiting, or Idle:
-
-- Uses a **screen content hash** (SHA-256 of `get_screen_text()`) instead of raw PTY bytes
-- Cursor blinks and TUI redraws (ANSI noise) do not change the screen content hash, so they do not reset the idle timer
-- Default idle timeout: **5 seconds** of unchanged screen content
-
-### Two detection paths
-
-| Path | Entry point | When used |
-|------|-------------|-----------|
-| **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent Tabs; reliable fallback |
-| **Hook (API)** | `POST /api/tabs/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
-
-Both paths converge on the same `PromptDetector` state machine and `apply_prompt_decision()`.
-
-### Testing prompt detection
-
-Unit tests cover the full matrix:
-
-```bash
-# PromptDetector state machine (14 tests)
-scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib prompt::tests
-
-# Structural fingerprint detection (30+ tests)
-scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib detector::tests
-```
-
-Key test categories in `detector.rs`:
-- **True positives**: real Claude prompts (bash, file write, read), generic TUI menus
-- **False positives**: numbered answers, bug analyses, step instructions, code reviews, phased plans, comparison lists, security audits
-- **Edge cases**: prompt buried after long output, old prompt scrolled off, question mark before plain list, `Esc` text far from list
-
-E2E tests (`test_hooks.py`) verify the full lifecycle: hook -> pending_prompt set -> respond -> prompt cleared.
-
-UI tests (`prompt-approval.js`) verify button rendering and click behavior.
-
-## What's NOT tested
-
-- Clipboard/image paste (needs OS-level interaction)
-- Cross-platform PTY differences (PowerShell vs bash)
-- Session restore with active Claude across restart
-- Real Claude permission prompt → chat UI → approve → Claude continues (needs real Claude running)
-
-## Reviewer's checklist
-
-Before approving a PR, use **`.agents/skills/review/SKILL.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
-
-<!-- revision: 3 -->
+<!-- revision: 4 -->

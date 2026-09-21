@@ -30,8 +30,26 @@ fn ack_identity(attempt_id: &str) -> WorkerAckIdentity {
         task_id: "task".into(),
         attempt_id: attempt_id.into(),
         tab_id: "tab".into(),
+        startup_attempt_id: Some(format!("pty-{attempt_id}")),
         session_id: Some("session".into()),
         binding_nonce: Some("nonce".into()),
+    }
+}
+
+fn task_startup_ack_identity(
+    task_identity: &StartupTaskIdentity,
+    startup_attempt_id: &str,
+    session_id: Option<&str>,
+    binding_nonce: Option<&str>,
+) -> WorkerAckIdentity {
+    WorkerAckIdentity {
+        plan_id: task_identity.plan_id.clone(),
+        task_id: task_identity.task_id.clone(),
+        attempt_id: task_identity.attempt_id.clone(),
+        tab_id: "child".into(),
+        startup_attempt_id: Some(startup_attempt_id.into()),
+        session_id: session_id.map(str::to_string),
+        binding_nonce: binding_nonce.map(str::to_string),
     }
 }
 
@@ -488,9 +506,10 @@ fn task_bound_startup_supervision_completes_on_task_ack() {
         .for_task(Some(identity.clone()))
         .for_binding(Some("session-a"), "nonce-a");
     let receiver = startup_receiver(&registry, authority);
+    let ack_identity = task_startup_ack_identity(&identity, "pty-a", Some("session-a"), Some("nonce-a"));
 
     assert_eq!(
-        registry.acknowledge_task_startup("child", &identity),
+        registry.acknowledge_task_startup("child", &identity, &ack_identity),
         Some(AgentStartupAcknowledgement::Acknowledged)
     );
     assert_eq!(receiver.try_recv(), Ok(AgentStartupSignal::Ready));
@@ -507,8 +526,14 @@ fn task_bound_startup_supervision_completes_on_task_ack() {
         None,
         Some(early_identity.clone()),
     );
+    let early_ack_identity = task_startup_ack_identity(
+        &early_identity,
+        "pty-b",
+        Some("session-b"),
+        Some("nonce-b"),
+    );
     assert_eq!(
-        registry.acknowledge_task_startup("child", &early_identity),
+        registry.acknowledge_task_startup("child", &early_identity, &early_ack_identity),
         Some(AgentStartupAcknowledgement::Acknowledged)
     );
     let early_authority = StartupAuthority::new("parent", "child", "pty-b")
@@ -519,6 +544,48 @@ fn task_bound_startup_supervision_completes_on_task_ack() {
         AgentStartupArm::AlreadyAcknowledged
     ));
     assert!(registry.startup_waiters.lock().is_empty());
+}
+
+#[test]
+fn early_task_ack_requires_the_same_pty_attempt_session_and_nonce() {
+    let expected = StartupTaskIdentity {
+        plan_id: "plan-a".into(),
+        task_id: "task-a".into(),
+        attempt_id: "task-attempt-a".into(),
+    };
+    for (ack_attempt, ack_session, ack_nonce) in [
+        ("pty-old", Some("session-a"), Some("nonce-a")),
+        ("pty-a", Some("session-old"), Some("nonce-a")),
+        ("pty-a", Some("session-a"), Some("nonce-old")),
+    ] {
+        let registry = WorkerAckRegistry::default();
+        registry.register_startup_supervisor(
+            "child",
+            "parent",
+            "Worker",
+            None,
+            Some(expected.clone()),
+        );
+        let stale_ack = task_startup_ack_identity(
+            &expected,
+            ack_attempt,
+            ack_session,
+            ack_nonce,
+        );
+        assert_eq!(
+            registry.acknowledge_task_startup("child", &expected, &stale_ack),
+            Some(AgentStartupAcknowledgement::Acknowledged)
+        );
+
+        let current = StartupAuthority::new("parent", "child", "pty-a")
+            .for_task(Some(expected.clone()))
+            .for_binding(Some("session-a"), "nonce-a");
+        let receiver = match registry.arm_startup(current) {
+            AgentStartupArm::Armed(receiver) => receiver,
+            _ => panic!("stale early ACK must not complete the current startup"),
+        };
+        assert!(receiver.try_recv().is_err());
+    }
 }
 
 #[test]

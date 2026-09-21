@@ -147,26 +147,34 @@ pub fn canonical_cwd(raw: &str) -> String {
 /// Slash-separated `//?/` spellings are accepted too.
 /// No-op on Unix paths.
 pub fn strip_verbatim_prefix(p: &str) -> String {
-    if p
-        .get(..8)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/UNC/"))
+    let rest = p
+        .strip_prefix(r"\\?\")
+        .or_else(|| p.strip_prefix("//?/"));
+    let Some(rest) = rest else {
+        return p.to_string();
+    };
+    let normalized = rest.replace('/', "\\");
+    if normalized
+        .get(..4)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("UNC\\"))
     {
-        return format!(r"\\{}", p[8..].replace('/', "\\"));
+        let unc = &normalized[4..];
+        let mut parts = unc.split('\\');
+        let server = parts.next().unwrap_or_default();
+        let share = parts.next().unwrap_or_default();
+        if !server.is_empty() && !share.is_empty() {
+            return format!(r"\\{unc}");
+        }
     }
-    if p.starts_with("//?/") {
-        return p[4..].to_string();
-    }
-    let windows_path = p.replace('/', "\\");
-    if windows_path
-        .get(..8)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(r"\\?\UNC\"))
+    let bytes = normalized.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && bytes[2] == b'\\'
     {
-        format!(r"\\{}", &windows_path[8..])
-    } else if windows_path.starts_with(r"\\?\") {
-        windows_path[4..].to_string()
-    } else {
-        p.to_string()
+        return normalized;
     }
+    p.to_string()
 }
 
 #[cfg(test)]
@@ -193,6 +201,24 @@ mod tests {
         );
         assert_eq!(strip_verbatim_prefix("/home/user/p"), "/home/user/p");
         assert_eq!(strip_verbatim_prefix(r"C:\plain\path"), r"C:\plain\path");
+    }
+
+    #[test]
+    fn strip_verbatim_prefix_preserves_volume_and_globalroot_paths() {
+        let volume = r"\\?\Volume{12345678-1234-1234-1234-123456789abc}\folder";
+        let globalroot = r"\\?\GLOBALROOT\Device\HarddiskVolume1\folder";
+        assert_eq!(strip_verbatim_prefix(volume), volume);
+        assert_eq!(strip_verbatim_prefix(globalroot), globalroot);
+        assert_eq!(strip_verbatim_prefix(r"\\?\C:relative"), r"\\?\C:relative");
+    }
+
+    #[test]
+    fn strip_verbatim_prefix_preserves_extended_length_drive_paths() {
+        let tail = "segment".repeat(48);
+        let verbatim = format!(r"\\?\C:\{tail}");
+        let stripped = strip_verbatim_prefix(&verbatim);
+        assert_eq!(stripped, format!(r"C:\{tail}"));
+        assert!(verbatim.len() > 260);
     }
 
     #[test]
