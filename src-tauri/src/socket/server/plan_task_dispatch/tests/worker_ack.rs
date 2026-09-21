@@ -785,12 +785,14 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
         crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
     );
     let replacement_attempt = store
-        .begin_task_dispatch(
+        .begin_task_dispatch_with_observation(
             &plan.id,
             &task_id,
             "tab-worker",
             "Ada",
             failed.lane.clone(),
+            store.dispatch_startup_owner_candidate(&plan.id, &task_id),
+            false,
             9,
         )
         .unwrap();

@@ -208,6 +208,12 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     assert_eq!(failure["stage"], "agent_ready");
     assert!(closed.get());
     assert!(!Path::new(&worktree_path).exists());
-    assert_eq!(store.show_task(&original.id).unwrap().task, original);
+    let restored = store.show_task(&original.id).unwrap().task;
+    assert_eq!(restored.status, original.status);
+    assert_eq!(restored.assigned_tab_id, original.assigned_tab_id);
+    assert_eq!(restored.lane, original.lane);
+    assert_eq!(restored.execution_attempts.len(), 1);
+    assert_eq!(restored.execution_attempts[0].id, attempt);
+    assert!(restored.execution_attempts[0].closed_at.is_some());
     assert_eq!(store.get(&plan_id).unwrap().mode, PlanMode::Approved);
 }
