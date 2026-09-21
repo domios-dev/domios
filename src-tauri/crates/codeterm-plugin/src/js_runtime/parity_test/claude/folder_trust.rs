@@ -56,3 +56,81 @@ fn folder_trust_native_js_parity_on_shared_fixtures() {
         );
     }
 }
+
+#[test]
+fn quick_safety_prompt_and_response_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    for file in [
+        "quick-safety-no-first.txt",
+        "quick-safety-yes-focused.txt",
+        "quick-safety-ambiguous-focus.txt",
+        "quick-safety-wrapped-header.txt",
+        "quick-safety-path-residue.txt",
+        "quick-safety-path-in-dialog.txt",
+    ] {
+        let screen = std::fs::read_to_string(fixtures_dir().join(file)).expect("fixture");
+        let native_prompt = native.parse_prompt(&screen);
+        let js_prompt = js.parse_prompt(&screen);
+        assert_eq!(native_prompt, js_prompt, "parse_prompt {file}");
+        let Some(prompt) = native_prompt else {
+            assert!(
+                file == "quick-safety-ambiguous-focus.txt"
+                    || file == "quick-safety-path-in-dialog.txt",
+                "only ambiguous or path-containing dialog fixtures are held"
+            );
+            continue;
+        };
+
+        assert_eq!(prompt.options.len(), 2, "two choices {file}");
+        assert!(prompt.options[0].label.to_ascii_lowercase().starts_with("no"));
+        assert!(prompt.options[1].label.to_ascii_lowercase().starts_with("yes"));
+        assert_eq!(prompt.options[0].value, "1");
+        assert_eq!(prompt.options[1].value, "2");
+        let native_steps = native.build_prompt_response(1, &screen);
+        let js_steps = js.build_prompt_response(1, &screen);
+        assert_eq!(native_steps, js_steps, "build_prompt_response {file}");
+        assert_eq!(
+            native_steps,
+            if file == "quick-safety-yes-focused.txt" {
+                vec![b"\r".to_vec()]
+            } else {
+                vec![b"j".to_vec(), b"\r".to_vec()]
+            },
+            "trust selection is reached before confirming {file}"
+        );
+    }
+}
+
+#[test]
+fn numbered_trust_prompt_and_response_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen =
+        std::fs::read_to_string(fixtures_dir().join("trust-numbered-focus-affirmative.txt"))
+            .expect("numbered trust fixture");
+    let native_prompt = native
+        .parse_prompt(&screen)
+        .expect("native parses numbered trust");
+    let js_prompt = js
+        .parse_prompt(&screen)
+        .expect("plugin parses numbered trust");
+    assert_eq!(native_prompt, js_prompt);
+    assert_eq!(native_prompt.options.len(), 2);
+    assert!(native_prompt.options[0]
+        .label
+        .to_ascii_lowercase()
+        .starts_with("yes"));
+    assert!(native_prompt.options[1]
+        .label
+        .to_ascii_lowercase()
+        .starts_with("no"));
+    let native_steps = native.build_prompt_response(0, &screen);
+    let js_steps = js.build_prompt_response(0, &screen);
+    assert_eq!(native_steps, js_steps);
+    assert_eq!(native_steps, vec![b"\r".to_vec()]);
+}

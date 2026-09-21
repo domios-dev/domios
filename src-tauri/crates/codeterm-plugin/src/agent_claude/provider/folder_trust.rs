@@ -11,10 +11,48 @@ const FRAME: &[char] = &[
 /// does not prove which key advances it toward trusting the folder.
 pub(super) fn response(screen: &str) -> Option<DirectoryTrustPromptResponse> {
     let rows: Vec<&str> = screen.split('\n').map(content).collect();
-    let path = rows.iter().position(|row| is_path_row(row))?;
-    let trust = (path + 1..rows.len()).find(|&i| rows[i].to_lowercase().contains("trust"))?;
-    (trust + 1..rows.len()).find(|&i| pointer_label(rows[i]).is_some())?;
-    Some(answer(&rows, path, trust).unwrap_or(DirectoryTrustPromptResponse::Hold))
+    if let Some(header) = find_trust_header(&rows) {
+        if rows[header.end + 1..]
+            .iter()
+            .any(|row| pointer_label(row).is_some())
+        {
+            let choices = choice_rows(&rows, header.end);
+            if choices
+                .as_ref()
+                .is_some_and(|choices| !has_folder_trust_affirmative(&choices.options))
+            {
+                return None;
+            }
+            let has_path = choices.as_ref().map_or_else(
+                || rows[header.start..].iter().any(|row| is_path_row(row)),
+                |choices| {
+                    rows[header.start..=choices.footer]
+                        .iter()
+                        .any(|row| is_path_row(row))
+                },
+            );
+            return Some(
+                choices
+                    .and_then(|choices| answer(&choices.options, has_path))
+                    .unwrap_or(DirectoryTrustPromptResponse::Hold),
+            );
+        }
+    }
+
+    if let Some(path) = rows.iter().position(|row| is_path_row(row)) {
+        let trust = (path + 1..rows.len())
+            .find(|&i| rows[i].to_lowercase().contains("trust"))?;
+        (trust + 1..rows.len()).find(|&i| pointer_label(rows[i]).is_some())?;
+        if !rows[..path].iter().any(|row| row.ends_with(':')) {
+            return Some(DirectoryTrustPromptResponse::Hold);
+        }
+        return Some(
+            choice_rows(&rows, trust)
+                .and_then(|choices| answer(&choices.options, false))
+                .unwrap_or(DirectoryTrustPromptResponse::Hold),
+        );
+    }
+    None
 }
 
 struct OptionRow<'a> {
@@ -22,40 +60,35 @@ struct OptionRow<'a> {
     label: &'a str,
 }
 
-fn answer(rows: &[&str], path: usize, trust: usize) -> Option<DirectoryTrustPromptResponse> {
-    if !rows[..path].iter().any(|row| row.ends_with(':')) {
+struct TrustHeader {
+    start: usize,
+    end: usize,
+    question: String,
+}
+
+struct TrustChoices<'a> {
+    options: Vec<OptionRow<'a>>,
+    footer: usize,
+}
+
+struct TrustPrompt<'a> {
+    question: String,
+    options: Vec<OptionRow<'a>>,
+    focused: usize,
+}
+
+fn answer(
+    options: &[OptionRow<'_>],
+    has_path: bool,
+) -> Option<DirectoryTrustPromptResponse> {
+    if has_path || options.len() != 2 {
         return None;
     }
-    let footer = rows.iter().rposition(|row| !row.is_empty())?;
-    let footer_text = rows[footer].to_lowercase();
-    if !footer_text.contains("enter") || !footer_text.contains("esc") {
-        return None;
-    }
-    let mut end = footer;
-    while end > 0 && rows[end - 1].is_empty() {
-        end -= 1;
-    }
-    let mut start = end;
-    while start > 0 && !rows[start - 1].is_empty() {
-        start -= 1;
-    }
-    if end - start != 2 || trust >= start {
-        return None;
-    }
-    let options: Vec<OptionRow> = rows[start..end].iter().map(|row| option_row(row)).collect();
     if options.iter().filter(|option| option.focused).count() != 1 {
         return None;
     }
+    let (yes, _) = trust_choice_indices(&options)?;
     let focused = options.iter().position(|option| option.focused)?;
-    let yes = options
-        .iter()
-        .position(|option| leads_with(option.label, "yes"))?;
-    let no = options
-        .iter()
-        .position(|option| leads_with(option.label, "no"))?;
-    if !options[no].label.to_lowercase().contains("exit") {
-        return None;
-    }
     let step = if focused == yes {
         b"\r".to_vec()
     } else if yes > focused {
@@ -64,6 +97,144 @@ fn answer(rows: &[&str], path: usize, trust: usize) -> Option<DirectoryTrustProm
         b"k".to_vec()
     };
     Some(DirectoryTrustPromptResponse::Answer { step })
+}
+
+pub(super) fn parse_prompt(screen: &str) -> Option<(String, Vec<(String, String)>)> {
+    let rows: Vec<&str> = screen.split('\n').map(content).collect();
+    let prompt = current_prompt(&rows)?;
+    Some((
+        prompt.question,
+        prompt
+            .options
+            .into_iter()
+            .enumerate()
+            .map(|(index, option)| (option.label.to_string(), (index + 1).to_string()))
+            .collect(),
+    ))
+}
+
+pub(super) fn current_option_index(screen: &str) -> Option<usize> {
+    let rows: Vec<&str> = screen.split('\n').map(content).collect();
+    current_prompt(&rows).map(|prompt| prompt.focused)
+}
+
+fn current_prompt<'a>(rows: &[&'a str]) -> Option<TrustPrompt<'a>> {
+    let header = find_trust_header(rows)?;
+    let choices = choice_rows(rows, header.end)?;
+    if rows[header.start..=choices.footer]
+        .iter()
+        .any(|row| is_path_row(row))
+    {
+        return None;
+    }
+    let options = choices.options;
+    if options.len() != 2 {
+        return None;
+    }
+    if options.iter().filter(|option| option.focused).count() != 1 {
+        return None;
+    }
+    let focused = options.iter().position(|option| option.focused)?;
+    trust_choice_indices(&options)?;
+    Some(TrustPrompt {
+        question: header.question,
+        options,
+        focused,
+    })
+}
+
+fn find_trust_header(rows: &[&str]) -> Option<TrustHeader> {
+    (0..rows.len()).find_map(|start| trust_header(rows, start))
+}
+
+fn trust_header(rows: &[&str], start: usize) -> Option<TrustHeader> {
+    let (title, first_question) = rows[start].split_once(':')?;
+    if title.trim().is_empty() {
+        return None;
+    }
+    let mut question = first_question.trim().to_string();
+    let mut end = start;
+    while !is_trust_question(&question) {
+        let next = *rows.get(end + 1)?;
+        if next.is_empty()
+            || is_footer(next)
+            || is_path_row(next)
+            || pointer_label(next).is_some()
+            || is_trust_option(option_row(next).label)
+        {
+            return None;
+        }
+        question.push(' ');
+        question.push_str(next.trim());
+        end += 1;
+    }
+    let question = question.split_whitespace().collect::<Vec<_>>().join(" ");
+    Some(TrustHeader {
+        start,
+        end,
+        question: format!("{}: {}", title.trim(), question),
+    })
+}
+
+fn is_trust_question(question: &str) -> bool {
+    question.to_lowercase().contains("trust") && question.contains('?')
+}
+
+fn is_footer(row: &str) -> bool {
+    let footer = row.to_lowercase();
+    footer.contains("enter") && footer.contains("esc")
+}
+
+fn choice_rows<'a>(rows: &[&'a str], header_end: usize) -> Option<TrustChoices<'a>> {
+    let footer = (header_end + 1..rows.len()).find(|&index| is_footer(rows[index]))?;
+    let start = (header_end + 1..footer)
+        .find(|&index| is_trust_option(option_row(rows[index]).label))?;
+    let mut options = Vec::new();
+    for row in &rows[start..footer] {
+        if row.is_empty() {
+            continue;
+        }
+        let option = option_row(row);
+        if !is_trust_option(option.label) {
+            return None;
+        }
+        options.push(option);
+    }
+    Some(TrustChoices { options, footer })
+}
+
+fn trust_choice_indices(options: &[OptionRow<'_>]) -> Option<(usize, usize)> {
+    let yes = options
+        .iter()
+        .position(|option| leads_with(option.label, "yes"))?;
+    if !has_trust_token(options[yes].label) {
+        return None;
+    }
+    let no = options
+        .iter()
+        .position(|option| leads_with(option.label, "no"))?;
+    options[no]
+        .label
+        .to_lowercase()
+        .contains("exit")
+        .then_some((yes, no))
+}
+
+fn has_folder_trust_affirmative(options: &[OptionRow<'_>]) -> bool {
+    options
+        .iter()
+        .find(|option| leads_with(option.label, "yes"))
+        .is_some_and(|option| has_trust_token(option.label))
+}
+
+fn has_trust_token(label: &str) -> bool {
+    label
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|token| token.eq_ignore_ascii_case("trust"))
+}
+
+fn is_trust_option(label: &str) -> bool {
+    leads_with(label, "yes") || leads_with(label, "no")
 }
 
 fn content(line: &str) -> &str {
@@ -161,18 +332,19 @@ mod tests {
 
     #[test]
     fn enter_is_only_sent_while_the_affirmative_row_is_focused() {
-        let screen = "Accessing workspace:\n\n/srv/lane\n\none you trust?\n\n❯ No, exit\n  Yes, I trust this folder\n\nEnter to confirm · Esc to cancel";
+        let screen = std::fs::read_to_string(fixtures().join("quick-safety-no-first.txt"))
+            .expect("unfocused trust fixture");
+        let affirmative =
+            std::fs::read_to_string(fixtures().join("quick-safety-yes-focused.txt"))
+                .expect("affirmative focus fixture");
         assert_eq!(
-            response(screen),
+            response(&screen),
             Some(DirectoryTrustPromptResponse::Answer {
                 step: b"j".to_vec()
             })
         );
-        let moved = screen
-            .replace("❯ No, exit", "  No, exit")
-            .replace("  Yes, I trust", "❯ Yes, I trust");
         assert_eq!(
-            response(&moved),
+            response(&affirmative),
             Some(DirectoryTrustPromptResponse::Answer {
                 step: b"\r".to_vec()
             })

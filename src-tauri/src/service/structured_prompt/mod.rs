@@ -166,9 +166,10 @@ pub fn respond(svc: &ServiceContext, tab_id: &str, value: &str) -> Option<Result
     let route = route_for_tab(tab_id)?;
     let base_url = ENDPOINTS.lock().get(tab_id).map(|e| e.base_url.clone())?;
     let result = send_reply(&base_url, &route, value);
-    // stale prompt in the UI is worse; the next SSE event re-surfaces if needed.
-    ACTIVE.lock().remove(tab_id);
-    svc.push_structured_prompt(tab_id, None);
+    if result.is_ok() {
+        ACTIVE.lock().remove(tab_id);
+        svc.push_structured_prompt(tab_id, None);
+    }
     Some(result)
 }
 

@@ -256,7 +256,8 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn parse_prompt(&self, text: &str) -> Option<codeterm_types::pty::PendingPrompt> {
-        crate::detector::parse_permission_prompt(text)
+        folder_trust::parse_prompt(text)
+            .or_else(|| crate::detector::parse_permission_prompt(text))
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
     }
 
@@ -436,6 +437,9 @@ impl AgentProvider for ClaudeProvider {
 }
 
 fn highlighted_option_index(screen: &str) -> Option<usize> {
+    if let Some(index) = folder_trust::current_option_index(screen) {
+        return Some(index);
+    }
     let mut option_idx = 0usize;
     for line in screen.lines() {
         let trimmed = line.trim_start();
@@ -509,6 +513,41 @@ mod tests {
         );
         assert_eq!(
             p.build_prompt_response(2, screen),
+            vec![b"j".to_vec(), b"\r".to_vec()]
+        );
+    }
+
+    #[test]
+    fn current_folder_trust_prompt_parses_and_responds_from_the_refusal_focus() {
+        let screen = std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../plugins/provider-claude/tests/fixtures/folder-trust")
+                .join("quick-safety-no-first.txt"),
+        )
+        .expect("captured folder-trust fixture");
+        let provider = ClaudeProvider::new();
+        let prompt = provider.parse_prompt(&screen).expect("two-option choice");
+        assert_eq!(
+            prompt
+                .options
+                .iter()
+                .map(|option| option.value.as_str())
+                .collect::<Vec<_>>(),
+            ["1", "2"]
+        );
+        assert_eq!(
+            prompt
+                .options
+                .iter()
+                .map(|option| option.label.split_whitespace().next().unwrap_or_default())
+                .collect::<Vec<_>>(),
+            ["No,", "Yes,"]
+        );
+        assert!(prompt.options[0].label.to_lowercase().contains("exit"));
+        assert!(prompt.options[1].label.to_lowercase().contains("trust"));
+        assert_eq!(highlighted_option_index(&screen), Some(0));
+        assert_eq!(
+            provider.build_prompt_response(1, &screen),
             vec![b"j".to_vec(), b"\r".to_vec()]
         );
     }

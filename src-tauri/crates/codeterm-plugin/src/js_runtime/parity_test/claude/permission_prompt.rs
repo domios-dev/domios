@@ -69,11 +69,8 @@ fn permission_prompt_refusals_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
-    let trust = prompt(
-        "Quick safety check: Is this a project you created or one you trust?",
-        &["Yes, I trust this folder", "No, exit"],
-    );
-    let trust_screen = "Quick safety check: Is this a project you created or one you trust?\n❯ 1. Yes, I trust this folder\n  2. No, exit\nEnter to confirm · Esc to cancel";
+    let trust = prompt("Trust?", &["Yes", "No"]);
+    let trust_screen = "Trust?";
     let declineless = prompt("Do you want to proceed?", &["Yes", "Yes, always"]);
     let mut multi = approval();
     multi.multi_select = Some(true);
