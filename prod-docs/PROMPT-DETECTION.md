@@ -6,7 +6,7 @@ How provider prompts reach tab status and how `tab respond` answers the active c
 
 1. PTY output updates the per-tab terminal screen held by `ScreenState`.
 2. `process_pty_output()` checks that visible screen when an event, active prompt, auto-approve setting, or changed-screen trust candidate requires it.
-3. Structured providers contribute their pending prompt from the structured-prompt store. Native screen detection handles supported generic prompt shapes. Codex folder trust uses the dedicated `parseDirectoryTrustPrompt` provider capability after a native check for an active two-choice menu, its footer, directory context, and trust-related content. The general Codex `parsePrompt` parser is not used on this live path.
+3. Structured prompt providers contribute their pending prompt from the structured-prompt store. The live output path does not infer prompts from arbitrary provider screen text. Codex folder trust is a narrow screen-classified case: the dedicated `parseDirectoryTrustPrompt` provider capability runs after a native check for an active two-choice menu, its footer, directory context, and trust-related content. The general Codex `parsePrompt` parser is not used on this live path.
 4. `PromptDetector` stores the resulting question and options as `pending_prompt` on the tab and emits the updated mux state.
 5. `codeterm tab status` shows the question and one-based options. `codeterm tab status --json` includes the `pending_prompt` object.
 6. `codeterm tab respond <option> --tab <id>` rechecks that the prompt is still active on screen, asks the provider for response keys, and writes nothing if the prompt has gone away.
@@ -15,7 +15,7 @@ Directory trust auto-response is separate from prompt display. It requires CodeT
 
 ## Classifier boundaries
 
-The native detector checks menu structure and screen position rather than question wording. The Codex trust classifier also requires a directory path context, a folder/directory/workspace trust or load question, a description of local policy material, exactly two numbered Yes/No choices, one active selection, and an active footer. Bypass-style warnings, generic approvals, model pickers, and numbered answer lists do not qualify as folder trust.
+The native trust precheck checks menu structure and screen position rather than question wording. The Codex trust classifier also requires a directory path context, a folder/directory/workspace trust or load question, a description of local policy material, exactly two numbered Yes/No choices, one active selection, and an active footer. Bypass-style warnings, generic approvals, model pickers, and numbered answer lists do not qualify as folder trust.
 
 The Codex provider's general parser remains separate from the live trust parser. This prevents a numbered list in an agent answer from becoming a false active prompt. Provider parsing runs only after the screen changed and the native trust precheck matched.
 
@@ -34,4 +34,4 @@ The Codex provider's general parser remains separate from the live trust parser.
 
 Coverage includes generic numbered choices, active Codex trust choices, trust-dialog negative fixtures, stale-screen refusal, native/JavaScript parity, and the response path. Canonical QA should run the focused Rust and plugin tests from the task report after refreshing the generated Codex plugin bundle.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

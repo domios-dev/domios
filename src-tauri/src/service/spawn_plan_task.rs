@@ -476,6 +476,28 @@ mod tests {
         prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
 
         assert!(params.task_launch_authority.is_some());
+        let task_selection = crate::service::launch_delivery::select_visible_spawn_task(
+            None,
+            params.task.as_deref(),
+            true,
+            true,
+        );
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
+            true,
+            params.task_launch_authority.is_some(),
+        );
+        assert_eq!(startup_handshake, None);
+        assert_eq!(
+            task_selection.provider_starter,
+            Some(crate::agent::provider::StarterPrompt::AssignedTask)
+        );
+        assert_eq!(
+            crate::service::spawn::visible_spawn_starter_prompt(
+                startup_handshake,
+                task_selection.provider_starter,
+            ),
+            Some(crate::agent::provider::StarterPrompt::AssignedTask)
+        );
 
         let authority = params.task_launch_env();
         assert_eq!(

@@ -23,7 +23,14 @@ impl AutoAckKind {
     }
 }
 
-pub fn classify(prompt: &PendingPrompt, screen: &str) -> Option<AutoAck> {
+pub fn classify(
+    prompt: &PendingPrompt,
+    screen: &str,
+    directory_trust_prompt: bool,
+) -> Option<AutoAck> {
+    if directory_trust_prompt {
+        return None;
+    }
     classify_repair_menu(prompt, screen).or_else(|| classify_first_affirmative(prompt))
 }
 
@@ -126,7 +133,7 @@ Choose an option:
 
 Enter to confirm · Esc to cancel";
         let prompt = prompt_from_screen(screen);
-        let ack = classify(&prompt, screen).expect("classified");
+        let ack = classify(&prompt, screen, false).expect("classified");
         assert_eq!(ack.kind, AutoAckKind::RepairConfiguration);
         assert_eq!(ack.option_index, 1);
     }
@@ -140,22 +147,23 @@ Choose an option:
 
 Enter to confirm · Esc to cancel";
         let prompt = prompt_from_screen(screen);
-        assert_eq!(classify(&prompt, screen), None);
+        assert_eq!(classify(&prompt, screen, false), None);
     }
 
     #[test]
-    fn trust_prompt_selects_first_affirmative() {
+    fn directory_trust_prompt_is_not_auto_acknowledged() {
         let screen = "\
 ? Do you trust the contents of this directory?
 
   ❯ 1. Yes, continue
     2. No, quit
 
-Enter to confirm · Esc to cancel";
+        Enter to confirm · Esc to cancel";
         let prompt = prompt_from_screen(screen);
-        let ack = classify(&prompt, screen).expect("classified");
+        let ack = classify(&prompt, screen, false).expect("generic affirmative");
         assert_eq!(ack.kind, AutoAckKind::FirstAffirmative);
         assert_eq!(ack.option_index, 0);
+        assert_eq!(classify(&prompt, screen, true), None);
     }
 
     #[test]
@@ -180,7 +188,8 @@ Enter to confirm · Esc to cancel";
         assert_eq!(
             classify(
                 &prompt,
-                "Here is a plan:\n1. Reset parser state\n2. Exit loop"
+                "Here is a plan:\n1. Reset parser state\n2. Exit loop",
+                false,
             ),
             None
         );

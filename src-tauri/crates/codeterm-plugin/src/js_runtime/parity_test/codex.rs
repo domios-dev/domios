@@ -266,6 +266,26 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
     .expect("ordinary approval fixture");
     assert!(codex().parse_prompt(&answer).is_some());
     assert!(codex().parse_directory_trust_prompt(&answer).is_none());
+
+    let fixtures = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust");
+    let cases: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixtures.join("cases.json")).expect("fixture cases"),
+    )
+    .expect("valid fixture cases");
+    for case in cases.as_array().expect("fixture case list") {
+        let file = case["file"].as_str().expect("fixture name");
+        let expected = case["expect"].as_str().expect("fixture expectation") != "none";
+        let screen = std::fs::read_to_string(fixtures.join(file)).expect("fixture frame");
+        assert_eq!(
+            codex().parse_directory_trust_prompt(&screen).is_some(),
+            expected,
+            "{file}"
+        );
+    }
 }
 
 #[test]
