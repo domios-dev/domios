@@ -4,6 +4,9 @@ use crate::service::{ServiceContext, SpawnAgentParams};
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[path = "spawn_tests/launch_command.rs"]
+mod launch_command;
+
 #[test]
 fn resolve_spawn_workspace_prefers_explicit_workspace_over_parent() {
     let workspace_of = |tab: &str| match tab {
