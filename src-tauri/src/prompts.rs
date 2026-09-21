@@ -97,7 +97,7 @@ pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
     "reject any draft whose worker guidance says nothing";
 
 /// Connects the missing-ACK event to the shared child PTY recovery procedure.
-pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- On worker_ack_startup_failed with recovery.capability=interactive_child_pty, inspect the named tab and attempt via lifecycle, status, and get-text. Hold only a confirmed prompt-bound attempt; use tab respond only for a provider-classified, authorized numbered prompt; reread and verify binding plus the child's own ACK. Diagnose other failures from current evidence; keep uncertainty blocked and escalate. Never send task/ACK prose, raw keys, or blind Enter.";
+pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- worker_ack_startup_failed/interactive_child_pty: inspect tab/attempt; hold prompt-bound; declared safe choices only; recheck screen/binding/ACK; action-needed unknowns; no brief/ACK prose, keys.";
 
 /// Stable Orchestrator delivery token for the optional Cartographer Manager.
 pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
