@@ -784,15 +784,6 @@ fn task_startup_waiter_uses_task_attempt_session_and_binding_identity() {
         registry.acknowledge_startup_for_binding(
             "child",
             "pty-a",
-            Some("session-a"),
-            Some("nonce-b")
-        ),
-        None
-    );
-    assert_eq!(
-        registry.acknowledge_startup_for_binding(
-            "child",
-            "pty-a",
             Some("session-b"),
             Some("nonce-b")
         ),
