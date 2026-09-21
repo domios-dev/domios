@@ -384,8 +384,60 @@ var UP = "G1tB";
 var ENTER = "DQ==";
 var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
 function parseCodexPrompt(screen) {
-  const parsed = parseCodexPromptShape(screen);
+  const parsed = parseCodexPromptShape(String(screen || ""));
   return parsed ? parsed.prompt : null;
+}
+function parseCodexFolderTrustPrompt(screen) {
+  const trust = classifyCodexFolderTrustPrompt(screen);
+  return trust?.kind === "active" ? trust.prompt : null;
+}
+function classifyCodexFolderTrustPrompt(screen) {
+  const options = activeMenuOptions(screen);
+  if (options.length !== 2) return null;
+  if (!hasDirectoryContextLine(screen)) return null;
+  const affirmativeIndex = options.findIndex((option) => /^yes\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^no\b/i.test(option.label));
+  if (affirmativeIndex < 0 || negativeIndex < 0) return null;
+  const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
+  if (!hasDirectoryTrustContent(preamble)) return null;
+  const questionEnd = preamble.indexOf("?");
+  const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
+  if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  const choice = parseActiveTerminalChoice(screen);
+  if (!choice || choice.options.length !== 2 || choice.options.filter((option) => option.highlighted).length !== 1) {
+    return { kind: "not_on_screen" };
+  }
+  return {
+    kind: "active",
+    affirmativeIndex,
+    prompt: {
+      question: preamble.slice(0, questionEnd + 1).trim(),
+      options: choice.options.map((option) => [option.label, option.value]),
+      multiSelect: false,
+      submitAvailable: false
+    }
+  };
+}
+function hasDirectoryContextLine(screen) {
+  return normalizeLines(screen).some((line) => {
+    const text5 = line.trim();
+    const context = /^[>❯›][ \t]+(.+)$/.exec(text5)?.[1];
+    if (!context) return false;
+    return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
+  });
+}
+function hasDirectoryTrustContent(preamble) {
+  const content = preamble.toLowerCase();
+  if (/\b(?:bypass|disable|override|without restrictions)\b/.test(content)) return false;
+  const questionEnd = content.indexOf("?");
+  if (questionEnd < 0) return false;
+  const question = content.slice(0, questionEnd);
+  const explanation = content.slice(questionEnd + 1);
+  return /\b(?:folder|directory|workspace)\b/.test(question) && /\b(?:trust(?:ed|ing)?|load(?:ed|ing)?)\b/.test(question) && /\b(?:guidance|rules|config(?:uration)?|settings|policy|policies|instructions|hooks)\b/.test(explanation);
+}
+function isAbsolutePathToken(token) {
+  const path = token.replace(/[),;]+$/, "");
+  return /^(?:[a-z]:[\\/]|\\\\|\/\/|\/)/i.test(path);
 }
 function responseKeysForIndex(optionIndex, screen) {
   const parsed = parseCodexPromptShape(screen);
@@ -2546,17 +2598,18 @@ var plugin = {
   parsePrompt(text5) {
     return parseCodexPrompt(String(text5 || ""));
   },
+  parseDirectoryTrustPrompt(text5) {
+    return parseCodexFolderTrustPrompt(String(text5 || ""));
+  },
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
   },
   directoryTrustPromptResponse(screen) {
     const view = String(screen || "");
-    const choice = parseActiveTerminalChoice(view);
-    if (!choice) return null;
-    const preamble = menuPreamble(view, choice.options[0].line).toLowerCase();
-    if (preamble.indexOf("trust the contents of this directory") === -1) return null;
-    if (!/^yes\b/i.test(choice.options[0].label)) return [];
-    return responseKeysForIndex(0, view).slice(0, 1);
+    const prompt = classifyCodexFolderTrustPrompt(view);
+    if (!prompt || prompt.kind !== "active") return null;
+    if (prompt.affirmativeIndex !== 0) return [];
+    return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
