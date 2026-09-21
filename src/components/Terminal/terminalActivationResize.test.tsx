@@ -280,6 +280,27 @@ describe("terminal viewer activation resize", () => {
     assert.equal(resizes.length, 2);
   });
 
+  it("still claims on focus when reconnect already queued an owned refit frame", async () => {
+    await mount(true);
+    const ownerChanged = eventHandlers.get("pty-resize-owner-changed");
+    assert.ok(ownerChanged);
+    await act(async () => ownerChanged({ payload: { ...baseOwner, client_id: "web:phone", cols: 80, rows: 24 } }));
+    targetSize = { cols: 140, rows: 42 };
+    currentPtySize = { cols: 80, rows: 24 };
+
+    await act(async () => {
+      window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+      window.dispatchEvent(new Event("focus"));
+    });
+    await flushFrames();
+
+    assert.equal(claims.length, 2);
+    assert.equal(claims[1]?.args.force, true);
+    assert.deepEqual(resizes.map(({ cols, rows }) => ({ cols, rows })), [
+      { cols: 160, rows: 48 }, { cols: 140, rows: 42 },
+    ]);
+  });
+
   it("keeps resize ownership across window blur", async () => {
     await mount(true);
     assert.equal(resizes.length, 1);
@@ -322,6 +343,7 @@ describe("terminal viewer activation resize", () => {
     assert.equal(claims.length, 1);
 
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    assert.equal(claims.length, 1);
     holdClaims = false;
     await act(async () => activateViewer?.());
     await flushFrames();
