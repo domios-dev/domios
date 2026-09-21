@@ -10,6 +10,8 @@ use super::plan_role_helpers::{
 };
 pub(super) use super::plan_task_authority::authorize_draft_mutation;
 use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
+#[cfg(test)]
+use super::plan_task_dispatch::dispatch_with_spawn;
 use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
