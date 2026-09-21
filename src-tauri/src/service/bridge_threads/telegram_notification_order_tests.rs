@@ -170,7 +170,7 @@ fn text(tab_id: &str, markdown: &str) -> TabText {
     }
 }
 
-fn notify_send(calls: &[Call], html: &str) -> Vec<&Call> {
+fn notify_send<'a>(calls: &'a [Call], html: &str) -> Vec<&'a Call> {
     calls.iter().filter(|call| {
         matches!(call, Call::Send { html: body, .. } if body.contains(html) && body != TOPICS_DISABLED_NOTICE)
     })

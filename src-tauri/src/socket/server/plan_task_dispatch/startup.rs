@@ -17,28 +17,28 @@ use super::{
     DispatchFailureDisposition, DispatchWaitFailure, JsonRpcError, TaskBriefDelivery,
     DISPATCH_READY_TIMEOUT,
 };
-pub(super) struct DispatchStartup {
-    pub(super) app: AppHandle,
-    pub(super) svc: ServiceState,
-    pub(super) plan_id: String,
-    pub(super) task_id: String,
-    pub(super) tab_id: String,
-    pub(super) startup_attempt_id: String,
-    pub(super) attempt_id: String,
-    pub(super) parent_tab_id: String,
-    pub(super) worker_title: String,
-    pub(super) original_task: Task,
-    pub(super) original_plan_mode: crate::plan::PlanMode,
-    pub(super) lane_for_commit: TaskLaneMetadata,
-    pub(super) canonical_project_path: String,
-    pub(super) provenance: Option<WorkerLaneProvenance>,
-    pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
-    pub(super) lane_protection: LaneProtection,
-    pub(super) spawn_command: String,
+pub(crate) struct DispatchStartup {
+    pub(crate) app: AppHandle,
+    pub(crate) svc: ServiceState,
+    pub(crate) plan_id: String,
+    pub(crate) task_id: String,
+    pub(crate) tab_id: String,
+    pub(crate) startup_attempt_id: String,
+    pub(crate) attempt_id: String,
+    pub(crate) parent_tab_id: String,
+    pub(crate) worker_title: String,
+    pub(crate) original_task: Task,
+    pub(crate) original_plan_mode: crate::plan::PlanMode,
+    pub(crate) lane_for_commit: TaskLaneMetadata,
+    pub(crate) canonical_project_path: String,
+    pub(crate) provenance: Option<WorkerLaneProvenance>,
+    pub(crate) provisioned_lane: Option<ProvisionedWorkerLane>,
+    pub(crate) lane_protection: LaneProtection,
+    pub(crate) spawn_command: String,
 }
 
 impl DispatchStartup {
-    pub(super) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
+    pub(crate) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
         let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
         let provisioned_lane = self.provisioned_lane;
         let outcome = complete_dispatch_transaction(
@@ -138,7 +138,7 @@ impl DispatchStartup {
                         &self.parent_tab_id,
                         &self.tab_id,
                         &self.worker_title,
-                        brief_delivery::task_brief_delivery_event(
+                        super::task_brief_delivery_event(
                             &self.plan_id,
                             &self.task_id,
                             &self.tab_id,
@@ -279,7 +279,7 @@ impl DispatchStartup {
 
 /// Keep uncertain startups available for parent recovery; roll back only when
 /// failure evidence is definitive.
-pub(super) fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
+pub(crate) fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
     deadline: Instant,
     await_ready: Ready,
     wait_binding: Binding,
