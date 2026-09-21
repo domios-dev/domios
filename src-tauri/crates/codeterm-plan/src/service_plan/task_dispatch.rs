@@ -368,6 +368,17 @@ impl PlanStore {
             )?;
             original_status = Some(plan.tasks[task_index].status.clone());
             let task = &mut plan.tasks[task_index];
+            if let Some(attempt) = task
+                .execution_attempts
+                .iter()
+                .rev()
+                .find(|attempt| attempt.closed_at.is_none())
+            {
+                return Err(PlanError::DispatchInFlight {
+                    attempt_id: attempt.id.clone(),
+                    tab_id: attempt.executor_tab_id.clone(),
+                });
+            }
             task.lane = normalize_lane_metadata(lane);
             task.assigned_tab_id = Some(tab_id.to_string());
             task.taken_by_role = Some("worker".into());

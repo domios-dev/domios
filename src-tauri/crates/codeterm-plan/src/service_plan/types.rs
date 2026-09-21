@@ -9,6 +9,7 @@ use std::path::PathBuf;
 pub const RPC_NOT_FOUND: i32 = -32001;
 pub const RPC_INTERNAL_ERROR: i32 = -32603;
 pub const RPC_UNAUTHORIZED_GATE_CLAIM: i32 = -32021;
+pub const RPC_DISPATCH_IN_FLIGHT: i32 = -32022;
 
 #[derive(Debug)]
 pub enum PlanError {
@@ -34,6 +35,10 @@ pub enum PlanError {
     BadPriority,
     TaskCreationRequiresApproval,
     TaskDispatchRequiresApproval,
+    DispatchInFlight {
+        attempt_id: String,
+        tab_id: String,
+    },
     HeartbeatRequiresExecution,
     TaskPausedSystemOnly,
     ReviewHoldRequired,
@@ -213,6 +218,10 @@ impl fmt::Display for PlanError {
             PlanError::TaskDispatchRequiresApproval => write!(
                 f,
                 "draft tasks are not dispatchable; the Plan Orchestrator must run `codeterm plan approve <plan>`"
+            ),
+            PlanError::DispatchInFlight { attempt_id, tab_id } => write!(
+                f,
+                "dispatch refused: live attempt '{attempt_id}' is already running in tab '{tab_id}'"
             ),
             PlanError::HeartbeatRequiresExecution => write!(
                 f,
@@ -397,6 +406,7 @@ impl PlanError {
             | PlanError::GroupNotFound
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
+            PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::InvalidExecutorName(_) => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
@@ -433,6 +443,11 @@ impl PlanError {
             PlanError::TaskDispatchRequiresApproval => {
                 serde_json::json!({ "type": "task_dispatch_requires_approval" })
             }
+            PlanError::DispatchInFlight { attempt_id, tab_id } => serde_json::json!({
+                "type": "dispatch_in_flight",
+                "attempt_id": attempt_id,
+                "tab_id": tab_id
+            }),
             PlanError::HeartbeatRequiresExecution => {
                 serde_json::json!({ "type": "heartbeat_requires_execution" })
             }

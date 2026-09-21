@@ -142,7 +142,7 @@ impl PlanStore {
                 let tab_explicit = lane.tab_id.is_some();
                 apply_lane_update(&mut task.lane, lane);
                 task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-                if tab_explicit || task.assigned_tab_id.is_none() {
+                if tab_explicit {
                     task.assigned_tab_id = task.lane.tab_id.clone();
                 }
             }
@@ -433,14 +433,14 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let expected = lane.clone();
-        // Explicit --tab overwrites the executor binding; fill-if-empty is only for implicit capture.
+        // Explicit --tab overwrites the executor binding.
         let tab_explicit = lane.tab_id.is_some();
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             apply_lane_update(&mut task.lane, lane);
             task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-            if is_terminal_task_status(&task.status) {
+            if tab_explicit && is_terminal_task_status(&task.status) {
                 let assigned = task.assigned_tab_id.clone();
                 super::task_attempts::mark_task_assignment_closed(
                     task,
@@ -448,7 +448,7 @@ impl PlanStore {
                     now_ms,
                 );
                 clear_task_assignment(task);
-            } else if tab_explicit || task.assigned_tab_id.is_none() {
+            } else if tab_explicit {
                 task.assigned_tab_id = task.lane.tab_id.clone();
             }
             task.updated_at = now_ms;

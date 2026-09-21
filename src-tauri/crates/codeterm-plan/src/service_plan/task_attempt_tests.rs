@@ -726,36 +726,27 @@ fn report_on_unassigned_task_never_binds_reporter() {
 }
 
 #[test]
-fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
+fn a_live_dispatch_refuses_a_second_start_without_superseding() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let lane = TaskLaneMetadata::default();
 
-    let stale_attempt = store
-        .begin_task_dispatch(&plan_id, &task_id, "loser-tab", "Worker", lane.clone(), 3)
-        .unwrap();
-    // A second dispatch closes the first attempt by design (last writer wins).
     let live_attempt = store
-        .begin_task_dispatch(&plan_id, &task_id, "winner-tab", "Worker", lane, 4)
+        .begin_task_dispatch(&plan_id, &task_id, "winner-tab", "Worker", lane.clone(), 3)
         .unwrap();
-
     let refusal = store
-        .acknowledge_live_task_attempt_for_tab("loser-tab", Some(&plan_id), Some(&task_id), 5)
-        .expect_err("a superseded tab must not acknowledge");
-    let message = refusal.to_string();
-    assert!(
-        message.contains(super::task_dispatch::ACK_CAUSE_ATTEMPT_SUPERSEDED),
-        "the loser must be told it was superseded, got: {message}"
-    );
-    assert!(
-        message.contains("winner-tab"),
-        "the refusal must name the tab that now holds the task, got: {message}"
-    );
-    assert!(message.contains(&stale_attempt));
-    assert!(message.contains(&live_attempt));
-    assert!(
-        !message.contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT),
-        "'owns no live attempt' reads as a bug and makes the worker retry, got: {message}"
-    );
+        .begin_task_dispatch(&plan_id, &task_id, "loser-tab", "Worker", lane, 4)
+        .expect_err("a live dispatch must reject a second start");
+    let PlanError::DispatchInFlight { attempt_id, tab_id } = refusal else {
+        panic!("expected typed in-flight refusal, got {refusal}");
+    };
+    assert_eq!(attempt_id, live_attempt);
+    assert_eq!(tab_id, "winner-tab");
+
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts[0].id, live_attempt);
+    assert_eq!(task.execution_attempts[0].executor_tab_id, "winner-tab");
+    assert_eq!(task.execution_attempts[0].closed_at, None);
 
     // A tab that never had an attempt is still the plain unresolved case.
     let stray = store
@@ -772,6 +763,61 @@ fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
     store
         .acknowledge_live_task_attempt_for_tab("winner-tab", Some(&plan_id), Some(&task_id), 7)
         .expect("the live attempt must still acknowledge");
+}
+
+#[test]
+fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let store = std::sync::Arc::new(store);
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+    let starts = ["worker-one", "worker-two"].map(|tab_id| {
+        let store = store.clone();
+        let barrier = barrier.clone();
+        let plan_id = plan_id.clone();
+        let task_id = task_id.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            let result = store.begin_task_dispatch(
+                &plan_id,
+                &task_id,
+                tab_id,
+                "Worker",
+                TaskLaneMetadata::default(),
+                4,
+            );
+            (tab_id, result)
+        })
+    });
+    barrier.wait();
+
+    let outcomes = starts.map(|start| start.join().unwrap());
+    let mut winner = None;
+    let mut refusal = None;
+    for (tab_id, result) in outcomes {
+        match result {
+            Ok(attempt_id) => {
+                assert!(winner
+                    .replace((tab_id.to_string(), attempt_id))
+                    .is_none());
+            }
+            Err(PlanError::DispatchInFlight { attempt_id, tab_id }) => {
+                assert!(refusal.replace((attempt_id, tab_id)).is_none());
+            }
+            Err(error) => panic!("unexpected dispatch error: {error}"),
+        }
+    }
+    let (winner_tab, winner_attempt) = winner.expect("one dispatch should reserve the task");
+    assert_eq!(
+        refusal,
+        Some((winner_attempt.clone(), winner_tab.clone())),
+        "the refusal must name the live attempt and tab"
+    );
+
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.assigned_tab_id.as_deref(), Some(winner_tab.as_str()));
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts[0].id, winner_attempt);
+    assert_eq!(task.execution_attempts[0].closed_at, None);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
+use crate::plan::{ExecutionIntent, OrchestratorRef, Plan, PlanMode, TaskLaneMetadata, TaskStatus};
 use crate::service_plan::{NewTask, PlanStore, TaskLaneUpdate};
 use std::sync::{Arc, Barrier};
 
@@ -137,6 +137,145 @@ fn implicit_lane_update_still_fills_only_empty() {
     let t = p.tasks.iter().find(|t| t.id == task).unwrap();
     assert_eq!(t.assigned_tab_id.as_deref(), Some("keeper"));
     assert_eq!(t.lane.branch.as_deref(), Some("lane/x"));
+}
+
+#[test]
+fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
+    let (_dir, store, plan, task) = setup();
+    store
+        .with_plan(&plan, 3, |plan| {
+            let task_ref = plan.tasks.iter_mut().find(|candidate| candidate.id == task).unwrap();
+            task_ref.lane.tab_id = Some("stale-lane-tab".into());
+            Ok(())
+        })
+        .unwrap();
+    update_task_with_lane(
+        &store,
+        &plan,
+        &task,
+        TaskLaneUpdate {
+            destination: Some(Some("release/pre-dispatch".into())),
+            ..Default::default()
+        },
+        3,
+    );
+    assert!(store.show_task(&task).unwrap().task.assigned_tab_id.is_none());
+
+    let attempt_id = store
+        .begin_task_dispatch_with_policy(
+            &plan,
+            &task,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::ReadOnly,
+            None,
+            Some("codex"),
+            3,
+        )
+        .unwrap();
+    let startup_metadata = TaskLaneUpdate {
+        destination: Some(Some("release/startup".into())),
+        cleanup_status: Some(Some("pending".into())),
+        cleanup_hints: Some(vec!["retain lane".into()]),
+        ..Default::default()
+    };
+
+    update_task_with_lane(&store, &plan, &task, startup_metadata, 4);
+    let starting = store.show_task(&task).unwrap().task;
+    assert_eq!(starting.assigned_tab_id.as_deref(), Some("worker-tab"));
+    assert_eq!(starting.lane.tab_id.as_deref(), Some("worker-tab"));
+    assert_eq!(starting.execution_attempts.len(), 1);
+    assert_eq!(starting.execution_attempts[0].id, attempt_id);
+    assert_eq!(starting.execution_attempts[0].closed_at, None);
+    assert_eq!(starting.execution_attempts[0].acknowledged_at, None);
+    assert_eq!(
+        starting.lane.destination.as_deref(),
+        Some("release/startup")
+    );
+    assert_eq!(starting.lane.cleanup_status.as_deref(), Some("pending"));
+    assert_eq!(starting.lane.cleanup_hints, vec!["retain lane".to_string()]);
+
+    store
+        .finish_task_dispatch(
+            &plan,
+            &task,
+            "worker-tab",
+            &attempt_id,
+            "session",
+            "nonce",
+            TaskLaneMetadata::default(),
+            5,
+        )
+        .unwrap();
+    store
+        .acknowledge_task_attempt(&plan, &task, "worker-tab", &attempt_id, 6)
+        .unwrap();
+    store
+        .update_task_lane(
+            &plan,
+            &task,
+            TaskLaneUpdate {
+                destination: Some(Some("release/acknowledged".into())),
+                cleanup_status: Some(Some("complete".into())),
+                cleanup_hints: Some(vec!["preserve acknowledged lane".into()]),
+                ..Default::default()
+            },
+            7,
+        )
+        .unwrap();
+
+    let acknowledged = store.show_task(&task).unwrap().task;
+    assert_eq!(acknowledged.assigned_tab_id.as_deref(), Some("worker-tab"));
+    assert_eq!(acknowledged.lane.tab_id.as_deref(), Some("worker-tab"));
+    assert_eq!(acknowledged.execution_attempts.len(), 1);
+    assert_eq!(acknowledged.execution_attempts[0].closed_at, None);
+    assert_eq!(acknowledged.execution_attempts[0].acknowledged_at, Some(6));
+    assert_eq!(
+        acknowledged.lane.destination.as_deref(),
+        Some("release/acknowledged")
+    );
+    assert_eq!(
+        acknowledged.lane.cleanup_status.as_deref(),
+        Some("complete")
+    );
+    assert_eq!(
+        acknowledged.lane.cleanup_hints,
+        vec!["preserve acknowledged lane".to_string()]
+    );
+}
+
+fn update_task_with_lane(
+    store: &PlanStore,
+    plan: &str,
+    task: &str,
+    lane: TaskLaneUpdate,
+    now_ms: u64,
+) {
+    store
+        .update_task_with_lane(
+            plan,
+            task,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            Some(lane),
+            now_ms,
+        )
+        .unwrap();
 }
 
 fn set_status(

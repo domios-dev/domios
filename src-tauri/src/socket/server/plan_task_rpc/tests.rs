@@ -5,7 +5,7 @@ use super::{
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
-use crate::plan::{OrchestratorRef, Plan, TaskStatus};
+use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 use serde_json::json;
@@ -440,6 +440,93 @@ fn recovered_task(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> cra
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap()
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn destination_update_during_startup_keeps_attempt_tab_and_lane() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let worker_tab = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+        mux.create_tab(&workspace).unwrap()
+    };
+    let attempt_id = fixture
+        .service
+        .plan_store
+        .begin_task_dispatch(
+            &plan_id,
+            &task_id,
+            &worker_tab,
+            "Worker",
+            TaskLaneMetadata::default(),
+            5,
+        )
+        .unwrap();
+    let mut params = owner_params(&owner);
+    params.insert("plan_id".into(), json!(plan_id.clone()));
+    params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("owner_epoch".into(), json!(1));
+    params.insert("lane".into(), json!({"destination": "release/1.10.1"}));
+    let params = Some(serde_json::Value::Object(params));
+    let service = Arc::new(fixture.service.clone());
+
+    dispatch(
+        "plan.task.update",
+        &params,
+        &fixture.service.app_handle,
+        &service,
+        6,
+    )
+    .expect("integration metadata update should preserve a live startup attempt");
+
+    let starting = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        starting.assigned_tab_id.as_deref(),
+        Some(worker_tab.as_str())
+    );
+    assert_eq!(starting.lane.tab_id.as_deref(), Some(worker_tab.as_str()));
+    assert_eq!(starting.lane.destination.as_deref(), Some("release/1.10.1"));
+    assert_eq!(starting.execution_attempts.len(), 1);
+    assert_eq!(starting.execution_attempts[0].id, attempt_id);
+    assert_eq!(starting.execution_attempts[0].closed_at, None);
+    assert_eq!(starting.execution_attempts[0].acknowledged_at, None);
+
+    fixture
+        .service
+        .plan_store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            &worker_tab,
+            &attempt_id,
+            "worker-session",
+            "worker-nonce",
+            TaskLaneMetadata::default(),
+            7,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .acknowledge_task_attempt(&plan_id, &task_id, &worker_tab, &attempt_id, 8)
+        .unwrap();
+
+    let acknowledged = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        acknowledged.assigned_tab_id.as_deref(),
+        Some(worker_tab.as_str())
+    );
+    assert_eq!(
+        acknowledged.lane.tab_id.as_deref(),
+        Some(worker_tab.as_str())
+    );
+    assert_eq!(
+        acknowledged.lane.destination.as_deref(),
+        Some("release/1.10.1")
+    );
+    assert_eq!(acknowledged.execution_attempts[0].closed_at, None);
+    assert_eq!(acknowledged.execution_attempts[0].acknowledged_at, Some(8));
 }
 
 fn spawn_rebound_tab(fixture: &ServiceFixture, live_session_id: &str) -> String {

@@ -806,6 +806,21 @@ pub(super) fn dispatch(
     ) {
         Ok(attempt_id) => attempt_id,
         Err(error) => {
+            if matches!(&error, PlanError::DispatchInFlight { .. }) {
+                let cleanup = rollback_failed_dispatch(
+                    None,
+                    || Ok(()),
+                    || close_tab_if_present(svc, &tab_id),
+                );
+                let mut refusal = plan_rpc_err(error);
+                if let Err(cleanup) = cleanup {
+                    refusal.message = format!(
+                        "{}; losing Worker cleanup failed: {cleanup}",
+                        refusal.message
+                    );
+                }
+                return Err(refusal);
+            }
             let cleanup = rollback_failed_dispatch(
                 provisioned_lane,
                 || Ok(()),
