@@ -1,4 +1,5 @@
 use serde_json::json;
+use std::collections::HashMap;
 
 use crate::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
 use crate::service::{classify_mutating_lane, LaneProtection, UnsafeMutatingLane};
@@ -120,6 +121,28 @@ pub(crate) fn dispatch_safety_nudges(
     nudges
 }
 
+pub(crate) fn reported_executor_tab_statuses(
+    plan: &Plan,
+    dispatched_task_id: &str,
+    is_tab_live: impl Fn(&str) -> bool,
+) -> HashMap<(String, String), Option<String>> {
+    let mut executor_tabs = HashMap::new();
+    for task in plan.tasks.iter().filter(|task| task.id == dispatched_task_id) {
+        for attempt in task.execution_attempts.iter().filter(|attempt| {
+            attempt.closed_at.is_none()
+                && attempt.competition_group_id.is_none()
+                && attempt.reported_at.is_some()
+        }) {
+            let tab_id = &attempt.executor_tab_id;
+            executor_tabs.insert(
+                (task.id.clone(), attempt.id.clone()),
+                is_tab_live(tab_id).then(|| tab_id.clone()),
+            );
+        }
+    }
+    executor_tabs
+}
+
 /// Occupancy protects work in progress from a second writer, so a declared
 /// read-only dispatch is never obstructed by it.
 pub(crate) fn preflight_checkout_occupancy(
@@ -127,6 +150,7 @@ pub(crate) fn preflight_checkout_occupancy(
     dispatched_task_id: &str,
     checkout_path: &str,
     protection: LaneProtection,
+    reported_executor_tab_statuses: &HashMap<(String, String), Option<String>>,
 ) -> Result<(), JsonRpcError> {
     if protection.is_waived() {
         return Ok(());
@@ -138,10 +162,9 @@ pub(crate) fn preflight_checkout_occupancy(
             if attempt.closed_at.is_some() {
                 return None;
             }
-            if task.id == dispatched_task_id
-                && attempt.competition_group_id.is_none()
-                && attempt.reported_at.is_some()
-            {
+            let executor_tab_status =
+                reported_executor_tab_statuses.get(&(task.id.clone(), attempt.id.clone()));
+            if matches!(executor_tab_status, Some(tab_id) if tab_id.is_none()) {
                 return None;
             }
             let attempt_path = attempt
@@ -150,37 +173,57 @@ pub(crate) fn preflight_checkout_occupancy(
                 .filter(|path| !path.trim().is_empty())
                 .unwrap_or(canonical_path);
             (normalized_checkout == codeterm_paths::normalize_cwd(attempt_path))
-                .then_some((task.id.as_str(), attempt.id.as_str()))
+                .then_some((
+                    task.id.as_str(),
+                    attempt.id.as_str(),
+                    executor_tab_status.and_then(|tab_id| tab_id.as_deref()),
+                ))
         })
     });
-    let Some((occupying_task_id, occupying_attempt_id)) = occupant else {
+    let Some((occupying_task_id, occupying_attempt_id, executor_tab_id)) = occupant else {
         return Ok(());
     };
+    let release_command =
+        executor_tab_id.map(|tab_id| format!("codeterm tab close --tab {tab_id}"));
     let update_command = isolated_lane_update_command(&plan.id, dispatched_task_id);
     let dispatch_command = format!(
         "codeterm plan task dispatch {} {}",
         plan.id, dispatched_task_id
     );
-    let message = format!(
-        "dispatch refused: checkout '{checkout_path}' is occupied by live attempt \
-         '{occupying_attempt_id}' of task '{occupying_task_id}' in plan '{}'. No worker was \
-         spawned. Assign an existing isolated lane, then dispatch again:\n  {update_command}\n  \
-         {dispatch_command}",
+    let occupancy = format!(
+        "checkout '{checkout_path}' is occupied by live attempt '{occupying_attempt_id}' of task \
+         '{occupying_task_id}' in plan '{}'",
         plan.id
     );
+    let remediation = format!(
+        " No worker was spawned. Assign an existing isolated lane, then dispatch again:\n  \
+         {update_command}\n  {dispatch_command}"
+    );
+    let message = match (executor_tab_id, release_command.as_deref()) {
+        (Some(tab_id), Some(command)) => format!(
+            "dispatch refused: executor tab '{tab_id}' is still live. Close it with {command} to \
+             release the checkout. {occupancy}.{remediation}"
+        ),
+        _ => format!("dispatch refused: {occupancy}.{remediation}"),
+    };
+    let mut data = json!({
+        "type": "checkout_occupied",
+        "stage": "checkout_occupancy",
+        "reason": message.clone(),
+        "occupying_task_id": occupying_task_id,
+        "occupying_attempt_id": occupying_attempt_id,
+        "checkout_path": checkout_path,
+        "update_command": update_command,
+        "dispatch_command": dispatch_command,
+    });
+    if let (Some(tab_id), Some(command)) = (executor_tab_id, release_command) {
+        data["executor_tab_id"] = json!(tab_id);
+        data["release_command"] = json!(command);
+    }
     Err(JsonRpcError {
         code: -32011,
         message: message.clone(),
-        data: Some(json!({
-            "type": "checkout_occupied",
-            "stage": "checkout_occupancy",
-            "reason": message,
-            "occupying_task_id": occupying_task_id,
-            "occupying_attempt_id": occupying_attempt_id,
-            "checkout_path": checkout_path,
-            "update_command": update_command,
-            "dispatch_command": dispatch_command,
-        })),
+        data: Some(data),
     })
 }
 
