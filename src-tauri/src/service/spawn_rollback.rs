@@ -36,12 +36,14 @@ impl super::ServiceContext {
         let (tab_exists, workspace_id, membership_error) = {
             let mux = self.mux.read();
             let workspace_id = mux.find_workspace_for_tab(tab_id);
-            let membership_error = workspace_id
-                .as_deref()
-                .and_then(|workspace_id| {
-                    mux.ensure_workspace_membership_mutable(workspace_id).err()
-                });
-            (mux.get_tab(tab_id).is_some(), workspace_id, membership_error)
+            let membership_error = workspace_id.as_deref().and_then(|workspace_id| {
+                mux.ensure_workspace_membership_mutable(workspace_id).err()
+            });
+            (
+                mux.get_tab(tab_id).is_some(),
+                workspace_id,
+                membership_error,
+            )
         };
         if !tab_exists {
             super::session_persist::persist_session_after_close(self);
