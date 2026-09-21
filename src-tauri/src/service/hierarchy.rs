@@ -54,9 +54,33 @@ impl ServiceContext {
         });
     }
 
-    fn replay_pending_reports_if_routable(&self, tab_id: &str) {
-        let pending = self.report_store.lock().claim_pending_for(tab_id);
+    pub(crate) fn hierarchy_report_recipient_can_receive_prose(
+        &self,
+        tab_id: &str,
+        report_id: &str,
+    ) -> bool {
+        let nudge = self.classify_startup_nudge(tab_id);
+        if nudge.delivers() {
+            return true;
+        }
+        log::warn!(
+            "[report/lifecycle] target={} report={} withheld: {}",
+            tab_id,
+            report_id,
+            nudge.reason()
+        );
+        false
+    }
+
+    pub(super) fn replay_pending_reports_if_routable(&self, tab_id: &str) {
+        let pending = self.report_store.lock().pending_for(tab_id);
         for report in pending {
+            if !self.hierarchy_report_recipient_can_receive_prose(tab_id, &report.id) {
+                continue;
+            }
+            if !self.report_store.lock().claim(&report.id) {
+                continue;
+            }
             let envelope = crate::service::messenger::MessageEnvelope::report(
                 &report.from_title,
                 &report.from_tab_id,
@@ -1104,3 +1128,7 @@ fn ledger_with_live_children(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "hierarchy/lifecycle_delivery_tests.rs"]
+mod lifecycle_delivery_tests;
