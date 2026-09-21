@@ -19,9 +19,7 @@ pub(super) async fn send_outbound(
     message: &OutboundMessage,
     chat_states: &mut HashMap<i64, ChatState>,
 ) {
-    if matches!(&message.route, OutboundRoute::TabNotification { .. })
-        && tab.threads().is_attached()
-    {
+    if notification_text(message).is_some() && tab.threads().is_attached() {
         if !send_notification(tab, chat_id, message).await {
             log::error!(
                 "[bridge-outbound] notification placement failed; suppressing raw fallback"
@@ -40,6 +38,7 @@ pub(super) async fn send_outbound(
     match &message.content {
         OutboundContent::Text { text } => {
             if let Some(edit) = message.edit.as_ref() {
+                // A rewrite addresses one already-sent message, so it never touches the last-message state the append path keeps.
                 log::info!(
                     "[bridge-outbound] rewriting message {} in {}",
                     edit.message_id,
@@ -200,13 +199,8 @@ pub async fn send_notification(
     chat_id: i64,
     message: &OutboundMessage,
 ) -> bool {
-    let (tab_id, text) = match (&message.route, &message.edit, &message.content) {
-        (
-            super::OutboundRoute::TabNotification { tab_id },
-            None,
-            OutboundContent::Text { text },
-        ) => (tab_id, text),
-        _ => return false,
+    let Some((tab_id, text)) = notification_text(message) else {
+        return false;
     };
     let threads = tab.threads();
     if !threads.is_attached() {
@@ -219,9 +213,9 @@ pub async fn send_notification(
         .send_notification_text(
             tab.thread_tabs(),
             TabText {
-                tab_id: tab_id.clone(),
+                tab_id: tab_id.to_string(),
                 chat_id,
-                markdown: text.clone(),
+                markdown: text.to_string(),
                 append: message.append,
                 buttons: message.buttons.clone(),
             },
@@ -238,6 +232,17 @@ pub async fn send_notification(
         );
     }
     true
+}
+
+fn notification_text(message: &OutboundMessage) -> Option<(&str, &str)> {
+    match (&message.route, message.edit.as_ref(), &message.content) {
+        (
+            super::OutboundRoute::TabNotification { tab_id },
+            None,
+            OutboundContent::Text { text },
+        ) => Some((tab_id.as_str(), text.as_str())),
+        _ => None,
+    }
 }
 
 fn caption(content: &OutboundContent) -> &str {
