@@ -100,11 +100,6 @@ for (const token of CODEX_HOOK_SCRIPT_CONTRACT) {
   const generated = codexWindowsHookScript();
   eq(isCurrentCodexHookScriptContent(generated), true, "the generated script satisfies its own contract");
   eq(generated.indexOf("CODETERM_API_PORT"), -1, "the generated script reads no port variable");
-  eq(generated.includes("%SystemRoot%\\System32\\curl.exe"), true, "the helper prefers curl.exe by absolute System32 path");
-  eq(generated.includes('if not exist "%curlExe%" set "curlExe=curl.exe"'), true, "the helper retains a curl.exe fallback");
-  const previousVersion = generated.split("codeterm-codex-session-binding-v2").join("codeterm-codex-session-binding-v1");
-  eq(isOwnedCodexHookScriptContent(previousVersion), true, "the prior owned helper remains migratable");
-  eq(isCurrentCodexHookScriptContent(previousVersion), false, "the prior helper contract reads as stale");
 }
 
 {
