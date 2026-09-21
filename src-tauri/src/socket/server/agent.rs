@@ -216,6 +216,12 @@ pub(super) fn dispatch(
             };
             let plan_id = acknowledged.plan_id.clone();
             let task_id = acknowledged.task_id.clone();
+            svc.acknowledge_worker_ack(
+                &plan_id,
+                &task_id,
+                &tab_id,
+                &acknowledged.attempt,
+            );
             if acknowledged.already_acknowledged {
                 return Ok(task_ack_success_response(
                     &plan_id,
@@ -227,12 +233,6 @@ pub(super) fn dispatch(
                     true,
                 ));
             }
-            svc.acknowledge_worker_ack(
-                &plan_id,
-                &task_id,
-                &tab_id,
-                &acknowledged.attempt,
-            );
             svc.gateway.require_worker_report(&tab_id);
             super::plan::emit_plan_changed(_app, &plan_id);
             let runtime_ready = acknowledged.attempt.session_id.is_some();
@@ -459,6 +459,128 @@ mod tests {
         ack_log_record, startup_ack_success_response, task_ack_refusal_class,
         task_ack_success_response,
     };
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::TaskBinding;
+    use crate::plan::{OrchestratorRef, PlanMode, TaskStatus};
+    use crate::service::plan::NewTask;
+    use crate::service::test_fixture::ServiceFixture;
+    use crate::service::worker_ack::{WorkerAckIdentity, WorkerAckSignal};
+    use std::sync::Arc;
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn socket_agent_ack_releases_the_armed_worker_ack_waiter() {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let worker_tab_id = mux.create_tab(&workspace_id).unwrap();
+        mux.link_pty(&worker_tab_id, "pty-worker".into());
+        {
+            let worker = mux.get_tab_mut(&worker_tab_id).unwrap();
+            worker.agent_session_id = Some("session-worker".into());
+            worker.session_binding_nonce = Some("nonce-worker".into());
+            worker.reported_session_binding_nonce = Some("nonce-worker".into());
+        }
+        let fixture = ServiceFixture::new(mux);
+        let project = fixture.temp.path().display().to_string();
+        let plan = fixture
+            .service
+            .plan_store
+            .create_plan_for_team(
+                "Socket worker ACK".into(),
+                project,
+                OrchestratorRef::default(),
+                "team-socket-ack".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let mut plan_state = fixture.service.plan_store.get(&plan.id).unwrap();
+        plan_state.mode = PlanMode::Approved;
+        fixture.service.plan_store.save(&mut plan_state, 2).unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Socket ACK route".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        let lane = fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .lane;
+        let attempt_id = fixture
+            .service
+            .plan_store
+            .begin_task_dispatch(
+                &plan.id,
+                &task_id,
+                &worker_tab_id,
+                "Ada",
+                lane.clone(),
+                4,
+            )
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .finish_task_dispatch(
+                &plan.id,
+                &task_id,
+                &worker_tab_id,
+                &attempt_id,
+                "session-worker",
+                "nonce-worker",
+                lane,
+                5,
+            )
+            .unwrap();
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&worker_tab_id)
+            .unwrap()
+            .task_binding = Some(TaskBinding {
+                plan_id: Some(plan.id.clone()),
+                task_id: Some(task_id.clone()),
+                spawn_handle: None,
+                bound_at: 1,
+            });
+
+        let armed = fixture.service.worker_ack.arm(WorkerAckIdentity {
+            plan_id: plan.id.clone(),
+            task_id: task_id.clone(),
+            attempt_id: attempt_id.clone(),
+            tab_id: worker_tab_id.clone(),
+            startup_attempt_id: Some("pty-worker".into()),
+            session_id: Some("session-worker".into()),
+            binding_nonce: Some("nonce-worker".into()),
+        });
+        let receiver = armed.receiver.expect("worker ACK waiter armed");
+        let service: crate::service::ServiceState = Arc::new(fixture.service.clone());
+
+        let response = crate::socket::server::dispatch_service_rpc(
+            "agent.ack",
+            Some(serde_json::json!({ "tab_id": worker_tab_id })),
+            &service,
+        )
+        .unwrap();
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["state"], "in_progress");
+        assert_eq!(receiver.try_recv(), Ok(WorkerAckSignal::Acknowledged));
+        let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert!(task.execution_attempts[0].acknowledged_at.is_some());
+    }
 
     #[test]
     fn repeated_task_ack_is_an_explicit_success_for_the_same_attempt() {

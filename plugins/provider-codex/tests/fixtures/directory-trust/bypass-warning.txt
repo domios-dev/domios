@@ -1,0 +1,8 @@
+> D:\workspace\project
+
+Should this folder's local rules be loaded? This enables a bypass for configured policies and removes the usual restrictions.
+
+  1. Yes, continue
+> 2. No, quit
+
+Press enter to continue
