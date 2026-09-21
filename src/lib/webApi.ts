@@ -155,6 +155,13 @@ export class WebApiError extends Error {
   }
 }
 
+export function isPromptNotOnScreenResponse(value: unknown): boolean {
+  return typeof value === "object"
+    && value !== null
+    && "reason" in value
+    && value.reason === "prompt_not_on_screen";
+}
+
 /** Mesh relay envelope returned by `/api/mesh/relay-to`. */
 interface RelayResponse {
   ok: boolean;
@@ -286,7 +293,15 @@ export async function webJson<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
-  if (!res.ok) throw new WebApiError(res.status, path, text);
+  if (!res.ok) {
+    if (res.status === 409 && path.endsWith("/prompt/respond")) {
+      try {
+        const value: unknown = JSON.parse(text);
+        if (isPromptNotOnScreenResponse(value)) return value as T;
+      } catch {}
+    }
+    throw new WebApiError(res.status, path, text);
+  }
   try {
     return JSON.parse(text) as T;
   } catch {

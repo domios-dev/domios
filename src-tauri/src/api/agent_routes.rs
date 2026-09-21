@@ -968,6 +968,10 @@ pub(crate) fn respond_prompt_response(
             StatusCode::CONFLICT,
             serde_json::json!({"ok": false, "reason": "no_pty"}),
         ),
+        crate::service::tab::RespondPromptOutcome::InvalidOption => (
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"ok": false, "reason": "invalid_option"}),
+        ),
     };
     (status, Json(body)).into_response()
 }

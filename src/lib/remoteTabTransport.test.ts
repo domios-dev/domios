@@ -32,6 +32,16 @@ describe("remote tab transport adapter", () => {
     expect(send?.body).toEqual({ text: "hello", client_token: "optimistic-1" });
   });
 
+  it("treats a vanished remote prompt as a quiet no-op", () => {
+    const respond = remoteTransportCall("mux_respond_prompt", {
+      tabId: "mesh:peer/shared",
+      value: "2",
+    });
+    expect(respond?.suffix).toBe("/prompt/respond");
+    expect(respond?.select?.({ ok: false, reason: "prompt_not_on_screen" })).toBeUndefined();
+    expect(respond?.select?.({ ok: true })).toEqual({ ok: true });
+  });
+
   it("composite to raw and raw to composite identity mapping both directions", () => {
     const peerId = "home-laptop";
     const rawTabId = "tab-42";
