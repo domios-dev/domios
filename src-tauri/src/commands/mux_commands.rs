@@ -180,12 +180,13 @@ pub fn mux_rename_team(
     mux_rename_team_service_core(svc.inner(), team_id, name, caller_tab_id)
 }
 
-pub(crate) fn mux_close_team_service_core(
+pub(crate) async fn mux_close_team_service_core(
     svc: &ServiceState,
     team_id: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
     svc.close_team(&team_id, close_team_caller(caller_tab_id))
+        .await
 }
 
 fn close_team_caller(caller_tab_id: Option<String>) -> TeamMutationCaller {
@@ -193,12 +194,12 @@ fn close_team_caller(caller_tab_id: Option<String>) -> TeamMutationCaller {
 }
 
 #[tauri::command]
-pub fn mux_close_team(
+pub async fn mux_close_team(
     svc: State<'_, ServiceState>,
     team_id: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    mux_close_team_service_core(svc.inner(), team_id, caller_tab_id)
+    mux_close_team_service_core(svc.inner(), team_id, caller_tab_id).await
 }
 
 pub(crate) async fn mux_add_team_member_service_core(

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::plan::TaskStatus;
+
 /// The two structural agent roles. Every finer-grained kind lives in
 /// `role_profile` and resolves through `role_kind` descriptors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -98,6 +100,15 @@ impl ReportStatus {
             ReportStatus::InReview => "In Review",
             ReportStatus::Blocked => "Blocked",
             ReportStatus::Partial => "Partial",
+        }
+    }
+
+    pub fn task_transition(self) -> Result<Option<TaskStatus>, &'static str> {
+        match self {
+            ReportStatus::Done => Err("workers must not report --status done because only the owner can close a task. Use --status in_review when the work is ready for review, --status partial for progress, or ask the owner to close after review."),
+            ReportStatus::InReview => Ok(Some(TaskStatus::InReview)),
+            ReportStatus::Blocked => Ok(Some(TaskStatus::Blocked)),
+            ReportStatus::Partial => Ok(None),
         }
     }
 }

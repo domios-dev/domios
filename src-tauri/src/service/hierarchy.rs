@@ -559,6 +559,8 @@ impl ServiceContext {
                         h_task.to_string(),
                         from_ref.clone(),
                         task_status,
+                        (details.status == Some(ReportStatus::Blocked))
+                            .then(|| message.to_string()),
                         milestone_text(message, details.status),
                         milestone_kind.unwrap_or("status_update").to_string(),
                     ) {
@@ -879,6 +881,7 @@ impl ServiceContext {
         task_id: String,
         from_ref: AgentRef,
         task_status: Option<&'static str>,
+        status_label: Option<String>,
         ms_text: String,
         ms_kind: String,
     ) -> Result<(), String> {
@@ -900,6 +903,7 @@ impl ServiceContext {
                 "op": "set_task_status",
                 "task": task_id,
                 "status": status,
+                "status_label": status_label,
             }));
         }
         ops.push(serde_json::json!({
@@ -1026,14 +1030,11 @@ impl ServiceContext {
 fn report_task_status_transition(
     status: Option<ReportStatus>,
 ) -> Result<Option<&'static str>, String> {
-    match status {
-        Some(ReportStatus::Done) => Err(
-            "workers must not report --status done because only the owner can close a task. Use --status in_review when the work is ready for review, --status partial for progress, or ask the owner to close after review.".to_string(),
-        ),
-        Some(ReportStatus::InReview) => Ok(Some("in_review")),
-        Some(ReportStatus::Blocked) => Ok(Some("blocked")),
-        Some(ReportStatus::Partial) | None => Ok(None),
-    }
+    status
+        .map(ReportStatus::task_transition)
+        .transpose()
+        .map(|transition| transition.flatten().map(|status| status.key()))
+        .map_err(str::to_string)
 }
 
 fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {

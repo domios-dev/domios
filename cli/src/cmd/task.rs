@@ -295,6 +295,9 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
         println!("key: {}", crate::cmd::task_list_render::task_key_label(val));
         println!("plan: {plan_title} ({plan})");
         print_task_presentation(val);
+        if let Some(reason) = blocked_reason_line(task) {
+            println!("{reason}");
+        }
         print_competition(task, plan, id);
         print_executor_role(task);
         print_executor(task);
@@ -363,6 +366,17 @@ fn print_task_presentation(val: &Value) {
     if let Some(line) = task_presentation_line(val) {
         println!("{line}");
     }
+}
+
+fn blocked_reason_line(task: &Value) -> Option<String> {
+    if task.get("status").and_then(Value::as_str) != Some("blocked") {
+        return None;
+    }
+    task.get("status_label")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(|reason| format!("blocked reason: {reason}"))
 }
 
 fn task_presentation_line(val: &Value) -> Option<String> {
