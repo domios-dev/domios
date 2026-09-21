@@ -3077,6 +3077,14 @@ Bind an existing plan to a Team
 - `<plan_id>` — Plan ID
 - `<team_id>` — Team ID
 
+#### `codeterm team attach-cartographer`
+
+Attach the one optional Cartographer Manager to a Team
+
+- `--model` — Provider model ID
+- `--provider` — Agent provider ID
+- `<team_id>` — Team ID
+
 #### `codeterm team close`
 
 Close every member tab and remove the Team registry entry

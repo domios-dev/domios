@@ -711,23 +711,28 @@ impl PlanStore {
         self.list_full().into_iter().find_map(|plan| {
             let plan_id = plan.id.clone();
             plan.tasks.into_iter().find_map(|task| {
-                let owned_index = task
+                let (owned_index, owned) = task
                     .execution_attempts
                     .iter()
-                    .rposition(|attempt| attempt.executor_tab_id == tab_id)?;
-                let owned = &task.execution_attempts[owned_index];
+                    .enumerate()
+                    .rev()
+                    .find(|(_, attempt)| attempt.executor_tab_id == tab_id)?;
                 owned.closed_at?;
                 let live = task
                     .execution_attempts
                     .iter()
+                    .enumerate()
                     .skip(owned_index + 1)
-                    .rfind(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())?;
+                    .rev()
+                    .find(|(_, attempt)| {
+                        attempt.closed_at.is_none() && attempt.retired_at.is_none()
+                    })?;
                 Some((
                     plan_id.clone(),
                     task.id.clone(),
                     owned.id.clone(),
-                    live.id.clone(),
-                    live.executor_tab_id.clone(),
+                    live.1.id.clone(),
+                    live.1.executor_tab_id.clone(),
                 ))
             })
         })
@@ -756,9 +761,16 @@ impl PlanStore {
             1 => acknowledgeable[0],
             0 => {
                 let cause = match self.superseded_attempt_for_tab(tab_id) {
-                    Some((plan_id, task_id, retired, live, live_tab)) if bound.is_empty() => {
+                    Some((plan_id, task_id, previous_attempt_id, current_attempt_id, live_tab))
+                        if bound.is_empty() =>
+                    {
                         superseded_subject_cause(
-                            tab_id, &plan_id, &task_id, &retired, &live, &live_tab,
+                            tab_id,
+                            &plan_id,
+                            &task_id,
+                            &previous_attempt_id,
+                            &current_attempt_id,
+                            &live_tab,
                         )
                     }
                     _ => unresolved_subject_cause(tab_id, &bound),

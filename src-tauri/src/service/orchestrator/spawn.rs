@@ -188,9 +188,8 @@ impl ServiceContext {
             params.title.as_deref(),
             params.agent_name.as_deref(),
         )?;
-        params.description = crate::service::tab::normalize_optional_tab_description(
-            params.description.take(),
-        )?;
+        params.description =
+            crate::service::tab::normalize_optional_tab_description(params.description.take())?;
         params.normalize_role_profile()?;
         if params.role_profile.as_deref() == Some(builtins::PLANNER)
             && params.parent_tab_id.is_none()
@@ -291,9 +290,8 @@ impl ServiceContext {
             params.title.as_deref(),
             params.agent_name.as_deref(),
         )?;
-        params.description = crate::service::tab::normalize_optional_tab_description(
-            params.description.take(),
-        )?;
+        params.description =
+            crate::service::tab::normalize_optional_tab_description(params.description.take())?;
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;

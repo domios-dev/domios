@@ -21,28 +21,15 @@ impl LaunchGeneration {
         )
     }
 
-    pub(super) fn capture_current_binding(
-        &mut self,
-        svc: &ServiceContext,
-        task_identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
-    ) -> Result<(), String> {
-        let nonce = svc
-            .mux
-            .read()
-            .get_tab(&self.tab_id)
-            .filter(|tab| tab.pty_id.as_deref() == Some(self.pty_id.as_str()))
-            .and_then(|tab| tab.session_binding_nonce.clone())
-            .ok_or_else(|| {
-                format!(
-                    "reused startup binding for Tab {} and PTY {} is missing",
-                    self.tab_id, self.pty_id
-                )
-            })?;
-        self.binding_nonce = Some(nonce.clone());
-        LAUNCH_REGISTRY
-            .lock()
-            .bind_provider_session(self, nonce.clone());
-        svc.activate_agent_startup_supervision(&self.tab_id, &self.pty_id, &nonce, task_identity)
+    pub(super) fn adopt_authenticated_binding(&mut self, binding_nonce: String) -> bool {
+        self.binding_nonce = Some(binding_nonce.clone());
+        let binding = ProviderSessionBinding {
+            pty_id: self.pty_id.clone(),
+            binding_nonce: binding_nonce.clone(),
+        };
+        let mut registry = LAUNCH_REGISTRY.lock();
+        registry.bind_provider_session(self, binding_nonce)
+            && registry.record_provider_session(&self.tab_id, &binding)
     }
 
     pub(super) fn transition(&mut self, stage: BootStage) {
@@ -60,6 +47,9 @@ impl LaunchGeneration {
     }
 
     pub(super) fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
+        if stage == BootStage::AgentReady && !self.await_provider_ack(std::time::Duration::ZERO) {
+            return false;
+        }
         self.transition(stage);
         self.commit_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, stage, None);
