@@ -36,6 +36,18 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
     !tab_id.is_empty() && !tab_id.contains('/')
 }
 
+fn tab_hook_target(method: &Method, path: &str) -> Option<(&str, &str)> {
+    if method != Method::POST {
+        return None;
+    }
+    let rest = path.strip_prefix("/api/tabs/")?;
+    let (tab_id, event) = rest.split_once("/hook/")?;
+    if tab_id.is_empty() || tab_id.contains('/') {
+        return None;
+    }
+    matches!(event, "session_start" | "stop").then_some((tab_id, event))
+}
+
 pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
@@ -300,6 +312,19 @@ pub async fn auth_middleware(
         Err(()) => {
             let presented = auth.strip_prefix("Bearer ").unwrap_or("");
             let expected = state.config.lock().api.token.clone();
+            if let Some((tab_id, event)) = tab_hook_target(&method, &path) {
+                let reason = if presented.is_empty() {
+                    "missing_token"
+                } else {
+                    "invalid_token"
+                };
+                log::warn!(
+                    "[hook-auth] refused tab={} event={} reason={}",
+                    tab_id,
+                    event,
+                    reason
+                );
+            }
             log::warn!(
                 "[auth-401] {} {} presented[{}] expected[{}]",
                 method,
@@ -322,6 +347,26 @@ pub async fn auth_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hook_auth_context_only_matches_binding_events() {
+        assert_eq!(
+            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/session_start"),
+            Some(("tab-1", "session_start")),
+        );
+        assert_eq!(
+            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/stop"),
+            Some(("tab-1", "stop")),
+        );
+        assert_eq!(
+            tab_hook_target(&Method::GET, "/api/tabs/tab-1/hook/stop"),
+            None,
+        );
+        assert_eq!(
+            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/permission"),
+            None,
+        );
+    }
 
     #[test]
     fn custom_auth_only_exempts_self_verifying_paths() {

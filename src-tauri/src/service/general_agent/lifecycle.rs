@@ -353,6 +353,11 @@ pub fn start_general_agent(
         svc.rotate_session_binding_nonce(&tab_id),
         config,
     );
+    crate::service::launch_diagnostics::log_launch_environment(
+        "general_agent",
+        &tab_id,
+        &env_vars,
+    );
 
     let pty_id = {
         let mut manager = pty.lock();
