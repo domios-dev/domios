@@ -25,9 +25,9 @@ fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
     assert_eq!(fixture.service.mux.read().all_tabs().count(), before);
 }
 
-#[tokio::test]
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_cleans_tab() {
+fn task_specific_empty_provider_command_is_refused_before_task_binding_and_cleans_tab() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
     let workspace_id = mux.create_workspace("spawn rollback".into(), None).id;
     let parent_tab_id = mux.create_tab(&workspace_id).unwrap();
@@ -90,8 +90,6 @@ async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_clean
         &plan.id,
     )
     .unwrap();
-    assert_eq!(manifest.len(), 1);
-    assert_eq!(manifest[0].slug, "launch-order-contract");
     fixture.service.ensure_agent_pad(&tab_id).unwrap();
     fixture
         .service
@@ -104,31 +102,30 @@ async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_clean
         attempt_id: crate::plan::ids::short_id("attempt"),
         lane_base: None,
     };
-    let result = fixture
-        .service
-        .spawn_agent(
-            SpawnAgentParams {
-                agent: Some("task-sensitive-empty-launch".into()),
-                task: Some("assigned work".into()),
-                role: Some("Worker".into()),
-                parent_tab_id: Some(parent_tab_id),
-                workspace_id: Some(workspace_id),
-                existing_tab_id: Some(tab_id.clone()),
-                plan_id: Some(plan.id.clone()),
-                plan_task: Some("empty-launch".into()),
-                execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
-                task_launch_authority: Some(launch_authority),
-                plan_skill_manifest: Some(manifest),
-                provider_reserve_pct: None,
-                ..Default::default()
-            },
-            None,
-        )
-        .await;
-
-    let Err(error) = result else {
-        panic!("a task-specific missing provider command must fail");
+    let params = SpawnAgentParams {
+        agent: Some("task-sensitive-empty-launch".into()),
+        task: Some("assigned work".into()),
+        role: Some("Worker".into()),
+        parent_tab_id: Some(parent_tab_id),
+        workspace_id: Some(workspace_id),
+        existing_tab_id: Some(tab_id.clone()),
+        plan_id: Some(plan.id.clone()),
+        plan_task: Some("empty-launch".into()),
+        execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+        task_launch_authority: Some(launch_authority),
+        plan_skill_manifest: Some(manifest),
+        provider_reserve_pct: None,
+        ..Default::default()
     };
+    let error = build_or_refuse_orchestrated_launch_command(
+        &fixture.service,
+        &tab_id,
+        "task-sensitive-empty-launch",
+        &params,
+        params.task.as_deref(),
+        None,
+    )
+    .unwrap_err();
     assert!(
         error.contains("did not resolve a launch command"),
         "{error}"
@@ -264,6 +261,145 @@ fn task_binding_precondition_failure_rolls_back_provisional_tab() {
     assert_eq!(task.status, crate::plan::TaskStatus::Pending);
     assert!(task.assigned_tab_id.is_none());
     assert!(task.execution_attempts.is_empty());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux
+        .create_workspace("pending delivery rollback".into(), None)
+        .id;
+    let parent_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&parent_tab_id).unwrap().agent_type = Some("supervisor".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("task-pending-failure")
+            .with_launch_binary("cmd.exe"),
+    ));
+    let mut plan = fixture
+        .service
+        .plan_store
+        .create_plan_for_team(
+            "pending delivery rollback".into(),
+            fixture.temp.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&parent_tab_id),
+            "team-pending-delivery-rollback".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    plan.mode = crate::plan::PlanMode::Approved;
+    fixture.service.plan_store.save(&mut plan, 2).unwrap();
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan.id,
+            crate::service::plan::NewTask {
+                name: "pending-delivery".into(),
+                handle: Some("pending-delivery".into()),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
+        &fixture.service.plan_store,
+        &plan.id,
+    )
+    .unwrap();
+    fixture.service.ensure_agent_pad(&tab_id).unwrap();
+    fixture
+        .service
+        .register_agent_startup_supervision(&parent_tab_id, &tab_id, "Worker");
+    let launch_authority = crate::service::TaskLaunchAuthority {
+        plan_id: plan.id.clone(),
+        task_id: task_id.clone(),
+        attempt_id: crate::plan::ids::short_id("attempt"),
+        lane_base: None,
+    };
+    let attempt_id = launch_authority.attempt_id.clone();
+    let params = SpawnAgentParams {
+        agent: Some("task-pending-failure".into()),
+        task: Some("assigned work".into()),
+        role: Some("Worker".into()),
+        parent_tab_id: Some(parent_tab_id),
+        workspace_id: Some(workspace_id),
+        existing_tab_id: Some(tab_id.clone()),
+        plan_id: Some(plan.id.clone()),
+        plan_task: Some("pending-delivery".into()),
+        execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+        task_launch_authority: Some(launch_authority),
+        plan_skill_manifest: Some(manifest),
+        ..Default::default()
+    };
+
+    let launch_cmd = build_or_refuse_orchestrated_launch_command(
+        &fixture.service,
+        &tab_id,
+        "task-pending-failure",
+        &params,
+        params.task.as_deref(),
+        None,
+    )
+    .unwrap();
+    assert!(!launch_cmd.is_empty());
+    fixture
+        .service
+        .bind_worker_plan_task_or_rollback_tab(&params, &tab_id)
+        .unwrap();
+    let bound_task = fixture
+        .service
+        .plan_store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(bound_task.status, crate::plan::TaskStatus::InProgress);
+    assert_eq!(bound_task.assigned_tab_id.as_deref(), Some(tab_id.as_str()));
+    assert_eq!(bound_task.execution_attempts.len(), 1);
+    assert!(bound_task.execution_attempts[0].closed_at.is_none());
+
+    let fallback_spec =
+        crate::service::launch_delivery::fallback_delivery_spec(None, params.task.as_deref(), None)
+            .unwrap();
+    let error = create_pending_delivery_or_rollback_dispatch(
+        &fixture.service,
+        &params,
+        &tab_id,
+        &fallback_spec,
+    )
+    .unwrap_err();
+    assert!(error.contains("SessionState not registered"), "{error}");
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_tab(&tab_id).is_none());
+    assert_eq!(mux.all_tabs().count(), 1);
+    drop(mux);
+    assert_eq!(
+        crate::service::launch_session_detection::registered_launch_marker(&tab_id),
+        None
+    );
+    assert!(!fixture.service.has_agent_startup_supervision(&tab_id));
+    assert!(crate::service::agent_pad::AgentPad::open(&crate::paths::data_dir(), &tab_id).is_err());
+
+    let reverted_task = fixture
+        .service
+        .plan_store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(reverted_task.status, crate::plan::TaskStatus::Pending);
+    assert!(reverted_task.assigned_tab_id.is_none());
+    assert_eq!(reverted_task.execution_attempts.len(), 1);
+    assert_eq!(reverted_task.execution_attempts[0].id, attempt_id);
+    assert!(reverted_task.execution_attempts[0].closed_at.is_some());
 }
 
 #[test]

@@ -84,6 +84,74 @@ fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
     .wrap(&body)
 }
 
+fn build_or_refuse_orchestrated_launch_command(
+    service: &ServiceContext,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &SpawnAgentParams,
+    bg_task: Option<&str>,
+    launch_session_id: Option<&str>,
+) -> Result<String, String> {
+    let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+        tab_id,
+        agent_cmd,
+        params,
+        bg_task,
+        launch_session_id,
+        &service.agent_registry,
+    );
+    if launch_cmd.trim().is_empty() {
+        return Err(service.rollback_empty_agent_launch(tab_id, agent_cmd));
+    }
+    Ok(launch_cmd)
+}
+
+fn revert_task_dispatch_after_launch_failure(
+    service: &ServiceContext,
+    params: &SpawnAgentParams,
+    failure: &str,
+) -> String {
+    let Some(task_ref) = crate::service::spawn_plan_task::worker_spawn_plan_task_ref(params) else {
+        return failure.to_string();
+    };
+    let resolved = match service
+        .plan_store
+        .resolve_task_ref(params.plan_id.as_deref(), task_ref)
+    {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            return format!(
+                "{failure}; task dispatch rollback target could not be resolved: {error}"
+            )
+        }
+    };
+    match service.plan_store.revert_task_dispatch(
+        &resolved.plan_id,
+        &resolved.task_id,
+        crate::service::wall_now_ms(),
+    ) {
+        Ok(()) => {
+            service.emit_plan_changed(&resolved.plan_id);
+            failure.to_string()
+        }
+        Err(error) => format!("{failure}; task dispatch rollback failed: {error}"),
+    }
+}
+
+fn create_pending_delivery_or_rollback_dispatch(
+    service: &ServiceContext,
+    params: &SpawnAgentParams,
+    tab_id: &str,
+    spec: &crate::service::launch_delivery::FallbackDeliverySpec,
+) -> Result<(), String> {
+    let Err(error) = service.create_pending_delivery(tab_id, spec.channel.clone(), &spec.payload)
+    else {
+        return Ok(());
+    };
+    let failure = revert_task_dispatch_after_launch_failure(service, params, &error.to_string());
+    Err(service.rollback_failed_agent_spawn(tab_id, &failure))
+}
+
 fn planner_startup_payload(
     system_prompt_capable: bool,
     manager_prompt: Option<String>,
@@ -725,20 +793,15 @@ impl ServiceContext {
                 None => t,
             })
         };
-        let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+        let launch_cmd = build_or_refuse_orchestrated_launch_command(
+            self,
             &tab_id,
             &agent_cmd,
             &params,
             bg_task.as_deref(),
             launch_session_id.as_deref(),
-            &self.agent_registry,
-        );
-        if launch_cmd.trim().is_empty() {
-            return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
-        }
-        if let Err(error) = self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id) {
-            return Err(error);
-        }
+        )?;
+        self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id)?;
         let fallback_delivery = self
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
@@ -770,14 +833,7 @@ impl ServiceContext {
             })
             .flatten();
         if let Some(spec) = fallback_spec.as_ref() {
-            if let Err(error) =
-                self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
-            {
-                self.cancel_agent_startup_supervision(&tab_id);
-                crate::service::launch_session_detection::clear_launch_marker(&tab_id);
-                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
-                return Err(error.to_string());
-            }
+            create_pending_delivery_or_rollback_dispatch(self, &params, &tab_id, spec)?;
         }
         launch_agent_in_background(
             self.clone(),

@@ -42,7 +42,7 @@ fn missing_provider_command_is_refused_before_task_tab_creation() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn task_specific_empty_provider_command_is_refused_after_real_build_and_rolls_back_tab() {
-    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let (mux, parent_tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let initial_tabs = mux.snapshot().tabs.len();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
@@ -61,6 +61,7 @@ fn task_specific_empty_provider_command_is_refused_after_real_build_and_rolls_ba
         agent.role = Some("Worker".into());
         agent.task = Some("assigned work".into());
     }
+    spec.parent_tab_id = Some(parent_tab_id);
 
     let error = match fixture.service.spawn_tab(spec) {
         Ok(_) => panic!("a task-specific missing provider command must fail"),
