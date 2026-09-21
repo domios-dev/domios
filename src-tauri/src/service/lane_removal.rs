@@ -61,12 +61,10 @@ pub(crate) fn recorded_lane_remnant(
         }
     }
     if let Some(branch) = branch {
-        if branch_exists(canonical_cwd, &branch)? {
-            if !branch_is_ancestor(canonical_cwd, &branch)? {
-                return Ok(Some(format!(
-                    "branch '{branch}' still has commits not merged into the target checkout"
-                )));
-            }
+        if branch_exists(canonical_cwd, &branch)? && !branch_is_ancestor(canonical_cwd, &branch)? {
+            return Ok(Some(format!(
+                "branch '{branch}' still has commits not merged into the target checkout"
+            )));
         }
     }
     Ok(None)

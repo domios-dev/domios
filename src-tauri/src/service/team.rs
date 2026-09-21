@@ -12,7 +12,6 @@ mod close;
 pub(crate) use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
-pub(crate) use close::CloseTeamCleanup;
 use close::{
     commit_prepared_team_close, finish_team_lane_cleanup, prepare_team_close, team_close_lanes,
 };
@@ -857,9 +856,10 @@ pub(crate) use membership::{
 };
 
 mod staffing;
+#[cfg(test)]
+pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::{
-    commit_team_member_spawn, existing_cartographer_attachment, prepare_team_member_spawn,
-    prepare_team_member_spawn_with_provider_validation, take_over_team_plan, AddTeamMemberParams,
+    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, AddTeamMemberParams,
     AddTeamMemberResult, TeamCartographerAttachLocks,
 };
 

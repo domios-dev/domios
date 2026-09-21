@@ -56,7 +56,6 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::{PendingPrompt, PromptOption};
 

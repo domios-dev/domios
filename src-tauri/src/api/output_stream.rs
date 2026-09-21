@@ -201,9 +201,7 @@ fn seed_initial_state(
             .as_ref()
             .and_then(|value| value.tabs.get(&tab))
             .copied();
-        let (resume_offset, replaying) = if boot_changed {
-            (total_written, false)
-        } else if cursor.is_none() && tab_id.is_none() {
+        let (resume_offset, replaying) = if boot_changed || (cursor.is_none() && tab_id.is_none()) {
             (total_written, false)
         } else {
             (cursor_offset.unwrap_or(0), true)

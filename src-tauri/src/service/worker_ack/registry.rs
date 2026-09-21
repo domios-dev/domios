@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver};
 
 use super::*;
 
@@ -46,9 +46,11 @@ pub(super) struct WorkerAckState {
 
 impl WorkerAckWaiter {
     fn notify(&self, signal: WorkerAckSignal) -> bool {
-        self.observers.iter().fold(false, |sent, observer| {
-            observer.send(signal).is_ok() || sent
-        })
+        self.observers
+            .iter()
+            .filter(|observer| observer.send(signal).is_ok())
+            .count()
+            > 0
     }
 }
 
