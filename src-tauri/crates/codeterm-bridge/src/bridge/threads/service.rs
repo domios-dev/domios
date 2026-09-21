@@ -206,6 +206,85 @@ impl ThreadService {
         routing::decide(lookup, &|tab_id| tabs.is_live_tab(tab_id))
     }
 
+    /// Resolve a visible non-General tab's topic before its notification send.
+    pub async fn notification_thread_id(
+        &self,
+        tabs: &dyn ThreadTabs,
+        tab_id: &str,
+        chat_id: i64,
+    ) -> Option<i64> {
+        if !tabs.is_live_tab(tab_id) || !tabs.is_visible_tab(tab_id) || tabs.is_general_tab(tab_id) {
+            return None;
+        }
+        let attached = self.attached()?;
+        let identity = tabs.sender_identity(tab_id)?;
+        match self
+            .ensure_thread(tabs, &attached, &identity, chat_id, false)
+            .await
+        {
+            Ensured::Bound { binding, .. } => Some(binding.thread_id),
+            Ensured::Fallback { notice_due, .. } => {
+                if notice_due {
+                    self.send_notice(&attached, chat_id).await;
+                }
+                None
+            }
+        }
+    }
+
+    /// Send a notification into a previously resolved topic without a main-chat pointer.
+    pub async fn send_notification_to_thread(
+        &self,
+        tabs: &dyn ThreadTabs,
+        text: TabText,
+        thread_id: i64,
+    ) -> Option<i64> {
+        let attached = self.attached()?;
+        let body = markdown_to_sanitized_html(&text.markdown);
+        let identity = tabs.sender_identity(&text.tab_id);
+        let header = identity.as_ref().map(SenderIdentity::header);
+        let html = match header.as_deref() {
+            Some(header) => compose::with_header(header, &body),
+            None => body,
+        };
+        let placed = self
+            .send_chunks(
+                &attached,
+                text.chat_id,
+                Some(thread_id),
+                &html,
+                text.buttons.as_ref(),
+            )
+            .await;
+        if let Err(failure) = &placed {
+            if failure.thread_unusable() {
+                self.registry
+                    .lock()
+                    .set_stale(&scope(attached.bot_id, text.chat_id), thread_id, true);
+            }
+        }
+        let placed = match placed {
+            Ok(message_id) => message_id,
+            Err(failure) => {
+                log::warn!("[bridge-threads] notification send failed: {failure:?}");
+                return None;
+            }
+        };
+        self.record_origin(&attached, text.chat_id, placed, &text.tab_id);
+        Some(placed)
+    }
+
+    pub async fn ensure_notification_thread(
+        &self,
+        tabs: &dyn ThreadTabs,
+        tab_id: &str,
+        chat_id: i64,
+    ) -> bool {
+        self.notification_thread_id(tabs, tab_id, chat_id)
+            .await
+            .is_some()
+    }
+
     /// Send a tab's text: into its topic with a headered main-chat pointer, or
     /// headered into the main chat when topics cannot carry it. Returns the
     /// message that carries the buttons.
@@ -270,7 +349,8 @@ impl ThreadService {
         };
         self.record_origin(&attached, text.chat_id, placed, &text.tab_id);
 
-        if let (Some(thread_id), Some(header), false) = (thread_id, header.as_deref(), text.append)
+        if let (Some(thread_id), Some(header), false) =
+            (thread_id, header.as_deref(), text.append)
         {
             let link = topic_link(text.chat_id, thread_id);
             let pointer = compose::pointer(header, link.as_deref(), &text.markdown);
@@ -419,36 +499,6 @@ impl ThreadService {
             link,
             created,
         })
-    }
-
-    pub async fn ensure_notification_thread(
-        &self,
-        tabs: &dyn ThreadTabs,
-        tab_id: &str,
-        chat_id: i64,
-    ) -> bool {
-        if !tabs.is_live_tab(tab_id) || !tabs.is_visible_tab(tab_id) || tabs.is_general_tab(tab_id)
-        {
-            return false;
-        }
-        let Some(attached) = self.attached() else {
-            return false;
-        };
-        let Some(identity) = tabs.sender_identity(tab_id) else {
-            return false;
-        };
-        match self
-            .ensure_thread(tabs, &attached, &identity, chat_id, false)
-            .await
-        {
-            Ensured::Bound { .. } => true,
-            Ensured::Fallback { notice_due, .. } => {
-                if notice_due {
-                    self.send_notice(&attached, chat_id).await;
-                }
-                false
-            }
-        }
     }
 
     /// Retire every open thread of a closing tab. Delete first; on failure
