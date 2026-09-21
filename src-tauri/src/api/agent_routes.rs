@@ -930,7 +930,7 @@ pub async fn respond_prompt(
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     let value = body
@@ -940,7 +940,7 @@ pub async fn respond_prompt(
         .to_string();
     let svc = state.svc.clone();
     let pid = tab_id.clone();
-    tokio::task::spawn_blocking(move || svc.respond_prompt(&pid, &value))
+    let outcome = tokio::task::spawn_blocking(move || svc.respond_prompt(&pid, &value))
         .await
         .map_err(|_| {
             (
@@ -949,7 +949,31 @@ pub async fn respond_prompt(
             )
         })?
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(respond_prompt_response(outcome))
+}
+
+pub(crate) fn respond_prompt_response(
+    outcome: crate::service::tab::RespondPromptOutcome,
+) -> Response {
+    let (status, body) = match outcome {
+        crate::service::tab::RespondPromptOutcome::Sent
+        | crate::service::tab::RespondPromptOutcome::Structured => {
+            (StatusCode::OK, serde_json::json!({"ok": true}))
+        }
+        crate::service::tab::RespondPromptOutcome::PromptNotOnScreen => (
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"}),
+        ),
+        crate::service::tab::RespondPromptOutcome::NoPty => (
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok": false, "reason": "no_pty"}),
+        ),
+        crate::service::tab::RespondPromptOutcome::InvalidOption => (
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"ok": false, "reason": "invalid_option"}),
+        ),
+    };
+    (status, Json(body)).into_response()
 }
 
 /// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
