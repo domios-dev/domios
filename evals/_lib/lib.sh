@@ -336,7 +336,13 @@ dc() {
     return 7
   fi
   if [ -n "$caller_tab_id" ]; then
-    dev_run --as-tab "$caller_tab_id" "$cli" "$@"
+    # Plan mutations authenticate the live bound session, not just the tab id.
+    local inspect session nonce
+    inspect="$(dev_run "$cli" tab inspect "$caller_tab_id" --json 2>/dev/null)"
+    session="$(printf '%s' "$inspect" | grep -m1 -oE '"agent_session_id": *"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/')"
+    nonce="$(printf '%s' "$inspect" | grep -m1 -oE '"session_binding_nonce": *"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/')"
+    dev_run --as-tab "$caller_tab_id" env \
+      "CODETERM_SESSION_ID=$session" "CODETERM_SESSION_BINDING_NONCE=$nonce" "$cli" "$@"
   else
     dev_run "$cli" "$@"
   fi
