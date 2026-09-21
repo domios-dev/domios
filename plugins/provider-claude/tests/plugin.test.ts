@@ -8,6 +8,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
+import { claudeFolderTrustHighlightedOptionIndex, claudeFolderTrustPrompt } from "../src/folderTrust";
 
 let passed = 0;
 let failed = 0;
@@ -229,6 +230,16 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 
   const pathInDialog = fs.readFileSync(path.join(dir, "quick-safety-path-in-dialog.txt"), "utf8");
   eq(hostPlugin.parsePrompt(pathInDialog), null, "a path within the dialog block is not parsed as the pathless layout");
+
+  const trustMentionedBypass = fs.readFileSync(path.join(dir, "trust-mentioned-bypass-warning.txt"), "utf8");
+  eq(claudeFolderTrustPrompt(trustMentionedBypass), null, "a bypass warning is not a folder-trust prompt");
+  eq(claudeFolderTrustHighlightedOptionIndex(trustMentionedBypass), null, "a bypass warning has no folder-trust focus");
+  const titleless = fs.readFileSync(path.join(dir, "trust-without-title.txt"), "utf8");
+  eq(claudeFolderTrustPrompt(titleless), null, "an untitled folder trust prompt is refused");
+  eq(claudeFolderTrustHighlightedOptionIndex(titleless), null, "an untitled prompt has no trusted focus");
+  const underscoreTrust = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8")
+    .replace(/^([ \t]*Yes\b[^\r\n]*)\btrust\b/im, "$1_trust");
+  eq(claudeFolderTrustPrompt(underscoreTrust), null, "underscore is part of the trust token");
 
   const numbered = fs.readFileSync(path.join(dir, "trust-numbered-focus-affirmative.txt"), "utf8");
   const numberedPrompt = hostPlugin.parsePrompt(numbered);
