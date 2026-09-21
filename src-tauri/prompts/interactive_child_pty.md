@@ -1,6 +1,6 @@
 # Interactive child PTY operation
 
-Use this procedure for a missing-ACK event or explicit coordination incident. Inspect only its named child and attempt; leave healthy Workers alone.
+Use this procedure for a missing-ACK event naming recovery.capability=interactive_child_pty or an explicit coordination incident. Inspect only its named child and attempt; leave healthy Workers alone.
 
 1. Inspect the exact child with `codeterm tab inspect --tab <ID> --lifecycle` and `codeterm tab status --tab <ID>`, then read its fresh screen with `codeterm tab get-text --tab <ID>`. Check backing kind, lifecycle/session, provider-declared prompt classification, and screen before choosing an action.
 2. Use PTY actions only for a confirmed PTY. A chat backend has no shell; use only authorized chat contact or escalate the mismatch.
