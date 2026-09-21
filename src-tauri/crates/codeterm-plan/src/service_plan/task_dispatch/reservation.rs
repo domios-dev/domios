@@ -2,7 +2,7 @@ use super::super::{PlanError, PlanStore};
 use super::{current_dispatch_startup_owner, DispatchStartupOwner};
 
 #[derive(Debug, Clone)]
-pub(super) struct DispatchReservationOwner {
+pub(crate) struct DispatchReservationOwner {
     attempt_id: String,
     tab_id: String,
 }
