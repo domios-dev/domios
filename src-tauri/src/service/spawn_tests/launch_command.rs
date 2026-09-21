@@ -6,21 +6,22 @@ fn missing_provider_command_is_refused_before_task_tab_creation() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let initial_tabs = mux.snapshot().tabs.len();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(
-            crate::agent::test_provider::MockProvider::with_empty_launch_command(
-                "empty-launch",
-            ),
-        ));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command("empty-launch"),
+    ));
     let mut spec = agent_spec("empty-launch");
     if let TabCommand::Agent(agent) = &mut spec.command {
         agent.role = Some("Worker".into());
         agent.task = Some("assigned work".into());
-        agent.extra_env.insert("CODETERM_PLAN_ID".into(), "plan".into());
-        agent.extra_env.insert("CODETERM_TASK_ID".into(), "task".into());
-        agent.extra_env.insert("CODETERM_ATTEMPT_ID".into(), "attempt".into());
+        agent
+            .extra_env
+            .insert("CODETERM_PLAN_ID".into(), "plan".into());
+        agent
+            .extra_env
+            .insert("CODETERM_TASK_ID".into(), "task".into());
+        agent
+            .extra_env
+            .insert("CODETERM_ATTEMPT_ID".into(), "attempt".into());
     }
 
     let error = match fixture.service.spawn_tab(spec) {
@@ -28,8 +29,14 @@ fn missing_provider_command_is_refused_before_task_tab_creation() {
         Err(error) => error,
     };
 
-    assert!(error.contains("did not resolve a launch command"), "{error}");
-    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), initial_tabs);
+    assert!(
+        error.contains("did not resolve a launch command"),
+        "{error}"
+    );
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        initial_tabs
+    );
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -60,8 +67,14 @@ fn task_specific_empty_provider_command_is_refused_after_real_build_and_rolls_ba
         Err(error) => error,
     };
 
-    assert!(error.contains("did not resolve a launch command"), "{error}");
-    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), initial_tabs);
+    assert!(
+        error.contains("did not resolve a launch command"),
+        "{error}"
+    );
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        initial_tabs
+    );
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -77,7 +90,10 @@ fn empty_launch_rollback_leaves_a_workspace_close_reservation_to_its_owner() {
         .service
         .rollback_empty_agent_launch(&tab_id, "empty-launch");
 
-    assert!(error.contains("did not resolve a launch command"), "{error}");
+    assert!(
+        error.contains("did not resolve a launch command"),
+        "{error}"
+    );
     assert!(error.contains("Workspace is closing"), "{error}");
     assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
 }
