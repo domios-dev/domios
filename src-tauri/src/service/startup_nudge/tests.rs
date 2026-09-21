@@ -10,11 +10,11 @@ fn terminal(trust: &TrustDecision, modal_on_screen: bool) -> Option<AgentTermina
 #[test]
 fn free_agent_terminal_takes_the_reminder() {
     assert_eq!(
-        nudge_for(true, terminal(&TrustDecision::NoDialog, false)),
+        nudge_for(true, true, terminal(&TrustDecision::NoDialog, false)),
         StartupNudge::Deliver
     );
     assert_eq!(
-        nudge_for(true, terminal(&TrustDecision::NotApplicable, false)),
+        nudge_for(true, true, terminal(&TrustDecision::NotApplicable, false)),
         StartupNudge::Deliver
     );
 }
@@ -22,15 +22,26 @@ fn free_agent_terminal_takes_the_reminder() {
 #[test]
 fn a_tab_without_an_agent_is_never_written_to() {
     assert_eq!(
-        nudge_for(false, terminal(&TrustDecision::NoDialog, false)),
+        nudge_for(false, true, terminal(&TrustDecision::NoDialog, false)),
         StartupNudge::NoAgent
     );
-    assert_eq!(nudge_for(false, None), StartupNudge::NoAgent);
+    assert_eq!(nudge_for(false, false, None), StartupNudge::NoAgent);
 }
 
 #[test]
 fn a_chat_backed_agent_has_no_terminal_to_collide_with() {
-    assert_eq!(nudge_for(true, None), StartupNudge::Deliver);
+    assert_eq!(nudge_for(true, true, None), StartupNudge::Deliver);
+}
+
+#[test]
+fn an_unbound_session_never_receives_reminders_on_clear_or_modal_screens() {
+    let no_dialog = TrustDecision::NoDialog;
+    let held = TrustDecision::Held;
+    for terminal in [terminal(&no_dialog, false), terminal(&held, true)] {
+        let nudge = nudge_for(true, false, terminal);
+        assert_eq!(nudge, StartupNudge::UnboundSession);
+        assert!(!nudge.delivers());
+    }
 }
 
 #[test]
@@ -38,12 +49,13 @@ fn an_owned_trust_dialog_is_answered_instead_of_written_to() {
     assert_eq!(
         nudge_for(
             true,
+            true,
             terminal(&TrustDecision::Answer { step: b"\r".into() }, false)
         ),
         StartupNudge::AnsweredTrustDialog
     );
     assert_eq!(
-        nudge_for(true, terminal(&TrustDecision::Waiting, false)),
+        nudge_for(true, true, terminal(&TrustDecision::Waiting, false)),
         StartupNudge::AnsweredTrustDialog
     );
 }
@@ -51,16 +63,16 @@ fn an_owned_trust_dialog_is_answered_instead_of_written_to() {
 #[test]
 fn a_prompt_the_host_may_not_answer_blocks_the_reminder() {
     assert_eq!(
-        nudge_for(true, terminal(&TrustDecision::Held, false)),
+        nudge_for(true, true, terminal(&TrustDecision::Held, false)),
         StartupNudge::BlockedOnPrompt
     );
     // No provenance, so nothing to answer — and still nowhere to paste prose.
     assert_eq!(
-        nudge_for(true, terminal(&TrustDecision::NotApplicable, true)),
+        nudge_for(true, true, terminal(&TrustDecision::NotApplicable, true)),
         StartupNudge::BlockedOnPrompt
     );
     assert_eq!(
-        nudge_for(true, terminal(&TrustDecision::NoDialog, true)),
+        nudge_for(true, true, terminal(&TrustDecision::NoDialog, true)),
         StartupNudge::BlockedOnPrompt
     );
 }
@@ -71,6 +83,7 @@ fn only_deliver_writes() {
     for nudge in [
         StartupNudge::AnsweredTrustDialog,
         StartupNudge::BlockedOnPrompt,
+        StartupNudge::UnboundSession,
         StartupNudge::NoAgent,
     ] {
         assert!(!nudge.delivers(), "{nudge:?} must not write into a tab");

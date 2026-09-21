@@ -12,14 +12,14 @@ pub fn superseded_subject_cause(
     tab_id: &str,
     plan_id: &str,
     task_id: &str,
-    retired_attempt_id: &str,
-    live_attempt_id: &str,
-    live_tab_id: &str,
+    previous_attempt_id: &str,
+    current_attempt_id: &str,
+    live_tab: &str,
 ) -> String {
     format!(
-        "{ACK_CAUSE_ATTEMPT_SUPERSEDED}: attempt {retired_attempt_id} on tab {tab_id} was superseded \
-         by attempt {live_attempt_id} of {plan_id}/{task_id}, now held by tab {live_tab_id}. Stop and \
-         exit; do not retry the ack."
+        "{ACK_CAUSE_ATTEMPT_SUPERSEDED}: attempt {previous_attempt_id} on tab {tab_id} was \
+         superseded by attempt {current_attempt_id} of {plan_id}/{task_id}, now held by tab \
+         {live_tab}. Stop and exit; do not retry the ack."
     )
 }
 

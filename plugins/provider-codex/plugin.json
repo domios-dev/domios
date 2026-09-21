@@ -85,11 +85,6 @@
       "description": "Proven previous-generation model for coding and general work."
     },
     {
-      "id": "gpt-5.4-mini",
-      "displayName": "GPT-5.4-Mini",
-      "description": "Small, fast, and cost-efficient model for simpler coding tasks."
-    },
-    {
       "id": "gpt-5.3-codex-spark",
       "displayName": "GPT-5.3-Codex-Spark",
       "description": "Ultra-fast coding model."

@@ -3,9 +3,6 @@ use crate::{
     service::orchestrator::types::SpawnAgentParams,
     service::{boot_stage::BootStage, ServiceContext},
 };
-
-#[path = "launch/generation.rs"]
-mod generation;
 pub(crate) fn skip_local_worker_role(
     role: &crate::multiplexer::types::AgentRole,
     parent_tab_id: Option<&str>,
@@ -37,6 +34,9 @@ pub(crate) struct LaunchRegistry {
 #[cfg(test)]
 #[path = "launch/exit_recovery_shell_tests.rs"]
 mod exit_recovery_shell_tests;
+#[path = "launch/generation.rs"]
+mod generation;
+mod startup_readiness;
 #[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
@@ -154,6 +154,7 @@ enum LaunchFailure {
     TabClosed,
     LaunchWrite(String),
     TaskDelivery(String),
+    SessionBindingNotObserved(String),
     StartupSupervision(String),
 }
 impl LaunchFailure {
@@ -168,6 +169,9 @@ impl LaunchFailure {
             Self::TabClosed => "TabClosedBeforePtyLink".into(),
             Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
+            Self::SessionBindingNotObserved(reason) => {
+                format!("SessionBindingNotObserved: {reason}")
+            }
             Self::StartupSupervision(error) => format!("StartupSupervisionFailed: {error}"),
         }
     }
@@ -295,15 +299,6 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .get_session(&pty_id)
         .is_some()
         .then_some(pty_id)
-}
-
-fn reused_provider_tui_owns_launch(
-    reused_live_pty: bool,
-    tab_agent_type: Option<&str>,
-    requested_agent: &str,
-    provider_tui_visible: bool,
-) -> bool {
-    reused_live_pty && tab_agent_type == Some(requested_agent) && provider_tui_visible
 }
 
 /// The screen gate misses a prompt drawn beneath an exited provider's frame, so
@@ -615,19 +610,23 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
 
-        let (tab_agent_type, screen) = {
-            let tab_agent_type = svc
-                .mux
-                .read()
-                .get_tab(&tab_id)
-                .and_then(|tab| tab.agent_type.clone());
-            let screen = svc
-                .screen_state
-                .lock()
-                .get_screen_text(&pty_id)
-                .unwrap_or_default();
-            (tab_agent_type, screen)
+        let (tab_agent_type, existing_binding_nonce) = {
+            let mux = svc.mux.read();
+            mux.get_tab(&tab_id)
+                .map(|tab| {
+                    let binding_nonce = tab
+                        .launch_session_authenticated()
+                        .then(|| tab.session_binding_nonce.clone())
+                        .flatten();
+                    (tab.agent_type.clone(), binding_nonce)
+                })
+                .unwrap_or_default()
         };
+        let screen = svc
+            .screen_state
+            .lock()
+            .get_screen_text(&pty_id)
+            .unwrap_or_default();
         let provider_tui_visible = registry
             .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
             .unwrap_or(false);
@@ -637,8 +636,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
         );
         if !recovers_exited_provider
-            && reused_provider_tui_owns_launch(
+            && startup_readiness::reused_provider_tui_owns_launch(
                 reused_live_pty,
+                existing_binding_nonce.is_some(),
                 tab_agent_type.as_deref(),
                 &agent_cmd,
                 provider_tui_visible,
@@ -650,8 +650,29 @@ pub(crate) fn launch_agent_in_background_with_env(
                 agent_cmd,
                 pty_id
             );
-            if let Err(error) = launch.capture_current_binding(&svc, task_identity.as_ref()) {
-                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+            let Some(binding_nonce) = existing_binding_nonce else {
+                unreachable!("a reused provider TUI owns an authenticated binding")
+            };
+            if !launch.adopt_authenticated_binding(binding_nonce.clone()) {
+                let failure = LaunchFailure::SessionBindingNotObserved(
+                    "the authenticated session could not be adopted".into(),
+                );
+                let error = failure.reason();
+                launch.fail(&svc, failure);
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+            if let Err(error) = svc.activate_agent_startup_supervision(
+                &tab_id,
+                &launch.pty_id,
+                &binding_nonce,
+                task_identity.as_ref(),
+            ) {
+                let failure = LaunchFailure::StartupSupervision(error.clone());
+                launch.fail(&svc, failure);
                 set_booting(false);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
@@ -659,7 +680,18 @@ pub(crate) fn launch_agent_in_background_with_env(
                 return;
             }
             launch.reuse();
-            launch.emit(&svc, launch.stage);
+            if !launch.emit(&svc, launch.stage) {
+                let failure = LaunchFailure::SessionBindingNotObserved(
+                    "the reused launch lost its authenticated session".into(),
+                );
+                let error = failure.reason();
+                launch.fail(&svc, failure);
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
             LAUNCH_REGISTRY.lock().finish(&launch);
             set_booting(false);
             if let Some(tx) = ready_tx {
@@ -668,7 +700,8 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         if let Err(error) = launch.capture_binding_nonce(&svc, task_identity.as_ref()) {
-            launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+            let failure = LaunchFailure::StartupSupervision(error.clone());
+            launch.fail(&svc, failure);
             set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
@@ -784,7 +817,8 @@ pub(crate) fn launch_agent_in_background_with_env(
                         if let Err(error) =
                             launch.capture_binding_nonce(&svc, task_identity.as_ref())
                         {
-                            launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                            let failure = LaunchFailure::StartupSupervision(error.clone());
+                            launch.fail(&svc, failure);
                             set_booting(false);
                             if let Some(tx) = ready_tx {
                                 let _ = tx.send(Err(error));
@@ -875,7 +909,14 @@ pub(crate) fn launch_agent_in_background_with_env(
             binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
         };
         crate::service::launch_readiness::arm(readiness_attempt.clone());
-        svc.observe_launch_readiness(
+        if launch.await_provider_ack(std::time::Duration::ZERO) {
+            crate::service::launch_readiness::note_acknowledged(
+                &readiness_attempt.tab_id,
+                &readiness_attempt.pty_id,
+                &readiness_attempt.binding_nonce,
+            );
+        }
+        let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
             crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
         );
@@ -1001,18 +1042,16 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
 
         set_booting(false);
-        // Readiness the shared owner already refuted: this launch never claims
-        // ready over a process that is gone.
-        if let Some(error) =
-            crate::service::launch_readiness::take_published_failure(&readiness_attempt)
-        {
-            LAUNCH_REGISTRY.lock().finish(&launch);
+        let readiness = readiness_receiver.recv().unwrap_or_else(|_| {
+            crate::service::launch_readiness::LaunchSettlement::Provisional {
+                stage: BootStage::LaunchDeadlineElapsed,
+                reason: "launch readiness observer stopped before session binding".into(),
+            }
+        });
+        if let Err(error) = startup_readiness::emit_agent_ready(&mut launch, &svc, readiness) {
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
-            return;
-        }
-        if !launch.emit(&svc, BootStage::AgentReady) {
             return;
         }
         LAUNCH_REGISTRY.lock().finish(&launch);

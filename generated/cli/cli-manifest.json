@@ -14326,6 +14326,44 @@
           "subcommands": []
         },
         {
+          "name": "attach-cartographer",
+          "about": "Attach the one optional Cartographer Manager to a Team",
+          "aliases": [],
+          "args": [
+            {
+              "name": "model",
+              "positional": false,
+              "required": false,
+              "value_name": "MODEL",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider model ID",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Agent provider ID",
+              "aliases": []
+            },
+            {
+              "name": "team_id",
+              "positional": true,
+              "required": true,
+              "value_name": "TEAM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Team ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "close",
           "about": "Close every member tab and remove the Team registry entry",
           "aliases": [],
