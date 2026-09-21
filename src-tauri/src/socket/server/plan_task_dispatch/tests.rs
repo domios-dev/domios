@@ -35,6 +35,7 @@ mod brief_tests;
 mod canonical_writer;
 mod checkout_occupancy;
 mod dispatch_placement;
+mod dispatch_recovery;
 mod lane_persist;
 mod lane_provisioning;
 mod lane_resolution_multirepo;
