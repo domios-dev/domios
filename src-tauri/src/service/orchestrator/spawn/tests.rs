@@ -25,6 +25,109 @@ fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
     assert_eq!(fixture.service.mux.read().all_tabs().count(), before);
 }
 
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_cleans_tab() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("spawn rollback".into(), None).id;
+    let parent_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&parent_tab_id).unwrap().agent_type = Some("supervisor".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
+            "task-sensitive-empty-launch",
+        ),
+    ));
+    fixture
+        .service
+        .require_agent_provider_ready("task-sensitive-empty-launch")
+        .expect("provider preflight without a task succeeds");
+    let mut plan = fixture
+        .service
+        .plan_store
+        .create_plan_for_team(
+            "empty provider launch".into(),
+            fixture.temp.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&parent_tab_id),
+            "team-empty-launch".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    plan.mode = crate::plan::PlanMode::Approved;
+    fixture.service.plan_store.save(&mut plan, 2).unwrap();
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan.id,
+            crate::service::plan::NewTask {
+                name: "empty-launch".into(),
+                handle: Some("empty-launch".into()),
+                body: "Refuse a provider that cannot build a task launch.".into(),
+                acceptance_criteria: vec!["No task attempt is bound.".into()],
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    fixture.service.ensure_agent_pad(&tab_id).unwrap();
+    fixture
+        .service
+        .register_agent_startup_supervision(&parent_tab_id, &tab_id, "Worker");
+    assert!(fixture.service.has_agent_startup_supervision(&tab_id));
+
+    let result = fixture
+        .service
+        .spawn_agent(
+            SpawnAgentParams {
+                agent: Some("task-sensitive-empty-launch".into()),
+                task: Some("assigned work".into()),
+                role: Some("Worker".into()),
+                parent_tab_id: Some(parent_tab_id),
+                workspace_id: Some(workspace_id),
+                existing_tab_id: Some(tab_id.clone()),
+                plan_id: Some(plan.id.clone()),
+                plan_task: Some("empty-launch".into()),
+                execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+                provider_reserve_pct: None,
+                ..Default::default()
+            },
+            None,
+        )
+        .await;
+
+    let Err(error) = result else {
+        panic!("a task-specific missing provider command must fail");
+    };
+    assert!(error.contains("did not resolve a launch command"), "{error}");
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_tab(&tab_id).is_none());
+    assert_eq!(mux.all_tabs().count(), 1);
+    drop(mux);
+    assert_eq!(
+        crate::service::launch_session_detection::registered_launch_marker(&tab_id),
+        None
+    );
+    assert!(!fixture.service.has_agent_startup_supervision(&tab_id));
+    assert!(crate::service::agent_pad::AgentPad::open(
+        &crate::paths::data_dir(),
+        &tab_id
+    )
+    .is_err());
+
+    let stored_plan = fixture.service.plan_store.get(&plan.id).unwrap();
+    let task = stored_plan
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.status, crate::plan::TaskStatus::Pending);
+    assert!(task.assigned_tab_id.is_none());
+    assert!(task.execution_attempts.is_empty());
+}
+
 #[test]
 fn effort_provenance_keeps_plan_and_request_distinct() {
     let planned = resolved_effort_provenance(Some("high".into()), Some("medium".into()));
