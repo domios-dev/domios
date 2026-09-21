@@ -21,6 +21,24 @@ pub(crate) struct ServiceFixture {
     pub(crate) temp: tempfile::TempDir,
 }
 
+#[derive(Default)]
+pub(crate) struct RecordingHierarchyReportDelivery {
+    pub(crate) writes: Mutex<Vec<(String, String)>>,
+}
+
+impl super::hierarchy::HierarchyReportDelivery for RecordingHierarchyReportDelivery {
+    fn deliver(
+        &self,
+        recipient_tab_id: &str,
+        report: &crate::agent::reports::AgentReport,
+    ) -> Result<(), String> {
+        self.writes
+            .lock()
+            .push((recipient_tab_id.to_string(), report.id.clone()));
+        Ok(())
+    }
+}
+
 impl ServiceFixture {
     pub(crate) fn new(mux: MultiplexerState) -> Self {
         let temp = tempfile::tempdir().unwrap();
