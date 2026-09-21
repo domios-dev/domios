@@ -127,9 +127,9 @@ fn store_concurrent_dispatch_cleanup_releases_losing_lane_and_tab() {
     assert!(runtime.mux.get_tab(&losing_tab).is_none());
     assert_eq!(runtime.tab_count(), runtime.baseline_tab_count + 1);
     let losing_pty = if losing_tab == first_tab {
-        first_pty
+        first_pty.clone()
     } else {
-        second_pty
+        second_pty.clone()
     };
     assert!(runtime.pty.get_session(&losing_pty).is_none());
     let winner_pty = if winner_tab == first_tab {
