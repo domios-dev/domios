@@ -93,7 +93,7 @@ function connect(record: SubscriptionRecord): void {
             record.handler({ payload: {
               ...message.data,
               tab_id: record.ordinaryTabId,
-              pty_id: `mesh:${record.peerId}/${message.data.pty_id}`,
+              pty_id: record.ordinaryTabId,
             } });
           }
         }

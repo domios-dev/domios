@@ -87,7 +87,7 @@ describe("remote chat event subscription ownership", () => {
     vi.unstubAllGlobals();
   });
 
-  it("delivers peer resize-owner changes with the composite PTY identity", async () => {
+  it("delivers peer resize-owner changes with the composite tab and PTY identity", async () => {
     vi.stubGlobal("window", new EventTarget());
     const frame = JSON.stringify({
       boot: "boot-r",
@@ -109,7 +109,7 @@ describe("remote chat event subscription ownership", () => {
     await delivered;
     expect(payload).toMatchObject({
       tab_id: "mesh:peer/tab",
-      pty_id: "mesh:peer/pty-1",
+      pty_id: "mesh:peer/tab",
       client_id: "web:other",
     });
     expect(remoteTabEventSubscriptionSnapshot(event)?.cursor).toBe("boot-r:1");

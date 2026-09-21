@@ -119,7 +119,13 @@ export const TerminalTab = memo(function TerminalTab({
     renderEnabled: renderTerminal,
   });
   const resizeClientId = useMemo(() => getResizeClientId(), []);
-  const { commitResize, setResizeOwner, loseResizeOwnership, refitAndCommitResize } = useTerminalResize({
+  const {
+    commitResize,
+    setResizeOwner,
+    loseResizeOwnership,
+    hasResizeOwnership,
+    refitAndCommitResize,
+  } = useTerminalResize({
     containerRef,
     termRef,
     fitAddonRef,
@@ -167,6 +173,7 @@ export const TerminalTab = memo(function TerminalTab({
     connectedPtyRef,
     setResizeOwner,
     loseResizeOwnership,
+    hasResizeOwnership,
     refitAndCommitResize,
   });
 
