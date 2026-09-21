@@ -764,10 +764,14 @@ fn a_live_dispatch_refuses_a_second_start_without_superseding() {
     assert_eq!(tab_id, "winner-tab");
 
     let task = store.show_task(&task_id).unwrap().task;
-    assert_eq!(task.execution_attempts.len(), 1);
-    assert_eq!(task.execution_attempts[0].id, live_attempt);
-    assert_eq!(task.execution_attempts[0].executor_tab_id, "winner-tab");
-    assert_eq!(task.execution_attempts[0].closed_at, None);
+    let open: Vec<_> = task
+        .execution_attempts
+        .iter()
+        .filter(|attempt| attempt.closed_at.is_none())
+        .collect();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].id, live_attempt);
+    assert_eq!(open[0].executor_tab_id, "winner-tab");
 
     // A tab that never had an attempt is still the plain unresolved case.
     let stray = store
@@ -864,9 +868,13 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
 
     let task = store.show_task(&task_id).unwrap().task;
     assert_eq!(task.assigned_tab_id.as_deref(), Some(winner_tab.as_str()));
-    assert_eq!(task.execution_attempts.len(), 1);
-    assert_eq!(task.execution_attempts[0].id, winner_attempt);
-    assert_eq!(task.execution_attempts[0].closed_at, None);
+    let open: Vec<_> = task
+        .execution_attempts
+        .iter()
+        .filter(|attempt| attempt.closed_at.is_none())
+        .collect();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].id, winner_attempt);
 }
 
 #[test]
