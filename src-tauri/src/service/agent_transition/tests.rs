@@ -837,3 +837,41 @@ fn planner_role_kind_still_requires_a_parent() {
         Some(builtins::PLANNER)
     ));
 }
+
+#[test]
+fn roleless_tab_placed_as_worker_keeps_its_reserved_task_binding() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut fixture = Fixture::new(dir.path());
+    let task_id = fixture
+        .store
+        .add_task(
+            &fixture.plan_id,
+            crate::service::plan::NewTask {
+                name: "Reserved dispatch".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    fixture
+        .store
+        .assign_task(&fixture.plan_id, &task_id, &fixture.target, None, 3)
+        .unwrap();
+    fixture.transition(AgentPlacement::Worker {
+        parent_tab_id: fixture.owner.clone(),
+        role_profile: None,
+    });
+    assert_worker_tuple(&fixture, &fixture.owner);
+    let task = fixture
+        .store
+        .get(&fixture.plan_id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(
+        task.assigned_tab_id.as_deref(),
+        Some(fixture.target.as_str())
+    );
+}

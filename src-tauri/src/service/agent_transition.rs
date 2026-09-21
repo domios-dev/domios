@@ -424,8 +424,9 @@ fn prepare_transition(
         .flatten();
     let preserve_task_bindings_for_owner = match &request.destination {
         AgentPlacement::Worker { parent_tab_id, .. }
-            if source.role == Some(AgentRole::Worker)
-                && source.parent_tab_id.as_deref() == Some(parent_tab_id.as_str()) =>
+            if source.role.is_none()
+                || (source.role == Some(AgentRole::Worker)
+                    && source.parent_tab_id.as_deref() == Some(parent_tab_id.as_str())) =>
         {
             Some(parent_tab_id.clone())
         }
