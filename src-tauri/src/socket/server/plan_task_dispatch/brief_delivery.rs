@@ -22,7 +22,7 @@ static DEFERRED_TASK_BRIEFS: LazyLock<Mutex<HashMap<String, DeferredTaskBrief>>>
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum TaskBriefDelivery {
+pub(crate) enum TaskBriefDelivery {
     NotReady,
     Submitted,
     AlreadySubmitted,
@@ -100,7 +100,7 @@ fn non_empty(value: &str) -> bool {
     !value.trim().is_empty()
 }
 
-pub(super) fn deliver_deferred_task_brief(
+pub(crate) fn deliver_deferred_task_brief(
     svc: &ServiceState,
     plan_id: &str,
     task_id: &str,
@@ -209,7 +209,7 @@ fn claim_deferred_task_brief(
     )))
 }
 
-pub(super) fn task_brief_delivery_event(
+pub(crate) fn task_brief_delivery_event(
     plan_id: &str,
     task_id: &str,
     tab_id: &str,

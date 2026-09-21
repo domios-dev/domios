@@ -63,7 +63,7 @@ pub(super) fn startup_recovery_event(
     event
 }
 
-pub(super) fn publish_action_needed_event(
+pub(crate) fn publish_action_needed_event(
     svc: &ServiceState,
     parent_tab_id: &str,
     worker_tab_id: &str,
