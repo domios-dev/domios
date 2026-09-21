@@ -153,14 +153,16 @@ console.log("\n--- Windows: one script posting the event name ---\n");
   const script = scripts.get(scriptPaths[0]) ?? "";
   assert(script.indexOf("hookEvent=%~1") !== -1, "the script posts the event name parameter");
   assert(script.indexOf("curl.exe") !== -1, "the Windows hook uses curl without starting PowerShell");
-  assert(script.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+  assert(script.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v2") !== -1,
     "the script sends the in-command ownership marker");
   assert(script.indexOf("powershell") === -1, "the script does not start PowerShell per event");
   const winSession = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
   const winStop = String(writtenJson?.hooks?.Stop?.[0]?.hooks?.[0]?.commandWindows ?? "");
   assert(winSession.indexOf(" session_start ") !== -1, "SessionStart entry passes its event name", winSession);
   assert(winStop.indexOf(" stop ") !== -1, "Stop entry passes its event name", winStop);
-  assert(winSession.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+  assert(winSession.indexOf("%ComSpec%") !== -1 && winSession.indexOf("%SystemRoot%\\System32\\cmd.exe") !== -1,
+    "Windows SessionStart selects ComSpec with an absolute cmd.exe fallback", winSession);
+  assert(winSession.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v2") !== -1,
     "SessionStart entry carries the command ownership marker", winSession);
   assert(winSession.split(".cmd")[0] === winStop.split(".cmd")[0], "both entries invoke the same script");
 }

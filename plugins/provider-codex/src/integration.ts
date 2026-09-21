@@ -265,7 +265,9 @@ export function installIntegration(
     + authH
     + ' --data-binary @- > /dev/null 2>&1 || true; fi';
   const winCmd = (route: string) => scriptPath
-    ? '"' + scriptPath + '" ' + route + ' X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER
+    ? 'if defined ComSpec ("%ComSpec%" /d /s /c ""' + scriptPath + '" ' + route
+      + ' X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '") else ("%SystemRoot%\\System32\\cmd.exe" /d /s /c ""'
+      + scriptPath + '" ' + route + ' X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '")'
     : hookCmd(route);
 
   if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
