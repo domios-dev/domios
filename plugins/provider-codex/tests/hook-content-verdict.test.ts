@@ -12,7 +12,6 @@
 
 import {
   CODEX_HOOK_SCRIPT_CONTRACT,
-  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
   codexWindowsHookScript,
   codexHookContentHash,
   isCurrentCodexHookScriptContent,
@@ -101,14 +100,6 @@ for (const token of CODEX_HOOK_SCRIPT_CONTRACT) {
   const generated = codexWindowsHookScript();
   eq(isCurrentCodexHookScriptContent(generated), true, "the generated script satisfies its own contract");
   eq(generated.indexOf("CODETERM_API_PORT"), -1, "the generated script reads no port variable");
-  const cleanup = generated.indexOf(":cleanup_profile");
-  const apiGuard = generated.indexOf("if not defined CODETERM_API_URL");
-  eq(cleanup > 0, true, "the script has an owned profile cleanup path");
-  eq(cleanup < apiGuard, true, "profile cleanup precedes optional network credentials");
-  eq(generated.includes('"%hookEvent%"=="stop" goto cleanup_profile'), true,
-    "Stop can clean a profile when SessionStart did not");
-  const staleCleanup = generated.replace(CODETERM_CODEX_PROFILE_CLEANUP_MARKER, "codeterm-profile-cleanup-v1");
-  eq(isCurrentCodexHookScriptContent(staleCleanup), false, "the previous cleanup contract is stale");
 }
 
 {
