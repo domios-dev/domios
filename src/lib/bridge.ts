@@ -16,7 +16,15 @@ import {
   listen as tauriListen,
   type UnlistenFn as TauriUnlistenFn,
 } from "@tauri-apps/api/event";
-import { currentToken, IS_WEB, localJson, WebApiError, webFetch, webJson } from "./webApi";
+import {
+  currentToken,
+  IS_WEB,
+  isPromptNotOnScreenResponse,
+  localJson,
+  WebApiError,
+  webFetch,
+  webJson,
+} from "./webApi";
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
@@ -428,7 +436,10 @@ const HTTP_MAP: Record<string, Mapper> = {
       path,
       body: a.body ?? null,
     }).then((response: unknown) => {
-      const relay = response as { ok?: boolean; data?: unknown; error?: string | null };
+      const relay = response as { ok?: boolean; status?: number; data?: unknown; error?: string | null };
+      if (suffix === "/prompt/respond" && relay.status === 409 && isPromptNotOnScreenResponse(relay.data)) {
+        return relay.data;
+      }
       if (!relay.ok) throw new Error(relay.error ?? "Remote tab unavailable");
       return relay.data;
     });

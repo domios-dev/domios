@@ -10,6 +10,17 @@ interface OptionRow {
   label: string;
 }
 
+interface TrustHeader {
+  start: number;
+  end: number;
+  question: string;
+}
+
+interface TrustChoices {
+  options: OptionRow[];
+  footer: number;
+}
+
 function frameContent(line: string): string {
   return line.replace(FRAME_EDGES, "");
 }
@@ -41,6 +52,15 @@ function leadsWith(label: string, word: string): boolean {
 // does not prove which key advances it toward trusting the folder.
 export function claudeFolderTrustResponse(screen: string): string[] | null {
   const rows = String(screen || "").split("\n").map(frameContent);
+  const header = findTrustHeader(rows);
+  if (header && rows.slice(header.end + 1).some((row) => pointerLabel(row) !== null)) {
+    const choices = choiceRows(rows, header.end);
+    const hasPath = choices
+      ? rows.slice(header.start, choices.footer + 1).some(isPathRow)
+      : rows.slice(header.start).some(isPathRow);
+    return (choices ? answer(choices.options, hasPath) : null) || [];
+  }
+
   const path = rows.findIndex(isPathRow);
   if (path >= 0) {
     let trust = -1;
@@ -48,19 +68,17 @@ export function claudeFolderTrustResponse(screen: string): string[] | null {
       if (rows[i].toLowerCase().indexOf("trust") !== -1) { trust = i; break; }
     }
     if (trust < 0 || !rows.slice(trust + 1).some((row) => pointerLabel(row) !== null)) return null;
-    return answer(rows, path, trust) || [];
+    if (rows.slice(0, path).some((row) => row.endsWith(":"))) {
+      const choices = choiceRows(rows, trust);
+      if (choices) return answer(choices.options, false) || [];
+    }
+    return [];
   }
-
-  const trust = rows.findIndex(isPathlessTrustHeader);
-  if (trust < 0 || !rows.slice(trust + 1).some((row) => pointerLabel(row) !== null)) return null;
-  return answer(rows, null, trust) || [];
+  return null;
 }
 
-function answer(rows: string[], path: number | null, trust: number): string[] | null {
-  if (path !== null && !rows.slice(0, path).some((row) => row.endsWith(":"))) return null;
-  if (path === null && !isPathlessTrustHeader(rows[trust])) return null;
-  const options = choiceRows(rows, trust);
-  if (!options || options.length !== 2) return null;
+function answer(options: OptionRow[], hasPath: boolean): string[] | null {
+  if (hasPath || options.length !== 2) return null;
   if (options.filter((option) => option.focused).length !== 1) return null;
   const focused = options.findIndex((option) => option.focused);
   const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
@@ -72,34 +90,77 @@ function answer(rows: string[], path: number | null, trust: number): string[] | 
 
 export function claudeFolderTrustPrompt(screen: string): { question: string; options: [string, string][] } | null {
   const rows = String(screen || "").split("\n").map(frameContent);
-  if (rows.some(isPathRow)) return null;
-  const trust = rows.findIndex(isPathlessTrustHeader);
-  if (trust < 0) return null;
-  const options = choiceRows(rows, trust);
-  if (!options || options.length !== 2) return null;
+  const prompt = pathlessPrompt(rows);
+  if (!prompt || prompt.hasPath) return null;
+  const options = prompt.choices.options;
+  if (options.length !== 2) return null;
   if (options.filter((option) => option.focused).length !== 1 || !trustChoices(options)) return null;
   return {
-    question: rows[trust].trim(),
+    question: prompt.header.question,
     options: options.map((option, index): [string, string] => [option.label, String(index + 1)]),
   };
 }
 
 export function claudeFolderTrustHighlightedOptionIndex(screen: string): number | null {
-  const parsed = claudeFolderTrustPrompt(screen);
-  if (!parsed) return null;
   const rows = String(screen || "").split("\n").map(frameContent);
-  const trust = rows.findIndex(isPathlessTrustHeader);
-  return choiceRows(rows, trust)?.findIndex((option) => option.focused) ?? null;
+  const prompt = pathlessPrompt(rows);
+  if (!prompt || prompt.hasPath || prompt.choices.options.length !== 2) return null;
+  if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !trustChoices(prompt.choices.options)) return null;
+  return prompt.choices.options.findIndex((option) => option.focused);
 }
 
-function choiceRows(rows: string[], trust: number): OptionRow[] | null {
-  let footer = rows.length - 1;
-  while (footer >= 0 && !rows[footer]) footer--;
+function pathlessPrompt(rows: string[]): { header: TrustHeader; choices: TrustChoices; hasPath: boolean } | null {
+  const header = findTrustHeader(rows);
+  if (!header) return null;
+  const choices = choiceRows(rows, header.end);
+  if (!choices) return null;
+  return {
+    header,
+    choices,
+    hasPath: rows.slice(header.start, choices.footer + 1).some(isPathRow),
+  };
+}
+
+function findTrustHeader(rows: string[]): TrustHeader | null {
+  for (let start = 0; start < rows.length; start++) {
+    const header = trustHeader(rows, start);
+    if (header) return header;
+  }
+  return null;
+}
+
+function trustHeader(rows: string[], start: number): TrustHeader | null {
+  const colon = rows[start].indexOf(":");
+  if (colon < 1) return null;
+  const title = rows[start].slice(0, colon).trim();
+  if (!title) return null;
+  let question = rows[start].slice(colon + 1).trim();
+  let end = start;
+  while (!isTrustQuestion(question)) {
+    const next = rows[end + 1];
+    if (!next || isFooter(next) || isPathRow(next) || pointerLabel(next) !== null || isTrustOption(optionRow(next).label)) {
+      return null;
+    }
+    question += ` ${next.trim()}`;
+    end++;
+  }
+  return { start, end, question: `${title}: ${question}`.replace(/\s+/g, " ").trim() };
+}
+
+function isTrustQuestion(question: string): boolean {
+  return question.toLowerCase().indexOf("trust") !== -1 && question.indexOf("?") !== -1;
+}
+
+function isFooter(row: string): boolean {
+  const footer = row.toLowerCase();
+  return footer.indexOf("enter") !== -1 && footer.indexOf("esc") !== -1;
+}
+
+function choiceRows(rows: string[], trustEnd: number): TrustChoices | null {
+  const footer = rows.findIndex((row, index) => index > trustEnd && isFooter(row));
   if (footer < 0) return null;
-  const footerText = rows[footer].toLowerCase();
-  if (footerText.indexOf("enter") === -1 || footerText.indexOf("esc") === -1) return null;
   const start = rows.findIndex(
-    (row, index) => index > trust && index < footer && isTrustOption(optionRow(row).label),
+    (row, index) => index > trustEnd && index < footer && isTrustOption(optionRow(row).label),
   );
   if (start < 0) return null;
   const options: OptionRow[] = [];
@@ -109,17 +170,7 @@ function choiceRows(rows: string[], trust: number): OptionRow[] | null {
     if (!isTrustOption(option.label)) return null;
     options.push(option);
   }
-  return options;
-}
-
-function isPathlessTrustHeader(row: string): boolean {
-  const colon = row.indexOf(":");
-  if (colon < 1) return false;
-  const header = row.slice(0, colon).trim();
-  const question = row.slice(colon + 1).toLowerCase();
-  return header.length > 0
-    && question.indexOf("trust") !== -1
-    && question.indexOf("?") !== -1;
+  return { options, footer };
 }
 
 function trustChoices(options: OptionRow[]): boolean {

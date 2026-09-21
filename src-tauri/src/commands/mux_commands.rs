@@ -769,7 +769,15 @@ pub fn mux_respond_prompt(
     tab_id: String,
     value: String,
 ) -> Result<(), String> {
-    svc.respond_prompt(&tab_id, &value).map(|_| ())
+    match svc.respond_prompt(&tab_id, &value)? {
+        crate::service::tab::RespondPromptOutcome::Sent
+        | crate::service::tab::RespondPromptOutcome::Structured
+        | crate::service::tab::RespondPromptOutcome::PromptNotOnScreen
+        | crate::service::tab::RespondPromptOutcome::NoPty => Ok(()),
+        crate::service::tab::RespondPromptOutcome::InvalidOption => {
+            Err("Invalid prompt option".into())
+        }
+    }
 }
 
 /// Execute a batch of commands via the service layer.
