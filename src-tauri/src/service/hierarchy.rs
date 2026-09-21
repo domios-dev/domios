@@ -6,6 +6,7 @@ mod planner_binding;
 mod planner_delivery;
 #[cfg(test)]
 mod report_attribution;
+mod report_delivery;
 mod report_event;
 mod report_persistence;
 pub(crate) mod report_plan_ctx;
@@ -19,6 +20,7 @@ pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub(crate) use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };
+pub(crate) use report_delivery::{HierarchyReportDelivery, HierarchyReportRecipientGate};
 pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
@@ -54,63 +56,22 @@ impl ServiceContext {
         });
     }
 
-    pub(crate) fn hierarchy_report_recipient_can_receive_prose(
-        &self,
-        tab_id: &str,
-        report_id: &str,
-    ) -> bool {
-        let nudge = self.classify_startup_nudge(tab_id);
-        if nudge.delivers() {
-            return true;
-        }
-        log::warn!(
-            "[report/lifecycle] target={} report={} withheld: {}",
-            tab_id,
-            report_id,
-            nudge.reason()
-        );
-        false
+    pub(super) fn replay_pending_reports_if_routable(&self, tab_id: &str) {
+        self.replay_pending_reports_with_delivery(tab_id, self);
     }
 
-    pub(super) fn replay_pending_reports_if_routable(&self, tab_id: &str) {
+    pub(super) fn replay_pending_reports_with_delivery(
+        &self,
+        tab_id: &str,
+        delivery: &impl HierarchyReportDelivery,
+    ) {
         let pending = self.report_store.lock().pending_for(tab_id);
+        if pending.is_empty() {
+            return;
+        }
+        let gate = self.hierarchy_report_recipient_gate(tab_id);
         for report in pending {
-            if !self.hierarchy_report_recipient_can_receive_prose(tab_id, &report.id) {
-                continue;
-            }
-            if !self.report_store.lock().claim(&report.id) {
-                continue;
-            }
-            let envelope = crate::service::messenger::MessageEnvelope::report(
-                &report.from_title,
-                &report.from_tab_id,
-            )
-            .model(report.model.clone());
-            match self.gateway_deliver(
-                tab_id,
-                envelope,
-                &report.inject_body(),
-                crate::service::message_gateway::DeliveryClass::AgentTraffic,
-            ) {
-                Ok(delivery) => {
-                    self.report_store.lock().mark_delivered(&report.id);
-                    log::info!(
-                        "[report/replay] target={} report={} delivered via {:?}",
-                        tab_id,
-                        report.id,
-                        delivery
-                    );
-                }
-                Err(error) => {
-                    self.report_store.lock().release_delivery(&report.id);
-                    log::warn!(
-                        "[report/replay] target={} report={} deferred: {}",
-                        tab_id,
-                        report.id,
-                        error
-                    );
-                }
-            }
+            self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
         }
     }
 

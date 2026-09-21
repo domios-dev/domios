@@ -44,7 +44,7 @@ codeterm send "<objective>" --tab <orchestrator-tab-id>
 
 `team pair` returns both tab ids. The Orchestrator anchors the new Team inside that project workspace and the Planner is already attached to it, so the Team is ready for `codeterm send` with no further wiring, and it reports back to you.
 
-An agent-created child acknowledges its own startup with codeterm agent startup-ack; the parent never acknowledges on its behalf. Task-bound Workers run codeterm agent ack before acting and wait until the actionable brief is delivered. Missing child startup ACK, session binding, or Worker ACK triggers the shared interactive child PTY operation below for that exact tab and attempt.
+An agent-created child acknowledges its own startup with codeterm agent startup-ack; the parent never acknowledges on its behalf. Task-bound Workers run codeterm agent ack before acting. Missing child startup ACK, session binding, or Worker ACK triggers the shared interactive child PTY operation below for that exact tab and attempt.
 
 {interactive_child_pty_operation}
 

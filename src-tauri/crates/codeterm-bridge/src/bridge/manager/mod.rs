@@ -206,7 +206,7 @@ impl BridgeManager {
                         continue;
                     }
 
-                    if threaded::send_notification(&tab, &client, &api_base, &token, chat_id, &out_msg, &mut chat_states).await {
+                    if threaded::send_notification(&tab, chat_id, &out_msg).await {
                         continue;
                     }
 
@@ -862,7 +862,7 @@ async fn inject_message(
     tab.deliver_inbound(&tab_id, &prefixed, agent_type.as_deref())
 }
 
-mod threaded;
+pub mod threaded;
 
 #[cfg(test)]
 mod tests;

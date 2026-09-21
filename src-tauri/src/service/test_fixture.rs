@@ -21,6 +21,50 @@ pub(crate) struct ServiceFixture {
     pub(crate) temp: tempfile::TempDir,
 }
 
+#[derive(Default)]
+pub(crate) struct RecordingHierarchyReportDelivery {
+    pub(crate) writes: Mutex<Vec<(String, String)>>,
+}
+
+impl super::hierarchy::HierarchyReportDelivery for RecordingHierarchyReportDelivery {
+    fn deliver(
+        &self,
+        recipient_tab_id: &str,
+        report: &crate::agent::reports::AgentReport,
+    ) -> Result<(), String> {
+        self.writes
+            .lock()
+            .push((recipient_tab_id.to_string(), report.id.clone()));
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct FailFirstHierarchyReportDelivery {
+    pub(crate) attempts: Mutex<Vec<(String, String)>>,
+    pub(crate) writes: Mutex<Vec<(String, String)>>,
+}
+
+impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDelivery {
+    fn deliver(
+        &self,
+        recipient_tab_id: &str,
+        report: &crate::agent::reports::AgentReport,
+    ) -> Result<(), String> {
+        let write = (recipient_tab_id.to_string(), report.id.clone());
+        let fail = {
+            let mut attempts = self.attempts.lock();
+            attempts.push(write.clone());
+            attempts.len() == 1
+        };
+        if fail {
+            return Err("delivery deferred".into());
+        }
+        self.writes.lock().push(write);
+        Ok(())
+    }
+}
+
 impl ServiceFixture {
     pub(crate) fn new(mux: MultiplexerState) -> Self {
         let temp = tempfile::tempdir().unwrap();
