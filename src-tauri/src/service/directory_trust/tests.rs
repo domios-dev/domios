@@ -66,6 +66,18 @@ fn directory_trust_refuses_cwd_that_differs_from_provenance() {
 }
 
 #[test]
+fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
+    let (state, tab_id) = state_with_tab(
+        Some(r"\\?\C:\Users\dev\lane\project"),
+        Some(r"C:\Users\dev\lane\project"),
+    );
+    assert_eq!(
+        directory_trust_provenance(state.get_tab(&tab_id).unwrap()),
+        Ok(())
+    );
+}
+
+#[test]
 fn directory_trust_refuses_tab_without_cwd() {
     let (state, tab_id) = state_with_tab(None, Some("/srv/lanes/a"));
     assert_eq!(
@@ -119,6 +131,14 @@ fn spawn_inherits_workspace_provenance_only_in_the_provisioned_directory() {
     assert!(inherited_workspace_provenance(Some("C:/Users/user/project"), provisioned).is_none());
     assert!(inherited_workspace_provenance(None, provisioned).is_none());
     assert!(inherited_workspace_provenance(Some("C:/Users/user/project"), None).is_none());
+    assert_eq!(
+        inherited_workspace_provenance(
+            Some(r"\\?\C:\data\provisioned-workspaces\bench-1"),
+            Some(r"C:\data\provisioned-workspaces\bench-1"),
+        )
+        .as_deref(),
+        Some(r"C:\data\provisioned-workspaces\bench-1")
+    );
 }
 
 #[test]

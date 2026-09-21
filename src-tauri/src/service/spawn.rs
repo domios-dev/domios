@@ -578,7 +578,11 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
-        let confirmed_first_turn = if startup_supervised {
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
+            startup_supervised,
+            task_identity.is_some(),
+        );
+        let confirmed_first_turn = if startup_handshake.is_some() {
             crate::service::launch_delivery::startup_handshake_confirmed_first_turn(
                 native_starter_capable,
             )
@@ -617,8 +621,8 @@ impl ServiceContext {
         };
 
         let mut legacy_params = spec.to_agent_params()?;
-        if startup_supervised {
-            legacy_params.starter_prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
+        if let Some(prompt) = startup_handshake {
+            legacy_params.starter_prompt = prompt;
         } else if let Some(starter) = task_selection.provider_starter {
             legacy_params.starter_prompt = starter;
         }
@@ -764,7 +768,11 @@ impl ServiceContext {
                 workspace.and_then(|ws| ws.provisioned_cwd.clone()),
             )
         };
-        let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+        let resolved_cwd = spec
+            .cwd
+            .clone()
+            .or(ws_cwd)
+            .map(|cwd| ServiceContext::normalize_resolved_agent_cwd(&cwd));
 
         let tab_id = {
             let mut mux = self.mux.write();

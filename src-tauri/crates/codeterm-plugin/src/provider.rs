@@ -1096,6 +1096,12 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    /// Whether `parse_prompt` is a structural parser safe to run on changed
+    /// terminal screens to surface numbered choices in tab status/respond.
+    fn supports_terminal_prompt_parsing(&self) -> bool {
+        false
+    }
+
     /// Whether `permission_prompt_response` can recognize any prompt, so the UI
     /// offers per-tab auto-confirm only where it can ever answer.
     fn supports_permission_auto_confirm(&self) -> bool {

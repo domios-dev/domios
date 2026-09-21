@@ -296,6 +296,32 @@ fn restore_contract_valid_session_claim_resumes_and_keeps_the_session() {
 }
 
 #[test]
+fn restore_contract_accepts_verbatim_cwd_for_the_same_location() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.agent_session_id = Some("persisted".into());
+    tab.cwd = Some(r"C:\lanes\worker".into());
+    tab.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-verbatim-cwd-test", state));
+
+    assert!(claim_restored_launch(
+        &mux,
+        &tab_id,
+        "fixture-provider",
+        Some("persisted"),
+        Some(r"\\?\C:\lanes\worker"),
+        true,
+    )
+    .unwrap()
+    .is_some());
+}
+
+#[test]
 fn stale_session_validity_cannot_claim_changed_tab() {
     use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;

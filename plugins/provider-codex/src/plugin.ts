@@ -9,8 +9,7 @@ import type {
 import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import {
-  menuPreamble,
-  parseActiveTerminalChoice,
+  classifyCodexFolderTrustPrompt,
   parseCodexPrompt,
   responseKeysForIndex,
 } from "./prompt";
@@ -162,13 +161,10 @@ const plugin: PluginModule = {
 
   directoryTrustPromptResponse(screen: string): string[] | null {
     const view = String(screen || "");
-    const choice = parseActiveTerminalChoice(view);
-    if (!choice) return null;
-    // The trust question is a long paragraph that wraps, so no single row carries it.
-    const preamble = menuPreamble(view, choice.options[0].line).toLowerCase();
-    if (preamble.indexOf("trust the contents of this directory") === -1) return null;
-    if (!/^yes\b/i.test(choice.options[0].label)) return [];
-    return responseKeysForIndex(0, view).slice(0, 1);
+    const prompt = classifyCodexFolderTrustPrompt(view);
+    if (!prompt || prompt.kind !== "active") return null;
+    if (prompt.affirmativeIndex !== 0) return [];
+    return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
 
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.

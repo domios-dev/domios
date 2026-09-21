@@ -472,6 +472,31 @@ console.log("\n--- parsePrompt + buildPromptResponse: prose choice prompts ---\n
   eq(evp.buildPromptResponse(2, numbered), ["Mw0="], "numbered click sends selected value plus Enter");
 }
 
+console.log("\n--- parsePrompt: structured folder trust prompt ---\n");
+{
+  const screen = fixtureText("directory-trust/trust-structured-question.txt");
+  const sourcePrompt = plugin.parsePrompt?.(screen);
+  const hostPlugin = loadHostPlugin();
+  const bundledPrompt = hostPlugin.parsePrompt(screen);
+  for (const [label, parsed] of [["source", sourcePrompt], ["bundle", bundledPrompt]] as const) {
+    eq(
+      parsed?.options?.map(([, value]) => value),
+      ["1", "2"],
+      `${label} folder trust exposes numbered choices`,
+    );
+    assert(Boolean(parsed?.question.trim().endsWith("?")), `${label} question follows the active prompt`);
+  }
+  eq(
+    hostPlugin.buildPromptResponse(0, screen),
+    ["G1tB", "DQ=="],
+    "tab respond choice one moves from the focused refusal and confirms",
+  );
+
+  const offScreen = screen.replace("  Press enter to continue", "  The session is ready");
+  eq(plugin.parsePrompt?.(offScreen), null, "source parser refuses a trust choice without its active footer");
+  eq(hostPlugin.parsePrompt(offScreen), null, "bundle parser refuses a trust choice without its active footer");
+}
+
 console.log("\n--- parseSessionDelta hardening ---\n");
 const hostPlugin = loadHostPlugin();
 const chunk = [

@@ -16,6 +16,10 @@ export interface ActiveTerminalChoice {
   options: MenuOption[];
 }
 
+export type CodexFolderTrustPrompt =
+  | { kind: "active"; prompt: ParsedPrompt; affirmativeIndex: number }
+  | { kind: "not_on_screen" };
+
 interface ParsedOptionState {
   label: string;
   value: string;
@@ -30,8 +34,45 @@ interface PromptShape {
 const MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
 
 export function parseCodexPrompt(screen: string): ParsedPrompt | null {
-  const parsed = parseCodexPromptShape(screen);
+  const text = String(screen || "");
+  const trust = classifyCodexFolderTrustPrompt(text);
+  if (trust?.kind === "not_on_screen") return null;
+  if (trust?.kind === "active") return trust.prompt;
+  const parsed = parseCodexPromptShape(text);
   return parsed ? parsed.prompt : null;
+}
+
+export function classifyCodexFolderTrustPrompt(
+  screen: string,
+): CodexFolderTrustPrompt | null {
+  const options = activeMenuOptions(screen);
+  if (options.length !== 2) return null;
+  const affirmativeIndex = options.findIndex((option) => /^yes\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^no\b/i.test(option.label));
+  if (affirmativeIndex < 0 || negativeIndex < 0) return null;
+
+  const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
+  const questionEnd = preamble.indexOf("?");
+  if (questionEnd < 0 || !preamble.slice(questionEnd + 1).trim()) return null;
+  const choice = parseActiveTerminalChoice(screen);
+  if (
+    !choice ||
+    choice.options.length !== 2 ||
+    choice.options.filter((option) => option.highlighted).length !== 1
+  ) {
+    return { kind: "not_on_screen" };
+  }
+
+  return {
+    kind: "active",
+    affirmativeIndex,
+    prompt: {
+      question: preamble.slice(0, questionEnd + 1).trim(),
+      options: choice.options.map((option) => [option.label, option.value] as [string, string]),
+      multiSelect: false,
+      submitAvailable: false,
+    },
+  };
 }
 
 export function responseKeysForIndex(optionIndex: number, screen: string): string[] {

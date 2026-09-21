@@ -58,6 +58,10 @@ pub struct SpawnConfig {
     /// of scraping the PTY picker.
     #[serde(default)]
     pub supports_structured_prompts: bool,
+    /// Plugin `parsePrompt` can structurally recognize numbered choices from
+    /// changed terminal screens for tab status/respond.
+    #[serde(default)]
+    pub supports_terminal_prompt_parsing: bool,
     /// Provider's structured handle is a local SERVER it must bind — the host
     /// allocates a fixed `127.0.0.1:port` and passes it as
     /// `structuredPromptServer` at launch (opencode `--hostname/--port`).

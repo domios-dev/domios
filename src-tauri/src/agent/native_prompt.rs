@@ -21,9 +21,8 @@ pub struct ResolvedPrompt {
     pub explicit: bool,
 }
 
-/// Live-path resolution for a tab's pending-prompt card.
-/// A structured handle (push/API) is the only live source; screen input is
-/// retained at this seam only to prove that it cannot create a prompt.
+/// Resolve a provider's external structured prompt handle.
+/// Terminal input is retained here only to prove it cannot create a prompt.
 pub fn resolve_pending_prompt(
     structured: Option<PendingPrompt>,
     _input: Option<&NativePromptInput>,
