@@ -58,6 +58,20 @@ fn folder_trust_native_js_parity_on_shared_fixtures() {
 }
 
 #[test]
+fn trust_context_above_bypass_has_no_native_or_js_folder_trust_response() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen = std::fs::read_to_string(
+        fixtures_dir().join("trust-mentioned-bypass-warning.txt"),
+    )
+    .expect("bypass fixture");
+    assert_eq!(native.directory_trust_prompt_response(&screen), None);
+    assert_eq!(js.directory_trust_prompt_response(&screen), None);
+}
+
+#[test]
 fn quick_safety_prompt_and_response_native_js_parity() {
     if require_plugins().is_none() {
         return;
@@ -70,6 +84,7 @@ fn quick_safety_prompt_and_response_native_js_parity() {
         "quick-safety-wrapped-header.txt",
         "quick-safety-path-residue.txt",
         "quick-safety-path-in-dialog.txt",
+        "trust-without-title.txt",
     ] {
         let screen = std::fs::read_to_string(fixtures_dir().join(file)).expect("fixture");
         let native_prompt = native.parse_prompt(&screen);
@@ -78,8 +93,9 @@ fn quick_safety_prompt_and_response_native_js_parity() {
         let Some(prompt) = native_prompt else {
             assert!(
                 file == "quick-safety-ambiguous-focus.txt"
-                    || file == "quick-safety-path-in-dialog.txt",
-                "only ambiguous or path-containing dialog fixtures are held"
+                    || file == "quick-safety-path-in-dialog.txt"
+                    || file == "trust-without-title.txt",
+                "only ambiguous or structurally incomplete trust fixtures are held"
             );
             continue;
         };
