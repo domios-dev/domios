@@ -26,6 +26,7 @@ export interface UseTerminalResizeReturn {
     currentSize: { cols: number; rows: number } | null,
   ) => void;
   loseResizeOwnership: () => void;
+  hasResizeOwnership: () => boolean;
   refitAndCommitResize: () => void;
 }
 
@@ -96,6 +97,8 @@ export function useTerminalResize({
     committedSizeRef.current = null;
   }, []);
 
+  const hasResizeOwnership = useCallback(() => ownsResizeRef.current, []);
+
   const setResizeOwner = useCallback((
     owner: ResizeOwner,
     ownerPtyId: string,
@@ -153,6 +156,7 @@ export function useTerminalResize({
   }, [ptyId, resizeClientId]);
 
   useEffect(() => {
+    if (!resizeEnabled) return;
     let disposed = false;
     let unlisten: (() => void) | null = null;
     void listen<ResizeOwner>(resizeOwnerChangedEvent(tabId), (event) => {
@@ -168,7 +172,7 @@ export function useTerminalResize({
       disposed = true;
       unlisten?.();
     };
-  }, [connectedPtyRef, loseResizeOwnership, ptyId, resizeClientId, tabId]);
+  }, [connectedPtyRef, loseResizeOwnership, ptyId, resizeClientId, resizeEnabled, tabId]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -246,5 +250,5 @@ export function useTerminalResize({
     return () => cancelAnimationFrame(animationFrame);
   }, [isFocused, resizeEnabled, termReady, termRef]);
 
-  return { commitResize, setResizeOwner, loseResizeOwnership, refitAndCommitResize };
+  return { commitResize, setResizeOwner, loseResizeOwnership, hasResizeOwnership, refitAndCommitResize };
 }
