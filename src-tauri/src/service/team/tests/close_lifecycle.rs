@@ -1,4 +1,5 @@
 use super::*;
+use crate::multiplexer::types::TabBacking;
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 use std::fs;
@@ -203,7 +204,9 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
             3,
         )
         .unwrap();
-    store.assign_task(&plan.id, &task_id, &worker, None, 3).unwrap();
+    store
+        .assign_task(&plan.id, &task_id, &worker, None, 3)
+        .unwrap();
     let review_task_id = add_team_lane_task(
         &store,
         &plan.id,
@@ -216,7 +219,11 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
     );
     let mut plan = store.get(&plan.id).unwrap();
     {
-        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
         task.status = crate::plan::TaskStatus::InProgress;
         let mut second_attempt = task.execution_attempts[0].clone();
         second_attempt.id = "attempt_second".into();
@@ -267,12 +274,14 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
     assert!(task.execution_attempts.iter().all(|attempt| {
         attempt.closed_at == Some(7) && attempt.closure_reason.as_deref() == Some("team_closed")
     }));
-    assert!(task.milestones.iter().any(|milestone| {
-        milestone.kind == "team_close" && milestone.text.contains(&team_id)
-    }));
-    assert!(closed.strides.iter().any(|stride| {
-        stride.kind == "team_close" && stride.text.contains(&team_id)
-    }));
+    assert!(task
+        .milestones
+        .iter()
+        .any(|milestone| { milestone.kind == "team_close" && milestone.text.contains(&team_id) }));
+    assert!(closed
+        .strides
+        .iter()
+        .any(|stride| { stride.kind == "team_close" && stride.text.contains(&team_id) }));
     assert_eq!(
         closed
             .tasks
@@ -334,7 +343,11 @@ fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
         2,
     );
     let mut plan = store.get(&plan.id).unwrap();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
     task.status = crate::plan::TaskStatus::Done;
     task.assigned_tab_id = None;
     task.lane.tab_id = None;
@@ -483,27 +496,58 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     assert!(!normalized_worktrees.contains(&clean_lane_path));
     assert!(normalized_worktrees.contains(&work_lane_path));
     assert!(normalized_worktrees.contains(&retained_lane_path));
-    assert!(!git_status_success(&repo, &["show-ref", "--verify", "--quiet", "refs/heads/lane/clean"]));
-    assert!(git_status_success(&repo, &["show-ref", "--verify", "--quiet", "refs/heads/lane/work"]));
+    assert!(!git_status_success(
+        &repo,
+        &["show-ref", "--verify", "--quiet", "refs/heads/lane/clean"]
+    ));
     assert!(git_status_success(
         &repo,
-        &["show-ref", "--verify", "--quiet", "refs/heads/release/retained"]
+        &["show-ref", "--verify", "--quiet", "refs/heads/lane/work"]
+    ));
+    assert!(git_status_success(
+        &repo,
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/release/retained"
+        ]
     ));
 
     let closed = store.get(&plan.id).unwrap();
-    let clean = closed.tasks.iter().find(|task| task.id == clean_task).unwrap();
+    let clean = closed
+        .tasks
+        .iter()
+        .find(|task| task.id == clean_task)
+        .unwrap();
     assert_eq!(clean.lane.worktree_path, None);
     assert_eq!(clean.lane.cleanup_status.as_deref(), Some("done"));
-    let work = closed.tasks.iter().find(|task| task.id == work_task).unwrap();
+    let work = closed
+        .tasks
+        .iter()
+        .find(|task| task.id == work_task)
+        .unwrap();
     assert_eq!(work.status, crate::plan::TaskStatus::Pending);
-    assert_eq!(work.lane.worktree_path.as_deref(), Some(work_lane.to_str().unwrap()));
+    assert_eq!(
+        work.lane.worktree_path.as_deref(),
+        Some(work_lane.to_str().unwrap())
+    );
     assert_eq!(work.lane.branch.as_deref(), Some("lane/work"));
     assert_eq!(work.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
-    assert!(work.lane.cleanup_hints.iter().any(|hint| {
-        hint.contains(work_lane.to_str().unwrap()) && hint.contains("lane/work")
-    }));
-    let retained = closed.tasks.iter().find(|task| task.id == retained_task).unwrap();
-    assert_eq!(retained.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
+    assert!(work
+        .lane
+        .cleanup_hints
+        .iter()
+        .any(|hint| { hint.contains(work_lane.to_str().unwrap()) && hint.contains("lane/work") }));
+    let retained = closed
+        .tasks
+        .iter()
+        .find(|task| task.id == retained_task)
+        .unwrap();
+    assert_eq!(
+        retained.lane.cleanup_status.as_deref(),
+        Some("cleanup_debt")
+    );
     assert_eq!(
         retained.lane.worktree_path.as_deref(),
         Some(retained_lane.to_str().unwrap())
@@ -573,10 +617,7 @@ async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
 
     fixture
         .service
-        .close_team(
-            &team_id,
-            TeamMutationCaller::AgentTab(orchestrator),
-        )
+        .close_team(&team_id, TeamMutationCaller::AgentTab(orchestrator))
         .await
         .unwrap();
 
@@ -592,10 +633,15 @@ async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(task.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
-    assert_eq!(task.lane.worktree_path.as_deref(), Some(worktree.to_str().unwrap()));
-    assert!(task.lane.cleanup_hints.iter().any(|hint| {
-        hint.contains("keep.txt") && hint.contains("lane/untracked")
-    }));
+    assert_eq!(
+        task.lane.worktree_path.as_deref(),
+        Some(worktree.to_str().unwrap())
+    );
+    assert!(task
+        .lane
+        .cleanup_hints
+        .iter()
+        .any(|hint| { hint.contains("keep.txt") && hint.contains("lane/untracked") }));
 }
 
 fn add_team_lane_task(
@@ -621,7 +667,11 @@ fn add_team_lane_task(
         )
         .unwrap();
     let mut plan = store.get(plan_id).unwrap();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
     task.status = crate::plan::TaskStatus::InProgress;
     task.assigned_tab_id = Some(tab_id.into());
     task.lane = crate::plan::TaskLaneMetadata {
@@ -631,14 +681,15 @@ fn add_team_lane_task(
         base: Some(base.into()),
         ..Default::default()
     };
-    task.execution_attempts.push(crate::plan::TaskExecutionAttempt {
-        id: format!("attempt_{task_id}"),
-        executor_tab_id: tab_id.into(),
-        worktree_path: Some(worktree_path.display().to_string()),
-        branch: Some(branch.into()),
-        base: Some(base.into()),
-        ..Default::default()
-    });
+    task.execution_attempts
+        .push(crate::plan::TaskExecutionAttempt {
+            id: format!("attempt_{task_id}"),
+            executor_tab_id: tab_id.into(),
+            worktree_path: Some(worktree_path.display().to_string()),
+            branch: Some(branch.into()),
+            base: Some(base.into()),
+            ..Default::default()
+        });
     store.save(&mut plan, now_ms + 1).unwrap();
     task_id
 }

@@ -339,17 +339,21 @@ mod tests {
         let mut worker_headers = HeaderMap::new();
         worker_headers.insert("X-CodeTerm-Tab-Id", worker.parse().unwrap());
         assert_eq!(
-            close_team_adapter(&worker_headers, team_id.clone(), |team_id, caller| async {
-                crate::service::close_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &plan_store,
-                    &team_id,
-                    &crate::service::TeamMutationCaller::AgentTab(caller),
-                    1,
-                )
-                .map(|result| result.0)
-            })
+            close_team_adapter(
+                &worker_headers,
+                team_id.clone(),
+                async |team_id: String, caller: String| {
+                    crate::service::close_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &plan_store,
+                        &team_id,
+                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        1,
+                    )
+                    .map(|result| result.0)
+                }
+            )
             .await
             .unwrap_err()
             .0,
@@ -360,17 +364,21 @@ mod tests {
         let mut foreign_headers = HeaderMap::new();
         foreign_headers.insert("X-CodeTerm-Tab-Id", foreign.parse().unwrap());
         assert_eq!(
-            close_team_adapter(&foreign_headers, team_id.clone(), |team_id, caller| async {
-                crate::service::close_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &plan_store,
-                    &team_id,
-                    &crate::service::TeamMutationCaller::AgentTab(caller),
-                    1,
-                )
-                .map(|result| result.0)
-            })
+            close_team_adapter(
+                &foreign_headers,
+                team_id.clone(),
+                async |team_id: String, caller: String| {
+                    crate::service::close_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &plan_store,
+                        &team_id,
+                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        1,
+                    )
+                    .map(|result| result.0)
+                }
+            )
             .await
             .unwrap_err()
             .0,
@@ -379,17 +387,21 @@ mod tests {
         let mut manager_headers = HeaderMap::new();
         manager_headers.insert("X-CodeTerm-Tab-Id", orchestrator.parse().unwrap());
         assert_eq!(
-            close_team_adapter(&manager_headers, team_id.clone(), |team_id, caller| async {
-                crate::service::close_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &plan_store,
-                    &team_id,
-                    &crate::service::TeamMutationCaller::AgentTab(caller),
-                    1,
-                )
-                .map(|result| result.0)
-            })
+            close_team_adapter(
+                &manager_headers,
+                team_id.clone(),
+                async |team_id: String, caller: String| {
+                    crate::service::close_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &plan_store,
+                        &team_id,
+                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        1,
+                    )
+                    .map(|result| result.0)
+                }
+            )
             .await
             .unwrap()
             .id,
