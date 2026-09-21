@@ -52,7 +52,7 @@ pub(super) fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(
     }
 }
 
-pub(super) fn dispatch_startup_owner_is_live(
+pub(crate) fn dispatch_startup_owner_is_live(
     svc: &ServiceState,
     plan_id: &str,
     task_id: &str,
