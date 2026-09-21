@@ -16,6 +16,9 @@ pub(super) fn response(screen: &str) -> Option<DirectoryTrustPromptResponse> {
             .iter()
             .any(|row| pointer_label(row).is_some())
         {
+            if has_untitled_leading_path(&rows, header.start) {
+                return Some(DirectoryTrustPromptResponse::Hold);
+            }
             let choices = choice_rows(&rows, header.end);
             if choices
                 .as_ref()
@@ -120,6 +123,9 @@ pub(super) fn current_option_index(screen: &str) -> Option<usize> {
 
 fn current_prompt<'a>(rows: &[&'a str]) -> Option<TrustPrompt<'a>> {
     let header = find_trust_header(rows)?;
+    if has_untitled_leading_path(rows, header.start) {
+        return None;
+    }
     let choices = choice_rows(rows, header.end)?;
     if rows[header.start..=choices.footer]
         .iter()
@@ -180,6 +186,14 @@ fn is_trust_question(question: &str) -> bool {
     question.to_lowercase().contains("trust") && question.contains('?')
 }
 
+fn has_untitled_leading_path(rows: &[&str], header_start: usize) -> bool {
+    let leading_rows = &rows[..header_start];
+    let Some(path) = leading_rows.iter().position(|row| is_path_row(row)) else {
+        return false;
+    };
+    !leading_rows[..path].iter().any(|row| row.ends_with(':'))
+}
+
 fn is_footer(row: &str) -> bool {
     let footer = row.to_lowercase();
     footer.contains("enter") && footer.contains("esc")
@@ -229,7 +243,7 @@ fn has_folder_trust_affirmative(options: &[OptionRow<'_>]) -> bool {
 
 fn has_trust_token(label: &str) -> bool {
     label
-        .split(|character: char| !character.is_ascii_alphanumeric())
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .any(|token| token.eq_ignore_ascii_case("trust"))
 }
 
@@ -349,5 +363,46 @@ mod tests {
                 step: b"\r".to_vec()
             })
         );
+    }
+
+    #[test]
+    fn trust_context_above_bypass_is_not_a_folder_trust_prompt() {
+        let screen = std::fs::read_to_string(
+            fixtures().join("trust-mentioned-bypass-warning.txt"),
+        )
+        .expect("bypass fixture");
+        assert_eq!(response(&screen), None);
+        assert_eq!(parse_prompt(&screen), None);
+        assert_eq!(current_option_index(&screen), None);
+        assert!(!has_trust_token("i_trust"));
+    }
+
+    #[test]
+    fn underscore_is_part_of_the_folder_trust_token() {
+        let screen = std::fs::read_to_string(fixtures().join("quick-safety-no-first.txt"))
+            .expect("trust fixture");
+        let underscore_screen = screen
+            .lines()
+            .map(|line| {
+                if leads_with(option_row(line).label, "yes") {
+                    line.replace("trust", "_trust")
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(response(&underscore_screen), None);
+        assert_eq!(parse_prompt(&underscore_screen), None);
+        assert_eq!(current_option_index(&underscore_screen), None);
+    }
+
+    #[test]
+    fn trust_dialog_without_title_holds_and_is_not_a_prompt() {
+        let screen = std::fs::read_to_string(fixtures().join("trust-without-title.txt"))
+            .expect("title-less trust fixture");
+        assert_eq!(response(&screen), Some(DirectoryTrustPromptResponse::Hold));
+        assert_eq!(parse_prompt(&screen), None);
+        assert_eq!(current_option_index(&screen), None);
     }
 }

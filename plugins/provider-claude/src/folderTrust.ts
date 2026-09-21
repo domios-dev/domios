@@ -54,6 +54,7 @@ export function claudeFolderTrustResponse(screen: string): string[] | null {
   const rows = String(screen || "").split("\n").map(frameContent);
   const header = findTrustHeader(rows);
   if (header && rows.slice(header.end + 1).some((row) => pointerLabel(row) !== null)) {
+    if (hasUntitledLeadingPath(rows, header.start)) return [];
     const choices = choiceRows(rows, header.end);
     if (choices && !hasFolderTrustAffirmative(choices.options)) return null;
     const hasPath = choices
@@ -111,7 +112,7 @@ export function claudeFolderTrustHighlightedOptionIndex(screen: string): number 
 
 function pathlessPrompt(rows: string[]): { header: TrustHeader; choices: TrustChoices; hasPath: boolean } | null {
   const header = findTrustHeader(rows);
-  if (!header) return null;
+  if (!header || hasUntitledLeadingPath(rows, header.start)) return null;
   const choices = choiceRows(rows, header.end);
   if (!choices) return null;
   return {
@@ -119,6 +120,12 @@ function pathlessPrompt(rows: string[]): { header: TrustHeader; choices: TrustCh
     choices,
     hasPath: rows.slice(header.start, choices.footer + 1).some(isPathRow),
   };
+}
+
+function hasUntitledLeadingPath(rows: string[], headerStart: number): boolean {
+  const leadingRows = rows.slice(0, headerStart);
+  const path = leadingRows.findIndex(isPathRow);
+  return path >= 0 && !leadingRows.slice(0, path).some((row) => row.endsWith(":"));
 }
 
 function findTrustHeader(rows: string[]): TrustHeader | null {
