@@ -366,7 +366,10 @@ pub async fn hook_stop(
         .and_then(|tab| tab.session_binding_nonce.clone());
     let verdict = stop_report_verdict(launch_nonce.as_deref(), report_nonce.as_deref());
     if verdict == StopReportVerdict::Foreign {
-        log::warn!("[hook-refusal] tab={} event=stop reason=nonce_mismatch", tab_id);
+        log::warn!(
+            "[hook-refusal] tab={} event=stop reason=nonce_mismatch",
+            tab_id
+        );
         return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
     }
     let title = state

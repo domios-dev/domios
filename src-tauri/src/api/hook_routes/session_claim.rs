@@ -206,8 +206,7 @@ fn commit_reported_session(
     if !crate::service::ServiceContext::paths_equal(
         tab.cwd.as_deref().unwrap_or_default(),
         &probe.cwd,
-    )
-        || tab.agent_session_id != probe.previous_session_id
+    ) || tab.agent_session_id != probe.previous_session_id
     {
         return Ok(None);
     }
@@ -234,7 +233,8 @@ fn commit_reported_session(
             Some(reported) if reported != expected => {
                 log::warn!(
                     "[hook-refusal] tab={} event=session_start reason=nonce_mismatch provider={}",
-                    tab_id, provider_id,
+                    tab_id,
+                    provider_id,
                 );
                 return Err((
                     StatusCode::CONFLICT,

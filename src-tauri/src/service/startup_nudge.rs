@@ -82,10 +82,7 @@ impl ServiceContext {
         self.classify_startup_nudge_with_trust_response(tab_id, true, true)
     }
 
-    pub(crate) fn classify_startup_nudge_for_hierarchy_report(
-        &self,
-        tab_id: &str,
-    ) -> StartupNudge {
+    pub(crate) fn classify_startup_nudge_for_hierarchy_report(&self, tab_id: &str) -> StartupNudge {
         self.classify_startup_nudge_with_trust_response(tab_id, false, false)
     }
 

@@ -969,5 +969,4 @@ impl PlanStore {
             attempt: judged.expect("attempt set before successful write"),
         })
     }
-
 }

@@ -785,7 +785,10 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
 }
 
 fn status_prompt_lines(status: &serde_json::Value) -> Vec<String> {
-    let Some(prompt) = status.get("pending_prompt").filter(|value| !value.is_null()) else {
+    let Some(prompt) = status
+        .get("pending_prompt")
+        .filter(|value| !value.is_null())
+    else {
         return Vec::new();
     };
     let mut lines = Vec::new();

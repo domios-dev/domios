@@ -538,8 +538,8 @@ impl PlanStore {
                         } => {
                             let task_id = resolve_ref(&task, &result.ids);
                             let parsed = parse_status(&status)?;
-                            let status_label = status_label
-                                .filter(|label| !label.trim().is_empty());
+                            let status_label =
+                                status_label.filter(|label| !label.trim().is_empty());
                             let task_index = find_task_index(&working.tasks, &task_id)
                                 .ok_or(PlanError::TaskNotFound)?;
                             let task_id = working.tasks[task_index].id.clone();

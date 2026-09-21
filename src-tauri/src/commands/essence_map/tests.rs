@@ -54,8 +54,7 @@ fn read_workspace_essence_maps_ignores_linked_worktree_copy() {
     let worktree_essences = worktree.join("essences");
     fs::create_dir_all(&canonical_essences).expect("create canonical essences");
     fs::create_dir_all(&worktree_essences).expect("create worktree essences");
-    fs::write(canonical_essences.join("map.jsonl"), "canonical map")
-        .expect("write canonical map");
+    fs::write(canonical_essences.join("map.jsonl"), "canonical map").expect("write canonical map");
     fs::write(worktree_essences.join("map.jsonl"), "worktree copy")
         .expect("write worktree map copy");
 

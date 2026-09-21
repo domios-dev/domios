@@ -413,8 +413,7 @@ impl ReportStore {
     }
 
     pub fn pending_for(&self, orchestrator_tab_id: &str) -> Vec<AgentReport> {
-        self
-            .reports
+        self.reports
             .get(orchestrator_tab_id)
             .into_iter()
             .flatten()

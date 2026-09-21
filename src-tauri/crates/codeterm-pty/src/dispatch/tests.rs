@@ -500,7 +500,10 @@ fn tab_list_exposes_one_name_and_workspace_context() {
         Some("Dalton"),
         "the tab name is serialized in title",
     );
-    assert!(tab.get("tab_title").is_none(), "duplicate name field remains");
+    assert!(
+        tab.get("tab_title").is_none(),
+        "duplicate name field remains"
+    );
     assert_eq!(
         tab.get("description").and_then(|v| v.as_str()),
         Some("Tracks inventory and party filters"),

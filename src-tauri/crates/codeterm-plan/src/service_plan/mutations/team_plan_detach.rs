@@ -261,11 +261,10 @@ fn close_team_tasks(
         closed_attempts += task_attempts_closed;
         affected_tasks += 1;
         let preserve_review = task.status == TaskStatus::InReview;
-        let returned_to_pending =
-            reset_task
-                && !task.status.is_terminal()
-                && !preserve_review
-                && task.status != TaskStatus::Pending;
+        let returned_to_pending = reset_task
+            && !task.status.is_terminal()
+            && !preserve_review
+            && task.status != TaskStatus::Pending;
         if returned_to_pending {
             reset_tasks += 1;
         }

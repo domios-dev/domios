@@ -124,10 +124,16 @@ fn cartographer_map_rewrites_label_derived_graph_refs_idempotently() {
 
     fs::write(&map, legacy).expect("write label-derived map fixture");
     generate(root, &map).expect("rewrite graph references from source ids");
-    assert_eq!(fs::read_to_string(&map).expect("read rewritten map"), canonical);
+    assert_eq!(
+        fs::read_to_string(&map).expect("read rewritten map"),
+        canonical
+    );
 
     generate(root, &map).expect("regenerate migrated map");
-    assert_eq!(fs::read_to_string(&map).expect("read second generation"), canonical);
+    assert_eq!(
+        fs::read_to_string(&map).expect("read second generation"),
+        canonical
+    );
 }
 
 #[test]

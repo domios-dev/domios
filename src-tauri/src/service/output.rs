@@ -217,9 +217,9 @@ impl ServiceContext {
                     })
                     .unwrap_or(false);
                 if !trust_parser
-                    || screen
-                        .as_deref()
-                        .is_some_and(crate::service::directory_trust::directory_trust_prompt_candidate)
+                    || screen.as_deref().is_some_and(
+                        crate::service::directory_trust::directory_trust_prompt_candidate,
+                    )
                 {
                     self.respond_to_directory_trust(pid, screen.as_deref());
                 }
@@ -254,10 +254,7 @@ impl ServiceContext {
                     } else {
                         None
                     };
-                    (
-                        screen_state.native_prompt_input(pty_id),
-                        clean_text,
-                    )
+                    (screen_state.native_prompt_input(pty_id), clean_text)
                 };
                 let structured = if check_screen {
                     self.structured_pending_prompt(
@@ -289,11 +286,9 @@ impl ServiceContext {
                             native_prompt_input.as_ref(),
                         )
                     } else {
-                        provider_prompt.map(|prompt| {
-                            crate::agent::native_prompt::ResolvedPrompt {
-                                prompt,
-                                explicit: false,
-                            }
+                        provider_prompt.map(|prompt| crate::agent::native_prompt::ResolvedPrompt {
+                            prompt,
+                            explicit: false,
                         })
                     }
                 });

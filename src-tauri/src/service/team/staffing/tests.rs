@@ -64,13 +64,9 @@ fn cartographer_params() -> AddTeamMemberParams {
 #[test]
 fn cartographer_staffing_uses_the_manager_role_kind_and_team_parent() {
     let (mux, team_id, orchestrator, _, _) = live_team();
-    let prepared = prepare_team_member_spawn(
-        &mux,
-        &team_id,
-        Some(&orchestrator),
-        cartographer_params(),
-    )
-    .expect("a spawn-capable Team manager can attach a Cartographer");
+    let prepared =
+        prepare_team_member_spawn(&mux, &team_id, Some(&orchestrator), cartographer_params())
+            .expect("a spawn-capable Team manager can attach a Cartographer");
 
     assert_eq!(prepared.expected_role, "Manager");
     assert_eq!(prepared.expected_profile.as_deref(), Some(CARTOGRAPHER));
@@ -147,16 +143,12 @@ async fn repeated_service_cartographer_attachment_returns_the_existing_tab() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
 
     let (first, repeated) = tokio::join!(
-        fixture.service.add_team_member(
-            &team_id,
-            Some(&orchestrator),
-            cartographer_params(),
-        ),
-        fixture.service.add_team_member(
-            &team_id,
-            Some(&orchestrator),
-            cartographer_params(),
-        ),
+        fixture
+            .service
+            .add_team_member(&team_id, Some(&orchestrator), cartographer_params(),),
+        fixture
+            .service
+            .add_team_member(&team_id, Some(&orchestrator), cartographer_params(),),
     );
     let first = first.expect("first attachment reuses the existing role instance");
     let repeated = repeated.expect("repeated attachment reuses the same role instance");

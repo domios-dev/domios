@@ -199,16 +199,13 @@ fn cartographer_map_boundary_needs_a_delivered_wave() {
 /// The optional Manager receives its own contract without Worker or Planner authority.
 #[test]
 fn cartographer_map_role_contract_is_a_standalone_manager() {
-    use codeterm_types::agent::role_kind::builtins;
     use crate::multiplexer::types::AgentRole;
     use crate::service::persona::{self, Occasion};
+    use codeterm_types::agent::role_kind::builtins;
 
-    let preset = persona::resolve_ambient(
-        Some(AgentRole::Manager),
-        Some(builtins::CARTOGRAPHER),
-        None,
-    )
-    .expect("the Cartographer Manager resolves a preset");
+    let preset =
+        persona::resolve_ambient(Some(AgentRole::Manager), Some(builtins::CARTOGRAPHER), None)
+            .expect("the Cartographer Manager resolves a preset");
     assert_eq!(preset.kind_id, builtins::CARTOGRAPHER);
     assert_eq!(preset.label, "Cartographer");
     assert_eq!(
@@ -228,7 +225,9 @@ fn cartographer_map_role_contract_is_a_standalone_manager() {
         None,
     );
     assert_eq!(
-        contract.matches(crate::prompts::CARTOGRAPHER_SUFFIX.trim()).count(),
+        contract
+            .matches(crate::prompts::CARTOGRAPHER_SUFFIX.trim())
+            .count(),
         1
     );
     assert!(!contract.contains(crate::prompts::WORKER_SUFFIX.trim()));

@@ -10,11 +10,11 @@ use crate::service::{
 use super::{
     arm_worker_ack_deadline, atomic_lane_commitment, await_agent_ready, cleanup_succeeded,
     close_tab_if_present, dispatch_failed, dispatch_ready_event, dispatch_safety_nudges,
-    dispatch_startup_failed_event,
-    dispatch_wait_failed, emit_plan_changed, epoch_ms, lane_metadata_for_dispatch,
-    publish_action_needed_event, publish_startup_report, roll_back_dispatch_attempt,
-    startup_recovery_event, startup_wait_is_recoverable, wait_for_tab_session, DispatchEvidence,
-    DispatchFailureDisposition, DispatchWaitFailure, JsonRpcError, DISPATCH_READY_TIMEOUT,
+    dispatch_startup_failed_event, dispatch_wait_failed, emit_plan_changed, epoch_ms,
+    lane_metadata_for_dispatch, publish_action_needed_event, publish_startup_report,
+    roll_back_dispatch_attempt, startup_recovery_event, startup_wait_is_recoverable,
+    wait_for_tab_session, DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure,
+    JsonRpcError, DISPATCH_READY_TIMEOUT,
 };
 pub(crate) struct DispatchStartup {
     pub(crate) app: AppHandle,

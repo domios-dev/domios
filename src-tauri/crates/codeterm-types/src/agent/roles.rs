@@ -186,7 +186,10 @@ mod tests {
         assert_eq!(migrated.role, AgentRole::Manager);
         assert_eq!(migrated.role_profile.as_deref(), Some("cartographer"));
         assert_eq!(
-            restore_role(Some(migrated.role.label()), migrated.role_profile.as_deref()),
+            restore_role(
+                Some(migrated.role.label()),
+                migrated.role_profile.as_deref()
+            ),
             Some(migrated)
         );
     }

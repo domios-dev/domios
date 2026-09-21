@@ -3,8 +3,8 @@ use std::cell::Cell;
 use codeterm_plugin::provider::DirectoryTrustPromptResponse;
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_provenance,
-    directory_trust_prompt_candidate, directory_trust_skip_reason, inherited_workspace_provenance,
+    decide, directory_trust_check_applies, directory_trust_prompt_candidate,
+    directory_trust_provenance, directory_trust_skip_reason, inherited_workspace_provenance,
     legacy_auto_approve_permitted, DirectoryTrustRefusal, TrustDecision, TrustLedger,
 };
 use crate::multiplexer::state::MultiplexerState;
@@ -100,10 +100,9 @@ fn directory_trust_prompt_candidate_uses_active_path_choice_structure() {
 fn directory_trust_prompt_candidate_matches_real_fixture_frames() {
     let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../plugins/provider-codex/tests/fixtures/directory-trust");
-    let cases: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(fixture_dir.join("cases.json")).unwrap(),
-    )
-    .unwrap();
+    let cases: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(fixture_dir.join("cases.json")).unwrap())
+            .unwrap();
 
     for case in cases.as_array().unwrap() {
         let file = case["file"].as_str().unwrap();

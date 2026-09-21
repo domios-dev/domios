@@ -53,11 +53,7 @@ pub(super) fn emit_agent_ready(
     Ok(())
 }
 
-fn fail_unbound_launch(
-    launch: &LaunchGeneration,
-    svc: &ServiceContext,
-    reason: String,
-) -> String {
+fn fail_unbound_launch(launch: &LaunchGeneration, svc: &ServiceContext, reason: String) -> String {
     let failure = LaunchFailure::SessionBindingNotObserved(reason);
     let error = failure.reason();
     launch.fail(svc, failure);

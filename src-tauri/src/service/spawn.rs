@@ -633,10 +633,9 @@ impl ServiceContext {
         };
 
         let mut legacy_params = spec.to_agent_params()?;
-        if let Some(prompt) = visible_spawn_starter_prompt(
-            startup_handshake,
-            task_selection.provider_starter,
-        ) {
+        if let Some(prompt) =
+            visible_spawn_starter_prompt(startup_handshake, task_selection.provider_starter)
+        {
             legacy_params.starter_prompt = prompt;
         }
         legacy_params.skip_permissions = Some(permission_bypass);

@@ -119,7 +119,11 @@ fn dispatch_refuses_occupied_checkout() {
 fn partial_report_then_redispatch_reuses_its_own_lane() {
     let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
     let checkout = root.path().display().to_string();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
     task.execution_attempts[0].reported_at = Some(4);
 
@@ -139,12 +143,15 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
 fn reported_attempt_with_live_executor_still_occupies_its_lane() {
     let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
     let checkout = root.path().display().to_string();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
     task.execution_attempts[0].reported_at = Some(4);
-    let reported_executor_tabs = reported_executor_tab_statuses(&plan, &task_id, |tab_id| {
-        tab_id == "tab-live"
-    });
+    let reported_executor_tabs =
+        reported_executor_tab_statuses(&plan, &task_id, |tab_id| tab_id == "tab-live");
 
     let error = preflight_dispatch_placement(
         &plan,
@@ -200,7 +207,11 @@ fn another_task_still_cannot_take_an_occupied_lane() {
 fn unreported_attempt_still_occupies_its_own_checkout() {
     let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
     let checkout = root.path().display().to_string();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
 
     let reported_executor_tabs = reported_executor_tab_statuses(&plan, &task_id, |_| true);
@@ -221,7 +232,11 @@ fn unreported_attempt_still_occupies_its_own_checkout() {
 fn live_competitive_attempt_still_occupies_its_own_checkout() {
     let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
     let checkout = root.path().display().to_string();
-    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
     task.execution_attempts[0].reported_at = Some(4);
     task.execution_attempts[0].competition_group_id = Some("group-live".into());

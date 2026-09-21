@@ -127,7 +127,11 @@ pub(crate) fn reported_executor_tab_statuses(
     is_tab_live: impl Fn(&str) -> bool,
 ) -> HashMap<(String, String), Option<String>> {
     let mut executor_tabs = HashMap::new();
-    for task in plan.tasks.iter().filter(|task| task.id == dispatched_task_id) {
+    for task in plan
+        .tasks
+        .iter()
+        .filter(|task| task.id == dispatched_task_id)
+    {
         for attempt in task.execution_attempts.iter().filter(|attempt| {
             attempt.closed_at.is_none()
                 && attempt.competition_group_id.is_none()
@@ -172,12 +176,11 @@ pub(crate) fn preflight_checkout_occupancy(
                 .as_deref()
                 .filter(|path| !path.trim().is_empty())
                 .unwrap_or(canonical_path);
-            (normalized_checkout == codeterm_paths::normalize_cwd(attempt_path))
-                .then_some((
-                    task.id.as_str(),
-                    attempt.id.as_str(),
-                    executor_tab_status.and_then(|tab_id| tab_id.as_deref()),
-                ))
+            (normalized_checkout == codeterm_paths::normalize_cwd(attempt_path)).then_some((
+                task.id.as_str(),
+                attempt.id.as_str(),
+                executor_tab_status.and_then(|tab_id| tab_id.as_deref()),
+            ))
         })
     });
     let Some((occupying_task_id, occupying_attempt_id, executor_tab_id)) = occupant else {

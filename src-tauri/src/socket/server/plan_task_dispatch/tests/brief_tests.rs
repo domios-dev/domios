@@ -35,9 +35,7 @@ fn dispatched_worker_launch_prompt_carries_ack_instruction_persona_and_brief() {
     assert!(launch_prompt.contains(task_id_token));
     assert!(launch_prompt.contains(personality_token));
     assert!(launch_prompt.contains(body_token));
-    assert!(launch_prompt.contains(
-        crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION
-    ));
+    assert!(launch_prompt.contains(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION));
 }
 
 #[test]

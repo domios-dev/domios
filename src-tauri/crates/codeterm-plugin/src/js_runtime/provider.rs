@@ -359,10 +359,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn parse_directory_trust_prompt(&self, screen: &str) -> Option<PendingPrompt> {
-        if let Some(value) = self.try_call::<Option<Value>>(
-            "parseDirectoryTrustPrompt",
-            &[json!(screen)],
-        ) {
+        if let Some(value) =
+            self.try_call::<Option<Value>>("parseDirectoryTrustPrompt", &[json!(screen)])
+        {
             return value.and_then(prompt_parse::parsed_prompt_from_js);
         }
         self.native()

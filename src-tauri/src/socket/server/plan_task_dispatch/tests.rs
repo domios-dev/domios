@@ -31,10 +31,10 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-mod concurrent_dispatch;
 mod brief_tests;
 mod canonical_writer;
 mod checkout_occupancy;
+mod concurrent_dispatch;
 mod dispatch_placement;
 mod dispatch_recovery;
 mod lane_persist;

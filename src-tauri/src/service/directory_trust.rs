@@ -85,10 +85,7 @@ pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
         return false;
     }
     let context_rows = &rows[first_choice.saturating_sub(12)..first_choice];
-    if !context_rows
-        .iter()
-        .any(|row| directory_context_row(row))
-    {
+    if !context_rows.iter().any(|row| directory_context_row(row)) {
         return false;
     }
     let mut preamble_start = first_choice;
@@ -158,9 +155,9 @@ fn absolute_path_token(token: &str) -> bool {
         || path.starts_with(r"\\")
         || path.starts_with("//")
         || (bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && matches!(bytes[2], b'\\' | b'/'))
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/'))
 }
 
 fn directory_trust_content(preamble: &str) -> bool {
@@ -287,9 +284,7 @@ pub(crate) fn legacy_auto_approve_permitted(
     structured_prompt: bool,
     directory_trust_prompt: bool,
 ) -> bool {
-    !directory_trust_prompt
-        && !trust.owns_prompt()
-        && (session_authenticated || structured_prompt)
+    !directory_trust_prompt && !trust.owns_prompt() && (session_authenticated || structured_prompt)
 }
 
 #[derive(Debug, Default)]

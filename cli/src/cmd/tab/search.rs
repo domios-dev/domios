@@ -91,13 +91,11 @@ pub fn rank_tabs<'a>(
         .collect();
     // Stable tie-break by id so identical scores keep a deterministic order.
     scored.sort_by(|a, b| {
-        b.0.cmp(&a.0)
-            .then_with(|| b.1.cmp(&a.1))
-            .then_with(|| {
-                let ai = a.2.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let bi = b.2.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                ai.cmp(bi)
-            })
+        b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)).then_with(|| {
+            let ai = a.2.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let bi = b.2.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            ai.cmp(bi)
+        })
     });
     scored
         .into_iter()

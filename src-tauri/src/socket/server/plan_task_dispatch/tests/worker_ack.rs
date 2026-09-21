@@ -521,12 +521,7 @@ fn plan_store_acknowledges_live_attempt_without_saved_session_binding() {
     assert_eq!(pending.execution_attempts[0].id, attempt_id);
     assert_eq!(pending.execution_attempts[0].session_id, None);
     let acknowledged = store
-        .acknowledge_live_task_attempt_for_tab(
-            "tab-worker",
-            Some(&plan.id),
-            Some(&task_id),
-            5,
-        )
+        .acknowledge_live_task_attempt_for_tab("tab-worker", Some(&plan.id), Some(&task_id), 5)
         .expect("a live attempt can be acknowledged before a session id is saved");
 
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
@@ -643,7 +638,10 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     assert_eq!(after_replay.assigned_tab_id.as_deref(), Some("tab-worker"));
     assert_eq!(after_replay.lane.tab_id.as_deref(), Some("tab-worker"));
     assert_eq!(after_replay.execution_attempts.len(), 1);
-    assert_eq!(store.get(&plan.id).unwrap().updated_at, first_plan_updated_at);
+    assert_eq!(
+        store.get(&plan.id).unwrap().updated_at,
+        first_plan_updated_at
+    );
 
     let third_ack = store
         .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 12)

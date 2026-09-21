@@ -38,7 +38,11 @@ pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, Str
 fn mark_bound_task_in_progress(store: &PlanStore, plan_id: &str, task_id: &str) {
     store
         .with_plan(plan_id, 3, |plan| {
-            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
             task.status = TaskStatus::InProgress;
             task.status_changed_at = 3;
             Ok(())
@@ -259,13 +263,7 @@ fn blocked_report_sets_task_blocked_with_reason() {
     let mut report = worker_report(ReportStatus::Blocked, None);
     let reason = report.message.clone();
     assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            report,
-            4,
-        )
+        .ingest_bound_worker_report(&plan_id, &task_id, &AgentRef::from_tab("worker"), report, 4,)
         .unwrap());
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
@@ -302,7 +300,9 @@ fn blocked_report_on_in_review_task_is_kept_as_a_milestone() {
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
     assert_eq!(task.milestones.len(), 2);
-    assert!(task.milestones[1].text.contains("review already owns this task"));
+    assert!(task.milestones[1]
+        .text
+        .contains("review already owns this task"));
     assert!(task.execution_attempts[0].closed_at.is_none());
 }
 
@@ -317,7 +317,11 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
     };
     store
         .with_plan(&plan_id, 4, |plan| {
-            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
             task.lane = lane.clone();
             task.execution_attempts[0].worktree_path = lane.worktree_path.clone();
             task.execution_attempts[0].branch = lane.branch.clone();
@@ -365,7 +369,10 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
     assert_eq!(old_attempt.worktree_path.as_deref(), Some("/repo/lane"));
     assert_eq!(old_attempt.branch.as_deref(), Some("lane/partial"));
     assert_eq!(old_attempt.base.as_deref(), Some("base-commit"));
-    assert_eq!(redispatched.lane.worktree_path.as_deref(), Some("/repo/lane"));
+    assert_eq!(
+        redispatched.lane.worktree_path.as_deref(),
+        Some("/repo/lane")
+    );
     assert_eq!(redispatched.lane.branch.as_deref(), Some("lane/partial"));
     assert!(redispatched
         .execution_attempts
@@ -916,9 +923,7 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
     for (tab_id, result) in outcomes {
         match result {
             Ok(attempt_id) => {
-                assert!(winner
-                    .replace((tab_id.to_string(), attempt_id))
-                    .is_none());
+                assert!(winner.replace((tab_id.to_string(), attempt_id)).is_none());
             }
             Err(PlanError::DispatchInFlight { attempt_id, tab_id }) => {
                 assert!(refusal.replace((attempt_id, tab_id)).is_none());
@@ -950,42 +955,34 @@ fn concurrent_startup_reservations_refuse_before_worker_spawn() {
     let store = std::sync::Arc::new(store);
     let observed = std::sync::Arc::new(std::sync::Barrier::new(2));
     let reserved = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let attempts = [
-        ("attempt-a", "worker-a"),
-        ("attempt-b", "worker-b"),
-    ]
-    .map(|(attempt_id, tab_id)| {
-        let store = store.clone();
-        let plan_id = plan_id.clone();
-        let task_id = task_id.clone();
-        let observed = observed.clone();
-        let reserved = reserved.clone();
-        std::thread::spawn(move || {
-            let owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
-            assert!(owner.is_none());
-            observed.wait();
-            let result = store.reserve_task_dispatch_startup(
-                &plan_id,
-                &task_id,
-                attempt_id,
-                tab_id,
-                owner,
-                false,
-            );
-            let outcome = match result {
-                Ok(reservation) => {
-                    reserved.wait();
-                    drop(reservation);
-                    Ok((attempt_id.to_string(), tab_id.to_string()))
-                }
-                Err(error) => {
-                    reserved.wait();
-                    Err(error)
-                }
-            };
-            outcome
-        })
-    });
+    let attempts =
+        [("attempt-a", "worker-a"), ("attempt-b", "worker-b")].map(|(attempt_id, tab_id)| {
+            let store = store.clone();
+            let plan_id = plan_id.clone();
+            let task_id = task_id.clone();
+            let observed = observed.clone();
+            let reserved = reserved.clone();
+            std::thread::spawn(move || {
+                let owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+                assert!(owner.is_none());
+                observed.wait();
+                let result = store.reserve_task_dispatch_startup(
+                    &plan_id, &task_id, attempt_id, tab_id, owner, false,
+                );
+                let outcome = match result {
+                    Ok(reservation) => {
+                        reserved.wait();
+                        drop(reservation);
+                        Ok((attempt_id.to_string(), tab_id.to_string()))
+                    }
+                    Err(error) => {
+                        reserved.wait();
+                        Err(error)
+                    }
+                };
+                outcome
+            })
+        });
 
     let outcomes = attempts.map(|attempt| attempt.join().unwrap());
     let (winner_attempt, winner_tab) = outcomes
@@ -1028,7 +1025,12 @@ fn repeated_runtime_binding_keeps_one_plan_attempt() {
             3,
         )
         .unwrap();
-    let attempts_before = store.show_task(&task_id).unwrap().task.execution_attempts.len();
+    let attempts_before = store
+        .show_task(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts
+        .len();
 
     for now_ms in [4, 5] {
         let ready = store

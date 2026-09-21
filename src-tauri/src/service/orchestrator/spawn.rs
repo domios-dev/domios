@@ -207,9 +207,7 @@ impl ServiceContext {
         agent_cwd: &Option<String>,
         workspace_cwd: &Option<String>,
     ) -> (Option<String>, Option<String>) {
-        let agent_cwd = agent_cwd
-            .as_deref()
-            .map(Self::normalize_resolved_agent_cwd);
+        let agent_cwd = agent_cwd.as_deref().map(Self::normalize_resolved_agent_cwd);
         let workspace_cwd = workspace_cwd
             .as_deref()
             .map(Self::normalize_resolved_agent_cwd);

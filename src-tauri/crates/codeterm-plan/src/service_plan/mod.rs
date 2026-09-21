@@ -136,8 +136,8 @@ pub use task_dispatch::{
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
-    TaskLaneUpdate, RPC_INTERNAL_ERROR, RPC_NOT_FOUND, RPC_UNAUTHORIZED_GATE_CLAIM,
-    RPC_DISPATCH_IN_FLIGHT,
+    TaskLaneUpdate, RPC_DISPATCH_IN_FLIGHT, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
+    RPC_UNAUTHORIZED_GATE_CLAIM,
 };
 
 pub struct PlanStore {
@@ -150,7 +150,8 @@ pub struct PlanStore {
     task_key_port: RwLock<Option<Arc<dyn ports::TaskKeyPort>>>,
     reseed_prepare_lock: Mutex<()>,
     mutation_writer: MutationWriter,
-    dispatch_reservations: Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>,
+    dispatch_reservations:
+        Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>,
     database: Arc<store_db::PlanDatabase>,
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,

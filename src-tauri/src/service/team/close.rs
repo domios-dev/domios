@@ -78,21 +78,14 @@ where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
 {
     let initial = stage_team_close(mux, team_id, caller, &mut close_member)?;
-    let lanes = team_close_lanes(
-        &plan_store.list_full(),
-        team_id,
-        &initial.member_tab_ids,
-    );
+    let lanes = team_close_lanes(&plan_store.list_full(), team_id, &initial.member_tab_ids);
     let transaction = plan_store
         .close_team_task_attempts_transaction(team_id, &initial.member_tab_ids, now_ms)
         .map_err(|error| error.to_string())?;
     let changed_plan_ids = transaction.changed_plan_ids().to_vec();
-    let staged = match stage_team_close(
-        mux,
-        team_id,
-        caller,
-        &mut |mux, tab_id| mux.close_tab_for_team_close(tab_id),
-    ) {
+    let staged = match stage_team_close(mux, team_id, caller, &mut |mux, tab_id| {
+        mux.close_tab_for_team_close(tab_id)
+    }) {
         Ok(staged) if staged.member_tab_ids == initial.member_tab_ids => staged,
         Ok(_) => {
             plan_store
@@ -163,8 +156,7 @@ pub(super) fn team_close_lanes(
                 .execution_attempts
                 .iter()
                 .filter(|attempt| {
-                    attempt.closed_at.is_none()
-                        && tabs.contains(attempt.executor_tab_id.as_str())
+                    attempt.closed_at.is_none() && tabs.contains(attempt.executor_tab_id.as_str())
                 })
                 .collect();
             let assigned_to_closed_tab = task
@@ -280,7 +272,10 @@ pub(super) fn finish_team_lane_cleanup(
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(format!("Team closed, but lane state updates failed: {}", errors.join("; ")))
+        Err(format!(
+            "Team closed, but lane state updates failed: {}",
+            errors.join("; ")
+        ))
     }
 }
 
@@ -441,9 +436,14 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
         Ok(output) => return Some(git_output_error("rev-list", cwd, &output)),
         Err(error) => return Some(error),
     };
-    match String::from_utf8_lossy(&output.stdout).trim().parse::<u64>() {
+    match String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u64>()
+    {
         Ok(0) => None,
-        Ok(count) => Some(format!("branch contains {count} commits beyond base {base}")),
+        Ok(count) => Some(format!(
+            "branch contains {count} commits beyond base {base}"
+        )),
         Err(_) => Some(format!(
             "git rev-list returned an invalid commit count: {}",
             String::from_utf8_lossy(&output.stdout).trim()
@@ -501,7 +501,10 @@ fn lane_hint(lane: &TeamCloseLane, reason: &str) -> String {
 }
 
 fn non_empty(value: Option<&str>) -> Option<String> {
-    value.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn git_output(cwd: &str, args: &[&str]) -> Result<Output, String> {

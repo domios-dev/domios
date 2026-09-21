@@ -31,8 +31,7 @@ fn store_concurrent_dispatch_cleanup_releases_losing_lane_and_tab() {
     let mut runtime = DispatchRuntime::new();
     let (first_tab, first_pty) = runtime.create_worker();
     let (second_tab, second_pty) = runtime.create_worker();
-    let losing_lane =
-        provision_lane_for_test(project.to_str().unwrap(), "dispatch-loser").unwrap();
+    let losing_lane = provision_lane_for_test(project.to_str().unwrap(), "dispatch-loser").unwrap();
     let losing_provenance = losing_lane.verify().unwrap();
     let losing_worktree = std::path::PathBuf::from(&losing_provenance.worktree_path);
     let losing_branch = losing_provenance.branch.clone();
@@ -66,9 +65,7 @@ fn store_concurrent_dispatch_cleanup_releases_losing_lane_and_tab() {
     for (tab_id, result) in outcomes {
         match result {
             Ok(attempt_id) => {
-                assert!(winner
-                    .replace((tab_id, attempt_id))
-                    .is_none());
+                assert!(winner.replace((tab_id, attempt_id)).is_none());
             }
             Err(error) => {
                 assert_eq!(error.rpc_code(), RPC_DISPATCH_IN_FLIGHT);
@@ -99,11 +96,9 @@ fn store_concurrent_dispatch_cleanup_releases_losing_lane_and_tab() {
     } else {
         first_tab.clone()
     };
-    let refusal = super::super::finish_unreserved_dispatch(
-        Err(refusal),
-        Some(losing_lane),
-        || runtime.close_worker(&losing_tab),
-    )
+    let refusal = super::super::finish_unreserved_dispatch(Err(refusal), Some(losing_lane), || {
+        runtime.close_worker(&losing_tab)
+    })
     .unwrap_err();
     assert_eq!(refusal.data.unwrap()["type"], "dispatch_in_flight");
     assert!(!losing_worktree.exists());
