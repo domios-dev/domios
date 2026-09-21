@@ -136,6 +136,7 @@ pub use task_dispatch::{
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
     TaskLaneUpdate, RPC_INTERNAL_ERROR, RPC_NOT_FOUND, RPC_UNAUTHORIZED_GATE_CLAIM,
+    RPC_DISPATCH_IN_FLIGHT,
 };
 
 pub struct PlanStore {

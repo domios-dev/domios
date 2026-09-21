@@ -207,6 +207,36 @@ fn owner_session_is_live(
         .is_some_and(|tab| tab.agent_session_id.as_deref() == Some(session_id))
 }
 
+fn unbound_startup_owner_is_live(
+    svc: &ServiceState,
+    plan_id: &str,
+    task: &crate::plan::Task,
+) -> bool {
+    // Dispatch records task ownership before the launch session is persisted.
+    if task.interruption.owner_session_id.is_some() {
+        return false;
+    }
+    let Some(tab_id) = task.interruption.owner_tab_id.as_deref() else {
+        return false;
+    };
+    if svc.mux.read().get_tab(tab_id).is_none() {
+        return false;
+    }
+    task.execution_attempts
+        .iter()
+        .rev()
+        .find(|attempt| attempt.executor_tab_id == tab_id && attempt.acknowledged_at.is_none())
+        .is_some_and(|attempt| {
+            svc.plan_store.worker_startup_attempt_owns(
+                plan_id,
+                &task.id,
+                tab_id,
+                &attempt.id,
+                None,
+            )
+        })
+}
+
 /// True only for a live Plan owner reclaiming a task whose owner SESSION is gone
 /// (tab absent, or tab present with a dead/rebound session). Keyed on owner
 /// identity, not bare tab presence, so it agrees with reconcile's TabGone.
@@ -267,7 +297,8 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         &detail.plan_id,
         detail.task.interruption.owner_tab_id.as_deref(),
         detail.task.interruption.owner_session_id.as_deref(),
-    ) {
+    ) && !unbound_startup_owner_is_live(svc, &detail.plan_id, &detail.task)
+    {
         // Retire-and-recover is ONE transition: the verb cannot proceed until the
         // stale attempt is fenced, so a later dispatch_ready is already dead.
         svc.plan_store
