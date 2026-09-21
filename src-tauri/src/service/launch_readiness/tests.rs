@@ -307,10 +307,14 @@ fn launch_readiness_shared_owner_is_not_duplicated() {
     let owner = include_str!("../launch_readiness.rs");
     let lifecycle = include_str!("../general_agent/lifecycle.rs");
     let launch = include_str!("../orchestrator/launch.rs");
+    let startup = include_str!("../orchestrator/launch/startup_readiness.rs");
 
     assert!(launch.contains("launch_readiness::arm("));
     assert!(launch.contains("observe_launch_readiness"));
-    assert!(launch.contains("take_published_failure"));
+    assert!(launch.contains("startup_readiness::emit_agent_ready"));
+    assert!(!launch.contains("take_published_failure"));
+    assert_eq!(owner.matches("take_published_failure(&attempt)").count(), 1);
+    assert!(startup.contains("LaunchSettlement::Failed"));
 
     assert_eq!(owner.matches("\"agent-launch-failed\"").count(), 1);
     for source in [lifecycle, launch] {

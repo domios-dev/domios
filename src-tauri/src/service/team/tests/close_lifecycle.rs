@@ -694,12 +694,15 @@ fn add_team_lane_task(
     task_id
 }
 
+fn git_command(cwd: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(cwd).args(args);
+    crate::process_util::no_window_std(&mut command);
+    command
+}
+
 fn git(cwd: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .current_dir(cwd)
-        .args(args)
-        .output()
-        .unwrap();
+    let output = git_command(cwd, args).output().unwrap();
     assert!(
         output.status.success(),
         "git {args:?} failed: {}",
@@ -709,10 +712,5 @@ fn git(cwd: &Path, args: &[&str]) -> String {
 }
 
 fn git_status_success(cwd: &Path, args: &[&str]) -> bool {
-    Command::new("git")
-        .current_dir(cwd)
-        .args(args)
-        .status()
-        .unwrap()
-        .success()
+    git_command(cwd, args).status().unwrap().success()
 }

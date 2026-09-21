@@ -185,7 +185,7 @@ fn a_closed_attempt_without_a_replacement_is_not_reported_as_superseded() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
     let store = PlanStore::new_for_test(root.path());
-    let (plan_id, task_id, attempt_id) =
+    let (plan_id, task_id, _) =
         dispatched_worker_task(&store, &project, "no-replacement", "tab-retired", 1);
     store
         .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 10)
@@ -201,7 +201,7 @@ fn a_closed_attempt_without_a_replacement_is_not_reported_as_superseded() {
 
     assert!(error.contains(crate::service::plan::ACK_CAUSE_NO_LIVE_ATTEMPT));
     assert!(!error.contains(crate::service::plan::ACK_CAUSE_ATTEMPT_SUPERSEDED));
-    assert!(error.contains(&attempt_id), "{error}");
+    assert!(error.contains("tab-retired"), "{error}");
 }
 
 #[test]

@@ -15,9 +15,7 @@ curl "http://host:7685/api/tabs/$TAB/output?offset=1234"
 
 ### ANSI Stripping
 
-Add `strip_ansi=true` to get clean text without escape codes:
-- `GET /api/tabs/:id/output?strip_ansi=true`
-- `POST /api/tabs/:id/exec {"command": "...", "strip_ansi": true}`
+Add `strip_ansi=true` for clean text without escape codes: `GET /api/tabs/:id/output?strip_ansi=true` or `POST /api/tabs/:id/exec {"command": "...", "strip_ansi": true}`.
 
 ### Exec Pattern
 
@@ -238,4 +236,4 @@ A `team pair` mints its Team together with the two launch attempts it reserves, 
 `team.adopt_agent` and the `agent.spawn` / `tab` creation `{team_id, creator_tab_id}` pair share one membership check: the caller tab must exist, already carry that `team_id`, sit in the Team's workspace, and the Team must have a live anchoring Orchestrator. Failing any of those refuses before the tab is created or mutated. `team.adopt_agent` additionally refuses a missing tab, a tab already bound to a Team, and a role-bearing tab — a role- or plan-task-bound spawn derives its Team from that binding, so `agent.spawn` rejects `team_id` combined with `role` or `plan_task`.
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
-<!-- revision: 22 -->
+<!-- revision: 23 -->

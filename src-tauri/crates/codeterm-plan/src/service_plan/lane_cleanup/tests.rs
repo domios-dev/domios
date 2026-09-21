@@ -65,7 +65,9 @@ fn missing_integration_target_is_refused() {
 
 #[test]
 fn no_residue_is_noop() {
-    let decision = decide_lane_cleanup(&input(false, false, None, Some("main")), |_, _| true);
+    let mut input = input(false, false, None, Some("main"));
+    input.worktree_path = None;
+    let decision = decide_lane_cleanup(&input, |_, _| true);
     assert_eq!(decision, LaneCleanupDecision::Noop);
 }
 

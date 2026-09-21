@@ -154,9 +154,11 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
         Some(old.worktree_path.as_str())
     );
     assert_eq!(task.lane.branch.as_deref(), Some(old.branch.as_str()));
-    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts.len(), 2);
+    assert_eq!(task.execution_attempts[0].id, "old-attempt");
     assert_eq!(
         task.execution_attempts[0].worktree_path.as_deref(),
         Some(old.worktree_path.as_str())
     );
+    assert!(task.execution_attempts[1].closed_at.is_some());
 }
