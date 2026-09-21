@@ -62,3 +62,21 @@ fn task_specific_empty_provider_command_is_refused_after_real_build_and_rolls_ba
     assert!(error.contains("did not resolve a launch command"), "{error}");
     assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), initial_tabs);
 }
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn empty_launch_rollback_leaves_a_workspace_close_reservation_to_its_owner() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("closing workspace".into(), None).id;
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    let _reservation = mux.reserve_workspace_close(&workspace_id).unwrap();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    let error = fixture
+        .service
+        .rollback_empty_agent_launch(&tab_id, "empty-launch");
+
+    assert!(error.contains("did not resolve a launch command"), "{error}");
+    assert!(error.contains("Workspace is closing"), "{error}");
+    assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
+}

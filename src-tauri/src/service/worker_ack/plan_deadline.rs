@@ -57,6 +57,11 @@ impl ServiceContext {
         self.worker_ack.cancel_startup_supervisor(agent_tab_id);
     }
 
+    #[cfg(test)]
+    pub(crate) fn has_agent_startup_supervision(&self, agent_tab_id: &str) -> bool {
+        self.worker_ack.startup_supervisor(agent_tab_id).is_some()
+    }
+
     /// Retire the lease itself. The caller has already settled the Team, so no
     /// later sweep may act on this reservation again.
     pub(crate) fn forget_pair_startup_lease(&self, team_id: &str) {
