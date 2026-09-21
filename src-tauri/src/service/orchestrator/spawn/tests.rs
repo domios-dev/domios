@@ -37,7 +37,8 @@ async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_clean
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "task-sensitive-empty-launch",
-        ),
+        )
+        .with_launch_binary("cmd.exe"),
     ));
     fixture
         .service
@@ -72,12 +73,37 @@ async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_clean
             3,
         )
         .unwrap();
+    crate::service::plan::plan_skills::create_plan_skill(
+        &fixture.service.plan_store,
+        &plan.id,
+        crate::service::plan::plan_skills::NewPlanSkill {
+            slug: "launch-order-contract".into(),
+            title: Some("Launch Order Contract".into()),
+            area: Some("testing".into()),
+            check: None,
+            rationale: Some("verify task binding follows launch validation".into()),
+        },
+    )
+    .unwrap();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
+        &fixture.service.plan_store,
+        &plan.id,
+    )
+    .unwrap();
+    assert_eq!(manifest.len(), 1);
+    assert_eq!(manifest[0].slug, "launch-order-contract");
     fixture.service.ensure_agent_pad(&tab_id).unwrap();
     fixture
         .service
         .register_agent_startup_supervision(&parent_tab_id, &tab_id, "Worker");
     assert!(fixture.service.has_agent_startup_supervision(&tab_id));
 
+    let launch_authority = crate::service::TaskLaunchAuthority {
+        plan_id: plan.id.clone(),
+        task_id: task_id.clone(),
+        attempt_id: crate::plan::ids::short_id("attempt"),
+        lane_base: None,
+    };
     let result = fixture
         .service
         .spawn_agent(
@@ -91,6 +117,8 @@ async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_clean
                 plan_id: Some(plan.id.clone()),
                 plan_task: Some("empty-launch".into()),
                 execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+                task_launch_authority: Some(launch_authority),
+                plan_skill_manifest: Some(manifest),
                 provider_reserve_pct: None,
                 ..Default::default()
             },
@@ -101,7 +129,10 @@ async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_clean
     let Err(error) = result else {
         panic!("a task-specific missing provider command must fail");
     };
-    assert!(error.contains("did not resolve a launch command"), "{error}");
+    assert!(
+        error.contains("did not resolve a launch command"),
+        "{error}"
+    );
     let mux = fixture.service.mux.read();
     assert!(mux.get_tab(&tab_id).is_none());
     assert_eq!(mux.all_tabs().count(), 1);
@@ -111,16 +142,123 @@ async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_clean
         None
     );
     assert!(!fixture.service.has_agent_startup_supervision(&tab_id));
-    assert!(crate::service::agent_pad::AgentPad::open(
-        &crate::paths::data_dir(),
-        &tab_id
-    )
-    .is_err());
+    assert!(crate::service::agent_pad::AgentPad::open(&crate::paths::data_dir(), &tab_id).is_err());
 
     let stored_plan = fixture.service.plan_store.get(&plan.id).unwrap();
     let task = stored_plan
         .tasks
         .iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.status, crate::plan::TaskStatus::Pending);
+    assert!(task.assigned_tab_id.is_none());
+    assert!(task.execution_attempts.is_empty());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn task_binding_precondition_failure_rolls_back_provisional_tab() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("binding rollback".into(), None).id;
+    let parent_tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&parent_tab_id).unwrap().agent_type = Some("supervisor".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut plan = fixture
+        .service
+        .plan_store
+        .create_plan_for_team(
+            "binding preconditions".into(),
+            fixture.temp.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&parent_tab_id),
+            "team-binding-preconditions".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    plan.mode = crate::plan::PlanMode::Approved;
+    fixture.service.plan_store.save(&mut plan, 2).unwrap();
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan.id,
+            crate::service::plan::NewTask {
+                name: "binding-preconditions".into(),
+                handle: Some("binding-preconditions".into()),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
+        &fixture.service.plan_store,
+        &plan.id,
+    )
+    .unwrap();
+
+    for missing in [
+        "execution_intent",
+        "launch_authority",
+        "plan_skill_manifest",
+    ] {
+        let tab_id = fixture
+            .service
+            .mux
+            .write()
+            .create_tab(&workspace_id)
+            .unwrap();
+        fixture.service.ensure_agent_pad(&tab_id).unwrap();
+        fixture
+            .service
+            .register_agent_startup_supervision(&parent_tab_id, &tab_id, "Worker");
+        let mut launch = crate::agent::provider::AgentLaunchParams::default();
+        crate::service::launch_session_detection::mark_fresh_launch(&tab_id, &mut launch);
+        let mut params = SpawnAgentParams {
+            agent: Some("task-sensitive-bind-failure".into()),
+            role: Some("Worker".into()),
+            plan_id: Some(plan.id.clone()),
+            plan_task: Some("binding-preconditions".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: plan.id.clone(),
+                task_id: task_id.clone(),
+                attempt_id: crate::plan::ids::short_id("attempt"),
+                lane_base: None,
+            }),
+            plan_skill_manifest: Some(manifest.clone()),
+            ..Default::default()
+        };
+        match missing {
+            "execution_intent" => params.execution_intent = None,
+            "launch_authority" => params.task_launch_authority = None,
+            "plan_skill_manifest" => params.plan_skill_manifest = None,
+            _ => unreachable!(),
+        }
+
+        let error = fixture
+            .service
+            .bind_worker_plan_task_or_rollback_tab(&params, &tab_id)
+            .unwrap_err();
+
+        assert!(error.contains("plan-task spawn"), "{error}");
+        assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
+        assert_eq!(
+            crate::service::launch_session_detection::registered_launch_marker(&tab_id),
+            None
+        );
+        assert!(!fixture.service.has_agent_startup_supervision(&tab_id));
+        assert!(
+            crate::service::agent_pad::AgentPad::open(&crate::paths::data_dir(), &tab_id).is_err()
+        );
+    }
+
+    let task = fixture
+        .service
+        .plan_store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(task.status, crate::plan::TaskStatus::Pending);

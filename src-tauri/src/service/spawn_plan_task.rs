@@ -2,7 +2,6 @@
 //! read-only Worker binds none: it verifies, owns no task, and carries only the
 //! gate tokens it was spawned with.
 
-use crate::multiplexer::types::TabCloseReason;
 use crate::plan::Task;
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
@@ -212,9 +211,12 @@ fn bind_worker_task_to_tab(
         return Err(error.to_string());
     }
     if let Some(session_id) = session_id {
-        let session_binding_nonce = session_binding_nonce
-            .filter(|nonce| !nonce.trim().is_empty())
-            .ok_or_else(|| "plan-task spawn is missing its session binding nonce".to_string())?;
+        let Some(session_binding_nonce) =
+            session_binding_nonce.filter(|nonce| !nonce.trim().is_empty())
+        else {
+            let _ = store.revert_task_dispatch(&plan_id, &task_id, now_ms);
+            return Err("plan-task spawn is missing its session binding nonce".into());
+        };
         if let Err(error) = store.finish_task_dispatch(
             &plan_id,
             &task_id,
@@ -241,45 +243,6 @@ fn epoch_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
-}
-
-fn bind_worker_plan_task_transaction(
-    store: &PlanStore,
-    plan_id: Option<&str>,
-    task_ref: &str,
-    tab_id: &str,
-    title: &str,
-    session_id: Option<&str>,
-    session_binding_nonce: Option<&str>,
-    intent: crate::plan::ExecutionIntent,
-    allowance: Option<crate::plan::ProviderAllowance>,
-    provider: Option<&str>,
-    attempt_id: &str,
-    manifest: Vec<crate::plan::PlanSkillManifestEntry>,
-    now_ms: u64,
-    close_tab: impl FnOnce(),
-) -> Result<WorkerTaskBinding, String> {
-    match bind_worker_task_to_tab(
-        store,
-        plan_id,
-        task_ref,
-        tab_id,
-        title,
-        session_id,
-        session_binding_nonce,
-        intent,
-        allowance,
-        provider,
-        attempt_id,
-        manifest,
-        now_ms,
-    ) {
-        Ok(binding) => Ok(binding),
-        Err(e) => {
-            close_tab();
-            Err(e)
-        }
-    }
 }
 
 impl ServiceContext {
@@ -336,33 +299,39 @@ impl ServiceContext {
             let (session_id, session_binding_nonce) = binding.unwrap_or_default();
             (title, session_id, session_binding_nonce)
         };
-        let binding = bind_worker_plan_task_transaction(
-            &self.plan_store,
-            params.plan_id.as_deref(),
-            task_ref,
-            tab_id,
-            &title,
-            session_id.as_deref(),
-            session_binding_nonce.as_deref(),
-            params
+        let binding = (|| {
+            let intent = params
                 .execution_intent
                 .clone()
-                .ok_or_else(|| "plan-task spawn requires explicit execution_intent".to_string())?,
-            self.provider_allowance_for_spawn(params, now_ms)?,
-            params.agent.as_deref(),
-            &params
+                .ok_or_else(|| "plan-task spawn requires explicit execution_intent".to_string())?;
+            let allowance = self.provider_allowance_for_spawn(params, now_ms)?;
+            let authority = params
                 .task_launch_authority
                 .as_ref()
-                .ok_or_else(|| "plan-task spawn is missing launch authority".to_string())?
-                .attempt_id,
-            params.plan_skill_manifest.clone().ok_or_else(|| {
+                .ok_or_else(|| "plan-task spawn is missing launch authority".to_string())?;
+            let manifest = params.plan_skill_manifest.clone().ok_or_else(|| {
                 "plan-task spawn is missing its prepared plan skill manifest".to_string()
-            })?,
-            now_ms,
-            || {
-                let _ = self.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback);
-            },
-        )?;
+            })?;
+            bind_worker_task_to_tab(
+                &self.plan_store,
+                params.plan_id.as_deref(),
+                task_ref,
+                tab_id,
+                &title,
+                session_id.as_deref(),
+                session_binding_nonce.as_deref(),
+                intent,
+                allowance,
+                params.agent.as_deref(),
+                &authority.attempt_id,
+                manifest,
+                now_ms,
+            )
+        })();
+        let binding = match binding {
+            Ok(binding) => binding,
+            Err(error) => return Err(self.rollback_failed_agent_spawn(tab_id, &error)),
+        };
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
@@ -781,13 +750,12 @@ mod tests {
     }
 
     #[test]
-    fn transaction_closes_provisioned_tab_when_task_resolution_fails() {
+    fn task_binding_failure_leaves_task_unassigned() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         block_review_wip(&store, &plan_id);
 
-        let mut tab_closed = false;
-        let err = bind_worker_plan_task_transaction(
+        let err = bind_worker_task_to_tab(
             &store,
             Some(&plan_id),
             "missing-task-fixture",
@@ -801,14 +769,9 @@ mod tests {
             "attempt-rollback",
             vec![],
             10,
-            || tab_closed = true,
         )
         .unwrap_err();
         assert!(!err.is_empty());
-        assert!(
-            tab_closed,
-            "the just-created Tab must be closed on any post-provision failure"
-        );
 
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
