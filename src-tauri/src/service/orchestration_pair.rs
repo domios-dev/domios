@@ -505,13 +505,11 @@ impl ServiceContext {
                 supervisor_tab_id,
                 &reserved.orchestrator_tab_id,
                 &orchestrator_label,
-                None,
             );
             self.register_agent_startup_supervision(
                 supervisor_tab_id,
                 &reserved.planner_tab_id,
                 &reserved.planner_name,
-                None,
             );
         }
         let orch_counterpart = crate::service::spawn_factory::Counterpart::new(
