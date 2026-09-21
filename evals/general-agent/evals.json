@@ -55,7 +55,7 @@
       "expectations": [
         "Reinspects lifecycle and current screen for the exact tab after the structured response",
         "Does NOT use raw keys, `--actions`, or blind Enter as a fallback",
-        "Keeps task content blocked until authoritative session binding and Worker ACK, and raises a structured action-needed event"
+        "Treats the attempt as unready until authoritative session binding and the child's own Worker ACK, and raises a structured action-needed event"
       ]
     },
     {
