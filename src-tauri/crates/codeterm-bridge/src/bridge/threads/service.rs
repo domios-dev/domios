@@ -244,7 +244,7 @@ impl ThreadService {
         let header = thread_id
             .and_then(|_| tabs.sender_identity(&text.tab_id))
             .map(|identity| identity.header());
-        self.send_thread_text(&attached, &text, &mut thread_id, header)
+        self.send_thread_text(&attached, &text, &mut thread_id, header, "notification")
             .await
     }
 
@@ -254,6 +254,7 @@ impl ThreadService {
         text: &TabText,
         thread_id: &mut Option<i64>,
         header: Option<String>,
+        purpose: &str,
     ) -> Option<i64> {
         let body = markdown_to_sanitized_html(&text.markdown);
         let html = match header.as_deref() {
@@ -283,7 +284,7 @@ impl ThreadService {
         let placed = match placed {
             Ok(message_id) => message_id,
             Err(failure) => {
-                log::warn!("[bridge-threads] tab send failed: {failure:?}");
+                log::warn!("[bridge-threads] {purpose} send failed: {failure:?}");
                 return None;
             }
         };
@@ -323,7 +324,7 @@ impl ThreadService {
         }
 
         let placed = self
-            .send_thread_text(&attached, &text, &mut thread_id, header.clone())
+            .send_thread_text(&attached, &text, &mut thread_id, header.clone(), "tab")
             .await?;
 
         if let (Some(thread_id), Some(header), false) = (thread_id, header.as_deref(), text.append)
