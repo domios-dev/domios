@@ -61,7 +61,7 @@ fn task_store(root: &Path, project: &Path) -> (PlanStore, String, String) {
             2,
         )
         .unwrap();
-    (store, plan.id, task.id)
+    (store, plan.id, task)
 }
 
 fn record_lane(
@@ -80,8 +80,8 @@ fn record_lane(
                 workspace_name: Some(Some("Worker".into())),
                 worktree_path: Some(Some(lane.cwd.clone())),
                 branch: Some(Some(lane.branch.clone())),
-                base: Some(Some(lane.base.clone())),
-                destination: Some(Some(lane.base.clone())),
+                base: Some(Some(lane.base().to_string())),
+                destination: Some(Some(lane.base().to_string())),
                 ..Default::default()
             },
             3,

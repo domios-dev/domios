@@ -880,7 +880,7 @@ pub(super) fn dispatch(
         worker_title: spawn.title.clone(),
         original_task,
         original_plan_mode,
-        lane_for_commit,
+        lane_for_commit: lane_for_commit.clone(),
         canonical_project_path: canonical_cwd.clone(),
         provenance: initial_provenance.clone(),
         provisioned_lane,
