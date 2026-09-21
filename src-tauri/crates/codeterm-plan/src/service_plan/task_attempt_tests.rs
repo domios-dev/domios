@@ -35,6 +35,17 @@ pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, Str
     (dir, store, plan.id, task_id)
 }
 
+fn mark_bound_task_in_progress(store: &PlanStore, plan_id: &str, task_id: &str) {
+    store
+        .with_plan(plan_id, 3, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            task.status = TaskStatus::InProgress;
+            task.status_changed_at = 3;
+            Ok(())
+        })
+        .unwrap();
+}
+
 fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::BoundWorkerReport {
     task_attempts::BoundWorkerReport {
         message: "CHANGES: report ingestion\nTESTS RUN: cargo test".into(),
@@ -224,6 +235,7 @@ fn in_review_report_without_sha_still_advances_bound_task() {
 #[test]
 fn partial_report_keeps_bound_task_actionable() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
+    mark_bound_task_in_progress(&store, &plan_id, &task_id);
     assert!(!store
         .ingest_bound_worker_report(
             &plan_id,
@@ -234,9 +246,64 @@ fn partial_report_keeps_bound_task_actionable() {
         )
         .unwrap());
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
-    assert_eq!(task.status, TaskStatus::Pending);
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("worker"));
     assert!(task.execution_attempts[0].report.is_some());
+    assert!(task.execution_attempts[0].closed_at.is_none());
     assert_eq!(task.milestones.len(), 1);
+}
+
+#[test]
+fn blocked_report_sets_task_blocked_with_reason() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let mut report = worker_report(ReportStatus::Blocked, None);
+    let reason = report.message.clone();
+    assert!(!store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            report,
+            4,
+        )
+        .unwrap());
+
+    let task = store.get(&plan_id).unwrap().tasks.remove(0);
+    assert_eq!(task.status, TaskStatus::Blocked);
+    assert_eq!(task.status_label.as_deref(), Some(reason.as_str()));
+    assert!(task.execution_attempts[0].closed_at.is_none());
+}
+
+#[test]
+fn blocked_report_on_in_review_task_is_kept_as_a_milestone() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            4,
+        )
+        .unwrap();
+
+    let mut blocked = worker_report(ReportStatus::Blocked, None);
+    blocked.message = "review already owns this task".into();
+    assert!(!store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            blocked,
+            5,
+        )
+        .unwrap());
+
+    let task = store.get(&plan_id).unwrap().tasks.remove(0);
+    assert_eq!(task.status, TaskStatus::InReview);
+    assert_eq!(task.milestones.len(), 2);
+    assert!(task.milestones[1].text.contains("review already owns this task"));
+    assert!(task.execution_attempts[0].closed_at.is_none());
 }
 
 #[test]

@@ -55,16 +55,15 @@ pub(super) fn dispatch(
         "team.close" => {
             let team_id = get_string_param(params, "team_id")?;
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
-            let team = svc
-                .close_team(
-                    &team_id,
-                    crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
-                )
-                .map_err(|message| JsonRpcError {
-                    code: -32602,
-                    message,
-                    data: None,
-                })?;
+            let team = tauri::async_runtime::block_on(svc.close_team(
+                &team_id,
+                crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
+            ))
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })?;
             Ok(serde_json::json!({ "team": team }))
         }
         "team.adopt_plan" => {

@@ -236,6 +236,7 @@ fn the_internal_report_path_still_writes_its_milestones() {
                 client_id: None,
                 task: fx.foreign.clone(),
                 status: "done".into(),
+                status_label: None,
             },
             BatchOp::AddMilestone {
                 client_id: Some("report".into()),
