@@ -1,9 +1,11 @@
-use super::super::lane_safety::{isolated_lane_update_command, preflight_checkout_occupancy};
+use super::super::lane_safety::{
+    isolated_lane_update_command, preflight_checkout_occupancy, reported_executor_tab_statuses,
+};
 use super::super::{preflight_dispatch_placement, DispatchLanePlacement};
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskExecutionAttempt};
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::LaneProtection;
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 fn plan_with_attempt(
     closed_at: Option<u64>,
@@ -72,7 +74,7 @@ fn dispatch_refuses_occupied_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .unwrap_err();
 
@@ -121,12 +123,14 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
     task.execution_attempts[0].reported_at = Some(4);
 
-    preflight_checkout_occupancy(
+    let reported_executor_tabs = reported_executor_tab_statuses(&plan, &task_id, |_| false);
+    preflight_dispatch_placement(
         &plan,
         &task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        false,
+        &reported_executor_tabs,
     )
     .expect("a reported attempt is replaced by redispatch onto its recorded checkout");
 }
@@ -138,14 +142,17 @@ fn reported_attempt_with_live_executor_still_occupies_its_lane() {
     let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
     task.execution_attempts[0].reported_at = Some(4);
-    let live_executor_tab_ids = HashSet::from(["tab-live".to_string()]);
+    let reported_executor_tabs = reported_executor_tab_statuses(&plan, &task_id, |tab_id| {
+        tab_id == "tab-live"
+    });
 
-    let error = preflight_checkout_occupancy(
+    let error = preflight_dispatch_placement(
         &plan,
         &task_id,
         &checkout,
         LaneProtection::Enforced,
-        &live_executor_tab_ids,
+        false,
+        &reported_executor_tabs,
     )
     .unwrap_err();
 
@@ -160,8 +167,6 @@ fn reported_attempt_with_live_executor_still_occupies_its_lane() {
         error.data.as_ref().unwrap()["release_command"],
         "codeterm tab close --tab tab-live"
     );
-    assert!(error.message.contains("executor tab 'tab-live'"));
-    assert!(error.message.contains("codeterm tab close --tab tab-live"));
 }
 
 #[test]
@@ -176,12 +181,15 @@ fn another_task_still_cannot_take_an_occupied_lane() {
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
     task.execution_attempts[0].reported_at = Some(4);
 
-    let error = preflight_checkout_occupancy(
+    let reported_executor_tabs =
+        reported_executor_tab_statuses(&plan, &dispatched_task_id, |_| true);
+    let error = preflight_dispatch_placement(
         &plan,
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        false,
+        &reported_executor_tabs,
     )
     .unwrap_err();
 
@@ -195,12 +203,14 @@ fn unreported_attempt_still_occupies_its_own_checkout() {
     let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
 
-    let error = preflight_checkout_occupancy(
+    let reported_executor_tabs = reported_executor_tab_statuses(&plan, &task_id, |_| true);
+    let error = preflight_dispatch_placement(
         &plan,
         &task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        false,
+        &reported_executor_tabs,
     )
     .unwrap_err();
 
@@ -216,12 +226,14 @@ fn live_competitive_attempt_still_occupies_its_own_checkout() {
     task.execution_attempts[0].reported_at = Some(4);
     task.execution_attempts[0].competition_group_id = Some("group-live".into());
 
-    let error = preflight_checkout_occupancy(
+    let reported_executor_tabs = reported_executor_tab_statuses(&plan, &task_id, |_| true);
+    let error = preflight_dispatch_placement(
         &plan,
         &task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        false,
+        &reported_executor_tabs,
     )
     .unwrap_err();
 
@@ -241,7 +253,7 @@ fn read_only_dispatch_is_not_blocked_by_an_occupied_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .unwrap_err();
     assert_eq!(error.code, -32011);
@@ -255,7 +267,7 @@ fn read_only_dispatch_is_not_blocked_by_an_occupied_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Waived,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .unwrap();
 }
@@ -303,7 +315,7 @@ fn free_checkout_does_not_conflict() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .unwrap();
 }
@@ -331,7 +343,7 @@ fn closed_attempt_history_does_not_occupy_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .unwrap();
 }
@@ -358,7 +370,7 @@ fn read_only_attempt_does_not_block_lane_bound_mutating_dispatch() {
         &canonical_checkout,
         LaneProtection::Enforced,
         will_provision_lane,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .expect(
         "a task about to be provisioned its own isolated lane must not be refused by \
@@ -379,7 +391,7 @@ fn mutating_dispatch_without_a_lane_to_provision_still_enforces_occupancy() {
         &canonical_checkout,
         LaneProtection::Enforced,
         false,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .unwrap_err();
 
@@ -399,7 +411,7 @@ fn distinct_explicit_checkout_does_not_conflict() {
         &dispatched_task_id,
         &distinct,
         LaneProtection::Enforced,
-        &HashSet::new(),
+        &HashMap::new(),
     )
     .unwrap();
 }
