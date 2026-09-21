@@ -365,6 +365,9 @@ fn worker_prompt_places_ack_before_assignment_work() {
     }
     let ack_instruction = crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION;
     assert_eq!(prompt.matches(ack_instruction).count(), 1);
+    let ack_position = prompt.find(ack_instruction).unwrap();
+    let body_position = prompt.find(body_token).unwrap();
+    assert!(ack_position < body_position);
     assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }
 

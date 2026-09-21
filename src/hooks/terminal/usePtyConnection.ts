@@ -1,6 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
-import type { FitAddon } from "@xterm/addon-fit";
 import { invoke, IS_WEB, isPtyDeadError, resetWebPtyTail, takePtyTruncation } from "../../lib/bridge";
 import { subscribeTabOutput, webOutputStreamActive, type TabOutputSink } from "../../lib/outputStream";
 import { useMuxSelector } from "../../store/multiplexer";
@@ -51,7 +50,6 @@ export function shouldFetchInitialTerminalHistory(
 
 export interface UsePtyConnectionOptions {
   termRef: React.MutableRefObject<Terminal | null>;
-  fitAddonRef: React.MutableRefObject<FitAddon | null>;
   connectedPtyRef: React.MutableRefObject<string | null>;
   tabId: string;
   ptyId?: string | null;
@@ -59,10 +57,8 @@ export interface UsePtyConnectionOptions {
   onPtySpawned?: (tabId: string, ptyId: string) => void;
   onShellReady: () => void;
   onOutputChunk: (text: string) => void;
-  localFitEnabled?: boolean;
   ioEnabled?: boolean;
   renderEnabled?: boolean;
-  resizeClientId?: string;
   onHistoryReplayStateChange?: (replaying: boolean) => void;
   onConnectionStateChange?: (ready: boolean) => void;
 }
@@ -73,7 +69,6 @@ export interface UsePtyConnectionReturn {
 
 export function usePtyConnection({
   termRef,
-  fitAddonRef,
   connectedPtyRef,
   tabId,
   ptyId,
@@ -81,10 +76,8 @@ export function usePtyConnection({
   onPtySpawned,
   onShellReady,
   onOutputChunk,
-  localFitEnabled = true,
   ioEnabled = true,
   renderEnabled = true,
-  resizeClientId,
   onHistoryReplayStateChange,
   onConnectionStateChange,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
@@ -93,7 +86,6 @@ export function usePtyConnection({
     (a, b) => a === b,
   );
   const tabCwdRef = useRef(tabCwd);
-  const localFitEnabledRef = useRef(localFitEnabled);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
   const replayRequestRef = useRef(0);
@@ -140,10 +132,6 @@ export function usePtyConnection({
       if (!settled) onCancel?.();
     };
   }, [cancelReplay, onHistoryReplayStateChange]);
-
-  useEffect(() => {
-    localFitEnabledRef.current = localFitEnabled;
-  }, [localFitEnabled]);
 
   useEffect(() => {
     tabCwdRef.current = tabCwd;
@@ -198,22 +186,6 @@ export function usePtyConnection({
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
-      if (ptyId && resizeClientId) {
-        requestAnimationFrame(() => {
-          if (disposed || !localFitEnabledRef.current) return;
-          try {
-            fitAddonRef.current?.fit();
-            if (term.cols > 0 && term.rows > 0) {
-              void invoke("resize_pty", {
-                ptyId: predictedId,
-                cols: term.cols,
-                rows: term.rows,
-                clientId: resizeClientId,
-              });
-            }
-          } catch { /* teardown */ }
-        });
-      }
       // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
       const isRemote = parseCompositeTabId(tabId) !== null;
       const useOutputStream = webOutputStreamActive() || isRemote;
@@ -444,23 +416,6 @@ export function usePtyConnection({
         }
 
         onShellReady();
-
-        requestAnimationFrame(() => {
-          if (!localFitEnabledRef.current) return;
-          try {
-            fitAddonRef.current?.fit();
-            const actualCols = term.cols;
-            const actualRows = term.rows;
-            if (actualCols > 0 && actualRows > 0) {
-              invoke("resize_pty", {
-                ptyId: predictedId,
-                cols: actualCols,
-                rows: actualRows,
-                clientId: resizeClientId,
-              });
-            }
-          } catch { /* ignore */ }
-        });
       }
 
       let unsubscribeOutputStream: (() => void) | null = null;
@@ -504,7 +459,7 @@ export function usePtyConnection({
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, tabId, termReady, ioEnabled, resizeClientId, onPtySpawned, replayHistory, onConnectionStateChange]);
+  }, [ptyId, tabId, termReady, ioEnabled, onPtySpawned, replayHistory, onConnectionStateChange]);
 
   return { writePty };
 }

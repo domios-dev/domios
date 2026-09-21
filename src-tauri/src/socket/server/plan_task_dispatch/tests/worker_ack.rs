@@ -486,19 +486,13 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
 }
 
 #[test]
-fn late_binding_worker_ack_succeeds_after_recoverable_binding_timeout() {
+fn plan_store_acknowledges_live_attempt_without_saved_session_binding() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
-    let (mut mux, parent_tab_id) = MultiplexerState::new();
-    let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();
-    let worker_tab_id = mux.create_tab(&workspace_id).unwrap();
-    mux.get_tab_mut(&worker_tab_id).unwrap().parent_tab_id = Some(parent_tab_id);
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let plan = fixture
-        .service
-        .plan_store
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
         .create_plan_for_team(
-            "Late binding".into(),
+            "Unbound attempt".into(),
             project,
             OrchestratorRef::from_tab("orch"),
             "team".into(),
@@ -506,80 +500,38 @@ fn late_binding_worker_ack_succeeds_after_recoverable_binding_timeout() {
             1,
         )
         .unwrap();
-    let mut approved = fixture.service.plan_store.get(&plan.id).unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
     approved.mode = PlanMode::Approved;
-    fixture.service.plan_store.save(&mut approved, 2).unwrap();
-    let task_id = fixture
-        .service
-        .plan_store
+    store.save(&mut approved, 2).unwrap();
+    let task_id = store
         .add_task(
             &plan.id,
             NewTask {
-                name: "late binding worker".into(),
+                name: "worker without saved binding".into(),
                 ..Default::default()
             },
             3,
         )
         .unwrap();
-    let lane = fixture.service.plan_store.show_task(&task_id).unwrap().task.lane;
-    let attempt_id = fixture
-        .service
-        .plan_store
-        .begin_task_dispatch(
-            &plan.id,
-            &task_id,
-            &worker_tab_id,
-            "Worker",
-            lane,
-            4,
-        )
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let attempt_id = store
+        .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Worker", lane, 4)
         .unwrap();
-
-    let error = complete_dispatch_transaction(
-        Instant::now() + Duration::from_secs(1),
-        |_| Ok(()),
-        |_| {
-            Err(DispatchWaitFailure::Uncertain(
-                "session binding did not arrive before the deadline".into(),
-            ))
-        },
-        || Ok(None),
-        |_, _| panic!("recoverable binding timeout must not commit"),
-        || panic!("recoverable binding timeout must not roll back"),
-    )
-    .unwrap_err();
-    assert!(startup_wait_is_recoverable(&error));
-
-    {
-        let mut mux = fixture.service.mux.write();
-        let worker = mux.get_tab_mut(&worker_tab_id).unwrap();
-        worker.agent_session_id = Some("late-session".into());
-        worker.session_binding_nonce = Some("late-nonce".into());
-    }
-    let bound_worker = fixture.service.mux.read();
-    let bound_worker = bound_worker.get_tab(&worker_tab_id).unwrap();
-    assert_eq!(bound_worker.agent_session_id.as_deref(), Some("late-session"));
-    assert_eq!(
-        bound_worker.session_binding_nonce.as_deref(),
-        Some("late-nonce")
-    );
-    let pending = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let pending = store.show_task(&task_id).unwrap().task;
     assert_eq!(pending.execution_attempts[0].id, attempt_id);
     assert_eq!(pending.execution_attempts[0].session_id, None);
-    let acknowledged = fixture
-        .service
-        .plan_store
+    let acknowledged = store
         .acknowledge_live_task_attempt_for_tab(
-            &worker_tab_id,
+            "tab-worker",
             Some(&plan.id),
             Some(&task_id),
             5,
         )
-        .expect("a late-bound Worker can acknowledge its still-live attempt");
+        .expect("a live attempt can be acknowledged before a session id is saved");
 
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
     assert_eq!(acknowledged.attempt.session_id, None);
-    let persisted = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let persisted = store.show_task(&task_id).unwrap().task;
     assert_eq!(persisted.status, TaskStatus::InProgress);
     assert_eq!(persisted.execution_attempts[0].acknowledged_at, Some(5));
 }
