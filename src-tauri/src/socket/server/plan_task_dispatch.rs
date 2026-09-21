@@ -19,7 +19,6 @@ use super::JsonRpcError;
 
 mod attempt_rollback;
 mod brief;
-mod brief_delivery;
 pub(super) mod canonical_writer;
 mod dispatch_failure;
 mod gates;
@@ -38,12 +37,6 @@ use attempt_rollback::roll_back_dispatch_attempt;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
-use brief_delivery::{
-    bind_deferred_task_brief_to_tab, defer_task_brief_before_launch, discard_deferred_task_brief,
-};
-pub(super) use brief_delivery::{
-    deliver_deferred_task_brief, task_brief_delivery_event, TaskBriefDelivery,
-};
 use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
@@ -125,25 +118,8 @@ fn task_launch_authority_for_dispatch(
     }
 }
 
-fn defer_dispatch_brief(
-    spawn_params: &mut SpawnAgentParams,
-    plan_id: &str,
-    task_id: &str,
-    attempt_id: &str,
-    lane: &TaskLaneMetadata,
-    brief: String,
-) -> Result<(), String> {
-    if spawn_params.role.as_deref() != Some("Worker")
-        || spawn_params.plan_id.as_deref() != Some(plan_id)
-        || spawn_params.task_id.as_deref() != Some(task_id)
-    {
-        return Err("task brief launch authority does not match the dispatch".into());
-    }
-    spawn_params.task = defer_task_brief_before_launch(plan_id, task_id, attempt_id, brief)?;
-    spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
-        plan_id, task_id, attempt_id, lane,
-    ));
-    Ok(())
+fn set_dispatch_task_brief(spawn_params: &mut SpawnAgentParams, brief: String) {
+    spawn_params.task = Some(brief);
 }
 
 pub(super) fn await_agent_ready(
@@ -684,6 +660,7 @@ pub(super) fn dispatch(
         task: None,
         ..Default::default()
     };
+    set_dispatch_task_brief(&mut spawn_params, brief);
 
     let lane_label = format!("{plan_id}-{task_id}");
     let provisioned_lane = match lane_placement.as_ref() {
@@ -773,31 +750,16 @@ pub(super) fn dispatch(
     // persisted state carries a workspace without the worktree that isolates it.
     let starting_lane = atomic_lane_commitment(&starting_lane);
     let reserved_attempt_id = crate::plan::ids::short_id("attempt");
-    match defer_dispatch_brief(
-        &mut spawn_params,
+    spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
         &plan_id,
         &task_id,
         &reserved_attempt_id,
         &starting_lane,
-        brief,
-    ) {
-        Ok(()) => {}
-        Err(error) => {
-            let cleanup = rollback_failed_dispatch(provisioned_lane, || Ok(()), || Ok(()));
-            return Err(dispatch_failed(
-                "brief_reservation",
-                match cleanup {
-                    Ok(()) => error,
-                    Err(cleanup) => format!("{error}; {cleanup}"),
-                },
-            ));
-        }
-    }
+    ));
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
         Err(error) => {
-            discard_deferred_task_brief(&reserved_attempt_id);
             if let Some(lane) = provisioned_lane {
                 if let Err(cleanup) = lane.cleanup() {
                     return Err(dispatch_failed(
@@ -810,22 +772,6 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
-    if let Err(error) = bind_deferred_task_brief_to_tab(&reserved_attempt_id, &tab_id) {
-        discard_deferred_task_brief(&reserved_attempt_id);
-        let cleanup = rollback_failed_dispatch(
-            provisioned_lane,
-            || Ok(()),
-            || close_tab_if_present(svc, &tab_id),
-        );
-        emit_plan_changed(app, &plan_id);
-        return Err(dispatch_failed(
-            "brief_binding",
-            match cleanup {
-                Ok(()) => error,
-                Err(cleanup) => format!("{error}; {cleanup}"),
-            },
-        ));
-    }
     let attempt_id = match store.begin_task_dispatch_with_reserved_attempt_and_gates(
         &plan_id,
         &task_id,
@@ -842,7 +788,6 @@ pub(super) fn dispatch(
     ) {
         Ok(attempt_id) => attempt_id,
         Err(error) => {
-            discard_deferred_task_brief(&reserved_attempt_id);
             let cleanup = rollback_failed_dispatch(
                 provisioned_lane,
                 || Ok(()),
@@ -861,7 +806,6 @@ pub(super) fn dispatch(
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now)
     {
-        discard_deferred_task_brief(&attempt_id);
         let cleanup = rollback_failed_dispatch(
             provisioned_lane,
             || {
@@ -880,7 +824,6 @@ pub(super) fn dispatch(
         ));
     }
     if let Err(error) = verify_dispatched_task_binding(store, &plan_id, &task_id, &tab_id) {
-        discard_deferred_task_brief(&attempt_id);
         let cleanup = roll_back_dispatch_attempt(
             store,
             &plan_id,

@@ -7,7 +7,7 @@ use super::{
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
     preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
     resolve_dispatch_lane, roll_back_dispatch_attempt, rollback_failed_dispatch,
-    startup_wait_is_recoverable, task_launch_authority_for_dispatch,
+    set_dispatch_task_brief, startup_wait_is_recoverable, task_launch_authority_for_dispatch,
     verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
     DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
 };
