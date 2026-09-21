@@ -1035,7 +1035,7 @@ pub async fn mesh_relay_stream(
     let content_type = copy_content_type(&resp, "text/event-stream");
     let body = if bare == "/api/output/stream" {
         super::relay_stream::output_body(
-            resp,
+            resp.bytes_stream(),
             diagnostic_level,
             q.tab.clone().unwrap_or_else(|| "*".into()),
             stream_tab_id,
