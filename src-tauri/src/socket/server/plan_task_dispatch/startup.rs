@@ -9,13 +9,12 @@ use crate::service::{
 
 use super::{
     arm_worker_ack_deadline, atomic_lane_commitment, await_agent_ready, cleanup_succeeded,
-    close_tab_if_present, deliver_deferred_task_brief, discard_deferred_task_brief,
-    dispatch_failed, dispatch_ready_event, dispatch_safety_nudges, dispatch_startup_failed_event,
+    close_tab_if_present, dispatch_failed, dispatch_ready_event, dispatch_safety_nudges,
+    dispatch_startup_failed_event,
     dispatch_wait_failed, emit_plan_changed, epoch_ms, lane_metadata_for_dispatch,
     publish_action_needed_event, publish_startup_report, roll_back_dispatch_attempt,
     startup_recovery_event, startup_wait_is_recoverable, wait_for_tab_session, DispatchEvidence,
-    DispatchFailureDisposition, DispatchWaitFailure, JsonRpcError, TaskBriefDelivery,
-    DISPATCH_READY_TIMEOUT,
+    DispatchFailureDisposition, DispatchWaitFailure, JsonRpcError, DISPATCH_READY_TIMEOUT,
 };
 pub(crate) struct DispatchStartup {
     pub(crate) app: AppHandle,
@@ -126,27 +125,6 @@ impl DispatchStartup {
                     self.spawn_command.clone(),
                 );
                 emit_plan_changed(&self.app, &self.plan_id);
-                if let TaskBriefDelivery::Failed(error) = deliver_deferred_task_brief(
-                    &self.svc,
-                    &self.plan_id,
-                    &self.task_id,
-                    &self.tab_id,
-                    &self.attempt_id,
-                ) {
-                    publish_action_needed_event(
-                        &self.svc,
-                        &self.parent_tab_id,
-                        &self.tab_id,
-                        &self.worker_title,
-                        super::task_brief_delivery_event(
-                            &self.plan_id,
-                            &self.task_id,
-                            &self.tab_id,
-                            &self.attempt_id,
-                            &error,
-                        ),
-                    );
-                }
                 let nudges = self
                     .svc
                     .plan_store
@@ -245,9 +223,6 @@ impl DispatchStartup {
                 } else {
                     false
                 };
-                if !worker_may_be_alive || attempt_finalized {
-                    discard_deferred_task_brief(&self.attempt_id);
-                }
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
