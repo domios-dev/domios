@@ -1060,14 +1060,24 @@ mod tests {
             remote_tab_action_outcome("/prompt/respond", response),
             Ok(serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"}))
         );
-        let unrelated = crate::mesh::types::RelayResponse {
+        let false_success_body = crate::mesh::types::RelayResponse {
             ok: false,
             status: 409,
             data: Some(serde_json::json!({"ok": true, "reason": "prompt_not_on_screen"})),
             error: Some("HTTP 409".into()),
         };
         assert_eq!(
-            remote_tab_action_outcome("/prompt/respond", unrelated),
+            remote_tab_action_outcome("/prompt/respond", false_success_body),
+            Err("HTTP 409".into())
+        );
+        let unrelated = crate::mesh::types::RelayResponse {
+            ok: false,
+            status: 409,
+            data: Some(serde_json::json!({"reason": "prompt_not_on_screen"})),
+            error: Some("HTTP 409".into()),
+        };
+        assert_eq!(
+            remote_tab_action_outcome("/chat-send", unrelated),
             Err("HTTP 409".into())
         );
     }
