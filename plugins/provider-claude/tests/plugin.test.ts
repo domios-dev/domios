@@ -223,6 +223,14 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     const screen = fs.readFileSync(path.join(dir, c.file), "utf8");
     eq(hostPlugin.directoryTrustPromptResponse(screen), keys[c.expect], `folder trust ${c.file} -> ${c.expect}`);
   }
+
+  const unnumbered = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8");
+  const parsed = hostPlugin.parsePrompt(unnumbered);
+  eq(parsed?.options?.map(([, value]) => value), ["1", "2"], "folder trust options retain screen order");
+  eq(parsed?.options?.map(([label]) => label.match(/^[A-Za-z]+/)?.[0].toLowerCase()), ["no", "yes"], "folder trust options expose refusal before trust");
+  assert(parsed?.options?.[0]?.[0].toLowerCase().includes("exit"), "first folder trust option is the exit choice");
+  assert(parsed?.options?.[1]?.[0].toLowerCase().includes("trust"), "second folder trust option is the trust choice");
+  eq(hostPlugin.buildPromptResponse(1, unnumbered), ["ag==", "DQ=="], "responding with option two moves off refusal before confirming");
 }
 
 {

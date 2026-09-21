@@ -1,4 +1,7 @@
 [
+  { "file": "quick-safety-no-first.txt", "expect": "move-down" },
+  { "file": "quick-safety-yes-focused.txt", "expect": "enter" },
+  { "file": "quick-safety-ambiguous-focus.txt", "expect": "hold" },
   { "file": "trust-box-focus-refusal.txt", "expect": "move-down" },
   { "file": "trust-rule-focus-affirmative.txt", "expect": "enter" },
   { "file": "trust-numbered-focus-affirmative.txt", "expect": "enter" },
