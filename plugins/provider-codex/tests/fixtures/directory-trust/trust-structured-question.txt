@@ -1,0 +1,11 @@
+PS D:\workspace\sample> codex
+
+> You are in D:\workspace\sample
+
+  Should this folder's local guidance be loaded? Its project rules can change how
+  the agent behaves while this folder is open.
+
+  1. Yes, continue
+> 2. No, quit
+
+  Press enter to continue

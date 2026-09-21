@@ -295,7 +295,11 @@ impl ServiceContext {
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
-        let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+        let resolved_cwd = spec
+            .cwd
+            .clone()
+            .or(ws_cwd)
+            .map(|cwd| Self::normalize_resolved_agent_cwd(&cwd));
         let team_attachment = crate::service::team::resolve_spawn_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),

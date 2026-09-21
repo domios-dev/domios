@@ -203,7 +203,10 @@ fn commit_reported_session(
     let Some(tab) = mux.get_tab(tab_id) else {
         return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
     };
-    if tab.cwd.clone().unwrap_or_default() != probe.cwd
+    if !crate::service::ServiceContext::paths_equal(
+        tab.cwd.as_deref().unwrap_or_default(),
+        &probe.cwd,
+    )
         || tab.agent_session_id != probe.previous_session_id
     {
         return Ok(None);

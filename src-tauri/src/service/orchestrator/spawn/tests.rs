@@ -744,3 +744,46 @@ fn no_cwd_and_no_workspace_pins_the_daemon_cwd() {
         "resolved cwd must never be an empty string"
     );
 }
+
+#[test]
+fn supervised_task_spawn_keeps_the_assigned_task_starter() {
+    let mut params = SpawnAgentParams {
+        starter_prompt: crate::agent::provider::StarterPrompt::AssignedTask,
+        task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+            plan_id: "plan-a".into(),
+            task_id: "task-a".into(),
+            attempt_id: "attempt-a".into(),
+            lane_base: None,
+        }),
+        ..Default::default()
+    };
+
+    apply_startup_handshake(&mut params, true);
+
+    assert_eq!(
+        params.starter_prompt,
+        crate::agent::provider::StarterPrompt::AssignedTask
+    );
+}
+
+#[test]
+fn paths_equal_ignores_windows_verbatim_prefix() {
+    assert!(ServiceContext::paths_equal(
+        r"\\?\C:\lanes\worker\",
+        r"C:\lanes\worker"
+    ));
+    assert!(ServiceContext::paths_equal(
+        r"\\?\UNC\server\share\lanes",
+        r"\\server\share\lanes"
+    ));
+}
+
+#[test]
+fn resolved_agent_cwd_strips_windows_verbatim_prefix_before_launch() {
+    let (resolved, warning) = ServiceContext::resolve_agent_cwd(
+        &Some(r"\\?\C:\lanes\worker".into()),
+        &Some(r"C:\lanes\worker".into()),
+    );
+    assert_eq!(resolved.as_deref(), Some(r"C:\lanes\worker"));
+    assert!(warning.is_none());
+}

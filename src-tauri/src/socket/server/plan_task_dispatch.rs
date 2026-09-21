@@ -30,10 +30,10 @@ mod preflight;
 mod recovery;
 mod routing;
 mod startup;
+mod tab_reservation;
 mod workspace_admission;
 
 use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
-use crate::multiplexer::types::TabCloseReason;
 use attempt_rollback::roll_back_dispatch_attempt;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
@@ -60,6 +60,10 @@ use recovery::startup_recovery_event;
 use routing::{
     dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing,
     unqualified_model_error,
+};
+pub(super) use tab_reservation::dispatch_startup_owner_is_live;
+use tab_reservation::{
+    close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
 };
 use workspace_admission::preflight_dispatch_workspace;
 
@@ -172,14 +176,6 @@ pub(super) fn wait_for_tab_session(
             ))
         }
     })
-}
-
-fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(), String> {
-    if svc.mux.read().get_tab(tab_id).is_none() {
-        Ok(())
-    } else {
-        svc.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)
-    }
 }
 
 fn apply_dispatch_starting_contract(
@@ -385,6 +381,32 @@ pub(super) fn dispatch(
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
+    dispatch_with_spawn(
+        params,
+        app,
+        svc,
+        now,
+        |svc, spawn_params, ready_tx| svc.spawn_agent_sync_with_ready(spawn_params, ready_tx),
+        || {},
+    )
+}
+
+pub(super) fn dispatch_with_spawn<S, O>(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+    now: u64,
+    spawn_agent: S,
+    after_startup_owner_observation: O,
+) -> Result<Value, JsonRpcError>
+where
+    S: FnOnce(
+        &ServiceState,
+        SpawnAgentParams,
+        Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<crate::service::SpawnResult, String>,
+    O: FnOnce(),
+{
     let store = &svc.plan_store;
     let p = params.as_ref();
     let authorized_gates = dispatch_authorized_gates(p)?;
@@ -412,6 +434,7 @@ pub(super) fn dispatch(
         message,
         data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
     })?;
+    refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
     let mut exemption: Option<DispatchExemption> = None;
     match regression_dispatch_decision(&plan, &detail.task) {
         RegressionDispatchDecision::Clear => {}
@@ -533,16 +556,6 @@ pub(super) fn dispatch(
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
         .map_err(plan_rpc_err)?;
-    let brief = canonical_writer::compose_dispatch_brief(
-        build_brief_with_manifest(
-            &detail.task,
-            &detail.sections,
-            &plan_id,
-            &manifest,
-            &authorized_gates,
-        ),
-        placement,
-    );
 
     let explicit_cwd = owned_str(p, "cwd");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
@@ -623,6 +636,20 @@ pub(super) fn dispatch(
         }
         _ => None,
     };
+    let replaces_recorded_lane = lane_placement
+        .as_ref()
+        .is_some_and(DispatchLanePlacement::provisions)
+        && (detail.task.lane.worktree_path.is_some() || detail.task.lane.branch.is_some());
+    let brief = canonical_writer::compose_dispatch_brief(
+        build_brief_with_manifest(
+            &detail.task,
+            &detail.sections,
+            &plan_id,
+            &manifest,
+            &authorized_gates,
+        ),
+        placement,
+    );
     let will_provision_lane = lane_placement
         .as_ref()
         .is_some_and(DispatchLanePlacement::provisions);
@@ -637,15 +664,13 @@ pub(super) fn dispatch(
                     .unwrap_or_else(|| canonical_cwd.clone())
             }),
     };
-    let reported_executor_tabs = if requires_repository
-        && !will_provision_lane
-        && !lane_protection.is_waived()
-    {
-        let mux = svc.mux.read();
-        reported_executor_tab_statuses(&plan, &task_id, |tab_id| mux.get_tab(tab_id).is_some())
-    } else {
-        HashMap::new()
-    };
+    let reported_executor_tabs =
+        if requires_repository && !will_provision_lane && !lane_protection.is_waived() {
+            let mux = svc.mux.read();
+            reported_executor_tab_statuses(&plan, &task_id, |tab_id| mux.get_tab(tab_id).is_some())
+        } else {
+            HashMap::new()
+        };
     if requires_repository {
         preflight_dispatch_placement(
             &plan,
@@ -679,6 +704,47 @@ pub(super) fn dispatch(
         ..Default::default()
     };
     set_dispatch_task_brief(&mut spawn_params, brief);
+
+    refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
+
+    let reserved_attempt_id = crate::plan::ids::short_id("attempt");
+    let reservation_workspace = spawn_params
+        .workspace_id
+        .clone()
+        .or_else(|| svc.mux.read().find_workspace_for_tab(&parent_tab_id))
+        .ok_or_else(|| invalid_dispatch("dispatch could not resolve a workspace for its Worker"))?;
+    let reserved_tab_id = svc
+        .mux
+        .write()
+        .create_tab(&reservation_workspace)
+        .map_err(|error| dispatch_failed("tab_reservation", error))?;
+    let mut reservation_tab = DispatchReservationTab::new(svc, reserved_tab_id.clone());
+    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner_is_live = observed_owner.as_ref().is_some_and(|owner| {
+        dispatch_startup_owner_is_live(svc, &plan_id, &task_id, &owner.tab_id)
+    });
+    after_startup_owner_observation();
+    let dispatch_reservation = match store.reserve_task_dispatch_startup(
+        &plan_id,
+        &task_id,
+        &reserved_attempt_id,
+        &reserved_tab_id,
+        observed_owner.clone(),
+        observed_owner_is_live,
+    ) {
+        Ok(reservation) => reservation,
+        Err(error) => {
+            let mut refusal = plan_rpc_err(error);
+            if let Err(cleanup) = reservation_tab.close() {
+                refusal.message = format!(
+                    "{}; losing Worker tab cleanup failed: {cleanup}",
+                    refusal.message
+                );
+            }
+            return Err(refusal);
+        }
+    };
+    spawn_params.existing_tab_id = Some(reserved_tab_id.clone());
 
     let lane_label = format!("{plan_id}-{task_id}");
     let provisioned_lane = match lane_placement.as_ref() {
@@ -744,9 +810,21 @@ pub(super) fn dispatch(
             return Err(error);
         }
     }
+    if let Err(mut refusal) = refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id) {
+        if let Err(cleanup) = rollback_failed_dispatch(provisioned_lane, || Ok(()), || Ok(())) {
+            refusal.message = format!(
+                "{}; losing Worker lane cleanup failed: {cleanup}",
+                refusal.message
+            );
+        }
+        return Err(refusal);
+    }
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
     let mut lane_for_commit = detail.task.lane.clone();
+    if replaces_recorded_lane {
+        lane_commit::clear_replaced_lane_routing_fields(&mut lane_for_commit);
+    }
     if let Some((workspace_id, workspace_name)) =
         svc.resolve_spawn_workspace_identity(&spawn_params)
     {
@@ -767,72 +845,153 @@ pub(super) fn dispatch(
     // Team identity rides the same committed value as the isolated lane, so no
     // persisted state carries a workspace without the worktree that isolates it.
     let starting_lane = atomic_lane_commitment(&starting_lane);
-    let reserved_attempt_id = crate::plan::ids::short_id("attempt");
     spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
         &plan_id,
         &task_id,
         &reserved_attempt_id,
         &starting_lane,
     ));
+    let begin_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let begin_owner_is_live = begin_owner.as_ref().is_some_and(|owner| {
+        dispatch_startup_owner_is_live(svc, &plan_id, &task_id, &owner.tab_id)
+    });
+    let attempt_start = if let Some(owner) = begin_owner.as_ref().filter(|_| begin_owner_is_live) {
+        Err(PlanError::DispatchInFlight {
+            attempt_id: owner.attempt_id.clone(),
+            tab_id: owner.tab_id.clone(),
+        })
+    } else {
+        store.begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
+            &plan_id,
+            &task_id,
+            &reserved_tab_id,
+            &spawn_params
+                .title
+                .clone()
+                .unwrap_or_else(|| "Worker".into()),
+            starting_lane,
+            execution_intent,
+            allowance,
+            Some(&resolved_provider),
+            &reserved_attempt_id,
+            authorized_gates.clone(),
+            placement,
+            begin_owner,
+            begin_owner_is_live,
+            now,
+        )
+    };
+    let (attempt_id, provisioned_lane) =
+        match finish_unreserved_dispatch(attempt_start, provisioned_lane, || {
+            reservation_tab.close()
+        }) {
+            Ok(started) => started,
+            Err(error) => {
+                if error
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("type"))
+                    .and_then(Value::as_str)
+                    != Some("dispatch_in_flight")
+                {
+                    emit_plan_changed(app, &plan_id);
+                }
+                return Err(error);
+            }
+        };
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
+    let spawn = match spawn_agent(svc, spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
         Err(error) => {
-            if let Some(lane) = provisioned_lane {
-                if let Err(cleanup) = lane.cleanup() {
-                    return Err(dispatch_failed(
-                        "compensation",
-                        format!("{error}; lane cleanup failed: {cleanup}"),
-                    ));
-                }
-            }
-            return Err(dispatch_failed("agent_spawn", error));
-        }
-    };
-    let tab_id = spawn.tab_id.clone();
-    let attempt_id = match store.begin_task_dispatch_with_reserved_attempt_and_gates(
-        &plan_id,
-        &task_id,
-        &tab_id,
-        &spawn.title,
-        starting_lane,
-        execution_intent,
-        allowance,
-        Some(&resolved_provider),
-        &reserved_attempt_id,
-        authorized_gates.clone(),
-        placement,
-        now,
-    ) {
-        Ok(attempt_id) => attempt_id,
-        Err(error) => {
-            let cleanup = rollback_failed_dispatch(
+            let cleanup = roll_back_dispatch_attempt(
+                store,
+                &plan_id,
+                &original_task,
+                &original_plan_mode,
+                &reserved_tab_id,
+                &attempt_id,
                 provisioned_lane,
-                || Ok(()),
-                || close_tab_if_present(svc, &tab_id),
+                || reservation_tab.close(),
+                now,
+            );
+            log::warn!(
+                "[task-dispatch] dispatch_startup_failed plan={} task={} tab={} attempt={} stage=agent_spawn cause={error}",
+                plan_id,
+                task_id,
+                reserved_tab_id,
+                attempt_id
             );
             emit_plan_changed(app, &plan_id);
             return Err(dispatch_failed(
-                "task_start",
+                "agent_spawn",
                 match cleanup {
-                    Ok(()) => error.to_string(),
+                    Ok(()) => error,
                     Err(cleanup) => format!("{error}; {cleanup}"),
                 },
             ));
         }
     };
+    if spawn.tab_id != reserved_tab_id {
+        let cause = format!(
+            "spawn claimed Tab {}, expected reserved Tab {reserved_tab_id}",
+            spawn.tab_id
+        );
+        let cleanup = roll_back_dispatch_attempt(
+            store,
+            &plan_id,
+            &original_task,
+            &original_plan_mode,
+            &reserved_tab_id,
+            &attempt_id,
+            provisioned_lane,
+            || {
+                let reserved_cleanup = reservation_tab.close();
+                let spawned_cleanup = close_tab_if_present(svc, &spawn.tab_id);
+                reserved_cleanup.and(spawned_cleanup)
+            },
+            now,
+        );
+        log::warn!(
+            "[task-dispatch] dispatch_startup_failed plan={} task={} tab={} attempt={} stage=tab_reservation cause={cause}",
+            plan_id,
+            task_id,
+            reserved_tab_id,
+            attempt_id
+        );
+        emit_plan_changed(app, &plan_id);
+        return Err(dispatch_failed(
+            "tab_reservation",
+            match cleanup {
+                Ok(()) => cause,
+                Err(cleanup) => format!("{cause}; {cleanup}"),
+            },
+        ));
+    }
+    reservation_tab.mark_spawned();
+    let tab_id = spawn.tab_id.clone();
+    drop(dispatch_reservation);
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now)
     {
-        let cleanup = rollback_failed_dispatch(
+        let cleanup = roll_back_dispatch_attempt(
+            store,
+            &plan_id,
+            &original_task,
+            &original_plan_mode,
+            &tab_id,
+            &attempt_id,
             provisioned_lane,
-            || {
-                store
-                    .revert_task_dispatch(&plan_id, &task_id, now)
-                    .map_err(|error| error.to_string())
-            },
             || close_tab_if_present(svc, &tab_id),
+            now,
         );
+        log::warn!(
+            "[task-dispatch] dispatch_startup_failed plan={} task={} tab={} attempt={} stage=skill_manifest cause={error}",
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id
+        );
+        emit_plan_changed(app, &plan_id);
         return Err(dispatch_failed(
             "skill_manifest",
             match cleanup {
@@ -852,6 +1011,13 @@ pub(super) fn dispatch(
             provisioned_lane,
             || close_tab_if_present(svc, &tab_id),
             now,
+        );
+        log::warn!(
+            "[task-dispatch] dispatch_startup_failed plan={} task={} tab={} attempt={} stage=task_binding cause={error}",
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id
         );
         emit_plan_changed(app, &plan_id);
         return Err(dispatch_failed(
@@ -875,7 +1041,7 @@ pub(super) fn dispatch(
         worker_title: spawn.title.clone(),
         original_task,
         original_plan_mode,
-        lane_for_commit,
+        lane_for_commit: lane_for_commit.clone(),
         canonical_project_path: canonical_cwd.clone(),
         provenance: initial_provenance.clone(),
         provisioned_lane,
@@ -895,7 +1061,7 @@ pub(super) fn dispatch(
         "placement": placement,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
-        result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &detail.task.lane);
+        result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &lane_for_commit);
     }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {
@@ -911,6 +1077,39 @@ pub(super) fn dispatch(
         result["model_fallback"] = json!(model_fallback);
     }
     Ok(result)
+}
+
+fn finish_unreserved_dispatch<C>(
+    attempt_start: Result<String, PlanError>,
+    provisioned_lane: Option<ProvisionedWorkerLane>,
+    close_tab: C,
+) -> Result<(String, Option<ProvisionedWorkerLane>), JsonRpcError>
+where
+    C: FnOnce() -> Result<(), String>,
+{
+    let attempt_id = match attempt_start {
+        Ok(attempt_id) => return Ok((attempt_id, provisioned_lane)),
+        Err(error) => error,
+    };
+    let refused = matches!(&attempt_id, PlanError::DispatchInFlight { .. });
+    let cleanup = rollback_failed_dispatch(provisioned_lane, || Ok(()), close_tab);
+    if refused {
+        let mut refusal = plan_rpc_err(attempt_id);
+        if let Err(cleanup) = cleanup {
+            refusal.message = format!(
+                "{}; losing Worker cleanup failed: {cleanup}",
+                refusal.message
+            );
+        }
+        return Err(refusal);
+    }
+    Err(dispatch_failed(
+        "task_start",
+        match cleanup {
+            Ok(()) => attempt_id.to_string(),
+            Err(cleanup) => format!("{attempt_id}; {cleanup}"),
+        },
+    ))
 }
 
 fn rollback_failed_dispatch<R, C>(

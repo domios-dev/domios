@@ -8,6 +8,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
+import "./prompt.test";
 
 let passed = 0;
 let failed = 0;
@@ -220,7 +221,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
 {
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
-    "hasEventMarkers", "detectEvents", "parsePrompt", "buildPromptResponse", "directoryTrustPromptResponse",
+    "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse",
     "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
@@ -408,68 +409,6 @@ console.log("\n--- hasEventMarkers: picker/menu screens gate a screen read (/mod
   assert(evp.hasEventMarkers("› 1. gpt-5.5 (current)"), "fires on a › selector option row");
   assert(evp.hasEventMarkers("Would you like to run the following command"), "still fires on approval phrasing");
   assert(!evp.hasEventMarkers("Wrote 12 lines to src/lib/foo.ts and ran the tests."), "stays quiet on normal output");
-}
-
-console.log("\n--- parsePrompt + buildPromptResponse: /model numbered picker ---\n");
-{
-  const evp = loadHostPlugin();
-  const modelScreen = fs.readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "model-picker.txt"),
-    "utf8",
-  );
-  const parsed = evp.parsePrompt(modelScreen);
-  eq(
-    parsed && parsed.question,
-    "Select Reasoning Level for gpt-5.5",
-    "parsePrompt uses the active picker cluster",
-  );
-  eq(
-    parsed && parsed.options,
-    [
-      ["Low                        Fast responses with lighter reasoning", "1"],
-      ["Medium (default) (current) Balances speed and reasoning depth for everyday tasks", "2"],
-      ["High                       Greater reasoning depth for complex problems", "3"],
-      ["Extra high                 Extra high reasoning depth for complex problems", "4"],
-    ],
-    "parsePrompt extracts active numbered options with 1-based values",
-  );
-  eq(evp.buildPromptResponse(1, modelScreen), ["DQ=="], "current highlighted option → Enter only");
-  eq(evp.buildPromptResponse(0, modelScreen), ["G1tB", "DQ=="], "target above current → Up + Enter");
-  eq(evp.buildPromptResponse(3, modelScreen), ["G1tC", "G1tC", "DQ=="], "target below current → Down ×2 + Enter");
-}
-
-console.log("\n--- parsePrompt + buildPromptResponse: prose choice prompts ---\n");
-{
-  const evp = loadHostPlugin();
-  const abc = [
-    "• Which release strategy should we use?",
-    "  A) Fast patch release now",
-    "  B) Minor release with bundled fixes",
-    "  C) Delay for more testing",
-  ].join("\n");
-  const parsed = evp.parsePrompt(abc);
-  eq(parsed && parsed.question, "Which release strategy should we use?", "lettered prose question extracts");
-  eq(
-    parsed && parsed.options,
-    [
-      ["Fast patch release now", "A"],
-      ["Minor release with bundled fixes", "B"],
-      ["Delay for more testing", "C"],
-    ],
-    "lettered prose options extract",
-  );
-  eq(evp.buildPromptResponse(1, abc), ["Qg0="], "lettered click sends selected value plus Enter");
-
-  const numbered = [
-    "• Which test strategy should we use?",
-    "",
-    "  1. Unit tests first",
-    "  2. Integration smoke tests",
-    "  3. Full end-to-end suite",
-  ].join("\n");
-  const parsedNumbered = evp.parsePrompt(numbered);
-  eq(parsedNumbered && parsedNumbered.question, "Which test strategy should we use?", "numbered prose question extracts");
-  eq(evp.buildPromptResponse(2, numbered), ["Mw0="], "numbered click sends selected value plus Enter");
 }
 
 console.log("\n--- parseSessionDelta hardening ---\n");

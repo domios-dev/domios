@@ -1,0 +1,8 @@
+> D:\workspace\project
+
+Would you like to apply this change? It updates the selected files and records the result in the project history.
+
+  1. Yes, apply
+> 2. No, cancel
+
+Press enter to continue

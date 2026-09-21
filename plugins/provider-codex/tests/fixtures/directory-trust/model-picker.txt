@@ -1,0 +1,9 @@
+> D:\workspace\project
+
+Select a model for this session
+
+  1. Fast model
+> 2. Balanced model
+  3. Reasoning model
+
+Press enter to select

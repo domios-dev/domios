@@ -4,6 +4,8 @@ use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, Wor
 mod merge;
 mod permission_auto_confirm;
 mod role_restore;
+#[path = "tests/restore_verbatim_cwd.rs"]
+mod restore_verbatim_cwd;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
