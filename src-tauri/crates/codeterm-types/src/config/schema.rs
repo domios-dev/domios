@@ -10,6 +10,7 @@ pub struct AppConfig {
     pub theme: ThemeConfig,
     pub font: FontConfig,
     pub terminal: TerminalConfig,
+    pub diagnostics: DiagnosticsConfig,
     pub notifications: NotificationConfig,
     pub keybindings: KeybindingsConfig,
     pub socket: SocketConfig,
@@ -55,6 +56,7 @@ impl Default for AppConfig {
             theme: ThemeConfig::default(),
             font: FontConfig::default(),
             terminal: TerminalConfig::default(),
+            diagnostics: DiagnosticsConfig::default(),
             notifications: NotificationConfig::default(),
             keybindings: KeybindingsConfig::default(),
             socket: SocketConfig::default(),
@@ -243,6 +245,12 @@ pub struct TerminalConfig {
     pub cursor_blink: bool,
     pub scrollback: u32,
     pub copy_on_select: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiagnosticsConfig {
+    pub terminal_transport: bool,
 }
 
 impl Default for TerminalConfig {
