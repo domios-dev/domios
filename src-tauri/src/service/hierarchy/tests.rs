@@ -455,6 +455,16 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
         store
             .assign_task(&plan.id, &task_id, "worker", None, index as u64 + 3)
             .unwrap();
+        if report_status == ReportStatus::Partial {
+            store
+                .with_plan(&plan.id, index as u64 + 3, |plan| {
+                    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+                    task.status = crate::plan::TaskStatus::InProgress;
+                    task.status_changed_at = index as u64 + 3;
+                    Ok(())
+                })
+                .unwrap();
+        }
         let message = format!("reason {index}");
         store
             .ingest_bound_worker_report(
@@ -490,14 +500,21 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
             .unwrap()
             .status
             .key();
+        let expected_status = match report_status {
+            ReportStatus::InReview => "in_review",
+            ReportStatus::Partial => "in_progress",
+            ReportStatus::Blocked => "blocked",
+            ReportStatus::Done => unreachable!(),
+        };
+        let mapped_transition = report_status
+            .task_transition()
+            .unwrap()
+            .map(|status| status.key());
         assert_eq!(
             report_task_status_transition(Some(report_status)).unwrap(),
-            Some(task_status),
+            mapped_transition,
         );
-        assert_eq!(
-            report_status.task_transition().unwrap().map(|status| status.key()),
-            Some(task_status),
-        );
+        assert_eq!(task_status, expected_status);
     }
     assert_eq!(report_task_status_transition(None).unwrap(), None);
 }

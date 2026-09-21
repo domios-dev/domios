@@ -108,7 +108,7 @@ impl ReportStatus {
             ReportStatus::Done => Err("workers must not report --status done because only the owner can close a task. Use --status in_review when the work is ready for review, --status partial for progress, or ask the owner to close after review."),
             ReportStatus::InReview => Ok(Some(TaskStatus::InReview)),
             ReportStatus::Blocked => Ok(Some(TaskStatus::Blocked)),
-            ReportStatus::Partial => Ok(Some(TaskStatus::Pending)),
+            ReportStatus::Partial => Ok(None),
         }
     }
 }
