@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use crate::agent::status::TabStatus;
 use crate::api::routes::{check_auth, AppState};
+use crate::api::stream_diagnostics::{StreamDiagnostics, StreamTabStart};
 use crate::service::ServiceState;
 
 /// Per-tick per-tab byte cap: round-robin fairness so one noisy tab can't
@@ -32,16 +33,16 @@ pub(crate) struct OutputStreamQuery {
 }
 
 /// Decoded `?since` cursor: the boot namespace + per-tab resume offsets.
-#[derive(Deserialize, Default)]
-struct Cursor {
+#[derive(Clone, Deserialize, Default)]
+pub(crate) struct Cursor {
     #[serde(default)]
-    boot: String,
+    pub(crate) boot: String,
     #[serde(default)]
-    tabs: HashMap<String, u64>,
+    pub(crate) tabs: HashMap<String, u64>,
 }
 
 /// b64url (with or without padding) of `{boot, tabs:{id:offset}}`.
-fn parse_cursor(raw: &str) -> Option<Cursor> {
+pub(crate) fn parse_cursor(raw: &str) -> Option<Cursor> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(raw.as_bytes())
         .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(raw.as_bytes()))
@@ -115,7 +116,11 @@ fn seed_initial(
     svc: &ServiceState,
     cursor: Option<Cursor>,
     tab_id: Option<&str>,
-) -> (Option<serde_json::Value>, HashMap<String, Tracked>) {
+) -> (
+    Option<serde_json::Value>,
+    HashMap<String, Tracked>,
+    Vec<StreamTabStart>,
+) {
     let boot = svc.events.boot_id().to_string();
     let live: Vec<(String, String)> = svc
         .mux
@@ -127,50 +132,54 @@ fn seed_initial(
     let buf = svc.output_buf.lock();
     let mut tracked = HashMap::new();
     let mut boot_frame = None;
-
-    let tail = |pty: &str| Tracked {
-        offset: buf.total_written(pty),
-        ended: false,
-    };
-    match cursor {
-        None => {
-            for (tab, pty) in &live {
-                tracked.insert(
-                    tab.clone(),
-                    if tab_id.is_some() {
-                        Tracked {
-                            offset: 0,
-                            ended: false,
-                        }
-                    } else {
-                        tail(pty)
-                    },
-                );
-            }
-            if tab_id.is_some() {
-                boot_frame = Some(serde_json::json!({ "boot": boot }));
-            }
-        }
-        Some(c) if c.boot == boot => {
-            for (tab, _pty) in &live {
-                let offset = c.tabs.get(tab).copied().unwrap_or(0);
-                tracked.insert(
-                    tab.clone(),
-                    Tracked {
-                        offset,
-                        ended: false,
-                    },
-                );
-            }
-        }
-        Some(_) => {
-            boot_frame = Some(serde_json::json!({ "boot_changed": true, "boot": boot }));
-            for (tab, pty) in &live {
-                tracked.insert(tab.clone(), tail(pty));
-            }
-        }
+    let boot_changed = cursor.as_ref().is_some_and(|value| value.boot != boot);
+    if tab_id.is_some() && cursor.is_none() {
+        boot_frame = Some(serde_json::json!({ "boot": boot }));
+    } else if boot_changed {
+        boot_frame = Some(serde_json::json!({ "boot_changed": true, "boot": boot }));
     }
-    (boot_frame, tracked)
+
+    let mut starts = Vec::with_capacity(live.len());
+    for (tab, pty) in &live {
+        let total_written = buf.total_written(pty);
+        let cursor_offset = cursor
+            .as_ref()
+            .and_then(|value| value.tabs.get(tab))
+            .copied();
+        let (resume_offset, replaying) = if boot_changed {
+            (total_written, false)
+        } else if cursor.is_none() && tab_id.is_none() {
+            (total_written, false)
+        } else {
+            (cursor_offset.unwrap_or(0), true)
+        };
+        let retained_from = total_written.saturating_sub(
+            buf.get_full(pty)
+                .map(|bytes| bytes.len() as u64)
+                .unwrap_or(0),
+        );
+        let replay_truncated_from =
+            (replaying && cursor_offset.unwrap_or(0) < retained_from).then_some(retained_from);
+        tracked.insert(
+            tab.clone(),
+            Tracked {
+                offset: resume_offset,
+                ended: false,
+            },
+        );
+        starts.push(StreamTabStart {
+            tab_id: tab.clone(),
+            pty_id: Some(pty.clone()),
+            cursor_boot: cursor.as_ref().map(|value| value.boot.clone()),
+            cursor_offset,
+            total_written: Some(total_written),
+            resume_offset: Some(resume_offset),
+            replay_truncated: Some(replay_truncated_from.is_some()),
+            replay_truncated_from,
+            boot_changed,
+        });
+    }
+    (boot_frame, tracked, starts)
 }
 
 /// One blocking sweep across every PTY-backed tab. Pure sync — safe for
@@ -180,7 +189,7 @@ fn sweep(
     svc: &ServiceState,
     tracked: &mut HashMap<String, Tracked>,
     tab_id: Option<&str>,
-) -> Vec<serde_json::Value> {
+) -> (Vec<serde_json::Value>, Vec<StreamTabStart>) {
     let live: HashMap<String, String> = svc
         .mux
         .read()
@@ -191,17 +200,48 @@ fn sweep(
     // Disposed tabs (gone from mux) are dropped silently.
     tracked.retain(|tab, _| live.contains_key(tab));
     // Tabs created mid-stream full-replay from the start of the retained ring.
-    for tab in live.keys() {
-        tracked.entry(tab.clone()).or_insert(Tracked {
-            offset: 0,
-            ended: false,
-        });
+    let new_tabs: Vec<String> = live
+        .keys()
+        .filter(|tab| !tracked.contains_key(*tab))
+        .cloned()
+        .collect();
+    for tab in &new_tabs {
+        tracked.insert(
+            tab.clone(),
+            Tracked {
+                offset: 0,
+                ended: false,
+            },
+        );
     }
 
     let mut frames = Vec::new();
+    let mut starts = Vec::with_capacity(new_tabs.len());
     let mut silent: Vec<String> = Vec::new();
+    let boot = svc.events.boot_id().to_string();
     {
         let buf = svc.output_buf.lock();
+        for tab in &new_tabs {
+            let pty = &live[tab];
+            let total_written = buf.total_written(pty);
+            let retained_from = total_written.saturating_sub(
+                buf.get_full(pty)
+                    .map(|bytes| bytes.len() as u64)
+                    .unwrap_or(0),
+            );
+            let replay_truncated_from = (retained_from > 0).then_some(retained_from);
+            starts.push(StreamTabStart {
+                tab_id: tab.clone(),
+                pty_id: Some(pty.clone()),
+                cursor_boot: Some(boot.clone()),
+                cursor_offset: Some(0),
+                total_written: Some(total_written),
+                resume_offset: Some(0),
+                replay_truncated: Some(replay_truncated_from.is_some()),
+                replay_truncated_from,
+                boot_changed: false,
+            });
+        }
         for (tab, pty) in &live {
             let t = tracked.get_mut(tab).expect("seeded above");
             if t.ended {
@@ -245,7 +285,7 @@ fn sweep(
             }
         }
     }
-    frames
+    (frames, starts)
 }
 
 /// `GET /api/output/stream?since=<b64url cursor>` — all tabs' PTY output over
@@ -262,18 +302,39 @@ pub async fn output_stream(
     let svc = state.svc.clone();
     let cursor = q.since.as_deref().and_then(parse_cursor);
     let tab_id = q.tab_id;
+    let scope = tab_id.clone().unwrap_or_else(|| "*".into());
+    let cursor_boot = cursor.as_ref().map(|value| value.boot.clone());
+    let cursor_offset = tab_id
+        .as_deref()
+        .and_then(|tab| cursor.as_ref()?.tabs.get(tab))
+        .copied();
+    let session_id = uuid::Uuid::new_v4().simple().to_string();
 
     let stream = async_stream::stream! {
+        let mut diagnostics = StreamDiagnostics::new(
+            "peer",
+            session_id,
+            scope,
+            cursor_boot,
+            cursor_offset,
+        );
         let svc0 = svc.clone();
-        let (boot_frame, mut tracked) =
+        let (boot_frame, mut tracked, starts) =
             match tokio::task::spawn_blocking({
                 let tab_id = tab_id.clone();
                 move || seed_initial(&svc0, cursor, tab_id.as_deref())
             }).await {
                 Ok(v) => v,
-                Err(_) => return,
+                Err(_) => {
+                    diagnostics.finish("seed_error");
+                    return;
+                },
             };
+        for start in starts {
+            diagnostics.attach_tab(start);
+        }
         if let Some(bf) = boot_frame {
+            diagnostics.observe_value(&bf);
             yield Ok(data_frame(bf));
         }
         loop {
@@ -281,16 +342,23 @@ pub async fn output_stream(
             let tab_id = tab_id.clone();
             let mut owned = std::mem::take(&mut tracked);
             let result = tokio::task::spawn_blocking(move || {
-                let frames = sweep(&svc1, &mut owned, tab_id.as_deref());
-                (frames, owned)
+                let (frames, starts) = sweep(&svc1, &mut owned, tab_id.as_deref());
+                (frames, starts, owned)
             })
             .await;
-            let (frames, owned) = match result {
+            let (frames, starts, owned) = match result {
                 Ok(v) => v,
-                Err(_) => return,
+                Err(_) => {
+                    diagnostics.finish("sweep_error");
+                    return;
+                },
             };
             tracked = owned;
+            for start in starts {
+                diagnostics.attach_tab(start);
+            }
             for f in frames {
+                diagnostics.observe_value(&f);
                 yield Ok(data_frame(f));
             }
             tokio::time::sleep(TICK).await;
