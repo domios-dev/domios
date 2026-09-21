@@ -1,4 +1,4 @@
-use super::*;
+﻿use super::*;
 
 impl LaunchGeneration {
     pub(super) fn begin(tab_id: &str, pty_id: String) -> Self {
@@ -81,7 +81,7 @@ impl LaunchGeneration {
         *ready
     }
 
-    fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
+    pub(super) fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
         let registry = LAUNCH_REGISTRY.lock();
         if !registry.owns(self) {
             return false;
@@ -90,7 +90,7 @@ impl LaunchGeneration {
         true
     }
 
-    fn finish_if_current(&self, commit: impl FnOnce()) -> bool {
+    pub(super) fn finish_if_current(&self, commit: impl FnOnce()) -> bool {
         let mut registry = LAUNCH_REGISTRY.lock();
         if !registry.finish(self) {
             return false;
