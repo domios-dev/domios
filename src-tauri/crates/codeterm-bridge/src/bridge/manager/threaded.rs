@@ -1,11 +1,104 @@
 //! Inbound grouping by conversation, and a tab's outbound traffic through its thread.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{send_media, OutboundMessage};
+use super::{
+    rewrite_message, route_text_outbound, send_media, ChatState, OutboundMessage, OutboundRoute,
+};
 use crate::bridge::threads::TabText;
 use crate::bridge::traits::{InboundMessage, OutboundContent};
 use crate::ports::BridgeTabPort;
+
+pub(super) async fn send_outbound(
+    tab: &Arc<dyn BridgeTabPort>,
+    client: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    chat_id: i64,
+    message: &OutboundMessage,
+    chat_states: &mut HashMap<i64, ChatState>,
+) {
+    if matches!(&message.route, OutboundRoute::TabNotification { .. })
+        && tab.threads().is_attached()
+    {
+        if !send_notification(tab, chat_id, message).await {
+            log::error!(
+                "[bridge-outbound] notification placement failed; suppressing raw fallback"
+            );
+        }
+        return;
+    }
+
+    if let (OutboundRoute::Tab { tab_id }, None) = (&message.route, message.edit.as_ref()) {
+        if tab.threads().is_attached() {
+            send_for_tab(tab, client, api_base, token, chat_id, tab_id, message).await;
+            return;
+        }
+    }
+
+    match &message.content {
+        OutboundContent::Text { text } => {
+            if let Some(edit) = message.edit.as_ref() {
+                log::info!(
+                    "[bridge-outbound] rewriting message {} in {}",
+                    edit.message_id,
+                    chat_id
+                );
+                rewrite_message(
+                    client,
+                    api_base,
+                    token,
+                    chat_id,
+                    edit.message_id,
+                    text,
+                    message.buttons.as_ref(),
+                )
+                .await;
+                return;
+            }
+            log::info!(
+                "[bridge-outbound] {} {} chars to {}",
+                if message.append {
+                    "appending"
+                } else {
+                    "sending"
+                },
+                text.len(),
+                chat_id
+            );
+            let placed = route_text_outbound(
+                client,
+                api_base,
+                token,
+                chat_id,
+                text,
+                message.append,
+                message.buttons.as_ref(),
+                chat_states,
+            )
+            .await;
+            if let (Some(receipt), Some(message_id)) = (message.receipt.as_ref(), placed) {
+                tab.record_channel_placement(
+                    receipt,
+                    &crate::bridge::telegram::locator(chat_id, message_id),
+                );
+            }
+        }
+        media_content => {
+            log::info!(
+                "[bridge-outbound] sending media {:?} to {}",
+                std::mem::discriminant(media_content),
+                chat_id
+            );
+            if let Err(error) =
+                send_media(client, api_base, token, chat_id, None, media_content).await
+            {
+                log::error!("[bridge-outbound] media send failed: {}", error);
+            }
+        }
+    }
+}
 
 /// Debounced messages split by where they were posted, in first-seen order.
 pub(super) fn group_by_context(messages: Vec<InboundMessage>) -> Vec<Vec<InboundMessage>> {
