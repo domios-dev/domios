@@ -1040,6 +1040,7 @@ pub async fn resize_pty(
 
 #[tauri::command]
 pub async fn claim_resize_owner(
+    state: tauri::State<'_, PtyState>,
     resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
     events: tauri::State<'_, crate::api::events::EventBroadcasterState>,
     tab_id: String,
@@ -1048,7 +1049,7 @@ pub async fn claim_resize_owner(
     cols: u16,
     rows: u16,
     force: Option<bool>,
-) -> Result<crate::resize_owner::ResizeOwner, String> {
+) -> Result<crate::resize_owner::ResizeOwnerClaim, String> {
     let owner = resize_owner.lock().claim(
         tab_id,
         pty_id,
@@ -1057,11 +1058,18 @@ pub async fn claim_resize_owner(
         rows,
         force.unwrap_or(false),
     );
+    let current_size = state
+        .lock()
+        .size(&owner.pty_id)
+        .map(crate::resize_owner::ResizePtySize::from);
     events.publish(crate::api::events::SystemEvent::Generic {
         event_type: "pty-resize-owner-changed".to_string(),
         data: serde_json::to_value(&owner).unwrap_or_default(),
     });
-    Ok(owner)
+    Ok(crate::resize_owner::ResizeOwnerClaim {
+        owner,
+        current_size,
+    })
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/resize.
