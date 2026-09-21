@@ -424,13 +424,50 @@ console.log("\n--- discoverModels ---\n");
     },
   });
   const p = loadOpencodeWithHost(host);
-  const res = p.installIntegration(7686);
+  const res = p.installIntegration(7686, { consent: true });
   assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
   assert(
     body.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
-      body.indexOf("x-codeterm-binding-nonce") !== -1,
-    "generated opencode plugin sends the binding-nonce header",
+      body.indexOf("x-codeterm-binding-nonce") !== -1 &&
+      body.indexOf("CODETERM_API_URL") !== -1 &&
+      body.indexOf("CODETERM_API_TOKEN") !== -1 &&
+      body.indexOf("CODETERM_TAB_ID") !== -1 &&
+      body.indexOf("CODETERM_API_PORT") === -1 &&
+      body.indexOf("FALLBACK_PORT") === -1 &&
+      body.indexOf("127.0.0.1") === -1 &&
+      body.indexOf("localhost") === -1,
+    "generated hook routes only through its process environment",
   );
+}
+
+{
+  let writes = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => false,
+      readJson: () => null,
+      readFile: () => null,
+      writeFile: () => { writes += 1; return true; },
+      writeJson: () => { writes += 1; return true; },
+    },
+  }));
+  const result = p.installIntegration(7686, { consent: false });
+  assert(!!result && result.ok === false && writes === 0, "integration mutation requires consent");
+}
+
+{
+  let writes = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => "// codeterm-opencode-session-binding-v2\nCODETERM_API_PORT 7685",
+      readJson: () => null,
+      writeFile: () => { writes += 1; return true; },
+      writeJson: () => { writes += 1; return true; },
+    },
+  }));
+  const result = p.ensureIntegrationOnStartup(7686);
+  assert(!!result && result.plugin_file_current === false && writes === 0, "reload inspection does not repair without core consent");
 }
 
 // A plugin file lacking the nonce is pre-nonce → not current (forces reinstall).
@@ -453,9 +490,13 @@ console.log("\n--- discoverModels ---\n");
   const cur = loadOpencodeWithHost(
     withBody(
       "// codeterm-opencode-session-binding-v2\n" +
-      "process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
+      "const base = process.env.CODETERM_API_URL;\n" +
+      "const token = process.env.CODETERM_API_TOKEN;\n" +
+      "const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
       "process.env.CODETERM_TAB_ID;\n" +
-      'const endpoint = "/api/tabs/";',
+      'const endpoint = "/api/tabs/";\n' +
+      '"x-codeterm-binding-nonce";\n' +
+      "authorization;",
     ),
   );
   assert(
@@ -474,6 +515,19 @@ console.log("\n--- discoverModels ---\n");
     stalePane.checkIntegration().plugin_file_current === false,
     "nonce-bearing Pane-era opencode plugin reads as not-current",
   );
+  const staleInstance = loadOpencodeWithHost(
+    withBody(
+      "// codeterm-opencode-session-binding-v2\n" +
+      "process.env.CODETERM_API_URL || `http://127.0.0.1:${process.env.CODETERM_API_PORT || 7685}`;\n" +
+      "process.env.CODETERM_API_TOKEN;\n" +
+      "process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
+      "process.env.CODETERM_TAB_ID;\n" +
+      'const endpoint = "/api/tabs/";\n' +
+      '"x-codeterm-binding-nonce";\n' +
+      "authorization;",
+    ),
+  );
+  assert(staleInstance.checkIntegration().plugin_file_current === false, "instance-bound helper is stale");
 }
 
 console.log("--- permission_request: opencode declared session state ---");
