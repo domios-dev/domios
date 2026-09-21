@@ -359,7 +359,7 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(bound_task.status, crate::plan::TaskStatus::InProgress);
+    assert_eq!(bound_task.status, crate::plan::TaskStatus::Pending);
     assert_eq!(bound_task.assigned_tab_id.as_deref(), Some(tab_id.as_str()));
     assert_eq!(bound_task.execution_attempts.len(), 1);
     assert!(bound_task.execution_attempts[0].closed_at.is_none());
