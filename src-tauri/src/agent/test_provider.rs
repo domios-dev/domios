@@ -22,6 +22,7 @@ pub struct MockProvider {
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
     usage_source: Option<UsageSourceSpec>,
+    empty_launch_command: bool,
 }
 
 impl MockProvider {
@@ -37,6 +38,7 @@ impl MockProvider {
             session_file: None,
             session_models: Default::default(),
             usage_source: None,
+            empty_launch_command: false,
         }
     }
 
@@ -115,6 +117,13 @@ impl MockProvider {
         }
     }
 
+    pub fn with_empty_launch_command(id: &str) -> Self {
+        Self {
+            empty_launch_command: true,
+            ..Self::new(id)
+        }
+    }
+
     pub fn with_session(id: &str, session_id: &str) -> Self {
         Self {
             sessions: [session_id.to_string()].into_iter().collect(),
@@ -131,6 +140,9 @@ impl AgentProvider for MockProvider {
         &self.id
     }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        if self.empty_launch_command {
+            return String::new();
+        }
         let mut cmd = format!("{}-cli", self.id);
         if let Some(args) = &params.args {
             for a in args {
