@@ -79,6 +79,22 @@ pub(crate) fn nudge_for(
 impl ServiceContext {
     /// Classify a tab before writing agent-directed prose into its terminal.
     pub(crate) fn classify_startup_nudge(&self, tab_id: &str) -> StartupNudge {
+        self.classify_startup_nudge_with_trust_response(tab_id, true, true)
+    }
+
+    pub(crate) fn classify_startup_nudge_for_hierarchy_report(
+        &self,
+        tab_id: &str,
+    ) -> StartupNudge {
+        self.classify_startup_nudge_with_trust_response(tab_id, false, false)
+    }
+
+    fn classify_startup_nudge_with_trust_response(
+        &self,
+        tab_id: &str,
+        respond_to_trust: bool,
+        log_withheld: bool,
+    ) -> StartupNudge {
         let attached = self.mux.read().get_tab(tab_id).map(|tab| {
             let pty_backed = matches!(tab.backing, TabBacking::Pty);
             let attached = tab.agent_type.is_some()
@@ -96,7 +112,11 @@ impl ServiceContext {
             Some((true, false, _)) => nudge_for(true, false, None),
             Some((true, true, None)) => nudge_for(true, true, None),
             Some((true, true, Some(pty_id))) => {
-                let trust = self.respond_to_directory_trust(tab_id, None);
+                let trust = if respond_to_trust {
+                    self.respond_to_directory_trust(tab_id, None)
+                } else {
+                    TrustDecision::NotApplicable
+                };
                 let modal_on_screen = !trust.owns_prompt() && self.modal_owns_terminal(&pty_id);
                 nudge_for(
                     true,
@@ -108,7 +128,7 @@ impl ServiceContext {
                 )
             }
         };
-        if !nudge.delivers() {
+        if log_withheld && !nudge.delivers() {
             log::warn!(
                 "[startup-nudge] Tab {tab_id}: withheld the startup reminder; {}",
                 nudge.reason()
