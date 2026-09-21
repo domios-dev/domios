@@ -70,7 +70,8 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::PlanAlreadyBoundToTeam { .. }
         | PlanError::PlanSkillAlreadyExists { .. }
         | PlanError::ReviewContinuationDeliveryRefused { .. }
-        | PlanError::ReviewHoldRequired => StatusCode::CONFLICT,
+        | PlanError::ReviewHoldRequired
+        | PlanError::DispatchInFlight { .. } => StatusCode::CONFLICT,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(json!({ "plan_error": e.to_json() })))
