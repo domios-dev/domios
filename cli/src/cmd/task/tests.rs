@@ -17,6 +17,29 @@ mod external_ref_render_tests {
     }
 }
 
+mod status_reason_render_tests {
+    use crate::cmd::task::blocked_reason_line;
+    use serde_json::json;
+
+    #[test]
+    fn task_show_renders_the_blocked_reason() {
+        assert_eq!(
+            blocked_reason_line(&json!({
+                "status": "blocked",
+                "status_label": "waiting on a repository credential"
+            })),
+            Some("blocked reason: waiting on a repository credential".into())
+        );
+        assert_eq!(
+            blocked_reason_line(&json!({
+                "status": "pending",
+                "status_label": "old reason"
+            })),
+            None
+        );
+    }
+}
+
 mod siblings_render_tests {
     use crate::cmd::task::{
         is_closed_sibling_status, short_display_id, truncate_label, TaskShowOpts,

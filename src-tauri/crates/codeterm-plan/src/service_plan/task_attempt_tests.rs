@@ -240,6 +240,27 @@ fn partial_report_keeps_bound_task_actionable() {
 }
 
 #[test]
+fn blocked_report_sets_task_blocked_with_reason() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let mut report = worker_report(ReportStatus::Blocked, None);
+    let reason = report.message.clone();
+    assert!(!store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            report,
+            4,
+        )
+        .unwrap());
+
+    let task = store.get(&plan_id).unwrap().tasks.remove(0);
+    assert_eq!(task.status, TaskStatus::Blocked);
+    assert_eq!(task.status_label.as_deref(), Some(reason.as_str()));
+    assert!(task.execution_attempts[0].closed_at.is_none());
+}
+
+#[test]
 fn partial_report_then_redispatch_reuses_its_own_lane() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let lane = TaskLaneMetadata {
