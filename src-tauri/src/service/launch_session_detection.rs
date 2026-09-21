@@ -61,14 +61,18 @@ pub(crate) fn marked_agent_command(
     registry: &crate::agent::registry::AgentRegistry,
 ) -> String {
     let marker = mint_launch_marker(tab_id);
-    super::orchestrator::build_agent_command_with_launch_marker(
+    let command = super::orchestrator::build_agent_command_with_launch_marker(
         agent_cmd,
         params,
         task,
         injected_session_id,
         registry,
         Some(&marker),
-    )
+    );
+    if command.trim().is_empty() {
+        LAUNCH_MARKERS.lock().remove(tab_id);
+    }
+    command
 }
 
 /// Gives hand-built fresh launch params a marker minted and registered for this tab.
