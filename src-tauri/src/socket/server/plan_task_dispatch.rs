@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
@@ -250,11 +251,18 @@ fn preflight_dispatch_placement(
     spawn_cwd: &str,
     lane_protection: LaneProtection,
     will_provision_lane: bool,
+    live_executor_tab_ids: &HashSet<String>,
 ) -> Result<(), JsonRpcError> {
     if will_provision_lane {
         return Ok(());
     }
-    preflight_checkout_occupancy(plan, task_id, spawn_cwd, lane_protection)
+    preflight_checkout_occupancy(
+        plan,
+        task_id,
+        spawn_cwd,
+        lane_protection,
+        live_executor_tab_ids,
+    )
 }
 
 fn epoch_ms() -> u64 {
@@ -653,6 +661,26 @@ pub(super) fn dispatch(
                     .unwrap_or_else(|| canonical_cwd.clone())
             }),
     };
+    let live_executor_tab_ids = if requires_repository
+        && !will_provision_lane
+        && !lane_protection.is_waived()
+    {
+        let mux = svc.mux.read();
+        plan.tasks
+            .iter()
+            .filter(|task| task.id == task_id)
+            .flat_map(|task| task.execution_attempts.iter())
+            .filter(|attempt| {
+                attempt.closed_at.is_none()
+                    && attempt.competition_group_id.is_none()
+                    && attempt.reported_at.is_some()
+            })
+            .filter(|attempt| mux.get_tab(&attempt.executor_tab_id).is_some())
+            .map(|attempt| attempt.executor_tab_id.clone())
+            .collect()
+    } else {
+        HashSet::new()
+    };
     if requires_repository {
         preflight_dispatch_placement(
             &plan,
@@ -660,6 +688,7 @@ pub(super) fn dispatch(
             &spawn_cwd,
             lane_protection,
             will_provision_lane,
+            &live_executor_tab_ids,
         )?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
