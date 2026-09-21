@@ -54,6 +54,18 @@ fn data_frame(v: serde_json::Value) -> Event {
     Event::default().data(v.to_string())
 }
 
+fn build_stream_diagnostics(
+    level: Option<log::Level>,
+    session_id: Option<String>,
+    scope: String,
+    cursor_boot: Option<String>,
+    cursor_offset: Option<u64>,
+) -> Option<StreamDiagnostics> {
+    level.zip(session_id).map(|(level, session_id)| {
+        StreamDiagnostics::new(level, "peer", session_id, scope, cursor_boot, cursor_offset)
+    })
+}
+
 /// One tab's read result for a tick: at most one capped data chunk plus an
 /// optional under-retention marker. `new_offset` is where the client resumes.
 #[derive(Debug, PartialEq)]
@@ -350,18 +362,13 @@ pub async fn output_stream(
     let session_id = diagnostic_level.map(|_| uuid::Uuid::new_v4().simple().to_string());
 
     let stream = async_stream::stream! {
-        let mut diagnostics = diagnostic_level
-            .zip(session_id)
-            .map(|(level, session_id)| {
-                StreamDiagnostics::new(
-                    level,
-                    "peer",
-                    session_id,
-                    scope,
-                    cursor_boot,
-                    cursor_offset,
-                )
-            });
+        let mut diagnostics = build_stream_diagnostics(
+            diagnostic_level,
+            session_id,
+            scope,
+            cursor_boot,
+            cursor_offset,
+        );
         let svc0 = svc.clone();
         let (boot_frame, mut tracked, starts) =
             match tokio::task::spawn_blocking({
