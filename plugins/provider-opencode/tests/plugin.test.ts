@@ -8,6 +8,10 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
+import {
+  isCurrentOpencodeBindingPluginSource,
+  opencodeBindingPluginSource,
+} from "../src/helpers";
 
 let passed = 0;
 let failed = 0;
@@ -52,6 +56,10 @@ assert(plugin.titlePattern!.test("opencode"), "titlePattern matches 'opencode'")
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns non-empty");
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
+assert(
+  isCurrentOpencodeBindingPluginSource(opencodeBindingPluginSource()),
+  "the generated binding plugin source satisfies its currentness contract",
+);
 
 function loadOpencodeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
