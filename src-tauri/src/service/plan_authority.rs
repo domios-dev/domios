@@ -291,9 +291,8 @@ impl ServiceContext {
         if owner {
             return Ok(PlanningAuthor::User);
         }
-        // The draft Planner is the non-anchoring kind carrying plan-edit
-        // capability, so the Cartographer and the Watcher are refused by
-        // capability rather than by a role id.
+        // Only the non-anchoring plan-edit kind drafts, so Cartographer and
+        // Watcher are refused by capability rather than by role id.
         let planner = !tab.anchors_team()
             && codeterm_types::agent::role_kind::plan_edit(tab.role, tab.role_profile.as_deref())
             && plan.team_id.as_deref() == tab.team_id.as_deref()
