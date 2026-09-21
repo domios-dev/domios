@@ -216,7 +216,7 @@ impl ServiceContext {
         match (agent_cwd.as_deref(), workspace_cwd.as_deref()) {
             (None, Some(ws_cwd)) => {
                 log::info!("[spawn] agent cwd inherited from workspace: {}", ws_cwd);
-                (Some(ws_cwd.clone()), None)
+                (Some(ws_cwd.to_string()), None)
             }
             (Some(agent_dir), Some(ws_dir)) if !Self::paths_equal(agent_dir, ws_dir) => {
                 let warning = format!(
@@ -225,9 +225,9 @@ impl ServiceContext {
                     agent_dir, ws_dir, agent_dir, ws_dir
                 );
                 log::warn!("[spawn] {}", warning);
-                (Some(agent_dir.clone()), Some(warning))
+                (Some(agent_dir.to_string()), Some(warning))
             }
-            (Some(dir), _) => (Some(dir.clone()), None),
+            (Some(dir), _) => (Some(dir.to_string()), None),
             (None, None) => (
                 std::env::current_dir()
                     .ok()

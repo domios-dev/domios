@@ -60,8 +60,30 @@ console.log("\n--- numbered prompts remain available to tab respond ---\n");
   const modelScreen = fixtureText("model-picker.txt");
   const parsed = bundled.parsePrompt(modelScreen);
   eq(parsed?.question, "Select Reasoning Level for gpt-5.5", "model picker remains a numbered prompt");
-  eq(parsed?.options?.map(([, value]: [string, string]) => value), ["1", "2", "3", "4"], "model options retain numbered values");
+  eq(parsed?.options, [
+    ["Low                        Fast responses with lighter reasoning", "1"],
+    ["Medium (default) (current) Balances speed and reasoning depth for everyday tasks", "2"],
+    ["High                       Greater reasoning depth for complex problems", "3"],
+    ["Extra high                 Extra high reasoning depth for complex problems", "4"],
+  ], "model picker retains its active numbered options");
+  eq(bundled.buildPromptResponse(1, modelScreen), ["DQ=="], "current model responds with Enter");
   eq(bundled.buildPromptResponse(0, modelScreen), ["G1tB", "DQ=="], "tab respond moves from the active model to option one");
+  eq(bundled.buildPromptResponse(3, modelScreen), ["G1tC", "G1tC", "DQ=="], "tab respond moves down to the final model");
+
+  const lettered = [
+    "• Which release strategy should we use?",
+    "  A) Fast patch release now",
+    "  B) Minor release with bundled fixes",
+    "  C) Delay for more testing",
+  ].join("\n");
+  const letteredPrompt = bundled.parsePrompt(lettered);
+  eq(letteredPrompt?.question, "Which release strategy should we use?", "lettered prose question extracts");
+  eq(letteredPrompt?.options, [
+    ["Fast patch release now", "A"],
+    ["Minor release with bundled fixes", "B"],
+    ["Delay for more testing", "C"],
+  ], "lettered prose choices extract");
+  eq(bundled.buildPromptResponse(1, lettered), ["Qg0="], "lettered response sends the selected value");
 
   const numbered = [
     "• Which test strategy should we use?",

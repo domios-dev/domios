@@ -285,8 +285,11 @@ pub(crate) fn legacy_auto_approve_permitted(
     trust: &TrustDecision,
     session_authenticated: bool,
     structured_prompt: bool,
+    directory_trust_prompt: bool,
 ) -> bool {
-    !trust.owns_prompt() && (session_authenticated || structured_prompt)
+    !directory_trust_prompt
+        && !trust.owns_prompt()
+        && (session_authenticated || structured_prompt)
 }
 
 #[derive(Debug, Default)]

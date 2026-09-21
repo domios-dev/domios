@@ -308,7 +308,11 @@ impl ServiceContext {
                     parsed,
                 );
 
-                self.apply_prompt_decision_with_screen(&decision, clean_text.as_deref());
+                self.apply_prompt_decision_with_screen(
+                    &decision,
+                    clean_text.as_deref(),
+                    trust_candidate,
+                );
 
                 if has_markers {
                     if let Some(ref clean) = clean_text {
@@ -664,7 +668,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
-        self.apply_prompt_decision_with_screen(decision, None);
+        self.apply_prompt_decision_with_screen(decision, None, false);
     }
 
     /// Set (or clear) a tab's pending prompt from a PUSH structured handle
@@ -698,6 +702,7 @@ impl ServiceContext {
         &self,
         decision: &PromptDecision,
         screen_text: Option<&str>,
+        directory_trust_prompt: bool,
     ) {
         match decision {
             PromptDecision::None => {}
@@ -723,11 +728,12 @@ impl ServiceContext {
                 if trust.owns_prompt() {
                     return;
                 }
-                if auto_approve {
+                if auto_approve && !directory_trust_prompt {
                     if is_general_tab {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
                             screen_text.unwrap_or(""),
+                            directory_trust_prompt,
                         ) {
                             log::info!(
                                 "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
@@ -768,9 +774,10 @@ impl ServiceContext {
                         &trust,
                         session_authenticated,
                         structured_prompt,
+                        directory_trust_prompt,
                     );
                     if let Some(response) = legacy_permitted
-                        .then(|| legacy_auto_approve_response(prompt))
+                        .then(|| legacy_auto_approve_response(prompt, directory_trust_prompt))
                         .flatten()
                     {
                         log::info!(
@@ -790,9 +797,10 @@ impl ServiceContext {
                         tab_id
                     );
                 }
-                if self
-                    .try_permission_auto_confirm(tab_id, screen_text)
-                    .owns_prompt()
+                if !directory_trust_prompt
+                    && self
+                        .try_permission_auto_confirm(tab_id, screen_text)
+                        .owns_prompt()
                 {
                     return;
                 }
@@ -890,7 +898,11 @@ pub(super) struct LegacyAutoApproveResponse {
 
 pub(super) fn legacy_auto_approve_response(
     prompt: &crate::multiplexer::types::PendingPrompt,
+    directory_trust_prompt: bool,
 ) -> Option<LegacyAutoApproveResponse> {
+    if directory_trust_prompt {
+        return None;
+    }
     let is_yes_no = prompt.options.iter().any(|o| {
         let v = o.value.to_lowercase();
         v == "y" || v == "yes"

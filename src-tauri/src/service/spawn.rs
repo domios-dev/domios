@@ -6,7 +6,7 @@ use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
-fn visible_spawn_starter_prompt(
+pub(super) fn visible_spawn_starter_prompt(
     startup_handshake: Option<crate::agent::provider::StarterPrompt>,
     provider_starter: Option<crate::agent::provider::StarterPrompt>,
 ) -> Option<crate::agent::provider::StarterPrompt> {

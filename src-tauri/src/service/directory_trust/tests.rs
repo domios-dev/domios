@@ -97,6 +97,27 @@ fn directory_trust_prompt_candidate_uses_active_path_choice_structure() {
 }
 
 #[test]
+fn directory_trust_prompt_candidate_matches_real_fixture_frames() {
+    let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/tests/fixtures/directory-trust");
+    let cases: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir.join("cases.json")).unwrap(),
+    )
+    .unwrap();
+
+    for case in cases.as_array().unwrap() {
+        let file = case["file"].as_str().unwrap();
+        let expected = case["expect"].as_str().unwrap() != "none";
+        let screen = std::fs::read_to_string(fixture_dir.join(file)).unwrap();
+        assert_eq!(
+            directory_trust_prompt_candidate(&screen),
+            expected,
+            "{file}"
+        );
+    }
+}
+
+#[test]
 fn directory_trust_refuses_tab_without_cwd() {
     let (state, tab_id) = state_with_tab(None, Some("/srv/lanes/a"));
     assert_eq!(
@@ -263,8 +284,12 @@ fn trust_dialogs_never_reach_the_legacy_yes_responder() {
         selected_values: None,
     };
     assert!(
-        crate::service::output::legacy_auto_approve_response(&trust_prompt).is_some(),
+        crate::service::output::legacy_auto_approve_response(&trust_prompt, false).is_some(),
         "precondition: the legacy responder would press Enter on this prompt"
+    );
+    assert!(
+        crate::service::output::legacy_auto_approve_response(&trust_prompt, true).is_none(),
+        "a dedicated trust prompt never reaches the legacy responder"
     );
 
     for owned in [
@@ -276,27 +301,70 @@ fn trust_dialogs_never_reach_the_legacy_yes_responder() {
     ] {
         for (authenticated, structured) in [(false, false), (true, false), (true, true)] {
             assert!(
-                !legacy_auto_approve_permitted(&owned, authenticated, structured),
+                !legacy_auto_approve_permitted(&owned, authenticated, structured, false),
                 "{owned:?} must keep the legacy responder away"
             );
         }
     }
     for unrecognized in [TrustDecision::NotApplicable, TrustDecision::NoDialog] {
         assert!(
-            !legacy_auto_approve_permitted(&unrecognized, false, false),
+            !legacy_auto_approve_permitted(&unrecognized, false, false, false),
             "a screen-scraped prompt before session authentication is never blindly approved"
         );
     }
     assert!(legacy_auto_approve_permitted(
         &TrustDecision::NotApplicable,
         true,
+        false,
         false
     ));
     assert!(legacy_auto_approve_permitted(
         &TrustDecision::NotApplicable,
         false,
-        true
+        true,
+        false
     ));
+}
+
+#[test]
+fn cwd_provenance_refusal_keeps_trust_prompt_out_of_both_auto_responders() {
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/b"), false);
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert_eq!(
+        directory_trust_provenance(tab),
+        Err(DirectoryTrustRefusal::CwdDiffersFromProvenance)
+    );
+    assert!(!directory_trust_check_applies(tab));
+
+    let trust_prompt = PendingPrompt {
+        question: "Should this folder's guidance be loaded?".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, continue".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "No, quit".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let screen = "Should this folder's guidance be loaded?\n1. Yes, continue\n2. No, quit";
+
+    assert!(!legacy_auto_approve_permitted(
+        &TrustDecision::NotApplicable,
+        true,
+        false,
+        true,
+    ));
+    assert!(crate::service::output::legacy_auto_approve_response(&trust_prompt, true).is_none());
+    assert!(
+        crate::service::general_agent::blocker::classify(&trust_prompt, screen, true).is_none()
+    );
 }
 
 #[test]
