@@ -5,6 +5,25 @@ use crate::service::pty_io::SendBatchItem;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+fn lifecycle_fixture(
+    parent_agent: bool,
+) -> (crate::service::test_fixture::ServiceFixture, String, String) {
+    let (mut mux, parent_tab_id) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();
+    let worker_tab_id = mux.create_tab(&workspace_id).unwrap();
+    if parent_agent {
+        let parent = mux.get_tab_mut(&parent_tab_id).unwrap();
+        parent.agent_type = Some("claude".into());
+        parent.pty_id = Some("parent-pty".into());
+    }
+    mux.get_tab_mut(&worker_tab_id).unwrap().agent_type = Some("claude".into());
+    (
+        crate::service::test_fixture::ServiceFixture::new(mux),
+        parent_tab_id,
+        worker_tab_id,
+    )
+}
+
 fn ack_identity(attempt_id: &str) -> WorkerAckIdentity {
     WorkerAckIdentity {
         plan_id: "plan".into(),
@@ -933,4 +952,90 @@ fn task_startup_failure_detail_is_in_the_short_worker_notice() {
     assert!(notice.contains("attempt_rjd7ab"));
     assert!(notice.contains("Insufficient account funds"));
     assert!(notice.len() < 280);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn startup_notice_to_unbound_parent_is_withheld_then_delivered_after_binding() {
+    let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
+    fixture.service.publish_agent_startup_report(
+        &parent_tab_id,
+        &worker_tab_id,
+        "Worker",
+        json!({ "kind": "agent_startup_failed", "attempt_id": "launch-a" }),
+    );
+
+    let report_id = {
+        let mut store = fixture.service.report_store.lock();
+        let pending = store.pending_for(&parent_tab_id);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(store.get(&parent_tab_id, false).len(), 1);
+        pending[0].id.clone()
+    };
+    {
+        let mut mux = fixture.service.mux.write();
+        let parent = mux.get_tab_mut(&parent_tab_id).unwrap();
+        parent.agent_session_id = Some("parent-session".into());
+        parent.session_binding_nonce = Some("parent-nonce".into());
+        parent.reported_session_binding_nonce = Some("parent-nonce".into());
+    }
+
+    fixture
+        .service
+        .replay_pending_reports_if_routable(&parent_tab_id);
+    assert!(fixture
+        .service
+        .report_store
+        .lock()
+        .pending_for(&parent_tab_id)
+        .is_empty());
+    fixture.service.report_store.lock().release_delivery(&report_id);
+    assert!(fixture
+        .service
+        .report_store
+        .lock()
+        .pending_for(&parent_tab_id)
+        .is_empty());
+    fixture
+        .service
+        .replay_pending_reports_if_routable(&parent_tab_id);
+    assert!(fixture
+        .service
+        .report_store
+        .lock()
+        .pending_for(&parent_tab_id)
+        .is_empty());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn startup_notice_to_a_plain_shell_parent_is_never_written() {
+    let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(false);
+    fixture.service.publish_agent_startup_report(
+        &parent_tab_id,
+        &worker_tab_id,
+        "Worker",
+        json!({ "kind": "agent_startup_overdue", "attempt_id": "launch-b" }),
+    );
+
+    let pending = fixture.service.report_store.lock().pending_for(&parent_tab_id);
+    assert_eq!(pending.len(), 1);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn worker_ack_notice_to_unbound_parent_remains_pending() {
+    let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
+    fixture.service.publish_worker_lifecycle_report(
+        &parent_tab_id,
+        &worker_tab_id,
+        "Worker",
+        "plan-a",
+        "task-a",
+        json!({ "kind": "worker_ack_startup_failed", "attempt_id": "attempt-a" }),
+    );
+
+    let pending = fixture.service.report_store.lock().pending_for(&parent_tab_id);
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].task_id.as_deref(), Some("task-a"));
 }
