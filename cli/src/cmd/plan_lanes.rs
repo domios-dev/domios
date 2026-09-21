@@ -145,9 +145,26 @@ pub fn render_lanes(val: &Value, stale_only: bool) -> String {
 
 pub fn render_lane_removed(val: &Value) -> String {
     let worktree = opt(val, "worktree_path").unwrap_or("<worktree>");
+    let worktree_status = val
+        .get("worktree_already_removed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let worktree_message = if worktree_status {
+        format!("lane worktree {worktree} was already removed")
+    } else {
+        format!("removed lane worktree {worktree}")
+    };
     match opt(val, "branch") {
-        Some(branch) => format!("removed lane worktree {worktree} and branch {branch}"),
-        None => format!("removed lane worktree {worktree}"),
+        Some(branch)
+            if val
+                .get("branch_already_removed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false) =>
+        {
+            format!("{worktree_message}; branch {branch} was already removed")
+        }
+        Some(branch) => format!("{worktree_message} and branch {branch}"),
+        None => worktree_message,
     }
 }
 
@@ -224,6 +241,19 @@ mod tests {
             "all registered lanes are closed\n"
         );
         assert_eq!(render_lanes(&json!({}), true), "no stale lanes\n");
+    }
+
+    #[test]
+    fn lane_remove_reports_already_removed_parts() {
+        assert_eq!(
+            render_lane_removed(&json!({
+                "worktree_path": "/tmp/lane",
+                "branch": "lane/old",
+                "worktree_already_removed": true,
+                "branch_already_removed": true
+            })),
+            "lane worktree /tmp/lane was already removed; branch lane/old was already removed"
+        );
     }
 
     #[test]

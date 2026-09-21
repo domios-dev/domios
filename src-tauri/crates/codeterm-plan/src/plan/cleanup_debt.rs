@@ -92,7 +92,10 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
         if let Some(worktree_path) = worktree_path.as_deref() {
             issues.push(CleanupDebtIssue {
                 kind: CleanupDebtKind::WorktreePresent,
-                detail: format!("worktree still exists at {worktree_path}"),
+                detail: format!(
+                    "worktree still exists at {}",
+                    codeterm_paths::strip_verbatim_prefix(worktree_path)
+                ),
                 command: Some(remove_lane_command(
                     input.project_path,
                     worktree_path,
@@ -178,12 +181,18 @@ fn mark_deferred_command(plan_id: &str, task_id: &str) -> String {
 /// Lane teardown is a CodeTerm verb, never raw git: the daemon is the only side
 /// that can see a live tab still holding the worktree before anything is deleted.
 fn remove_lane_command(project_path: &str, worktree_path: &str, branch: Option<&str>) -> String {
-    let mut command = format!("codeterm plan lane-remove {}", shell_quote(worktree_path));
+    let mut command = format!(
+        "codeterm plan lane-remove {}",
+        shell_quote(&codeterm_paths::strip_verbatim_prefix(worktree_path))
+    );
     if let Some(branch) = branch {
         command.push_str(&format!(" --branch {}", shell_quote(branch)));
     }
     if !project_path.trim().is_empty() {
-        command.push_str(&format!(" --project {}", shell_quote(project_path)));
+        command.push_str(&format!(
+            " --project {}",
+            shell_quote(&codeterm_paths::strip_verbatim_prefix(project_path))
+        ));
     }
     command
 }
@@ -275,5 +284,36 @@ mod tests {
             item.commands[0],
             "codeterm plan task update 'pl_1' 'task_1' --cleanup-status done"
         );
+    }
+
+    #[test]
+    fn cleanup_hint_prints_a_shell_safe_project_path() {
+        let item = detect_cleanup_debt(&CleanupDebtInput {
+            plan_id: "pl_1",
+            task_id: "task_1",
+            task_name: "Lane",
+            task_status: "done",
+            is_terminal: true,
+            cleanup_status: None,
+            cleanup_hints: &[],
+            tab_id: None,
+            tab_live: false,
+            worktree_path: Some(r"\\?\D:\repo-worktrees\lane"),
+            worktree_exists: true,
+            branch: Some("lane/x"),
+            project_path: r"\\?\C:\repo",
+        })
+        .unwrap();
+        let command = item
+            .commands
+            .iter()
+            .find(|command| command.starts_with("codeterm plan lane-remove"))
+            .unwrap();
+
+        assert_eq!(
+            command,
+            "codeterm plan lane-remove 'D:\\repo-worktrees\\lane' --branch 'lane/x' --project 'C:\\repo'"
+        );
+        assert!(!command.contains(r"\\?\"));
     }
 }

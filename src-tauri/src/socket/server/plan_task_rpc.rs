@@ -622,6 +622,14 @@ pub(super) fn dispatch(
             let qa_plan = optional_string_field(p, "qa_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
+            let lane = crate::service::lane_removal::clear_vanished_lane_on_cleanup_done(
+                store, &id, &tid, lane,
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32603,
+                message,
+                data: None,
+            })?;
             let external_refs = external_ref_values(p)?;
             crate::service::plan::external_refs::canonicalize_external_refs(&external_refs)
                 .map_err(plan_rpc_err)?;

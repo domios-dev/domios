@@ -47,8 +47,8 @@ use lane_commit::{
     dispatch_ready_event, dispatch_response_lane, lane_metadata_for_dispatch, DispatchEvidence,
 };
 use lane_resolution::{
-    checkout_required, invalid_dispatch, plan_dispatch_lane_placement, resolve_dispatch_lane,
-    DispatchLanePlacement,
+    checkout_required, clear_vanished_dispatch_lane, invalid_dispatch,
+    plan_dispatch_lane_placement, resolve_dispatch_lane, DispatchLanePlacement,
 };
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
@@ -389,14 +389,14 @@ pub(super) fn dispatch(
     let p = params.as_ref();
     let authorized_gates = dispatch_authorized_gates(p)?;
     let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
-    let detail = store
+    let mut detail = store
         .show_task(&task_id)
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
     preflight_dispatch_task_status(&plan_id, &detail.task)?;
 
     // Frontier policy: a non-blocker cannot spawn while regression gates are
     // pending. Decide BEFORE any tab is created so a block leaves no orphan.
-    let plan = store
+    let mut plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     svc.authorize_execution_action(
@@ -533,16 +533,6 @@ pub(super) fn dispatch(
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
         .map_err(plan_rpc_err)?;
-    let brief = canonical_writer::compose_dispatch_brief(
-        build_brief_with_manifest(
-            &detail.task,
-            &detail.sections,
-            &plan_id,
-            &manifest,
-            &authorized_gates,
-        ),
-        placement,
-    );
 
     let explicit_cwd = owned_str(p, "cwd");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
@@ -604,25 +594,60 @@ pub(super) fn dispatch(
     } else {
         None
     };
+    let mut vanished_lane_cleared = false;
+    if execution_intent == crate::plan::ExecutionIntent::Mutating && placement.is_isolated_lane() {
+        if let Some(resolution) = lane_resolution.as_ref() {
+            if let Some(provenance) = resolution.existing.as_ref() {
+                vanished_lane_cleared = clear_vanished_dispatch_lane(
+                    store,
+                    &mut plan,
+                    &mut detail.task,
+                    &provenance.canonical_cwd,
+                    now,
+                )
+                .map_err(|error| {
+                    checkout_required(format!(
+                        "recorded lane could not be verified or cleared: {error}. No Worker was spawned."
+                    ))
+                })?;
+            }
+        }
+    }
     // Placement decides lane-vs-canonical before a tab exists, so a refusal and
     // a provisioning both happen with nothing yet to clean up.
-    let lane_placement = match lane_resolution.as_ref() {
-        Some(resolution)
-            if execution_intent == crate::plan::ExecutionIntent::Mutating
-                && placement.is_isolated_lane() =>
-        {
-            let resolved = resolution.existing.clone().ok_or_else(|| {
-                checkout_required("mutating dispatch resolved no repository checkout")
-            })?;
-            Some(
-                plan_dispatch_lane_placement(&plan, &task_id, &detail.task.lane, resolved)
-                    .inspect_err(|error| {
-                        record_lane_safety_incident(store, &plan_id, &task_id, error)
-                    })?,
-            )
+    let lane_placement = if vanished_lane_cleared {
+        Some(DispatchLanePlacement::Provision {
+            base_checkout: canonical_cwd.clone(),
+        })
+    } else {
+        match lane_resolution.as_ref() {
+            Some(resolution)
+                if execution_intent == crate::plan::ExecutionIntent::Mutating
+                    && placement.is_isolated_lane() =>
+            {
+                let resolved = resolution.existing.clone().ok_or_else(|| {
+                    checkout_required("mutating dispatch resolved no repository checkout")
+                })?;
+                Some(
+                    plan_dispatch_lane_placement(&plan, &task_id, &detail.task.lane, resolved)
+                        .inspect_err(|error| {
+                            record_lane_safety_incident(store, &plan_id, &task_id, error)
+                        })?,
+                )
+            }
+            _ => None,
         }
-        _ => None,
     };
+    let brief = canonical_writer::compose_dispatch_brief(
+        build_brief_with_manifest(
+            &detail.task,
+            &detail.sections,
+            &plan_id,
+            &manifest,
+            &authorized_gates,
+        ),
+        placement,
+    );
     let will_provision_lane = lane_placement
         .as_ref()
         .is_some_and(DispatchLanePlacement::provisions);
@@ -637,15 +662,13 @@ pub(super) fn dispatch(
                     .unwrap_or_else(|| canonical_cwd.clone())
             }),
     };
-    let reported_executor_tabs = if requires_repository
-        && !will_provision_lane
-        && !lane_protection.is_waived()
-    {
-        let mux = svc.mux.read();
-        reported_executor_tab_statuses(&plan, &task_id, |tab_id| mux.get_tab(tab_id).is_some())
-    } else {
-        HashMap::new()
-    };
+    let reported_executor_tabs =
+        if requires_repository && !will_provision_lane && !lane_protection.is_waived() {
+            let mux = svc.mux.read();
+            reported_executor_tab_statuses(&plan, &task_id, |tab_id| mux.get_tab(tab_id).is_some())
+        } else {
+            HashMap::new()
+        };
     if requires_repository {
         preflight_dispatch_placement(
             &plan,
