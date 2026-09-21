@@ -141,6 +141,70 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
 }
 
 #[test]
+fn superseded_ack_error_names_retired_and_live_attempts() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, retired_attempt_id) =
+        dispatched_worker_task(&store, &project, "superseded", "tab-retired", 1);
+    store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 10)
+        .unwrap();
+    store
+        .retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 11)
+        .unwrap();
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let live_attempt_id = store
+        .begin_task_dispatch(&plan_id, &task_id, "tab-live", "Ada", lane.clone(), 12)
+        .unwrap();
+    store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "tab-live",
+            &live_attempt_id,
+            "session-live",
+            "nonce-live",
+            lane,
+            13,
+        )
+        .unwrap();
+
+    let error = store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 14)
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains(crate::service::plan::ACK_CAUSE_ATTEMPT_SUPERSEDED));
+    assert!(error.contains(&retired_attempt_id), "{error}");
+    assert!(error.contains(&live_attempt_id), "{error}");
+}
+
+#[test]
+fn a_closed_attempt_without_a_replacement_is_not_reported_as_superseded() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, attempt_id) =
+        dispatched_worker_task(&store, &project, "no-replacement", "tab-retired", 1);
+    store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 10)
+        .unwrap();
+    store
+        .retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 11)
+        .unwrap();
+
+    let error = store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 12)
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains(crate::service::plan::ACK_CAUSE_NO_LIVE_ATTEMPT));
+    assert!(!error.contains(crate::service::plan::ACK_CAUSE_ATTEMPT_SUPERSEDED));
+    assert!(error.contains(&attempt_id), "{error}");
+}
+
+#[test]
 fn retired_attempt_stays_fenced_from_dispatch_ready_and_ack() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
@@ -305,6 +369,17 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
         event["attempt_state"],
         crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
     );
+    assert_eq!(
+        event["recovery"]["capability"],
+        crate::prompts::INTERACTIVE_CHILD_PTY_CAPABILITY_ID
+    );
+    assert_eq!(event["recovery"]["target_tab_id"], "tab");
+    assert_eq!(event["recovery"]["attempt_id"], "attempt");
+    assert!(event["recovery"]["primitives"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|primitive| primitive.as_str() == Some("codeterm tab get-text --tab tab")));
     assert!(event.get("cleanup").is_none());
     assert!(event.get("cleanup_error").is_none());
 }

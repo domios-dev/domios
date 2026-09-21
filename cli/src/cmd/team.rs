@@ -54,6 +54,19 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             adopt_agent_params(team_id, tab_id, caller_tab_id.as_deref())
                 .and_then(|params| client.call("team.adopt_agent", Some(params)))
         }
+        TeamAction::AttachCartographer {
+            team_id,
+            provider,
+            model,
+        } => client.call(
+            "team.add_member",
+            Some(cartographer_params(
+                team_id,
+                provider,
+                model,
+                caller_tab_id.as_deref(),
+            )),
+        ),
         TeamAction::Pair { .. } => unreachable!("pair returns before the socket verbs"),
     };
     match result {
@@ -202,6 +215,42 @@ fn adopt_agent_params(
     }))
 }
 
+fn cartographer_params(
+    team_id: String,
+    provider: String,
+    model: Option<String>,
+    caller_tab_id: Option<&str>,
+) -> Value {
+    let mut params = json!({
+        "team_id": team_id,
+        "provider": provider,
+        "role": "cartographer",
+    });
+    if let Some(model) = model {
+        params["model"] = json!(model);
+    }
+    if let Some(caller_tab_id) = caller_tab_id.filter(|tab_id| !tab_id.trim().is_empty()) {
+        params["caller_tab_id"] = json!(caller_tab_id);
+    }
+    params
+}
+
+fn cartographer_attachment_summary(value: &Value) -> Option<String> {
+    let tab_id = value.get("tab_id").and_then(Value::as_str)?;
+    let team_id = value
+        .get("team")
+        .and_then(|team| team.get("id"))
+        .and_then(Value::as_str)?;
+    let action = if value.get("reused").and_then(Value::as_bool) == Some(true) {
+        "Reused existing"
+    } else {
+        "Attached"
+    };
+    Some(format!(
+        "{action} Cartographer Manager as Tab {tab_id} in Team {team_id}."
+    ))
+}
+
 fn print_human(value: &Value) {
     if let Some(teams) = value.get("teams").and_then(Value::as_array) {
         if teams.is_empty() {
@@ -218,6 +267,10 @@ fn print_human(value: &Value) {
         value.get("tab_id").and_then(Value::as_str),
     ) {
         println!("Adopted Tab {tab_id} into Team {team_id}.");
+        return;
+    }
+    if let Some(summary) = cartographer_attachment_summary(value) {
+        println!("{summary}");
         return;
     }
     if let Some(team) = value.get("team") {
@@ -248,9 +301,22 @@ fn print_members(members: Option<&[Value]>) {
     for member in members {
         let tab_id = member.get("tab_id").and_then(Value::as_str).unwrap_or("?");
         let title = member.get("title").and_then(Value::as_str).unwrap_or("");
-        let role = member.get("role").and_then(Value::as_str).unwrap_or("-");
+        let role = team_member_role_label(member);
         println!("  {tab_id}\t{role}\t{title}");
     }
+}
+
+fn team_member_role_label(member: &Value) -> String {
+    if member.get("role_type").and_then(Value::as_str) == Some("Manager")
+        && member.get("role_profile").and_then(Value::as_str) == Some("cartographer")
+    {
+        return "Manager (Cartographer)".into();
+    }
+    member
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("-")
+        .to_string()
 }
 
 fn print_team(team: &Value) {
@@ -295,6 +361,58 @@ mod tests {
             let error = adopt_agent_params("team".into(), "tab_seven".into(), caller).unwrap_err();
             assert!(error.contains("CODETERM_TAB_ID"));
         }
+    }
+
+    #[test]
+    fn cartographer_params_use_the_shared_team_member_contract() {
+        assert_eq!(
+            cartographer_params(
+                "team_a".into(),
+                "provider-neutral".into(),
+                Some("model-1".into()),
+                Some("manager-tab"),
+            ),
+            json!({
+                "team_id": "team_a",
+                "provider": "provider-neutral",
+                "role": "cartographer",
+                "model": "model-1",
+                "caller_tab_id": "manager-tab",
+            })
+        );
+    }
+
+    #[test]
+    fn cartographer_attachment_summary_distinguishes_reuse_from_creation() {
+        let base = json!({
+            "tab_id": "cartographer-tab",
+            "team": { "id": "team_a" },
+            "reused": false,
+        });
+        assert_eq!(
+            cartographer_attachment_summary(&base).as_deref(),
+            Some("Attached Cartographer Manager as Tab cartographer-tab in Team team_a.")
+        );
+        assert_eq!(
+            cartographer_attachment_summary(&json!({ "reused": true, "tab_id": "cartographer-tab", "team": { "id": "team_a" } })).as_deref(),
+            Some("Reused existing Cartographer Manager as Tab cartographer-tab in Team team_a.")
+        );
+    }
+
+    #[test]
+    fn team_show_labels_cartographer_as_an_attached_manager() {
+        assert_eq!(
+            team_member_role_label(&json!({
+                "role": "cartographer",
+                "role_type": "Manager",
+                "role_profile": "cartographer",
+            })),
+            "Manager (Cartographer)"
+        );
+        assert_eq!(
+            team_member_role_label(&json!({ "role": "planner" })),
+            "planner"
+        );
     }
 
     #[test]

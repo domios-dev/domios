@@ -19,11 +19,21 @@ pub(crate) struct StartupTeamLease {
 
 /// Recorded ownership of one supervised startup attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StartupTaskIdentity {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StartupAuthority {
     pub creator_tab_id: String,
     pub child_tab_id: String,
     pub attempt_id: String,
     pub team_id: Option<String>,
+    pub task_identity: Option<StartupTaskIdentity>,
+    pub session_id: Option<String>,
+    pub binding_nonce: Option<String>,
 }
 
 impl StartupAuthority {
@@ -33,11 +43,25 @@ impl StartupAuthority {
             child_tab_id: child_tab_id.to_string(),
             attempt_id: attempt_id.to_string(),
             team_id: None,
+            task_identity: None,
+            session_id: None,
+            binding_nonce: None,
         }
     }
 
     pub(crate) fn in_team(mut self, team_id: Option<String>) -> Self {
         self.team_id = team_id;
+        self
+    }
+
+    pub(crate) fn for_task(mut self, task_identity: Option<StartupTaskIdentity>) -> Self {
+        self.task_identity = task_identity;
+        self
+    }
+
+    pub(crate) fn for_binding(mut self, session_id: Option<&str>, binding_nonce: &str) -> Self {
+        self.session_id = session_id.map(str::to_string);
+        self.binding_nonce = Some(binding_nonce.to_string());
         self
     }
 
@@ -47,6 +71,11 @@ impl StartupAuthority {
             "child_tab_id": self.child_tab_id,
             "attempt_id": self.attempt_id,
             "team_id": self.team_id,
+            "task_identity": self.task_identity.as_ref().map(|identity| json!({
+                "plan_id": identity.plan_id,
+                "task_id": identity.task_id,
+                "attempt_id": identity.attempt_id,
+            })),
         })
     }
 }
@@ -56,6 +85,8 @@ impl StartupAuthority {
 pub(crate) struct ChildStartupState {
     pub attempt_id: Option<String>,
     pub team_id: Option<String>,
+    pub session_id: Option<String>,
+    pub binding_nonce: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +194,12 @@ pub(crate) fn authorize_startup_hold(
         });
     }
     if supervised.attempt_id != attempt_id || child.attempt_id.as_deref() != Some(attempt_id) {
+        return Err(StartupHoldRefusal::AttemptReplaced {
+            current_attempt_id: child.attempt_id.clone(),
+        });
+    }
+    if supervised.session_id != child.session_id || supervised.binding_nonce != child.binding_nonce
+    {
         return Err(StartupHoldRefusal::AttemptReplaced {
             current_attempt_id: child.attempt_id.clone(),
         });

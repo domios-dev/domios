@@ -1,5 +1,6 @@
 //! Inbound grouping by conversation, and a tab's outbound traffic through its thread.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::{send_media, OutboundMessage};
@@ -100,6 +101,73 @@ pub(super) async fn send_for_tab(
     threads
         .after_media(tab_id, chat_id, &destination, caption(&message.content))
         .await;
+}
+
+pub(super) async fn send_notification(
+    tab: &Arc<dyn BridgeTabPort>,
+    client: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    chat_id: i64,
+    message: &OutboundMessage,
+    chat_states: &mut HashMap<i64, super::ChatState>,
+) -> bool {
+    let (tab_id, text) = match (&message.route, &message.edit, &message.content) {
+        (
+            super::OutboundRoute::TabNotification { tab_id },
+            None,
+            OutboundContent::Text { text },
+        ) => (tab_id, text),
+        _ => return false,
+    };
+    let threads = tab.threads();
+    if !threads.is_attached() {
+        return false;
+    }
+    let thread_id = threads
+        .notification_thread_id(tab.thread_tabs(), tab_id, chat_id)
+        .await;
+    let placed = if let Some(thread_id) = thread_id {
+        let placed = threads
+            .send_notification_to_thread(
+                tab.thread_tabs(),
+                TabText {
+                    tab_id: tab_id.clone(),
+                    chat_id,
+                    markdown: text.clone(),
+                    append: message.append,
+                    buttons: message.buttons.clone(),
+                },
+                thread_id,
+            )
+            .await;
+        if let (Some(receipt), Some(message_id)) = (message.receipt.as_ref(), placed) {
+            tab.record_channel_placement(
+                receipt,
+                &crate::bridge::telegram::locator(chat_id, message_id),
+            );
+        }
+        return true;
+    } else {
+        super::route_text_outbound(
+            client,
+            api_base,
+            token,
+            chat_id,
+            text,
+            message.append,
+            message.buttons.as_ref(),
+            chat_states,
+        )
+        .await
+    };
+    if let (Some(receipt), Some(message_id)) = (message.receipt.as_ref(), placed) {
+        tab.record_channel_placement(
+            receipt,
+            &crate::bridge::telegram::locator(chat_id, message_id),
+        );
+    }
+    true
 }
 
 fn caption(content: &OutboundContent) -> &str {

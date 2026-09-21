@@ -4,7 +4,7 @@ use crate::multiplexer::types::{AgentRole, TabAudience};
 use crate::session::store::SplitNodeSnapshot;
 
 /// A persisted role claim, with or without a provider identity behind it.
-fn role_claim_leaf(role: &str) -> SplitNodeSnapshot {
+fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         tab_id: "db79d2da".into(),
         cwd: None,
@@ -16,7 +16,7 @@ fn role_claim_leaf(role: &str) -> SplitNodeSnapshot {
         claude_session_id: None,
         agent_identity: None,
         role: Some(role.into()),
-        role_profile: None,
+        role_profile: role_profile.map(str::to_string),
         team_id: Some("team_residue".into()),
         parent_tab_id: None,
         spawned_by_tab_id: None,
@@ -52,7 +52,7 @@ fn a_role_claim_survives_restore_without_provider_identity() {
         ("Worker", AgentRole::Worker, None),
     ] {
         let restored =
-            MultiplexerState::from_session_snapshot(&snapshot_with(role_claim_leaf(role)));
+            MultiplexerState::from_session_snapshot(&snapshot_with(role_claim_leaf(role, None)));
         let tab = restored.get_tab("db79d2da").expect("tab survives");
 
         assert_eq!(tab.role, Some(expected), "{role}");
@@ -68,7 +68,7 @@ fn a_role_claim_survives_restore_without_provider_identity() {
 /// responsible for cleaning it up.
 #[test]
 fn a_roleless_team_utility_tab_keeps_its_team_across_restore() {
-    let mut leaf = role_claim_leaf("Worker");
+    let mut leaf = role_claim_leaf("Worker", None);
     if let SplitNodeSnapshot::Leaf {
         ref mut role,
         ref mut can_spawn,
@@ -95,7 +95,7 @@ fn a_roleless_team_utility_tab_keeps_its_team_across_restore() {
 /// role but never invents an agent_type from the tab's name.
 #[test]
 fn a_title_never_invents_a_provider_identity() {
-    let mut leaf = role_claim_leaf("Orchestrator");
+    let mut leaf = role_claim_leaf("Orchestrator", None);
     if let SplitNodeSnapshot::Leaf { ref mut title, .. } = leaf {
         *title = Some("codex orchestrator".into());
     }
@@ -115,7 +115,7 @@ fn a_title_never_invents_a_provider_identity() {
 /// A complete agent tab keeps everything.
 #[test]
 fn a_complete_agent_tab_keeps_its_restored_role_and_team() {
-    let mut leaf = role_claim_leaf("Orchestrator");
+    let mut leaf = role_claim_leaf("Orchestrator", None);
     if let SplitNodeSnapshot::Leaf {
         ref mut agent_type, ..
     } = leaf
@@ -136,7 +136,7 @@ fn a_complete_agent_tab_keeps_its_restored_role_and_team() {
 
 #[test]
 fn tab_name_contract_restore_preserves_task_executor_name() {
-    let mut leaf = role_claim_leaf("Worker");
+    let mut leaf = role_claim_leaf("Worker", None);
     if let SplitNodeSnapshot::Leaf { ref mut title, .. } = leaf {
         *title = Some("Ada".into());
     }
@@ -147,4 +147,37 @@ fn tab_name_contract_restore_preserves_task_executor_name() {
         "Ada",
         "restore keeps the persisted executor name exactly"
     );
+}
+
+#[test]
+fn legacy_cartographer_worker_binding_is_rewritten_and_persisted_once() {
+    let snapshot = snapshot_with(role_claim_leaf("Worker", Some("cartographer")));
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    let tab = restored.get_tab("db79d2da").expect("tab survives");
+
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert_eq!(tab.role_profile.as_deref(), Some("cartographer"));
+    assert!(!tab.can_spawn);
+    assert!(!tab.anchors_team());
+
+    let persisted = restored.to_session_snapshot();
+    let SplitNodeSnapshot::Leaf {
+        role,
+        role_profile,
+        can_spawn,
+        ..
+    } = &persisted.workspaces[0].tabs[0].split_tree
+    else {
+        panic!("restored tab is a leaf");
+    };
+    assert_eq!(role.as_deref(), Some("Manager"));
+    assert_eq!(role_profile.as_deref(), Some("cartographer"));
+    assert!(!*can_spawn);
+
+    let restored_again = MultiplexerState::from_session_snapshot(&persisted);
+    let tab = restored_again
+        .get_tab("db79d2da")
+        .expect("tab survives second restore");
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert_eq!(tab.role_profile.as_deref(), Some("cartographer"));
 }

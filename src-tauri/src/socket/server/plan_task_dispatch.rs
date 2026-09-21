@@ -19,6 +19,7 @@ use super::JsonRpcError;
 
 mod attempt_rollback;
 mod brief;
+mod brief_delivery;
 pub(super) mod canonical_writer;
 mod dispatch_failure;
 mod gates;
@@ -26,7 +27,9 @@ mod lane_commit;
 mod lane_resolution;
 pub(super) mod lane_safety;
 mod preflight;
+mod recovery;
 mod routing;
+mod startup;
 mod workspace_admission;
 
 use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
@@ -35,6 +38,12 @@ use attempt_rollback::roll_back_dispatch_attempt;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
+use brief_delivery::{
+    bind_deferred_task_brief_to_tab, defer_task_brief_before_launch, discard_deferred_task_brief,
+};
+pub(super) use brief_delivery::{
+    deliver_deferred_task_brief, task_brief_delivery_event, TaskBriefDelivery,
+};
 use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
@@ -52,6 +61,8 @@ use lane_safety::{
     refuse_unsafe_mutating_write,
 };
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
+pub(super) use recovery::publish_action_needed_event;
+use recovery::startup_recovery_event;
 use routing::{
     dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing,
     unqualified_model_error,
@@ -112,6 +123,27 @@ fn task_launch_authority_for_dispatch(
         attempt_id: attempt_id.to_string(),
         lane_base: lane.base.clone(),
     }
+}
+
+fn defer_dispatch_brief(
+    spawn_params: &mut SpawnAgentParams,
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    lane: &TaskLaneMetadata,
+    brief: String,
+) -> Result<(), String> {
+    if spawn_params.role.as_deref() != Some("Worker")
+        || spawn_params.plan_id.as_deref() != Some(plan_id)
+        || spawn_params.task_id.as_deref() != Some(task_id)
+    {
+        return Err("task brief launch authority does not match the dispatch".into());
+    }
+    spawn_params.task = defer_task_brief_before_launch(plan_id, task_id, attempt_id, brief)?;
+    spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
+        plan_id, task_id, attempt_id, lane,
+    ));
+    Ok(())
 }
 
 pub(super) fn await_agent_ready(
@@ -196,18 +228,18 @@ fn apply_dispatch_starting_contract(
     result["spawn"] = spawn_metadata;
 }
 
-/// A dispatch whose only missing evidence is the session binding is not a failed
-/// dispatch. The Worker is alive under its tab and the binding may still land
-/// through the provider's own detection, so it is spawned-and-awaiting rather
-/// than failed; the worker-ack deadline already owns the follow-up.
-fn session_binding_timeout_is_recoverable(error: &JsonRpcError) -> bool {
+/// An uncertain readiness or binding result may leave the Worker alive.
+/// Preserve it for exact-tab recovery instead of finalizing on missing evidence.
+fn startup_wait_is_recoverable(error: &JsonRpcError) -> bool {
     let data = error.data.as_ref();
-    let stage = data.and_then(|data| data.get("stage")).and_then(Value::as_str);
+    let stage = data
+        .and_then(|data| data.get("stage"))
+        .and_then(Value::as_str);
     let worker_may_be_alive = data
         .and_then(|data| data.get("worker_may_be_alive"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    stage == Some("session_binding") && worker_may_be_alive
+    matches!(stage, Some("agent_ready" | "session_binding")) && worker_may_be_alive
 }
 
 /// Decide placement first — occupancy only applies to a checkout the task
@@ -319,282 +351,7 @@ fn worker_ack_timeout_event(
     )
 }
 
-pub(super) struct DispatchStartup {
-    pub(super) app: AppHandle,
-    pub(super) svc: ServiceState,
-    pub(super) plan_id: String,
-    pub(super) task_id: String,
-    pub(super) tab_id: String,
-    pub(super) attempt_id: String,
-    pub(super) parent_tab_id: String,
-    pub(super) worker_title: String,
-    pub(super) original_task: Task,
-    pub(super) original_plan_mode: crate::plan::PlanMode,
-    pub(super) lane_for_commit: TaskLaneMetadata,
-    pub(super) canonical_project_path: String,
-    pub(super) provenance: Option<WorkerLaneProvenance>,
-    pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
-    pub(super) lane_protection: LaneProtection,
-    pub(super) spawn_command: String,
-}
-
-impl DispatchStartup {
-    pub(super) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
-        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
-        let provisioned_lane = self.provisioned_lane;
-        let outcome = complete_dispatch_transaction(
-            deadline,
-            |deadline| await_agent_ready(ready_rx, deadline),
-            |deadline| wait_for_tab_session(&self.svc, &self.tab_id, deadline),
-            || match self.provenance.as_ref() {
-                Some(provenance) => verify_worker_lane(
-                    &provenance.canonical_cwd,
-                    &provenance.worktree_path,
-                    Some(&provenance.branch),
-                    Some(&provenance.base),
-                    self.lane_protection,
-                )
-                .map(Some),
-                None => Ok(None),
-            },
-            |lane, session_id| {
-                let session_binding_nonce = self
-                    .svc
-                    .mux
-                    .read()
-                    .get_tab(&self.tab_id)
-                    .and_then(|tab| tab.session_binding_nonce.clone())
-                    .filter(|nonce| !nonce.trim().is_empty())
-                    .ok_or_else(|| "ready Worker tab has no session binding nonce".to_string())?;
-                let lane_metadata = atomic_lane_commitment(
-                    &lane
-                        .as_ref()
-                        .map(|lane| {
-                            lane_metadata_for_dispatch(
-                                &self.lane_for_commit,
-                                lane,
-                                &self.canonical_project_path,
-                            )
-                        })
-                        .unwrap_or_else(|| {
-                            let mut metadata = self.lane_for_commit.clone();
-                            metadata.worktree_path = None;
-                            metadata.branch = None;
-                            metadata.base = None;
-                            metadata.cleanup_status = None;
-                            metadata
-                        }),
-                );
-                self.svc
-                    .plan_store
-                    .finish_task_dispatch(
-                        &self.plan_id,
-                        &self.task_id,
-                        &self.tab_id,
-                        &self.attempt_id,
-                        session_id,
-                        &session_binding_nonce,
-                        lane_metadata,
-                        epoch_ms(),
-                    )
-                    .map_err(|error| error.to_string())
-            },
-            || {
-                roll_back_dispatch_attempt(
-                    &self.svc.plan_store,
-                    &self.plan_id,
-                    &self.original_task,
-                    &self.original_plan_mode,
-                    &self.tab_id,
-                    &self.attempt_id,
-                    provisioned_lane,
-                    || close_tab_if_present(&self.svc, &self.tab_id),
-                    epoch_ms(),
-                )
-            },
-        );
-
-        match outcome {
-            Ok(evidence) => {
-                arm_worker_ack_deadline(
-                    &self.svc,
-                    &self.parent_tab_id,
-                    &self.tab_id,
-                    &self.worker_title,
-                    &self.plan_id,
-                    &self.task_id,
-                    &self.attempt_id,
-                    self.spawn_command.clone(),
-                );
-                emit_plan_changed(&self.app, &self.plan_id);
-                let nudges = self
-                    .svc
-                    .plan_store
-                    .show_task(&self.task_id)
-                    .map(|detail| {
-                        dispatch_safety_nudges(&self.plan_id, &self.task_id, &detail.task.lane)
-                    })
-                    .unwrap_or_default();
-                publish_startup_report(
-                    &self.svc,
-                    &self.parent_tab_id,
-                    &self.tab_id,
-                    &self.worker_title,
-                    &self.plan_id,
-                    &self.task_id,
-                    dispatch_ready_event(
-                        &self.plan_id,
-                        &self.task_id,
-                        &self.tab_id,
-                        &self.attempt_id,
-                        &evidence,
-                        &self.canonical_project_path,
-                        &nudges,
-                    ),
-                );
-            }
-            Err(error) if session_binding_timeout_is_recoverable(&error) => {
-                // Binding is late, not absent. Arm the ack deadline and let the
-                // provider's own detection or the hook settle the session; no
-                // lane, tab, or task state is touched and nothing is reported as
-                // a failure.
-                arm_worker_ack_deadline(
-                    &self.svc,
-                    &self.parent_tab_id,
-                    &self.tab_id,
-                    &self.worker_title,
-                    &self.plan_id,
-                    &self.task_id,
-                    &self.attempt_id,
-                    self.spawn_command.clone(),
-                );
-                emit_plan_changed(&self.app, &self.plan_id);
-            }
-            Err(error) => {
-                let stage = error
-                    .data
-                    .as_ref()
-                    .and_then(|data| data.get("stage"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("startup")
-                    .to_string();
-                let worker_may_be_alive = error
-                    .data
-                    .as_ref()
-                    .and_then(|data| data.get("worker_may_be_alive"))
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                let reason = error.message.clone();
-                let attempt_finalized = if worker_may_be_alive {
-                    match self.svc.plan_store.mark_worker_startup_deadline(
-                        &self.plan_id,
-                        &self.task_id,
-                        &self.tab_id,
-                        &self.attempt_id,
-                        true,
-                        epoch_ms(),
-                    ) {
-                        Ok(finalized) => finalized,
-                        Err(error) => {
-                            log::warn!(
-                                "[task-dispatch] survivor finalization failed attempt={}: {error}",
-                                self.attempt_id
-                            );
-                            false
-                        }
-                    }
-                } else {
-                    false
-                };
-                if worker_may_be_alive {
-                    if let Err(error) = self
-                        .svc
-                        .deliver_worker_ack_reminder(&self.tab_id, &self.attempt_id)
-                    {
-                        log::warn!(
-                            "[task-dispatch] survivor reminder failed attempt={}: {error}",
-                            self.attempt_id
-                        );
-                    }
-                }
-                emit_plan_changed(&self.app, &self.plan_id);
-                publish_startup_report(
-                    &self.svc,
-                    &self.parent_tab_id,
-                    &self.tab_id,
-                    &self.worker_title,
-                    &self.plan_id,
-                    &self.task_id,
-                    dispatch_startup_failed_event(
-                        &self.plan_id,
-                        &self.task_id,
-                        &self.tab_id,
-                        &self.attempt_id,
-                        &stage,
-                        &reason,
-                        if worker_may_be_alive {
-                            DispatchFailureDisposition::Survivor { attempt_finalized }
-                        } else {
-                            DispatchFailureDisposition::Cleanup {
-                                ok: cleanup_succeeded(&stage, &reason),
-                            }
-                        },
-                    ),
-                );
-            }
-        }
-    }
-}
-
-/// Runs the dispatch readiness transaction and reacts to the outcome.
-///
-/// A stage failure only triggers the destructive `rollback` (task-snapshot
-/// restore + tab close + lane cleanup) when it is a *definitive* failure. When
-/// `agent_ready` or `session_binding` fail with evidence that is merely
-/// absent (a deadline, or a channel closed by a superseded launch
-/// generation), the worker may still be alive; the transaction surfaces the
-/// error to the caller without touching the lane or the tab.
-fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
-    deadline: Instant,
-    await_ready: Ready,
-    wait_binding: Binding,
-    validate_provenance: Provenance,
-    commit: Commit,
-    rollback: Rollback,
-) -> Result<DispatchEvidence, JsonRpcError>
-where
-    Ready: FnOnce(Instant) -> Result<(), DispatchWaitFailure>,
-    Binding: FnOnce(Instant) -> Result<String, DispatchWaitFailure>,
-    Provenance: FnOnce() -> Result<Option<WorkerLaneProvenance>, String>,
-    Commit: FnOnce(&Option<WorkerLaneProvenance>, &str) -> Result<(), String>,
-    Rollback: FnOnce() -> Result<(), String>,
-{
-    let mut worker_may_be_alive = false;
-    let outcome = (|| {
-        await_ready(deadline).map_err(|failure| {
-            worker_may_be_alive = !failure.is_definitive();
-            dispatch_wait_failed("agent_ready", failure)
-        })?;
-        let session_id = wait_binding(deadline).map_err(|failure| {
-            worker_may_be_alive = !failure.is_definitive();
-            dispatch_wait_failed("session_binding", failure)
-        })?;
-        let lane =
-            validate_provenance().map_err(|error| dispatch_failed("provenance_readback", error))?;
-        commit(&lane, &session_id).map_err(|error| dispatch_failed("task_commit", error))?;
-        Ok(DispatchEvidence { session_id, lane })
-    })();
-    match outcome {
-        Ok(evidence) => Ok(evidence),
-        // Readiness evidence being absent is not proof the dispatch failed:
-        // never destroy a lane whose worker may still be alive.
-        Err(error) if worker_may_be_alive => Err(error),
-        Err(error) => match rollback() {
-            Ok(()) => Err(error),
-            Err(cleanup) => Err(dispatch_failed("compensation", cleanup)),
-        },
-    }
-}
+pub(super) use startup::{complete_dispatch_transaction, DispatchStartup};
 
 fn gate_keys(gates: &[RegressionGate]) -> String {
     gates
@@ -915,7 +672,7 @@ pub(super) fn dispatch(
         role_profile: crate::service::role_profile::builtin_worker_profile(
             detail.task.executor_role.as_deref(),
         ),
-        parent_tab_id: parent,
+        parent_tab_id: Some(parent_tab_id.clone()),
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
@@ -924,7 +681,7 @@ pub(super) fn dispatch(
         planned_reasoning_effort,
         reasoning_effort,
         spawned_by_tab_id: owned_str(p, "caller_tab_id"),
-        task: Some(brief),
+        task: None,
         ..Default::default()
     };
 
@@ -1016,16 +773,31 @@ pub(super) fn dispatch(
     // persisted state carries a workspace without the worktree that isolates it.
     let starting_lane = atomic_lane_commitment(&starting_lane);
     let reserved_attempt_id = crate::plan::ids::short_id("attempt");
-    spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
+    match defer_dispatch_brief(
+        &mut spawn_params,
         &plan_id,
         &task_id,
         &reserved_attempt_id,
         &starting_lane,
-    ));
+        brief,
+    ) {
+        Ok(()) => {}
+        Err(error) => {
+            let cleanup = rollback_failed_dispatch(provisioned_lane, || Ok(()), || Ok(()));
+            return Err(dispatch_failed(
+                "brief_reservation",
+                match cleanup {
+                    Ok(()) => error,
+                    Err(cleanup) => format!("{error}; {cleanup}"),
+                },
+            ));
+        }
+    }
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
         Err(error) => {
+            discard_deferred_task_brief(&reserved_attempt_id);
             if let Some(lane) = provisioned_lane {
                 if let Err(cleanup) = lane.cleanup() {
                     return Err(dispatch_failed(
@@ -1038,6 +810,22 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
+    if let Err(error) = bind_deferred_task_brief_to_tab(&reserved_attempt_id, &tab_id) {
+        discard_deferred_task_brief(&reserved_attempt_id);
+        let cleanup = rollback_failed_dispatch(
+            provisioned_lane,
+            || Ok(()),
+            || close_tab_if_present(svc, &tab_id),
+        );
+        emit_plan_changed(app, &plan_id);
+        return Err(dispatch_failed(
+            "brief_binding",
+            match cleanup {
+                Ok(()) => error,
+                Err(cleanup) => format!("{error}; {cleanup}"),
+            },
+        ));
+    }
     let attempt_id = match store.begin_task_dispatch_with_reserved_attempt_and_gates(
         &plan_id,
         &task_id,
@@ -1054,6 +842,7 @@ pub(super) fn dispatch(
     ) {
         Ok(attempt_id) => attempt_id,
         Err(error) => {
+            discard_deferred_task_brief(&reserved_attempt_id);
             let cleanup = rollback_failed_dispatch(
                 provisioned_lane,
                 || Ok(()),
@@ -1072,6 +861,7 @@ pub(super) fn dispatch(
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now)
     {
+        discard_deferred_task_brief(&attempt_id);
         let cleanup = rollback_failed_dispatch(
             provisioned_lane,
             || {
@@ -1090,6 +880,7 @@ pub(super) fn dispatch(
         ));
     }
     if let Err(error) = verify_dispatched_task_binding(store, &plan_id, &task_id, &tab_id) {
+        discard_deferred_task_brief(&attempt_id);
         let cleanup = roll_back_dispatch_attempt(
             store,
             &plan_id,
@@ -1117,6 +908,7 @@ pub(super) fn dispatch(
         plan_id: plan_id.clone(),
         task_id: task_id.clone(),
         tab_id: tab_id.clone(),
+        startup_attempt_id: spawn.pty_id.clone(),
         attempt_id: attempt_id.clone(),
         parent_tab_id,
         worker_title: spawn.title.clone(),

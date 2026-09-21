@@ -77,8 +77,9 @@ pub(super) fn dispatch(
                 );
                 resp["cleanup"] = json!({ "status": outcome.status(), "reason": outcome.reason() });
                 if matches!(
-                    outcome,
+                    &outcome,
                     crate::service::plan::lane_cleanup::LaneCleanupOutcome::Cleaned
+                        | crate::service::plan::lane_cleanup::LaneCleanupOutcome::Partial(_)
                 ) {
                     emit_plan_changed(app, &id);
                 }

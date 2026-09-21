@@ -63,11 +63,24 @@ impl ServiceContext {
                 .plan_store
                 .mark_live_task_attempt_runtime_ready_for_tab(tab_id, session_id, epoch_ms())
             {
-                Ok(Some(ready)) => crate::api::events::emit_everywhere(
-                    &self.app_handle,
-                    "plan-changed",
-                    serde_json::json!({ "plan_id": ready.plan_id }),
-                ),
+                Ok(Some(ready)) => {
+                    if let Err(error) = self.arm_bound_worker_ack_deadline_for_tab(
+                        tab_id,
+                        format!(
+                            "codeterm plan task dispatch {} {}",
+                            ready.plan_id, ready.task_id
+                        ),
+                    ) {
+                        log::warn!(
+                            "[set_agent_session_id] task ACK supervision failed tab={tab_id}: {error}"
+                        );
+                    }
+                    crate::api::events::emit_everywhere(
+                        &self.app_handle,
+                        "plan-changed",
+                        serde_json::json!({ "plan_id": ready.plan_id }),
+                    );
+                }
                 Ok(None) => {}
                 Err(error) => log::warn!(
                     "[set_agent_session_id] task attempt readiness failed tab={tab_id}: {error}"

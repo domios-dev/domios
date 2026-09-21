@@ -188,9 +188,8 @@ impl ServiceContext {
             params.title.as_deref(),
             params.agent_name.as_deref(),
         )?;
-        params.description = crate::service::tab::normalize_optional_tab_description(
-            params.description.take(),
-        )?;
+        params.description =
+            crate::service::tab::normalize_optional_tab_description(params.description.take())?;
         params.normalize_role_profile()?;
         if params.role_profile.as_deref() == Some(builtins::PLANNER)
             && params.parent_tab_id.is_none()
@@ -291,9 +290,8 @@ impl ServiceContext {
             params.title.as_deref(),
             params.agent_name.as_deref(),
         )?;
-        params.description = crate::service::tab::normalize_optional_tab_description(
-            params.description.take(),
-        )?;
+        params.description =
+            crate::service::tab::normalize_optional_tab_description(params.description.take())?;
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;
@@ -597,7 +595,29 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             params.creator_tab_id.as_deref(),
         );
-        let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
+        let task_identity = params.task_launch_authority.as_ref().map(|authority| {
+            crate::service::startup_lease::StartupTaskIdentity {
+                plan_id: authority.plan_id.clone(),
+                task_id: authority.task_id.clone(),
+                attempt_id: authority.attempt_id.clone(),
+            }
+        });
+        let startup_supervised = self.prepare_agent_startup_supervision(
+            &tab_id,
+            params
+                .parent_tab_id
+                .as_deref()
+                .or(params.spawned_by_tab_id.as_deref())
+                .or(params.creator_tab_id.as_deref()),
+            task_identity.clone(),
+        );
+        if params.task_launch_authority.is_some() && !startup_supervised {
+            self.cancel_agent_startup_supervision(&tab_id);
+            let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+            return Err(format!(
+                "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
+            ));
+        }
 
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             crate::service::spawn::persist_model_launch_identity(
@@ -760,6 +780,7 @@ impl ServiceContext {
             crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
             bg_task,
             fallback_spec,
+            task_identity,
             ready_tx,
         );
 

@@ -84,10 +84,10 @@ The words an agent starts from: shared guidance, role contracts for Orchestrator
 
 ### Plans and orchestration {#core:plans-and-orchestration}
 
-Durable intent and the team that carries it out: goals, specs, plans, tasks and strides; the two-level hierarchy of Orchestrator, optional Planner and Workers; dispatch, acknowledgement, reports, review and lanes.
+Durable intent and the team that carries it out: goals, specs, plans, tasks and strides; the Orchestrator, optional Planner, optional Cartographer Manager, and Workers; dispatch, acknowledgement, reports, review and lanes.
 
 - Part of: core:service-layer.
-- Invariants: planner state is the source of truth; the Planner shapes tasks, or the Orchestrator does when planning is waived; every task carries acceptance criteria and an executable test plan, and executors read applicable plan skills before acting; only two hierarchy levels exist, and Workers never spawn; only the Orchestrator approves a plan, dispatches work, and accepts, bounces, or holds a task in review; every Worker turn ends in a report; a mutating Worker writes only its own lane unless the Orchestrator explicitly opts one Worker into canonical; lanes land by real merges and executable proof runs only in canonical.
+- Invariants: planner state is the source of truth; the Planner shapes tasks, or the Orchestrator does when planning is waived; Cartographer is a non-anchoring singleton Manager without Team-management, plan, or spawn authority and is removed with its Team; every task carries acceptance criteria and an executable test plan, and executors read applicable plan skills before acting; only two hierarchy levels exist, and Workers never spawn; only the Orchestrator approves a plan, dispatches work, and accepts, bounces, or holds a task in review; every Worker turn ends in a report; a mutating Worker writes only its own lane unless the Orchestrator explicitly opts one Worker into canonical; lanes land by real merges and executable proof runs only in canonical.
 
 ### Message gateway and bridges {#core:message-gateway-and-bridges}
 

@@ -4,25 +4,19 @@
  * this, every node opened the whole document at the top.
  */
 
-function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/^\d+[.)]\s*/, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 function headingSection(lines: string[], target: string): string | null {
   for (let i = 0; i < lines.length; i += 1) {
     const heading = /^(#{1,6})\s+(.*)$/.exec(lines[i]);
-    if (!heading || slug(heading[2]) !== target) continue;
+    if (!heading || /\{#([^}]+)\}\s*$/.exec(heading[2])?.[1] !== target) continue;
     const level = heading[1].length;
     let end = lines.length;
     for (let j = i + 1; j < lines.length; j += 1) {
       const next = /^(#{1,6})\s+/.exec(lines[j]);
       if (next && next[1].length <= level) { end = j; break; }
     }
-    return lines.slice(i, end).join("\n").trim();
+    const section = lines.slice(i, end);
+    section[0] = section[0].replace(/\s+\{#[^}]+\}\s*$/, "");
+    return section.join("\n").trim();
   }
   return null;
 }
@@ -30,8 +24,8 @@ function headingSection(lines: string[], target: string): string | null {
 function tableRow(lines: string[], target: string): string | null {
   for (let i = 0; i < lines.length; i += 1) {
     if (!lines[i].trimStart().startsWith("|")) continue;
-    const first = lines[i].split("|")[1]?.trim() ?? "";
-    if (slug(first) !== target) continue;
+    const first = splitRow(lines[i])[0] ?? "";
+    if (first !== target) continue;
     let header = i;
     for (let j = i - 1; j >= 0; j -= 1) {
       if (!lines[j].trimStart().startsWith("|")) break;
@@ -70,8 +64,8 @@ function tablesToBullets(markdown: string): string {
     let row = i + 2;
     while (row < lines.length && lines[row].trimStart().startsWith("|") && !isSeparator(lines[row])) {
       const cells = splitRow(lines[row]);
-      out.push(`**${cells[0]}**`, "");
-      for (let column = 1; column < headers.length; column += 1) {
+      out.push(`**${headers[0] === "ID" ? cells[1] ?? cells[0] : cells[0]}**`, "");
+      for (let column = headers[0] === "ID" ? 2 : 1; column < headers.length; column += 1) {
         const value = cells[column] ?? "";
         if (value && value !== "—") out.push(`- **${headers[column]}:** ${value}`);
       }
@@ -85,8 +79,8 @@ function tablesToBullets(markdown: string): string {
 
 /** Returns the section an anchor names, or the whole document when nothing matches. */
 export function extractEssenceSection(markdown: string, anchor: string): string {
-  const target = slug(anchor.replace(/^[a-z]+:/i, ""));
-  if (!target || !markdown) return markdown;
+  const target = anchor.trim();
+  if (!/^(vector|capability|core|client):[a-z0-9]+(?:-[a-z0-9]+)*$/.test(target) || !markdown) return markdown;
   const lines = markdown.split(/\r?\n/);
   const section = headingSection(lines, target) ?? tableRow(lines, target) ?? markdown;
   return tablesToBullets(section);

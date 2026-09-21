@@ -42,13 +42,28 @@ impl AgentRole {
     }
 }
 
+pub fn is_legacy_cartographer_worker_binding(
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> bool {
+    role.map(str::trim) == Some("Worker")
+        && role_profile.map(str::trim) == Some(super::role_kind::builtins::CARTOGRAPHER)
+}
+
 /// Literal legacy migration for a persisted `(role, role_profile)` pair. Legacy
 /// `Orchestrator`/`Conductor` rows carried no profile; a kindless `Manager` has no anchor to inherit.
 pub fn restore_role(role: Option<&str>, role_profile: Option<&str>) -> Option<RestoredRole> {
     let profile = role_profile
         .map(str::trim)
         .filter(|profile| !profile.is_empty());
-    match role.map(str::trim)? {
+    let role = role.map(str::trim)?;
+    if is_legacy_cartographer_worker_binding(Some(role), profile) {
+        return Some(RestoredRole::new(
+            AgentRole::Manager,
+            Some(super::role_kind::builtins::CARTOGRAPHER),
+        ));
+    }
+    match role {
         "Orchestrator" | "Conductor" => Some(RestoredRole::new(
             AgentRole::Manager,
             Some(super::role_kind::builtins::ORCHESTRATOR),
@@ -151,6 +166,17 @@ mod tests {
         assert_eq!(
             restored("Worker", Some("rust-platform-dev")),
             Some((AgentRole::Worker, Some("rust-platform-dev".to_string())))
+        );
+    }
+
+    #[test]
+    fn legacy_cartographer_worker_binding_rewrites_idempotently() {
+        let migrated = restore_role(Some("Worker"), Some("cartographer")).unwrap();
+        assert_eq!(migrated.role, AgentRole::Manager);
+        assert_eq!(migrated.role_profile.as_deref(), Some("cartographer"));
+        assert_eq!(
+            restore_role(Some(migrated.role.label()), migrated.role_profile.as_deref()),
+            Some(migrated)
         );
     }
 

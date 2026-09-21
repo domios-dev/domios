@@ -99,3 +99,17 @@ function messageItem(message: NormalizedChatMessage): TimelineItem {
 }
 
 console.log("chat enrichment cache checks passed");
+
+// --- pasted_content wrappers are stripped so the leading marker still parses ---
+{
+  const cache: EnrichmentCache = new WeakMap();
+  const wrapped = user(
+    "u-p",
+    '<pasted_content id="d619">\n-=-codeterm:telegram user=42-=-inside paste\n</pasted_content id="d619">',
+  );
+  const plain = user("u-q", '<pasted_content id="x1">\njust pasted\n</pasted_content id="x1">');
+  const [marked, bare] = enrichTimelineItems([messageItem(wrapped), messageItem(plain)], cache);
+  assert(marked.origin?.kind === "telegram", "marker inside pasted_content is detected");
+  assert(marked.msg.content === "inside paste", "wrapped marker body extracted");
+  assert(bare.origin === undefined && bare.msg.content === "just pasted", "plain paste loses its wrapper");
+}
