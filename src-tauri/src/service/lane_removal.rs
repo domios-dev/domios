@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::ServiceContext;
@@ -32,6 +32,12 @@ pub(crate) struct LaneRemovalOutcome {
     pub(crate) branch_already_removed: bool,
 }
 
+#[derive(Debug)]
+pub(crate) enum CleanupStatusDoneError {
+    Refused(String),
+    Verification(String),
+}
+
 pub(crate) fn recorded_lane_remnant(
     worktree_path: Option<&str>,
     branch: Option<&str>,
@@ -56,19 +62,27 @@ pub(crate) fn recorded_lane_remnant(
     }
     if let Some(branch) = branch {
         if branch_exists(canonical_cwd, &branch)? {
-            return Ok(Some(format!("branch '{branch}' still exists")));
+            if !branch_is_ancestor(canonical_cwd, &branch)? {
+                return Ok(Some(format!(
+                    "branch '{branch}' still has commits not merged into the target checkout"
+                )));
+            }
         }
     }
     Ok(None)
 }
 
 fn path_components(path: &str) -> Vec<String> {
-    codeterm_paths::normalize_cwd(path)
-        .replace('\\', "/")
+    comparable_path(path)
         .split('/')
         .filter(|segment| !segment.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+fn comparable_path(path: &str) -> String {
+    let separators_normalized = strip_verbatim(path).replace('\\', "/");
+    codeterm_paths::normalize_cwd(&separators_normalized).replace('\\', "/")
 }
 
 /// A tab holds the lane when its shell cwd is the worktree root or anything
@@ -140,24 +154,6 @@ pub(crate) fn remove_lane(
         ));
     }
     let registered = worktree_registered(&canonical, worktree)?;
-    if worktree_exists {
-        if !registered {
-            return Err(format!(
-                "lane path '{worktree}' still exists but is not registered as a Git worktree; nothing was removed"
-            ));
-        }
-        run_git(&canonical, ["worktree", "remove", "--force", worktree])
-            .map_err(|error| format!("lane removal failed for '{worktree}': {error}"))?;
-    } else if registered {
-        run_git(&canonical, ["worktree", "prune", "--expire", "now"]).map_err(|error| {
-            format!("stale lane registration for '{worktree}' could not be removed: {error}")
-        })?;
-        if worktree_registered(&canonical, worktree)? {
-            return Err(format!(
-                "stale lane registration for '{worktree}' remains after pruning"
-            ));
-        }
-    }
     let branch = request
         .branch
         .as_deref()
@@ -167,9 +163,35 @@ pub(crate) fn remove_lane(
         .map(|branch| branch_exists(&canonical, branch))
         .transpose()?
         .unwrap_or(false);
+    if let Some(branch) = branch.filter(|_| branch_exists) {
+        if !branch_is_ancestor(&canonical, branch)? {
+            return Err(format!(
+                "lane removal refused: branch '{branch}' has commits not merged into target checkout '{canonical}'; nothing was removed. Merge the needed commits, then rerun: {}",
+                lane_remove_command(worktree, Some(branch), &canonical)
+            ));
+        }
+    }
+    if worktree_exists {
+        if !registered {
+            return Err(format!(
+                "lane path '{worktree}' still exists but is not registered as a Git worktree; nothing was removed"
+            ));
+        }
+        run_git(&canonical, ["worktree", "remove", worktree])
+            .map_err(|error| format!("lane removal failed for '{worktree}': {error}"))?;
+    } else if registered {
+        remove_stale_worktree_registration(&canonical, worktree).map_err(|error| {
+            format!("stale lane registration for '{worktree}' could not be removed: {error}")
+        })?;
+        if worktree_registered(&canonical, worktree)? {
+            return Err(format!(
+                "stale lane registration for '{worktree}' remains after targeted cleanup"
+            ));
+        }
+    }
     if let Some(branch) = branch {
         if branch_exists {
-            run_git(&canonical, ["branch", "-D", branch]).map_err(|error| {
+            run_git(&canonical, ["branch", "-d", branch]).map_err(|error| {
                 format!(
                     "lane worktree '{worktree}' was removed but branch '{branch}' was not: {error}"
                 )
@@ -243,11 +265,74 @@ fn worktree_registered(canonical_cwd: &str, worktree_path: &str) -> Result<bool,
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    let expected = codeterm_paths::normalize_cwd(&strip_verbatim(worktree_path));
+    let expected = comparable_path(worktree_path);
     Ok(String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(|line| line.strip_prefix("worktree "))
-        .any(|path| codeterm_paths::normalize_cwd(path) == expected))
+        .any(|path| comparable_path(path) == expected))
+}
+
+fn remove_stale_worktree_registration(
+    canonical_cwd: &str,
+    worktree_path: &str,
+) -> Result<(), String> {
+    let worktrees = git_value(
+        canonical_cwd,
+        [
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "worktrees",
+        ],
+    )?;
+    let worktrees = PathBuf::from(strip_verbatim(&worktrees));
+    let expected = format!(
+        "{}/.git",
+        comparable_path(worktree_path).trim_end_matches('/')
+    );
+    let entries = std::fs::read_dir(&worktrees).map_err(|error| {
+        format!(
+            "cannot read Git worktree metadata '{}': {error}",
+            worktrees.display()
+        )
+    })?;
+    let mut matched = None;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("cannot inspect Git worktree metadata: {error}"))?;
+        if !entry
+            .file_type()
+            .map_err(|error| format!("cannot inspect Git worktree metadata: {error}"))?
+            .is_dir()
+        {
+            continue;
+        }
+        let registration = entry.path();
+        let gitdir_file = registration.join("gitdir");
+        let gitdir = match std::fs::read_to_string(&gitdir_file) {
+            Ok(gitdir) => gitdir,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot read '{}': {error}", gitdir_file.display())),
+        };
+        if comparable_path(gitdir.trim()) != expected {
+            continue;
+        }
+        if matched.is_some() {
+            return Err(format!("multiple registrations match '{worktree_path}'"));
+        }
+        if registration.join("locked").exists() {
+            return Err(format!(
+                "the stale registration '{}' is locked",
+                registration.display()
+            ));
+        }
+        matched = Some(registration);
+    }
+    let registration = matched.ok_or_else(|| {
+        format!("Git registration for '{worktree_path}' has no matching metadata directory")
+    })?;
+    std::fs::remove_dir_all(&registration)
+        .map_err(|error| format!("cannot remove '{}': {error}", registration.display()))
 }
 
 fn branch_exists(canonical_cwd: &str, branch: &str) -> Result<bool, String> {
@@ -263,6 +348,23 @@ fn branch_exists(canonical_cwd: &str, branch: &str) -> Result<bool, String> {
     } else {
         Err(format!(
             "cannot inspect branch '{branch}' in '{canonical_cwd}': {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn branch_is_ancestor(canonical_cwd: &str, branch: &str) -> Result<bool, String> {
+    let output = git_output(
+        canonical_cwd,
+        ["merge-base", "--is-ancestor", branch, "HEAD"],
+    )?;
+    if output.status.success() {
+        Ok(true)
+    } else if output.status.code() == Some(1) {
+        Ok(false)
+    } else {
+        Err(format!(
+            "cannot verify whether branch '{branch}' is merged into '{canonical_cwd}': {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
@@ -312,7 +414,7 @@ pub(crate) fn lane_release_command(
     } else {
         branch.map(|branch| {
             format!(
-                "git -C {} branch -D {}",
+                "git -C {} branch -d {}",
                 shell_quote(&strip_verbatim(canonical_cwd)),
                 shell_quote(branch)
             )
@@ -329,9 +431,7 @@ fn clear_removed_task_lane_references(
             let Some(path) = task.lane.worktree_path.as_deref() else {
                 continue;
             };
-            if codeterm_paths::normalize_cwd(&strip_verbatim(path))
-                != codeterm_paths::normalize_cwd(&strip_verbatim(&outcome.worktree_path))
-            {
+            if comparable_path(path) != comparable_path(&outcome.worktree_path) {
                 continue;
             }
             let branch_removed = task
@@ -368,10 +468,10 @@ fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<S
         plan.tasks
             .iter()
             .any(|task| {
-                task.lane.worktree_path.as_deref().is_some_and(|path| {
-                    codeterm_paths::normalize_cwd(&strip_verbatim(path))
-                        == codeterm_paths::normalize_cwd(&strip_verbatim(worktree_path))
-                })
+                task.lane
+                    .worktree_path
+                    .as_deref()
+                    .is_some_and(|path| comparable_path(path) == comparable_path(worktree_path))
             })
             .then(|| {
                 if plan.canonical_project_path.trim().is_empty() {
@@ -402,7 +502,7 @@ pub(crate) fn clear_vanished_lane_on_cleanup_done(
     plan_id: &str,
     task_id: &str,
     update: Option<TaskLaneUpdate>,
-) -> Result<Option<TaskLaneUpdate>, String> {
+) -> Result<Option<TaskLaneUpdate>, CleanupStatusDoneError> {
     let Some(mut update) = update else {
         return Ok(None);
     };
@@ -430,13 +530,14 @@ pub(crate) fn clear_vanished_lane_on_cleanup_done(
     } else {
         &plan.canonical_project_path
     };
-    let remnant = recorded_lane_remnant(worktree_path, branch, canonical_cwd)?;
+    let remnant = recorded_lane_remnant(worktree_path, branch, canonical_cwd)
+        .map_err(CleanupStatusDoneError::Verification)?;
     if let Some(remnant) = remnant {
         let release = lane_release_command(worktree_path, branch, canonical_cwd)
             .unwrap_or_else(|| "codeterm plan lane-remove <worktree>".into());
-        return Err(format!(
+        return Err(CleanupStatusDoneError::Refused(format!(
             "cleanup is not complete: {remnant}. Release the recorded lane with: {release}"
-        ));
+        )));
     }
     update.tab_id = Some(None);
     update.workspace_id = Some(None);

@@ -22,9 +22,8 @@ use super::super::lane_safety::{
     REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE,
 };
 use super::super::{
-    clear_vanished_dispatch_lane, dispatch_ready_event, dispatch_response_lane,
-    lane_metadata_for_dispatch, plan_dispatch_lane_placement, resolve_dispatch_lane,
-    DispatchEvidence, DispatchLanePlacement,
+    dispatch_ready_event, dispatch_response_lane, lane_metadata_for_dispatch,
+    plan_dispatch_lane_placement, resolve_dispatch_lane, DispatchEvidence, DispatchLanePlacement,
 };
 
 struct Fixture {
@@ -474,41 +473,79 @@ fn vanished_recorded_lane_is_cleared_and_a_fresh_lane_is_provisioned() {
     super::git(&fixture.project, &["worktree", "prune", "--expire", "now"]);
     super::git(&fixture.project, &["branch", "-D", &old.branch]);
 
-    let mut plan = fixture.store.get(&fixture.plan.id).unwrap();
-    let mut task = fixture.store.show_task(&fixture.mine).unwrap().task;
-    assert!(clear_vanished_dispatch_lane(
-        &fixture.store,
-        &mut plan,
-        &mut task,
-        &old.canonical_cwd,
-        6,
-    )
-    .unwrap());
-
-    let cleared = fixture.store.show_task(&fixture.mine).unwrap().task;
-    assert!(cleared.lane.tab_id.is_none());
-    assert!(cleared.lane.workspace_id.is_none());
-    assert!(cleared.lane.workspace_name.is_none());
-    assert!(cleared.lane.worktree_path.is_none());
-    assert!(cleared.lane.branch.is_none());
-    assert_eq!(cleared.execution_attempts.len(), 1);
+    let plan = fixture.store.get(&fixture.plan.id).unwrap();
+    let recorded_task = fixture.store.show_task(&fixture.mine).unwrap().task;
+    assert_eq!(recorded_task.assigned_tab_id.as_deref(), Some("old-tab"));
     assert_eq!(
-        cleared.execution_attempts[0].worktree_path.as_deref(),
+        recorded_task.lane.worktree_path.as_deref(),
         Some(old.worktree_path.as_str())
     );
     assert_eq!(
-        cleared.execution_attempts[0].branch.as_deref(),
+        recorded_task.lane.branch.as_deref(),
+        Some(old.branch.as_str())
+    );
+    assert_eq!(recorded_task.execution_attempts.len(), 1);
+    assert_eq!(
+        recorded_task.execution_attempts[0].worktree_path.as_deref(),
+        Some(old.worktree_path.as_str())
+    );
+    assert_eq!(
+        recorded_task.execution_attempts[0].branch.as_deref(),
         Some(old.branch.as_str())
     );
 
-    let resolved = resolved_from_workspace(&fixture.project, &cleared.lane);
-    let placement = plan_dispatch_lane_placement(&plan, &fixture.mine, &cleared.lane, resolved)
-        .expect("dispatch resolves to a fresh lane placement");
+    let resolved = resolved_from_workspace(&fixture.project, &recorded_task.lane);
+    let placement =
+        plan_dispatch_lane_placement(&plan, &fixture.mine, &recorded_task.lane, resolved)
+            .expect("dispatch resolves to a fresh lane placement");
     let DispatchLanePlacement::Provision { base_checkout } = placement else {
         panic!("expected fresh lane provisioning, got {placement:?}");
     };
+    assert!(same_dir(&base_checkout, &fixture.project));
+
+    let mut stale_route = recorded_task.lane.clone();
+    super::super::lane_commit::clear_replaced_lane_routing_fields(&mut stale_route);
+    assert!(stale_route.tab_id.is_none());
+    assert!(stale_route.workspace_id.is_none());
+    assert!(stale_route.workspace_name.is_none());
+    assert!(stale_route.worktree_path.is_none());
+    assert!(stale_route.branch.is_none());
     let fresh = provision_lane_for_test(&base_checkout, "fresh-after-vanish").unwrap();
-    assert!(fresh.verify().is_ok());
+    let provenance = fresh.verify().unwrap();
+    let starting_lane = atomic_lane_commitment(&lane_metadata_for_dispatch(
+        &stale_route,
+        &provenance,
+        &fixture.project.display().to_string(),
+    ));
+    fixture
+        .store
+        .begin_task_dispatch_with_policy(
+            &fixture.plan.id,
+            &fixture.mine,
+            "fresh-tab",
+            "Worker",
+            starting_lane,
+            ExecutionIntent::Mutating,
+            None,
+            Some("codex"),
+            6,
+        )
+        .unwrap();
+    let committed = fixture.store.show_task(&fixture.mine).unwrap().task;
+    assert_eq!(committed.assigned_tab_id.as_deref(), Some("fresh-tab"));
+    assert_eq!(
+        committed.lane.worktree_path.as_deref(),
+        Some(provenance.worktree_path.as_str())
+    );
+    assert_eq!(
+        committed.lane.branch.as_deref(),
+        Some(provenance.branch.as_str())
+    );
+    assert_eq!(committed.execution_attempts.len(), 2);
+    assert_eq!(
+        committed.execution_attempts[0].worktree_path.as_deref(),
+        Some(old.worktree_path.as_str())
+    );
     fresh.cleanup().unwrap();
 }
 
@@ -541,9 +578,10 @@ fn recorded_lane_with_surviving_branch_commits_still_refuses() {
         .expect_err("a surviving branch must prevent provisioning over possible work");
 
     assert!(error.message.contains(&old.branch), "{}", error.message);
-    assert!(error.message.contains("branch '") && error.message.contains("still exists"));
+    assert!(error.message.contains("branch '") && error.message.contains("commits not merged"));
     assert!(error.message.contains("codeterm plan lane-remove"));
     assert!(error.message.contains("--project"));
+    assert!(!error.message.contains("branch -D"));
     super::git(&fixture.project, &["branch", "-D", &old.branch]);
 }
 
