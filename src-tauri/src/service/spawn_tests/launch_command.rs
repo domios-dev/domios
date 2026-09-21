@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(windows)]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn missing_provider_command_is_refused_before_task_tab_creation() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();

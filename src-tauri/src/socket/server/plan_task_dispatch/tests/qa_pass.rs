@@ -6,6 +6,7 @@ use crate::service::plan::task_attempts::{
 use crate::service::plan::{NewTask, PlanError, PlanStore};
 use crate::service::LaneProtection;
 use codeterm_types::agent::ReportStatus;
+use std::collections::HashMap;
 
 fn reported_task() -> (tempfile::TempDir, PlanStore, String, String, String) {
     let root = tempfile::tempdir().unwrap();
@@ -91,6 +92,7 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
         "probe-task",
         &checkout,
         LaneProtection::Enforced,
+        &HashMap::new(),
     )
     .unwrap_err();
 
@@ -127,6 +129,7 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
         "probe-task",
         &checkout,
         LaneProtection::Enforced,
+        &HashMap::new(),
     )
     .unwrap();
     assert_eq!(accepted_task.assigned_tab_id, None);
@@ -182,6 +185,7 @@ fn qa_pass_failure_preserves_attempt_checkout_binding_and_task() {
         "probe-task",
         &checkout,
         LaneProtection::Enforced,
+        &HashMap::new(),
     )
     .unwrap_err();
 }
