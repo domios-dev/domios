@@ -652,11 +652,11 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Respond to a prompt — sends the selection to PTY and clears the prompt.
-    /// The screen decides, not the bookkeeping: a prompt CodeTerm recognized only
-    /// from terminal output is answerable too, and one that is already gone is
-    /// answered by writing nothing.
-    pub fn respond_prompt(&self, tab_id: &str, value: &str) -> Result<(), String> {
+    pub fn respond_prompt(
+        &self,
+        tab_id: &str,
+        value: &str,
+    ) -> Result<RespondPromptOutcome, String> {
         {
             let mut mux = self.mux.write();
             let tab = mux
@@ -670,14 +670,12 @@ impl ServiceContext {
 
         if let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value) {
             self.emit_state_changed();
-            return result;
+            return result.map(|()| RespondPromptOutcome::Structured);
         }
 
-        // The tab exists — it was cleared above — so no PTY means no terminal
-        // prompt to answer, the same nothing-to-do as a prompt already gone.
         let Ok(pty_id) = self.resolve_pty_id(tab_id) else {
             self.emit_state_changed();
-            return Ok(());
+            return Ok(RespondPromptOutcome::NoPty);
         };
         let screen = {
             let buf = self.output_buf.lock();
@@ -707,6 +705,10 @@ impl ServiceContext {
             } else {
                 self.default_prompt_response(option_index)
             };
+            if steps.is_empty() {
+                self.emit_state_changed();
+                return Ok(RespondPromptOutcome::PromptNotOnScreen);
+            }
 
             let pty = self.pty.clone();
             let pid = pty_id.clone();
@@ -724,7 +726,100 @@ impl ServiceContext {
         }
 
         self.emit_state_changed();
-        Ok(())
+        Ok(if prompt_on_screen {
+            RespondPromptOutcome::Sent
+        } else {
+            RespondPromptOutcome::PromptNotOnScreen
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RespondPromptOutcome {
+    Sent,
+    Structured,
+    PromptNotOnScreen,
+    NoPty,
+}
+
+#[cfg(test)]
+mod respond_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn respond_prompt_answers_the_new_claude_trust_shape() {
+        use codeterm_plugin::provider::AgentProvider;
+
+        let screen = std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../plugins/provider-claude/tests/fixtures/folder-trust")
+                .join("quick-safety-no-first.txt"),
+        )
+        .expect("captured folder-trust fixture");
+        let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+        assert!(provider.parse_prompt(&screen).is_some());
+        let option_index = "2".parse::<usize>().unwrap_or(1).saturating_sub(1);
+        assert_eq!(
+            provider.build_prompt_response(option_index, &screen),
+            vec![b"j".to_vec(), b"\r".to_vec()]
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn respond_prompt_reports_not_on_screen_instead_of_ok() {
+        use crate::multiplexer::state::MultiplexerState;
+
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let pty_id = format!("respond-prompt-{}", uuid::Uuid::new_v4());
+        assert_eq!(mux.link_pty(&tab_id, pty_id.clone()), None);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture
+            .service
+            .pty
+            .lock()
+            .spawn_with_id(
+                Some(pty_id.clone()),
+                None,
+                None,
+                80,
+                24,
+                Default::default(),
+            )
+            .expect("test PTY");
+        let capture_path = fixture.temp.path().join("respond-prompt.cast");
+        let capture = crate::pty::capture::CaptureRegistry::global();
+        capture
+            .start(&pty_id, capture_path, 80, 24, 0, Vec::new())
+            .expect("capture input writes");
+
+        let result = fixture.service.respond_prompt(&tab_id, "1");
+        let cast = capture.stop(&pty_id).expect("capture stopped");
+        let _ = fixture.service.pty.lock().kill(&pty_id);
+        assert_eq!(result, Ok(RespondPromptOutcome::PromptNotOnScreen));
+
+        let events = std::fs::read_to_string(cast)
+            .expect("capture file")
+            .lines()
+            .skip(1)
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("capture events");
+        assert!(!events.iter().any(|event| {
+            event.get(1).and_then(serde_json::Value::as_str) == Some("i")
+        }));
+
+        let response = crate::api::agent_routes::respond_prompt_response(
+            RespondPromptOutcome::PromptNotOnScreen,
+        );
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("response JSON"),
+            serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"})
+        );
     }
 }
 

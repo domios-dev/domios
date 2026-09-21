@@ -769,7 +769,7 @@ pub fn mux_respond_prompt(
     tab_id: String,
     value: String,
 ) -> Result<(), String> {
-    svc.respond_prompt(&tab_id, &value)
+    svc.respond_prompt(&tab_id, &value).map(|_| ())
 }
 
 /// Execute a batch of commands via the service layer.

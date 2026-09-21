@@ -11,10 +11,17 @@ const FRAME: &[char] = &[
 /// does not prove which key advances it toward trusting the folder.
 pub(super) fn response(screen: &str) -> Option<DirectoryTrustPromptResponse> {
     let rows: Vec<&str> = screen.split('\n').map(content).collect();
-    let path = rows.iter().position(|row| is_path_row(row))?;
-    let trust = (path + 1..rows.len()).find(|&i| rows[i].to_lowercase().contains("trust"))?;
+    if let Some(path) = rows.iter().position(|row| is_path_row(row)) {
+        let trust = (path + 1..rows.len())
+            .find(|&i| rows[i].to_lowercase().contains("trust"))?;
+        (trust + 1..rows.len()).find(|&i| pointer_label(rows[i]).is_some())?;
+        return Some(
+            answer(&rows, Some(path), trust).unwrap_or(DirectoryTrustPromptResponse::Hold),
+        );
+    }
+    let trust = rows.iter().position(|row| is_pathless_trust_header(row))?;
     (trust + 1..rows.len()).find(|&i| pointer_label(rows[i]).is_some())?;
-    Some(answer(&rows, path, trust).unwrap_or(DirectoryTrustPromptResponse::Hold))
+    Some(answer(&rows, None, trust).unwrap_or(DirectoryTrustPromptResponse::Hold))
 }
 
 struct OptionRow<'a> {
@@ -22,40 +29,34 @@ struct OptionRow<'a> {
     label: &'a str,
 }
 
-fn answer(rows: &[&str], path: usize, trust: usize) -> Option<DirectoryTrustPromptResponse> {
-    if !rows[..path].iter().any(|row| row.ends_with(':')) {
+struct TrustPrompt<'a> {
+    question: &'a str,
+    options: Vec<OptionRow<'a>>,
+    focused: usize,
+}
+
+fn answer(
+    rows: &[&str],
+    path: Option<usize>,
+    trust: usize,
+) -> Option<DirectoryTrustPromptResponse> {
+    if let Some(path) = path {
+        if !rows[..path].iter().any(|row| row.ends_with(':')) {
+            return None;
+        }
+    }
+    if path.is_none() && !is_pathless_trust_header(rows[trust]) {
         return None;
     }
-    let footer = rows.iter().rposition(|row| !row.is_empty())?;
-    let footer_text = rows[footer].to_lowercase();
-    if !footer_text.contains("enter") || !footer_text.contains("esc") {
+    let options = choice_rows(rows, trust)?;
+    if options.len() != 2 {
         return None;
     }
-    let mut end = footer;
-    while end > 0 && rows[end - 1].is_empty() {
-        end -= 1;
-    }
-    let mut start = end;
-    while start > 0 && !rows[start - 1].is_empty() {
-        start -= 1;
-    }
-    if end - start != 2 || trust >= start {
-        return None;
-    }
-    let options: Vec<OptionRow> = rows[start..end].iter().map(|row| option_row(row)).collect();
     if options.iter().filter(|option| option.focused).count() != 1 {
         return None;
     }
+    let (yes, _) = trust_choice_indices(&options)?;
     let focused = options.iter().position(|option| option.focused)?;
-    let yes = options
-        .iter()
-        .position(|option| leads_with(option.label, "yes"))?;
-    let no = options
-        .iter()
-        .position(|option| leads_with(option.label, "no"))?;
-    if !options[no].label.to_lowercase().contains("exit") {
-        return None;
-    }
     let step = if focused == yes {
         b"\r".to_vec()
     } else if yes > focused {
@@ -64,6 +65,95 @@ fn answer(rows: &[&str], path: usize, trust: usize) -> Option<DirectoryTrustProm
         b"k".to_vec()
     };
     Some(DirectoryTrustPromptResponse::Answer { step })
+}
+
+pub(super) fn parse_prompt(screen: &str) -> Option<(String, Vec<(String, String)>)> {
+    let rows: Vec<&str> = screen.split('\n').map(content).collect();
+    let prompt = current_prompt(&rows)?;
+    Some((
+        prompt.question.trim().to_string(),
+        prompt
+            .options
+            .into_iter()
+            .enumerate()
+            .map(|(index, option)| (option.label.to_string(), (index + 1).to_string()))
+            .collect(),
+    ))
+}
+
+pub(super) fn current_option_index(screen: &str) -> Option<usize> {
+    let rows: Vec<&str> = screen.split('\n').map(content).collect();
+    current_prompt(&rows).map(|prompt| prompt.focused)
+}
+
+fn current_prompt<'a>(rows: &[&'a str]) -> Option<TrustPrompt<'a>> {
+    if rows.iter().any(|row| is_path_row(row)) {
+        return None;
+    }
+    let trust = rows.iter().position(|row| is_pathless_trust_header(row))?;
+    let options = choice_rows(rows, trust)?;
+    if options.len() != 2 {
+        return None;
+    }
+    if options.iter().filter(|option| option.focused).count() != 1 {
+        return None;
+    }
+    let focused = options.iter().position(|option| option.focused)?;
+    trust_choice_indices(&options)?;
+    Some(TrustPrompt {
+        question: rows[trust],
+        options,
+        focused,
+    })
+}
+
+fn choice_rows<'a>(rows: &[&'a str], trust: usize) -> Option<Vec<OptionRow<'a>>> {
+    let footer = rows.iter().rposition(|row| !row.is_empty())?;
+    let footer_text = rows[footer].to_lowercase();
+    if !footer_text.contains("enter") || !footer_text.contains("esc") {
+        return None;
+    }
+    let start = (trust + 1..footer)
+        .find(|&index| is_trust_option(option_row(rows[index]).label))?;
+    let mut options = Vec::new();
+    for row in &rows[start..footer] {
+        if row.is_empty() {
+            continue;
+        }
+        let option = option_row(row);
+        if !is_trust_option(option.label) {
+            return None;
+        }
+        options.push(option);
+    }
+    Some(options)
+}
+
+fn is_pathless_trust_header(row: &str) -> bool {
+    let Some((header, question)) = row.split_once(':') else {
+        return false;
+    };
+    !header.trim().is_empty()
+        && question.to_lowercase().contains("trust")
+        && question.contains('?')
+}
+
+fn trust_choice_indices(options: &[OptionRow<'_>]) -> Option<(usize, usize)> {
+    let yes = options
+        .iter()
+        .position(|option| leads_with(option.label, "yes"))?;
+    let no = options
+        .iter()
+        .position(|option| leads_with(option.label, "no"))?;
+    options[no]
+        .label
+        .to_lowercase()
+        .contains("exit")
+        .then_some((yes, no))
+}
+
+fn is_trust_option(label: &str) -> bool {
+    leads_with(label, "yes") || leads_with(label, "no")
 }
 
 fn content(line: &str) -> &str {
