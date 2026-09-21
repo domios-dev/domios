@@ -23,6 +23,8 @@ pub struct MockProvider {
     session_models: std::collections::HashMap<String, String>,
     usage_source: Option<UsageSourceSpec>,
     empty_launch_command: bool,
+    empty_launch_command_when_task_present: bool,
+    task_delivery: TaskDelivery,
 }
 
 impl MockProvider {
@@ -39,6 +41,8 @@ impl MockProvider {
             session_models: Default::default(),
             usage_source: None,
             empty_launch_command: false,
+            empty_launch_command_when_task_present: false,
+            task_delivery: TaskDelivery::PtyInput,
         }
     }
 
@@ -124,6 +128,15 @@ impl MockProvider {
         }
     }
 
+    pub fn with_empty_launch_command_when_task_present(id: &str) -> Self {
+        Self {
+            empty_launch_command_when_task_present: true,
+            system_prompt_delivery: SystemPromptDelivery::SessionConfig,
+            task_delivery: TaskDelivery::InlineFlag,
+            ..Self::new(id)
+        }
+    }
+
     pub fn with_session(id: &str, session_id: &str) -> Self {
         Self {
             sessions: [session_id.to_string()].into_iter().collect(),
@@ -140,7 +153,9 @@ impl AgentProvider for MockProvider {
         &self.id
     }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
-        if self.empty_launch_command {
+        if self.empty_launch_command
+            || (self.empty_launch_command_when_task_present && params.task.is_some())
+        {
             return String::new();
         }
         let mut cmd = format!("{}-cli", self.id);
@@ -177,7 +192,7 @@ impl AgentProvider for MockProvider {
         vec!["--effort".into(), effort.into()]
     }
     fn task_delivery(&self) -> TaskDelivery {
-        TaskDelivery::PtyInput
+        self.task_delivery.clone()
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()

@@ -25,6 +25,41 @@ fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
     assert_eq!(fixture.service.mux.read().all_tabs().count(), before);
 }
 
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+async fn task_specific_empty_provider_command_fails_orchestrated_spawn_and_cleans_tab() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
+            "task-sensitive-empty-launch",
+        ),
+    ));
+    fixture
+        .service
+        .require_agent_provider_ready("task-sensitive-empty-launch")
+        .expect("provider preflight without a task succeeds");
+    let before = fixture.service.mux.read().all_tabs().count();
+
+    let result = fixture
+        .service
+        .spawn_agent(
+            SpawnAgentParams {
+                agent: Some("task-sensitive-empty-launch".into()),
+                task: Some("assigned work".into()),
+                ..Default::default()
+            },
+            None,
+        )
+        .await;
+
+    let Err(error) = result else {
+        panic!("a task-specific missing provider command must fail");
+    };
+    assert!(error.contains("did not resolve a launch command"), "{error}");
+    assert_eq!(fixture.service.mux.read().all_tabs().count(), before);
+}
+
 #[test]
 fn effort_provenance_keeps_plan_and_request_distinct() {
     let planned = resolved_effort_provenance(Some("high".into()), Some("medium".into()));

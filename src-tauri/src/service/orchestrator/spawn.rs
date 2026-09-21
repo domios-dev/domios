@@ -772,6 +772,9 @@ impl ServiceContext {
             launch_session_id.as_deref(),
             &self.agent_registry,
         );
+        if launch_cmd.trim().is_empty() {
+            return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
+        }
         launch_agent_in_background(
             self.clone(),
             tab_id.clone(),
