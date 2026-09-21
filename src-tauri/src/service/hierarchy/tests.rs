@@ -447,6 +447,7 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
                     name: format!("status task {index}"),
                     kind: "implement".into(),
                     acceptance_criteria: vec!["status persists".into()],
+                    test_plan: Some("status persists across report paths".into()),
                     ..Default::default()
                 },
                 index as u64 + 2,
