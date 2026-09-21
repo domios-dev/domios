@@ -156,10 +156,16 @@ pub(super) fn team_close_lanes(
             plan.canonical_project_path.clone()
         };
         for task in &plan.tasks {
+            if task.status.is_terminal() || task.status == TaskStatus::InReview {
+                continue;
+            }
             let matching_attempts: Vec<_> = task
                 .execution_attempts
                 .iter()
-                .filter(|attempt| tabs.contains(attempt.executor_tab_id.as_str()))
+                .filter(|attempt| {
+                    attempt.closed_at.is_none()
+                        && tabs.contains(attempt.executor_tab_id.as_str())
+                })
                 .collect();
             let assigned_to_closed_tab = task
                 .assigned_tab_id

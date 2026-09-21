@@ -41,7 +41,12 @@ impl PlanStore {
                 Ok(())
             }) {
                 for original in &originals {
-                    let _ = self.restore_team_plan(original);
+                    if let Err(rollback_error) = self.restore_team_plan(original) {
+                        log::error!(
+                            "[plan.team-close] rollback failed for plan {} after {error}: {rollback_error}",
+                            original.id
+                        );
+                    }
                 }
                 return Err(error);
             }
@@ -255,12 +260,16 @@ fn close_team_tasks(
         }
         closed_attempts += task_attempts_closed;
         affected_tasks += 1;
+        let preserve_review = task.status == TaskStatus::InReview;
         let returned_to_pending =
-            reset_task && !task.status.is_terminal() && task.status != TaskStatus::Pending;
+            reset_task
+                && !task.status.is_terminal()
+                && !preserve_review
+                && task.status != TaskStatus::Pending;
         if returned_to_pending {
             reset_tasks += 1;
         }
-        if reset_task && !task.status.is_terminal() {
+        if reset_task && !task.status.is_terminal() && !preserve_review {
             if task.status != TaskStatus::Pending {
                 task.status = TaskStatus::Pending;
                 task.status_changed_at = now_ms;
@@ -283,6 +292,8 @@ fn close_team_tasks(
             kind: "team_close".into(),
             text: if returned_to_pending {
                 format!("Team {team_id} closed; task returned to pending.")
+            } else if preserve_review {
+                format!("Team {team_id} closed; finalized {task_attempts_closed} attempts; review remains open.")
             } else if reset_task && !task.status.is_terminal() {
                 format!("Team {team_id} closed; cleared the pending task assignment.")
             } else {
