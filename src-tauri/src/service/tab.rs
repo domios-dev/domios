@@ -932,7 +932,10 @@ mod respond_prompt_tests {
             .lock()
             .active_prompt(&tab_id)
             .is_some());
+    }
 
+    #[tokio::test]
+    async fn respond_prompt_outcome_maps_not_on_screen_to_conflict() {
         let response = crate::api::agent_routes::respond_prompt_response(
             RespondPromptOutcome::PromptNotOnScreen,
         );
