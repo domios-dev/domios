@@ -3,6 +3,7 @@ use super::super::{preflight_dispatch_placement, DispatchLanePlacement};
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskExecutionAttempt};
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::LaneProtection;
+use std::collections::HashSet;
 
 fn plan_with_attempt(
     closed_at: Option<u64>,
@@ -71,6 +72,7 @@ fn dispatch_refuses_occupied_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap_err();
 
@@ -116,8 +118,6 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
     let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
     let checkout = root.path().display().to_string();
     let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
-    task.lane.worktree_path = Some(checkout.clone());
-    task.lane.branch = Some("lane/partial".into());
     task.execution_attempts[0].worktree_path = Some(checkout.clone());
     task.execution_attempts[0].reported_at = Some(4);
 
@@ -126,12 +126,42 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
         &task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .expect("a reported attempt is replaced by redispatch onto its recorded checkout");
+}
 
-    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
-    assert_eq!(task.lane.worktree_path.as_deref(), Some(checkout.as_str()));
-    assert_eq!(task.lane.branch.as_deref(), Some("lane/partial"));
+#[test]
+fn reported_attempt_with_live_executor_still_occupies_its_lane() {
+    let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
+    let checkout = root.path().display().to_string();
+    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    task.execution_attempts[0].worktree_path = Some(checkout.clone());
+    task.execution_attempts[0].reported_at = Some(4);
+    let live_executor_tab_ids = HashSet::from(["tab-live".to_string()]);
+
+    let error = preflight_checkout_occupancy(
+        &plan,
+        &task_id,
+        &checkout,
+        LaneProtection::Enforced,
+        &live_executor_tab_ids,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, -32011);
+    assert_eq!(error.data.as_ref().unwrap()["type"], "checkout_occupied");
+    assert_eq!(
+        error.data.as_ref().unwrap()["occupying_attempt_id"],
+        "attempt_live"
+    );
+    assert_eq!(error.data.as_ref().unwrap()["executor_tab_id"], "tab-live");
+    assert_eq!(
+        error.data.as_ref().unwrap()["release_command"],
+        "codeterm tab close --tab tab-live"
+    );
+    assert!(error.message.contains("executor tab 'tab-live'"));
+    assert!(error.message.contains("codeterm tab close --tab tab-live"));
 }
 
 #[test]
@@ -151,6 +181,7 @@ fn another_task_still_cannot_take_an_occupied_lane() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap_err();
 
@@ -169,6 +200,7 @@ fn unreported_attempt_still_occupies_its_own_checkout() {
         &task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap_err();
 
@@ -189,6 +221,7 @@ fn live_competitive_attempt_still_occupies_its_own_checkout() {
         &task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap_err();
 
@@ -208,6 +241,7 @@ fn read_only_dispatch_is_not_blocked_by_an_occupied_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap_err();
     assert_eq!(error.code, -32011);
@@ -221,6 +255,7 @@ fn read_only_dispatch_is_not_blocked_by_an_occupied_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Waived,
+        &HashSet::new(),
     )
     .unwrap();
 }
@@ -268,6 +303,7 @@ fn free_checkout_does_not_conflict() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap();
 }
@@ -295,6 +331,7 @@ fn closed_attempt_history_does_not_occupy_checkout() {
         &dispatched_task_id,
         &checkout,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap();
 }
@@ -321,6 +358,7 @@ fn read_only_attempt_does_not_block_lane_bound_mutating_dispatch() {
         &canonical_checkout,
         LaneProtection::Enforced,
         will_provision_lane,
+        &HashSet::new(),
     )
     .expect(
         "a task about to be provisioned its own isolated lane must not be refused by \
@@ -341,6 +379,7 @@ fn mutating_dispatch_without_a_lane_to_provision_still_enforces_occupancy() {
         &canonical_checkout,
         LaneProtection::Enforced,
         false,
+        &HashSet::new(),
     )
     .unwrap_err();
 
@@ -360,6 +399,7 @@ fn distinct_explicit_checkout_does_not_conflict() {
         &dispatched_task_id,
         &distinct,
         LaneProtection::Enforced,
+        &HashSet::new(),
     )
     .unwrap();
 }

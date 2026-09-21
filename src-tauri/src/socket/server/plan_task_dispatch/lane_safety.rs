@@ -1,4 +1,5 @@
 use serde_json::json;
+use std::collections::HashSet;
 
 use crate::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
 use crate::service::{classify_mutating_lane, LaneProtection, UnsafeMutatingLane};
@@ -127,6 +128,7 @@ pub(crate) fn preflight_checkout_occupancy(
     dispatched_task_id: &str,
     checkout_path: &str,
     protection: LaneProtection,
+    live_executor_tab_ids: &HashSet<String>,
 ) -> Result<(), JsonRpcError> {
     if protection.is_waived() {
         return Ok(());
@@ -138,9 +140,11 @@ pub(crate) fn preflight_checkout_occupancy(
             if attempt.closed_at.is_some() {
                 return None;
             }
-            if task.id == dispatched_task_id
+            let reported_same_task_attempt = task.id == dispatched_task_id
                 && attempt.competition_group_id.is_none()
-                && attempt.reported_at.is_some()
+                && attempt.reported_at.is_some();
+            if reported_same_task_attempt
+                && !live_executor_tab_ids.contains(&attempt.executor_tab_id)
             {
                 return None;
             }
@@ -150,37 +154,53 @@ pub(crate) fn preflight_checkout_occupancy(
                 .filter(|path| !path.trim().is_empty())
                 .unwrap_or(canonical_path);
             (normalized_checkout == codeterm_paths::normalize_cwd(attempt_path))
-                .then_some((task.id.as_str(), attempt.id.as_str()))
+                .then_some((
+                    task.id.as_str(),
+                    attempt.id.as_str(),
+                    reported_same_task_attempt.then_some(attempt.executor_tab_id.as_str()),
+                ))
         })
     });
-    let Some((occupying_task_id, occupying_attempt_id)) = occupant else {
+    let Some((occupying_task_id, occupying_attempt_id, executor_tab_id)) = occupant else {
         return Ok(());
     };
+    let release_command =
+        executor_tab_id.map(|tab_id| format!("codeterm tab close --tab {tab_id}"));
     let update_command = isolated_lane_update_command(&plan.id, dispatched_task_id);
     let dispatch_command = format!(
         "codeterm plan task dispatch {} {}",
         plan.id, dispatched_task_id
     );
-    let message = format!(
+    let mut message = format!(
         "dispatch refused: checkout '{checkout_path}' is occupied by live attempt \
          '{occupying_attempt_id}' of task '{occupying_task_id}' in plan '{}'. No worker was \
          spawned. Assign an existing isolated lane, then dispatch again:\n  {update_command}\n  \
          {dispatch_command}",
         plan.id
     );
+    if let (Some(tab_id), Some(command)) = (executor_tab_id, release_command.as_deref()) {
+        message.push_str(&format!(
+            "\nExecutor tab '{tab_id}' is still live. Release the lane with: {command}"
+        ));
+    }
+    let mut data = json!({
+        "type": "checkout_occupied",
+        "stage": "checkout_occupancy",
+        "reason": message.clone(),
+        "occupying_task_id": occupying_task_id,
+        "occupying_attempt_id": occupying_attempt_id,
+        "checkout_path": checkout_path,
+        "update_command": update_command,
+        "dispatch_command": dispatch_command,
+    });
+    if let (Some(tab_id), Some(command)) = (executor_tab_id, release_command) {
+        data["executor_tab_id"] = json!(tab_id);
+        data["release_command"] = json!(command);
+    }
     Err(JsonRpcError {
         code: -32011,
         message: message.clone(),
-        data: Some(json!({
-            "type": "checkout_occupied",
-            "stage": "checkout_occupancy",
-            "reason": message,
-            "occupying_task_id": occupying_task_id,
-            "occupying_attempt_id": occupying_attempt_id,
-            "checkout_path": checkout_path,
-            "update_command": update_command,
-            "dispatch_command": dispatch_command,
-        })),
+        data: Some(data),
     })
 }
 
