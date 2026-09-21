@@ -28,7 +28,7 @@ function eq(actual: unknown, expected: unknown, name: string) {
   assert(a === e, name, `expected ${e}, got ${a}`);
 }
 
-const CODEX_MARKER = "codeterm-codex-session-binding-v2";
+const CODEX_MARKER = "codeterm-codex-session-binding-v1";
 /// Codex's own event set, as its real hooks file represents it.
 const CODEX_EVENTS = ["SessionStart", "Stop"];
 
@@ -191,7 +191,7 @@ function ownedEntries(entries: CodexEntry[] | undefined): CodexEntry[] {
   console.log("command_marker_is_the_ownership_key");
   const markerCommand =
     'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" '
-    + '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v2"';
+    + '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1"';
   const files = hooksFile({ SessionStart: [hookEntry(markerCommand, "acme-audit", "startup")] });
   const p = loadCodex(files);
   assert(p.installIntegration(7686, { consent: true }).ok === true, "install recognizes the in-command owner marker");
@@ -212,28 +212,6 @@ function ownedEntries(entries: CodexEntry[] | undefined): CodexEntry[] {
   eq(written.hooks.SessionStart.length, 2, "the foreign entry survives beside ours");
   eq(written.hooks.SessionStart[0], foreign, "the foreign entry is byte-identical");
   eq(ownedEntries(written.hooks.SessionStart).length, 1, "exactly one entry is ours");
-}
-
-// ── previous_owned_marker_is_replaced_without_claiming_foreign_hooks ───────
-{
-  console.log("previous_owned_marker_is_replaced_without_claiming_foreign_hooks");
-  const previous = hookEntry(
-    'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" '
-      + '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1"',
-    "codeterm-codex-session-binding-v1",
-    "startup",
-  );
-  const foreign = hookEntry(FOREIGN_COMMAND, "acme-audit", "startup");
-  const files = hooksFile({ SessionStart: [previous, foreign] });
-  const p = loadCodex(files);
-  assert(p.installIntegration(7686, { consent: true }).ok === true, "consented migration succeeds");
-  const written = JSON.parse(files.get(HOOKS_PATH) as string);
-  eq(written.hooks.SessionStart.length, 2, "migration keeps one owned entry and the foreign entry");
-  assert(
-    String(written.hooks.SessionStart[0].hooks[0].command).includes(`X-CodeTerm-Hook: ${CODEX_MARKER}`),
-    "the prior owned entry is replaced with the current marker",
-  );
-  eq(written.hooks.SessionStart[1], foreign, "migration preserves foreign hook bytes");
 }
 
 // ── reconcile_current_hooks_twice_keeps_one_entry_per_event ────────────────

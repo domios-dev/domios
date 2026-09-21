@@ -2,8 +2,7 @@
 // plugin.ts to keep that file under the repository's hard 1200-line limit.
 import type { CodexHookEntry } from "./plugin";
 
-export const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v2";
-const PREVIOUS_CODEX_HOOK_MARKERS = new Set(["codeterm-codex-session-binding-v1"]);
+export const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 export const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 const LEGACY_CODEX_HOOK_COMMANDS = new Set([
   'curl -s -X POST http://localhost:${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H \'Content-Type: application/json\' -H \'X-CodeTerm-Agent-Provider: codex\' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true',
@@ -46,9 +45,7 @@ export function codexWindowsHookScript(): string {
     'set "apiBase=%CODETERM_API_URL%"',
     'if "%apiBase:~-1%"=="/" set "apiBase=%apiBase:~0,-1%"',
     'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
-    'set "curlExe=%SystemRoot%\\System32\\curl.exe"',
-    'if not exist "%curlExe%" set "curlExe=curl.exe"',
-    '"%curlExe%" --silent --show-error --max-time ' + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
+    'curl.exe --silent --show-error --max-time ' + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
     'if exist "%responseFile%" del /F /Q "%responseFile%"',
     'if /I "%hookEvent%"=="session_start" if defined USERPROFILE if exist "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml" del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"',
     "exit /b 0",
@@ -85,15 +82,9 @@ function isOwnedCodexHook(hook: NonNullable<CodexHookEntry["hooks"]>[number] | u
   if (!hook) return false;
   const command = String(hook.command || "");
   const fullCommand = command + "\n" + String(hook.commandWindows || "");
-  const commandHasOwnedMarker = fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1
-    || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1
-    || [...PREVIOUS_CODEX_HOOK_MARKERS].some((marker) =>
-      fullCommand.indexOf("X-CodeTerm-Hook: " + marker) !== -1
-        || fullCommand.indexOf("X-CodeTerm-Hook:" + marker) !== -1);
-  if (commandHasOwnedMarker) return true;
-  if (hook._source !== undefined) {
-    return hook._source === CODETERM_CODEX_HOOK_MARKER || PREVIOUS_CODEX_HOOK_MARKERS.has(hook._source);
-  }
+  if (fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1
+    || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1) return true;
+  if (hook._source !== undefined) return hook._source === CODETERM_CODEX_HOOK_MARKER;
   return LEGACY_CODEX_HOOK_COMMANDS.has(command);
 }
 
@@ -110,9 +101,7 @@ export const CODEX_HOOK_SCRIPT_CONTRACT = [
   "CODETERM_SESSION_BINDING_NONCE",
   "X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER,
   "/api/tabs/",
-  'set "curlExe=%SystemRoot%\\System32\\curl.exe"',
-  'if not exist "%curlExe%" set "curlExe=curl.exe"',
-  '"%curlExe%" --silent',
+  "curl.exe",
   "--max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS,
   "responseFile",
   "--output",
@@ -147,8 +136,7 @@ export function codexHookContentHash(text: string): string {
 }
 
 export function isOwnedCodexHookScriptContent(text: string): boolean {
-  return text.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1
-    || [...PREVIOUS_CODEX_HOOK_MARKERS].some((marker) => text.indexOf(marker) !== -1);
+  return text.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
 }
 
 /// Current when the content satisfies the contract and bakes in no instance.
