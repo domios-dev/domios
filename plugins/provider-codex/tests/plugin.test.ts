@@ -780,12 +780,14 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     "session_start hook curl carries the binding-nonce header",
     cmd,
   );
-  assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+  assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v2") !== -1,
     "session_start hook command carries its ownership marker", cmd);
   assert(
-    writtenScript.includes("codeterm-profile-cleanup-v1") &&
+      writtenScript.includes("codeterm-profile-cleanup-v1") &&
       writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
       writtenScript.includes("del /F /Q") &&
+      writtenScript.includes("%SystemRoot%\\System32\\curl.exe") &&
+      writtenScript.includes('if not exist "%curlExe%" set "curlExe=curl.exe"') &&
       writtenScript.includes("curl.exe") &&
       writtenScript.includes("--max-time 30") &&
       writtenScript.includes("X-CodeTerm-Hook: "),
@@ -794,7 +796,9 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
   const windowsCommand = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
   assert(windowsCommand.indexOf("powershell") === -1, "Windows hook command avoids a PowerShell spawn", windowsCommand);
-  assert(windowsCommand.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+  assert(windowsCommand.indexOf("%ComSpec%") !== -1 && windowsCommand.indexOf("%SystemRoot%\\System32\\cmd.exe") !== -1,
+    "Windows command selects ComSpec with an absolute cmd.exe fallback", windowsCommand);
+  assert(windowsCommand.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v2") !== -1,
     "Windows hook command carries the in-command ownership marker", windowsCommand);
 }
 
@@ -973,10 +977,12 @@ for (const [name, fixture] of [
       writeFile: () => true,
     },
   }));
+  const status = p.checkIntegration();
   assert(
-    p.checkIntegration().session_start_hook === false,
+    status.session_start_hook === false,
     "Windows integration rejects a pre-cleanup hook so startup reinstalls it",
   );
+  assert(status.hooks_owned === true, "the previous marked helper remains owned for migration");
 }
 
 {
@@ -1026,7 +1032,7 @@ for (const [name, fixture] of [
   const preNonce =
     "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
     "-H 'X-CodeTerm-Agent-Provider: codex' " +
-    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v2" ' +
     '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @-';
   const old = loadCodexWithHost(sessionStartHook(preNonce));
   assert(
@@ -1050,12 +1056,12 @@ for (const [name, fixture] of [
   const nonceCommand =
     "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
     "-H 'X-CodeTerm-Agent-Provider: codex' " +
-    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v2" ' +
     '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
     '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-';
   const stopCommand = nonceCommand.replace("/hook/session_start", "/hook/stop");
   const ownedHook = (command: string, timeout: number) => ({
-    type: "command", command, timeout, _source: "codeterm-codex-session-binding-v1",
+    type: "command", command, timeout, _source: "codeterm-codex-session-binding-v2",
   });
   const hooksJson = (timeout: number) => JSON.stringify({
     hooks: {
