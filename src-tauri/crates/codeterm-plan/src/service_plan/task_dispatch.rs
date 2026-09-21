@@ -1,4 +1,5 @@
 mod rollback;
+mod reservation;
 mod worker_ack_subject;
 
 use super::lane_metadata::normalize_lane_metadata;
@@ -6,11 +7,19 @@ use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
 pub use rollback::DispatchRollback;
+pub(super) use reservation::DispatchReservationOwner;
+pub use reservation::TaskDispatchReservation;
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
     ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
     ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchStartupOwner {
+    pub attempt_id: String,
+    pub tab_id: String,
+}
 
 fn startup_attempt<'a>(
     task: &'a crate::plan::Task,
@@ -85,7 +94,42 @@ fn startup_status_allows(task: &crate::plan::Task) -> bool {
     )
 }
 
+fn current_dispatch_startup_owner(
+    task: &crate::plan::Task,
+) -> Option<DispatchStartupOwner> {
+    let tab_id = task.assigned_tab_id.as_deref()?;
+    let attempt = task.execution_attempts.iter().rfind(|attempt| {
+        attempt.closed_at.is_none() && attempt.retired_at.is_none()
+    })?;
+    if attempt.executor_tab_id != tab_id
+        || attempt.executor_title.is_none()
+        || attempt.acknowledged_at.is_some()
+        || attempt.reported_at.is_some()
+        || attempt.report.is_some()
+        || attempt.competition_group_id.is_some()
+        || !startup_status_allows(task)
+        || startup_attempt(task, tab_id, &attempt.id).is_none()
+    {
+        return None;
+    }
+    Some(DispatchStartupOwner {
+        attempt_id: attempt.id.clone(),
+        tab_id: tab_id.to_string(),
+    })
+}
+
 impl PlanStore {
+    pub fn dispatch_startup_owner_candidate(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Option<DispatchStartupOwner> {
+        self.get(plan_id).and_then(|plan| {
+            crate::plan::task_key::find_task(&plan.tasks, task_id)
+                .and_then(current_dispatch_startup_owner)
+        })
+    }
+
     pub fn worker_startup_attempt_owns(
         &self,
         plan_id: &str,
@@ -102,6 +146,8 @@ impl PlanStore {
                 .is_some_and(|(task, attempt)| {
                     startup_status_allows(task)
                         && attempt.acknowledged_at.is_none()
+                        && attempt.reported_at.is_none()
+                        && attempt.report.is_none()
                         && session_id.is_none_or(|session_id| {
                             attempt.session_id.as_deref() == Some(session_id)
                         })
@@ -265,6 +311,9 @@ impl PlanStore {
             None,
             None,
             crate::plan::WorkerPlacement::IsolatedLane,
+            None,
+            false,
+            false,
             now_ms,
         )
     }
@@ -295,6 +344,9 @@ impl PlanStore {
             Some(attempt_id),
             None,
             crate::plan::WorkerPlacement::IsolatedLane,
+            None,
+            false,
+            false,
             now_ms,
         )
     }
@@ -327,6 +379,76 @@ impl PlanStore {
             Some(attempt_id),
             Some(authorized_gates),
             placement,
+            None,
+            false,
+            false,
+            now_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        intent: crate::plan::ExecutionIntent,
+        allowance: Option<crate::plan::ProviderAllowance>,
+        provider: Option<&str>,
+        attempt_id: &str,
+        authorized_gates: Vec<String>,
+        placement: crate::plan::WorkerPlacement,
+        observed_startup_owner: Option<DispatchStartupOwner>,
+        observed_startup_owner_is_live: bool,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            intent,
+            allowance,
+            provider,
+            Some(attempt_id),
+            Some(authorized_gates),
+            placement,
+            observed_startup_owner,
+            observed_startup_owner_is_live,
+            true,
+            now_ms,
+        )
+    }
+
+    pub fn begin_task_dispatch_with_observation(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        observed_startup_owner: Option<DispatchStartupOwner>,
+        observed_startup_owner_is_live: bool,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            crate::plan::ExecutionIntent::Unspecified,
+            None,
+            None,
+            None,
+            None,
+            crate::plan::WorkerPlacement::IsolatedLane,
+            observed_startup_owner,
+            observed_startup_owner_is_live,
+            true,
             now_ms,
         )
     }
@@ -345,6 +467,9 @@ impl PlanStore {
         reserved_attempt_id: Option<&str>,
         authorized_gates: Option<Vec<String>>,
         placement: crate::plan::WorkerPlacement,
+        observed_startup_owner: Option<DispatchStartupOwner>,
+        observed_startup_owner_is_live: bool,
+        startup_owner_observation_made: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
@@ -368,17 +493,22 @@ impl PlanStore {
             )?;
             original_status = Some(plan.tasks[task_index].status.clone());
             let task = &mut plan.tasks[task_index];
-            if let Some(attempt) = task
-                .execution_attempts
-                .iter()
-                .rev()
-                .find(|attempt| attempt.closed_at.is_none())
-            {
+            let current_owner = current_dispatch_startup_owner(task);
+            let dispatch_in_flight = startup_owner_observation_made
+                && current_owner.as_ref().is_some_and(|owner| {
+                    observed_startup_owner.as_ref() != Some(owner)
+                        || observed_startup_owner_is_live
+                });
+            if dispatch_in_flight {
+                let owner = current_owner.expect("in-flight owner must be present");
                 return Err(PlanError::DispatchInFlight {
-                    attempt_id: attempt.id.clone(),
-                    tab_id: attempt.executor_tab_id.clone(),
+                    attempt_id: owner.attempt_id,
+                    tab_id: owner.tab_id,
                 });
             }
+            lane.destination = task.lane.destination.clone();
+            lane.cleanup_status = task.lane.cleanup_status.clone();
+            lane.cleanup_hints = task.lane.cleanup_hints.clone();
             task.lane = normalize_lane_metadata(lane);
             task.assigned_tab_id = Some(tab_id.to_string());
             task.taken_by_role = Some("worker".into());

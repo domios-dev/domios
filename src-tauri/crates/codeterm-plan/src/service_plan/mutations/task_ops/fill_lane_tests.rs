@@ -174,6 +174,10 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
             3,
         )
         .unwrap();
+    assert_eq!(
+        store.show_task(&task).unwrap().task.lane.destination.as_deref(),
+        Some("release/pre-dispatch")
+    );
     let startup_metadata = TaskLaneUpdate {
         destination: Some(Some("release/startup".into())),
         cleanup_status: Some(Some("pending".into())),
