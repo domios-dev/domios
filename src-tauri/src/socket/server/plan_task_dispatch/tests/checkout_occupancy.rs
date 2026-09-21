@@ -111,6 +111,90 @@ fn dispatch_refuses_occupied_checkout() {
     );
 }
 
+#[test]
+fn partial_report_then_redispatch_reuses_its_own_lane() {
+    let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
+    let checkout = root.path().display().to_string();
+    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    task.lane.worktree_path = Some(checkout.clone());
+    task.lane.branch = Some("lane/partial".into());
+    task.execution_attempts[0].worktree_path = Some(checkout.clone());
+    task.execution_attempts[0].reported_at = Some(4);
+
+    preflight_checkout_occupancy(
+        &plan,
+        &task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .expect("a reported attempt is replaced by redispatch onto its recorded checkout");
+
+    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(task.lane.worktree_path.as_deref(), Some(checkout.as_str()));
+    assert_eq!(task.lane.branch.as_deref(), Some("lane/partial"));
+}
+
+#[test]
+fn another_task_still_cannot_take_an_occupied_lane() {
+    let (root, mut plan, occupying_task_id, dispatched_task_id) = plan_with_attempt(None, None);
+    let checkout = root.path().display().to_string();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == occupying_task_id)
+        .unwrap();
+    task.execution_attempts[0].worktree_path = Some(checkout.clone());
+    task.execution_attempts[0].reported_at = Some(4);
+
+    let error = preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["type"], "checkout_occupied");
+}
+
+#[test]
+fn unreported_attempt_still_occupies_its_own_checkout() {
+    let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
+    let checkout = root.path().display().to_string();
+    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    task.execution_attempts[0].worktree_path = Some(checkout.clone());
+
+    let error = preflight_checkout_occupancy(
+        &plan,
+        &task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["type"], "checkout_occupied");
+}
+
+#[test]
+fn live_competitive_attempt_still_occupies_its_own_checkout() {
+    let (root, mut plan, task_id, _) = plan_with_attempt(None, None);
+    let checkout = root.path().display().to_string();
+    let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+    task.execution_attempts[0].worktree_path = Some(checkout.clone());
+    task.execution_attempts[0].reported_at = Some(4);
+    task.execution_attempts[0].competition_group_id = Some("group-live".into());
+
+    let error = preflight_checkout_occupancy(
+        &plan,
+        &task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["type"], "checkout_occupied");
+}
+
 /// Occupancy exists to keep a second WRITER out of a live checkout. The paired
 /// Enforced call is what proves the fixture reaches the occupancy branch at all:
 /// without it an unconditionally-Ok implementation would pass this test.
