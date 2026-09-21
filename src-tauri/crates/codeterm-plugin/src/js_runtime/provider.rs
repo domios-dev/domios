@@ -853,6 +853,13 @@ impl AgentProvider for JsProvider {
                 .is_some_and(|n| n.supports_structured_prompts())
     }
 
+    fn supports_terminal_prompt_parsing(&self) -> bool {
+        self.manifest.spawn.supports_terminal_prompt_parsing
+            || self
+                .native()
+                .is_some_and(|n| n.supports_terminal_prompt_parsing())
+    }
+
     fn structured_pending_prompt(&self, cwd: &str, session_id: &str) -> Option<PendingPrompt> {
         self.native()
             .and_then(|n| n.structured_pending_prompt(cwd, session_id))

@@ -447,6 +447,81 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
 }
 
 #[test]
+fn startup_ack_from_a_task_bound_tab_refuses_and_names_agent_ack() {
+    let (fixture, _, worker_tab_id) = lifecycle_fixture(false);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&worker_tab_id)
+        .expect("worker tab")
+        .task_binding = Some(crate::multiplexer::types::TaskBinding {
+            plan_id: Some("plan-a".into()),
+            task_id: Some("task-a".into()),
+            spawn_handle: None,
+            bound_at: 1,
+        });
+
+    let error = fixture
+        .service
+        .acknowledge_agent_startup(&worker_tab_id, "pty-a", "nonce-a")
+        .expect_err("task-bound tabs use the task ACK route");
+    assert!(error.contains("codeterm agent ack"));
+}
+
+#[test]
+fn task_bound_startup_supervision_completes_on_task_ack() {
+    let registry = WorkerAckRegistry::default();
+    let identity = StartupTaskIdentity {
+        plan_id: "plan-a".into(),
+        task_id: "task-a".into(),
+        attempt_id: "attempt-a".into(),
+    };
+    registry.register_startup_supervisor(
+        "child",
+        "parent",
+        "Worker",
+        None,
+        Some(identity.clone()),
+    );
+    let authority = StartupAuthority::new("parent", "child", "pty-a")
+        .for_task(Some(identity.clone()))
+        .for_binding(Some("session-a"), "nonce-a");
+    let receiver = startup_receiver(&registry, authority);
+
+    assert_eq!(
+        registry.acknowledge_task_startup("child", &identity),
+        Some(AgentStartupAcknowledgement::Acknowledged)
+    );
+    assert_eq!(receiver.try_recv(), Ok(AgentStartupSignal::Ready));
+    assert!(registry.startup_supervisor("child").is_none());
+
+    let early_identity = StartupTaskIdentity {
+        attempt_id: "attempt-b".into(),
+        ..identity
+    };
+    registry.register_startup_supervisor(
+        "child",
+        "parent",
+        "Worker",
+        None,
+        Some(early_identity.clone()),
+    );
+    assert_eq!(
+        registry.acknowledge_task_startup("child", &early_identity),
+        Some(AgentStartupAcknowledgement::Acknowledged)
+    );
+    let early_authority = StartupAuthority::new("parent", "child", "pty-b")
+        .for_task(Some(early_identity))
+        .for_binding(Some("session-b"), "nonce-b");
+    assert!(matches!(
+        registry.arm_startup(early_authority),
+        AgentStartupArm::AlreadyAcknowledged
+    ));
+    assert!(registry.startup_waiters.lock().is_empty());
+}
+
+#[test]
 fn repeated_startup_ack_is_an_explicit_no_op_for_the_same_attempt() {
     let registry = WorkerAckRegistry::default();
     let ready = startup_receiver(&registry, creator_authority("tab-a", "launch-a"));

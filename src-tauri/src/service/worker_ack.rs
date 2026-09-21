@@ -210,6 +210,7 @@ pub(crate) struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
+    pending_task_startup_acks: Mutex<HashMap<String, StartupTaskIdentity>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
 }
@@ -231,8 +232,26 @@ impl WorkerAckRegistry {
                 return AgentStartupArm::Extended;
             }
         }
+        let task_acknowledged = {
+            let mut pending = self.pending_task_startup_acks.lock();
+            match pending.get(&authority.child_tab_id) {
+                Some(identity) if Some(identity) == authority.task_identity.as_ref() => {
+                    pending.remove(&authority.child_tab_id);
+                    true
+                }
+                Some(_) => {
+                    pending.remove(&authority.child_tab_id);
+                    false
+                }
+                None => false,
+            }
+        };
         let mut acknowledged = self.startup_acknowledged.lock();
         if acknowledged.get(&authority.child_tab_id) == Some(&authority) {
+            return AgentStartupArm::AlreadyAcknowledged;
+        }
+        if task_acknowledged {
+            acknowledged.insert(authority.child_tab_id.clone(), authority);
             return AgentStartupArm::AlreadyAcknowledged;
         }
         acknowledged.remove(&authority.child_tab_id);
@@ -277,6 +296,63 @@ impl WorkerAckRegistry {
             authority.session_id.as_deref() == session_id
                 && authority.binding_nonce.as_deref() == binding_nonce
         })
+    }
+
+    fn acknowledge_task_startup(
+        &self,
+        tab_id: &str,
+        task_identity: &StartupTaskIdentity,
+    ) -> Option<AgentStartupAcknowledgement> {
+        let (acknowledgement, completed_authority) = {
+            let mut waiters = self.startup_waiters.lock();
+            if waiters.get(tab_id).is_some_and(|waiter| {
+                waiter.authority.task_identity.as_ref() == Some(task_identity)
+            }) {
+                let waiter = waiters.remove(tab_id)?;
+                let AgentStartupWaiter {
+                    authority, sender, ..
+                } = waiter;
+                let _ = sender.send(AgentStartupSignal::Ready);
+                self.startup_acknowledged
+                    .lock()
+                    .insert(tab_id.to_string(), authority.clone());
+                (
+                    AgentStartupAcknowledgement::Acknowledged,
+                    Some(authority),
+                )
+            } else if self
+                .startup_acknowledged
+                .lock()
+                .get(tab_id)
+                .is_some_and(|authority| authority.task_identity.as_ref() == Some(task_identity))
+            {
+                (AgentStartupAcknowledgement::AlreadyAcknowledged, None)
+            } else if self
+                .startup_supervisors
+                .lock()
+                .get(tab_id)
+                .is_some_and(|supervisor| {
+                    supervisor.task_identity.as_ref() == Some(task_identity)
+                })
+            {
+                self.pending_task_startup_acks
+                    .lock()
+                    .insert(tab_id.to_string(), task_identity.clone());
+                (AgentStartupAcknowledgement::Acknowledged, None)
+            } else {
+                return None;
+            }
+        };
+        if let Some(authority) = completed_authority.as_ref() {
+            self.clear_startup_supervisor(authority);
+        }
+        if let Some(team_id) = completed_authority
+            .as_ref()
+            .and_then(|authority| authority.team_id.as_deref())
+        {
+            self.release_startup_lease(team_id);
+        }
+        Some(acknowledgement)
     }
 
     fn acknowledge_startup_matching(
@@ -438,6 +514,7 @@ impl WorkerAckRegistry {
         };
         let mut supervisors = self.startup_supervisors.lock();
         if supervisors.get(tab_id) != Some(&next) {
+            self.pending_task_startup_acks.lock().remove(tab_id);
             supervisors.insert(tab_id.to_string(), next);
         }
     }
@@ -488,6 +565,7 @@ impl WorkerAckRegistry {
 
     fn cancel_startup_supervisor(&self, tab_id: &str) {
         self.startup_supervisors.lock().remove(tab_id);
+        self.pending_task_startup_acks.lock().remove(tab_id);
     }
 }
 

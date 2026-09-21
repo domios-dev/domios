@@ -103,13 +103,33 @@ pub fn normalize_cwd(raw: &str) -> String {
     }
 }
 
+/// Compare cwd spellings without filesystem access. This is safe inside state
+/// locks and treats Windows verbatim prefixes as presentation only.
+pub fn paths_equal(a: &str, b: &str) -> bool {
+    let normalize = |path: &str| {
+        let path = strip_verbatim_prefix(path).replace('\\', "/");
+        path.trim_end_matches('/').to_string()
+    };
+    let a = normalize(a);
+    let b = normalize(b);
+    #[cfg(windows)]
+    {
+        a.eq_ignore_ascii_case(&b)
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
+}
+
 /// Canonicalize a cwd preserving case, with the Windows `\\?\` verbatim prefix
 /// stripped. Use this (NOT `normalize_cwd`, which lowercases) when the result
 /// feeds a path-encoding scheme where case matters — e.g. claude's
 /// `~/.claude/projects/<encoded-cwd>` dir names keep the original case, so a
 /// lowercased or verbatim-prefixed input encodes to a dir that doesn't exist.
 pub fn canonical_cwd(raw: &str) -> String {
-    let canonical = std::fs::canonicalize(raw)
+    let raw = strip_verbatim_prefix(raw);
+    let canonical = std::fs::canonicalize(&raw)
         .ok()
         .and_then(|p| p.to_str().map(|s| s.to_string()));
 
@@ -127,14 +147,23 @@ pub fn canonical_cwd(raw: &str) -> String {
 /// Slash-separated `//?/` spellings are accepted too.
 /// No-op on Unix paths.
 pub fn strip_verbatim_prefix(p: &str) -> String {
-    if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{}", rest)
-    } else if let Some(rest) = p.strip_prefix("//?/UNC/") {
-        format!(r"\\{}", rest)
-    } else if let Some(rest) = p.strip_prefix(r"\\?\") {
-        rest.to_string()
-    } else if let Some(rest) = p.strip_prefix("//?/") {
-        rest.to_string()
+    if p
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/UNC/"))
+    {
+        return format!(r"\\{}", p[8..].replace('/', "\\"));
+    }
+    if p.starts_with("//?/") {
+        return p[4..].to_string();
+    }
+    let windows_path = p.replace('/', "\\");
+    if windows_path
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(r"\\?\UNC\"))
+    {
+        format!(r"\\{}", &windows_path[8..])
+    } else if windows_path.starts_with(r"\\?\") {
+        windows_path[4..].to_string()
     } else {
         p.to_string()
     }
@@ -173,8 +202,32 @@ mod tests {
         assert!(!out.starts_with(r"\\?\"), "verbatim prefix leaked: {out}");
 
         assert_eq!(
-            canonical_cwd(r"C:\Definitely\Missing\Path\"),
+            canonical_cwd(r"\\?\C:\Definitely\Missing\Path\"),
             r"C:\Definitely\Missing\Path"
         );
+    }
+
+    #[test]
+    fn normalize_cwd_ignores_verbatim_drive_and_unc_prefixes() {
+        assert_eq!(
+            normalize_cwd(r"\\?\C:\lanes\worker"),
+            normalize_cwd(r"C:\lanes\worker")
+        );
+        assert_eq!(
+            normalize_cwd(r"\\?\UNC\server\share\lanes"),
+            normalize_cwd(r"\\server\share\lanes")
+        );
+    }
+
+    #[test]
+    fn paths_equal_ignores_verbatim_drive_and_unc_prefixes() {
+        assert!(paths_equal(
+            r"\\?\C:\lanes\worker\",
+            r"C:/lanes/worker"
+        ));
+        assert!(paths_equal(
+            r"\\?\unc\server\share\lane",
+            r"\\server\share\lane"
+        ));
     }
 }

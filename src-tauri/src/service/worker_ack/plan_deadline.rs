@@ -296,6 +296,21 @@ impl ServiceContext {
         attempt_id: &str,
         binding_nonce: &str,
     ) -> Result<AgentStartupAcknowledgement, String> {
+        let task_binding = {
+            let mux = self.mux.read();
+            mux.get_tab(caller_tab_id)
+                .and_then(|tab| tab.task_binding.as_ref())
+                .is_some_and(|binding| binding.plan_id.is_some() && binding.task_id.is_some())
+        };
+        let supervised_task = self
+            .worker_ack
+            .startup_supervisor(caller_tab_id)
+            .is_some_and(|supervisor| supervisor.task_identity.is_some());
+        if task_binding || supervised_task {
+            return Err(
+                "task-bound startup must be acknowledged with `codeterm agent ack`".into(),
+            );
+        }
         let session_id = self.mux.read().get_tab(caller_tab_id).and_then(|tab| {
             startup_ack_owns_attempt(tab, attempt_id, binding_nonce)
                 .then(|| tab.agent_session_id.clone())
@@ -374,7 +389,14 @@ impl ServiceContext {
     ) {
         let receiver = match self.worker_ack.arm_startup(authority.clone()) {
             AgentStartupArm::Armed(receiver) => receiver,
-            AgentStartupArm::Extended | AgentStartupArm::AlreadyAcknowledged => return,
+            AgentStartupArm::Extended => return,
+            AgentStartupArm::AlreadyAcknowledged => {
+                self.worker_ack.clear_startup_supervisor(&authority);
+                if let Some(team_id) = authority.team_id.as_deref() {
+                    self.worker_ack.release_startup_lease(team_id);
+                }
+                return;
+            }
         };
         let supervisor_tab_id = authority.creator_tab_id.clone();
         let agent_tab_id = authority.child_tab_id.clone();
@@ -543,7 +565,15 @@ impl ServiceContext {
         attempt: &crate::plan::TaskExecutionAttempt,
     ) -> bool {
         let identity = self.worker_ack_identity_for_attempt(plan_id, task_id, tab_id, attempt);
-        self.worker_ack.acknowledge(&identity)
+        let acknowledged = self.worker_ack.acknowledge(&identity);
+        let task_identity = StartupTaskIdentity {
+            plan_id: plan_id.to_string(),
+            task_id: task_id.to_string(),
+            attempt_id: attempt.id.clone(),
+        };
+        self.worker_ack
+            .acknowledge_task_startup(tab_id, &task_identity);
+        acknowledged
     }
 
     /// Nudge a tab that has not acknowledged its startup. The tab's own state

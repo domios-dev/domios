@@ -46,6 +46,28 @@ fn tab_list_defaults_to_all_workspace_request() {
 }
 
 #[test]
+fn tab_status_renders_provider_prompt_options_as_numbered_choices() {
+    let status = json!({
+        "pending_prompt": {
+            "question": "opaque-question-token",
+            "options": [
+                {"label": "opaque-option-one", "value": "1"},
+                {"label": "opaque-option-two", "value": "2"}
+            ]
+        }
+    });
+
+    assert_eq!(
+        status_prompt_lines(&status),
+        vec![
+            String::from("prompt:  opaque-question-token"),
+            String::from("  1. opaque-option-one"),
+            String::from("  2. opaque-option-two")
+        ]
+    );
+}
+
+#[test]
 fn tab_list_request_uses_only_explicit_scope() {
     let workspace = tab_list_params(Some("workspace".into()), false, false);
     let all = tab_list_params(None, true, false);

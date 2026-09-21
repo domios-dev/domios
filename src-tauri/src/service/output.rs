@@ -219,7 +219,14 @@ impl ServiceContext {
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
-                let check_screen = has_markers || has_active_prompt || is_auto_approve;
+                let terminal_prompt_parser = self
+                    .agent_registry
+                    .with_provider(at, |provider| provider.supports_terminal_prompt_parsing())
+                    .unwrap_or(false);
+                let check_screen = has_markers
+                    || has_active_prompt
+                    || is_auto_approve
+                    || (terminal_prompt_parser && screen_changed);
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
                     (
@@ -239,13 +246,29 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                // Structured handles (SSE/API) are the only live prompt source;
-                // PTY screen input cannot create a pending prompt here.
+                let provider_prompt = if structured.is_none() && terminal_prompt_parser {
+                    clean_text.as_deref().and_then(|screen| {
+                        crate::agent::prompt::parse_prompt_safely(|| {
+                            self.agent_registry.parse_prompt(at, screen)
+                        })
+                    })
+                } else {
+                    None
+                };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
-                    crate::agent::native_prompt::resolve_pending_prompt(
-                        structured,
-                        native_prompt_input.as_ref(),
-                    )
+                    if let Some(prompt) = structured {
+                        crate::agent::native_prompt::resolve_pending_prompt(
+                            Some(prompt),
+                            native_prompt_input.as_ref(),
+                        )
+                    } else {
+                        provider_prompt.map(|prompt| {
+                            crate::agent::native_prompt::ResolvedPrompt {
+                                prompt,
+                                explicit: false,
+                            }
+                        })
+                    }
                 });
                 let prompt_signal = parsed.is_some();
                 if prompt_signal && clean_text.is_none() {
@@ -290,7 +313,7 @@ impl ServiceContext {
         (previous_reconciled_status, current_reconciled_status)
     }
 
-    /// Build a pending prompt from the provider's STRUCTURED handle, if it has
+    /// Build a pending prompt from the provider's structured source, if it has
     /// one in this run mode. Two handle shapes, both capability-gated (never a
     /// provider-id branch):
     ///
@@ -302,7 +325,7 @@ impl ServiceContext {
     ///   hot path.
     ///
     /// Returns `None` when the provider has no structured handle or no prompt is
-    /// active; the caller then falls back to the native PTY detector.
+    /// active; the caller may then use its provider parser for the visible screen.
     fn structured_pending_prompt(
         &self,
         tab_id: &str,

@@ -216,6 +216,12 @@ pub(super) fn dispatch(
             };
             let plan_id = acknowledged.plan_id.clone();
             let task_id = acknowledged.task_id.clone();
+            svc.acknowledge_worker_ack(
+                &plan_id,
+                &task_id,
+                &tab_id,
+                &acknowledged.attempt,
+            );
             if acknowledged.already_acknowledged {
                 return Ok(task_ack_success_response(
                     &plan_id,
@@ -227,12 +233,6 @@ pub(super) fn dispatch(
                     true,
                 ));
             }
-            svc.acknowledge_worker_ack(
-                &plan_id,
-                &task_id,
-                &tab_id,
-                &acknowledged.attempt,
-            );
             svc.gateway.require_worker_report(&tab_id);
             super::plan::emit_plan_changed(_app, &plan_id);
             let runtime_ready = acknowledged.attempt.session_id.is_some();
