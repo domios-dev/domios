@@ -38,7 +38,10 @@ use attempt_rollback::roll_back_dispatch_attempt;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
-use dispatch_failure::{dispatch_wait_failed, DispatchWaitFailure};
+use dispatch_failure::{
+    cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
+    DispatchFailureDisposition, DispatchWaitFailure,
+};
 use gates::dispatch_authorized_gates;
 use lane_commit::{
     dispatch_ready_event, dispatch_response_lane, lane_metadata_for_dispatch, DispatchEvidence,
@@ -53,15 +56,16 @@ use lane_safety::{
 };
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 pub(super) use recovery::publish_action_needed_event;
+use recovery::startup_recovery_event;
 use routing::{
     dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing,
     unqualified_model_error,
 };
-use workspace_admission::preflight_dispatch_workspace;
+pub(super) use tab_reservation::dispatch_startup_owner_is_live;
 use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
 };
-pub(super) use tab_reservation::dispatch_startup_owner_is_live;
+use workspace_admission::preflight_dispatch_workspace;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
@@ -382,9 +386,7 @@ pub(super) fn dispatch(
         app,
         svc,
         now,
-        |svc, spawn_params, ready_tx| {
-            svc.spawn_agent_sync_with_ready(spawn_params, ready_tx)
-        },
+        |svc, spawn_params, ready_tx| svc.spawn_agent_sync_with_ready(spawn_params, ready_tx),
         || {},
     )
 }
@@ -808,9 +810,7 @@ where
             return Err(error);
         }
     }
-    if let Err(mut refusal) =
-        refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)
-    {
+    if let Err(mut refusal) = refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id) {
         if let Err(cleanup) = rollback_failed_dispatch(provisioned_lane, || Ok(()), || Ok(())) {
             refusal.message = format!(
                 "{}; losing Worker lane cleanup failed: {cleanup}",
