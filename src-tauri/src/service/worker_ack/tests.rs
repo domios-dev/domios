@@ -958,12 +958,15 @@ fn task_startup_failure_detail_is_in_the_short_worker_notice() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn startup_notice_to_unbound_parent_is_withheld_then_delivered_after_binding() {
     let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
-    fixture.service.publish_agent_startup_report(
+    let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
+    fixture.service.publish_agent_startup_report_with_delivery(
         &parent_tab_id,
         &worker_tab_id,
         "Worker",
         json!({ "kind": "agent_startup_failed", "attempt_id": "launch-a" }),
+        &delivery,
     );
+    assert!(delivery.writes.lock().is_empty());
 
     let report_id = {
         let mut store = fixture.service.report_store.lock();
@@ -982,60 +985,54 @@ fn startup_notice_to_unbound_parent_is_withheld_then_delivered_after_binding() {
 
     fixture
         .service
-        .replay_pending_reports_if_routable(&parent_tab_id);
+        .replay_pending_reports_with_delivery(&parent_tab_id, &delivery);
     assert!(fixture
         .service
         .report_store
         .lock()
         .pending_for(&parent_tab_id)
         .is_empty());
-    fixture.service.report_store.lock().release_delivery(&report_id);
-    assert!(fixture
-        .service
-        .report_store
-        .lock()
-        .pending_for(&parent_tab_id)
-        .is_empty());
-    fixture
-        .service
-        .replay_pending_reports_if_routable(&parent_tab_id);
-    assert!(fixture
-        .service
-        .report_store
-        .lock()
-        .pending_for(&parent_tab_id)
-        .is_empty());
+    assert_eq!(
+        *delivery.writes.lock(),
+        vec![(parent_tab_id.clone(), report_id)]
+    );
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn startup_notice_to_a_plain_shell_parent_is_never_written() {
     let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(false);
-    fixture.service.publish_agent_startup_report(
+    let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
+    fixture.service.publish_agent_startup_report_with_delivery(
         &parent_tab_id,
         &worker_tab_id,
         "Worker",
         json!({ "kind": "agent_startup_overdue", "attempt_id": "launch-b" }),
+        &delivery,
     );
 
     let pending = fixture.service.report_store.lock().pending_for(&parent_tab_id);
     assert_eq!(pending.len(), 1);
+    assert!(delivery.writes.lock().is_empty());
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn worker_ack_notice_to_unbound_parent_remains_pending() {
     let (fixture, parent_tab_id, worker_tab_id) = lifecycle_fixture(true);
-    fixture.service.publish_worker_lifecycle_report(
+    let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
+    fixture.service.publish_worker_lifecycle_report_with_delivery(
         &parent_tab_id,
         &worker_tab_id,
         "Worker",
         "plan-a",
         "task-a",
         json!({ "kind": "worker_ack_startup_failed", "attempt_id": "attempt-a" }),
+        &delivery,
     );
 
     let pending = fixture.service.report_store.lock().pending_for(&parent_tab_id);
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].task_id.as_deref(), Some("task-a"));
+    assert!(delivery.writes.lock().is_empty());
 }
