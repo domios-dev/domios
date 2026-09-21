@@ -497,30 +497,35 @@ impl ServiceContext {
     ) -> WorkerAckIdentity {
         let binding = self.mux.read().get_tab(tab_id).map(|tab| {
             (
+                tab.pty_id.clone(),
                 tab.agent_session_id.clone(),
                 tab.session_binding_nonce.clone(),
             )
         });
-        let (session_id, binding_nonce) = binding.unwrap_or_default();
+        let (startup_attempt_id, session_id, binding_nonce) = binding.unwrap_or_default();
         WorkerAckIdentity {
             plan_id: plan_id.to_string(),
             task_id: task_id.to_string(),
             attempt_id: attempt.id.clone(),
             tab_id: tab_id.to_string(),
-            session_id: session_id.or_else(|| attempt.session_id.clone()),
-            binding_nonce: binding_nonce.or_else(|| attempt.session_binding_nonce.clone()),
+            startup_attempt_id,
+            session_id,
+            binding_nonce,
         }
     }
 
     fn worker_ack_identity_is_current(&self, identity: &WorkerAckIdentity) -> bool {
         let tab_binding = self.mux.read().get_tab(&identity.tab_id).map(|tab| {
             (
+                tab.pty_id.clone(),
                 tab.agent_session_id.clone(),
                 tab.session_binding_nonce.clone(),
             )
         });
         tab_binding.is_some_and(|binding| {
-            binding.0 == identity.session_id && binding.1 == identity.binding_nonce
+            binding.0 == identity.startup_attempt_id
+                && binding.1 == identity.session_id
+                && binding.2 == identity.binding_nonce
         }) && self.plan_store.worker_startup_attempt_owns(
             &identity.plan_id,
             &identity.task_id,
@@ -572,7 +577,7 @@ impl ServiceContext {
             attempt_id: attempt.id.clone(),
         };
         self.worker_ack
-            .acknowledge_task_startup(tab_id, &task_identity);
+            .acknowledge_task_startup(tab_id, &task_identity, &identity);
         acknowledged
     }
 

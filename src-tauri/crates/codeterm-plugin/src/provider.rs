@@ -610,6 +610,13 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn parse_directory_trust_prompt(
+        &self,
+        _screen: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        None
+    }
+
     /// Recognize this provider's tool-permission prompt for the hook-reported
     /// `tool_name` and name its affirmative option. `None` leaves it to the user.
     fn permission_prompt_response(
@@ -1096,9 +1103,8 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
-    /// Whether `parse_prompt` is a structural parser safe to run on changed
-    /// terminal screens to surface numbered choices in tab status/respond.
-    fn supports_terminal_prompt_parsing(&self) -> bool {
+    /// Whether a dedicated directory-trust parser may run after a cheap screen precheck.
+    fn supports_directory_trust_prompt_parsing(&self) -> bool {
         false
     }
 

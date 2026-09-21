@@ -208,9 +208,21 @@ impl ServiceContext {
 
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
             self.maybe_detect_agent_session(pid, at);
-            if directory_trust_eligible {
+            if directory_trust_eligible && screen_changed {
                 let screen = self.screen_state.lock().get_screen_text(pty_id);
-                self.respond_to_directory_trust(pid, screen.as_deref());
+                let trust_parser = self
+                    .agent_registry
+                    .with_provider(at, |provider| {
+                        provider.supports_directory_trust_prompt_parsing()
+                    })
+                    .unwrap_or(false);
+                if !trust_parser
+                    || screen
+                        .as_deref()
+                        .is_some_and(crate::service::directory_trust::directory_trust_prompt_candidate)
+                {
+                    self.respond_to_directory_trust(pid, screen.as_deref());
+                }
             } else if let Some(reason) = directory_trust_skip {
                 self.note_directory_trust(pid, reason, None);
             }
@@ -219,21 +231,32 @@ impl ServiceContext {
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
-                let terminal_prompt_parser = self
+                let trust_prompt_parser = self
                     .agent_registry
-                    .with_provider(at, |provider| provider.supports_terminal_prompt_parsing())
+                    .with_provider(at, |provider| {
+                        provider.supports_directory_trust_prompt_parsing()
+                    })
                     .unwrap_or(false);
-                let check_screen = has_markers
-                    || has_active_prompt
-                    || is_auto_approve
-                    || (terminal_prompt_parser && screen_changed);
+                let trust_candidate_screen = if trust_prompt_parser && screen_changed {
+                    self.screen_state.lock().get_screen_text(pty_id)
+                } else {
+                    None
+                };
+                let trust_candidate = trust_candidate_screen
+                    .as_deref()
+                    .is_some_and(crate::service::directory_trust::directory_trust_prompt_candidate);
+                let check_screen =
+                    has_markers || has_active_prompt || is_auto_approve || trust_candidate;
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
+                    let clean_text = if check_screen {
+                        trust_candidate_screen.or_else(|| screen_state.get_screen_text(pty_id))
+                    } else {
+                        None
+                    };
                     (
                         screen_state.native_prompt_input(pty_id),
-                        check_screen
-                            .then(|| screen_state.get_screen_text(pty_id))
-                            .flatten(),
+                        clean_text,
                     )
                 };
                 let structured = if check_screen {
@@ -246,10 +269,14 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                let provider_prompt = if structured.is_none() && terminal_prompt_parser {
+                let provider_prompt = if structured.is_none() && trust_candidate {
                     clean_text.as_deref().and_then(|screen| {
                         crate::agent::prompt::parse_prompt_safely(|| {
-                            self.agent_registry.parse_prompt(at, screen)
+                            self.agent_registry
+                                .with_provider(at, |provider| {
+                                    provider.parse_directory_trust_prompt(screen)
+                                })
+                                .flatten()
                         })
                     })
                 } else {

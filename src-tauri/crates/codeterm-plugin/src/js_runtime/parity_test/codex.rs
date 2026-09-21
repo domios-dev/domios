@@ -237,7 +237,9 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
             .join("trust-structured-question.txt"),
     )
     .expect("folder-trust fixture");
-    let prompt = codex().parse_prompt(&screen).expect("active folder trust prompt");
+    let prompt = codex()
+        .parse_directory_trust_prompt(&screen)
+        .expect("active folder trust prompt");
 
     assert!(prompt.question.ends_with('?'));
     assert_eq!(
@@ -252,6 +254,18 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
         codex().build_prompt_response(0, &screen),
         vec![b"\x1b[A".to_vec(), b"\r".to_vec()]
     );
+
+    let answer = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("approval-paragraph.txt"),
+    )
+    .expect("ordinary approval fixture");
+    assert!(codex().parse_prompt(&answer).is_some());
+    assert!(codex().parse_directory_trust_prompt(&answer).is_none());
 }
 
 #[test]
@@ -477,12 +491,12 @@ fn session_fs_capabilities_over_current_stores() {
 }
 
 #[test]
-fn codex_uses_terminal_prompt_parser_without_a_structured_handle() {
+fn codex_declares_its_dedicated_directory_trust_parser() {
     if require_plugins().is_none() {
         return;
     }
     assert!(!codex().supports_structured_prompts());
-    assert!(codex().supports_terminal_prompt_parsing());
+    assert!(codex().supports_directory_trust_prompt_parsing());
 }
 
 #[test]

@@ -10,6 +10,7 @@ import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import {
   classifyCodexFolderTrustPrompt,
+  parseCodexFolderTrustPrompt,
   parseCodexPrompt,
   responseKeysForIndex,
 } from "./prompt";
@@ -153,6 +154,10 @@ const plugin: PluginModule = {
 
   parsePrompt(text: string): ParsedPrompt | null {
     return parseCodexPrompt(String(text || ""));
+  },
+
+  parseDirectoryTrustPrompt(text: string): ParsedPrompt | null {
+    return parseCodexFolderTrustPrompt(String(text || ""));
   },
 
   buildPromptResponse(optionIndex: number, screen?: string): string[] {

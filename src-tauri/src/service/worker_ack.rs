@@ -210,7 +210,7 @@ pub(crate) struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
-    pending_task_startup_acks: Mutex<HashMap<String, StartupTaskIdentity>>,
+    pending_task_startup_acks: Mutex<HashMap<String, registry::PendingTaskStartupAck>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
 }
@@ -235,7 +235,7 @@ impl WorkerAckRegistry {
         let task_acknowledged = {
             let mut pending = self.pending_task_startup_acks.lock();
             match pending.get(&authority.child_tab_id) {
-                Some(identity) if Some(identity) == authority.task_identity.as_ref() => {
+                Some(identity) if identity.owns_authority(&authority) => {
                     pending.remove(&authority.child_tab_id);
                     true
                 }
@@ -302,11 +302,19 @@ impl WorkerAckRegistry {
         &self,
         tab_id: &str,
         task_identity: &StartupTaskIdentity,
+        ack_identity: &WorkerAckIdentity,
     ) -> Option<AgentStartupAcknowledgement> {
+        let pending_ack = registry::PendingTaskStartupAck {
+            task_identity: task_identity.clone(),
+            startup_attempt_id: ack_identity.startup_attempt_id.clone(),
+            session_id: ack_identity.session_id.clone(),
+            binding_nonce: ack_identity.binding_nonce.clone(),
+        };
         let (acknowledgement, completed_authority) = {
             let mut waiters = self.startup_waiters.lock();
             if waiters.get(tab_id).is_some_and(|waiter| {
                 waiter.authority.task_identity.as_ref() == Some(task_identity)
+                    && pending_ack.owns_authority(&waiter.authority)
             }) {
                 let waiter = waiters.remove(tab_id)?;
                 let AgentStartupWaiter {
@@ -324,7 +332,10 @@ impl WorkerAckRegistry {
                 .startup_acknowledged
                 .lock()
                 .get(tab_id)
-                .is_some_and(|authority| authority.task_identity.as_ref() == Some(task_identity))
+                .is_some_and(|authority| {
+                    authority.task_identity.as_ref() == Some(task_identity)
+                        && pending_ack.owns_authority(authority)
+                })
             {
                 (AgentStartupAcknowledgement::AlreadyAcknowledged, None)
             } else if self
@@ -337,7 +348,7 @@ impl WorkerAckRegistry {
             {
                 self.pending_task_startup_acks
                     .lock()
-                    .insert(tab_id.to_string(), task_identity.clone());
+                    .insert(tab_id.to_string(), pending_ack);
                 (AgentStartupAcknowledgement::Acknowledged, None)
             } else {
                 return None;
