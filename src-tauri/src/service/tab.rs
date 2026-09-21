@@ -853,6 +853,13 @@ mod respond_prompt_tests {
         .expect("captured folder-trust fixture");
         let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
         assert_eq!(
+            fixture
+                .service
+                .agent_registry
+                .build_prompt_response("claude", 1, &screen),
+            Some(vec![b"j".to_vec(), b"\r".to_vec()])
+        );
+        assert_eq!(
             fixture.service.respond_prompt(&tab_id, "3"),
             Ok(RespondPromptOutcome::InvalidOption)
         );
