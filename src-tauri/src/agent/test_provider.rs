@@ -13,6 +13,7 @@ use super::provider::{
 
 pub struct MockProvider {
     id: String,
+    launch_binary: Option<String>,
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     system_prompt_delivery: SystemPromptDelivery,
@@ -31,6 +32,7 @@ impl MockProvider {
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
+            launch_binary: None,
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::External,
@@ -137,6 +139,11 @@ impl MockProvider {
         }
     }
 
+    pub fn with_launch_binary(mut self, binary: &str) -> Self {
+        self.launch_binary = Some(binary.to_string());
+        self
+    }
+
     pub fn with_session(id: &str, session_id: &str) -> Self {
         Self {
             sessions: [session_id.to_string()].into_iter().collect(),
@@ -151,6 +158,9 @@ impl AgentProvider for MockProvider {
     }
     fn display_name(&self) -> &str {
         &self.id
+    }
+    fn binary_name(&self) -> &str {
+        self.launch_binary.as_deref().unwrap_or(&self.id)
     }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         if self.empty_launch_command
