@@ -102,6 +102,18 @@ assert(
 );
 assert("active serve https_url is not fallback", cachedServe.usingFallback, false);
 
+const unhealthyServe = buildWebUiTarget(config, network, serve({
+  snapshot: { ...readySnapshot(), state: "unhealthy", url: null },
+  https_url: "https://rollacode-bot.example-tailnet.ts.net",
+  active: true,
+}));
+assert(
+  "unhealthy owned serve route falls back instead of offering its https_url",
+  unhealthyServe.link,
+  "http://100.64.10.3:7685/#token=secret",
+);
+assert("unhealthy serve route is fallback", unhealthyServe.usingFallback, true);
+
 const fallback = buildWebUiTarget(config, network, null);
 assert(
   "network tailscale IP remains fallback without serve",

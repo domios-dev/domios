@@ -18,6 +18,9 @@ export function defaultConfig(): AppConfig {
     scrollback: 10000,
     copy_on_select: false,
   },
+  diagnostics: {
+    terminal_transport: false,
+  },
   notifications: {
     // Off until someone opts in; until the daemon answers, nothing interrupts.
     desktop: false,

@@ -43,7 +43,8 @@ export function buildWebUiTarget(
 
 function serveHttpsRoot(serve: ServeStatus | null): string | null {
   const snapshotUrl = serve?.snapshot?.state === "ready" ? serve.snapshot.url : null;
-  const url = snapshotUrl ?? (serve?.active ? serve.https_url : null);
+  const verifiedActive = serve?.active && serve.snapshot?.state !== "unhealthy";
+  const url = snapshotUrl ?? (verifiedActive ? serve.https_url : null);
   return url ? ensureTrailingSlash(url) : null;
 }
 
