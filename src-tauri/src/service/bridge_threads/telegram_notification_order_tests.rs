@@ -586,9 +586,8 @@ async fn route_text_and_notifications_share_the_thread_fallback() {
 
     assert!(matches!(
         route_transport.calls().last(),
-        Some(
-            Call::Send { thread: None, buttons: true, message_id: Some(message_id), .. } if *message_id == placed,
-        )
+        Some(Call::Send { thread: None, buttons: true, message_id: Some(message_id), .. })
+            if *message_id == placed
     ));
 }
 
