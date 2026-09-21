@@ -1,9 +1,30 @@
-use serde_json::Value;
+use serde::Deserialize;
+use serde_json::{value::RawValue, Value};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 const SUMMARY_FRAME_INTERVAL: u64 = 64;
 const SUMMARY_BYTE_INTERVAL: u64 = 1024 * 1024;
 const MAX_PENDING_FRAME_BYTES: usize = 1024 * 1024;
+const PARSER_INPUT_CHUNK_BYTES: usize = 64 * 1024;
+
+pub(crate) fn configured_level(enabled: bool) -> Option<log::Level> {
+    choose_level(
+        enabled,
+        log::log_enabled!(log::Level::Debug),
+        log::log_enabled!(log::Level::Info),
+    )
+}
+
+fn choose_level(enabled: bool, debug_enabled: bool, info_enabled: bool) -> Option<log::Level> {
+    if enabled && info_enabled {
+        Some(log::Level::Info)
+    } else if debug_enabled {
+        Some(log::Level::Debug)
+    } else {
+        None
+    }
+}
 
 pub(crate) struct StreamTabStart {
     pub tab_id: String,
@@ -44,6 +65,7 @@ struct StreamCounters {
 }
 
 pub(crate) struct StreamDiagnostics {
+    level: log::Level,
     side: &'static str,
     session_id: String,
     tab_scope: String,
@@ -60,6 +82,7 @@ pub(crate) struct StreamDiagnostics {
 
 impl StreamDiagnostics {
     pub(crate) fn new(
+        level: log::Level,
         side: &'static str,
         session_id: String,
         tab_scope: String,
@@ -67,6 +90,7 @@ impl StreamDiagnostics {
         cursor_offset: Option<u64>,
     ) -> Self {
         let diagnostics = Self {
+            level,
             side,
             session_id,
             tab_scope,
@@ -96,7 +120,8 @@ impl StreamDiagnostics {
             boot_changed_at_open: start.boot_changed,
             ..TabCounters::default()
         };
-        log::debug!(
+        log::log!(
+            self.level,
             "[terminal-stream] event=attach side={} session={} tab={} pty_id={:?} cursor_boot={:?} cursor_offset={:?} total_written={:?} resume_offset={:?} replay_truncated={:?} replay_truncated_from={:?} boot_changed={}",
             self.side,
             self.session_id,
@@ -114,47 +139,25 @@ impl StreamDiagnostics {
     }
 
     pub(crate) fn observe_value(&mut self, frame: &Value) {
-        if frame.get("boot_changed").and_then(Value::as_bool) == Some(true) {
-            self.counters.boot_changed_events += 1;
-            for counters in self.tabs.values_mut() {
-                counters.counters.boot_changed_events += 1;
-            }
-            self.log_summary("boot_changed", "session");
-            for tab in self.tabs.keys() {
-                self.log_tab_summary(tab, "boot_changed");
-            }
-            return;
-        }
-
-        let Some(tab_id) = frame.get("tab_id").and_then(Value::as_str) else {
-            return;
-        };
-        let counters = self.tabs.entry(tab_id.to_string()).or_default();
-        let mut event = None;
-        if let Some(output) = frame.get("output").and_then(Value::as_str) {
-            let offset = frame.get("offset").and_then(Value::as_u64);
-            self.counters.observe_output(output, offset);
-            counters.counters.observe_output(output, offset);
-        }
-        if frame.get("truncated").and_then(Value::as_bool) == Some(true) {
-            let from = frame.get("from").and_then(Value::as_u64);
-            self.counters.observe_truncated(from);
-            counters.counters.observe_truncated(from);
-            event = Some("truncated");
-        }
-        if frame.get("ended").and_then(Value::as_bool) == Some(true) {
-            event = Some("ended");
-        }
-        if let Some(event) = event {
-            self.log_summary(event, "session");
-            self.log_tab_summary(tab_id, event);
-        }
-        self.log_periodic_if_due();
+        self.observe_frame(FrameSummary {
+            tab_id: frame
+                .get("tab_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            output_bytes: frame.get("output").and_then(Value::as_str).map(str::len),
+            offset: frame.get("offset").and_then(Value::as_u64),
+            truncated: frame.get("truncated").and_then(Value::as_bool) == Some(true),
+            from: frame.get("from").and_then(Value::as_u64),
+            boot_changed: frame.get("boot_changed").and_then(Value::as_bool) == Some(true),
+            ended: frame.get("ended").and_then(Value::as_bool) == Some(true),
+        });
     }
 
     pub(crate) fn observe_sse_bytes(&mut self, bytes: &[u8]) {
-        for frame in self.parser.push(bytes) {
-            self.observe_value(&frame);
+        for chunk in bytes.chunks(PARSER_INPUT_CHUNK_BYTES) {
+            for frame in self.parser.push(chunk) {
+                self.observe_frame(frame);
+            }
         }
     }
 
@@ -168,6 +171,43 @@ impl StreamDiagnostics {
         for tab in self.tabs.keys() {
             self.log_tab_summary(tab, reason);
         }
+    }
+
+    fn observe_frame(&mut self, frame: FrameSummary) {
+        if frame.boot_changed {
+            self.counters.boot_changed_events += 1;
+            for counters in self.tabs.values_mut() {
+                counters.counters.boot_changed_events += 1;
+            }
+            self.log_summary("boot_changed", "session");
+            for tab in self.tabs.keys() {
+                self.log_tab_summary(tab, "boot_changed");
+            }
+            return;
+        }
+
+        let Some(tab_id) = frame.tab_id else {
+            return;
+        };
+        let counters = self.tabs.entry(tab_id.clone()).or_default();
+        let mut event = None;
+        if let Some(output_bytes) = frame.output_bytes {
+            self.counters.observe_output(output_bytes, frame.offset);
+            counters.counters.observe_output(output_bytes, frame.offset);
+        }
+        if frame.truncated {
+            self.counters.observe_truncated(frame.from);
+            counters.counters.observe_truncated(frame.from);
+            event = Some("truncated");
+        }
+        if frame.ended {
+            event = Some("ended");
+        }
+        if let Some(event) = event {
+            self.log_summary(event, "session");
+            self.log_tab_summary(&tab_id, event);
+        }
+        self.log_periodic_if_due();
     }
 
     fn log_periodic_if_due(&mut self) {
@@ -200,7 +240,8 @@ impl StreamDiagnostics {
     }
 
     fn log_summary(&self, event: &str, reason: &str) {
-        log::debug!(
+        log::log!(
+            self.level,
             "[terminal-stream] event={} side={} session={} tab={} reason={} cursor_boot={:?} cursor_offset={:?} frames={} bytes={} first_offset={:?} last_offset={:?} truncated_events={} truncated_from={:?} boot_changed_events={}",
             event,
             self.side,
@@ -223,7 +264,8 @@ impl StreamDiagnostics {
         let Some(counters) = self.tabs.get(tab) else {
             return;
         };
-        log::debug!(
+        log::log!(
+            self.level,
             "[terminal-stream] event={} side={} session={} tab={} pty_id={:?} cursor_boot={:?} cursor_offset={:?} total_written={:?} resume_offset={:?} frames={} bytes={} first_offset={:?} last_offset={:?} truncated_events={} truncated_from={:?} replay_truncated={:?} replay_truncated_from={:?} boot_changed_at_open={} boot_changed_events={}",
             event,
             self.side,
@@ -255,9 +297,9 @@ impl Drop for StreamDiagnostics {
 }
 
 impl StreamCounters {
-    fn observe_output(&mut self, output: &str, offset: Option<u64>) {
+    fn observe_output(&mut self, output_bytes: usize, offset: Option<u64>) {
         self.frames += 1;
-        self.bytes += output.len() as u64;
+        self.bytes += output_bytes as u64;
         if let Some(offset) = offset {
             self.first_offset.get_or_insert(offset);
             self.last_offset = Some(offset);
@@ -270,72 +312,208 @@ impl StreamCounters {
     }
 }
 
+struct FrameSummary {
+    tab_id: Option<String>,
+    output_bytes: Option<usize>,
+    offset: Option<u64>,
+    truncated: bool,
+    from: Option<u64>,
+    boot_changed: bool,
+    ended: bool,
+}
+
+#[derive(Deserialize)]
+struct OutputFrame<'a> {
+    #[serde(borrow)]
+    tab_id: Option<&'a RawValue>,
+    #[serde(borrow)]
+    output: Option<&'a RawValue>,
+    offset: Option<u64>,
+    truncated: Option<bool>,
+    from: Option<u64>,
+    boot_changed: Option<bool>,
+    ended: Option<bool>,
+}
+
 #[derive(Default)]
 struct SseFrameParser {
     pending: Vec<u8>,
+    scan_from: usize,
     discarding: bool,
 }
 
 impl SseFrameParser {
-    fn push(&mut self, chunk: &[u8]) -> Vec<Value> {
-        if self.discarding {
-            let mut buffered = std::mem::take(&mut self.pending);
-            buffered.extend_from_slice(chunk);
-            let Some((end, separator_len)) = find_separator(&buffered) else {
-                let start = buffered.len().saturating_sub(3);
-                self.pending.extend_from_slice(&buffered[start..]);
-                return Vec::new();
-            };
-            self.discarding = false;
-            self.pending
-                .extend_from_slice(&buffered[end + separator_len..]);
-        } else {
-            self.pending.extend_from_slice(chunk);
-        }
-
+    fn push(&mut self, chunk: &[u8]) -> Vec<FrameSummary> {
         let mut frames = Vec::new();
-        while let Some((end, separator_len)) = find_separator(&self.pending) {
-            let frame = self.pending[..end].to_vec();
-            self.pending.drain(..end + separator_len);
-            if let Some(value) = parse_data_frame(&frame) {
-                frames.push(value);
-            }
-        }
-        if self.pending.len() > MAX_PENDING_FRAME_BYTES {
-            let start = self.pending.len().saturating_sub(3);
-            let tail = self.pending[start..].to_vec();
-            self.pending.clear();
-            self.pending.extend_from_slice(&tail);
-            self.discarding = true;
+        for part in chunk.chunks(PARSER_INPUT_CHUNK_BYTES) {
+            self.push_part(part, &mut frames);
         }
         frames
     }
-}
 
-fn find_separator(bytes: &[u8]) -> Option<(usize, usize)> {
-    let lf = bytes.windows(2).position(|part| part == b"\n\n");
-    let crlf = bytes.windows(4).position(|part| part == b"\r\n\r\n");
-    match (lf, crlf) {
-        (Some(lf), Some(crlf)) if crlf < lf => Some((crlf, 4)),
-        (Some(lf), _) => Some((lf, 2)),
-        (None, Some(crlf)) => Some((crlf, 4)),
-        (None, None) => None,
+    fn push_part(&mut self, chunk: &[u8], frames: &mut Vec<FrameSummary>) {
+        self.pending.extend_from_slice(chunk);
+        if self.discarding {
+            let Some((end, separator_len)) = find_separator(&self.pending, self.scan_from) else {
+                self.retain_separator_suffix();
+                return;
+            };
+            self.pending.drain(..end + separator_len);
+            self.discarding = false;
+            self.scan_from = 0;
+        }
+
+        let mut consumed = 0;
+        let mut scan_from = self.scan_from;
+        while let Some((end, separator_len)) = find_separator(&self.pending, scan_from) {
+            if let Some(frame) = parse_data_frame(&self.pending[consumed..end]) {
+                frames.push(frame);
+            }
+            consumed = end + separator_len;
+            scan_from = consumed;
+        }
+        if consumed > 0 {
+            self.pending.drain(..consumed);
+        }
+        self.scan_from = self.pending.len().saturating_sub(3);
+        if self.pending.len() > MAX_PENDING_FRAME_BYTES {
+            self.retain_separator_suffix();
+            self.discarding = true;
+        }
+    }
+
+    fn retain_separator_suffix(&mut self) {
+        let keep_from = self.pending.len().saturating_sub(3);
+        if keep_from > 0 {
+            self.pending.drain(..keep_from);
+        }
+        self.scan_from = 0;
     }
 }
 
-fn parse_data_frame(frame: &[u8]) -> Option<Value> {
-    let mut data = Vec::new();
-    for line in frame.split(|byte| *byte == b'\n') {
+fn find_separator(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
+    let mut index = start.min(bytes.len());
+    while index < bytes.len() {
+        if bytes.get(index..index + 2) == Some(&b"\n\n"[..]) {
+            return Some((index, 2));
+        }
+        if bytes.get(index..index + 4) == Some(&b"\r\n\r\n"[..]) {
+            return Some((index, 4));
+        }
+        index += 1;
+    }
+    None
+}
+
+fn parse_data_frame(frame: &[u8]) -> Option<FrameSummary> {
+    let data = data_payload(frame)?;
+    let parsed: OutputFrame<'_> = serde_json::from_slice(&data).ok()?;
+    Some(FrameSummary {
+        tab_id: parsed
+            .tab_id
+            .and_then(|tab| serde_json::from_str(tab.get()).ok()),
+        output_bytes: parsed
+            .output
+            .and_then(|output| json_string_bytes(output.get())),
+        offset: parsed.offset,
+        truncated: parsed.truncated == Some(true),
+        from: parsed.from,
+        boot_changed: parsed.boot_changed == Some(true),
+        ended: parsed.ended == Some(true),
+    })
+}
+
+fn data_payload(frame: &[u8]) -> Option<Cow<'_, [u8]>> {
+    let mut data_lines = frame.split(|byte| *byte == b'\n').filter_map(|line| {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
-        let Some(payload) = line.strip_prefix(b"data:") else {
-            continue;
-        };
+        line.strip_prefix(b"data:")
+            .map(|payload| payload.strip_prefix(b" ").unwrap_or(payload))
+    });
+    let first = data_lines.next()?;
+    let Some(second) = data_lines.next() else {
+        return Some(Cow::Borrowed(first));
+    };
+
+    let mut data = Vec::with_capacity(first.len() + second.len() + 1);
+    data.extend_from_slice(first);
+    if !data.is_empty() {
+        data.push(b'\n');
+    }
+    data.extend_from_slice(second);
+    for line in data_lines {
         if !data.is_empty() {
             data.push(b'\n');
         }
-        data.extend_from_slice(payload.strip_prefix(b" ").unwrap_or(payload));
+        data.extend_from_slice(line);
     }
-    serde_json::from_slice(&data).ok()
+    Some(Cow::Owned(data))
+}
+
+fn json_string_bytes(raw: &str) -> Option<usize> {
+    let bytes = raw.as_bytes();
+    if bytes.len() < 2 || bytes.first() != Some(&b'"') || bytes.last() != Some(&b'"') {
+        return None;
+    }
+    if !bytes.contains(&b'\\') {
+        return Some(bytes.len() - 2);
+    }
+
+    let end = bytes.len() - 1;
+    let mut index = 1;
+    let mut decoded_len = 0;
+    while index < end {
+        if bytes[index] != b'\\' {
+            decoded_len += 1;
+            index += 1;
+            continue;
+        }
+        index += 1;
+        match *bytes.get(index)? {
+            b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't' => {
+                decoded_len += 1;
+                index += 1;
+            }
+            b'u' => {
+                let code = parse_hex_quad(bytes.get(index + 1..index + 5)?)?;
+                index += 5;
+                if (0xD800..=0xDBFF).contains(&code)
+                    && bytes.get(index..index + 2) == Some(&b"\\u"[..])
+                {
+                    let low = parse_hex_quad(bytes.get(index + 2..index + 6)?)?;
+                    if !(0xDC00..=0xDFFF).contains(&low) {
+                        return None;
+                    }
+                    decoded_len += 4;
+                    index += 6;
+                } else if (0xD800..=0xDFFF).contains(&code) {
+                    return None;
+                } else {
+                    decoded_len += match code {
+                        0x0000..=0x007F => 1,
+                        0x0080..=0x07FF => 2,
+                        0x0800..=0xFFFF => 3,
+                    };
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(decoded_len)
+}
+
+fn parse_hex_quad(bytes: &[u8]) -> Option<u16> {
+    if bytes.len() != 4 {
+        return None;
+    }
+    bytes.iter().try_fold(0u16, |value, byte| {
+        let digit = match *byte {
+            b'0'..=b'9' => (*byte - b'0') as u16,
+            b'a'..=b'f' => (*byte - b'a' + 10) as u16,
+            b'A'..=b'F' => (*byte - b'A' + 10) as u16,
+            _ => return None,
+        };
+        Some((value << 4) | digit)
+    })
 }
 
 #[cfg(test)]
@@ -345,6 +523,7 @@ mod tests {
     #[test]
     fn sse_observer_counts_offsets_and_gap_frames_across_chunks() {
         let mut diagnostics = StreamDiagnostics::new(
+            log::Level::Debug,
             "relay",
             "session-1".into(),
             "tab-1".into(),
@@ -386,6 +565,7 @@ mod tests {
     #[test]
     fn sse_observer_counts_boot_change_control_frame() {
         let mut diagnostics = StreamDiagnostics::new(
+            log::Level::Debug,
             "peer",
             "session-2".into(),
             "tab-2".into(),
@@ -397,5 +577,50 @@ mod tests {
             "boot": "new-boot",
         }));
         assert_eq!(diagnostics.counters.boot_changed_events, 1);
+    }
+
+    #[test]
+    fn disabled_diagnostics_skip_observation_and_enabled_runtime_uses_info() {
+        assert_eq!(choose_level(false, false, false), None);
+        assert_eq!(choose_level(false, true, true), Some(log::Level::Debug));
+        assert_eq!(choose_level(true, true, true), Some(log::Level::Info));
+        assert_eq!(choose_level(true, false, false), None);
+    }
+
+    #[test]
+    fn runtime_diagnostics_config_defaults_off_and_accepts_live_config_value() {
+        let default = crate::config::schema::AppConfig::default();
+        assert!(!default.diagnostics.terminal_transport);
+
+        let enabled: crate::config::schema::AppConfig =
+            toml::from_str("[diagnostics]\nterminal_transport = true\n").unwrap();
+        assert!(enabled.diagnostics.terminal_transport);
+        assert!(toml::to_string(&enabled)
+            .unwrap()
+            .contains("terminal_transport = true"));
+    }
+
+    #[test]
+    fn parser_discards_oversize_frame_and_recovers_after_separator() {
+        let mut parser = SseFrameParser::default();
+        let oversized = vec![b'x'; MAX_PENDING_FRAME_BYTES + 1];
+        assert!(parser.push(&oversized).is_empty());
+        assert!(parser.discarding);
+        assert!(parser.pending.len() <= 3);
+
+        let recovered =
+            parser.push(b"\n\ndata: {\"tab_id\":\"tab-1\",\"output\":\"ok\",\"offset\":2}\n\n");
+        assert!(!parser.discarding);
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].tab_id.as_deref(), Some("tab-1"));
+        assert_eq!(recovered[0].output_bytes, Some(2));
+        assert_eq!(recovered[0].offset, Some(2));
+    }
+
+    #[test]
+    fn output_length_counts_json_escapes_without_decoding_the_text() {
+        assert_eq!(json_string_bytes(r#""a\n\uD83D\uDE00""#), Some(6));
+        assert_eq!(json_string_bytes(r#""plain 😀""#), Some(10));
+        assert_eq!(json_string_bytes("true"), None);
     }
 }
