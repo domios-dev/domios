@@ -222,6 +222,18 @@ mod tests {
     }
 
     #[test]
+    fn strip_verbatim_prefix_normalizes_long_slash_form_paths() {
+        let tail = "segment".repeat(48);
+        let drive = format!("//?/C:/{tail}");
+        let unc = format!("//?/UNC/server/share/{tail}");
+
+        assert_eq!(strip_verbatim_prefix(&drive), format!(r"C:\{tail}"));
+        assert_eq!(strip_verbatim_prefix(&unc), format!(r"\\server\share\{tail}"));
+        assert!(drive.len() > 260);
+        assert!(unc.len() > 260);
+    }
+
+    #[test]
     fn canonical_cwd_preserves_case_and_strips_verbatim() {
         let tmp = std::env::temp_dir().to_string_lossy().to_string();
         let out = canonical_cwd(&tmp);
