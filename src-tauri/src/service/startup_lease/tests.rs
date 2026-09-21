@@ -57,6 +57,8 @@ fn child_of(mux: &MultiplexerState, tab_id: &str) -> Option<ChildStartupState> {
     mux.get_tab(tab_id).map(|tab| ChildStartupState {
         attempt_id: tab.pty_id.clone(),
         team_id: tab.team_id.clone(),
+        session_id: tab.agent_session_id.clone(),
+        binding_nonce: tab.session_binding_nonce.clone(),
     })
 }
 

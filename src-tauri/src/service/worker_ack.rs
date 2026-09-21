@@ -8,18 +8,18 @@ use serde_json::{json, Value};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::startup_lease::{
     authorize_startup_hold, ChildStartupState, StartupAuthority, StartupHoldRefusal,
-    StartupTeamLease,
+    StartupTaskIdentity, StartupTeamLease,
 };
 
 use super::ServiceContext;
 
-#[path = "worker_ack/registry.rs"]
-mod registry;
 #[path = "worker_ack/plan_deadline.rs"]
 mod plan_deadline;
-pub(crate) use registry::{WorkerAckArm, WorkerAckIdentity};
-use registry::WorkerAckState;
+#[path = "worker_ack/registry.rs"]
+mod registry;
 pub(crate) use plan_deadline::worker_ack_reminder_message;
+use registry::WorkerAckState;
+pub(crate) use registry::{WorkerAckArm, WorkerAckIdentity};
 
 const MEASURED_CLAUDE_COLD_START_SECS: u64 = 34;
 const MEASURED_CODEX_COLD_START_SECS: u64 = 38;
@@ -64,6 +64,7 @@ pub(crate) enum AgentStartupSignal {
     Held,
     LaunchCommandFinished(Option<i32>),
     Superseded,
+    DeadlineExtended,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,11 +85,33 @@ enum WorkerAckWaitOutcome {
     Overdue,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WaiterExpiry {
+    Expired,
+    Extended,
+    NoLongerCurrent,
+}
+
+enum AgentStartupArm {
+    Armed(Receiver<AgentStartupSignal>),
+    Extended,
+    AlreadyAcknowledged,
+}
+
 fn await_agent_startup_notice(
     receiver: &Receiver<AgentStartupSignal>,
     timeout: Duration,
 ) -> AgentStartupNoticeOutcome {
-    let deadline = std::time::Instant::now() + timeout;
+    let mut generation = 0;
+    await_agent_startup_notice_with_generation(receiver, timeout, &mut generation)
+}
+
+fn await_agent_startup_notice_with_generation(
+    receiver: &Receiver<AgentStartupSignal>,
+    timeout: Duration,
+    generation: &mut u64,
+) -> AgentStartupNoticeOutcome {
+    let mut deadline = std::time::Instant::now() + timeout;
     let mut exit_code = None;
     loop {
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -105,6 +128,10 @@ fn await_agent_startup_notice(
                 return AgentStartupNoticeOutcome::Resolved;
             }
             Ok(AgentStartupSignal::LaunchCommandFinished(code)) => exit_code = code,
+            Ok(AgentStartupSignal::DeadlineExtended) => {
+                *generation = generation.wrapping_add(1);
+                deadline = std::time::Instant::now() + timeout;
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 return AgentStartupNoticeOutcome::Overdue { exit_code };
             }
@@ -143,13 +170,16 @@ struct WorkerAckWaiter {
 
 struct AgentStartupWaiter {
     authority: StartupAuthority,
+    deadline_generation: u64,
     sender: Sender<AgentStartupSignal>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingAgentStartupSupervisor {
     supervisor_tab_id: String,
     agent_title: String,
     team_id: Option<String>,
+    task_identity: Option<StartupTaskIdentity>,
 }
 
 pub(crate) fn is_agent_spawner(tab: &crate::multiplexer::types::Tab) -> bool {
@@ -165,31 +195,61 @@ fn startup_ack_owns_attempt(
         && tab.session_binding_nonce.as_deref() == Some(binding_nonce)
 }
 
+pub(crate) fn startup_task_identity_from_env(
+    env: &HashMap<String, String>,
+) -> Option<StartupTaskIdentity> {
+    Some(StartupTaskIdentity {
+        plan_id: env.get("CODETERM_PLAN_ID")?.clone(),
+        task_id: env.get("CODETERM_TASK_ID")?.clone(),
+        attempt_id: env.get("CODETERM_ATTEMPT_ID")?.clone(),
+    })
+}
+
 #[derive(Default)]
 pub(crate) struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
-    startup_acknowledged: Mutex<HashMap<String, String>>,
+    startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
 }
 
 impl WorkerAckRegistry {
-    pub(crate) fn arm_startup(&self, authority: StartupAuthority) -> Receiver<AgentStartupSignal> {
+    fn arm_startup(&self, authority: StartupAuthority) -> AgentStartupArm {
         let (sender, receiver) = mpsc::channel();
         let mut startup_waiters = self.startup_waiters.lock();
-        self.startup_acknowledged
-            .lock()
-            .remove(&authority.child_tab_id);
+        if let Some(waiter) = startup_waiters
+            .get_mut(&authority.child_tab_id)
+            .filter(|waiter| waiter.authority == authority)
+        {
+            if waiter
+                .sender
+                .send(AgentStartupSignal::DeadlineExtended)
+                .is_ok()
+            {
+                waiter.deadline_generation = waiter.deadline_generation.wrapping_add(1);
+                return AgentStartupArm::Extended;
+            }
+        }
+        let mut acknowledged = self.startup_acknowledged.lock();
+        if acknowledged.get(&authority.child_tab_id) == Some(&authority) {
+            return AgentStartupArm::AlreadyAcknowledged;
+        }
+        acknowledged.remove(&authority.child_tab_id);
         let previous = startup_waiters.insert(
             authority.child_tab_id.clone(),
-            AgentStartupWaiter { authority, sender },
+            AgentStartupWaiter {
+                authority,
+                deadline_generation: 0,
+                sender,
+            },
         );
+        drop(acknowledged);
         drop(startup_waiters);
         if let Some(previous) = previous {
             let _ = previous.sender.send(AgentStartupSignal::Superseded);
         }
-        receiver
+        AgentStartupArm::Armed(receiver)
     }
 
     pub(crate) fn mark_startup_ready(&self, tab_id: &str, attempt_id: &str) -> bool {
@@ -201,28 +261,62 @@ impl WorkerAckRegistry {
         tab_id: &str,
         attempt_id: &str,
     ) -> Option<AgentStartupAcknowledgement> {
-        let (acknowledgement, team_id) = {
+        self.acknowledge_startup_matching(tab_id, attempt_id, |authority| {
+            authority.session_id.is_none() && authority.binding_nonce.is_none()
+        })
+    }
+
+    fn acknowledge_startup_for_binding(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: Option<&str>,
+        binding_nonce: Option<&str>,
+    ) -> Option<AgentStartupAcknowledgement> {
+        self.acknowledge_startup_matching(tab_id, attempt_id, |authority| {
+            authority.session_id.as_deref() == session_id
+                && authority.binding_nonce.as_deref() == binding_nonce
+        })
+    }
+
+    fn acknowledge_startup_matching(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+        matches: impl Fn(&StartupAuthority) -> bool,
+    ) -> Option<AgentStartupAcknowledgement> {
+        let (acknowledgement, team_id, completed_authority) = {
             let mut waiters = self.startup_waiters.lock();
-            if waiters
-                .get(tab_id)
-                .is_some_and(|waiter| waiter.authority.attempt_id == attempt_id)
-            {
+            if waiters.get(tab_id).is_some_and(|waiter| {
+                waiter.authority.attempt_id == attempt_id && matches(&waiter.authority)
+            }) {
                 let waiter = waiters.remove(tab_id)?;
-                let AgentStartupWaiter { authority, sender } = waiter;
+                let AgentStartupWaiter {
+                    authority, sender, ..
+                } = waiter;
                 let _ = sender.send(AgentStartupSignal::Ready);
                 self.startup_acknowledged
                     .lock()
-                    .insert(tab_id.to_string(), attempt_id.to_string());
-                (AgentStartupAcknowledgement::Acknowledged, authority.team_id)
+                    .insert(tab_id.to_string(), authority.clone());
+                (
+                    AgentStartupAcknowledgement::Acknowledged,
+                    authority.team_id.clone(),
+                    Some(authority),
+                )
             } else {
                 let acknowledged = self.startup_acknowledged.lock();
-                if acknowledged.get(tab_id).is_some_and(|id| id == attempt_id) {
-                    (AgentStartupAcknowledgement::AlreadyAcknowledged, None)
+                if acknowledged.get(tab_id).is_some_and(|authority| {
+                    authority.attempt_id == attempt_id && matches(authority)
+                }) {
+                    (AgentStartupAcknowledgement::AlreadyAcknowledged, None, None)
                 } else {
                     return None;
                 }
             }
         };
+        if let Some(authority) = completed_authority.as_ref() {
+            self.clear_startup_supervisor(authority);
+        }
         if let Some(team_id) = team_id.as_deref() {
             self.release_startup_lease(team_id);
         }
@@ -252,6 +346,7 @@ impl WorkerAckRegistry {
         };
         let waiter = waiters.remove(tab_id).expect("waiter authorized above");
         drop(waiters);
+        self.clear_startup_supervisor(&authority);
         if let Some(team_id) = authority.team_id.as_deref() {
             self.release_startup_lease(team_id);
         }
@@ -289,9 +384,41 @@ impl WorkerAckRegistry {
             .get(tab_id)
             .is_some_and(|waiter| waiter.authority.attempt_id == attempt_id)
         {
-            waiters.remove(tab_id).map(|waiter| waiter.authority)
+            let authority = waiters.remove(tab_id).map(|waiter| waiter.authority);
+            drop(waiters);
+            if let Some(authority) = authority.as_ref() {
+                self.clear_startup_supervisor(authority);
+            }
+            authority
         } else {
             None
+        }
+    }
+
+    fn expire_startup_generation(
+        &self,
+        authority: &StartupAuthority,
+        generation: u64,
+    ) -> WaiterExpiry {
+        let mut waiters = self.startup_waiters.lock();
+        let Some(waiter) = waiters
+            .get(&authority.child_tab_id)
+            .filter(|waiter| waiter.authority == *authority)
+        else {
+            return WaiterExpiry::NoLongerCurrent;
+        };
+        if waiter.deadline_generation != generation {
+            return WaiterExpiry::Extended;
+        }
+        let expired = waiters
+            .remove(&authority.child_tab_id)
+            .map(|waiter| waiter.authority);
+        drop(waiters);
+        if let Some(expired) = expired {
+            self.clear_startup_supervisor(&expired);
+            WaiterExpiry::Expired
+        } else {
+            WaiterExpiry::NoLongerCurrent
         }
     }
 
@@ -301,15 +428,18 @@ impl WorkerAckRegistry {
         supervisor_tab_id: &str,
         agent_title: &str,
         team_id: Option<&str>,
+        task_identity: Option<StartupTaskIdentity>,
     ) {
-        self.startup_supervisors.lock().insert(
-            tab_id.to_string(),
-            PendingAgentStartupSupervisor {
-                supervisor_tab_id: supervisor_tab_id.to_string(),
-                agent_title: agent_title.to_string(),
-                team_id: team_id.map(str::to_string),
-            },
-        );
+        let next = PendingAgentStartupSupervisor {
+            supervisor_tab_id: supervisor_tab_id.to_string(),
+            agent_title: agent_title.to_string(),
+            team_id: team_id.map(str::to_string),
+            task_identity,
+        };
+        let mut supervisors = self.startup_supervisors.lock();
+        if supervisors.get(tab_id) != Some(&next) {
+            supervisors.insert(tab_id.to_string(), next);
+        }
     }
 
     fn register_startup_lease(&self, lease: StartupTeamLease) {
@@ -338,12 +468,22 @@ impl WorkerAckRegistry {
         reaped
     }
 
-    fn has_startup_supervisor(&self, tab_id: &str) -> bool {
-        self.startup_supervisors.lock().contains_key(tab_id)
+    fn startup_supervisor(&self, tab_id: &str) -> Option<PendingAgentStartupSupervisor> {
+        self.startup_supervisors.lock().get(tab_id).cloned()
     }
 
-    fn take_startup_supervisor(&self, tab_id: &str) -> Option<PendingAgentStartupSupervisor> {
-        self.startup_supervisors.lock().remove(tab_id)
+    fn clear_startup_supervisor(&self, authority: &StartupAuthority) {
+        let mut supervisors = self.startup_supervisors.lock();
+        if supervisors
+            .get(&authority.child_tab_id)
+            .is_some_and(|supervisor| {
+                supervisor.supervisor_tab_id == authority.creator_tab_id
+                    && supervisor.team_id == authority.team_id
+                    && supervisor.task_identity == authority.task_identity
+            })
+        {
+            supervisors.remove(&authority.child_tab_id);
+        }
     }
 
     fn cancel_startup_supervisor(&self, tab_id: &str) {

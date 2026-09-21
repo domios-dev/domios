@@ -29,6 +29,7 @@ impl ServiceContext {
             supervisor_tab_id,
             agent_title,
             None,
+            None,
         );
     }
 
@@ -45,6 +46,7 @@ impl ServiceContext {
                 &lease.creator_tab_id,
                 agent_title,
                 Some(&lease.team_id),
+                None,
             );
         }
         self.worker_ack.register_startup_lease(lease);
@@ -73,8 +75,21 @@ impl ServiceContext {
         reaped
     }
 
-    pub(crate) fn prepare_agent_startup_supervision(&self, agent_tab_id: &str) -> bool {
-        if self.worker_ack.has_startup_supervisor(agent_tab_id) {
+    pub(crate) fn prepare_agent_startup_supervision(
+        &self,
+        agent_tab_id: &str,
+        expected_supervisor: Option<&str>,
+        task_identity: Option<StartupTaskIdentity>,
+    ) -> bool {
+        if self
+            .worker_ack
+            .startup_supervisor(agent_tab_id)
+            .is_some_and(|existing| {
+                existing.task_identity == task_identity
+                    && expected_supervisor
+                        .is_none_or(|supervisor| existing.supervisor_tab_id == supervisor)
+            })
+        {
             return true;
         }
         let supervisor = {
@@ -82,9 +97,8 @@ impl ServiceContext {
             let Some(agent) = mux.get_tab(agent_tab_id) else {
                 return false;
             };
-            let Some(supervisor_tab_id) = agent
-                .spawned_by_tab_id
-                .as_deref()
+            let Some(supervisor_tab_id) = expected_supervisor
+                .or(agent.spawned_by_tab_id.as_deref())
                 .or(agent.parent_tab_id.as_deref())
             else {
                 return false;
@@ -100,19 +114,94 @@ impl ServiceContext {
                 mux.display_label_for_tab(agent_tab_id),
             )
         };
-        self.register_agent_startup_supervision(&supervisor.0, agent_tab_id, &supervisor.1);
+        self.worker_ack.register_startup_supervisor(
+            agent_tab_id,
+            &supervisor.0,
+            &supervisor.1,
+            None,
+            task_identity,
+        );
         true
     }
 
-    pub(crate) fn activate_agent_startup_supervision(&self, agent_tab_id: &str, attempt_id: &str) {
-        let Some(supervisor) = self.worker_ack.take_startup_supervisor(agent_tab_id) else {
-            return;
+    pub(crate) fn activate_agent_startup_supervision(
+        &self,
+        agent_tab_id: &str,
+        attempt_id: &str,
+        binding_nonce: &str,
+        expected_task_identity: Option<&StartupTaskIdentity>,
+    ) -> Result<(), String> {
+        let (session_id, task_binding) = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(agent_tab_id) else {
+                return Err(format!("task-bound startup tab {agent_tab_id} disappeared"));
+            };
+            if tab.pty_id.as_deref() != Some(attempt_id)
+                || tab.session_binding_nonce.as_deref() != Some(binding_nonce)
+            {
+                return Err(format!(
+                    "startup waiter binding for Tab {agent_tab_id} does not own PTY {attempt_id}"
+                ));
+            }
+            (tab.agent_session_id.clone(), tab.task_binding.clone())
         };
+        let task_bound = expected_task_identity.is_some()
+            || task_binding
+                .as_ref()
+                .is_some_and(|binding| binding.plan_id.is_some() && binding.task_id.is_some());
+        let Some(supervisor) = self.worker_ack.startup_supervisor(agent_tab_id) else {
+            return if task_bound {
+                Err(format!(
+                    "task-bound dispatch for Tab {agent_tab_id} has no supervised startup waiter"
+                ))
+            } else {
+                Ok(())
+            };
+        };
+        if task_bound {
+            let Some(identity) = supervisor.task_identity.as_ref() else {
+                return Err(format!(
+                    "task-bound dispatch for Tab {agent_tab_id} has no task attempt in its startup waiter"
+                ));
+            };
+            if expected_task_identity.is_some_and(|expected| expected != identity) {
+                return Err(format!(
+                    "startup waiter task attempt {}/{} does not match dispatched task attempt {}/{}",
+                    identity.task_id,
+                    identity.attempt_id,
+                    expected_task_identity
+                        .map(|expected| expected.task_id.as_str())
+                        .unwrap_or_default(),
+                    expected_task_identity
+                        .map(|expected| expected.attempt_id.as_str())
+                        .unwrap_or_default()
+                ));
+            }
+            if let Some(binding) = task_binding.as_ref() {
+                if binding
+                    .plan_id
+                    .as_deref()
+                    .is_some_and(|plan_id| plan_id != identity.plan_id.as_str())
+                    || binding
+                        .task_id
+                        .as_deref()
+                        .is_some_and(|task_id| task_id != identity.task_id.as_str())
+                {
+                    return Err(format!(
+                        "startup waiter task {}/{} does not match Tab {agent_tab_id} task binding",
+                        identity.plan_id, identity.task_id
+                    ));
+                }
+            }
+        }
         self.arm_agent_startup_deadline(
             StartupAuthority::new(&supervisor.supervisor_tab_id, agent_tab_id, attempt_id)
-                .in_team(supervisor.team_id.clone()),
+                .in_team(supervisor.team_id.clone())
+                .for_task(supervisor.task_identity.clone())
+                .for_binding(session_id.as_deref(), binding_nonce),
             &supervisor.agent_title,
         );
+        Ok(())
     }
 
     fn child_startup_state(&self, tab_id: &str) -> Option<ChildStartupState> {
@@ -122,14 +211,20 @@ impl ServiceContext {
             .map(|tab| ChildStartupState {
                 attempt_id: tab.pty_id.clone(),
                 team_id: tab.team_id.clone(),
+                session_id: tab.agent_session_id.clone(),
+                binding_nonce: tab.session_binding_nonce.clone(),
             })
     }
 
-    fn startup_attempt_is_current(&self, tab_id: &str, attempt_id: &str) -> bool {
+    fn startup_attempt_is_current(&self, authority: &StartupAuthority) -> bool {
         self.mux
             .read()
-            .get_tab(tab_id)
-            .is_some_and(|tab| tab.pty_id.as_deref() == Some(attempt_id))
+            .get_tab(&authority.child_tab_id)
+            .is_some_and(|tab| {
+                tab.pty_id.as_deref() == Some(authority.attempt_id.as_str())
+                    && tab.agent_session_id == authority.session_id
+                    && tab.session_binding_nonce == authority.binding_nonce
+            })
     }
 
     fn publish_agent_startup_report(
@@ -194,18 +289,22 @@ impl ServiceContext {
         attempt_id: &str,
         binding_nonce: &str,
     ) -> Result<AgentStartupAcknowledgement, String> {
-        let authorized = self
-            .mux
-            .read()
-            .get_tab(caller_tab_id)
-            .is_some_and(|tab| startup_ack_owns_attempt(tab, attempt_id, binding_nonce));
-        if !authorized {
+        let session_id = self.mux.read().get_tab(caller_tab_id).and_then(|tab| {
+            startup_ack_owns_attempt(tab, attempt_id, binding_nonce)
+                .then(|| tab.agent_session_id.clone())
+        });
+        let Some(session_id) = session_id else {
             return Err(format!(
                 "startup acknowledgement does not own attempt {attempt_id} for Tab {caller_tab_id}"
             ));
-        }
+        };
         self.worker_ack
-            .acknowledge_startup(caller_tab_id, attempt_id)
+            .acknowledge_startup_for_binding(
+                caller_tab_id,
+                attempt_id,
+                session_id.as_deref(),
+                Some(binding_nonce),
+            )
             .ok_or_else(|| {
                 format!(
                     "startup attempt {attempt_id} for Tab {caller_tab_id} is not awaiting acknowledgement"
@@ -266,22 +365,26 @@ impl ServiceContext {
         authority: StartupAuthority,
         agent_title: &str,
     ) {
+        let receiver = match self.worker_ack.arm_startup(authority.clone()) {
+            AgentStartupArm::Armed(receiver) => receiver,
+            AgentStartupArm::Extended | AgentStartupArm::AlreadyAcknowledged => return,
+        };
         let supervisor_tab_id = authority.creator_tab_id.clone();
         let agent_tab_id = authority.child_tab_id.clone();
         let attempt_id = authority.attempt_id.clone();
-        let receiver = self.worker_ack.arm_startup(authority);
         let service = self.clone();
         let agent_title = agent_title.to_string();
         std::thread::spawn(move || {
-            let final_deadline = std::time::Instant::now()
-                + AGENT_STARTUP_NOTICE_TIMEOUT
-                + AGENT_STARTUP_FINAL_TIMEOUT;
-            let mut exit_code =
-                match await_agent_startup_notice(&receiver, AGENT_STARTUP_NOTICE_TIMEOUT) {
-                    AgentStartupNoticeOutcome::Resolved => return,
-                    AgentStartupNoticeOutcome::Overdue { exit_code } => exit_code,
-                };
-            if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
+            let mut generation = 0;
+            let mut exit_code = match await_agent_startup_notice_with_generation(
+                &receiver,
+                AGENT_STARTUP_NOTICE_TIMEOUT,
+                &mut generation,
+            ) {
+                AgentStartupNoticeOutcome::Resolved => return,
+                AgentStartupNoticeOutcome::Overdue { exit_code } => exit_code,
+            };
+            if !service.startup_attempt_is_current(&authority) {
                 return;
             }
             service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
@@ -291,32 +394,34 @@ impl ServiceContext {
                 &agent_title,
                 agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id),
             );
-            if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
+            if !service.startup_attempt_is_current(&authority) {
                 return;
             }
             loop {
-                let remaining = final_deadline.saturating_duration_since(std::time::Instant::now());
-                if remaining.is_zero() {
-                    break;
+                match await_agent_startup_notice_with_generation(
+                    &receiver,
+                    AGENT_STARTUP_FINAL_TIMEOUT,
+                    &mut generation,
+                ) {
+                    AgentStartupNoticeOutcome::Resolved => return,
+                    AgentStartupNoticeOutcome::Overdue {
+                        exit_code: finished,
+                    } => {
+                        if finished.is_some() {
+                            exit_code = finished;
+                        }
+                    }
                 }
-                match receiver.recv_timeout(remaining) {
-                    Ok(
-                        AgentStartupSignal::Ready
-                        | AgentStartupSignal::Held
-                        | AgentStartupSignal::Superseded,
-                    ) => return,
-                    Ok(AgentStartupSignal::LaunchCommandFinished(code)) => exit_code = code,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                match service
+                    .worker_ack
+                    .expire_startup_generation(&authority, generation)
+                {
+                    WaiterExpiry::Expired => break,
+                    WaiterExpiry::Extended => continue,
+                    WaiterExpiry::NoLongerCurrent => return,
                 }
             }
-            let Some(_expired) = service
-                .worker_ack
-                .expire_startup(&agent_tab_id, &attempt_id)
-            else {
-                return;
-            };
-            if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
+            if !service.startup_attempt_is_current(&authority) {
                 return;
             }
             let provider_output = service.startup_provider_output(&attempt_id);
@@ -482,16 +587,15 @@ impl ServiceContext {
                 .find(|attempt| attempt_id.is_some_and(|id| attempt.id == id))
                 .and_then(|attempt| attempt.agent_type.clone().or(attempt.provider.clone()))
         });
-        let provider_output = if payload.get("kind").and_then(Value::as_str)
-            == Some("worker_ack_startup_failed")
-        {
-            payload
-                .get("attempt_id")
-                .and_then(Value::as_str)
-                .and_then(|attempt_id| self.startup_provider_output(attempt_id))
-        } else {
-            None
-        };
+        let provider_output =
+            if payload.get("kind").and_then(Value::as_str) == Some("worker_ack_startup_failed") {
+                payload
+                    .get("attempt_id")
+                    .and_then(Value::as_str)
+                    .and_then(|attempt_id| self.startup_provider_output(attempt_id))
+            } else {
+                None
+            };
         let message = worker_lifecycle_notice(
             worker_title,
             provider.as_deref(),
@@ -575,14 +679,12 @@ impl ServiceContext {
                 )
             })
             .and_then(|task| {
-                task.execution_attempts
-                    .into_iter()
-                    .find(|attempt| {
-                        attempt.id == attempt_id
-                            && attempt.executor_tab_id == worker_tab_id
-                            && attempt.closed_at.is_none()
-                            && attempt.retired_at.is_none()
-                    })
+                task.execution_attempts.into_iter().find(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.executor_tab_id == worker_tab_id
+                        && attempt.closed_at.is_none()
+                        && attempt.retired_at.is_none()
+                })
             })
         else {
             return;
@@ -763,4 +865,3 @@ pub(crate) fn worker_ack_reminder_message(tab_id: &str, attempt_id: &str) -> Out
         idempotency_key: Some(format!("worker-ack-reminder:{attempt_id}")),
     }
 }
-
