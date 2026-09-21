@@ -116,11 +116,8 @@ mod tests {
 
     #[test]
     fn trust_gates_pickers_and_declineless_prompts_are_refused() {
-        let trust = prompt(
-            "Is this a project you created or one you trust?",
-            &["Yes, I trust this folder", "No, exit"],
-        );
-        let trust_screen = "Is this a project you created or one you trust?";
+        let trust = prompt("Trust?", &["Yes", "No"]);
+        let trust_screen = "Trust?";
         assert_eq!(affirmative_option("Bash", &trust, trust_screen), None);
 
         let no_decline = prompt("Do you want to proceed?", &["Yes", "Yes, always"]);

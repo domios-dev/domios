@@ -1,5 +1,5 @@
 import type { ApiConfig } from "./types";
-import { daemonAuthToken, daemonHttpBase } from "./webApi";
+import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
 export interface RemoteTransportCall {
   ordinaryTabId: string;
@@ -121,7 +121,9 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       text: args.text,
       scheduled_at_ms: args.scheduledAtMs,
     });
-    case "mux_respond_prompt": return call("POST", "/prompt/respond", args);
+    case "mux_respond_prompt": return call("POST", "/prompt/respond", args, (value) =>
+      isPromptNotOnScreenResponse(value) ? undefined : value,
+    );
     case "mux_set_permission_auto_confirm": return call(
       "POST",
       "/permission-auto-confirm",

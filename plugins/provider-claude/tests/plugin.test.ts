@@ -195,20 +195,6 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 }
 
 {
-  const trust = [
-    "Accessing workspace:",
-    "C:\\work\\new-project",
-    "Quick safety check: Is this a project you created or one you trust?",
-    "❯ 1. Yes, I trust this folder",
-    "  2. No, exit",
-    "Enter to confirm · Esc to cancel",
-  ].join("\n");
-  const parsed = hostPlugin.parsePrompt(trust);
-  eq(parsed?.question, "Quick safety check: Is this a project you created or one you trust?", "directory trust gate parses as a provider prompt");
-  eq(hostPlugin.permissionPromptResponse("Bash", parsed, trust), null, "directory trust is never a tool permission approval");
-}
-
-{
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "folder-trust");
   const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8")) as Array<{ file: string; expect: string }>;
   const keys: Record<string, string[] | null> = {
@@ -223,6 +209,32 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     const screen = fs.readFileSync(path.join(dir, c.file), "utf8");
     eq(hostPlugin.directoryTrustPromptResponse(screen), keys[c.expect], `folder trust ${c.file} -> ${c.expect}`);
   }
+
+  const unnumbered = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8");
+  const parsed = hostPlugin.parsePrompt(unnumbered);
+  assert(Boolean(parsed?.question.trim()), "folder trust exposes a parsed prompt question");
+  eq(parsed?.options?.map(([, value]) => value), ["1", "2"], "folder trust options retain screen order");
+  eq(parsed?.options?.map(([label]) => label.match(/^[A-Za-z]+/)?.[0].toLowerCase()), ["no", "yes"], "folder trust options expose refusal before trust");
+  eq(hostPlugin.buildPromptResponse(1, unnumbered), ["ag==", "DQ=="], "responding with option two moves off refusal before confirming");
+  eq(hostPlugin.permissionPromptResponse("Bash", parsed, unnumbered), null, "directory trust is never a tool permission approval");
+
+  const wrapped = fs.readFileSync(path.join(dir, "quick-safety-wrapped-header.txt"), "utf8");
+  const wrappedPrompt = hostPlugin.parsePrompt(wrapped);
+  assert(Boolean(wrappedPrompt?.question.trim()), "wrapped trust header remains one parsed question");
+  eq(wrappedPrompt?.options?.map(([, value]) => value), ["1", "2"], "wrapped header keeps choices in screen order");
+
+  const pathResidue = fs.readFileSync(path.join(dir, "quick-safety-path-residue.txt"), "utf8");
+  const residuePrompt = hostPlugin.parsePrompt(pathResidue);
+  assert(Boolean(residuePrompt?.question.trim()), "unrelated path residue does not hide a trust prompt");
+
+  const pathInDialog = fs.readFileSync(path.join(dir, "quick-safety-path-in-dialog.txt"), "utf8");
+  eq(hostPlugin.parsePrompt(pathInDialog), null, "a path within the dialog block is not parsed as the pathless layout");
+
+  const numbered = fs.readFileSync(path.join(dir, "trust-numbered-focus-affirmative.txt"), "utf8");
+  const numberedPrompt = hostPlugin.parsePrompt(numbered);
+  eq(numberedPrompt?.options?.map(([, value]) => value), ["1", "2"], "numbered trust options remain parseable");
+  eq(numberedPrompt?.options?.map(([label]) => label.match(/^[A-Za-z]+/)?.[0].toLowerCase()), ["yes", "no"], "numbered trust choices retain screen order");
+  eq(hostPlugin.buildPromptResponse(0, numbered), ["DQ=="], "numbered trust choice confirms its focused affirmative row");
 }
 
 {
