@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use crate::agent::status::TabStatus;
 use crate::api::routes::{check_auth, AppState};
-use crate::api::stream_diagnostics::{StreamDiagnostics, StreamTabStart};
+use crate::api::stream_diagnostics::{configured_level, StreamDiagnostics, StreamTabStart};
 use crate::service::ServiceState;
 
 /// Per-tick per-tab byte cap: round-robin fairness so one noisy tab can't
@@ -130,6 +130,44 @@ fn seed_initial(
         .filter(|(id, _)| tab_is_in_scope(id, tab_id))
         .collect();
     let buf = svc.output_buf.lock();
+    let initial_tabs = live
+        .iter()
+        .map(|(tab, pty)| {
+            let total_written = buf.total_written(pty);
+            let retained_from = total_written.saturating_sub(
+                buf.get_full(pty)
+                    .map(|bytes| bytes.len() as u64)
+                    .unwrap_or(0),
+            );
+            InitialTab {
+                tab_id: tab.clone(),
+                pty_id: pty.clone(),
+                total_written,
+                retained_from,
+            }
+        })
+        .collect();
+    drop(buf);
+    seed_initial_state(boot, cursor, tab_id, initial_tabs)
+}
+
+struct InitialTab {
+    tab_id: String,
+    pty_id: String,
+    total_written: u64,
+    retained_from: u64,
+}
+
+fn seed_initial_state(
+    boot: String,
+    cursor: Option<Cursor>,
+    tab_id: Option<&str>,
+    live: Vec<InitialTab>,
+) -> (
+    Option<serde_json::Value>,
+    HashMap<String, Tracked>,
+    Vec<StreamTabStart>,
+) {
     let mut tracked = HashMap::new();
     let mut boot_frame = None;
     let boot_changed = cursor.as_ref().is_some_and(|value| value.boot != boot);
@@ -140,11 +178,16 @@ fn seed_initial(
     }
 
     let mut starts = Vec::with_capacity(live.len());
-    for (tab, pty) in &live {
-        let total_written = buf.total_written(pty);
+    for entry in live {
+        let InitialTab {
+            tab_id: tab,
+            pty_id: pty,
+            total_written,
+            retained_from,
+        } = entry;
         let cursor_offset = cursor
             .as_ref()
-            .and_then(|value| value.tabs.get(tab))
+            .and_then(|value| value.tabs.get(&tab))
             .copied();
         let (resume_offset, replaying) = if boot_changed {
             (total_written, false)
@@ -153,11 +196,6 @@ fn seed_initial(
         } else {
             (cursor_offset.unwrap_or(0), true)
         };
-        let retained_from = total_written.saturating_sub(
-            buf.get_full(pty)
-                .map(|bytes| bytes.len() as u64)
-                .unwrap_or(0),
-        );
         let replay_truncated_from =
             (replaying && cursor_offset.unwrap_or(0) < retained_from).then_some(retained_from);
         tracked.insert(
@@ -169,7 +207,7 @@ fn seed_initial(
         );
         starts.push(StreamTabStart {
             tab_id: tab.clone(),
-            pty_id: Some(pty.clone()),
+            pty_id: Some(pty),
             cursor_boot: cursor.as_ref().map(|value| value.boot.clone()),
             cursor_offset,
             total_written: Some(total_written),
@@ -308,16 +346,22 @@ pub async fn output_stream(
         .as_deref()
         .and_then(|tab| cursor.as_ref()?.tabs.get(tab))
         .copied();
-    let session_id = uuid::Uuid::new_v4().simple().to_string();
+    let diagnostic_level = configured_level(state.config.lock().diagnostics.terminal_transport);
+    let session_id = diagnostic_level.map(|_| uuid::Uuid::new_v4().simple().to_string());
 
     let stream = async_stream::stream! {
-        let mut diagnostics = StreamDiagnostics::new(
-            "peer",
-            session_id,
-            scope,
-            cursor_boot,
-            cursor_offset,
-        );
+        let mut diagnostics = diagnostic_level
+            .zip(session_id)
+            .map(|(level, session_id)| {
+                StreamDiagnostics::new(
+                    level,
+                    "peer",
+                    session_id,
+                    scope,
+                    cursor_boot,
+                    cursor_offset,
+                )
+            });
         let svc0 = svc.clone();
         let (boot_frame, mut tracked, starts) =
             match tokio::task::spawn_blocking({
@@ -326,15 +370,21 @@ pub async fn output_stream(
             }).await {
                 Ok(v) => v,
                 Err(_) => {
-                    diagnostics.finish("seed_error");
+                    if let Some(diagnostics) = diagnostics.as_mut() {
+                        diagnostics.finish("seed_error");
+                    }
                     return;
                 },
             };
         for start in starts {
-            diagnostics.attach_tab(start);
+            if let Some(diagnostics) = diagnostics.as_mut() {
+                diagnostics.attach_tab(start);
+            }
         }
         if let Some(bf) = boot_frame {
-            diagnostics.observe_value(&bf);
+            if let Some(diagnostics) = diagnostics.as_mut() {
+                diagnostics.observe_value(&bf);
+            }
             yield Ok(data_frame(bf));
         }
         loop {
@@ -349,16 +399,22 @@ pub async fn output_stream(
             let (frames, starts, owned) = match result {
                 Ok(v) => v,
                 Err(_) => {
-                    diagnostics.finish("sweep_error");
+                    if let Some(diagnostics) = diagnostics.as_mut() {
+                        diagnostics.finish("sweep_error");
+                    }
                     return;
                 },
             };
             tracked = owned;
             for start in starts {
-                diagnostics.attach_tab(start);
+                if let Some(diagnostics) = diagnostics.as_mut() {
+                    diagnostics.attach_tab(start);
+                }
             }
             for f in frames {
-                diagnostics.observe_value(&f);
+                if let Some(diagnostics) = diagnostics.as_mut() {
+                    diagnostics.observe_value(&f);
+                }
                 yield Ok(data_frame(f));
             }
             tokio::time::sleep(TICK).await;

@@ -108,24 +108,29 @@ pub async fn pty_write(
     Json(body): Json<PtyWriteBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let request_bytes = body.data.len();
-    let (tab_id, is_current_pty) = {
-        let mux = state.svc.mux.read();
-        let tab_id = mux.tab_id_for_pty(&pty_id);
-        let is_current_pty = tab_id
-            .as_deref()
-            .and_then(|tab| mux.get_tab(tab))
-            .and_then(|tab| tab.pty_id.as_deref())
-            == Some(pty_id.as_str());
-        (tab_id, is_current_pty)
-    };
-    log::debug!(
-        "[pty-write-route] tab={} pty_id={} bytes={} is_current_pty={}",
-        tab_id.as_deref().unwrap_or("unmapped"),
-        pty_id,
-        request_bytes,
-        is_current_pty,
+    let diagnostic_level = crate::api::stream_diagnostics::configured_level(
+        state.config.lock().diagnostics.terminal_transport,
     );
+    if let Some(level) = diagnostic_level {
+        let (tab_id, is_current_pty) = {
+            let mux = state.svc.mux.read();
+            let tab_id = mux.tab_id_for_pty(&pty_id);
+            let is_current_pty = tab_id
+                .as_deref()
+                .and_then(|tab| mux.get_tab(tab))
+                .and_then(|tab| tab.pty_id.as_deref())
+                == Some(pty_id.as_str());
+            (tab_id, is_current_pty)
+        };
+        log::log!(
+            level,
+            "[pty-write-route] tab={} pty_id={} bytes={} is_current_pty={}",
+            tab_id.as_deref().unwrap_or("unmapped"),
+            pty_id,
+            body.data.len(),
+            is_current_pty,
+        );
+    }
     if body.raw {
         crate::commands::write_pty_string_core(&state.svc, pty_id, body.data)
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;

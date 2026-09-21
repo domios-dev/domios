@@ -1,3 +1,5 @@
+use crate::api::access_policy::check_access;
+use crate::api::routes::{check_auth, AppState};
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
@@ -5,12 +7,6 @@ use axum::{
     response::Response,
     Json,
 };
-use futures_util::StreamExt;
-
-use crate::api::access_policy::check_access;
-use crate::api::output_stream;
-use crate::api::routes::{check_auth, AppState};
-use crate::api::stream_diagnostics::{StreamDiagnostics, StreamTabStart};
 
 pub async fn mesh_sync(
     AxumState(state): AxumState<AppState>,
@@ -968,6 +964,9 @@ pub async fn mesh_relay_stream(
     Query(q): Query<RelayStreamQuery>,
 ) -> Result<Response, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let diagnostic_level = crate::api::stream_diagnostics::configured_level(
+        state.config.lock().diagnostics.terminal_transport,
+    );
 
     let bare = q.path.split('?').next().unwrap_or(&q.path);
     if !is_streamable_relay_path(bare) {
@@ -1034,54 +1033,16 @@ pub async fn mesh_relay_stream(
     }
 
     let content_type = copy_content_type(&resp, "text/event-stream");
-    let upstream = resp.bytes_stream();
     let body = if bare == "/api/output/stream" {
-        let cursor = q.since.as_deref().and_then(output_stream::parse_cursor);
-        let cursor_boot = cursor.as_ref().map(|value| value.boot.clone());
-        let cursor_offset = stream_tab_id
-            .as_deref()
-            .and_then(|tab| cursor.as_ref()?.tabs.get(tab))
-            .copied();
-        let session_id = uuid::Uuid::new_v4().simple().to_string();
-        let mut diagnostics = StreamDiagnostics::new(
-            "relay",
-            session_id,
+        super::relay_stream::output_body(
+            resp,
+            diagnostic_level,
             q.tab.clone().unwrap_or_else(|| "*".into()),
-            cursor_boot.clone(),
-            cursor_offset,
-        );
-        if let Some(tab_id) = stream_tab_id {
-            diagnostics.attach_tab(StreamTabStart {
-                tab_id,
-                pty_id: None,
-                cursor_boot,
-                cursor_offset,
-                total_written: None,
-                resume_offset: cursor_offset,
-                replay_truncated: None,
-                replay_truncated_from: None,
-                boot_changed: false,
-            });
-        }
-        let mut upstream = Box::pin(upstream);
-        let stream = async_stream::stream! {
-            while let Some(result) = upstream.next().await {
-                if result.is_err() {
-                    diagnostics.finish("upstream_error");
-                    yield result;
-                    return;
-                }
-                let bytes = result.as_ref().ok().cloned();
-                yield result;
-                if let Some(bytes) = bytes {
-                    diagnostics.observe_sse_bytes(&bytes);
-                }
-            }
-            diagnostics.finish("upstream_eof");
-        };
-        Body::from_stream(stream)
+            stream_tab_id,
+            q.since.as_deref(),
+        )
     } else {
-        Body::from_stream(upstream)
+        Body::from_stream(resp.bytes_stream())
     };
     let mut out = Response::new(body);
     out.headers_mut().insert(header::CONTENT_TYPE, content_type);
