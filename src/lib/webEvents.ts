@@ -14,6 +14,7 @@
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { fireResync } from "./resync";
 import { createSeqGapTracker } from "./eventSeqGaps";
+import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 
 type Handler = (e: { payload: unknown }) => void;
 
@@ -37,6 +38,7 @@ let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let lastFrameAt = 0;
 let forceImmediateRetry = false;
+let hasAttemptedConnection = false;
 
 const CURSOR_KEY = "codeterm-web-events-cursor";
 const RECEIVE_TIMEOUT_MS = 30_000;
@@ -148,6 +150,8 @@ async function runStream(): Promise<void> {
     const abort = new AbortController();
     streamAbort = abort;
     lastFrameAt = Date.now();
+    const reconnecting = hasAttemptedConnection;
+    hasAttemptedConnection = true;
     try {
       const token = currentToken();
       const res = await fetch(webEventStreamUrl(cursor), {
@@ -155,6 +159,7 @@ async function runStream(): Promise<void> {
         signal: abort.signal,
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      if (reconnecting) window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
       backoffMs = 1_000;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -256,4 +261,5 @@ export function __resetWebEventsForTest(): void {
   cursor = readCursor();
   lastFrameAt = 0;
   forceImmediateRetry = false;
+  hasAttemptedConnection = false;
 }

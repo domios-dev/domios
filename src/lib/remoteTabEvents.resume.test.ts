@@ -86,6 +86,36 @@ describe("remote chat event subscription ownership", () => {
     stopState();
     vi.unstubAllGlobals();
   });
+
+  it("delivers peer resize-owner changes with the composite tab and PTY identity", async () => {
+    vi.stubGlobal("window", new EventTarget());
+    const frame = JSON.stringify({
+      boot: "boot-r",
+      seq: 1,
+      event_type: "pty-resize-owner-changed",
+      data: { tab_id: "tab", pty_id: "pty-1", client_id: "web:other", cols: 80, rows: 24 },
+    });
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode(`data: ${frame}\n\n`)); },
+    })));
+    const event = "pty-resize-owner-changed:mesh:peer/tab";
+    let payload: Record<string, unknown> | null = null;
+    let resolveDelivered!: () => void;
+    const delivered = new Promise<void>((resolve) => { resolveDelivered = resolve; });
+    const unsubscribe = subscribeRemoteTabEvent<Record<string, unknown>>(event, (value) => {
+      payload = value.payload;
+      resolveDelivered();
+    })!;
+    await delivered;
+    expect(payload).toMatchObject({
+      tab_id: "mesh:peer/tab",
+      pty_id: "mesh:peer/tab",
+      client_id: "web:other",
+    });
+    expect(remoteTabEventSubscriptionSnapshot(event)?.cursor).toBe("boot-r:1");
+    unsubscribe();
+    vi.unstubAllGlobals();
+  });
 });
 
 finish();
