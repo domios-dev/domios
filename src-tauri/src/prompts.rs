@@ -97,7 +97,7 @@ pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
     "reject any draft whose worker guidance says nothing";
 
 /// Connects the missing-ACK event to the shared child PTY recovery procedure.
-pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- On `worker_ack_startup_failed` with `recovery.capability=interactive_child_pty`, use this tab's inspect/status/get-text, respond or bounded send --actions loop; reread and escalate uncertainty.";
+pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- On worker_ack_startup_failed with recovery.capability=interactive_child_pty, inspect the named tab and attempt via lifecycle, status, and get-text. Hold only a confirmed prompt-bound attempt; use tab respond only for a provider-classified, authorized numbered prompt; reread and verify binding plus the child's own ACK. Diagnose other failures from current evidence; keep uncertainty blocked and escalate. Never send task/ACK prose, raw keys, or blind Enter.";
 
 /// Stable Orchestrator delivery token for the optional Cartographer Manager.
 pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
@@ -149,7 +149,7 @@ pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.
 /// Single source of truth so command syntax stays in sync.
 pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
 
-/// Read-act-verify procedure shared by coordinating prompts and the CLI skill.
+/// Read-act-verify procedure injected once into the General Agent prompt.
 pub const INTERACTIVE_CHILD_PTY_OPERATION: &str =
     include_str!("../prompts/interactive_child_pty.md");
 pub const INTERACTIVE_CHILD_PTY_CAPABILITY_ID: &str = "interactive_child_pty";

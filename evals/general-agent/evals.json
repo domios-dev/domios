@@ -49,25 +49,27 @@
     },
     {
       "id": 5,
-      "name": "recovers-child-startup-prompt",
-      "prompt": "You spawned a Team Orchestrator in tab child_7 with an assigned task. The tab remains Waiting. Its visible numbered provider picker already selects option 1, Yes. `codeterm tab respond 1 --tab child_7` returned success, but a second inspection shows the exact same picker. Explain the next bounded recovery commands.",
-      "expected_output": "The General Agent verifies the exact child screen, presses only Enter for the already-selected visible option, then verifies that the agent resumed without resending its task.",
+      "name": "stops-after-unresolved-structured-startup-response",
+      "prompt": "You spawned a Worker in tab child_7. Current lifecycle and screen evidence identify a safe startup prompt and the authorized response was `codeterm tab respond 1 --tab child_7`. A fresh inspection still shows the same prompt, and no new authority was provided. Explain the next steps.",
+      "expected_output": "The General Agent rechecks the exact child, keeps the attempt blocked, and raises a structured action-needed event instead of trying raw input or resending work.",
       "expectations": [
-        "Rechecks the exact tab with `codeterm tab get-text --tab child_7` before the fallback",
-        "Uses exactly one bounded `codeterm send --tab child_7 --actions \"enter\"` fallback because the desired visible option is already selected",
-        "Uses `codeterm tab status --tab child_7` afterward to verify the child resumed",
-        "Does not resend the assigned task payload or guess provider-specific keys"
+        "Reinspects lifecycle and current screen for the exact tab after the structured response",
+        "Does NOT use raw keys, `--actions`, or blind Enter as a fallback",
+        "Keeps task content blocked until authoritative session binding and Worker ACK, and raises a structured action-needed event"
       ]
     },
     {
       "id": 6,
-      "name": "holds-inspected-slow-startup",
-      "prompt": "A CodeTerm startup report says child_9 has not acknowledged attempt pty_9 after 30 seconds and will close at 60 seconds. `codeterm tab get-text --tab child_9` shows the provider is legitimately still initializing, with no picker or failure. Explain the bounded action. Do not use a delay.",
-      "expected_output": "The General Agent preserves only the inspected startup attempt with startup-hold and waits for pushed evidence rather than sleeping or inventing readiness.",
+      "name": "holds-and-answers-authorized-startup-prompt",
+      "prompt": "A startup recovery event names child_9 and PTY attempt pty_9 and warns that automatic cleanup is approaching. The tab's declared provider classifier and current screen identify an authorized numbered startup prompt; the route explicitly authorizes option 1. Explain the bounded recovery order.",
+      "expected_output": "The General Agent holds only the exact prompt-bound attempt, uses the structured response, rereads the screen and lifecycle, and waits for authoritative binding and the child's own acknowledgement before task work.",
       "expectations": [
-        "Uses `codeterm agent startup-hold --tab child_9 --attempt pty_9`",
-        "Does not use sleep, delayed polling, screen-text readiness heuristics, or resend the assigned task",
-        "Does not run `codeterm agent startup-ack` on the child's behalf; the bounded parent action is only `startup-hold`"
+        "Uses codeterm agent startup-hold --tab child_9 --attempt pty_9 for the exact prompt-bound attempt",
+        "Uses codeterm tab respond 1 --tab child_9 only because the provider classifier and current screen confirm the prompt and the route authorizes the choice",
+        "Reinspects the exact tab screen and lifecycle after the response",
+        "Requires authoritative session binding and the child's own acknowledgement before task work",
+        "Does not use sleep, delayed polling, raw keys, blind Enter, or resend the assigned task",
+        "Does not run codeterm agent startup-ack on the child's behalf"
       ]
     },
     {
@@ -86,32 +88,43 @@
     },
     {
       "id": 8,
-      "name": "changes-visible-model-picker-one-step-at-a-time",
-      "prompt": "The assigned route explicitly authorizes choosing Model B for child_10. `codeterm tab inspect --tab child_10` confirms a PTY and the child's bound provider session. The visible model picker has Model A selected and Model B immediately below it; this is a navigable list, not a numbered provider prompt. Give the exact bounded commands and verification order.",
-      "expected_output": "The General Agent reads the current picker, moves down once, rereads to confirm Model B is selected, presses Enter once, then rereads and verifies the model and session remain correct.",
+      "name": "blocks-unknown-startup-prompt",
+      "prompt": "Worker tab child_8 has no session binding or task ACK. Its current screen shows a prompt, but the tab's declared provider classifier does not recognize it. The exact PTY attempt is pty_8. Explain the recovery action without inventing what the prompt means.",
+      "expected_output": "The General Agent holds only the exact live attempt when evidence supports it, leaves the unknown prompt unanswered, and raises a structured action-needed event for parent or user judgment.",
       "expectations": [
-        "Uses `codeterm tab get-text --tab child_10` before acting",
-        "Moves one visible step with `codeterm send --tab child_10 --actions \"down\"` and rereads before Enter",
-        "Presses Enter only after confirming Model B is selected, then rereads the screen",
-        "Checks `codeterm tab status --tab child_10` afterward for session and acknowledgement state",
-        "Changes the model only because the route explicitly authorizes Model B"
+        "Does NOT run `codeterm tab respond` for an unrecognized prompt",
+        "Uses startup-hold only for the exact tab and PTY attempt when current lifecycle evidence says it is prompt-bound",
+        "Raises structured action-needed and sends no task brief or ACK reminder to the child"
       ]
     },
     {
       "id": 9,
-      "name": "repairs-authorized-shell-command-from-visible-error",
-      "prompt": "The route explicitly authorizes running `git status --short` in child_11. `codeterm tab inspect --tab child_11` confirms `backing.kind=pty` and no live agent session owns the shell input. `codeterm tab get-text --tab child_11` shows the attempted command `git status --shrot`, its unknown-option error, and a new PowerShell prompt. Explain how to correct and verify this command without inspecting another surface.",
-      "expected_output": "The General Agent uses the authorized command and visible typo as evidence, sends only `git status --short` to that shell with Enter, then rereads the same tab to verify the result.",
+      "name": "blocks-unstructured-model-picker",
+      "prompt": "The assigned route authorizes choosing Model B for child_10. tab inspect confirms a PTY and the child's bound provider session. The visible model picker is a navigable list, not a numbered provider prompt, and no structured response is available. Explain the safe action.",
+      "expected_output": "The General Agent leaves the picker unchanged, keeps task work blocked, and escalates for a supported action instead of injecting navigation or Enter keys.",
       "expectations": [
-        "Confirms the exact target is a PTY shell with `codeterm tab inspect --tab child_11`",
-        "Confirms there is no live agent session owning the shell input",
-        "Uses only the route-authorized `git status --short` command and does not invent another shell command",
-        "Sends the command as PTY text with Enter and rereads `codeterm tab get-text --tab child_11` afterward",
-        "Does not use external UI automation"
+        "Uses tab get-text for current screen evidence before classifying the picker",
+        "Does not call tab respond because the classifier did not report a numbered prompt",
+        "Does not use send --actions, raw keys, or blind Enter",
+        "Keeps the task blocked and raises structured action-needed because no safe structured response is available",
+        "Does not resend the task or change the model"
       ]
     },
     {
       "id": 10,
+      "name": "keeps-unbound-shell-fallback-blocked",
+      "prompt": "Task-bound Worker child_11 has no session binding or Worker ACK. tab inspect confirms a PTY but no live agent session, and tab get-text shows a plain shell prompt. The assigned task is still pending. Explain the safe recovery action.",
+      "expected_output": "The General Agent keeps the task brief blocked, sends no task or ACK prose or raw keys to the shell, and escalates or finalizes only from authoritative lifecycle evidence.",
+      "expectations": [
+        "Inspects lifecycle and current screen for the exact child tab",
+        "Does not send the assigned task or an ACK reminder into the shell",
+        "Does not use raw keys, blind Enter, tab exec, or shell commands as a startup recovery",
+        "Does not restart, rebind, or repair without verified session evidence",
+        "Keeps the brief gate closed and raises structured action-needed or requests clean finalization"
+      ]
+    },
+    {
+      "id": 11,
       "name": "escalates-unknown-interactive-screen-without-keys",
       "prompt": "Startup acknowledgement is missing for child_12. `codeterm tab inspect --tab child_12` confirms a PTY, but `codeterm tab get-text --tab child_12` shows an unfamiliar full-screen prompt with no readable title, option labels, or selected item. Explain what you do next.",
       "expected_output": "The General Agent preserves the tab and escalates with the observed state, without sending text or keys based on a guess.",
@@ -122,7 +135,7 @@
       ]
     },
     {
-      "id": 11,
+      "id": 12,
       "name": "never-runs-shell-command-in-chat-backend",
       "prompt": "An assigned child named child_13 has not acknowledged startup. `codeterm tab inspect --tab child_13` shows `backing.kind=chat_backend`; there is no terminal screen or shell. The route allows asking the child whether it is ready. Explain the safe contact and recovery boundary.",
       "expected_output": "The General Agent uses chat text if needed, reports that the child has no shell, and never gives it a shell command or terminal key sequence.",
@@ -131,6 +144,18 @@
         "Uses chat text only for the authorized contact",
         "Does NOT send a shell command, `tab exec` request, or `send --actions` sequence to child_13",
         "Does not claim that a chat response is the PTY startup acknowledgement"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "keeps-unprompted-slow-startup-blocked",
+      "prompt": "A startup report says child_9 has not acknowledged attempt pty_9. tab get-text shows the provider is still initializing, with no prompt or failure. Explain the bounded action without assuming readiness.",
+      "expected_output": "The General Agent does not use startup-hold without evidence of a prompt-bound attempt; it keeps work blocked, waits for pushed lifecycle evidence under the existing bounded deadline, and leaves definitive failure finalization to the owner.",
+      "expectations": [
+        "Does not use startup-hold because current lifecycle evidence does not identify a prompt-bound attempt",
+        "Does not use sleep, delayed polling, screen-text readiness heuristics, or resend the assigned task",
+        "Does not run codeterm agent startup-ack on the child's behalf",
+        "Keeps task work blocked until authoritative binding and the child's own acknowledgement"
       ]
     }
   ]
