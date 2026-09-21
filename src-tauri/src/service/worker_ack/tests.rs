@@ -16,6 +16,16 @@ fn ack_identity(attempt_id: &str) -> WorkerAckIdentity {
     }
 }
 
+fn startup_receiver(
+    registry: &WorkerAckRegistry,
+    authority: StartupAuthority,
+) -> Receiver<AgentStartupSignal> {
+    match registry.arm_startup(authority) {
+        AgentStartupArm::Armed(receiver) => receiver,
+        _ => panic!("expected a new startup waiter"),
+    }
+}
+
 #[derive(Default)]
 struct ReminderDeliverySeam {
     targets: RefCell<Vec<String>>,
@@ -79,6 +89,23 @@ fn acknowledgement_resolves_only_the_matching_attempt() {
     assert!(!registry.acknowledge(&ack_identity("attempt-b")));
     assert!(registry.acknowledge(&identity));
     assert_eq!(receiver.recv().unwrap(), WorkerAckSignal::Acknowledged);
+}
+
+#[test]
+fn different_attempt_supersedes_the_previous_deadline() {
+    let registry = WorkerAckRegistry::default();
+    let previous_identity = ack_identity("attempt-a");
+    let previous = registry.arm(previous_identity.clone()).receiver.unwrap();
+    let current_identity = ack_identity("attempt-b");
+    let current_arm = registry.arm(current_identity.clone());
+    let current = current_arm.receiver.unwrap();
+
+    assert!(current_arm.starts_supervisor);
+    assert!(!current_arm.identity_conflict);
+    assert_eq!(previous.recv().unwrap(), WorkerAckSignal::Superseded);
+    assert!(!registry.acknowledge(&previous_identity));
+    assert!(registry.acknowledge(&current_identity));
+    assert_eq!(current.recv().unwrap(), WorkerAckSignal::Acknowledged);
 }
 
 #[test]
@@ -337,7 +364,9 @@ fn worker_ack_timeout_keeps_spawn_prose_as_opaque_json_data() {
 
     assert_eq!(event["spawn_command"], spawn_command);
     assert!(event["spawn_command"].is_string());
-    assert!(serde_json::to_string(&event).unwrap().contains("opaque text"));
+    assert!(serde_json::to_string(&event)
+        .unwrap()
+        .contains("opaque text"));
 }
 
 fn creator_authority(child_tab_id: &str, attempt_id: &str) -> StartupAuthority {
@@ -413,10 +442,7 @@ fn repeated_startup_ack_is_an_explicit_no_op_for_the_same_attempt() {
     assert_eq!(registry.acknowledge_startup("tab-a", "launch-b"), None);
 
     let replacement = registry.arm_startup(creator_authority("tab-a", "launch-b"));
-    assert_eq!(
-        registry.acknowledge_startup("tab-a", "launch-a"),
-        None
-    );
+    assert_eq!(registry.acknowledge_startup("tab-a", "launch-a"), None);
     assert_eq!(
         registry.acknowledge_startup("tab-a", "launch-b"),
         Some(AgentStartupAcknowledgement::Acknowledged)
@@ -613,15 +639,177 @@ fn startup_ack_requires_the_current_pty_and_launch_nonce() {
 }
 
 #[test]
-fn startup_supervisor_registration_is_consumed_once() {
+fn startup_supervisor_registration_is_idempotent_for_the_same_task_identity() {
     let registry = WorkerAckRegistry::default();
-    registry.register_startup_supervisor("tab-a", "parent", "Planner", Some("team_pair"));
+    let task_identity = StartupTaskIdentity {
+        plan_id: "plan".into(),
+        task_id: "task".into(),
+        attempt_id: "task-attempt".into(),
+    };
+    registry.register_startup_supervisor(
+        "tab-a",
+        "parent",
+        "Planner",
+        Some("team_pair"),
+        Some(task_identity.clone()),
+    );
 
-    let supervisor = registry.take_startup_supervisor("tab-a").unwrap();
+    let supervisor = registry.startup_supervisor("tab-a").unwrap();
+    registry.register_startup_supervisor(
+        "tab-a",
+        "parent",
+        "Planner",
+        Some("team_pair"),
+        Some(task_identity),
+    );
     assert_eq!(supervisor.supervisor_tab_id, "parent");
     assert_eq!(supervisor.agent_title, "Planner");
     assert_eq!(supervisor.team_id.as_deref(), Some("team_pair"));
-    assert!(registry.take_startup_supervisor("tab-a").is_none());
+    assert_eq!(registry.startup_supervisor("tab-a"), Some(supervisor));
+}
+
+#[test]
+fn task_bound_startup_fails_without_a_supervisor_and_accepts_hold_when_registered() {
+    let (mut mux, parent_tab_id) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();
+    let child_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let task_identity = StartupTaskIdentity {
+        plan_id: "plan-a".into(),
+        task_id: "task-a".into(),
+        attempt_id: "attempt-a".into(),
+    };
+    mux.get_tab_mut(&parent_tab_id).unwrap().agent_type = Some("claude".into());
+    let child = mux.get_tab_mut(&child_tab_id).unwrap();
+    child.parent_tab_id = Some(parent_tab_id.clone());
+    child.agent_type = Some("claude".into());
+    child.pty_id = Some("pty-a".into());
+    child.agent_session_id = Some("session-a".into());
+    child.session_binding_nonce = Some("nonce-a".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    let missing = fixture
+        .service
+        .activate_agent_startup_supervision(&child_tab_id, "pty-a", "nonce-a", Some(&task_identity))
+        .expect_err("task-bound launch cannot continue without a supervisor");
+    assert!(
+        missing.contains("no supervised startup waiter"),
+        "{missing}"
+    );
+
+    assert!(fixture.service.prepare_agent_startup_supervision(
+        &child_tab_id,
+        Some(&parent_tab_id),
+        Some(task_identity.clone()),
+    ));
+    fixture
+        .service
+        .activate_agent_startup_supervision(&child_tab_id, "pty-a", "nonce-a", Some(&task_identity))
+        .unwrap();
+    fixture
+        .service
+        .activate_agent_startup_supervision(&child_tab_id, "pty-a", "nonce-a", Some(&task_identity))
+        .unwrap();
+    assert_eq!(fixture.service.worker_ack.startup_waiters.lock().len(), 1);
+    let held = fixture
+        .service
+        .hold_agent_startup(&parent_tab_id, &child_tab_id, "pty-a")
+        .expect("the registered parent can hold the exact live startup binding");
+
+    assert_eq!(held["held"], true);
+    assert_eq!(
+        held["authority"]["task_identity"]["attempt_id"],
+        "attempt-a"
+    );
+    assert!(fixture.service.worker_ack.startup_waiters.lock().is_empty());
+}
+
+#[test]
+fn task_startup_waiter_uses_task_attempt_session_and_binding_identity() {
+    let registry = WorkerAckRegistry::default();
+    let task_identity = StartupTaskIdentity {
+        plan_id: "plan-a".into(),
+        task_id: "task-a".into(),
+        attempt_id: "attempt-a".into(),
+    };
+    let authority = StartupAuthority::new("parent", "child", "pty-a")
+        .for_task(Some(task_identity.clone()))
+        .for_binding(Some("session-a"), "nonce-a");
+    let first = startup_receiver(&registry, authority.clone());
+
+    assert!(matches!(
+        registry.arm_startup(authority.clone()),
+        AgentStartupArm::Extended
+    ));
+    assert_eq!(first.recv().unwrap(), AgentStartupSignal::DeadlineExtended);
+    assert_eq!(
+        registry.expire_startup_generation(&authority, 0),
+        WaiterExpiry::Extended
+    );
+
+    let changed_binding = StartupAuthority::new("parent", "child", "pty-a")
+        .for_task(Some(task_identity.clone()))
+        .for_binding(Some("session-a"), "nonce-b");
+    let current = startup_receiver(&registry, changed_binding.clone());
+    assert_eq!(first.recv().unwrap(), AgentStartupSignal::Superseded);
+    assert_eq!(
+        registry.acknowledge_startup_for_binding(
+            "child",
+            "pty-a",
+            Some("session-a"),
+            Some("nonce-a")
+        ),
+        None
+    );
+    let newer_task_identity = StartupTaskIdentity {
+        attempt_id: "attempt-b".into(),
+        ..task_identity
+    };
+    let newer_task_attempt = StartupAuthority::new("parent", "child", "pty-a")
+        .for_task(Some(newer_task_identity.clone()))
+        .for_binding(Some("session-a"), "nonce-b");
+    let replacement = startup_receiver(&registry, newer_task_attempt.clone());
+    assert_eq!(current.recv().unwrap(), AgentStartupSignal::Superseded);
+    assert_eq!(
+        registry.acknowledge_startup_for_binding(
+            "child",
+            "pty-a",
+            Some("session-a"),
+            Some("nonce-b")
+        ),
+        None
+    );
+    assert_eq!(
+        registry.acknowledge_startup_for_binding(
+            "child",
+            "pty-a",
+            Some("session-b"),
+            Some("nonce-b")
+        ),
+        None
+    );
+    assert_eq!(
+        registry.acknowledge_startup_for_binding(
+            "child",
+            "pty-a",
+            Some("session-a"),
+            Some("nonce-b")
+        ),
+        Some(AgentStartupAcknowledgement::Acknowledged)
+    );
+    assert_eq!(replacement.recv().unwrap(), AgentStartupSignal::Ready);
+    assert_eq!(
+        registry.acknowledge_startup_for_binding(
+            "child",
+            "pty-a",
+            Some("session-a"),
+            Some("nonce-b")
+        ),
+        Some(AgentStartupAcknowledgement::AlreadyAcknowledged)
+    );
+    assert!(matches!(
+        registry.arm_startup(newer_task_attempt),
+        AgentStartupArm::AlreadyAcknowledged
+    ));
 }
 
 #[test]

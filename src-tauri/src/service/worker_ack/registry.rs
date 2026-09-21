@@ -28,9 +28,9 @@ pub(super) struct WorkerAckState {
 
 impl WorkerAckWaiter {
     fn notify(&self, signal: WorkerAckSignal) -> bool {
-        self.observers
-            .iter()
-            .fold(false, |sent, observer| observer.send(signal).is_ok() || sent)
+        self.observers.iter().fold(false, |sent, observer| {
+            observer.send(signal).is_ok() || sent
+        })
     }
 }
 
@@ -158,7 +158,9 @@ impl WorkerAckRegistry {
             }
             return false;
         }
-        state.pending_holds.retain(|pending| pending.tab_id != identity.tab_id);
+        state
+            .pending_holds
+            .retain(|pending| pending.tab_id != identity.tab_id);
         state.pending_holds.insert(identity.clone())
     }
 }
