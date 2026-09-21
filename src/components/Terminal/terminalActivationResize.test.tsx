@@ -181,7 +181,7 @@ async function cleanup() {
 }
 
 function configureBridge() {
-  __setInvokeForTest(async <T,>(command: string, args = {}) => {
+  __setInvokeForTest(async <T,>(command: string, args: Record<string, unknown> = {}) => {
     if (command === "claim_resize_owner") {
       const owner = { ...baseOwner, cols: Number(args.cols), rows: Number(args.rows), updated_at: claims.length + 2 };
       claims.push({ args, owner });

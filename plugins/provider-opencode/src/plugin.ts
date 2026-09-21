@@ -2,7 +2,6 @@
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
-  CODETERM_OPENCODE_PLUGIN_MARKER,
   lastPromptShape,
   parsePermissionPrompt,
   parseQuestionMenuPrompt,
