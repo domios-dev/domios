@@ -50,7 +50,8 @@ export function useTerminalActivationResize({
 }: UseTerminalActivationResizeOptions): () => void {
   const currentRef = useRef({ active, termReady });
   currentRef.current = { active, termReady };
-  const frameRef = useRef<number | null>(null);
+  const activationFrameRef = useRef<number | null>(null);
+  const ownedRefitFrameRef = useRef<number | null>(null);
   const requestRef = useRef(0);
   const pendingRequestRef = useRef<number | null>(null);
   const claimDeadlineRef = useRef<{ request: number; timer: ReturnType<typeof setTimeout> } | null>(null);
@@ -68,16 +69,18 @@ export function useTerminalActivationResize({
     pendingRequestRef.current = null;
     clearClaimDeadline();
     waitingForMeasureRef.current = false;
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    frameRef.current = null;
+    if (activationFrameRef.current !== null) cancelAnimationFrame(activationFrameRef.current);
+    activationFrameRef.current = null;
+    if (ownedRefitFrameRef.current !== null) cancelAnimationFrame(ownedRefitFrameRef.current);
+    ownedRefitFrameRef.current = null;
     loseResizeOwnership();
   }, [clearClaimDeadline, loseResizeOwnership]);
 
   const activate = useCallback(() => {
     if (!currentRef.current.active || !currentRef.current.termReady || !documentVisible()) return;
-    if (frameRef.current !== null || pendingRequestRef.current !== null) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = null;
+    if (activationFrameRef.current !== null || pendingRequestRef.current !== null) return;
+    activationFrameRef.current = requestAnimationFrame(() => {
+      activationFrameRef.current = null;
       if (!currentRef.current.active || !currentRef.current.termReady || !documentVisible()) return;
       const container = containerRef.current;
       const term = termRef.current;
@@ -135,9 +138,9 @@ export function useTerminalActivationResize({
 
   const refitIfOwned = useCallback(() => {
     if (!currentRef.current.active || !currentRef.current.termReady || !documentVisible()) return;
-    if (frameRef.current !== null) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = null;
+    if (ownedRefitFrameRef.current !== null) return;
+    ownedRefitFrameRef.current = requestAnimationFrame(() => {
+      ownedRefitFrameRef.current = null;
       if (!currentRef.current.active || !currentRef.current.termReady || !documentVisible()) return;
       if (hasResizeOwnership()) refitAndCommitResize();
     });
