@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use crate::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
+use crate::plan::{ExecutionIntent, Plan, Task, TaskLaneMetadata};
+use crate::service::lane_removal::{lane_release_command, recorded_lane_remnant};
+use crate::service::plan::{PlanStore, TaskLaneUpdate};
 use crate::service::{
     classify_mutating_lane, recorded_lane_matches, verify_worker_lane, LaneProtection,
     UnsafeMutatingLane, WorkerLaneProvenance,
@@ -126,11 +128,31 @@ pub(super) fn plan_dispatch_lane_placement(
         // A recorded lane that did not verify must never be replaced silently:
         // the work in it is exactly what the record exists to protect.
         if !recorded_lane_matches(Some(recorded), &resolved.worktree_path) {
-            return Err(checkout_required(format!(
-                "task '{task_id}' records the isolated lane '{recorded}', which did not verify; \
-                 dispatch resolved '{}' instead. No Worker was spawned.",
-                resolved.worktree_path
-            )));
+            let surviving_part = recorded_lane_remnant(
+                Some(recorded),
+                task_lane.branch.as_deref(),
+                &resolved.canonical_cwd,
+            )
+            .map_err(|error| {
+                checkout_required(format!(
+                    "task '{task_id}' records lane '{recorded}', but its state could not be verified: {error}. No Worker was spawned."
+                ))
+            })?;
+            if let Some(surviving_part) = surviving_part {
+                let release = lane_release_command(
+                    Some(recorded),
+                    task_lane.branch.as_deref(),
+                    &resolved.canonical_cwd,
+                )
+                .unwrap_or_else(|| "codeterm plan lane-remove <worktree>".into());
+                return Err(checkout_required(format!(
+                    "task '{task_id}' records isolated lane '{recorded}'; {surviving_part}. Dispatch resolved '{}' instead. Release the recorded lane with: {release}. No Worker was spawned.",
+                    resolved.worktree_path
+                )));
+            }
+            return Ok(DispatchLanePlacement::Provision {
+                base_checkout: resolved.canonical_cwd.clone(),
+            });
         }
         refuse_unsafe_mutating_write(
             plan,
@@ -139,6 +161,29 @@ pub(super) fn plan_dispatch_lane_placement(
             ExecutionIntent::Mutating,
         )?;
         return Ok(DispatchLanePlacement::Existing(resolved));
+    }
+    if recorded.is_none() {
+        if let Some(branch) = task_lane
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let surviving_part = recorded_lane_remnant(None, Some(branch), &resolved.canonical_cwd)
+                .map_err(|error| checkout_required(format!(
+                    "task '{task_id}' records branch '{branch}', but its state could not be verified: {error}. No Worker was spawned."
+                )))?;
+            if let Some(surviving_part) = surviving_part {
+                let release = lane_release_command(None, Some(branch), &resolved.canonical_cwd)
+                    .unwrap_or_default();
+                return Err(checkout_required(format!(
+                    "task '{task_id}' records {surviving_part}. Release it with: {release}. No Worker was spawned."
+                )));
+            }
+            return Ok(DispatchLanePlacement::Provision {
+                base_checkout: resolved.canonical_cwd.clone(),
+            });
+        }
     }
     // Canonical is the integration checkout, never the worker checkout: it is
     // the base to branch from, so provisioning replaces the refusal.
@@ -157,4 +202,50 @@ pub(super) fn plan_dispatch_lane_placement(
         ExecutionIntent::Mutating,
     )?;
     Ok(DispatchLanePlacement::Existing(resolved))
+}
+
+pub(super) fn clear_vanished_dispatch_lane(
+    store: &PlanStore,
+    plan: &mut Plan,
+    task: &mut Task,
+    canonical_cwd: &str,
+    now_ms: u64,
+) -> Result<bool, String> {
+    let worktree_path = task.lane.worktree_path.as_deref();
+    let branch = task.lane.branch.as_deref();
+    if worktree_path.is_none() && branch.is_none() {
+        return Ok(false);
+    }
+    if recorded_lane_remnant(worktree_path, branch, canonical_cwd)?.is_some() {
+        return Ok(false);
+    }
+    store
+        .update_task_lane(
+            &plan.id,
+            &task.id,
+            TaskLaneUpdate {
+                tab_id: Some(None),
+                workspace_id: Some(None),
+                workspace_name: Some(None),
+                worktree_path: Some(None),
+                branch: Some(None),
+                ..Default::default()
+            },
+            now_ms,
+        )
+        .map_err(|error| format!("cannot clear vanished lane references: {error}"))?;
+    clear_lane_routing_fields(task);
+    if let Some(plan_task) = plan.tasks.iter_mut().find(|entry| entry.id == task.id) {
+        clear_lane_routing_fields(plan_task);
+    }
+    Ok(true)
+}
+
+fn clear_lane_routing_fields(task: &mut Task) {
+    task.assigned_tab_id = None;
+    task.lane.tab_id = None;
+    task.lane.workspace_id = None;
+    task.lane.workspace_name = None;
+    task.lane.worktree_path = None;
+    task.lane.branch = None;
 }
