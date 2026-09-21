@@ -28,6 +28,9 @@ cursor_blink = true
 scrollback = 10000
 copy_on_select = false
 
+[diagnostics]
+terminal_transport = false
+
 # [notifications] — levels, surfaces, sound, push channels.
 # Its own reference, it outgrew this file: codeterm docs NOTIFICATIONS
 
@@ -112,6 +115,21 @@ persist_master_password = false              # Save master password in OS keycha
 [kpi]
 enabled = true                   # Local orchestration-economics ledger; false opts out
 ```
+
+## Terminal transport diagnostics
+
+`diagnostics.terminal_transport` is off by default. When enabled, the daemon
+writes bounded `[terminal-stream]` session summaries for attach cursors, frame
+and output-byte counts, offsets, truncation and boot changes. It also writes
+`[pty-write-route]` lines with the tab, PTY id, request byte count and whether
+that PTY is current for the tab. These diagnostics never include terminal
+output or input text, tokens, or credentials.
+
+Toggle it live with `codeterm config set diagnostics.terminal_transport true`
+and turn it off with `codeterm config set diagnostics.terminal_transport false`.
+The next output-stream session and PTY write use the new setting; an open stream
+keeps the setting it started with. For mesh traces, enable it on both the local
+relaying daemon and the peer. No restart is required.
 
 `kpi.enabled` owns the ledger behind Mission Control's Tokens and Turns cards. It
 records plan, task and tab ids, event kinds, byte counts, token counts and
@@ -220,4 +238,4 @@ agent command. Source-only workers do not build or test in their lane.
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->
