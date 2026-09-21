@@ -34,6 +34,9 @@ pub(crate) struct LaunchRegistry {
 #[cfg(test)]
 #[path = "launch/exit_recovery_shell_tests.rs"]
 mod exit_recovery_shell_tests;
+#[path = "launch/generation.rs"]
+mod generation;
+mod startup_readiness;
 #[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
@@ -151,6 +154,8 @@ enum LaunchFailure {
     TabClosed,
     LaunchWrite(String),
     TaskDelivery(String),
+    SessionBindingNotObserved(String),
+    StartupSupervision(String),
 }
 impl LaunchFailure {
     fn reason(&self) -> String {
@@ -164,6 +169,10 @@ impl LaunchFailure {
             Self::TabClosed => "TabClosedBeforePtyLink".into(),
             Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
+            Self::SessionBindingNotObserved(reason) => {
+                format!("SessionBindingNotObserved: {reason}")
+            }
+            Self::StartupSupervision(error) => format!("StartupSupervisionFailed: {error}"),
         }
     }
 
@@ -215,84 +224,6 @@ pub(crate) fn arm_provider_session_for_test(
         .bind_provider_session(&launch, nonce.to_string());
     launch
 }
-impl LaunchGeneration {
-    fn begin(tab_id: &str, pty_id: String) -> Self {
-        LAUNCH_REGISTRY.lock().begin(tab_id, pty_id)
-    }
-
-    fn capture_binding_nonce(&mut self, svc: &ServiceContext) {
-        let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
-        self.binding_nonce = Some(nonce.clone());
-        LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
-        svc.activate_agent_startup_supervision(&self.tab_id, &self.pty_id);
-    }
-
-    fn transition(&mut self, stage: BootStage) {
-        self.stage = stage;
-    }
-
-    fn reuse(&mut self) {
-        self.reused = true;
-        self.transition(BootStage::AgentReady);
-    }
-
-    fn replace(&mut self, pty_id: String) {
-        let tab_id = self.tab_id.clone();
-        *self = Self::begin(&tab_id, pty_id);
-    }
-
-    fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
-        self.transition(stage);
-        self.commit_if_current(|| {
-            svc.emit_boot_stage(&self.tab_id, stage, None);
-        })
-    }
-
-    fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
-        // A fault that shows the process died voids the proof it left behind,
-        // so an honest failure is never outranked by a dead agent's binding.
-        if failure.proves_process_gone() {
-            svc.void_launch_session_proof(&self.tab_id);
-        }
-        let reason = failure.reason();
-        self.finish_if_current(|| {
-            svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
-        })
-    }
-
-    fn write_if_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
-        let registry = LAUNCH_REGISTRY.lock();
-        registry.owns(self).then(write)
-    }
-
-    pub(crate) fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
-        let mut ready = self.provider_ack.ready.lock();
-        if *ready {
-            return true;
-        }
-        self.provider_ack.changed.wait_for(&mut ready, timeout);
-        *ready
-    }
-
-    fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
-        let registry = LAUNCH_REGISTRY.lock();
-        if !registry.owns(self) {
-            return false;
-        }
-        commit();
-        true
-    }
-
-    fn finish_if_current(&self, commit: impl FnOnce()) -> bool {
-        let mut registry = LAUNCH_REGISTRY.lock();
-        if !registry.finish(self) {
-            return false;
-        }
-        commit();
-        true
-    }
-}
-
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
         svc.void_launch_session_proof(&launch.tab_id);
@@ -368,15 +299,6 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .get_session(&pty_id)
         .is_some()
         .then_some(pty_id)
-}
-
-fn reused_provider_tui_owns_launch(
-    reused_live_pty: bool,
-    tab_agent_type: Option<&str>,
-    requested_agent: &str,
-    provider_tui_visible: bool,
-) -> bool {
-    reused_live_pty && tab_agent_type == Some(requested_agent) && provider_tui_visible
 }
 
 /// The screen gate misses a prompt drawn beneath an exited provider's frame, so
@@ -534,6 +456,7 @@ pub(crate) fn launch_agent_in_background(
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     launch_agent_in_background_with_env(
@@ -545,6 +468,7 @@ pub(crate) fn launch_agent_in_background(
         task,
         fallback_spec,
         Default::default(),
+        task_identity,
         ready_tx,
     );
 }
@@ -559,6 +483,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     launch_env: std::collections::HashMap<String, String>,
+    task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
@@ -685,19 +610,23 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
 
-        let (tab_agent_type, screen) = {
-            let tab_agent_type = svc
-                .mux
-                .read()
-                .get_tab(&tab_id)
-                .and_then(|tab| tab.agent_type.clone());
-            let screen = svc
-                .screen_state
-                .lock()
-                .get_screen_text(&pty_id)
-                .unwrap_or_default();
-            (tab_agent_type, screen)
+        let (tab_agent_type, existing_binding_nonce) = {
+            let mux = svc.mux.read();
+            mux.get_tab(&tab_id)
+                .map(|tab| {
+                    let binding_nonce = tab
+                        .launch_session_authenticated()
+                        .then(|| tab.session_binding_nonce.clone())
+                        .flatten();
+                    (tab.agent_type.clone(), binding_nonce)
+                })
+                .unwrap_or_default()
         };
+        let screen = svc
+            .screen_state
+            .lock()
+            .get_screen_text(&pty_id)
+            .unwrap_or_default();
         let provider_tui_visible = registry
             .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
             .unwrap_or(false);
@@ -707,8 +636,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
         );
         if !recovers_exited_provider
-            && reused_provider_tui_owns_launch(
+            && startup_readiness::reused_provider_tui_owns_launch(
                 reused_live_pty,
+                existing_binding_nonce.is_some(),
                 tab_agent_type.as_deref(),
                 &agent_cmd,
                 provider_tui_visible,
@@ -720,8 +650,48 @@ pub(crate) fn launch_agent_in_background_with_env(
                 agent_cmd,
                 pty_id
             );
+            let Some(binding_nonce) = existing_binding_nonce else {
+                unreachable!("a reused provider TUI owns an authenticated binding")
+            };
+            if !launch.adopt_authenticated_binding(binding_nonce.clone()) {
+                let failure = LaunchFailure::SessionBindingNotObserved(
+                    "the authenticated session could not be adopted".into(),
+                );
+                let error = failure.reason();
+                launch.fail(&svc, failure);
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+            if let Err(error) = svc.activate_agent_startup_supervision(
+                &tab_id,
+                &launch.pty_id,
+                &binding_nonce,
+                task_identity.as_ref(),
+            ) {
+                let failure = LaunchFailure::StartupSupervision(error.clone());
+                launch.fail(&svc, failure);
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
             launch.reuse();
-            launch.emit(&svc, launch.stage);
+            if !launch.emit(&svc, launch.stage) {
+                let failure = LaunchFailure::SessionBindingNotObserved(
+                    "the reused launch lost its authenticated session".into(),
+                );
+                let error = failure.reason();
+                launch.fail(&svc, failure);
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
             LAUNCH_REGISTRY.lock().finish(&launch);
             set_booting(false);
             if let Some(tx) = ready_tx {
@@ -729,7 +699,15 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
             return;
         }
-        launch.capture_binding_nonce(&svc);
+        if let Err(error) = launch.capture_binding_nonce(&svc, task_identity.as_ref()) {
+            let failure = LaunchFailure::StartupSupervision(error.clone());
+            launch.fail(&svc, failure);
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
         let mut wrapped_launch_cmd = command_with_binding_nonce(
             &launch_cmd,
             launch
@@ -836,7 +814,17 @@ pub(crate) fn launch_agent_in_background_with_env(
                                 }
                             };
                         launch.replace(pty_id.clone());
-                        launch.capture_binding_nonce(&svc);
+                        if let Err(error) =
+                            launch.capture_binding_nonce(&svc, task_identity.as_ref())
+                        {
+                            let failure = LaunchFailure::StartupSupervision(error.clone());
+                            launch.fail(&svc, failure);
+                            set_booting(false);
+                            if let Some(tx) = ready_tx {
+                                let _ = tx.send(Err(error));
+                            }
+                            return;
+                        }
                         wrapped_launch_cmd = command_with_binding_nonce(
                             &launch_cmd,
                             launch
@@ -921,7 +909,14 @@ pub(crate) fn launch_agent_in_background_with_env(
             binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
         };
         crate::service::launch_readiness::arm(readiness_attempt.clone());
-        svc.observe_launch_readiness(
+        if launch.await_provider_ack(std::time::Duration::ZERO) {
+            crate::service::launch_readiness::note_acknowledged(
+                &readiness_attempt.tab_id,
+                &readiness_attempt.pty_id,
+                &readiness_attempt.binding_nonce,
+            );
+        }
+        let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
             crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
         );
@@ -1047,18 +1042,16 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
 
         set_booting(false);
-        // Readiness the shared owner already refuted: this launch never claims
-        // ready over a process that is gone.
-        if let Some(error) =
-            crate::service::launch_readiness::take_published_failure(&readiness_attempt)
-        {
-            LAUNCH_REGISTRY.lock().finish(&launch);
+        let readiness = readiness_receiver.recv().unwrap_or_else(|_| {
+            crate::service::launch_readiness::LaunchSettlement::Provisional {
+                stage: BootStage::LaunchDeadlineElapsed,
+                reason: "launch readiness observer stopped before session binding".into(),
+            }
+        });
+        if let Err(error) = startup_readiness::emit_agent_ready(&mut launch, &svc, readiness) {
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
-            return;
-        }
-        if !launch.emit(&svc, BootStage::AgentReady) {
             return;
         }
         LAUNCH_REGISTRY.lock().finish(&launch);

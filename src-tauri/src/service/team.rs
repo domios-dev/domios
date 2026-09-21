@@ -67,21 +67,30 @@ impl ServiceContext {
         caller_tab_id: Option<&str>,
         params: AddTeamMemberParams,
     ) -> Result<AddTeamMemberResult, String> {
+        let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
+        let _cartographer_guard = if is_cartographer {
+            Some(
+                self.cartographer_attach_locks
+                    .for_team(team_id)
+                    .lock_owned()
+                    .await,
+            )
+        } else {
+            None
+        };
         let prepared = {
             let mux = self.mux.read();
-            prepare_team_member_spawn_with_provider_validation(
-                &mux,
-                team_id,
-                caller_tab_id,
-                params,
-                |spawn_params| {
-                    self.classify_spawn_target_for_params(
-                        spawn_params.agent.as_deref().unwrap_or_default(),
-                        spawn_params,
-                    )
-                    .map(|_| ())
-                },
-            )?
+            let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
+            if is_cartographer {
+                if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
+                    return Ok(existing);
+                }
+            }
+            self.classify_spawn_target_for_params(
+                prepared.spawn_params.agent.as_deref().unwrap_or_default(),
+                &prepared.spawn_params,
+            )?;
+            prepared
         };
         let mut spawn_params = prepared.spawn_params;
         self.attach_manager_bootstrap(team_id, caller_tab_id, &mut spawn_params)?;
@@ -879,8 +888,9 @@ pub(crate) use membership::{
 
 mod staffing;
 pub(crate) use staffing::{
-    commit_team_member_spawn, prepare_team_member_spawn_with_provider_validation,
-    take_over_team_plan, AddTeamMemberParams, AddTeamMemberResult,
+    commit_team_member_spawn, existing_cartographer_attachment, prepare_team_member_spawn,
+    prepare_team_member_spawn_with_provider_validation, take_over_team_plan,
+    AddTeamMemberParams, AddTeamMemberResult, TeamCartographerAttachLocks,
 };
 
 #[cfg(test)]

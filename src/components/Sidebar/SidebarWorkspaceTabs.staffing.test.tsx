@@ -86,6 +86,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(menu?.textContent?.includes("Rename"), "supported rename remains available");
   assert(menu?.textContent?.includes("Add worker"), "worker staffing is enabled with a handler and manager");
   assert(menu?.textContent?.includes("Add planner"), "planner staffing is enabled with a handler and manager");
+  assert(menu?.textContent?.includes("Add cartographer"), "Cartographer staffing is enabled with a handler and manager");
   assert(menu?.textContent?.includes("Add orchestrator"), "orchestrator staffing is enabled with a handler and manager");
   assert(!menu?.textContent?.includes("Create effort"), "humans cannot create efforts from Team UI");
   assert(!menu?.textContent?.includes("Open effort"), "no effort action is shown without a plan");
@@ -388,7 +389,7 @@ test("orchestrator is offered exactly while the Team has no live one", async () 
 
   assert(
     JSON.stringify(addableTeamRoles([{ tab: liveAnchor, index: 0 }], "O1"))
-      === JSON.stringify(["planner", "worker"]),
+      === JSON.stringify(["planner", "cartographer", "worker"]),
     "a Team with a live Orchestrator is not offered a second one",
   );
   assert(
@@ -400,6 +401,20 @@ test("orchestrator is offered exactly while the Team has no live one", async () 
     JSON.stringify(addableTeamRoles([{ tab: planner, index: 0 }], null))
       === JSON.stringify(["orchestrator"]),
     "a Team whose Orchestrator was removed is offered one with no caller",
+  );
+  const cartographer = tab({
+    id: "C1",
+    role: "Manager",
+    role_profile: "cartographer",
+    team_id: TEAM.id,
+    agent_type: "provider-neutral",
+  });
+  assert(
+    JSON.stringify(addableTeamRoles([
+      { tab: liveAnchor, index: 0 },
+      { tab: cartographer, index: 1 },
+    ], "O1")) === JSON.stringify(["planner", "worker"]),
+    "an attached Cartographer is not offered a second time",
   );
 });
 

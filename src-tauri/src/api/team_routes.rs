@@ -441,4 +441,31 @@ mod tests {
             )
         );
     }
+
+    #[tokio::test]
+    async fn http_cartographer_add_keeps_the_role_kind_in_the_staffing_contract() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-CodeTerm-Tab-Id", "manager".parse().unwrap());
+        let result = add_team_member_adapter(
+            &headers,
+            "team_x".into(),
+            AddTeamMemberBody {
+                provider: "provider-neutral".into(),
+                role: "cartographer".into(),
+                title: None,
+                task: None,
+                model: None,
+            },
+            |team_id, caller_tab_id: Option<String>, body: AddTeamMemberBody| async move {
+                assert_eq!(team_id, "team_x");
+                assert_eq!(caller_tab_id.as_deref(), Some("manager"));
+                Ok((body.role, body.provider))
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.0, "cartographer");
+        assert_eq!(result.1, "provider-neutral");
+    }
 }

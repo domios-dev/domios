@@ -17,6 +17,8 @@ use crate::multiplexer::types::TabBacking;
 pub(crate) enum StartupNudge {
     /// An agent is attached and nothing modal owns its terminal.
     Deliver,
+    /// This launch has no authenticated provider session to receive the reminder.
+    UnboundSession,
     /// A directory-trust dialog this tab's provenance entitles CodeTerm to
     /// answer. Answering it is the nudge; the agent was never unresponsive.
     AnsweredTrustDialog,
@@ -34,6 +36,7 @@ impl StartupNudge {
     pub(crate) fn reason(self) -> &'static str {
         match self {
             Self::Deliver => "the agent terminal is free",
+            Self::UnboundSession => "the provider session has not authenticated its launch",
             Self::AnsweredTrustDialog => "answered its directory-trust dialog instead",
             Self::BlockedOnPrompt => "a provider prompt owns the terminal",
             Self::NoAgent => "no agent process would receive it",
@@ -49,9 +52,16 @@ pub(crate) struct AgentTerminal<'a> {
 }
 
 /// The whole rule, as a pure decision over the tab's own state.
-pub(crate) fn nudge_for(attached: bool, terminal: Option<AgentTerminal<'_>>) -> StartupNudge {
+pub(crate) fn nudge_for(
+    attached: bool,
+    session_authenticated: bool,
+    terminal: Option<AgentTerminal<'_>>,
+) -> StartupNudge {
     if !attached {
         return StartupNudge::NoAgent;
+    }
+    if !session_authenticated {
+        return StartupNudge::UnboundSession;
     }
     let Some(terminal) = terminal else {
         return StartupNudge::Deliver;
@@ -67,24 +77,29 @@ pub(crate) fn nudge_for(attached: bool, terminal: Option<AgentTerminal<'_>>) -> 
 }
 
 impl ServiceContext {
-    /// Classify a tab before writing agent-directed prose into it, answering its
-    /// directory-trust dialog on the way when this tab's provenance allows it.
+    /// Classify a tab before writing agent-directed prose into its terminal.
     pub(crate) fn classify_startup_nudge(&self, tab_id: &str) -> StartupNudge {
         let attached = self.mux.read().get_tab(tab_id).map(|tab| {
             let pty_backed = matches!(tab.backing, TabBacking::Pty);
             let attached = tab.agent_type.is_some()
                 && tab.exit_suspected_at.is_none()
                 && (!pty_backed || tab.pty_id.is_some());
-            (attached, pty_backed.then(|| tab.pty_id.clone()).flatten())
+            (
+                attached,
+                tab.launch_session_authenticated(),
+                pty_backed.then(|| tab.pty_id.clone()).flatten(),
+            )
         });
         let nudge = match attached {
             None => StartupNudge::NoAgent,
-            Some((attached, None)) => nudge_for(attached, None),
-            Some((false, Some(_))) => StartupNudge::NoAgent,
-            Some((true, Some(pty_id))) => {
+            Some((false, _, _)) => StartupNudge::NoAgent,
+            Some((true, false, _)) => nudge_for(true, false, None),
+            Some((true, true, None)) => nudge_for(true, true, None),
+            Some((true, true, Some(pty_id))) => {
                 let trust = self.respond_to_directory_trust(tab_id, None);
                 let modal_on_screen = !trust.owns_prompt() && self.modal_owns_terminal(&pty_id);
                 nudge_for(
+                    true,
                     true,
                     Some(AgentTerminal {
                         trust: &trust,

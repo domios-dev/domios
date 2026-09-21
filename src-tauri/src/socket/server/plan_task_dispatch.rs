@@ -672,7 +672,7 @@ pub(super) fn dispatch(
         role_profile: crate::service::role_profile::builtin_worker_profile(
             detail.task.executor_role.as_deref(),
         ),
-        parent_tab_id: parent,
+        parent_tab_id: Some(parent_tab_id.clone()),
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),

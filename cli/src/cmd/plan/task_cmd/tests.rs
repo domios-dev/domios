@@ -293,3 +293,116 @@ fn hidden_task_summary_replaces_the_inactive_only_message() {
     assert!(summary.contains("done=2"), "{summary}");
     assert!(out["task_list_message"].is_null());
 }
+
+fn assert_attempt_snapshot(attempt: Value, expected: &str) {
+    let rendered = render_attempts(&json!({ "attempts": [attempt] }));
+
+    assert_eq!(rendered, expected);
+    assert!(
+        !rendered.split_whitespace().any(|field| field == "at="),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn assigned_only_attempt_labels_each_timestamp() {
+    assert_attempt_snapshot(
+        json!({
+            "attempt_id": "attempt-assigned",
+            "executor_tab_id": "tab-worker",
+            "status": "assigned",
+            "provider": "codex",
+            "model": "gpt-test",
+            "assigned_at": 100,
+            "acknowledged_at": null,
+            "reported_at": null,
+            "closed_at": null,
+        }),
+        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
+    );
+}
+
+#[test]
+fn acknowledged_in_progress_attempt_separates_ack_from_assignment() {
+    assert_attempt_snapshot(
+        json!({
+            "attempt_id": "attempt-acknowledged",
+            "executor_tab_id": "tab-worker",
+            "status": "assigned",
+            "provider": "codex",
+            "model": "gpt-test",
+            "assigned_at": 100,
+            "acknowledged_at": 110,
+            "reported_at": null,
+            "closed_at": null,
+        }),
+        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
+    );
+}
+
+#[test]
+fn reported_partial_attempt_separates_report_from_ack() {
+    assert_attempt_snapshot(
+        json!({
+            "attempt_id": "attempt-partial",
+            "executor_tab_id": "tab-worker",
+            "status": "partial",
+            "provider": "codex",
+            "model": "gpt-test",
+            "assigned_at": 100,
+            "acknowledged_at": 110,
+            "reported_at": 120,
+            "closed_at": null,
+        }),
+        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
+    );
+}
+
+#[test]
+fn closed_attempt_labels_its_closure_separately() {
+    assert_attempt_snapshot(
+        json!({
+            "attempt_id": "attempt-closed",
+            "executor_tab_id": "tab-worker",
+            "status": "closed",
+            "provider": "codex",
+            "model": "gpt-test",
+            "assigned_at": 100,
+            "acknowledged_at": 110,
+            "reported_at": 120,
+            "closed_at": 130,
+        }),
+        "attempt_id=attempt-closed executor_tab_id=tab-worker status=closed provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=130\n",
+    );
+}
+
+#[test]
+fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
+    let response = json!({
+        "attempts": [{
+            "attempt_id": "attempt-json",
+            "assigned_at": 100,
+            "acknowledged_at": 110,
+            "reported_at": null,
+            "closed_at": null,
+        }]
+    });
+    let mut client = FakeRpc::scripted([response.clone()]);
+
+    let out = run_task(
+        &mut client,
+        true,
+        PlanTaskAction::Attempts {
+            plan_id: "pl_1".into(),
+            task_id: "task_1".into(),
+        },
+    )
+    .expect("attempts run")
+    .expect("json returns the raw response");
+
+    assert_eq!(out, response);
+    assert_eq!(out["attempts"][0]["assigned_at"], 100);
+    assert_eq!(out["attempts"][0]["acknowledged_at"], 110);
+    assert_eq!(out["attempts"][0]["reported_at"], Value::Null);
+    assert_eq!(out["attempts"][0]["closed_at"], Value::Null);
+}

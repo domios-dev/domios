@@ -676,6 +676,8 @@ fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
         message.contains("winner-tab"),
         "the refusal must name the tab that now holds the task, got: {message}"
     );
+    assert!(message.contains(&stale_attempt));
+    assert!(message.contains(&live_attempt));
     assert!(
         !message.contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT),
         "'owns no live attempt' reads as a bug and makes the worker retry, got: {message}"
@@ -696,4 +698,57 @@ fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
     store
         .acknowledge_live_task_attempt_for_tab("winner-tab", Some(&plan_id), Some(&task_id), 7)
         .expect("the live attempt must still acknowledge");
+}
+
+#[test]
+fn repeated_runtime_binding_keeps_one_plan_attempt() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let attempt_id = store
+        .begin_task_dispatch(
+            &plan_id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            3,
+        )
+        .unwrap();
+
+    for now_ms in [4, 5] {
+        let ready = store
+            .mark_live_task_attempt_runtime_ready_for_tab("worker-tab", "session", now_ms)
+            .unwrap()
+            .expect("the same live attempt remains bindable");
+        assert_eq!(ready.attempt.id, attempt_id);
+    }
+
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts[0].id, attempt_id);
+    assert_eq!(task.execution_attempts[0].session_id.as_deref(), Some("session"));
+}
+
+#[test]
+fn a_closed_attempt_without_a_newer_live_dispatch_is_not_reported_as_superseded() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let attempt_id = store
+        .begin_task_dispatch(
+            &plan_id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            3,
+        )
+        .unwrap();
+    assert!(store
+        .mark_worker_startup_deadline(&plan_id, &task_id, "worker-tab", &attempt_id, true, 4)
+        .unwrap());
+
+    let refusal = store
+        .acknowledge_live_task_attempt_for_tab("worker-tab", Some(&plan_id), Some(&task_id), 5)
+        .expect_err("a closed attempt without a replacement is not acknowledgeable");
+    let message = refusal.to_string();
+    assert!(message.contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT));
+    assert!(!message.contains(super::task_dispatch::ACK_CAUSE_ATTEMPT_SUPERSEDED));
 }

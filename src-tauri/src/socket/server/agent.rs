@@ -230,8 +230,12 @@ pub(super) fn dispatch(
                 include_task_brief_delivery(&mut response, delivery);
                 return Ok(response);
             }
-            svc.worker_ack
-                .acknowledge(&tab_id, &acknowledged.attempt.id);
+            svc.acknowledge_worker_ack(
+                &plan_id,
+                &task_id,
+                &tab_id,
+                &acknowledged.attempt,
+            );
             svc.gateway.require_worker_report(&tab_id);
             super::plan::emit_plan_changed(_app, &plan_id);
             let runtime_ready = acknowledged.attempt.session_id.is_some();

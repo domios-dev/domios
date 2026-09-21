@@ -1,0 +1,13 @@
+# Interactive child PTY operation
+
+Use this procedure when a missing-ACK event names recovery.capability=interactive_child_pty or another explicit coordination incident. Leave healthy Workers alone.
+
+1. Start with codeterm tab inspect --tab ID --lifecycle, codeterm tab status --tab ID, and codeterm tab get-text --tab ID for the exact child tab and attempt named by the event. Read backing.kind, lifecycle/session fields, provider-declared prompt classification, and the current screen.
+2. Use PTY actions only when the exact tab is confirmed as a PTY. A chat backend has no shell; use only authorized chat contact or escalate the mismatch.
+3. When the current screen and lifecycle confirm that the exact attempt is legitimately prompt-bound and its cleanup deadline is at risk, use codeterm agent startup-hold --tab ID --attempt ATTEMPT before acting on the prompt. It cancels automatic cleanup; it does not establish readiness or authorize a response.
+4. Use codeterm tab respond OPTION --tab ID only for a provider-classified numbered prompt whose option is safe and authorized by the route. After responding, reread the screen and lifecycle. If the prompt remains or the state is unexpected, do not repeat the response; keep the child blocked and raise a structured action-needed event.
+5. Diagnose other failures from that tab's current lifecycle and screen evidence. For an exited provider with a verified session, use codeterm agent restart --tab ID in the same tab. Use codeterm tab rebind SESSION_ID --tab ID only with a verified session id. Use codeterm tab repair --from-evidence --tab ID only when live verified evidence proves the tab's provider identity is wrong and the route permits it. Do not type commands into a shell or send task prose or ACK reminders to an unverified child.
+6. After every recovery action, reread the screen and inspect lifecycle/session state. Recovery ends only with authoritative session binding and the child's own startup acknowledgement. For a task-bound Worker, its durable Worker ACK must also be present before the actionable brief is delivered; never resend the brief.
+7. If supported recovery fails or cannot be selected safely, preserve event evidence and let the plan owner finalize that exact attempt atomically, release its lane occupancy, and report the structured failure.
+
+Unknown prompts, authentication, permission decisions, unavailable models, missing hooks, provider exits without a verified session, and unclear states stay blocked for evidence-based repair, clean finalization, or structured action-needed escalation. Never inject raw keys, press Enter blindly, guess, or auto-accept. Use CodeTerm primitives only; do not use external UI automation, OCR, clicks, delays, or polling.

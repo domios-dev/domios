@@ -96,6 +96,9 @@ pub const ORCH_ROLELESS_DRAFT_REJECTION: &str = "reject any task that names no e
 pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
     "reject any draft whose worker guidance says nothing";
 
+/// Connects the missing-ACK event to the shared child PTY recovery procedure.
+pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- On worker_ack_startup_failed with recovery.capability=interactive_child_pty, inspect the named tab and attempt via lifecycle, status, and get-text. Hold only a confirmed prompt-bound attempt; use tab respond only for a provider-classified, authorized numbered prompt; reread and verify binding plus the child's own ACK. Diagnose other failures from current evidence; keep uncertainty blocked and escalate. Never send task/ACK prose, raw keys, or blind Enter.";
+
 /// Stable Orchestrator delivery token for the optional Cartographer Manager.
 pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
     "Cartographer: optional Manager for project-specific normative essences, including from zero; no spawn, approval or release authority, no continuous cadence.";
@@ -145,6 +148,11 @@ pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.
 /// prompt (via {codeterm_cli} placeholder) and the codeterm skill SKILL.md.
 /// Single source of truth so command syntax stays in sync.
 pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
+
+/// Read-act-verify procedure injected once into the General Agent prompt.
+pub const INTERACTIVE_CHILD_PTY_OPERATION: &str =
+    include_str!("../prompts/interactive_child_pty.md");
+pub const INTERACTIVE_CHILD_PTY_CAPABILITY_ID: &str = "interactive_child_pty";
 
 /// Compact CodeTerm control contract prepended to non-General agent launches.
 pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
@@ -277,6 +285,10 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
 
 pub fn orchestrator_suffix() -> String {
     let role_prompt = ORCHESTRATOR_SUFFIX
+        .replace(
+            "{child_pty_recovery_trigger}",
+            ORCH_CHILD_PTY_RECOVERY_TRIGGER,
+        )
         .replace("{roleless_draft_rejection}", ORCH_ROLELESS_DRAFT_REJECTION)
         .replace(
             "{empty_role_guidance_rejection}",

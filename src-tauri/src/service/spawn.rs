@@ -433,7 +433,22 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             agent.spawned_by_tab_id.as_deref(),
         );
-        let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
+        let task_identity = super::worker_ack::startup_task_identity_from_env(&agent.extra_env);
+        let startup_supervised = self.prepare_agent_startup_supervision(
+            &tab_id,
+            spec.parent_tab_id
+                .as_deref()
+                .or(agent.spawned_by_tab_id.as_deref())
+                .or(spec.creator_tab_id.as_deref()),
+            task_identity.clone(),
+        );
+        if task_identity.is_some() && !startup_supervised {
+            self.rollback_provisional_tab_via_close(&tab_id);
+            self.emit_state_changed();
+            return Err(format!(
+                "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
+            ));
+        }
         // `can_spawn` is only forced when the caller explicitly passed
         // --can-spawn (Some), preserving the kind's default.
         if let Some(ref role_str) = agent.role {
@@ -666,6 +681,7 @@ impl ServiceContext {
             role_suffixed_task,
             fallback_spec,
             agent.extra_env.clone(),
+            task_identity,
             ready_tx,
         );
 
