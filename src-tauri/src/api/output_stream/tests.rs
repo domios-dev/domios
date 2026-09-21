@@ -118,6 +118,13 @@ fn tab_scoped_stream_excludes_cross_tab_output_server_side() {
 }
 
 #[test]
+fn output_stream_builds_no_diagnostics_when_level_is_none() {
+    let diagnostics =
+        build_stream_diagnostics(None, Some("unused-session".into()), "*".into(), None, None);
+    assert!(diagnostics.is_none());
+}
+
+#[test]
 fn seed_initial_without_cursor_emits_tab_boot_frame_and_starts_at_zero() {
     let (boot_frame, tracked, starts) = seed_initial_state(
         "boot-current".into(),

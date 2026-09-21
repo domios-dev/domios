@@ -1,17 +1,20 @@
-use axum::body::Body;
+use axum::body::{Body, Bytes};
+use futures_core::Stream;
 use futures_util::StreamExt;
 
 use crate::api::output_stream;
 use crate::api::stream_diagnostics::{StreamDiagnostics, StreamTabStart};
 
-pub(crate) fn output_body(
-    response: reqwest::Response,
+pub(crate) fn output_body<S>(
+    upstream: S,
     level: Option<log::Level>,
     tab_scope: String,
     stream_tab_id: Option<String>,
     since: Option<&str>,
-) -> Body {
-    let upstream = response.bytes_stream();
+) -> Body
+where
+    S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+{
     let Some(level) = level else {
         return Body::from_stream(upstream);
     };
@@ -62,4 +65,21 @@ pub(crate) fn output_body(
         diagnostics.finish("upstream_eof");
     };
     Body::from_stream(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::stream;
+
+    #[tokio::test]
+    async fn output_body_without_level_forwards_upstream_bytes_unchanged() {
+        let upstream = stream::iter([
+            Ok::<_, reqwest::Error>(Bytes::from_static(b"data: {\"output\":")),
+            Ok(Bytes::from_static(b"\"secret-free\"}\n\n")),
+        ]);
+        let body = output_body(upstream, None, "*".into(), None, None);
+        let received = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        assert_eq!(&received[..], b"data: {\"output\":\"secret-free\"}\n\n");
+    }
 }
