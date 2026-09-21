@@ -51,6 +51,9 @@ cursor_blink = true
 scrollback = 10000
 copy_on_select = false
 
+[diagnostics]
+terminal_transport = false
+
 [notifications]
 desktop = false  # opt-in; the per-level grid below still decides which levels toast
 sound = false  # the chime's master mute; each level below says whether it chimes
