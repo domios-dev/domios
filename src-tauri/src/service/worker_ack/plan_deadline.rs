@@ -1,5 +1,6 @@
 use super::*;
 use crate::agent::reports::ReportDetails;
+use crate::service::hierarchy::HierarchyReportDelivery;
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
@@ -234,6 +235,23 @@ impl ServiceContext {
         agent_title: &str,
         payload: Value,
     ) {
+        self.publish_agent_startup_report_with_delivery(
+            supervisor_tab_id,
+            agent_tab_id,
+            agent_title,
+            payload,
+            self,
+        );
+    }
+
+    pub(crate) fn publish_agent_startup_report_with_delivery(
+        &self,
+        supervisor_tab_id: &str,
+        agent_tab_id: &str,
+        agent_title: &str,
+        payload: Value,
+        delivery: &impl HierarchyReportDelivery,
+    ) {
         let provider = self
             .mux
             .read()
@@ -248,11 +266,7 @@ impl ServiceContext {
             ReportDetails::default(),
             None,
         );
-        let recipient_can_receive =
-            self.hierarchy_report_recipient_can_receive_prose(supervisor_tab_id, &report.id);
-        if recipient_can_receive && !self.report_store.lock().claim(&report.id) {
-            return;
-        }
+        let gate = self.hierarchy_report_recipient_gate(supervisor_tab_id);
         self.events.broadcast(
             "agent.report",
             json!({ "target_tab_id": supervisor_tab_id, "report": report.clone() }),
@@ -268,24 +282,7 @@ impl ServiceContext {
                 "report": report.clone(),
             }),
         );
-        if !recipient_can_receive {
-            return;
-        }
-        let envelope =
-            crate::service::messenger::MessageEnvelope::report(agent_title, agent_tab_id);
-        if self
-            .gateway_deliver(
-                supervisor_tab_id,
-                envelope,
-                &report.inject_body(),
-                crate::service::message_gateway::DeliveryClass::AgentTraffic,
-            )
-            .is_ok()
-        {
-            self.report_store.lock().mark_delivered(&report.id);
-        } else {
-            self.report_store.lock().release_delivery(&report.id);
-        }
+        self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
     }
 
     pub(crate) fn acknowledge_agent_startup(
@@ -577,6 +574,27 @@ impl ServiceContext {
         task_id: &str,
         payload: Value,
     ) {
+        self.publish_worker_lifecycle_report_with_delivery(
+            parent_tab_id,
+            worker_tab_id,
+            worker_title,
+            plan_id,
+            task_id,
+            payload,
+            self,
+        );
+    }
+
+    pub(crate) fn publish_worker_lifecycle_report_with_delivery(
+        &self,
+        parent_tab_id: &str,
+        worker_tab_id: &str,
+        worker_title: &str,
+        plan_id: &str,
+        task_id: &str,
+        payload: Value,
+        delivery: &impl HierarchyReportDelivery,
+    ) {
         let attempt_id = payload.get("attempt_id").and_then(Value::as_str);
         let tab_provider = {
             self.mux
@@ -620,11 +638,7 @@ impl ServiceContext {
             details,
             None,
         );
-        let recipient_can_receive =
-            self.hierarchy_report_recipient_can_receive_prose(parent_tab_id, &report.id);
-        if recipient_can_receive && !self.report_store.lock().claim(&report.id) {
-            return;
-        }
+        let gate = self.hierarchy_report_recipient_gate(parent_tab_id);
         self.events.broadcast(
             "agent.report",
             json!({
@@ -643,27 +657,7 @@ impl ServiceContext {
                 "report": report.clone(),
             }),
         );
-        if !recipient_can_receive {
-            return;
-        }
-        let envelope =
-            crate::service::messenger::MessageEnvelope::report(worker_title, worker_tab_id);
-        if let Err(error) = self.gateway_deliver(
-            parent_tab_id,
-            envelope,
-            &report.inject_body(),
-            crate::service::message_gateway::DeliveryClass::AgentTraffic,
-        ) {
-            self.report_store.lock().release_delivery(&report.id);
-            log::warn!(
-                "[worker-lifecycle] parent delivery failed task={} tab={}: {}",
-                task_id,
-                worker_tab_id,
-                error
-            );
-        } else {
-            self.report_store.lock().mark_delivered(&report.id);
-        }
+        self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
     }
 
     #[allow(clippy::too_many_arguments)]

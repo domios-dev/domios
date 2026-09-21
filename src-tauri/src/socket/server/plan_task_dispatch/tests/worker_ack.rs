@@ -486,6 +486,57 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
 }
 
 #[test]
+fn plan_store_acknowledges_live_attempt_without_saved_session_binding() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Unbound attempt".into(),
+            project,
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, 2).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker without saved binding".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let attempt_id = store
+        .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Worker", lane, 4)
+        .unwrap();
+    let pending = store.show_task(&task_id).unwrap().task;
+    assert_eq!(pending.execution_attempts[0].id, attempt_id);
+    assert_eq!(pending.execution_attempts[0].session_id, None);
+    let acknowledged = store
+        .acknowledge_live_task_attempt_for_tab(
+            "tab-worker",
+            Some(&plan.id),
+            Some(&task_id),
+            5,
+        )
+        .expect("a live attempt can be acknowledged before a session id is saved");
+
+    assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
+    assert_eq!(acknowledged.attempt.session_id, None);
+    let persisted = store.show_task(&task_id).unwrap().task;
+    assert_eq!(persisted.status, TaskStatus::InProgress);
+    assert_eq!(persisted.execution_attempts[0].acknowledged_at, Some(5));
+}
+
+#[test]
 fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());

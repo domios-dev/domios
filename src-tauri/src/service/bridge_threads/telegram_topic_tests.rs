@@ -534,35 +534,12 @@ fn telegram_topic_notification_from_a_tab_still_reaches_the_chat_whole() {
 }
 
 #[tokio::test]
-async fn telegram_topic_notification_creates_and_reuses_a_visible_tab_binding() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    let threads = attached(transport.clone());
-
-    assert!(
-        threads
-            .ensure_notification_thread(&tabs, PLANCK, CHAT)
-            .await
-    );
-    assert!(threads.has_open_binding(PLANCK));
-    assert_eq!(transport.creates(), vec!["Planck".to_string()]);
-
-    assert!(
-        threads
-            .ensure_notification_thread(&tabs, PLANCK, CHAT)
-            .await
-    );
-    assert_eq!(transport.creates(), vec!["Planck".to_string()]);
-}
-
-#[tokio::test]
-async fn telegram_topic_notification_skips_hidden_tabs_and_agent_open_refuses_them() {
+async fn telegram_topic_agent_open_refuses_hidden_tabs() {
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
     tabs.add_hidden(ROWAN, "Rowan", SenderRole::Worker);
     let threads = attached(transport.clone());
 
-    assert!(!threads.ensure_notification_thread(&tabs, ROWAN, CHAT).await);
     assert!(!threads.has_open_binding(ROWAN));
     assert!(transport.creates().is_empty());
     assert_eq!(

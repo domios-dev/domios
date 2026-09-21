@@ -5,6 +5,21 @@ use crate::pty::windows_test_support::{
     new_conpty_hosts, wait_for_processes_gone,
 };
 
+#[test]
+fn reported_size_tracks_the_applied_pty_geometry() {
+    #[cfg(target_os = "windows")]
+    let _guard = exclusive_conpty_test();
+    let mut manager = PtyManager::new();
+    let (pty_id, _) = manager
+        .spawn(None, None, 80, 24, HashMap::new())
+        .expect("spawn default shell");
+
+    assert_eq!(manager.size(&pty_id), Some((80, 24)));
+    manager.resize(&pty_id, 160, 48).expect("resize PTY");
+    assert_eq!(manager.size(&pty_id), Some((160, 48)));
+    manager.kill(&pty_id).expect("cleanup");
+}
+
 /// Load-bearing contract for the reader-race guard in read_pty_core: once a
 /// backend channel is claimed, has_backend_reader flips true and the rx side
 /// exists — frontends must consume the channel instead of cloning a second
