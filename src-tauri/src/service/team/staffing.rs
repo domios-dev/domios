@@ -226,6 +226,7 @@ pub(crate) fn prepare_team_member_spawn(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn prepare_team_member_spawn_with_provider_validation<F>(
     mux: &MultiplexerState,
     team_id: &str,

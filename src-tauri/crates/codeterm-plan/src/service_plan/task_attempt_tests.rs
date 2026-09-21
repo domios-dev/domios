@@ -260,7 +260,7 @@ fn partial_report_keeps_bound_task_actionable() {
 #[test]
 fn blocked_report_sets_task_blocked_with_reason() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
-    let mut report = worker_report(ReportStatus::Blocked, None);
+    let report = worker_report(ReportStatus::Blocked, None);
     let reason = report.message.clone();
     assert!(!store
         .ingest_bound_worker_report(&plan_id, &task_id, &AgentRef::from_tab("worker"), report, 4,)
@@ -969,7 +969,7 @@ fn concurrent_startup_reservations_refuse_before_worker_spawn() {
                 let result = store.reserve_task_dispatch_startup(
                     &plan_id, &task_id, attempt_id, tab_id, owner, false,
                 );
-                let outcome = match result {
+                match result {
                     Ok(reservation) => {
                         reserved.wait();
                         drop(reservation);
@@ -979,8 +979,7 @@ fn concurrent_startup_reservations_refuse_before_worker_spawn() {
                         reserved.wait();
                         Err(error)
                     }
-                };
-                outcome
+                }
             })
         });
 

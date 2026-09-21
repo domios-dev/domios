@@ -17,7 +17,7 @@ mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
-pub(crate) use report_delivery::{HierarchyReportDelivery, HierarchyReportRecipientGate};
+pub(crate) use report_delivery::HierarchyReportDelivery;
 pub(crate) use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };

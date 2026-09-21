@@ -17,9 +17,10 @@ use super::ServiceContext;
 mod plan_deadline;
 #[path = "worker_ack/registry.rs"]
 mod registry;
-pub(crate) use plan_deadline::worker_ack_reminder_message;
+#[cfg(test)]
+use plan_deadline::worker_ack_reminder_message;
+pub(crate) use registry::WorkerAckIdentity;
 use registry::WorkerAckState;
-pub(crate) use registry::{WorkerAckArm, WorkerAckIdentity};
 
 const MEASURED_CLAUDE_COLD_START_SECS: u64 = 34;
 const MEASURED_CODEX_COLD_START_SECS: u64 = 38;
@@ -98,6 +99,7 @@ enum AgentStartupArm {
     AlreadyAcknowledged,
 }
 
+#[cfg(test)]
 fn await_agent_startup_notice(
     receiver: &Receiver<AgentStartupSignal>,
     timeout: Duration,
@@ -271,10 +273,12 @@ impl WorkerAckRegistry {
         AgentStartupArm::Armed(receiver)
     }
 
+    #[cfg(test)]
     pub(crate) fn mark_startup_ready(&self, tab_id: &str, attempt_id: &str) -> bool {
         self.acknowledge_startup(tab_id, attempt_id).is_some()
     }
 
+    #[cfg(test)]
     pub(crate) fn acknowledge_startup(
         &self,
         tab_id: &str,
@@ -456,6 +460,7 @@ impl WorkerAckRegistry {
 
     /// Retire the exact expired attempt, handing back its recorded ownership so
     /// only that attempt's terminal path can act. A stale timer gets `None`.
+    #[cfg(test)]
     pub(crate) fn expire_startup(
         &self,
         tab_id: &str,

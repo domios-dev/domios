@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-use crate::plan::{Task, TaskLaneMetadata};
+use crate::plan::TaskLaneMetadata;
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
 };
@@ -11,7 +11,6 @@ use crate::service::plan::PlanError;
 use crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
 use crate::service::{
     verify_worker_lane, LaneProtection, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
-    WorkerLaneProvenance,
 };
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
@@ -331,7 +330,9 @@ fn worker_ack_timeout_event(
     )
 }
 
-pub(super) use startup::{complete_dispatch_transaction, DispatchStartup};
+#[cfg(test)]
+use startup::complete_dispatch_transaction;
+pub(super) use startup::DispatchStartup;
 
 fn gate_keys(gates: &[RegressionGate]) -> String {
     gates
