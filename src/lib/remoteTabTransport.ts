@@ -88,6 +88,16 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "resize_pty": return call("POST", "/pty/resize", { cols: args.cols, rows: args.rows, client_id: args.clientId });
     case "claim_resize_owner": return call("POST", "/pty/claim-resize", {
       pty_id: args.ptyId, client_id: args.clientId, cols: args.cols, rows: args.rows, force: args.force === true,
+    }, (value) => {
+      const result = value as { owner?: Record<string, unknown> };
+      return {
+        ...result,
+        owner: result.owner ? {
+          ...result.owner,
+          tab_id: identity.ordinaryTabId,
+          pty_id: String(args.ptyId ?? identity.ordinaryTabId),
+        } : result.owner,
+      };
     });
     case "read_pty": {
       const offset = readOffsets.get(identity.ordinaryTabId) ?? 0;

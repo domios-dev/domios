@@ -213,7 +213,8 @@ impl ThreadService {
         tab_id: &str,
         chat_id: i64,
     ) -> Option<i64> {
-        if !tabs.is_live_tab(tab_id) || !tabs.is_visible_tab(tab_id) || tabs.is_general_tab(tab_id) {
+        if !tabs.is_live_tab(tab_id) || !tabs.is_visible_tab(tab_id) || tabs.is_general_tab(tab_id)
+        {
             return None;
         }
         let attached = self.attached()?;
@@ -232,57 +233,62 @@ impl ThreadService {
         }
     }
 
-    /// Send a notification into a previously resolved topic without a main-chat pointer.
-    pub async fn send_notification_to_thread(
+    pub(crate) async fn send_notification_text(
         &self,
         tabs: &dyn ThreadTabs,
         text: TabText,
-        thread_id: i64,
+        thread_id: Option<i64>,
     ) -> Option<i64> {
         let attached = self.attached()?;
+        let mut thread_id = thread_id;
+        let header = thread_id
+            .and_then(|_| tabs.sender_identity(&text.tab_id))
+            .map(|identity| identity.header());
+        self.send_thread_text(&attached, &text, &mut thread_id, header)
+            .await
+    }
+
+    async fn send_thread_text(
+        &self,
+        attached: &Attached,
+        text: &TabText,
+        thread_id: &mut Option<i64>,
+        header: Option<String>,
+    ) -> Option<i64> {
         let body = markdown_to_sanitized_html(&text.markdown);
-        let identity = tabs.sender_identity(&text.tab_id);
-        let header = identity.as_ref().map(SenderIdentity::header);
         let html = match header.as_deref() {
             Some(header) => compose::with_header(header, &body),
             None => body,
         };
-        let placed = self
+        let mut placed = self
             .send_chunks(
-                &attached,
+                attached,
                 text.chat_id,
-                Some(thread_id),
+                *thread_id,
                 &html,
                 text.buttons.as_ref(),
             )
             .await;
-        if let Err(failure) = &placed {
+        if let (Some(dead), Err(failure)) = (*thread_id, &placed) {
             if failure.thread_unusable() {
                 self.registry
                     .lock()
-                    .set_stale(&scope(attached.bot_id, text.chat_id), thread_id, true);
+                    .set_stale(&scope(attached.bot_id, text.chat_id), dead, true);
+                *thread_id = None;
+                placed = self
+                    .send_chunks(attached, text.chat_id, None, &html, text.buttons.as_ref())
+                    .await;
             }
         }
         let placed = match placed {
             Ok(message_id) => message_id,
             Err(failure) => {
-                log::warn!("[bridge-threads] notification send failed: {failure:?}");
+                log::warn!("[bridge-threads] tab send failed: {failure:?}");
                 return None;
             }
         };
-        self.record_origin(&attached, text.chat_id, placed, &text.tab_id);
+        self.record_origin(attached, text.chat_id, placed, &text.tab_id);
         Some(placed)
-    }
-
-    pub async fn ensure_notification_thread(
-        &self,
-        tabs: &dyn ThreadTabs,
-        tab_id: &str,
-        chat_id: i64,
-    ) -> bool {
-        self.notification_thread_id(tabs, tab_id, chat_id)
-            .await
-            .is_some()
     }
 
     /// Send a tab's text: into its topic with a headered main-chat pointer, or
@@ -295,7 +301,6 @@ impl ThreadService {
                 return Some(message_id);
             }
         }
-        let body = markdown_to_sanitized_html(&text.markdown);
         let identity = tabs.sender_identity(&text.tab_id);
         let header = identity.as_ref().map(SenderIdentity::header);
         let threaded = identity
@@ -317,40 +322,11 @@ impl ThreadService {
             }
         }
 
-        let html = match header.as_deref() {
-            Some(header) => compose::with_header(header, &body),
-            None => body,
-        };
-        let mut placed = self
-            .send_chunks(
-                &attached,
-                text.chat_id,
-                thread_id,
-                &html,
-                text.buttons.as_ref(),
-            )
-            .await;
-        let unusable = matches!(&placed, Err(failure) if failure.thread_unusable());
-        if let (Some(dead), true) = (thread_id, unusable) {
-            self.registry
-                .lock()
-                .set_stale(&scope(attached.bot_id, text.chat_id), dead, true);
-            thread_id = None;
-            placed = self
-                .send_chunks(&attached, text.chat_id, None, &html, text.buttons.as_ref())
-                .await;
-        }
-        let placed = match placed {
-            Ok(message_id) => message_id,
-            Err(failure) => {
-                log::warn!("[bridge-threads] tab send failed: {failure:?}");
-                return None;
-            }
-        };
-        self.record_origin(&attached, text.chat_id, placed, &text.tab_id);
+        let placed = self
+            .send_thread_text(&attached, &text, &mut thread_id, header.clone())
+            .await?;
 
-        if let (Some(thread_id), Some(header), false) =
-            (thread_id, header.as_deref(), text.append)
+        if let (Some(thread_id), Some(header), false) = (thread_id, header.as_deref(), text.append)
         {
             let link = topic_link(text.chat_id, thread_id);
             let pointer = compose::pointer(header, link.as_deref(), &text.markdown);

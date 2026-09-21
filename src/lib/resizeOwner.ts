@@ -13,6 +13,17 @@ export interface ResizeOwner {
   updated_at: number;
 }
 
+export interface ResizeOwnerClaim {
+  owner: ResizeOwner;
+  current_size: { cols: number; rows: number } | null;
+}
+
+export function resizeOwnerChangedEvent(tabId?: string | null): string {
+  return tabId?.startsWith("mesh:")
+    ? `pty-resize-owner-changed:${tabId}`
+    : "pty-resize-owner-changed";
+}
+
 export function getResizeClientId(): string {
   const prefix = IS_WEB ? "web:" : "tauri:";
   if (typeof window === "undefined") return "server";
@@ -34,8 +45,8 @@ export async function claimResizeOwner(
   cols: number,
   rows: number,
   force = false,
-): Promise<ResizeOwner> {
-  return invoke<ResizeOwner>("claim_resize_owner", {
+): Promise<ResizeOwnerClaim> {
+  return invoke<ResizeOwnerClaim>("claim_resize_owner", {
     tabId,
     ptyId,
     clientId,

@@ -866,6 +866,11 @@ impl ServiceContext {
         for (k, v) in &agent.extra_env {
             env_vars.insert(k.clone(), v.clone());
         }
+        crate::service::launch_diagnostics::log_launch_environment(
+            "provider_spawn",
+            &tab_id,
+            &env_vars,
+        );
 
         // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let pty_id = {

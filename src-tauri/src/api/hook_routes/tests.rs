@@ -19,6 +19,15 @@ fn shared_mux() -> (MuxState, String) {
     (Arc::new(TimedRwLock::new("mux-test", state)), tab_id)
 }
 
+#[test]
+fn hook_refusal_tab_log_value_escapes_control_characters() {
+    let value = escaped_hook_log_field("tab\r\nforged");
+
+    assert_eq!(value, "\"tab\\r\\nforged\"");
+    assert!(!value.contains('\r'));
+    assert!(!value.contains('\n'));
+}
+
 fn unverified_evidence(
     session_id: &str,
 ) -> crate::agent::provider_identity::ProviderIdentityEvidence {
