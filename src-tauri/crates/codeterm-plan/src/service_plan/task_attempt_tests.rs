@@ -1,5 +1,7 @@
 use super::*;
-use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
+use crate::plan::{
+    AgentRef, OrchestratorRef, Plan, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus,
+};
 use codeterm_types::agent::ReportStatus;
 
 mod plan_skill_evidence;
