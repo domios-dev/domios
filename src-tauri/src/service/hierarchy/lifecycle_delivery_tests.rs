@@ -1,7 +1,7 @@
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::startup_nudge::StartupNudge;
-use crate::service::test_fixture::ServiceFixture;
+use crate::service::test_fixture::{RecordingHierarchyReportDelivery, ServiceFixture};
 
 fn bound_parent_fixture() -> (ServiceFixture, String) {
     let (mut mux, parent_tab_id) = MultiplexerState::new();
@@ -37,10 +37,13 @@ fn startup_notice_to_parent_on_trust_dialog_is_withheld() {
         .lock()
         .process("parent-pty", prompt.as_bytes());
     assert_eq!(
-        fixture.service.classify_startup_nudge(&parent_tab_id),
+        fixture
+            .service
+            .classify_startup_nudge_for_hierarchy_report(&parent_tab_id),
         StartupNudge::BlockedOnPrompt
     );
-    fixture.service.publish_agent_startup_report(
+    let delivery = RecordingHierarchyReportDelivery::default();
+    fixture.service.publish_agent_startup_report_with_delivery(
         &parent_tab_id,
         "worker-tab",
         "Worker",
@@ -48,12 +51,14 @@ fn startup_notice_to_parent_on_trust_dialog_is_withheld() {
             "kind": "agent_startup_failed",
             "attempt_id": "trust-attempt",
         }),
+        &delivery,
     );
 
     fixture
         .service
-        .replay_pending_reports_if_routable(&parent_tab_id);
+        .replay_pending_reports_with_delivery(&parent_tab_id, &delivery);
 
+    assert!(delivery.writes.lock().is_empty());
     assert_eq!(
         fixture
             .service
@@ -67,8 +72,9 @@ fn startup_notice_to_parent_on_trust_dialog_is_withheld() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn report_replay_from_output_trigger_skips_unbound_target() {
+fn report_replay_skips_unbound_agent_target() {
     let (fixture, parent_tab_id) = unbound_agent_fixture();
+    let delivery = RecordingHierarchyReportDelivery::default();
     fixture.service.report_store.lock().add(
         &parent_tab_id,
         "worker-tab",
@@ -78,8 +84,9 @@ fn report_replay_from_output_trigger_skips_unbound_target() {
 
     fixture
         .service
-        .replay_pending_reports_if_routable(&parent_tab_id);
+        .replay_pending_reports_with_delivery(&parent_tab_id, &delivery);
 
+    assert!(delivery.writes.lock().is_empty());
     assert_eq!(
         fixture
             .service

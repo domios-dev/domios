@@ -36,7 +36,7 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
     !tab_id.is_empty() && !tab_id.contains('/')
 }
 
-fn tab_hook_target(method: &Method, path: &str) -> Option<(&str, &str)> {
+fn tab_hook_target<'a>(method: &Method, path: &'a str) -> Option<(&'a str, &'a str)> {
     if method != Method::POST {
         return None;
     }
