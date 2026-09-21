@@ -412,7 +412,7 @@ fn task_ack_refusal_class(message: &str) -> &'static str {
 
 fn acknowledged_worker_brief_state(
     svc: &ServiceState,
-    acknowledged: &crate::service::plan::TaskAttemptAcknowledgement,
+    acknowledged: &crate::service::plan::task_attempts::TaskAttemptAcknowledgement,
 ) -> Option<Value> {
     if acknowledged.attempt.session_id.is_none() {
         return None;

@@ -138,6 +138,12 @@ pub(crate) fn preflight_checkout_occupancy(
             if attempt.closed_at.is_some() {
                 return None;
             }
+            if task.id == dispatched_task_id
+                && attempt.competition_group_id.is_none()
+                && attempt.reported_at.is_some()
+            {
+                return None;
+            }
             let attempt_path = attempt
                 .worktree_path
                 .as_deref()
