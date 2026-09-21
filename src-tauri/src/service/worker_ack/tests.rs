@@ -149,7 +149,7 @@ fn startup_hold_and_same_attempt_arm_keep_the_ack_waiter() {
     let registry = WorkerAckRegistry::default();
     let identity = ack_identity("attempt-a");
     let receiver = registry.arm(identity.clone()).receiver.unwrap();
-    let startup_receiver = registry.arm_startup(creator_authority("tab", "launch-a"));
+    let startup_events = startup_receiver(&registry, creator_authority("tab", "launch-a"));
 
     assert!(registry
         .hold_startup_authorized(
@@ -159,7 +159,7 @@ fn startup_hold_and_same_attempt_arm_keep_the_ack_waiter() {
             Some(&live_child("launch-a", None))
         )
         .is_ok());
-    assert_eq!(startup_receiver.recv().unwrap(), AgentStartupSignal::Held);
+    assert_eq!(startup_events.recv().unwrap(), AgentStartupSignal::Held);
     assert!(registry.extend_deadline(&identity));
     let rearm = registry.arm(identity.clone());
     assert!(!rearm.starts_supervisor);
@@ -377,18 +377,20 @@ fn live_child(attempt_id: &str, team_id: Option<&str>) -> ChildStartupState {
     ChildStartupState {
         attempt_id: Some(attempt_id.to_string()),
         team_id: team_id.map(str::to_string),
+        session_id: None,
+        binding_nonce: None,
     }
 }
 
 #[test]
 fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
     let registry = WorkerAckRegistry::default();
-    let ready = registry.arm_startup(creator_authority("tab-a", "launch-a"));
+    let ready = startup_receiver(&registry, creator_authority("tab-a", "launch-a"));
     assert!(!registry.mark_startup_ready("tab-a", "launch-old"));
     assert!(registry.mark_startup_ready("tab-a", "launch-a"));
     assert_eq!(ready.recv().unwrap(), AgentStartupSignal::Ready);
 
-    let held = registry.arm_startup(creator_authority("tab-a", "launch-b"));
+    let held = startup_receiver(&registry, creator_authority("tab-a", "launch-b"));
     assert!(registry
         .hold_startup_authorized(
             "creator",
@@ -407,7 +409,7 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
         .is_ok());
     assert_eq!(held.recv().unwrap(), AgentStartupSignal::Held);
 
-    let exited = registry.arm_startup(creator_authority("tab-a", "launch-c"));
+    let exited = startup_receiver(&registry, creator_authority("tab-a", "launch-c"));
     assert!(!registry.mark_startup_launch_command_finished("tab-a", "launch-old", Some(9)));
     assert!(registry.mark_startup_launch_command_finished("tab-a", "launch-c", Some(9)));
     assert_eq!(
@@ -428,7 +430,7 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
 #[test]
 fn repeated_startup_ack_is_an_explicit_no_op_for_the_same_attempt() {
     let registry = WorkerAckRegistry::default();
-    let ready = registry.arm_startup(creator_authority("tab-a", "launch-a"));
+    let ready = startup_receiver(&registry, creator_authority("tab-a", "launch-a"));
 
     assert_eq!(
         registry.acknowledge_startup("tab-a", "launch-a"),
@@ -441,7 +443,7 @@ fn repeated_startup_ack_is_an_explicit_no_op_for_the_same_attempt() {
     );
     assert_eq!(registry.acknowledge_startup("tab-a", "launch-b"), None);
 
-    let replacement = registry.arm_startup(creator_authority("tab-a", "launch-b"));
+    let replacement = startup_receiver(&registry, creator_authority("tab-a", "launch-b"));
     assert_eq!(registry.acknowledge_startup("tab-a", "launch-a"), None);
     assert_eq!(
         registry.acknowledge_startup("tab-a", "launch-b"),
@@ -453,7 +455,7 @@ fn repeated_startup_ack_is_an_explicit_no_op_for_the_same_attempt() {
 #[test]
 fn launch_command_finish_cannot_outrank_readiness() {
     let registry = WorkerAckRegistry::default();
-    let receiver = registry.arm_startup(creator_authority("tab-a", "launch-a"));
+    let receiver = startup_receiver(&registry, creator_authority("tab-a", "launch-a"));
 
     assert!(registry.mark_startup_launch_command_finished("tab-a", "launch-a", Some(1)));
     assert!(registry.mark_startup_ready("tab-a", "launch-a"));
@@ -466,8 +468,10 @@ fn launch_command_finish_cannot_outrank_readiness() {
 #[test]
 fn creator_hold_is_refused_for_every_other_caller() {
     let registry = WorkerAckRegistry::default();
-    let _armed = registry
-        .arm_startup(creator_authority("tab-a", "launch-a").in_team(Some("team_pair".into())));
+    let _armed = startup_receiver(
+        &registry,
+        creator_authority("tab-a", "launch-a").in_team(Some("team_pair".into())),
+    );
 
     for caller in ["general-agent", "sibling", "tab-a"] {
         let (refusal, supervised) = registry
@@ -506,10 +510,14 @@ fn stale_startup_expiry_cannot_reap_replaced_attempt() {
         member_tab_ids: vec!["tab-a".into()],
     };
     registry.register_startup_lease(lease.clone());
-    let stale = registry
-        .arm_startup(creator_authority("tab-a", "launch-a").in_team(Some(lease.team_id.clone())));
-    let current = registry
-        .arm_startup(creator_authority("tab-a", "launch-b").in_team(Some(lease.team_id.clone())));
+    let stale = startup_receiver(
+        &registry,
+        creator_authority("tab-a", "launch-a").in_team(Some(lease.team_id.clone())),
+    );
+    let current = startup_receiver(
+        &registry,
+        creator_authority("tab-a", "launch-b").in_team(Some(lease.team_id.clone())),
+    );
 
     assert_eq!(stale.recv().unwrap(), AgentStartupSignal::Superseded);
     assert!(
@@ -554,7 +562,8 @@ fn a_retired_lease_cannot_be_reaped_from_a_stale_candidate() {
         member_tab_ids: vec![child.clone()],
     };
     registry.register_startup_lease(lease.clone());
-    let _armed = registry.arm_startup(
+    let _armed = startup_receiver(
+        &registry,
         StartupAuthority::new(&creator, &child, "launch-a").in_team(Some(team_id.clone())),
     );
     // What the snapshot-then-mutate shape captured before the acknowledgement.
@@ -612,8 +621,10 @@ fn a_started_attempt_releases_the_pair_lease() {
         member_tab_ids: vec!["tab-a".into(), "tab-b".into()],
     };
     registry.register_startup_lease(lease.clone());
-    let _ready = registry
-        .arm_startup(creator_authority("tab-a", "launch-a").in_team(Some(lease.team_id.clone())));
+    let _ready = startup_receiver(
+        &registry,
+        creator_authority("tab-a", "launch-a").in_team(Some(lease.team_id.clone())),
+    );
 
     assert!(registry.mark_startup_ready("tab-a", "launch-a"));
     assert!(
