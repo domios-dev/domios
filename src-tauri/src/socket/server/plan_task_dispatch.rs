@@ -533,16 +533,6 @@ pub(super) fn dispatch(
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
         .map_err(plan_rpc_err)?;
-    let brief = canonical_writer::compose_dispatch_brief(
-        build_brief_with_manifest(
-            &detail.task,
-            &detail.sections,
-            &plan_id,
-            &manifest,
-            &authorized_gates,
-        ),
-        placement,
-    );
 
     let explicit_cwd = owned_str(p, "cwd");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
@@ -623,6 +613,20 @@ pub(super) fn dispatch(
         }
         _ => None,
     };
+    let replaces_recorded_lane = lane_placement
+        .as_ref()
+        .is_some_and(DispatchLanePlacement::provisions)
+        && (detail.task.lane.worktree_path.is_some() || detail.task.lane.branch.is_some());
+    let brief = canonical_writer::compose_dispatch_brief(
+        build_brief_with_manifest(
+            &detail.task,
+            &detail.sections,
+            &plan_id,
+            &manifest,
+            &authorized_gates,
+        ),
+        placement,
+    );
     let will_provision_lane = lane_placement
         .as_ref()
         .is_some_and(DispatchLanePlacement::provisions);
@@ -637,15 +641,13 @@ pub(super) fn dispatch(
                     .unwrap_or_else(|| canonical_cwd.clone())
             }),
     };
-    let reported_executor_tabs = if requires_repository
-        && !will_provision_lane
-        && !lane_protection.is_waived()
-    {
-        let mux = svc.mux.read();
-        reported_executor_tab_statuses(&plan, &task_id, |tab_id| mux.get_tab(tab_id).is_some())
-    } else {
-        HashMap::new()
-    };
+    let reported_executor_tabs =
+        if requires_repository && !will_provision_lane && !lane_protection.is_waived() {
+            let mux = svc.mux.read();
+            reported_executor_tab_statuses(&plan, &task_id, |tab_id| mux.get_tab(tab_id).is_some())
+        } else {
+            HashMap::new()
+        };
     if requires_repository {
         preflight_dispatch_placement(
             &plan,
@@ -747,6 +749,9 @@ pub(super) fn dispatch(
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
     let mut lane_for_commit = detail.task.lane.clone();
+    if replaces_recorded_lane {
+        lane_commit::clear_replaced_lane_routing_fields(&mut lane_for_commit);
+    }
     if let Some((workspace_id, workspace_name)) =
         svc.resolve_spawn_workspace_identity(&spawn_params)
     {
@@ -895,7 +900,7 @@ pub(super) fn dispatch(
         "placement": placement,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
-        result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &detail.task.lane);
+        result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &lane_for_commit);
     }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {
