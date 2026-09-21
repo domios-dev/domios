@@ -106,13 +106,11 @@ fn summarize_launch_environment(
         effective_env_value(launch_env, inherited_env, "CODETERM_API_TOKEN");
     let (binding_nonce, binding_nonce_source) =
         effective_env_value(launch_env, inherited_env, "CODETERM_SESSION_BINDING_NONCE");
-    let (launch_tab_id, _) =
-        effective_env_value(launch_env, inherited_env, "CODETERM_TAB_ID");
+    let (launch_tab_id, _) = effective_env_value(launch_env, inherited_env, "CODETERM_TAB_ID");
     let (codex_home, codex_home_source) =
         effective_env_value(launch_env, inherited_env, "CODEX_HOME");
     let (path, _) = effective_env_value_case_insensitive(launch_env, inherited_env, "PATH");
-    let (comspec, _) =
-        effective_env_value_case_insensitive(launch_env, inherited_env, "ComSpec");
+    let (comspec, _) = effective_env_value_case_insensitive(launch_env, inherited_env, "ComSpec");
     let mut path_entries = path
         .as_deref()
         .map(|value| std::env::split_paths(value))
@@ -155,10 +153,7 @@ fn effective_env_value_case_insensitive(
 ) -> (Option<String>, &'static str) {
     let launch_value = case_insensitive_env_value(launch_env, name);
     if let Some(value) = launch_value {
-        return (
-            (!value.trim().is_empty()).then(|| value.clone()),
-            "launch",
-        );
+        return ((!value.trim().is_empty()).then(|| value.clone()), "launch");
     }
     let inherited_value = case_insensitive_env_value(inherited_env, name);
     match inherited_value {
@@ -188,10 +183,7 @@ fn effective_env_value(
     name: &str,
 ) -> (Option<String>, &'static str) {
     if let Some(value) = launch_env.get(name) {
-        return (
-            (!value.trim().is_empty()).then(|| value.clone()),
-            "launch",
-        );
+        return ((!value.trim().is_empty()).then(|| value.clone()), "launch");
     }
     match inherited_env.get(name) {
         Some(value) => (
@@ -492,10 +484,7 @@ mod tests {
             api_target(Some("https://api.example.test/path?token=hidden")),
             "api.example.test:443",
         );
-        assert_eq!(
-            api_target(Some("http://[::1]:7686/private")),
-            "[::1]:7686",
-        );
+        assert_eq!(api_target(Some("http://[::1]:7686/private")), "[::1]:7686",);
     }
 
     #[test]
@@ -505,7 +494,10 @@ mod tests {
             "http://127.0.0.1:7686".to_string(),
         )]);
         let inherited_env = std::collections::HashMap::from([
-            ("CODETERM_API_TOKEN".to_string(), "parent-token-fixture".to_string()),
+            (
+                "CODETERM_API_TOKEN".to_string(),
+                "parent-token-fixture".to_string(),
+            ),
             (
                 "CODETERM_SESSION_BINDING_NONCE".to_string(),
                 "parent-nonce-fixture".to_string(),
