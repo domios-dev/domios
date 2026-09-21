@@ -10,6 +10,8 @@ use super::plan_role_helpers::{
 };
 pub(super) use super::plan_task_authority::authorize_draft_mutation;
 use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
+#[cfg(test)]
+use super::plan_task_dispatch::dispatch_with_spawn;
 use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
@@ -622,6 +624,24 @@ pub(super) fn dispatch(
             let qa_plan = optional_string_field(p, "qa_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
+            let lane = crate::service::lane_removal::clear_vanished_lane_on_cleanup_done(
+                store, &id, &tid, lane,
+            )
+            .map_err(|error| {
+                let (code, message) = match error {
+                    crate::service::lane_removal::CleanupStatusDoneError::Refused(message) => {
+                        (-32602, message)
+                    }
+                    crate::service::lane_removal::CleanupStatusDoneError::Verification(message) => {
+                        (-32603, message)
+                    }
+                };
+                JsonRpcError {
+                    code,
+                    message,
+                    data: None,
+                }
+            })?;
             let external_refs = external_ref_values(p)?;
             crate::service::plan::external_refs::canonicalize_external_refs(&external_refs)
                 .map_err(plan_rpc_err)?;

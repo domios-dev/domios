@@ -9,8 +9,26 @@ pub(crate) struct WorkerAckIdentity {
     pub(crate) task_id: String,
     pub(crate) attempt_id: String,
     pub(crate) tab_id: String,
+    pub(crate) startup_attempt_id: Option<String>,
     pub(crate) session_id: Option<String>,
     pub(crate) binding_nonce: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PendingTaskStartupAck {
+    pub(super) task_identity: StartupTaskIdentity,
+    pub(super) startup_attempt_id: Option<String>,
+    pub(super) session_id: Option<String>,
+    pub(super) binding_nonce: Option<String>,
+}
+
+impl PendingTaskStartupAck {
+    pub(super) fn owns_authority(&self, authority: &StartupAuthority) -> bool {
+        authority.task_identity.as_ref() == Some(&self.task_identity)
+            && authority.attempt_id == self.startup_attempt_id.as_deref().unwrap_or_default()
+            && authority.session_id == self.session_id
+            && authority.binding_nonce == self.binding_nonce
+    }
 }
 
 pub(crate) struct WorkerAckArm {
@@ -39,6 +57,7 @@ fn same_startup_hold(left: &WorkerAckIdentity, right: &WorkerAckIdentity) -> boo
         && left.task_id == right.task_id
         && left.attempt_id == right.attempt_id
         && left.tab_id == right.tab_id
+        && left.startup_attempt_id == right.startup_attempt_id
         && left.binding_nonce == right.binding_nonce
         && (left.binding_nonce.is_some() || left.session_id == right.session_id)
 }
@@ -58,6 +77,7 @@ impl WorkerAckRegistry {
             }
             if current.as_ref().is_some_and(|current| {
                 current.attempt_id == identity.attempt_id
+                    && current.startup_attempt_id == identity.startup_attempt_id
                     && current.session_id == identity.session_id
                     && current.binding_nonce == identity.binding_nonce
             }) {

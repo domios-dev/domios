@@ -43,6 +43,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
+    "supportsDirectoryTrustPromptParsing": true,
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,

@@ -3,9 +3,9 @@ use std::cell::Cell;
 use codeterm_plugin::provider::DirectoryTrustPromptResponse;
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_provenance, directory_trust_skip_reason,
-    inherited_workspace_provenance, legacy_auto_approve_permitted, DirectoryTrustRefusal,
-    TrustDecision, TrustLedger,
+    decide, directory_trust_check_applies, directory_trust_provenance,
+    directory_trust_prompt_candidate, directory_trust_skip_reason, inherited_workspace_provenance,
+    legacy_auto_approve_permitted, DirectoryTrustRefusal, TrustDecision, TrustLedger,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -66,6 +66,58 @@ fn directory_trust_refuses_cwd_that_differs_from_provenance() {
 }
 
 #[test]
+fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
+    let (state, tab_id) = state_with_tab(
+        Some(r"\\?\C:\Users\dev\lane\project"),
+        Some(r"C:\Users\dev\lane\project"),
+    );
+    assert_eq!(
+        directory_trust_provenance(state.get_tab(&tab_id).unwrap()),
+        Ok(())
+    );
+}
+
+#[test]
+fn directory_trust_prompt_candidate_uses_active_path_choice_structure() {
+    let trust = "> You are in D:\\workspace\\project\n\nShould this folder's guidance be loaded? Project rules can alter how the running agent behaves while working in this folder.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
+    let approval = "Do you want to apply this change? It can modify the selected files in your project.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
+    let bypass = "> D:\\workspace\\project\n\nShould this folder's local rules be loaded? This enables a bypass for the configured policies and removes the usual restrictions.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
+    let model_picker = "> You are in D:\\workspace\\project\n\nSelect a model\n\n  1. Model A\n> 2. Model B\n  3. Model C\n\nPress enter to select";
+    let answer_list = "> You are in D:\\workspace\\project\n\nHere are the choices we discussed:\n  1. First answer\n  2. Second answer\n  3. Third answer";
+    let one_paragraph_approval = "> D:\\workspace\\project\n\nWould you like to apply this change? It updates the selected files and records the result in the project history.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
+    let unselected_trust = trust.replace("> 2. No", " 2. No");
+
+    assert!(directory_trust_prompt_candidate(trust));
+    assert!(!directory_trust_prompt_candidate(approval));
+    assert!(!directory_trust_prompt_candidate(bypass));
+    assert!(!directory_trust_prompt_candidate(model_picker));
+    assert!(!directory_trust_prompt_candidate(answer_list));
+    assert!(!directory_trust_prompt_candidate(one_paragraph_approval));
+    assert!(!directory_trust_prompt_candidate(&unselected_trust));
+}
+
+#[test]
+fn directory_trust_prompt_candidate_matches_real_fixture_frames() {
+    let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/tests/fixtures/directory-trust");
+    let cases: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir.join("cases.json")).unwrap(),
+    )
+    .unwrap();
+
+    for case in cases.as_array().unwrap() {
+        let file = case["file"].as_str().unwrap();
+        let expected = case["expect"].as_str().unwrap() != "none";
+        let screen = std::fs::read_to_string(fixture_dir.join(file)).unwrap();
+        assert_eq!(
+            directory_trust_prompt_candidate(&screen),
+            expected,
+            "{file}"
+        );
+    }
+}
+
+#[test]
 fn directory_trust_refuses_tab_without_cwd() {
     let (state, tab_id) = state_with_tab(None, Some("/srv/lanes/a"));
     assert_eq!(
@@ -119,6 +171,14 @@ fn spawn_inherits_workspace_provenance_only_in_the_provisioned_directory() {
     assert!(inherited_workspace_provenance(Some("C:/Users/user/project"), provisioned).is_none());
     assert!(inherited_workspace_provenance(None, provisioned).is_none());
     assert!(inherited_workspace_provenance(Some("C:/Users/user/project"), None).is_none());
+    assert_eq!(
+        inherited_workspace_provenance(
+            Some(r"\\?\C:\data\provisioned-workspaces\bench-1"),
+            Some(r"C:\data\provisioned-workspaces\bench-1"),
+        )
+        .as_deref(),
+        Some(r"C:\data\provisioned-workspaces\bench-1")
+    );
 }
 
 #[test]
@@ -224,8 +284,12 @@ fn trust_dialogs_never_reach_the_legacy_yes_responder() {
         selected_values: None,
     };
     assert!(
-        crate::service::output::legacy_auto_approve_response(&trust_prompt).is_some(),
+        crate::service::output::legacy_auto_approve_response(&trust_prompt, false).is_some(),
         "precondition: the legacy responder would press Enter on this prompt"
+    );
+    assert!(
+        crate::service::output::legacy_auto_approve_response(&trust_prompt, true).is_none(),
+        "a dedicated trust prompt never reaches the legacy responder"
     );
 
     for owned in [
@@ -237,27 +301,70 @@ fn trust_dialogs_never_reach_the_legacy_yes_responder() {
     ] {
         for (authenticated, structured) in [(false, false), (true, false), (true, true)] {
             assert!(
-                !legacy_auto_approve_permitted(&owned, authenticated, structured),
+                !legacy_auto_approve_permitted(&owned, authenticated, structured, false),
                 "{owned:?} must keep the legacy responder away"
             );
         }
     }
     for unrecognized in [TrustDecision::NotApplicable, TrustDecision::NoDialog] {
         assert!(
-            !legacy_auto_approve_permitted(&unrecognized, false, false),
+            !legacy_auto_approve_permitted(&unrecognized, false, false, false),
             "a screen-scraped prompt before session authentication is never blindly approved"
         );
     }
     assert!(legacy_auto_approve_permitted(
         &TrustDecision::NotApplicable,
         true,
+        false,
         false
     ));
     assert!(legacy_auto_approve_permitted(
         &TrustDecision::NotApplicable,
         false,
-        true
+        true,
+        false
     ));
+}
+
+#[test]
+fn cwd_provenance_refusal_keeps_trust_prompt_out_of_both_auto_responders() {
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/b"), false);
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert_eq!(
+        directory_trust_provenance(tab),
+        Err(DirectoryTrustRefusal::CwdDiffersFromProvenance)
+    );
+    assert!(!directory_trust_check_applies(tab));
+
+    let trust_prompt = PendingPrompt {
+        question: "Should this folder's guidance be loaded?".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, continue".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "No, quit".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let screen = "Should this folder's guidance be loaded?\n1. Yes, continue\n2. No, quit";
+
+    assert!(!legacy_auto_approve_permitted(
+        &TrustDecision::NotApplicable,
+        true,
+        false,
+        true,
+    ));
+    assert!(crate::service::output::legacy_auto_approve_response(&trust_prompt, true).is_none());
+    assert!(
+        crate::service::general_agent::blocker::classify(&trust_prompt, screen, true).is_none()
+    );
 }
 
 #[test]

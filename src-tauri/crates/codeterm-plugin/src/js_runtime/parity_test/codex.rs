@@ -224,6 +224,71 @@ fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
 }
 
 #[test]
+fn codex_folder_trust_prompt_parses_as_numbered_choices() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("trust-structured-question.txt"),
+    )
+    .expect("folder-trust fixture");
+    let prompt = codex()
+        .parse_directory_trust_prompt(&screen)
+        .expect("active folder trust prompt");
+
+    assert!(prompt.question.ends_with('?'));
+    assert_eq!(
+        prompt
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        vec!["1", "2"]
+    );
+    assert_eq!(
+        codex().build_prompt_response(0, &screen),
+        vec![b"\x1b[A".to_vec(), b"\r".to_vec()]
+    );
+
+    let answer = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("approval-paragraph.txt"),
+    )
+    .expect("ordinary approval fixture");
+    assert!(codex().parse_prompt(&answer).is_some());
+    assert!(codex().parse_directory_trust_prompt(&answer).is_none());
+
+    let fixtures = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust");
+    let cases: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixtures.join("cases.json")).expect("fixture cases"),
+    )
+    .expect("valid fixture cases");
+    for case in cases.as_array().expect("fixture case list") {
+        let file = case["file"].as_str().expect("fixture name");
+        let expected = case["expect"].as_str().expect("fixture expectation") != "none";
+        let screen = std::fs::read_to_string(fixtures.join(file)).expect("fixture frame");
+        assert_eq!(
+            codex().parse_directory_trust_prompt(&screen).is_some(),
+            expected,
+            "{file}"
+        );
+    }
+}
+
+#[test]
 fn parse_session_delta_maps_response_items() {
     if require_plugins().is_none() {
         return;
@@ -446,11 +511,12 @@ fn session_fs_capabilities_over_current_stores() {
 }
 
 #[test]
-fn codex_stays_on_native_prompt_detector() {
+fn codex_declares_its_dedicated_directory_trust_parser() {
     if require_plugins().is_none() {
         return;
     }
     assert!(!codex().supports_structured_prompts());
+    assert!(codex().supports_directory_trust_prompt_parsing());
 }
 
 #[test]
