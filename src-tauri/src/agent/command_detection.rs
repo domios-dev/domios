@@ -65,7 +65,7 @@ impl CwdDetection {
     /// 633;P;Cwd — the trusted per-command source. Returns true if cwd changed.
     fn apply_property(&mut self, path: String) -> bool {
         self.from_property = true;
-        let changed = self.cwd.as_deref() != Some(path.as_str());
+        let changed = cwd_changed(self.cwd.as_deref(), &path);
         self.cwd = Some(path);
         changed
     }
@@ -76,7 +76,7 @@ impl CwdDetection {
         if self.from_property {
             return false;
         }
-        let changed = self.cwd.as_deref() != Some(path.as_str());
+        let changed = cwd_changed(self.cwd.as_deref(), &path);
         self.cwd = Some(path);
         changed
     }
@@ -85,6 +85,10 @@ impl CwdDetection {
     fn begin_cycle(&mut self) {
         self.from_property = false;
     }
+}
+
+fn cwd_changed(current: Option<&str>, next: &str) -> bool {
+    current.is_none_or(|current| !codeterm_paths::paths_equal(current, next))
 }
 
 /// Folds command-lifecycle events into a command list. With a configured nonce,

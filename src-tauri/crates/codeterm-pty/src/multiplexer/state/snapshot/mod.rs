@@ -3,6 +3,10 @@ use std::collections::{HashMap, HashSet};
 use super::{MultiplexerSnapshot, MultiplexerState};
 use crate::multiplexer::types::{Tab, TabAudience, TabBacking, TabType, TitleLevel, Workspace};
 
+fn normalized_snapshot_cwd(cwd: Option<&str>) -> Option<String> {
+    cwd.map(codeterm_paths::strip_verbatim_prefix)
+}
+
 fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
     let t = title?.to_ascii_lowercase();
     for id in ["claude", "codex", "opencode", "cursor"] {
@@ -142,7 +146,7 @@ impl MultiplexerState {
             };
             SplitNodeSnapshot::Leaf {
                 tab_id: tab_id.to_string(),
-                cwd: tab.and_then(|p| p.cwd.clone()),
+                cwd: tab.and_then(|p| normalized_snapshot_cwd(p.cwd.as_deref())),
                 title: tab.map(|p| p.title.clone()),
                 description: tab.and_then(|p| p.description.clone()),
                 title_level: tab.map(|p| format!("{:?}", p.title_level)),
@@ -150,7 +154,7 @@ impl MultiplexerState {
                 agent_type_locked: tab.map(|p| p.agent_type_locked).unwrap_or(false),
                 claude_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
-                    provisioned_cwd: p.provisioned_cwd.clone(),
+                    provisioned_cwd: normalized_snapshot_cwd(p.provisioned_cwd.as_deref()),
                     session_binding_nonce: p.session_binding_nonce.clone(),
                     reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
                     agent_state: p.agent_state.clone(),
@@ -200,8 +204,8 @@ impl MultiplexerState {
                     id: ws.id.clone(),
                     name: ws.name.clone(),
                     active_tab_id: ws.active_tab_id.clone(),
-                    cwd: ws.cwd.clone(),
-                    provisioned_cwd: ws.provisioned_cwd.clone(),
+                    cwd: normalized_snapshot_cwd(ws.cwd.as_deref()),
+                    provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                     protected: ws.protected,
                     sort_order: ws.sort_order,
                     tabs: ws
@@ -283,8 +287,8 @@ impl MultiplexerState {
                     }
                     Some(tab_id)
                 }).collect(),
-                cwd: ws.cwd.clone(),
-                provisioned_cwd: ws.provisioned_cwd.clone(),
+                cwd: normalized_snapshot_cwd(ws.cwd.as_deref()),
+                provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                 protected: ws.protected,
                 sort_order: ws.sort_order,
             }
@@ -317,6 +321,7 @@ impl MultiplexerState {
         let mut report = SnapshotMergeReport::default();
         let mut merged_tab_ids: Vec<String> = Vec::new();
         for ws_snap in &snapshot.workspaces {
+            let workspace_cwd = normalized_snapshot_cwd(ws_snap.cwd.as_deref());
             let mut added_tab_ids: Vec<String> = Vec::new();
             for tab_snap in &ws_snap.tabs {
                 let Some(leaf) = first_leaf(&tab_snap.split_tree) else {
@@ -350,10 +355,14 @@ impl MultiplexerState {
                 .iter()
                 .position(|ws| ws.id == ws_snap.id)
                 .or_else(|| {
-                    ws_snap.cwd.as_deref().and_then(|cwd| {
+                    workspace_cwd.as_deref().and_then(|cwd| {
                         self.workspaces
                             .iter()
-                            .position(|ws| ws.cwd.as_deref() == Some(cwd))
+                            .position(|ws| {
+                                ws.cwd.as_deref().is_some_and(|existing| {
+                                    codeterm_paths::paths_equal(existing, cwd)
+                                })
+                            })
                     })
                 });
             match target {
@@ -377,8 +386,10 @@ impl MultiplexerState {
                         name: ws_snap.name.clone(),
                         tabs: added_tab_ids,
                         active_tab_id,
-                        cwd: ws_snap.cwd.clone(),
-                        provisioned_cwd: ws_snap.provisioned_cwd.clone(),
+                        cwd: workspace_cwd,
+                        provisioned_cwd: normalized_snapshot_cwd(
+                            ws_snap.provisioned_cwd.as_deref(),
+                        ),
                         // Restored authority is never inferred from a file.
                         protected: false,
                         sort_order: ws_snap.sort_order,
@@ -536,10 +547,10 @@ fn install_leaf(
             pending_delivery: pending_delivery.clone(),
             title: restored_title,
             description: description.clone(),
-            cwd: cwd.clone(),
+            cwd: normalized_snapshot_cwd(cwd.as_deref()),
             provisioned_cwd: agent_identity
                 .as_ref()
-                .and_then(|identity| identity.provisioned_cwd.clone()),
+                .and_then(|identity| normalized_snapshot_cwd(identity.provisioned_cwd.as_deref())),
             url: None,
             agent_type: restored_agent_type,
             agent_type_locked: restored_locked,

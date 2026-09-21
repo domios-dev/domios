@@ -610,6 +610,13 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn parse_directory_trust_prompt(
+        &self,
+        _screen: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        None
+    }
+
     /// Recognize this provider's tool-permission prompt for the hook-reported
     /// `tool_name` and name its affirmative option. `None` leaves it to the user.
     fn permission_prompt_response(
@@ -1093,6 +1100,11 @@ pub trait AgentProvider: Send + Sync {
     /// event bus + reply endpoints. codex app-server and cursor ACP are NOT
     /// reachable in interactive-PTY mode, so they stay on the native detector.
     fn supports_structured_prompts(&self) -> bool {
+        false
+    }
+
+    /// Whether a dedicated directory-trust parser may run after a cheap screen precheck.
+    fn supports_directory_trust_prompt_parsing(&self) -> bool {
         false
     }
 

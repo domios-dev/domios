@@ -460,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_plan_task_spawn_uses_task_owned_prompt_before_commands() {
+    fn task_bound_launch_uses_the_task_ack_path_only() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, _) = store_with_task(dir.path());
         let mut params = SpawnAgentParams {
@@ -475,6 +475,30 @@ mod tests {
 
         prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
 
+        assert!(params.task_launch_authority.is_some());
+        let task_selection = crate::service::launch_delivery::select_visible_spawn_task(
+            None,
+            params.task.as_deref(),
+            true,
+            true,
+        );
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
+            true,
+            params.task_launch_authority.is_some(),
+        );
+        assert_eq!(startup_handshake, None);
+        assert_eq!(
+            task_selection.provider_starter,
+            Some(crate::agent::provider::StarterPrompt::AssignedTask)
+        );
+        assert_eq!(
+            crate::service::spawn::visible_spawn_starter_prompt(
+                startup_handshake,
+                task_selection.provider_starter,
+            ),
+            Some(crate::agent::provider::StarterPrompt::AssignedTask)
+        );
+
         let authority = params.task_launch_env();
         assert_eq!(
             authority.get("CODETERM_PLAN_ID").map(String::as_str),
@@ -486,13 +510,15 @@ mod tests {
         );
         let prompt = params.task.unwrap();
         assert!(prompt.starts_with("You are Ada. Keep the change bounded."));
-        let ack = prompt.find("codeterm agent ack").unwrap();
+        let ack_instruction =
+            codeterm_plan::service_plan::worker_identity::WORKER_ACK_INSTRUCTION;
+        let ack = prompt.find(ack_instruction).unwrap();
         let body = prompt.find("Implement the task-owned behavior.").unwrap();
         let criteria = prompt.find("The focused oracle passes.").unwrap();
         let supplemental = prompt.find("## Orchestrator instruction").unwrap();
         assert!(ack < body);
         assert!(body < criteria && criteria < supplemental);
-        assert_eq!(prompt.matches("codeterm agent ack").count(), 1);
+        assert_eq!(prompt.matches(ack_instruction).count(), 1);
         assert!(!prompt.contains("codeterm agent report"));
     }
 

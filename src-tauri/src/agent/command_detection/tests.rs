@@ -243,6 +243,18 @@ fn osc7_used_as_fallback_when_no_property() {
 }
 
 #[test]
+fn cwd_detection_ignores_windows_verbatim_prefix_changes() {
+    assert!(!super::cwd_changed(
+        Some(r"\\?\C:\lanes\worker"),
+        r"C:\lanes\worker"
+    ));
+    assert!(!super::cwd_changed(
+        Some(r"\\?\UNC\server\share\lane"),
+        r"\\server\share\lane"
+    ));
+}
+
+#[test]
 fn a_d_only_sequence_yields_command_with_boundary_exit_cwd() {
     // must still produce a command with boundary, exit code, and cwd.
     let mut det = CommandDetection::new();

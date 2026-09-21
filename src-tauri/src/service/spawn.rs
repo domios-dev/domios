@@ -6,6 +6,13 @@ use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
+pub(super) fn visible_spawn_starter_prompt(
+    startup_handshake: Option<crate::agent::provider::StarterPrompt>,
+    provider_starter: Option<crate::agent::provider::StarterPrompt>,
+) -> Option<crate::agent::provider::StarterPrompt> {
+    startup_handshake.or(provider_starter)
+}
+
 pub(crate) use super::spawn_cli::{
     cli_binary_on_path, create_cleared_agent_tab, provider_launch_preflight,
 };
@@ -578,7 +585,11 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
-        let confirmed_first_turn = if startup_supervised {
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
+            startup_supervised,
+            task_identity.is_some(),
+        );
+        let confirmed_first_turn = if startup_handshake.is_some() {
             crate::service::launch_delivery::startup_handshake_confirmed_first_turn(
                 native_starter_capable,
             )
@@ -617,10 +628,11 @@ impl ServiceContext {
         };
 
         let mut legacy_params = spec.to_agent_params()?;
-        if startup_supervised {
-            legacy_params.starter_prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
-        } else if let Some(starter) = task_selection.provider_starter {
-            legacy_params.starter_prompt = starter;
+        if let Some(prompt) = visible_spawn_starter_prompt(
+            startup_handshake,
+            task_selection.provider_starter,
+        ) {
+            legacy_params.starter_prompt = prompt;
         }
         legacy_params.skip_permissions = Some(permission_bypass);
         legacy_params.permission_bypass_authorization = permission_bypass_authorization;
@@ -764,7 +776,11 @@ impl ServiceContext {
                 workspace.and_then(|ws| ws.provisioned_cwd.clone()),
             )
         };
-        let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+        let resolved_cwd = spec
+            .cwd
+            .clone()
+            .or(ws_cwd)
+            .map(|cwd| ServiceContext::normalize_resolved_agent_cwd(&cwd));
 
         let tab_id = {
             let mut mux = self.mux.write();

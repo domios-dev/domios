@@ -494,10 +494,17 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                         let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
                         let status = p.get("status").and_then(|v| v.as_str()).unwrap_or("-");
                         let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("-");
-                        println!("tab:     {}", tab_id);
-                        println!("agent:   {}", at);
-                        println!("title:   {}", title);
-                        println!("status:  {}", status);
+                        if json {
+                            print_json(&p);
+                        } else {
+                            println!("tab:     {}", tab_id);
+                            println!("agent:   {}", at);
+                            println!("title:   {}", title);
+                            println!("status:  {}", status);
+                            for line in status_prompt_lines(&p) {
+                                println!("{line}");
+                            }
+                        }
                         return;
                     }
                     eprintln!("Tab not found");
@@ -775,6 +782,25 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         }
         TabAction::Capture { action } => handle_tab_capture(client, json, action),
     }
+}
+
+fn status_prompt_lines(status: &serde_json::Value) -> Vec<String> {
+    let Some(prompt) = status.get("pending_prompt").filter(|value| !value.is_null()) else {
+        return Vec::new();
+    };
+    let mut lines = Vec::new();
+    if let Some(question) = prompt.get("question").and_then(|value| value.as_str()) {
+        lines.push(format!("prompt:  {question}"));
+    }
+    if let Some(options) = prompt.get("options").and_then(|value| value.as_array()) {
+        for (index, option) in options.iter().enumerate() {
+            let Some(label) = option.get("label").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            lines.push(format!("  {}. {}", index + 1, label));
+        }
+    }
+    lines
 }
 
 fn print_rebind_result(json: bool, value: serde_json::Value) {

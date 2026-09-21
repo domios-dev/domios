@@ -16,6 +16,10 @@ export interface ActiveTerminalChoice {
   options: MenuOption[];
 }
 
+export type CodexFolderTrustPrompt =
+  | { kind: "active"; prompt: ParsedPrompt; affirmativeIndex: number }
+  | { kind: "not_on_screen" };
+
 interface ParsedOptionState {
   label: string;
   value: string;
@@ -30,8 +34,77 @@ interface PromptShape {
 const MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
 
 export function parseCodexPrompt(screen: string): ParsedPrompt | null {
-  const parsed = parseCodexPromptShape(screen);
+  const parsed = parseCodexPromptShape(String(screen || ""));
   return parsed ? parsed.prompt : null;
+}
+
+export function parseCodexFolderTrustPrompt(screen: string): ParsedPrompt | null {
+  const trust = classifyCodexFolderTrustPrompt(screen);
+  return trust?.kind === "active" ? trust.prompt : null;
+}
+
+export function classifyCodexFolderTrustPrompt(
+  screen: string,
+): CodexFolderTrustPrompt | null {
+  const options = activeMenuOptions(screen);
+  if (options.length !== 2) return null;
+  if (!hasDirectoryContextLine(screen)) return null;
+  const affirmativeIndex = options.findIndex((option) => /^yes\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^no\b/i.test(option.label));
+  if (affirmativeIndex < 0 || negativeIndex < 0) return null;
+
+  const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
+  if (!hasDirectoryTrustContent(preamble)) return null;
+  const questionEnd = preamble.indexOf("?");
+  const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
+  if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  const choice = parseActiveTerminalChoice(screen);
+  if (
+    !choice ||
+    choice.options.length !== 2 ||
+    choice.options.filter((option) => option.highlighted).length !== 1
+  ) {
+    return { kind: "not_on_screen" };
+  }
+
+  return {
+    kind: "active",
+    affirmativeIndex,
+    prompt: {
+      question: preamble.slice(0, questionEnd + 1).trim(),
+      options: choice.options.map((option) => [option.label, option.value] as [string, string]),
+      multiSelect: false,
+      submitAvailable: false,
+    },
+  };
+}
+
+function hasDirectoryContextLine(screen: string): boolean {
+  return normalizeLines(screen).some((line) => {
+    const text = line.trim();
+    const context = /^[>❯›][ \t]+(.+)$/.exec(text)?.[1];
+    if (!context) return false;
+    return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
+  });
+}
+
+function hasDirectoryTrustContent(preamble: string): boolean {
+  const content = preamble.toLowerCase();
+  if (/\b(?:bypass|disable|override|without restrictions)\b/.test(content)) return false;
+  const questionEnd = content.indexOf("?");
+  if (questionEnd < 0) return false;
+  const question = content.slice(0, questionEnd);
+  const explanation = content.slice(questionEnd + 1);
+  return (
+    /\b(?:folder|directory|workspace)\b/.test(question) &&
+    /\b(?:trust(?:ed|ing)?|load(?:ed|ing)?)\b/.test(question) &&
+    /\b(?:guidance|rules|config(?:uration)?|settings|policy|policies|instructions|hooks)\b/.test(explanation)
+  );
+}
+
+function isAbsolutePathToken(token: string): boolean {
+  const path = token.replace(/[),;]+$/, "");
+  return /^(?:[a-z]:[\\/]|\\\\|\/\/|\/)/i.test(path);
 }
 
 export function responseKeysForIndex(optionIndex: number, screen: string): string[] {

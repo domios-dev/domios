@@ -3,5 +3,9 @@
   { "file": "trust-80col-git-note.txt", "expect": "enter" },
   { "file": "trust-48col-phrase-split.txt", "expect": "enter" },
   { "file": "trust-windows-focus-no.txt", "expect": "move-up" },
-  { "file": "command-approval-mentions-trust.txt", "expect": "none" }
+  { "file": "command-approval-mentions-trust.txt", "expect": "none" },
+  { "file": "approval-paragraph.txt", "expect": "none" },
+  { "file": "bypass-warning.txt", "expect": "none" },
+  { "file": "model-picker.txt", "expect": "none" },
+  { "file": "numbered-answer-list.txt", "expect": "none" }
 ]
