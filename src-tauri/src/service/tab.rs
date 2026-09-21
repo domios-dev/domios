@@ -668,10 +668,16 @@ impl ServiceContext {
             return Ok(RespondPromptOutcome::InvalidOption);
         };
 
-        if let Some(prompt) = crate::service::structured_prompt::pending_for_tab(tab_id) {
-            if option_index >= prompt.options.len() {
-                return Ok(RespondPromptOutcome::InvalidOption);
-            }
+        let pending_option_count = crate::service::structured_prompt::pending_for_tab(tab_id)
+            .map(|prompt| prompt.options.len())
+            .or_else(|| {
+                self.mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()))
+            });
+        if pending_option_count.is_some_and(|count| option_index >= count) {
+            return Ok(RespondPromptOutcome::InvalidOption);
         }
         if let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value) {
             result?;
@@ -830,6 +836,23 @@ mod respond_prompt_tests {
         (fixture, tab_id, pty_id)
     }
 
+    fn fixture_with_pending_prompt() -> (crate::service::test_fixture::ServiceFixture, String) {
+        use crate::multiplexer::state::MultiplexerState;
+
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let prompt = pending_prompt();
+        let tab = mux.get_tab_mut(&tab_id).expect("tab");
+        tab.agent_type = Some("claude".into());
+        tab.pending_prompt = Some(prompt.clone());
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture
+            .service
+            .prompt_detector
+            .lock()
+            .hook_detected_scraped(&tab_id, prompt);
+        (fixture, tab_id)
+    }
+
     fn has_input_events(cast: PathBuf) -> bool {
         std::fs::read_to_string(cast)
             .expect("capture file")
@@ -860,29 +883,6 @@ mod respond_prompt_tests {
             Some(vec![b"j".to_vec(), b"\r".to_vec()])
         );
         assert_eq!(
-            fixture.service.respond_prompt(&tab_id, "3"),
-            Ok(RespondPromptOutcome::InvalidOption)
-        );
-        assert_eq!(
-            fixture.service.respond_prompt(&tab_id, "two"),
-            Ok(RespondPromptOutcome::InvalidOption)
-        );
-        assert!(fixture
-            .service
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .pending_prompt
-            .is_some());
-        assert!(fixture
-            .service
-            .prompt_detector
-            .lock()
-            .active_prompt(&tab_id)
-            .is_some());
-
-        assert_eq!(
             fixture.service.respond_prompt(&tab_id, "2"),
             Ok(RespondPromptOutcome::Sent)
         );
@@ -901,6 +901,31 @@ mod respond_prompt_tests {
             .active_prompt(&tab_id)
             .is_none());
         let _ = fixture.service.pty.lock().kill(&pty_id);
+    }
+
+    #[test]
+    fn respond_prompt_rejects_invalid_options_before_pty_access() {
+        let (fixture, tab_id) = fixture_with_pending_prompt();
+        for value in ["3", "two"] {
+            assert_eq!(
+                fixture.service.respond_prompt(&tab_id, value),
+                Ok(RespondPromptOutcome::InvalidOption)
+            );
+        }
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pending_prompt
+            .is_some());
+        assert!(fixture
+            .service
+            .prompt_detector
+            .lock()
+            .active_prompt(&tab_id)
+            .is_some());
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]

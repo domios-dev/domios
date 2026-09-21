@@ -12,9 +12,10 @@
   { "file": "trust-continue-without-permissions.txt", "expect": "hold" },
   { "file": "trust-without-title.txt", "expect": "hold" },
   { "file": "trust-numbered-unfocused.txt", "expect": "none" },
-  { "file": "trust-without-path.txt", "expect": "none" },
+  { "file": "trust-without-path.txt", "expect": "move-down" },
   { "file": "tool-permission.txt", "expect": "none" },
   { "file": "edit-two-option-mentions-trust.txt", "expect": "hold" },
   { "file": "bypass-permissions-warning.txt", "expect": "none" },
+  { "file": "trust-mentioned-bypass-warning.txt", "expect": "none" },
   { "file": "mcp-server.txt", "expect": "none" }
 ]

@@ -55,6 +55,7 @@ export function claudeFolderTrustResponse(screen: string): string[] | null {
   const header = findTrustHeader(rows);
   if (header && rows.slice(header.end + 1).some((row) => pointerLabel(row) !== null)) {
     const choices = choiceRows(rows, header.end);
+    if (choices && !hasFolderTrustAffirmative(choices.options)) return null;
     const hasPath = choices
       ? rows.slice(header.start, choices.footer + 1).some(isPathRow)
       : rows.slice(header.start).some(isPathRow);
@@ -79,11 +80,10 @@ export function claudeFolderTrustResponse(screen: string): string[] | null {
 
 function answer(options: OptionRow[], hasPath: boolean): string[] | null {
   if (hasPath || options.length !== 2) return null;
+  if (!trustChoices(options)) return null;
   if (options.filter((option) => option.focused).length !== 1) return null;
   const focused = options.findIndex((option) => option.focused);
   const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
-  const no = options.findIndex((option) => leadsWith(option.label, "no"));
-  if (yes < 0 || no < 0 || options[no].label.toLowerCase().indexOf("exit") === -1) return null;
   if (focused === yes) return [ENTER];
   return [yes > focused ? MOVE_DOWN : MOVE_UP];
 }
@@ -174,9 +174,15 @@ function choiceRows(rows: string[], trustEnd: number): TrustChoices | null {
 }
 
 function trustChoices(options: OptionRow[]): boolean {
-  const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
   const no = options.findIndex((option) => leadsWith(option.label, "no"));
-  return yes >= 0 && no >= 0 && options[no].label.toLowerCase().indexOf("exit") !== -1;
+  return hasFolderTrustAffirmative(options)
+    && no >= 0
+    && options[no].label.toLowerCase().indexOf("exit") !== -1;
+}
+
+function hasFolderTrustAffirmative(options: OptionRow[]): boolean {
+  const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
+  return yes >= 0 && /\btrust\b/i.test(options[yes].label);
 }
 
 function isTrustOption(label: string): boolean {

@@ -158,6 +158,8 @@ export class WebApiError extends Error {
 export function isPromptNotOnScreenResponse(value: unknown): boolean {
   return typeof value === "object"
     && value !== null
+    && "ok" in value
+    && value.ok === false
     && "reason" in value
     && value.reason === "prompt_not_on_screen";
 }
