@@ -276,11 +276,17 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
 #[test]
 fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
     let root = tempfile::tempdir().unwrap();
-    let project = fixture_project(root.path());
+    // macOS temp dirs sit behind the /var symlink, and git records the resolved path.
+    let root_path = if cfg!(unix) {
+        root.path().canonicalize().unwrap()
+    } else {
+        root.path().to_path_buf()
+    };
+    let project = fixture_project(&root_path);
     let lane = provision_lane_for_test(project.to_str().unwrap(), "missing-directory").unwrap();
     let lane_path = lane.cwd.clone();
     let branch = lane.branch.clone();
-    let unrelated_path = root.path().join("other-stale-worktree");
+    let unrelated_path = root_path.join("other-stale-worktree");
     git(
         &project,
         &[
