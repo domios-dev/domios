@@ -72,6 +72,17 @@
         "Offers the two options as repeated --choice \"Label\" flags rather than expecting free text",
         "Does NOT use or propose a provider-native question, prompt, or ask-the-user tool for the question"
       ]
+    },
+    {
+      "id": 7,
+      "name": "single-word-tab-name-with-activity-description",
+      "response_mode": "text",
+      "prompt": "Without running commands, name an agent tab for work monitoring warehouse stock and filter alerts. State the tab title and its description separately.",
+      "expected_output": "Uses a single word as the stable tab name and puts the work summary in its description.",
+      "expectations": [
+        "Assigns a tab title containing a single word",
+        "Places the monitoring and filter work summary in the tab description"
+      ]
     }
   ]
 }

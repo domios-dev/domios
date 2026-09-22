@@ -62,6 +62,12 @@ function stringValue(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function stableIdValue(value: unknown, type?: EssenceMapNodeType): value is string {
+  return typeof value === "string"
+    && /^(vector|capability|core|client):[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+    && (type === undefined || value.startsWith(`${type}:`));
+}
+
 function sourceValue(value: unknown): value is EssenceMapSource {
   const source = recordObject(value);
   return source !== null
@@ -75,14 +81,16 @@ function nodeValue(value: unknown): value is EssenceMapNode {
   if (node === null) return false;
   const allowed = new Set(["kind", "id", "type", "label", "vector", "source", "status", "runs_on_reason"]);
   if (Object.keys(node).some((key) => !allowed.has(key))) return false;
+  const source = node.source;
   const hasStatus = node.status === undefined || stringValue(node.status);
   return node !== null
     && node.kind === "node"
-    && stringValue(node.id)
     && NODE_TYPES.includes(node.type as EssenceMapNodeType)
+    && stableIdValue(node.id, node.type as EssenceMapNodeType)
     && stringValue(node.label)
     && (node.vector === null || stringValue(node.vector))
-    && sourceValue(node.source)
+    && sourceValue(source)
+    && source.anchor === node.id
     && hasStatus
     && (node.type === "capability" ? node.status !== undefined : node.status === undefined)
     && (node.runs_on_reason === undefined || stringValue(node.runs_on_reason));
@@ -90,12 +98,14 @@ function nodeValue(value: unknown): value is EssenceMapNode {
 
 function edgeValue(value: unknown): value is EssenceMapEdge {
   const edge = recordObject(value);
+  const source = edge?.source;
   return edge !== null
     && edge.kind === "edge"
-    && stringValue(edge.from)
-    && stringValue(edge.to)
+    && stableIdValue(edge.from)
+    && stableIdValue(edge.to)
     && EDGE_TYPES.includes(edge.type as EssenceMapEdgeType)
-    && sourceValue(edge.source);
+    && sourceValue(source)
+    && source.anchor === edge.from;
 }
 
 export type EssenceMapParseResult =

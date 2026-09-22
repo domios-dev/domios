@@ -165,6 +165,7 @@ pub(crate) fn read_workspace_essence_maps_core(
         .iter()
         .map(|path| path.trim())
         .filter(|path| !path.is_empty())
+        .filter(|path| !crate::service::is_linked_worktree(Path::new(path)))
         .filter(|path| seen.insert(path.replace('\\', "/")))
         .map(|path| read_map(PathBuf::from(path)))
         .collect()
@@ -229,3 +230,6 @@ pub async fn read_workspace_essence_source(
     .await
     .map_err(|error| format!("Essence source read task failed: {error}"))?
 }
+
+#[cfg(test)]
+mod tests;

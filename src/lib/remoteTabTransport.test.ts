@@ -20,16 +20,38 @@ describe("remote tab transport adapter", () => {
     expect(start?.body).toEqual({ subscriptionId: "sub-1" });
     expect(stop?.body).toEqual({ subscriptionId: "sub-1" });
     const claim = remoteTransportCall("claim_resize_owner", {
-      tabId: "mesh:peer/shared", ptyId: "mesh:peer/shared", clientId: "client-1", cols: 91, rows: 33,
+      tabId: "mesh:peer/shared", ptyId: "mesh:peer/pty-1", clientId: "client-1", cols: 91, rows: 33, force: true,
     });
     expect(claim?.suffix).toBe("/pty/claim-resize");
-    expect(claim?.body).toMatchObject({ client_id: "client-1", cols: 91, rows: 33 });
+    expect(claim?.body).toMatchObject({ client_id: "client-1", cols: 91, rows: 33, force: true });
+    expect(claim?.select?.({
+      owner: { tab_id: "shared", pty_id: "pty-1", client_id: "client-1" },
+      current_size: { cols: 80, rows: 24 },
+    })).toMatchObject({
+      owner: { tab_id: "mesh:peer/shared", pty_id: "mesh:peer/pty-1", client_id: "client-1" },
+      current_size: { cols: 80, rows: 24 },
+    });
+    const resize = remoteTransportCall("resize_pty", {
+      tabId: "mesh:peer/shared", ptyId: "mesh:peer/pty-1", clientId: "client-1", cols: 160, rows: 48,
+    });
+    expect(resize?.suffix).toBe("/pty/resize");
+    expect(resize?.body).toEqual({ cols: 160, rows: 48, client_id: "client-1" });
     const send = remoteTransportCall("chat_send_text", {
       tabId: "mesh:peer/shared",
       text: "hello",
       clientToken: "optimistic-1",
     });
     expect(send?.body).toEqual({ text: "hello", client_token: "optimistic-1" });
+  });
+
+  it("treats a vanished remote prompt as a quiet no-op", () => {
+    const respond = remoteTransportCall("mux_respond_prompt", {
+      tabId: "mesh:peer/shared",
+      value: "2",
+    });
+    expect(respond?.suffix).toBe("/prompt/respond");
+    expect(respond?.select?.({ ok: false, reason: "prompt_not_on_screen" })).toBeUndefined();
+    expect(respond?.select?.({ ok: true })).toEqual({ ok: true });
   });
 
   it("composite to raw and raw to composite identity mapping both directions", () => {

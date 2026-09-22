@@ -208,9 +208,21 @@ impl ServiceContext {
 
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
             self.maybe_detect_agent_session(pid, at);
-            if directory_trust_eligible {
+            if directory_trust_eligible && screen_changed {
                 let screen = self.screen_state.lock().get_screen_text(pty_id);
-                self.respond_to_directory_trust(pid, screen.as_deref());
+                let trust_parser = self
+                    .agent_registry
+                    .with_provider(at, |provider| {
+                        provider.supports_directory_trust_prompt_parsing()
+                    })
+                    .unwrap_or(false);
+                if !trust_parser
+                    || screen.as_deref().is_some_and(
+                        crate::service::directory_trust::directory_trust_prompt_candidate,
+                    )
+                {
+                    self.respond_to_directory_trust(pid, screen.as_deref());
+                }
             } else if let Some(reason) = directory_trust_skip {
                 self.note_directory_trust(pid, reason, None);
             }
@@ -219,15 +231,30 @@ impl ServiceContext {
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
-                let check_screen = has_markers || has_active_prompt || is_auto_approve;
+                let trust_prompt_parser = self
+                    .agent_registry
+                    .with_provider(at, |provider| {
+                        provider.supports_directory_trust_prompt_parsing()
+                    })
+                    .unwrap_or(false);
+                let trust_candidate_screen = if trust_prompt_parser && screen_changed {
+                    self.screen_state.lock().get_screen_text(pty_id)
+                } else {
+                    None
+                };
+                let trust_candidate = trust_candidate_screen
+                    .as_deref()
+                    .is_some_and(crate::service::directory_trust::directory_trust_prompt_candidate);
+                let check_screen =
+                    has_markers || has_active_prompt || is_auto_approve || trust_candidate;
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
-                    (
-                        screen_state.native_prompt_input(pty_id),
-                        check_screen
-                            .then(|| screen_state.get_screen_text(pty_id))
-                            .flatten(),
-                    )
+                    let clean_text = if check_screen {
+                        trust_candidate_screen.or_else(|| screen_state.get_screen_text(pty_id))
+                    } else {
+                        None
+                    };
+                    (screen_state.native_prompt_input(pty_id), clean_text)
                 };
                 let structured = if check_screen {
                     self.structured_pending_prompt(
@@ -239,13 +266,31 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                // Structured handles (SSE/API) are the only live prompt source;
-                // PTY screen input cannot create a pending prompt here.
+                let provider_prompt = if structured.is_none() && trust_candidate {
+                    clean_text.as_deref().and_then(|screen| {
+                        crate::agent::prompt::parse_prompt_safely(|| {
+                            self.agent_registry
+                                .with_provider(at, |provider| {
+                                    provider.parse_directory_trust_prompt(screen)
+                                })
+                                .flatten()
+                        })
+                    })
+                } else {
+                    None
+                };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
-                    crate::agent::native_prompt::resolve_pending_prompt(
-                        structured,
-                        native_prompt_input.as_ref(),
-                    )
+                    if let Some(prompt) = structured {
+                        crate::agent::native_prompt::resolve_pending_prompt(
+                            Some(prompt),
+                            native_prompt_input.as_ref(),
+                        )
+                    } else {
+                        provider_prompt.map(|prompt| crate::agent::native_prompt::ResolvedPrompt {
+                            prompt,
+                            explicit: false,
+                        })
+                    }
                 });
                 let prompt_signal = parsed.is_some();
                 if prompt_signal && clean_text.is_none() {
@@ -258,7 +303,11 @@ impl ServiceContext {
                     parsed,
                 );
 
-                self.apply_prompt_decision_with_screen(&decision, clean_text.as_deref());
+                self.apply_prompt_decision_with_screen(
+                    &decision,
+                    clean_text.as_deref(),
+                    trust_candidate,
+                );
 
                 if has_markers {
                     if let Some(ref clean) = clean_text {
@@ -290,7 +339,7 @@ impl ServiceContext {
         (previous_reconciled_status, current_reconciled_status)
     }
 
-    /// Build a pending prompt from the provider's STRUCTURED handle, if it has
+    /// Build a pending prompt from the provider's structured source, if it has
     /// one in this run mode. Two handle shapes, both capability-gated (never a
     /// provider-id branch):
     ///
@@ -302,7 +351,7 @@ impl ServiceContext {
     ///   hot path.
     ///
     /// Returns `None` when the provider has no structured handle or no prompt is
-    /// active; the caller then falls back to the native PTY detector.
+    /// active; the caller may then use its provider parser for the visible screen.
     fn structured_pending_prompt(
         &self,
         tab_id: &str,
@@ -614,7 +663,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
-        self.apply_prompt_decision_with_screen(decision, None);
+        self.apply_prompt_decision_with_screen(decision, None, false);
     }
 
     /// Set (or clear) a tab's pending prompt from a PUSH structured handle
@@ -648,6 +697,7 @@ impl ServiceContext {
         &self,
         decision: &PromptDecision,
         screen_text: Option<&str>,
+        directory_trust_prompt: bool,
     ) {
         match decision {
             PromptDecision::None => {}
@@ -673,11 +723,12 @@ impl ServiceContext {
                 if trust.owns_prompt() {
                     return;
                 }
-                if auto_approve {
+                if auto_approve && !directory_trust_prompt {
                     if is_general_tab {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
                             screen_text.unwrap_or(""),
+                            directory_trust_prompt,
                         ) {
                             log::info!(
                                 "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
@@ -718,9 +769,10 @@ impl ServiceContext {
                         &trust,
                         session_authenticated,
                         structured_prompt,
+                        directory_trust_prompt,
                     );
                     if let Some(response) = legacy_permitted
-                        .then(|| legacy_auto_approve_response(prompt))
+                        .then(|| legacy_auto_approve_response(prompt, directory_trust_prompt))
                         .flatten()
                     {
                         log::info!(
@@ -740,9 +792,10 @@ impl ServiceContext {
                         tab_id
                     );
                 }
-                if self
-                    .try_permission_auto_confirm(tab_id, screen_text)
-                    .owns_prompt()
+                if !directory_trust_prompt
+                    && self
+                        .try_permission_auto_confirm(tab_id, screen_text)
+                        .owns_prompt()
                 {
                     return;
                 }
@@ -840,7 +893,11 @@ pub(super) struct LegacyAutoApproveResponse {
 
 pub(super) fn legacy_auto_approve_response(
     prompt: &crate::multiplexer::types::PendingPrompt,
+    directory_trust_prompt: bool,
 ) -> Option<LegacyAutoApproveResponse> {
+    if directory_trust_prompt {
+        return None;
+    }
     let is_yes_no = prompt.options.iter().any(|o| {
         let v = o.value.to_lowercase();
         v == "y" || v == "yes"

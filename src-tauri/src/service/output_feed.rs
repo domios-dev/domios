@@ -2,6 +2,7 @@ use super::ServiceContext;
 use crate::agent::status::TabStatus;
 
 impl ServiceContext {
+    #[cfg(debug_assertions)]
     pub(crate) fn feed_pty_output(&self, pty_id: &str, data: &[u8]) -> (TabStatus, TabStatus) {
         self.feed_pty_output_inner(pty_id, None, data)
     }

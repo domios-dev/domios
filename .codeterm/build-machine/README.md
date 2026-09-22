@@ -1,15 +1,16 @@
 # CodeTerm local build machine
 
-The release is a **three-runner build farm**, all self-hosted, all fired by one `release-X.Y.Z`
-tag. Each runner owns a slice of the matrix; nothing is cross-built where a native runner exists.
+One `release-X.Y.Z` tag starts a single `.github/workflows/release.yml` run. Its three self-hosted
+platform jobs run in parallel; the final manifest job publishes and verifies only after they all
+succeed. Nothing is cross-built where a native runner exists.
 
 ## Build farm (3 self-hosted runners)
 
 | Runner | Machine | Workflow | Builds |
 |--------|---------|----------|--------|
-| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `build-all.sh` | macOS `x64`+`arm64` (Developer ID + notarized) **and** `arm64` Linux `.deb`+`.AppImage` (Docker) |
-| **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
-| **`linux-build`** | ROG, WSL2 Ubuntu 24.04 (x86_64) | `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native |
+| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-builder.yml` | macOS `x64`+`arm64` (Developer ID + notarized) **and** `arm64` Linux `.deb`+`.AppImage` (Docker) |
+| **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release.yml` → `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
+| **`linux-build`** | ROG, WSL2 Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native |
 
 Why this split:
 - **macOS** must be native (Developer ID + notarization need a Mac keychain).
@@ -21,8 +22,9 @@ Why this split:
 
 The Mac side (`build-all.sh`) runs 2 engines (mac + Docker-arm64) × 2 waves. Builds are clean: a
 fresh `git clone` of the tag via an auth-free bundle; the slow toolchains/deps are pre-baked into
-the Docker images so per-build startup is fast. The two ROG workflows sign on their own runners via
-`TAURI_SIGNING_PRIVATE_KEY` and publish/mirror themselves.
+the Docker images so per-build startup is fast. The ROG jobs sign on their own runners via
+`TAURI_SIGNING_PRIVATE_KEY`; each uploads its assets before the final manifest job updates the
+mirror.
 
 ## Internal QA gates
 
@@ -86,17 +88,16 @@ secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac
 - **Cross builds need embed/cli stubs pre-created** or `tauri-build` glob validation fails
   (`resource path bundled-embed/codeterm-embed-<triple> doesn't exist`). Handled in the scripts and
   in `release-windows.yml` (the aarch64 cross build pre-creates the target-triple sidecar stubs).
-- **Release compilation uses one target contract.** Each lane sets `CARGO_TARGET_DIR` to the
+- **Release compilation uses one target contract.** Each platform job sets `CARGO_TARGET_DIR` to the
   checkout's `src-tauri/target`; cross-target lanes carry their target in `CARGO_BUILD_TARGET`,
-  and all lanes pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds both application bins
+  and all jobs pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds both application bins
   before Tauri bundles them, so the dependency graph is not compiled a second time. The three
-  workflows intentionally have no Rust target-cache action or target upload.
+  platform workflows intentionally have no Rust target-cache action or target upload.
 - **Mac notarization overlaps architectures.** `mac-overlap.sh` completes and verifies the arm64
   app, starts the existing `notarize-dmg.sh` (including stapler and spctl), then runs the complete
   x86_64 pipeline. The arm64 updater bundle is packed only after its notarization succeeds.
-- **Completion signals run on the self-hosted Mac runner.** GitHub-hosted minutes are unavailable, and the
-  Windows runner has no bash, so the Mac and Windows completion jobs run on `codeterm-builder`, which has
-  bash, jq, gh and python3 and frees up before `linux-build`.
+- **The final manifest job runs on `linux-build`.** It has bash, jq, gh and python3; it runs only
+  after the Mac, Linux x86_64 and Windows platform jobs succeed, then verifies the public manifests.
 - **Timing ledger.** The 1.10.22 baseline was Mac 418s arm64 + 427s x86_64 sequential, Windows
   release-input/Tauri 7m04s/5m30s (arm64) and 8m01s/5m15s (x86_64), and Linux 18m45s/16m05s;
   target-cache saves added 42s, 43s, and 1m33s. Record the next real release's corresponding
@@ -111,15 +112,19 @@ secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac
 
 ## Release runbook (PR-based, tag-driven)
 
-The release is **tag-driven**. The SAME `release-X.Y.Z` tag fires THREE workflows in parallel,
-each on its own self-hosted runner:
+The release is **tag-driven**. One `release-X.Y.Z` push creates a single workflow run with three
+parallel platform jobs on their self-hosted runners:
 
-- `.github/workflows/release.yml` on the **Mac** (`[self-hosted, codeterm-builder]`) — builds
-  macOS + arm64 Linux via `build-all.sh`, then `publish-release.sh`.
-- `.github/workflows/release-windows.yml` on the **ROG** (`[self-hosted, windows-build]`) — builds
-  + signs the Windows installers for **both** arches, then publishes/mirrors them.
-- `.github/workflows/release-linux.yml` on the **ROG's WSL2** (`[self-hosted, linux-build]`) —
-  builds + signs `x86_64` Linux `.deb`+`.AppImage` natively, then publishes/mirrors.
+- `.github/workflows/release.yml` calls `release-builder.yml` on the **Mac** (`[self-hosted, codeterm-builder]`) — builds
+  macOS + arm64 Linux via `build-all.sh`.
+- `.github/workflows/release.yml` calls `release-windows.yml` on the **ROG** (`[self-hosted, windows-build]`) — builds
+  + signs the Windows installers for **both** arches.
+- `.github/workflows/release.yml` calls `release-linux.yml` on the **ROG's WSL2** (`[self-hosted, linux-build]`) —
+  builds + signs `x86_64` Linux `.deb`+`.AppImage` natively.
+
+The `release-manifest` job needs all three platform jobs. It merges every updater fragment, updates
+the source and public manifests, marks the releases, verifies public served bytes, and then applies
+the public issue-closure contract. A platform failure skips that job and leaves the release draft.
 
 0. **Preflight the release head.** The release branch is cut from `master` and dies at the tag, so
    it cannot drift from it — verify it is still descended from `origin/master`
@@ -134,11 +139,10 @@ each on its own self-hosted runner:
    `npm run sync:versions`, `npm run check:versions`, commit as `release: vX.Y.Z`.
 3. **Tag on the merged `master` SHA:** after the PR is green and merged, verify local `HEAD` and
    `origin/master` equal the intended merge SHA, verify remote `release-X.Y.Z` and `vX.Y.Z` are
-   absent, then `git tag release-X.Y.Z <merged-master-sha> && git push origin release-X.Y.Z`
-   (single tag — all three workflows stamp/map `vX.Y.Z` themselves). `release.yml` runs
-   `build-all.sh` (macOS + arm64 Linux on the Mac) then `publish-release.sh`; `release-windows.yml`
-   builds x64 + arm64 Windows on the ROG; `release-linux.yml` builds x86_64 Linux on the ROG's WSL.
-4. **Published → done.** `release.yml` closes `ready-for-release` issues.
+   absent, then `git tag release-X.Y.Z <merged-master-sha> && git push origin release-X.Y.Z`.
+   That one tag starts all three platform jobs in a single `release.yml` run.
+4. **Published → done.** The run's final manifest job verifies the public updater manifests before
+   closing eligible `ready-for-release` issues.
 
 Recovery rule: do not move or overwrite a published release tag/artifact by default. If a bad
 public release is intentionally deleted, cut the fix as a new patch version through the same
@@ -149,21 +153,21 @@ delete merged `lane/*` branches, close finished worker tabs, stop lane-specific 
 run `cargo sweep --time 2` on build machines/checkouts that accumulated Rust/Tauri artifacts. Old
 worktrees and `target/` layers are release debt, not something to leave for the next run.
 
-> **Manual re-run / verification:** `gh workflow run release-windows.yml --ref <branch>
-> -f tag=vX.Y.Z-rcN` (or `release-linux.yml`) runs ONLY that workflow via `workflow_dispatch` (a
-> `-rc` tag routes to `latest-rc.json` and the mirror step is skipped), so you can validate a build
-> on its runner without touching the stable channel.
+> **Manual re-run / verification:** dispatch `release.yml` with `tag=release-X.Y.Z`. Set
+> `mirror=false` to leave releases in draft and skip the public mirror; the caller still builds and
+> uploads private artifacts so the platform jobs can be inspected in one run.
 
 ## Self-hosted runners
 
-Three self-hosted GitHub Actions runners, each scoped to its workflow by label:
+Three self-hosted GitHub Actions runners, each assigned to its platform job by label:
 
 - **Mac** (`codeterm-builder`) — `release.yml` (macOS + arm64 Linux).
 - **ROG / Windows** (`ROG-windows-build`, label `windows-build`) — `release-windows.yml` (Windows
   x64 + arm64, built + signed on the runner).
 - **ROG / WSL2 Ubuntu** (label `linux-build`) — `release-linux.yml` (x86_64 Linux, native).
 
-No SSH between machines; each runner signs and publishes itself. Keep the repo private / gate fork
-PRs — self-hosted runners execute repo workflow code.
+No SSH between machines; each runner signs and uploads its platform assets, and the final manifest
+job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
+execute repo workflow code.
 
 <!-- revision: 2 -->

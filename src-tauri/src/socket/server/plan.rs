@@ -87,6 +87,8 @@ fn lane_remove(params: &Option<Value>, svc: &ServiceState) -> Result<Value, Json
         "canonical_cwd": outcome.canonical_cwd,
         "worktree_path": outcome.worktree_path,
         "branch": outcome.branch,
+        "worktree_already_removed": outcome.worktree_already_removed,
+        "branch_already_removed": outcome.branch_already_removed,
     }))
 }
 

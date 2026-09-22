@@ -68,6 +68,47 @@ fn a_roleless_tab_resolves_no_preset() {
     assert!(resolve(None, Some(builtins::PLANNER), Some("persona")).is_none());
 }
 
+/// A Manager kind carries its own bundled contract and never the Worker base
+/// it would have inherited as a leaf.
+#[test]
+fn a_manager_kind_with_bundled_text_composes_it_without_the_worker_base() {
+    let preset = resolve(
+        Some(AgentRole::Manager),
+        Some(builtins::CARTOGRAPHER),
+        Some("You are Mercator."),
+    )
+    .expect("cartographer preset");
+
+    assert_eq!(preset.kind_id, builtins::CARTOGRAPHER);
+    assert_eq!(preset.label, "Cartographer");
+    assert_eq!(
+        preset
+            .fragments
+            .iter()
+            .map(|fragment| fragment.source.label())
+            .collect::<Vec<_>>(),
+        vec!["builtin", "task_overlay"]
+    );
+    assert_eq!(
+        preset.contract_guidance(),
+        crate::prompts::CARTOGRAPHER_SUFFIX
+    );
+    assert!(!preset
+        .contract_guidance()
+        .contains(crate::prompts::WORKER_SUFFIX.trim()));
+}
+
+/// A Worker naming a managing kind collapses to the plain Worker, so the
+/// Cartographer contract never rides on the Worker base.
+#[test]
+fn a_worker_naming_the_cartographer_kind_resolves_the_plain_worker() {
+    let preset = resolve(Some(AgentRole::Worker), Some(builtins::CARTOGRAPHER), None)
+        .expect("worker preset");
+
+    assert_eq!(preset.kind_id, builtins::WORKER);
+    assert_eq!(preset.guidance(), crate::prompts::worker_suffix());
+}
+
 #[test]
 fn a_worker_subtype_cannot_borrow_a_manager_preset() {
     let preset = resolve(Some(AgentRole::Worker), Some(builtins::ORCHESTRATOR), None)

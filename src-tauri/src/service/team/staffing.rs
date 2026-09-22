@@ -1,4 +1,9 @@
-use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
+use std::collections::HashMap;
+use std::sync::{Arc, Weak};
+
+use codeterm_types::agent::role_kind::{
+    self, builtins::CARTOGRAPHER, builtins::ORCHESTRATOR, builtins::PLANNER,
+};
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use codeterm_types::team::staffing as codes;
 use codeterm_types::team::Team;
@@ -9,6 +14,24 @@ use crate::service::general_agent::{refuse_general_agent_team_membership, shape_
 use crate::service::orchestrator_onboard::tab_is_agent_capable;
 use crate::service::team::{authorize_team_manager, TeamMutationCaller};
 use crate::service::ServiceContext;
+
+#[derive(Clone, Default)]
+pub(crate) struct TeamCartographerAttachLocks {
+    gates: Arc<parking_lot::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
+}
+
+impl TeamCartographerAttachLocks {
+    pub(crate) fn for_team(&self, team_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut gates = self.gates.lock();
+        gates.retain(|_, gate| gate.strong_count() > 0);
+        if let Some(gate) = gates.get(team_id).and_then(Weak::upgrade) {
+            return gate;
+        }
+        let gate = Arc::new(tokio::sync::Mutex::new(()));
+        gates.insert(team_id.to_string(), Arc::downgrade(&gate));
+        gate
+    }
+}
 
 /// Every refusal leaves the same trace: the Team, the role that was asked for,
 /// the code, and the cause behind it.
@@ -39,7 +62,10 @@ pub(crate) struct PlanTakeover {
 pub(crate) struct AddTeamMemberResult {
     pub tab_id: String,
     pub team: Team,
+    pub role_type: String,
+    pub role_profile: Option<String>,
     pub plan_takeover: Option<PlanTakeover>,
+    pub reused: bool,
 }
 
 #[derive(Debug)]
@@ -66,6 +92,30 @@ pub(crate) fn live_team_orchestrators(mux: &MultiplexerState, team_id: &str) -> 
         .collect();
     anchors.sort();
     anchors
+}
+
+pub(crate) fn existing_cartographer_attachment(
+    mux: &MultiplexerState,
+    team_id: &str,
+) -> Option<AddTeamMemberResult> {
+    let team = mux.get_team(team_id)?.clone();
+    let tab_id = mux
+        .snapshot()
+        .tabs
+        .values()
+        .filter(|tab| {
+            tab.team_id.as_deref() == Some(team_id) && tab.role_kind_id() == Some(CARTOGRAPHER)
+        })
+        .map(|tab| tab.id.clone())
+        .min()?;
+    Some(AddTeamMemberResult {
+        tab_id,
+        team,
+        role_type: "Manager".into(),
+        role_profile: Some(CARTOGRAPHER.into()),
+        plan_takeover: None,
+        reused: true,
+    })
 }
 
 pub(crate) fn prepare_team_member_spawn(
@@ -176,6 +226,7 @@ pub(crate) fn prepare_team_member_spawn(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn prepare_team_member_spawn_with_provider_validation<F>(
     mux: &MultiplexerState,
     team_id: &str,
@@ -241,7 +292,14 @@ pub(crate) fn commit_team_member_spawn(
     Ok(AddTeamMemberResult {
         tab_id: tab_id.into(),
         team,
+        role_type: match expected_role {
+            AgentRole::Manager => "Manager",
+            AgentRole::Worker => "Worker",
+        }
+        .into(),
+        role_profile: expected_kind,
         plan_takeover: None,
+        reused: false,
     })
 }
 
@@ -308,8 +366,9 @@ pub(crate) fn team_member_role(requested: &str) -> Result<(String, Option<String
         "worker" => Ok(("Worker".into(), None)),
         "planner" => Ok(("Manager".into(), Some(PLANNER.into()))),
         "orchestrator" => Ok(("Manager".into(), Some(ORCHESTRATOR.into()))),
+        "cartographer" => Ok(("Manager".into(), Some(CARTOGRAPHER.into()))),
         other => Err(format!(
-            "Team member role must be worker, planner, or orchestrator, got '{other}'"
+            "Team member role must be worker, planner, orchestrator, or cartographer, got '{other}'"
         )),
     }
 }

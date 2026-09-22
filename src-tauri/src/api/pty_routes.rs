@@ -108,6 +108,29 @@ pub async fn pty_write(
     Json(body): Json<PtyWriteBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let diagnostic_level = crate::api::stream_diagnostics::configured_level(
+        state.config.lock().diagnostics.terminal_transport,
+    );
+    if let Some(level) = diagnostic_level {
+        let (tab_id, is_current_pty) = {
+            let mux = state.svc.mux.read();
+            let tab_id = mux.tab_id_for_pty(&pty_id);
+            let is_current_pty = tab_id
+                .as_deref()
+                .and_then(|tab| mux.get_tab(tab))
+                .and_then(|tab| tab.pty_id.as_deref())
+                == Some(pty_id.as_str());
+            (tab_id, is_current_pty)
+        };
+        log::log!(
+            level,
+            "[pty-write-route] tab={} pty_id={} bytes={} is_current_pty={}",
+            tab_id.as_deref().unwrap_or("unmapped"),
+            pty_id,
+            body.data.len(),
+            is_current_pty,
+        );
+    }
     if body.raw {
         crate::commands::write_pty_string_core(&state.svc, pty_id, body.data)
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
@@ -210,7 +233,7 @@ pub async fn claim_resize_owner(
     headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ResizeOwnerBody>,
-) -> Result<Json<crate::resize_owner::ResizeOwner>, (StatusCode, String)> {
+) -> Result<Json<crate::resize_owner::ResizeOwnerClaim>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let owner = state.resize_owner.lock().claim(
         tab_id,
@@ -220,11 +243,20 @@ pub async fn claim_resize_owner(
         body.rows,
         body.force,
     );
+    let current_size = state
+        .svc
+        .pty
+        .lock()
+        .size(&owner.pty_id)
+        .map(crate::resize_owner::ResizePtySize::from);
     state
         .events
         .publish(crate::api::events::SystemEvent::Generic {
             event_type: "pty-resize-owner-changed".to_string(),
             data: serde_json::to_value(&owner).unwrap_or_default(),
         });
-    Ok(Json(owner))
+    Ok(Json(crate::resize_owner::ResizeOwnerClaim {
+        owner,
+        current_size,
+    }))
 }

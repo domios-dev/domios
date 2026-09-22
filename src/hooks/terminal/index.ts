@@ -1,5 +1,6 @@
 export { useXterm } from "./useXterm";
 export { useTerminalResize } from "./useTerminalResize";
+export { useTerminalActivationResize } from "./useTerminalActivationResize";
 export { useShellIntegration } from "./useShellIntegration";
 export { useTabCompletion } from "./useTabCompletion";
 export { usePtyConnection } from "./usePtyConnection";

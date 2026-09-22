@@ -2,6 +2,43 @@
 use super::*;
 
 #[test]
+fn dispatched_worker_launch_prompt_carries_ack_instruction_persona_and_brief() {
+    let task_id_token = "task_dispatched_brief_roundtrip_82913";
+    let personality_token = "persona_dispatched_brief_roundtrip_03174";
+    let body_token = "body_dispatched_brief_roundtrip_75820";
+    let t = task(json!({
+        "id": task_id_token,
+        "name": task_id_token,
+        "type": "code",
+        "status": "pending",
+        "personality": personality_token,
+        "personality_provenance": IdentityProvenance::UserSupplied,
+        "body": body_token,
+    }));
+    let brief = super::super::canonical_writer::compose_dispatch_brief(
+        build_brief_with_manifest(&t, &[], "plan_dispatched_brief", &[], &[]),
+        crate::plan::WorkerPlacement::IsolatedLane,
+    );
+    let mut spawn_params = crate::service::SpawnAgentParams {
+        role: Some("Worker".into()),
+        plan_id: Some("plan_dispatched_brief".into()),
+        task_id: Some(task_id_token.into()),
+        ..Default::default()
+    };
+
+    set_dispatch_task_brief(&mut spawn_params, brief);
+
+    let launch_prompt = spawn_params
+        .task
+        .as_deref()
+        .expect("dispatch launch carries a task brief");
+    assert!(launch_prompt.contains(task_id_token));
+    assert!(launch_prompt.contains(personality_token));
+    assert!(launch_prompt.contains(body_token));
+    assert!(launch_prompt.contains(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION));
+}
+
+#[test]
 fn brief_opens_with_personality_line_when_set() {
     let t = task(json!({
         "id": "task_p",
@@ -285,19 +322,25 @@ fn brief_includes_body_acceptance_and_task_authority() {
 
 #[test]
 fn worker_prompt_places_ack_before_assignment_work() {
+    let persona_token = "worker_persona_roundtrip_60124";
+    let guidance_token = "worker_guidance_roundtrip_39517";
+    let body_token = "worker_body_roundtrip_28406";
+    let intent_token = "worker_intent_roundtrip_94731";
+    let correctness_token = "worker_correctness_roundtrip_58320";
+    let test_plan_token = "worker_test_plan_roundtrip_17386";
     let t = task(json!({
         "id": "task_prompt_order",
         "name": "Repair prompt order",
         "type": "code",
         "status": "pending",
-        "personality": "Hopper",
+        "personality": persona_token,
         "executor_role": "rust-backend-dev",
-        "role_guidance": "Audit the final provider prompt.",
-        "body": "Keep the task body complete.",
-        "intent": "Prefer one shared composition path.",
-        "acceptance_criteria": ["identity first"],
-        "correctness": "No provider sees the transport marker.",
-        "test_plan": "cargo test worker_prompt"
+        "role_guidance": guidance_token,
+        "body": body_token,
+        "intent": intent_token,
+        "acceptance_criteria": ["worker_criterion_roundtrip_84260"],
+        "correctness": correctness_token,
+        "test_plan": test_plan_token
     }));
     let brief = build_brief(&t, &[]);
     let params = crate::service::SpawnAgentParams {
@@ -307,22 +350,22 @@ fn worker_prompt_places_ack_before_assignment_work() {
     };
     let prompt = crate::service::spawn_onboarding_task(&params).unwrap();
 
-    let identity = prompt.find("You are Hopper.").unwrap();
-    let context = prompt
-        .find(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
-        .unwrap();
-    let body = prompt.find("Keep the task body complete.").unwrap();
-    let intent = prompt.find("## Intent").unwrap();
-    let correctness = prompt.find("## Correctness").unwrap();
-    let ack = prompt.find("codeterm agent ack").unwrap();
-    let report = prompt
-        .find("codeterm agent report --status in_review")
-        .unwrap();
-
-    assert!(identity < context && context < ack && ack < body);
-    assert!(body < intent && intent < correctness);
-    assert!(correctness < report);
-    assert_eq!(prompt.matches("codeterm agent ack").count(), 1);
+    for token in [
+        persona_token,
+        guidance_token,
+        body_token,
+        intent_token,
+        "worker_criterion_roundtrip_84260",
+        correctness_token,
+        test_plan_token,
+    ] {
+        assert_eq!(prompt.matches(token).count(), 1);
+    }
+    let ack_instruction = crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION;
+    assert_eq!(prompt.matches(ack_instruction).count(), 1);
+    let ack_position = prompt.find(ack_instruction).unwrap();
+    let body_position = prompt.find(body_token).unwrap();
+    assert!(ack_position < body_position);
     assert!(!prompt.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
 }
 

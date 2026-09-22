@@ -1,3 +1,4 @@
+use super::dispatch_failure::dispatch_wait_failed;
 use super::workspace_admission::{admit_dispatch_workspace, DISPATCH_WORKSPACE_CLOSING_CODE};
 use super::{
     apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_manifest,
@@ -6,8 +7,9 @@ use super::{
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
     preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
     resolve_dispatch_lane, roll_back_dispatch_attempt, rollback_failed_dispatch,
-    task_launch_authority_for_dispatch, verify_dispatched_task_binding, worker_ack_timeout_event,
-    DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
+    set_dispatch_task_brief, startup_wait_is_recoverable, task_launch_authority_for_dispatch,
+    verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
+    DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -32,7 +34,9 @@ use std::time::{Duration, Instant};
 mod brief_tests;
 mod canonical_writer;
 mod checkout_occupancy;
+mod concurrent_dispatch;
 mod dispatch_placement;
+mod dispatch_recovery;
 mod lane_persist;
 mod lane_provisioning;
 mod lane_resolution_multirepo;
@@ -366,10 +370,11 @@ fn dispatch_response_has_single_authoritative_tab_id() {
 #[test]
 fn dispatch_response_never_claims_ready_before_event() {
     let response = starting_response("tab-worker");
-    assert_eq!(response["accepted"], true);
-    assert_eq!(response["state"], "awaiting_dispatch_ready");
+    assert_eq!(response["accepted"], false);
+    assert_eq!(response["spawned"], true);
+    assert_eq!(response["state"], "awaiting_worker_ack");
     assert_eq!(response["readiness"]["ready"], false);
-    assert_eq!(response["readiness"]["awaiting_event"], "dispatch_ready");
+    assert_eq!(response["readiness"]["awaiting_event"], "worker_ack");
     assert_eq!(response["spawn"]["pty_id"], "");
     assert_ne!(response["kind"], "dispatch_ready");
 
@@ -387,6 +392,48 @@ fn dispatch_response_never_claims_ready_before_event() {
     );
     assert_eq!(event["kind"], "dispatch_ready");
     assert_eq!(event["tab_id"], "tab-worker");
+}
+
+/// The immediate response is the observable contract the Orchestrator reads: a
+/// spawned Worker that has not bound is never reported as an accepted dispatch.
+#[test]
+fn spawned_unbound_dispatch_is_reported_as_awaiting_not_accepted() {
+    let response = starting_response("tab-codex");
+    assert_eq!(
+        response["accepted"], false,
+        "an unbound spawn is not accepted"
+    );
+    assert_eq!(response["spawned"], true);
+    assert_eq!(response["state"], "awaiting_worker_ack");
+    assert_eq!(response["readiness"]["awaiting_event"], "worker_ack");
+}
+
+#[test]
+fn session_binding_timeout_is_recoverable_but_definitive_binding_is_not() {
+    let late = dispatch_wait_failed(
+        "session_binding",
+        DispatchWaitFailure::Uncertain(
+            "spawned tab 'tab-worker' did not bind a session before the deadline".into(),
+        ),
+    );
+    assert!(startup_wait_is_recoverable(&late));
+
+    let removed = dispatch_wait_failed(
+        "session_binding",
+        DispatchWaitFailure::Definitive(
+            "spawned tab 'tab-worker' was removed before session binding".into(),
+        ),
+    );
+    assert!(!startup_wait_is_recoverable(&removed));
+}
+
+#[test]
+fn uncertain_agent_ready_timeout_is_recoverable() {
+    let ready = dispatch_wait_failed(
+        "agent_ready",
+        DispatchWaitFailure::Uncertain("agent readiness deadline expired".into()),
+    );
+    assert!(startup_wait_is_recoverable(&ready));
 }
 
 #[test]

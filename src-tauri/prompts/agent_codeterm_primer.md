@@ -8,8 +8,9 @@ reference; load it when the work involves CodeTerm control, memory, sessions,
 mesh, bridges, orchestration, or tabs. A `-=-codeterm:...-=-` marker at the start
 of a delivered message is the return address for your reply.
 
-A tab title is a short, stable name, not a progress report; record what the tab
-is doing with `codeterm tab describe`. Batch related edits before running tests.
+A tab title is one word and stays stable; pass an activity summary with
+`--description` when spawning, or use `codeterm tab describe` for an existing
+tab. Batch related edits before running tests.
 
 If you want notify user go with `codeterm notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`, don't use your native notifications from the system prompt. `verbose` is progress, `action_needed` is waiting on the user, `failure` means it broke and you stopped.
 

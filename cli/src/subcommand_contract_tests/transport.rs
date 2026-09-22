@@ -568,6 +568,14 @@ fn team_pair_exception_is_declared() {
         vec!["codeterm", "team", "rename", "team_1", "name"],
         vec!["codeterm", "team", "close", "team_1"],
         vec!["codeterm", "team", "adopt-plan", "team_1", "pl_1"],
+        vec![
+            "codeterm",
+            "team",
+            "attach-cartographer",
+            "team_1",
+            "--provider",
+            "provider-neutral",
+        ],
     ] {
         let command = parse(&argv);
         let declared = transport_for(&command);

@@ -110,6 +110,7 @@ fn build_local(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
     Some(Box::new(LocalReranker { model_name }))
 }
 
+#[cfg(feature = "embeddings")]
 fn local_model_name(config: &RerankConfig) -> String {
     config
         .model

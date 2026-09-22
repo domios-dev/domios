@@ -56,11 +56,8 @@ fn render_team_utility_shells(tabs: &[serde_json::Value], team_id: &str) -> Opti
             if id.is_empty() {
                 return None;
             }
-            let title = ["tab_title", "title"]
-                .into_iter()
-                .map(|field| string_field(tab, field))
-                .find(|value| !value.is_empty())
-                .unwrap_or("shell");
+            let title = crate::tab_name::tab_name(tab);
+            let title = if title.is_empty() { "shell" } else { title };
             Some((title.to_string(), id.to_string()))
         })
         .collect::<Vec<_>>();
@@ -92,7 +89,7 @@ mod tests {
     #[test]
     fn summary_lists_only_live_utility_shells_from_the_target_team() {
         let tabs = vec![
-            json!({"id":"shell-b","tab_title":"tests","team_id":"team-a"}),
+            json!({"id":"shell-b","title":"tests","team_id":"team-a"}),
             json!({"id":"manager","tab_title":"Ada","team_id":"team-a","role":"Manager"}),
             json!({"id":"shell-a","tab_title":"dev","team_id":"team-a"}),
             json!({"id":"plugin","tab_title":"LM Studio","team_id":"team-a","chat_backend_plugin_id":"lmstudio"}),

@@ -709,7 +709,7 @@ mod tests {
         mux.rename_tab(&worker, "Vera").unwrap();
 
         // The pane renames its own tab mid-task — the documented session-start rule.
-        mux.rename_tab(&worker, "pane rename identity").unwrap();
+        mux.rename_tab(&worker, "Identity").unwrap();
 
         // Exactly what used_worker_persona_names_locked composes.
         let mut reserved = all_live_titles(&mux);

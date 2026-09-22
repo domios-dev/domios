@@ -193,6 +193,8 @@ export interface AgentProvider {
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
   directoryTrustPromptResponse?(screen: string): string[] | null;
+  /** Parse only the active directory-trust dialog for tab status/respond. */
+  parseDirectoryTrustPrompt?(screen: string): ParsedPrompt | null;
   /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */
   permissionPromptResponse?(
     toolName: string,

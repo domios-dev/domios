@@ -79,13 +79,15 @@ pub async fn rename_team(
     Ok(Json(team))
 }
 
-fn close_team_adapter(
+async fn close_team_adapter(
     headers: &HeaderMap,
     team_id: String,
-    close: impl FnOnce(String, String) -> Result<codeterm_types::team::Team, String>,
+    close: impl AsyncFnOnce(String, String) -> Result<codeterm_types::team::Team, String>,
 ) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
     let caller_tab_id = require_caller_tab_id(headers)?;
-    close(team_id, caller_tab_id).map_err(map_rename_error)
+    close(team_id, caller_tab_id)
+        .await
+        .map_err(map_rename_error)
 }
 
 pub async fn close_team(
@@ -94,13 +96,15 @@ pub async fn close_team(
     Path(team_id): Path<String>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let team = close_team_adapter(&headers, team_id, |team_id, caller_tab_id| {
+    let team = close_team_adapter(&headers, team_id, |team_id, caller_tab_id| async {
         crate::commands::mux_commands::mux_close_team_service_core(
             &state.svc,
             team_id,
             Some(caller_tab_id),
         )
-    })?;
+        .await
+    })
+    .await?;
     Ok(Json(team))
 }
 
@@ -317,32 +321,40 @@ mod tests {
         assert_eq!(mux.get_team(&team_id).unwrap().name, None);
     }
 
-    #[test]
-    fn http_close_team_enforces_permission() {
+    #[tokio::test]
+    async fn http_close_team_enforces_permission() {
         let (mut mux, team_id, orchestrator, worker) = team_members();
         let events = crate::api::events::EventBroadcaster::new();
         let plan_root = tempfile::tempdir().unwrap();
         let plan_store = crate::service::plan::PlanStore::new_for_test(plan_root.path());
         assert_eq!(
-            close_team_adapter(&HeaderMap::new(), team_id.clone(), |_, _| unreachable!())
-                .unwrap_err()
-                .0,
+            close_team_adapter(&HeaderMap::new(), team_id.clone(), |_, _| async {
+                unreachable!()
+            })
+            .await
+            .unwrap_err()
+            .0,
             StatusCode::BAD_REQUEST
         );
         let mut worker_headers = HeaderMap::new();
         worker_headers.insert("X-CodeTerm-Tab-Id", worker.parse().unwrap());
         assert_eq!(
-            close_team_adapter(&worker_headers, team_id.clone(), |team_id, caller| {
-                crate::service::close_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &plan_store,
-                    &team_id,
-                    &crate::service::TeamMutationCaller::AgentTab(caller),
-                    1,
-                )
-                .map(|result| result.0)
-            })
+            close_team_adapter(
+                &worker_headers,
+                team_id.clone(),
+                async |team_id: String, caller: String| {
+                    crate::service::close_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &plan_store,
+                        &team_id,
+                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        1,
+                    )
+                    .map(|result| result.0)
+                }
+            )
+            .await
             .unwrap_err()
             .0,
             StatusCode::FORBIDDEN
@@ -352,17 +364,22 @@ mod tests {
         let mut foreign_headers = HeaderMap::new();
         foreign_headers.insert("X-CodeTerm-Tab-Id", foreign.parse().unwrap());
         assert_eq!(
-            close_team_adapter(&foreign_headers, team_id.clone(), |team_id, caller| {
-                crate::service::close_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &plan_store,
-                    &team_id,
-                    &crate::service::TeamMutationCaller::AgentTab(caller),
-                    1,
-                )
-                .map(|result| result.0)
-            })
+            close_team_adapter(
+                &foreign_headers,
+                team_id.clone(),
+                async |team_id: String, caller: String| {
+                    crate::service::close_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &plan_store,
+                        &team_id,
+                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        1,
+                    )
+                    .map(|result| result.0)
+                }
+            )
+            .await
             .unwrap_err()
             .0,
             StatusCode::FORBIDDEN
@@ -370,17 +387,22 @@ mod tests {
         let mut manager_headers = HeaderMap::new();
         manager_headers.insert("X-CodeTerm-Tab-Id", orchestrator.parse().unwrap());
         assert_eq!(
-            close_team_adapter(&manager_headers, team_id.clone(), |team_id, caller| {
-                crate::service::close_team_with_state_change(
-                    &mut mux,
-                    &events,
-                    &plan_store,
-                    &team_id,
-                    &crate::service::TeamMutationCaller::AgentTab(caller),
-                    1,
-                )
-                .map(|result| result.0)
-            })
+            close_team_adapter(
+                &manager_headers,
+                team_id.clone(),
+                async |team_id: String, caller: String| {
+                    crate::service::close_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &plan_store,
+                        &team_id,
+                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        1,
+                    )
+                    .map(|result| result.0)
+                }
+            )
+            .await
             .unwrap()
             .id,
             team_id
@@ -440,5 +462,32 @@ mod tests {
                 Some("model".into()),
             )
         );
+    }
+
+    #[tokio::test]
+    async fn http_cartographer_add_keeps_the_role_kind_in_the_staffing_contract() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-CodeTerm-Tab-Id", "manager".parse().unwrap());
+        let result = add_team_member_adapter(
+            &headers,
+            "team_x".into(),
+            AddTeamMemberBody {
+                provider: "provider-neutral".into(),
+                role: "cartographer".into(),
+                title: None,
+                task: None,
+                model: None,
+            },
+            |team_id, caller_tab_id: Option<String>, body: AddTeamMemberBody| async move {
+                assert_eq!(team_id, "team_x");
+                assert_eq!(caller_tab_id.as_deref(), Some("manager"));
+                Ok((body.role, body.provider))
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.0, "cartographer");
+        assert_eq!(result.1, "provider-neutral");
     }
 }

@@ -9,7 +9,10 @@ use sha2::{Digest, Sha256};
 use crate::args::essence_map::{EssenceMapAction, EssenceMapPaths};
 
 mod documents;
+mod inventory;
 pub(crate) mod journal;
+
+use inventory::{build_inventory, Inventory};
 
 pub(crate) const MAX_NODE_COUNT: usize = 100;
 const CAPABILITIES_PATH: &str = "essences/capabilities.md";
@@ -155,50 +158,6 @@ pub(crate) struct MapSummary {
     pub client_of: usize,
 }
 
-#[derive(Debug, Clone)]
-struct SourceFile {
-    path: &'static str,
-    text: String,
-    sha256: String,
-}
-
-#[derive(Debug, Clone)]
-struct VectorDef {
-    label: String,
-    id: String,
-}
-
-#[derive(Debug, Clone)]
-struct CapabilityDef {
-    label: String,
-    id: String,
-    vector: String,
-    runs_on: Vec<String>,
-    runs_on_reason: Option<String>,
-    feeds: Vec<String>,
-    status: String,
-}
-
-#[derive(Debug, Clone)]
-struct CoreDef {
-    label: String,
-    id: String,
-    part_of: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct ClientDef {
-    label: String,
-    id: String,
-}
-
-#[derive(Debug, Clone)]
-struct Inventory {
-    nodes: Vec<NodeRecord>,
-    edges: Vec<EdgeRecord>,
-    source_files: BTreeMap<&'static str, SourceFile>,
-}
-
 /// What one essence-map invocation produced. Generation and validation report
 /// the inventory; the journal actions report the decision log.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -309,7 +268,45 @@ fn canonical_root(root: &Path) -> Result<PathBuf, String> {
             root.display()
         ));
     }
+    if is_linked_worktree(&root) {
+        return Err(format!(
+            "essence-map writes only the canonical checkout; {} is a linked worktree. Run it from the primary checkout.",
+            root.display()
+        ));
+    }
     Ok(root)
+}
+
+/// A linked worktree shares its object store with the primary checkout, so a map
+/// written there is a copy, not the project's map. Detect it the same way the
+/// map view does: the git dir differs from the common dir.
+fn is_linked_worktree(root: &Path) -> bool {
+    git_checkout_paths(root).is_some_and(|(git_dir, common_dir)| git_dir != common_dir)
+}
+
+fn git_checkout_paths(root: &Path) -> Option<(PathBuf, PathBuf)> {
+    let output = std::process::Command::new("git")
+        .current_dir(root)
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    match (lines.next(), lines.next()) {
+        (Some(git_dir), Some(common_dir)) => Some((
+            std::fs::canonicalize(git_dir).unwrap_or_else(|_| PathBuf::from(git_dir)),
+            std::fs::canonicalize(common_dir).unwrap_or_else(|_| PathBuf::from(common_dir)),
+        )),
+        _ => None,
+    }
 }
 
 fn resolve_path(root: &Path, supplied: Option<&Path>, default: &str) -> PathBuf {
@@ -319,402 +316,6 @@ fn resolve_path(root: &Path, supplied: Option<&Path>, default: &str) -> PathBuf 
     } else {
         root.join(path)
     }
-}
-
-fn read_source(root: &Path, path: &'static str) -> Result<SourceFile, String> {
-    let full_path = root.join(path);
-    let bytes = fs::read(&full_path)
-        .map_err(|error| format!("cannot read source essence {path}: {error}"))?;
-    let text = String::from_utf8(bytes.clone())
-        .map_err(|error| format!("source essence {path} is not UTF-8: {error}"))?;
-    let canonical_bytes = text.replace("\r\n", "\n");
-    let sha256 = sha256(canonical_bytes.as_bytes());
-    Ok(SourceFile {
-        path,
-        text: canonical_bytes,
-        sha256,
-    })
-}
-
-fn build_inventory(root: &Path) -> Result<Inventory, String> {
-    let capabilities = read_source(root, CAPABILITIES_PATH)?;
-    let core = read_source(root, CORE_PATH)?;
-    let vectors_and_capabilities = parse_capabilities(&capabilities.text)?;
-    let core_data = parse_core(&core.text)?;
-
-    let mut nodes = Vec::new();
-    for vector in &vectors_and_capabilities.0 {
-        nodes.push(NodeRecord {
-            id: vector.id.clone(),
-            node_type: NodeType::Vector,
-            label: vector.label.clone(),
-            vector: None,
-            source: source_ref(&capabilities, &vector.id),
-            runs_on_reason: None,
-            status: None,
-        });
-    }
-    for capability in &vectors_and_capabilities.1 {
-        nodes.push(NodeRecord {
-            id: capability.id.clone(),
-            node_type: NodeType::Capability,
-            label: capability.label.clone(),
-            vector: Some(capability.vector.clone()),
-            source: source_ref(&capabilities, &capability.id),
-            runs_on_reason: capability.runs_on_reason.clone(),
-            status: Some(capability.status.clone()),
-        });
-    }
-    for part in &core_data.0 {
-        nodes.push(NodeRecord {
-            id: part.id.clone(),
-            node_type: NodeType::Core,
-            label: part.label.clone(),
-            vector: None,
-            source: source_ref(&core, &part.id),
-            runs_on_reason: None,
-            status: None,
-        });
-    }
-    for client in &core_data.1 {
-        nodes.push(NodeRecord {
-            id: client.id.clone(),
-            node_type: NodeType::Client,
-            label: client.label.clone(),
-            vector: None,
-            source: source_ref(&core, &client.id),
-            runs_on_reason: None,
-            status: None,
-        });
-    }
-
-    let node_ids: BTreeSet<String> = nodes.iter().map(|node| node.id.clone()).collect();
-    if node_ids.len() != nodes.len() {
-        return Err("source essences produce duplicate node ids".to_string());
-    }
-    documents::validate(root, &node_ids)?;
-    let mut labels = BTreeMap::new();
-    for node in &nodes {
-        labels.insert(label_key(&node.label), node.id.clone());
-    }
-
-    let mut edges = Vec::new();
-    for capability in &vectors_and_capabilities.1 {
-        let source = source_ref(&capabilities, &capability.id);
-        for target in &capability.runs_on {
-            let target_id = labels.get(&label_key(target)).ok_or_else(|| {
-                format!(
-                    "capability `{}` runs on unknown essence `{target}`",
-                    capability.label
-                )
-            })?;
-            edges.push(EdgeRecord {
-                from: capability.id.clone(),
-                to: target_id.clone(),
-                edge_type: EdgeType::RunsOn,
-                source: source.clone(),
-            });
-        }
-        for target in &capability.feeds {
-            let target_id = labels.get(&label_key(target)).ok_or_else(|| {
-                format!(
-                    "capability `{}` feeds unknown capability `{target}`",
-                    capability.label
-                )
-            })?;
-            edges.push(EdgeRecord {
-                from: capability.id.clone(),
-                to: target_id.clone(),
-                edge_type: EdgeType::Feeds,
-                source: source.clone(),
-            });
-        }
-    }
-    for part in &core_data.0 {
-        let target = part
-            .part_of
-            .as_deref()
-            .map(|parent| {
-                labels.get(&label_key(parent)).cloned().ok_or_else(|| {
-                    format!("core part `{}` has unknown parent `{parent}`", part.label)
-                })
-            })
-            .transpose()?;
-        if let Some(target) = target {
-            edges.push(EdgeRecord {
-                from: part.id.clone(),
-                to: target,
-                edge_type: EdgeType::PartOf,
-                source: source_ref(&core, &part.id),
-            });
-        }
-    }
-    let service_layer = labels
-        .get(&label_key("Service layer"))
-        .ok_or_else(|| "core essence has no `Service layer` part".to_string())?;
-    for client in &core_data.1 {
-        edges.push(EdgeRecord {
-            from: client.id.clone(),
-            to: service_layer.clone(),
-            edge_type: EdgeType::ClientOf,
-            source: source_ref(&core, &client.id),
-        });
-    }
-
-    Ok(Inventory {
-        nodes,
-        edges,
-        source_files: [(CAPABILITIES_PATH, capabilities), (CORE_PATH, core)]
-            .into_iter()
-            .collect(),
-    })
-}
-
-fn parse_capabilities(text: &str) -> Result<(Vec<VectorDef>, Vec<CapabilityDef>), String> {
-    let mut vectors = Vec::new();
-    let mut capabilities = Vec::new();
-    let mut current_vector = None;
-    let mut in_table = false;
-
-    for line in text.lines() {
-        if let Some(label) = parse_vector_heading(line) {
-            let id = node_id(NodeType::Vector, &label);
-            vectors.push(VectorDef {
-                label,
-                id: id.clone(),
-            });
-            current_vector = Some(id);
-            in_table = false;
-            continue;
-        }
-        if line.starts_with("## ") {
-            current_vector = None;
-            in_table = false;
-            continue;
-        }
-        let Some(cells) = table_cells(line) else {
-            continue;
-        };
-        if cells.first().is_some_and(|cell| cell == "Capability") {
-            in_table = true;
-            continue;
-        }
-        if !in_table || is_table_separator(&cells) || cells.len() < 7 {
-            continue;
-        }
-        let vector = current_vector
-            .clone()
-            .ok_or_else(|| "capability table appears outside a vector heading".to_string())?;
-        let label = cells[0].clone();
-        if label.is_empty() {
-            return Err("capability table contains an empty capability name".to_string());
-        }
-        let (runs_on, runs_on_reason) = parse_relation_cell(&cells[5]);
-        let feeds = parse_relation_cell(&cells[6]).0;
-        let status = cells[4].trim().to_string();
-        if status.is_empty() {
-            return Err(format!("capability `{label}` has an empty status"));
-        }
-        capabilities.push(CapabilityDef {
-            id: node_id(NodeType::Capability, &label),
-            label,
-            vector,
-            runs_on,
-            runs_on_reason,
-            feeds,
-            status,
-        });
-    }
-
-    if vectors.is_empty() {
-        return Err("CAPABILITIES.md contains no numbered vector headings".to_string());
-    }
-    if capabilities.is_empty() {
-        return Err("CAPABILITIES.md contains no capability rows".to_string());
-    }
-    Ok((vectors, capabilities))
-}
-
-fn parse_core(text: &str) -> Result<(Vec<CoreDef>, Vec<ClientDef>), String> {
-    let mut parts = Vec::new();
-    let mut current_part: Option<CoreDef> = None;
-    let mut in_core_parts = false;
-    for line in text.lines() {
-        if line.trim() == "## Core parts" {
-            in_core_parts = true;
-            continue;
-        }
-        if line.starts_with("## ") {
-            if let Some(part) = current_part.take() {
-                parts.push(part);
-            }
-            in_core_parts = false;
-            continue;
-        }
-        if !in_core_parts {
-            continue;
-        }
-        if let Some(label) = line.strip_prefix("### ") {
-            if let Some(part) = current_part.take() {
-                parts.push(part);
-            }
-            let label = label.trim().to_string();
-            current_part = Some(CoreDef {
-                id: node_id(NodeType::Core, &label),
-                label,
-                part_of: None,
-            });
-            continue;
-        }
-        if let Some(parent) = line.trim().strip_prefix("- Part of:") {
-            if let Some(part) = current_part.as_mut() {
-                let parent = parent.trim().trim_end_matches('.').trim();
-                if parent.eq_ignore_ascii_case("the running daemon itself") {
-                    part.part_of = None;
-                } else {
-                    part.part_of = Some(strip_leading_the(parent).to_string());
-                }
-            }
-        }
-    }
-    if let Some(part) = current_part {
-        parts.push(part);
-    }
-
-    let mut clients = Vec::new();
-    let mut in_clients = false;
-    for line in text.lines() {
-        let Some(cells) = table_cells(line) else {
-            if in_clients && (line.starts_with('#') || line.trim().is_empty()) {
-                in_clients = false;
-            }
-            continue;
-        };
-        if cells.first().is_some_and(|cell| cell == "Client") {
-            in_clients = true;
-            continue;
-        }
-        if !in_clients || is_table_separator(&cells) || cells.is_empty() {
-            continue;
-        }
-        let label = cells[0].clone();
-        if label.is_empty() {
-            return Err("CORE.md contains an empty client name".to_string());
-        }
-        clients.push(ClientDef {
-            id: node_id(NodeType::Client, &label),
-            label,
-        });
-    }
-
-    if parts.is_empty() {
-        return Err("CORE.md contains no core part headings".to_string());
-    }
-    if clients.is_empty() {
-        return Err("CORE.md contains no client rows".to_string());
-    }
-    Ok((parts, clients))
-}
-
-fn parse_vector_heading(line: &str) -> Option<String> {
-    let rest = line.strip_prefix("## ")?;
-    let (number, label) = rest.split_once('.')?;
-    if number.is_empty() || !number.chars().all(|character| character.is_ascii_digit()) {
-        return None;
-    }
-    let label = label.trim();
-    (!label.is_empty()).then(|| label.to_string())
-}
-
-fn table_cells(line: &str) -> Option<Vec<String>> {
-    let line = line.trim();
-    if !line.starts_with('|') || !line.ends_with('|') {
-        return None;
-    }
-    Some(
-        line[1..line.len() - 1]
-            .split('|')
-            .map(|cell| cell.trim().to_string())
-            .collect(),
-    )
-}
-
-fn is_table_separator(cells: &[String]) -> bool {
-    !cells.is_empty()
-        && cells.iter().all(|cell| {
-            !cell.is_empty()
-                && cell
-                    .chars()
-                    .all(|character| matches!(character, '-' | ':' | ' '))
-        })
-}
-
-fn parse_relation_cell(cell: &str) -> (Vec<String>, Option<String>) {
-    let cell = cell.trim();
-    if cell.starts_with('—') || cell == "-" {
-        let reason = cell
-            .trim_start_matches('—')
-            .trim_start_matches('-')
-            .trim()
-            .trim_start_matches('(')
-            .trim_end_matches(')')
-            .trim();
-        return (Vec::new(), (!reason.is_empty()).then(|| reason.to_string()));
-    }
-    (
-        cell.split(',')
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .collect(),
-        None,
-    )
-}
-
-fn strip_leading_the(value: &str) -> &str {
-    value
-        .strip_prefix("the ")
-        .or_else(|| value.strip_prefix("The "))
-        .unwrap_or(value)
-}
-
-fn source_ref(source: &SourceFile, anchor: &str) -> SourceRef {
-    SourceRef {
-        path: source.path.to_string(),
-        anchor: anchor.to_string(),
-        sha256: source.sha256.clone(),
-    }
-}
-
-fn node_id(node_type: NodeType, label: &str) -> String {
-    let prefix = match node_type {
-        NodeType::Vector => "vector",
-        NodeType::Capability => "capability",
-        NodeType::Core => "core",
-        NodeType::Client => "client",
-    };
-    format!("{prefix}:{}", slug(label))
-}
-
-fn slug(value: &str) -> String {
-    let mut output = String::new();
-    let mut pending_dash = false;
-    for character in value.chars() {
-        if character.is_ascii_alphanumeric() {
-            if pending_dash && !output.is_empty() {
-                output.push('-');
-            }
-            output.push(character.to_ascii_lowercase());
-            pending_dash = false;
-        } else if !output.is_empty() {
-            pending_dash = true;
-        }
-    }
-    output
-}
-
-fn label_key(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
 }
 
 fn records_for(inventory: &Inventory) -> Vec<MapRecord> {

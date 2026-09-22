@@ -52,7 +52,7 @@ import {
   parseClaudeWizardPrompt,
 } from "./prompts";
 import { claudePermissionPromptResponse } from "./permissionPrompt";
-import { claudeFolderTrustResponse } from "./folderTrust";
+import { claudeFolderTrustPrompt, claudeFolderTrustResponse } from "./folderTrust";
 
 const TITLE_RE = /claude/i;
 // v2.1+ TUIs prefix the title with a braille spinner glyph or ✳/✻.
@@ -251,7 +251,10 @@ const plugin: PluginModule = {
   },
 
   parsePrompt(text: string): ParsedPrompt | null {
-    return parseClaudeWizardPrompt(text) || parseClaudeNumberedPrompt(text) || parseClaudeLetteredPrompt(text);
+    return claudeFolderTrustPrompt(text)
+      || parseClaudeWizardPrompt(text)
+      || parseClaudeNumberedPrompt(text)
+      || parseClaudeLetteredPrompt(text);
   },
 
   buildPromptResponse(optionIndex: number, screen?: string): string[] {

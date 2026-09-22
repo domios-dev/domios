@@ -338,6 +338,13 @@ pub(crate) fn startup_handshake_confirmed_first_turn(
     (!native_starter_capable).then_some(crate::agent::provider::StarterPrompt::StartupHandshake)
 }
 
+pub(crate) fn startup_starter_prompt(
+    supervised: bool,
+    task_bound: bool,
+) -> Option<crate::agent::provider::StarterPrompt> {
+    (supervised && !task_bound).then_some(crate::agent::provider::StarterPrompt::StartupHandshake)
+}
+
 pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
     let digest = Sha256::digest(text.as_bytes());
     PendingDelivery {

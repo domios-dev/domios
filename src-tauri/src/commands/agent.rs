@@ -48,7 +48,7 @@ fn install_provider_in_tab_with_dispatch(
             .ok_or("No workspace found")?
     };
 
-    let tab_id = svc.create_named_tab(&ws_id, &format!("Install {}", provider_id))?;
+    let tab_id = svc.create_named_tab(&ws_id, &format!("Install-{provider_id}"))?;
     if let Err(error) = dispatch(svc, &tab_id, &install_cmd) {
         let _ = svc.close_tab_with_reason(
             &tab_id,
@@ -365,7 +365,7 @@ mod install_provider_tests {
             .snapshot()
             .tabs
             .values()
-            .all(|tab| tab.title != "Install install-failure"));
+            .all(|tab| tab.title != "Install-install-failure"));
         drop(mux);
         let pty_id = provisional_pty
             .into_inner()

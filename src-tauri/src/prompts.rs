@@ -96,9 +96,12 @@ pub const ORCH_ROLELESS_DRAFT_REJECTION: &str = "reject any task that names no e
 pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
     "reject any draft whose worker guidance says nothing";
 
-/// Stable Orchestrator delivery token for the opt-in Cartographer boundary.
+/// Connects the missing-ACK event to the shared child PTY recovery procedure.
+pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- worker_ack_startup_failed/interactive_child_pty: inspect tab/attempt; hold prompt-bound; declared safe choices only; recheck screen/binding/ACK; action-needed unknowns; no brief/ACK prose, keys.";
+
+/// Stable Orchestrator delivery token for the optional Cartographer Manager.
 pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
-    "Cartographer purpose: regenerate the project's essence map at boundaries only; this map feature is opt-in and off by default, never a continuous cadence.";
+    "Cartographer: optional Manager for project-specific normative essences, including from zero; no spawn, approval or release authority, no continuous cadence.";
 
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
@@ -146,6 +149,11 @@ pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.
 /// Single source of truth so command syntax stays in sync.
 pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
 
+/// Read-act-verify procedure injected once into the General Agent prompt.
+pub const INTERACTIVE_CHILD_PTY_OPERATION: &str =
+    include_str!("../prompts/interactive_child_pty.md");
+pub const INTERACTIVE_CHILD_PTY_CAPABILITY_ID: &str = "interactive_child_pty";
+
 /// Compact CodeTerm control contract prepended to non-General agent launches.
 pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
 
@@ -181,8 +189,8 @@ pub const NOTIFY_VERBOSE_COMPLETION_CLAUSE: &str = "A short completion or progre
 /// information rather than an error and does not retry a recorded notification.
 pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried.";
 
-/// Map-authoring contract for the Cartographer leaf. Layered on the Worker
-/// suffix, which still owns lane discipline and the report handoff.
+/// Standalone Manager contract for project-specific normative essences.
+/// It carries its own bounded authority and canonical verification discipline.
 pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../prompts/cartographer_suffix.md");
 
 /// Compact control context placed after a Worker's task-owned identity.
@@ -277,6 +285,10 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
 
 pub fn orchestrator_suffix() -> String {
     let role_prompt = ORCHESTRATOR_SUFFIX
+        .replace(
+            "{child_pty_recovery_trigger}",
+            ORCH_CHILD_PTY_RECOVERY_TRIGGER,
+        )
         .replace("{roleless_draft_rejection}", ORCH_ROLELESS_DRAFT_REJECTION)
         .replace(
             "{empty_role_guidance_rejection}",
@@ -361,14 +373,10 @@ pub fn planner_suffix() -> String {
     )
 }
 
-/// The Cartographer contract: Worker discipline first, then the map-authoring
-/// checklist this kind adds to it.
+/// The Cartographer Manager has its own contract, without Worker or Planner
+/// task lifecycle instructions granting contradictory authority.
 pub fn cartographer_suffix() -> String {
-    format!(
-        "{}\n\n{}",
-        worker_suffix().trim(),
-        CARTOGRAPHER_SUFFIX.trim()
-    )
+    CARTOGRAPHER_SUFFIX.trim().to_string()
 }
 
 /// Upper bound for a composed role prompt. Not a style preference: every byte

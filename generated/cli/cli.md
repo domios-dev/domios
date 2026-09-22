@@ -1715,8 +1715,8 @@ Set the declared milestone kind columns (CSV)
 
 Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
 
-- `--branch` — Lane branch to delete after the worktree is gone
-- `--project` — Canonical checkout that owns the lane (default: derived from the lane itself)
+- `--branch` — Lane branch to delete after worktree removal, if merged into project HEAD
+- `--project` — Canonical checkout (needed for a missing worktree unless its task identifies the project)
 - `<worktree>` — Lane worktree path to remove
 
 #### `codeterm plan lanes`
@@ -3075,6 +3075,14 @@ Attach an already-running roleless agent tab to a Team
 Bind an existing plan to a Team
 
 - `<plan_id>` — Plan ID
+- `<team_id>` — Team ID
+
+#### `codeterm team attach-cartographer`
+
+Attach the one optional Cartographer Manager to a Team
+
+- `--model` — Provider model ID
+- `--provider` — Agent provider ID
 - `<team_id>` — Team ID
 
 #### `codeterm team close`

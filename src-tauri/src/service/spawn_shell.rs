@@ -90,7 +90,11 @@ impl ServiceContext {
             let mux = self.mux.write();
             mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
         };
-        let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+        let resolved_cwd = spec
+            .cwd
+            .clone()
+            .or(ws_cwd)
+            .map(|cwd| Self::normalize_resolved_agent_cwd(&cwd));
 
         let tab_id = {
             let mut mux = self.mux.write();

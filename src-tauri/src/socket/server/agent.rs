@@ -216,8 +216,18 @@ pub(super) fn dispatch(
             };
             let plan_id = acknowledged.plan_id.clone();
             let task_id = acknowledged.task_id.clone();
-            svc.worker_ack
-                .acknowledge(&tab_id, &acknowledged.attempt.id);
+            svc.acknowledge_worker_ack(&plan_id, &task_id, &tab_id, &acknowledged.attempt);
+            if acknowledged.already_acknowledged {
+                return Ok(task_ack_success_response(
+                    &plan_id,
+                    &task_id,
+                    &tab_id,
+                    &acknowledged.attempt.id,
+                    acknowledged.attempt.acknowledged_at,
+                    acknowledged.attempt.session_id.is_some(),
+                    true,
+                ));
+            }
             svc.gateway.require_worker_report(&tab_id);
             super::plan::emit_plan_changed(_app, &plan_id);
             let runtime_ready = acknowledged.attempt.session_id.is_some();
@@ -252,33 +262,31 @@ pub(super) fn dispatch(
                     payload,
                 );
             }
-            Ok(serde_json::json!({
-                "ok": true,
-                "accepted": true,
-                "state": if runtime_ready { "in_progress" } else { "awaiting_runtime_ready" },
-                "plan_id": plan_id,
-                "task_id": task_id,
-                "tab_id": tab_id,
-                "attempt_id": acknowledged.attempt.id,
-                "acknowledged_at": acknowledged.attempt.acknowledged_at,
-            }))
+            Ok(task_ack_success_response(
+                &plan_id,
+                &task_id,
+                &tab_id,
+                &acknowledged.attempt.id,
+                acknowledged.attempt.acknowledged_at,
+                runtime_ready,
+                false,
+            ))
         }
 
         "agent.startup_ack" => {
             let caller_tab_id = get_string_param(params, "caller_tab_id")?;
             let attempt_id = get_string_param(params, "attempt_id")?;
             let binding_nonce = get_string_param(params, "binding_nonce")?;
-            let accepted =
+            let acknowledgment =
                 match svc.acknowledge_agent_startup(&caller_tab_id, &attempt_id, &binding_nonce) {
-                    Ok(accepted) => accepted,
+                    Ok(acknowledgment) => acknowledgment,
                     Err(message) => {
-                        log_ack_event(
-                            "startup_ack",
-                            "refused",
-                            "startup_ack_not_owner",
-                            None,
-                            None,
-                        );
+                        let refusal_class = if message.contains("not awaiting acknowledgement") {
+                            "startup_ack_not_awaiting"
+                        } else {
+                            "startup_ack_not_owner"
+                        };
+                        log_ack_event("startup_ack", "refused", refusal_class, None, None);
                         return Err(JsonRpcError {
                             code: -32603,
                             message,
@@ -286,22 +294,6 @@ pub(super) fn dispatch(
                         });
                     }
                 };
-            if !accepted {
-                log_ack_event(
-                    "startup_ack",
-                    "refused",
-                    "startup_ack_not_awaiting",
-                    None,
-                    None,
-                );
-                return Err(JsonRpcError {
-                    code: -32603,
-                    message: format!(
-                        "startup attempt {attempt_id} for Tab {caller_tab_id} is not awaiting acknowledgement"
-                    ),
-                    data: None,
-                });
-            }
             log_ack_event(
                 "startup_ack",
                 "accepted",
@@ -309,13 +301,15 @@ pub(super) fn dispatch(
                 Some(&caller_tab_id),
                 Some(&attempt_id),
             );
-            Ok(serde_json::json!({
-                "ok": true,
-                "accepted": true,
-                "state": "startup_acknowledged",
-                "tab_id": caller_tab_id,
-                "attempt_id": attempt_id,
-            }))
+            let already_acknowledged = matches!(
+                acknowledgment,
+                crate::service::worker_ack::AgentStartupAcknowledgement::AlreadyAcknowledged
+            );
+            Ok(startup_ack_success_response(
+                &caller_tab_id,
+                &attempt_id,
+                already_acknowledged,
+            ))
         }
 
         "agent.startup_hold" => {
@@ -405,9 +399,225 @@ fn task_ack_refusal_class(message: &str) -> &'static str {
     }
 }
 
+fn task_ack_success_response(
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    attempt_id: &str,
+    acknowledged_at: Option<u64>,
+    runtime_ready: bool,
+    already_acknowledged: bool,
+) -> Value {
+    let state = if already_acknowledged {
+        "already_acknowledged"
+    } else if runtime_ready {
+        "in_progress"
+    } else {
+        "awaiting_runtime_ready"
+    };
+    serde_json::json!({
+        "ok": true,
+        "accepted": true,
+        "already_acknowledged": already_acknowledged,
+        "state": state,
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "tab_id": tab_id,
+        "attempt_id": attempt_id,
+        "acknowledged_at": acknowledged_at,
+    })
+}
+
+fn startup_ack_success_response(
+    tab_id: &str,
+    attempt_id: &str,
+    already_acknowledged: bool,
+) -> Value {
+    let state = if already_acknowledged {
+        "already_acknowledged"
+    } else {
+        "startup_acknowledged"
+    };
+    serde_json::json!({
+        "ok": true,
+        "accepted": true,
+        "already_acknowledged": already_acknowledged,
+        "state": state,
+        "tab_id": tab_id,
+        "attempt_id": attempt_id,
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ack_log_record, task_ack_refusal_class};
+    use super::{
+        ack_log_record, startup_ack_success_response, task_ack_refusal_class,
+        task_ack_success_response,
+    };
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::TaskBinding;
+    use crate::plan::{OrchestratorRef, PlanMode, TaskStatus};
+    use crate::service::plan::NewTask;
+    use crate::service::test_fixture::ServiceFixture;
+    use crate::service::worker_ack::{WorkerAckIdentity, WorkerAckSignal};
+    use std::sync::Arc;
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn socket_agent_ack_releases_the_armed_worker_ack_waiter() {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let worker_tab_id = mux.create_tab(&workspace_id).unwrap();
+        mux.link_pty(&worker_tab_id, "pty-worker".into());
+        {
+            let worker = mux.get_tab_mut(&worker_tab_id).unwrap();
+            worker.agent_session_id = Some("session-worker".into());
+            worker.session_binding_nonce = Some("nonce-worker".into());
+            worker.reported_session_binding_nonce = Some("nonce-worker".into());
+        }
+        let fixture = ServiceFixture::new(mux);
+        let project = fixture.temp.path().display().to_string();
+        let plan = fixture
+            .service
+            .plan_store
+            .create_plan_for_team(
+                "Socket worker ACK".into(),
+                project,
+                OrchestratorRef::default(),
+                "team-socket-ack".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let mut plan_state = fixture.service.plan_store.get(&plan.id).unwrap();
+        plan_state.mode = PlanMode::Approved;
+        fixture.service.plan_store.save(&mut plan_state, 2).unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Socket ACK route".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        let lane = fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .lane;
+        let attempt_id = fixture
+            .service
+            .plan_store
+            .begin_task_dispatch(&plan.id, &task_id, &worker_tab_id, "Ada", lane.clone(), 4)
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .finish_task_dispatch(
+                &plan.id,
+                &task_id,
+                &worker_tab_id,
+                &attempt_id,
+                "session-worker",
+                "nonce-worker",
+                lane,
+                5,
+            )
+            .unwrap();
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&worker_tab_id)
+            .unwrap()
+            .task_binding = Some(TaskBinding {
+            plan_id: Some(plan.id.clone()),
+            task_id: Some(task_id.clone()),
+            spawn_handle: None,
+            bound_at: 1,
+        });
+
+        let armed = fixture.service.worker_ack.arm(WorkerAckIdentity {
+            plan_id: plan.id.clone(),
+            task_id: task_id.clone(),
+            attempt_id: attempt_id.clone(),
+            tab_id: worker_tab_id.clone(),
+            startup_attempt_id: Some("pty-worker".into()),
+            session_id: Some("session-worker".into()),
+            binding_nonce: Some("nonce-worker".into()),
+        });
+        let receiver = armed.receiver.expect("worker ACK waiter armed");
+        let service: crate::service::ServiceState = Arc::new(fixture.service.clone());
+
+        let response = crate::socket::server::dispatch_service_rpc(
+            "agent.ack",
+            Some(serde_json::json!({ "tab_id": worker_tab_id })),
+            &service,
+        )
+        .unwrap();
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["state"], "in_progress");
+        assert_eq!(receiver.try_recv(), Ok(WorkerAckSignal::Acknowledged));
+        let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert!(task.execution_attempts[0].acknowledged_at.is_some());
+    }
+
+    #[test]
+    fn repeated_task_ack_is_an_explicit_success_for_the_same_attempt() {
+        let response = task_ack_success_response(
+            "plan-demo",
+            "task-demo",
+            "worker-demo",
+            "attempt-demo",
+            Some(17),
+            true,
+            true,
+        );
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["already_acknowledged"], true);
+        assert_eq!(response["state"], "already_acknowledged");
+        assert_eq!(response["task_id"], "task-demo");
+        assert_eq!(response["attempt_id"], "attempt-demo");
+    }
+
+    #[test]
+    fn first_task_ack_reports_in_progress_without_a_replay_marker() {
+        let response = task_ack_success_response(
+            "plan-demo",
+            "task-demo",
+            "worker-demo",
+            "attempt-demo",
+            Some(17),
+            true,
+            false,
+        );
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["already_acknowledged"], false);
+        assert_eq!(response["state"], "in_progress");
+    }
+
+    #[test]
+    fn repeated_startup_ack_is_an_explicit_success_for_the_attempt() {
+        let response = startup_ack_success_response("tab-demo", "attempt-demo", true);
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["already_acknowledged"], true);
+        assert_eq!(response["state"], "already_acknowledged");
+        assert_eq!(response["tab_id"], "tab-demo");
+        assert_eq!(response["attempt_id"], "attempt-demo");
+    }
 
     #[test]
     fn agent_ack_diagnostic_startup_accepted() {

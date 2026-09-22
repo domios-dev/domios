@@ -139,3 +139,6 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod telegram_topic_tests;
+
+#[cfg(test)]
+mod telegram_notification_order_tests;

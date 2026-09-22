@@ -150,8 +150,8 @@ mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
-    provision_isolated_lane, same_path, verify_worker_lane, LaneProtection, ProvisionedWorkerLane,
-    WorkerLaneProvenance,
+    is_linked_worktree, provision_isolated_lane, same_path, verify_worker_lane, LaneProtection,
+    ProvisionedWorkerLane, WorkerLaneProvenance,
 };
 mod worker_persona;
 mod workspace;
@@ -205,6 +205,7 @@ pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
+pub(crate) use team::TeamCartographerAttachLocks;
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
@@ -225,6 +226,7 @@ pub struct ServiceContext {
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
     pub app_handle: tauri::AppHandle,
+    pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
     pub agent_tracker: AgentTrackerState,
     /// Per-pty shell-integration capability accumulators (OSC 133/633/7 ->
     /// command list + cwd). Fed from `process_pty_output`; consumed by chat.

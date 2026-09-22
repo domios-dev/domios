@@ -95,6 +95,7 @@ impl SpawnTabSpec {
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
                 provisioned_cwd: params.provisioned_cwd.clone(),
+                existing_tab_id: params.existing_tab_id.clone(),
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
@@ -257,7 +258,23 @@ fn watcher_spec_from_params(params: &SpawnAgentParams) -> Option<WatcherSpec> {
 impl ServiceContext {
     pub(crate) fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
         match self.agent_registry.wait_for_provider_startup(provider_id) {
-            crate::agent::registry::ProviderStartupStatus::Ready => Ok(()),
+            crate::agent::registry::ProviderStartupStatus::Ready => {
+                let command = self.agent_registry.with_provider(provider_id, |provider| {
+                    provider
+                        .build_launch_command(&crate::agent::provider::AgentLaunchParams::default())
+                });
+                match command {
+                    Some(command) if !command.trim().is_empty() => Ok(()),
+                    Some(_) => Err(format!(
+                        "Agent provider '{}' did not resolve a launch command",
+                        provider_id
+                    )),
+                    None => Err(format!(
+                        "Agent provider '{}' is no longer registered",
+                        provider_id
+                    )),
+                }
+            }
             crate::agent::registry::ProviderStartupStatus::LoadingTimedOut => Err(format!(
                 "Agent provider '{}' is still loading; retry shortly",
                 provider_id

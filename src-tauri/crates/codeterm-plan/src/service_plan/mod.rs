@@ -130,12 +130,14 @@ pub use state::{
 pub use store_watch::WatchOutcome;
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
-    LiveTabAttempt, ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED,
-    ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
+    DispatchStartupOwner, LiveTabAttempt, TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS,
+    ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE,
+    ACK_CAUSE_TASK_NOT_OPEN,
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
-    TaskLaneUpdate, RPC_INTERNAL_ERROR, RPC_NOT_FOUND, RPC_UNAUTHORIZED_GATE_CLAIM,
+    TaskLaneUpdate, RPC_DISPATCH_IN_FLIGHT, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
+    RPC_UNAUTHORIZED_GATE_CLAIM,
 };
 
 pub struct PlanStore {
@@ -148,6 +150,8 @@ pub struct PlanStore {
     task_key_port: RwLock<Option<Arc<dyn ports::TaskKeyPort>>>,
     reseed_prepare_lock: Mutex<()>,
     mutation_writer: MutationWriter,
+    dispatch_reservations:
+        Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>,
     database: Arc<store_db::PlanDatabase>,
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
@@ -215,6 +219,7 @@ impl PlanStore {
             task_key_port: RwLock::new(None),
             reseed_prepare_lock: Mutex::new(()),
             mutation_writer: MutationWriter::default(),
+            dispatch_reservations: Mutex::new(HashMap::new()),
             database,
             #[cfg(test)]
             persistence_hook: RwLock::new(None),

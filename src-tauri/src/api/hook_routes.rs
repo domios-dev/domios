@@ -37,6 +37,31 @@ pub(crate) struct DeferredBindingPremise {
 
 pub(crate) type SessionBindError = (StatusCode, String, Option<DeferredBindingPremise>);
 
+fn resolve_hook_tab(
+    state: &AppState,
+    raw_tab_id: &str,
+    event: &str,
+) -> Result<String, (StatusCode, String)> {
+    match resolve_tab(state, raw_tab_id) {
+        Ok(tab_id) => Ok(tab_id),
+        Err((status, message)) => {
+            if status == StatusCode::NOT_FOUND {
+                let log_tab_id = escaped_hook_log_field(raw_tab_id);
+                log::warn!(
+                    "[hook-refusal] tab={} event={} reason=unknown_tab",
+                    log_tab_id,
+                    event
+                );
+            }
+            Err((status, message.to_string()))
+        }
+    }
+}
+
+fn escaped_hook_log_field(value: &str) -> String {
+    format!("{value:?}")
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SessionBindingSource {
     Hook,
@@ -160,7 +185,7 @@ pub async fn hook_permission(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_hook_tab(&state, &raw_tab_id, "permission")?;
     // Hook firing = authoritative proof that an agent is running in this tab.
     ensure_agent_state(&state, &tab_id);
 
@@ -325,7 +350,7 @@ pub async fn hook_stop(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_hook_tab(&state, &raw_tab_id, "stop")?;
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
     let body = body.unwrap_or(serde_json::Value::Null);
     let report_nonce = body
@@ -342,7 +367,7 @@ pub async fn hook_stop(
     let verdict = stop_report_verdict(launch_nonce.as_deref(), report_nonce.as_deref());
     if verdict == StopReportVerdict::Foreign {
         log::warn!(
-            "[hook_stop] rejecting stop for Tab {}: binding nonce mismatch",
+            "[hook-refusal] tab={} event=stop reason=nonce_mismatch",
             tab_id
         );
         return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
@@ -404,7 +429,7 @@ pub async fn hook_session_start(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_hook_tab(&state, &raw_tab_id, "session_start")?;
     let body = body.unwrap_or(serde_json::Value::Null);
     let session_id = session_start_string(&body, &["session_id"])
         .or_else(|| session_start_string(&body, &["payload", "session_id"]))
@@ -957,13 +982,13 @@ fn acknowledge_authenticated_launch(
     report_nonce: Option<&str>,
 ) -> bool {
     authenticated_launch_identity(mux, tab_id, claim, report_nonce).is_some_and(|binding| {
-        // The same proof the launch registry takes is this launch's readiness.
-        crate::service::launch_readiness::note_acknowledged(
+        let launch_acknowledged = crate::service::record_provider_session(tab_id, &binding);
+        let readiness_acknowledged = crate::service::launch_readiness::note_acknowledged(
             tab_id,
             &binding.pty_id,
             &binding.binding_nonce,
         );
-        crate::service::record_provider_session(tab_id, &binding)
+        launch_acknowledged || readiness_acknowledged
     })
 }
 
@@ -986,7 +1011,7 @@ fn reject_foreign_binding_nonce(
     if binding_nonce_scoped(&state.svc.mux, tab_id, reported) {
         return Ok(());
     }
-    log::warn!("[hook] rejecting report for Tab {tab_id}: binding nonce mismatch");
+    log::warn!("[hook-refusal] tab={tab_id} event=permission reason=nonce_mismatch");
     Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()))
 }
 

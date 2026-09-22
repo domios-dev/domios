@@ -141,6 +141,70 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
 }
 
 #[test]
+fn superseded_ack_error_names_retired_and_live_attempts() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, retired_attempt_id) =
+        dispatched_worker_task(&store, &project, "superseded", "tab-retired", 1);
+    store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 10)
+        .unwrap();
+    store
+        .retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 11)
+        .unwrap();
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let live_attempt_id = store
+        .begin_task_dispatch(&plan_id, &task_id, "tab-live", "Ada", lane.clone(), 12)
+        .unwrap();
+    store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "tab-live",
+            &live_attempt_id,
+            "session-live",
+            "nonce-live",
+            lane,
+            13,
+        )
+        .unwrap();
+
+    let error = store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 14)
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains(crate::service::plan::ACK_CAUSE_ATTEMPT_SUPERSEDED));
+    assert!(error.contains(&retired_attempt_id), "{error}");
+    assert!(error.contains(&live_attempt_id), "{error}");
+}
+
+#[test]
+fn a_closed_attempt_without_a_replacement_is_not_reported_as_superseded() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, _) =
+        dispatched_worker_task(&store, &project, "no-replacement", "tab-retired", 1);
+    store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 10)
+        .unwrap();
+    store
+        .retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 11)
+        .unwrap();
+
+    let error = store
+        .acknowledge_live_task_attempt_for_tab("tab-retired", None, None, 12)
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains(crate::service::plan::ACK_CAUSE_NO_LIVE_ATTEMPT));
+    assert!(!error.contains(crate::service::plan::ACK_CAUSE_ATTEMPT_SUPERSEDED));
+    assert!(error.contains("tab-retired"), "{error}");
+}
+
+#[test]
 fn retired_attempt_stays_fenced_from_dispatch_ready_and_ack() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
@@ -305,6 +369,17 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
         event["attempt_state"],
         crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
     );
+    assert_eq!(
+        event["recovery"]["capability"],
+        crate::prompts::INTERACTIVE_CHILD_PTY_CAPABILITY_ID
+    );
+    assert_eq!(event["recovery"]["target_tab_id"], "tab");
+    assert_eq!(event["recovery"]["attempt_id"], "attempt");
+    assert!(event["recovery"]["primitives"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|primitive| primitive.as_str() == Some("codeterm tab get-text --tab tab")));
     assert!(event.get("cleanup").is_none());
     assert!(event.get("cleanup_error").is_none());
 }
@@ -411,6 +486,52 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
 }
 
 #[test]
+fn plan_store_acknowledges_live_attempt_without_saved_session_binding() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Unbound attempt".into(),
+            project,
+            OrchestratorRef::from_tab("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, 2).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker without saved binding".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let attempt_id = store
+        .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Worker", lane, 4)
+        .unwrap();
+    let pending = store.show_task(&task_id).unwrap().task;
+    assert_eq!(pending.execution_attempts[0].id, attempt_id);
+    assert_eq!(pending.execution_attempts[0].session_id, None);
+    let acknowledged = store
+        .acknowledge_live_task_attempt_for_tab("tab-worker", Some(&plan.id), Some(&task_id), 5)
+        .expect("a live attempt can be acknowledged before a session id is saved");
+
+    assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
+    assert_eq!(acknowledged.attempt.session_id, None);
+    let persisted = store.show_task(&task_id).unwrap().task;
+    assert_eq!(persisted.status, TaskStatus::InProgress);
+    assert_eq!(persisted.execution_attempts[0].acknowledged_at, Some(5));
+}
+
+#[test]
 fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
@@ -496,21 +617,48 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     let ack = store
         .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 10)
         .unwrap();
+    assert!(!ack.already_acknowledged);
     assert_eq!(ack.attempt.acknowledged_at, Some(10));
     let acknowledged = store.show_task(&task_id).unwrap().task;
     assert_eq!(acknowledged.status, TaskStatus::InProgress);
     assert_eq!(acknowledged.status_label.as_deref(), Some("acknowledged"));
     let first_changed_at = acknowledged.status_changed_at;
+    let first_task_updated_at = acknowledged.updated_at;
+    let first_plan_updated_at = store.get(&plan.id).unwrap().updated_at;
 
     let replay = store
         .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 11)
         .unwrap();
+    assert!(replay.already_acknowledged);
     assert_eq!(replay.attempt.acknowledged_at, Some(10));
     let after_replay = store.show_task(&task_id).unwrap().task;
     assert_eq!(after_replay.status_changed_at, first_changed_at);
     assert_eq!(after_replay.status_label.as_deref(), Some("acknowledged"));
+    assert_eq!(after_replay.updated_at, first_task_updated_at);
+    assert_eq!(after_replay.assigned_tab_id.as_deref(), Some("tab-worker"));
+    assert_eq!(after_replay.lane.tab_id.as_deref(), Some("tab-worker"));
+    assert_eq!(after_replay.execution_attempts.len(), 1);
+    assert_eq!(
+        store.get(&plan.id).unwrap().updated_at,
+        first_plan_updated_at
+    );
+
+    let third_ack = store
+        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 12)
+        .unwrap();
+    assert!(third_ack.already_acknowledged);
+    assert_eq!(third_ack.attempt.id, attempt_id);
+    assert_eq!(third_ack.attempt.acknowledged_at, Some(10));
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.updated_at,
+        first_task_updated_at
+    );
+    assert_eq!(
+        store.get(&plan.id).unwrap().updated_at,
+        first_plan_updated_at
+    );
     assert!(store
-        .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 12)
+        .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 13)
         .is_err());
     let after_stale = store.show_task(&task_id).unwrap().task;
     assert_eq!(after_stale.status_changed_at, first_changed_at);
@@ -635,12 +783,14 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
         crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
     );
     let replacement_attempt = store
-        .begin_task_dispatch(
+        .begin_task_dispatch_with_observation(
             &plan.id,
             &task_id,
             "tab-worker",
             "Ada",
             failed.lane.clone(),
+            store.dispatch_startup_owner_candidate(&plan.id, &task_id),
+            false,
             9,
         )
         .unwrap();

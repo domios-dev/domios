@@ -79,6 +79,12 @@ pub(crate) enum LaunchSettlement {
     Superseded,
 }
 
+impl LaunchSettlement {
+    pub(crate) fn authorizes_agent_ready(&self, session_authenticated: bool) -> bool {
+        session_authenticated && matches!(self, Self::Ready | Self::Provisional { .. })
+    }
+}
+
 /// A launch failure already decided against the launch it names, waiting to be
 /// recorded once its observer has finished whatever teardown it performs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -414,7 +420,8 @@ impl ServiceContext {
         &self,
         attempt: LaunchAttempt,
         deadline: std::time::Duration,
-    ) {
+    ) -> std::sync::mpsc::Receiver<LaunchSettlement> {
+        let (settled, receiver) = std::sync::mpsc::sync_channel(1);
         let svc = self.clone();
         std::thread::spawn(move || {
             let evidence = match observe(&attempt, Instant::now() + deadline) {
@@ -423,13 +430,24 @@ impl ServiceContext {
                     stage: BootStage::LaunchDeadlineElapsed,
                     reason: SPAWN_READINESS_DEADLINE.to_string(),
                 },
-                LaunchObservation::Retired => return,
+                LaunchObservation::Retired => {
+                    let settlement = take_published_failure(&attempt)
+                        .map(|reason| LaunchSettlement::Failed {
+                            reason,
+                            exit_code: None,
+                        })
+                        .unwrap_or(LaunchSettlement::Superseded);
+                    let _ = settled.send(settlement);
+                    return;
+                }
             };
             let hook_missed_deadline = matches!(evidence, LaunchEvidence::Unobserved { .. });
             let settlement = svc.settle_launch_readiness(&attempt, evidence);
             if hook_missed_deadline && settlement != LaunchSettlement::Superseded {
                 svc.detect_unbound_launch_session(&attempt.tab_id);
             }
+            let _ = settled.send(settlement);
         });
+        receiver
     }
 }

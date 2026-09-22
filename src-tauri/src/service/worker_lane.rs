@@ -31,6 +31,14 @@ pub(crate) fn same_path(a: &str, b: &str) -> bool {
 }
 
 fn git_is_primary_checkout(cwd: &Path) -> bool {
+    git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir == common_dir)
+}
+
+pub(crate) fn is_linked_worktree(cwd: &Path) -> bool {
+    git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir != common_dir)
+}
+
+fn git_checkout_paths(cwd: &Path) -> Option<(PathBuf, PathBuf)> {
     let mut command = Command::new("git");
     process_util::no_window_std(&mut command);
     let output = match command
@@ -44,13 +52,15 @@ fn git_is_primary_checkout(cwd: &Path) -> bool {
         .output()
     {
         Ok(output) if output.status.success() => output,
-        _ => return false,
+        _ => return None,
     };
     let text = String::from_utf8_lossy(&output.stdout);
     let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
     match (lines.next(), lines.next()) {
-        (Some(git_dir), Some(common_dir)) => normalize_path(git_dir) == normalize_path(common_dir),
-        _ => false,
+        (Some(git_dir), Some(common_dir)) => {
+            Some((normalize_path(git_dir), normalize_path(common_dir)))
+        }
+        _ => None,
     }
 }
 
@@ -91,6 +101,11 @@ pub(crate) struct ProvisionedWorkerLane {
 }
 
 impl ProvisionedWorkerLane {
+    #[cfg(test)]
+    pub(crate) fn base(&self) -> &str {
+        &self.base
+    }
+
     pub(crate) fn verify(&self) -> Result<WorkerLaneProvenance, String> {
         verify_worker_lane(
             &self.canonical_cwd,

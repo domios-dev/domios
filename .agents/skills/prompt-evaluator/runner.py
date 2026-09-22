@@ -121,6 +121,7 @@ def _expand_placeholders(text: str) -> str:
     shared_files = {
         "{codeterm_cli}": root / "src-tauri" / "prompts" / "codeterm_cli.md",
         "{bounce_unwinding_contract}": root / "prod-docs" / "BOUNCE.md",
+        "{interactive_child_pty_operation}": root / "src-tauri" / "prompts" / "interactive_child_pty.md",
     }
     for placeholder, source in shared_files.items():
         if placeholder in text and source.exists():

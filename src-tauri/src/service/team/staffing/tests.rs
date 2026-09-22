@@ -51,6 +51,128 @@ fn orchestrator_params() -> AddTeamMemberParams {
     }
 }
 
+fn cartographer_params() -> AddTeamMemberParams {
+    AddTeamMemberParams {
+        provider: "provider-neutral".into(),
+        role: "cartographer".into(),
+        title: None,
+        task: None,
+        model: None,
+    }
+}
+
+#[test]
+fn cartographer_staffing_uses_the_manager_role_kind_and_team_parent() {
+    let (mux, team_id, orchestrator, _, _) = live_team();
+    let prepared =
+        prepare_team_member_spawn(&mux, &team_id, Some(&orchestrator), cartographer_params())
+            .expect("a spawn-capable Team manager can attach a Cartographer");
+
+    assert_eq!(prepared.expected_role, "Manager");
+    assert_eq!(prepared.expected_profile.as_deref(), Some(CARTOGRAPHER));
+    assert_eq!(
+        prepared.spawn_params.parent_tab_id.as_deref(),
+        Some(orchestrator.as_str())
+    );
+    assert!(!role_kind::anchors_team(
+        Some(AgentRole::Manager),
+        prepared.expected_profile.as_deref()
+    ));
+}
+
+#[test]
+fn an_existing_cartographer_attachment_is_reused_as_a_singleton() {
+    let (mut mux, team_id, orchestrator, _, _) = live_team();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let cartographer = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role_kind(
+        &cartographer,
+        AgentRole::Manager,
+        Some(CARTOGRAPHER),
+        Some(&orchestrator),
+    )
+    .unwrap();
+    give_agent_identity(&mut mux, &cartographer);
+
+    let reused = existing_cartographer_attachment(&mux, &team_id)
+        .expect("the attached Manager is the singleton result");
+    assert_eq!(reused.tab_id, cartographer);
+    assert_eq!(reused.team.id, team_id);
+    assert_eq!(reused.role_type, "Manager");
+    assert_eq!(reused.role_profile.as_deref(), Some(CARTOGRAPHER));
+    assert!(reused.reused);
+    assert_eq!(
+        mux.snapshot()
+            .tabs
+            .values()
+            .filter(|tab| {
+                tab.team_id.as_deref() == Some(team_id.as_str())
+                    && tab.role_kind_id() == Some(CARTOGRAPHER)
+            })
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn cartographer_attachment_lock_is_shared_per_team_only() {
+    let locks = TeamCartographerAttachLocks::default();
+    let first = locks.for_team("team_a");
+    let repeated = locks.for_team("team_a");
+    let other = locks.for_team("team_b");
+
+    assert!(Arc::ptr_eq(&first, &repeated));
+    assert!(!Arc::ptr_eq(&first, &other));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn repeated_service_cartographer_attachment_returns_the_existing_tab() {
+    let (mut mux, team_id, orchestrator, _, _) = live_team();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let cartographer = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role_kind(
+        &cartographer,
+        AgentRole::Manager,
+        Some(CARTOGRAPHER),
+        Some(&orchestrator),
+    )
+    .unwrap();
+    give_agent_identity(&mut mux, &cartographer);
+    let initial_tab_count = mux.snapshot().tabs.len();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    let (first, repeated) = tokio::join!(
+        fixture
+            .service
+            .add_team_member(&team_id, Some(&orchestrator), cartographer_params(),),
+        fixture
+            .service
+            .add_team_member(&team_id, Some(&orchestrator), cartographer_params(),),
+    );
+    let first = first.expect("first attachment reuses the existing role instance");
+    let repeated = repeated.expect("repeated attachment reuses the same role instance");
+
+    assert_eq!(first.tab_id, cartographer);
+    assert_eq!(first.tab_id, repeated.tab_id);
+    assert_eq!(first.role_type, "Manager");
+    assert_eq!(first.role_profile.as_deref(), Some(CARTOGRAPHER));
+    assert!(first.reused && repeated.reused);
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.snapshot().tabs.len(), initial_tab_count);
+    assert_eq!(
+        mux.snapshot()
+            .tabs
+            .values()
+            .filter(|tab| {
+                tab.team_id.as_deref() == Some(team_id.as_str())
+                    && tab.role_kind_id() == Some(CARTOGRAPHER)
+            })
+            .count(),
+        1
+    );
+}
+
 /// Place a replacement anchor the way a real spawn would, then commit it.
 fn commit_replacement_anchor(
     mux: &mut MultiplexerState,

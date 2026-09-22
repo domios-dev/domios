@@ -1,7 +1,7 @@
 use super::{
-    is_plan_owner_authority_method, is_recovery_method, plan_owner_may_recover,
-    verify_owner_epoch_for_task_mutation, JsonRpcError, TaskAuthorityRefusal,
-    PLAN_OWNER_AUTHORITY_METHODS, RECOVERY_METHODS,
+    is_plan_owner_authority_method, is_recovery_method, lane_metadata_only_task_update,
+    plan_owner_may_recover, verify_owner_epoch_for_task_mutation, JsonRpcError,
+    TaskAuthorityRefusal, PLAN_OWNER_AUTHORITY_METHODS, RECOVERY_METHODS,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{
@@ -18,6 +18,49 @@ const TAB_GONE_RECOVERY_VERBS: &[&str] = &["plan.task.dispatch"];
 const GONE_OWNER_TAB: &str = "gone-worker-tab";
 const GONE_OWNER_SESSION: &str = "gone-worker-session";
 const OWNER_EPOCH: u64 = 5;
+
+#[test]
+fn startup_recovery_guard_only_applies_to_lane_metadata_updates() {
+    for lane in [
+        json!({"destination": "release/1"}),
+        json!({"cleanup_status": "deferred"}),
+        json!({"cleanup_hints": ["retain until merged"]}),
+    ] {
+        let params = Some(json!({
+            "plan_id": "plan",
+            "task_id": "task",
+            "caller_tab_id": "owner",
+            "lane": lane,
+        }));
+        assert!(lane_metadata_only_task_update("plan.task.update", &params));
+    }
+
+    for (method, params) in [
+        (
+            "plan.task.update",
+            json!({"lane": {"destination": "release/1"}, "status": "pending"}),
+        ),
+        (
+            "plan.task.update",
+            json!({"lane": {"tab_id": "worker", "destination": "release/1"}}),
+        ),
+        (
+            "plan.task.update",
+            json!({"lane": {"worktree_path": "C:/lane"}}),
+        ),
+        (
+            "plan.task.update",
+            json!({"lane": {"destination": "release/1"}, "name": "new name"}),
+        ),
+        (
+            "plan.task.assign",
+            json!({"lane": {"destination": "release/1"}}),
+        ),
+    ] {
+        let params = Some(params);
+        assert!(!lane_metadata_only_task_update(method, &params));
+    }
+}
 
 struct AuthorityFixture {
     fixture: ServiceFixture,

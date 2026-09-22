@@ -6,6 +6,13 @@ use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
+pub(super) fn visible_spawn_starter_prompt(
+    startup_handshake: Option<crate::agent::provider::StarterPrompt>,
+    provider_starter: Option<crate::agent::provider::StarterPrompt>,
+) -> Option<crate::agent::provider::StarterPrompt> {
+    startup_handshake.or(provider_starter)
+}
+
 pub(crate) use super::spawn_cli::{
     cli_binary_on_path, create_cleared_agent_tab, provider_launch_preflight,
 };
@@ -38,6 +45,9 @@ pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
     task_binding_from_spawn,
 };
+
+#[path = "spawn_tab_identity.rs"]
+mod spawn_tab_identity;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
@@ -118,6 +128,8 @@ pub struct AgentSpawnSpec {
     pub extra_args: Vec<String>,
     #[serde(default, skip_deserializing)]
     pub provisioned_cwd: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub existing_tab_id: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -212,10 +224,11 @@ impl ServiceContext {
 
     pub(crate) fn spawn_tab_with_ready_and_state_change(
         &self,
-        spec: SpawnTabSpec,
+        mut spec: SpawnTabSpec,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        spawn_tab_identity::prepare_tab_identity(&mut spec)?;
         match (&spec.visibility, &spec.command) {
             (TabVisibility::Visible, TabCommand::Agent(_)) => {
                 self.spawn_visible_agent_impl(spec, ready_tx)
@@ -358,7 +371,10 @@ impl ServiceContext {
 
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?;
+            let result = match agent.existing_tab_id.as_deref() {
+                Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
+                None => create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?,
+            };
             if let Some(ref dir) = resolved_cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
@@ -429,7 +445,22 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             agent.spawned_by_tab_id.as_deref(),
         );
-        let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
+        let task_identity = super::worker_ack::startup_task_identity_from_env(&agent.extra_env);
+        let startup_supervised = self.prepare_agent_startup_supervision(
+            &tab_id,
+            spec.parent_tab_id
+                .as_deref()
+                .or(agent.spawned_by_tab_id.as_deref())
+                .or(spec.creator_tab_id.as_deref()),
+            task_identity.clone(),
+        );
+        if task_identity.is_some() && !startup_supervised {
+            self.rollback_provisional_tab_via_close(&tab_id);
+            self.emit_state_changed();
+            return Err(format!(
+                "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
+            ));
+        }
         // `can_spawn` is only forced when the caller explicitly passed
         // --can-spawn (Some), preserving the kind's default.
         if let Some(ref role_str) = agent.role {
@@ -559,7 +590,11 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
-        let confirmed_first_turn = if startup_supervised {
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
+            startup_supervised,
+            task_identity.is_some(),
+        );
+        let confirmed_first_turn = if startup_handshake.is_some() {
             crate::service::launch_delivery::startup_handshake_confirmed_first_turn(
                 native_starter_capable,
             )
@@ -598,10 +633,10 @@ impl ServiceContext {
         };
 
         let mut legacy_params = spec.to_agent_params()?;
-        if startup_supervised {
-            legacy_params.starter_prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
-        } else if let Some(starter) = task_selection.provider_starter {
-            legacy_params.starter_prompt = starter;
+        if let Some(prompt) =
+            visible_spawn_starter_prompt(startup_handshake, task_selection.provider_starter)
+        {
+            legacy_params.starter_prompt = prompt;
         }
         legacy_params.skip_permissions = Some(permission_bypass);
         legacy_params.permission_bypass_authorization = permission_bypass_authorization;
@@ -653,6 +688,9 @@ impl ServiceContext {
             launch_session_id.as_deref(),
             &self.agent_registry,
         );
+        if launch_cmd.trim().is_empty() {
+            return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
+        }
         launch_agent_in_background_with_env(
             self.clone(),
             tab_id.clone(),
@@ -662,6 +700,7 @@ impl ServiceContext {
             role_suffixed_task,
             fallback_spec,
             agent.extra_env.clone(),
+            task_identity,
             ready_tx,
         );
 
@@ -741,7 +780,11 @@ impl ServiceContext {
                 workspace.and_then(|ws| ws.provisioned_cwd.clone()),
             )
         };
-        let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+        let resolved_cwd = spec
+            .cwd
+            .clone()
+            .or(ws_cwd)
+            .map(|cwd| ServiceContext::normalize_resolved_agent_cwd(&cwd));
 
         let tab_id = {
             let mut mux = self.mux.write();
@@ -846,6 +889,11 @@ impl ServiceContext {
         for (k, v) in &agent.extra_env {
             env_vars.insert(k.clone(), v.clone());
         }
+        crate::service::launch_diagnostics::log_launch_environment(
+            "provider_spawn",
+            &tab_id,
+            &env_vars,
+        );
 
         // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let pty_id = {

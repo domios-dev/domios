@@ -1,4 +1,4 @@
-use crate::multiplexer::types::{AgentRole, Tab};
+use crate::multiplexer::types::Tab;
 use crate::plan::{AgentRef, PlanEvidenceClass, PlanMode, PlanningAuthor, PlanningState};
 use crate::service::plan::PlanError;
 use crate::service::plan_reconcile::tab_has_live_agent;
@@ -282,12 +282,19 @@ impl ServiceContext {
         if !(agent_attested || tab_attested) {
             return Err(binding_failure_class(tab, requested_session_id, nonce));
         }
-        let owner = plan.owner.tab_id.as_deref() == tab_id && tab.has_team_orchestrator_authority();
+        let owner = plan.owner.tab_id.as_deref() == tab_id
+            && tab.has_team_orchestrator_authority()
+            && codeterm_types::agent::role_kind::plan_approval(
+                tab.role,
+                tab.role_profile.as_deref(),
+            );
         if owner {
             return Ok(PlanningAuthor::User);
         }
-        let planner = tab.role == Some(AgentRole::Manager)
-            && tab.role_profile.as_deref() == Some("planner")
+        // Only the non-anchoring plan-edit kind drafts, so Cartographer and
+        // Watcher are refused by capability rather than by role id.
+        let planner = !tab.anchors_team()
+            && codeterm_types::agent::role_kind::plan_edit(tab.role, tab.role_profile.as_deref())
             && plan.team_id.as_deref() == tab.team_id.as_deref()
             && plan
                 .owner

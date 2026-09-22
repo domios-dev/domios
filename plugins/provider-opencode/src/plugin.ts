@@ -2,7 +2,6 @@
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
-  CODETERM_OPENCODE_PLUGIN_MARKER,
   lastPromptShape,
   parsePermissionPrompt,
   parseQuestionMenuPrompt,
@@ -21,6 +20,7 @@ import {
   opencodeBindingPluginPath,
   opencodePluginEntry,
   opencodePluginEntryMatches,
+  isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
   opencodeSessionRecord,
   partToChatMsg,
@@ -308,11 +308,7 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath!) || "") : "";
-    const pluginCurrent = pluginExists &&
-      pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 &&
-      pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
-      pluginBody.indexOf("CODETERM_TAB_ID") !== -1 &&
-      pluginBody.indexOf("/api/tabs/") !== -1;
+    const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
@@ -344,9 +340,12 @@ const plugin: PluginModule = {
   },
 
   installIntegration(
-    apiPort: number,
-    _options: { consent: boolean; precompact_memory_export?: boolean },
+    _apiPort: number,
+    options: { consent: boolean; precompact_memory_export?: boolean },
   ): unknown {
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
@@ -362,7 +361,7 @@ const plugin: PluginModule = {
     json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
     json.plugin.push(target);
 
-    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource(apiPort | 0))) {
+    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource())) {
       return { ok: false, error: "writeFile failed for " + pluginPath };
     }
     if (!host.fs.writeJson(cfg, json)) {
@@ -391,14 +390,8 @@ const plugin: PluginModule = {
     return { ok: true };
   },
 
-  ensureIntegrationOnStartup(apiPort: number): unknown {
-    const status = this.checkIntegration!() as {
-      plugin_installed?: boolean;
-      plugin_file_exists?: boolean;
-      plugin_file_current?: boolean;
-    };
-    if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
-    return this.installIntegration!(apiPort, { consent: true });
+  ensureIntegrationOnStartup(_apiPort: number): unknown {
+    return this.checkIntegration!();
   },
 
   sessionExists(_cwd: string, sessionId: string): boolean {
