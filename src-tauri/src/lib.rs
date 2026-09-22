@@ -816,6 +816,7 @@ pub fn run() {
                 notif: states.notif.clone(),
                 events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),
+                cartographer_attach_locks: Default::default(),
                 agent_tracker: states.agent_tracker.clone(),
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),

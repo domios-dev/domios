@@ -94,10 +94,10 @@ pub enum PlanAction {
         /// Lane worktree path to remove
         #[arg(value_name = "WORKTREE")]
         worktree: String,
-        /// Lane branch to delete after the worktree is gone
+        /// Lane branch to delete after worktree removal, if merged into project HEAD
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
-        /// Canonical checkout that owns the lane (default: derived from the lane itself)
+        /// Canonical checkout (needed for a missing worktree unless its task identifies the project)
         #[arg(long, value_name = "PATH")]
         project: Option<String>,
     },

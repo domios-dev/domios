@@ -146,6 +146,23 @@ then retry the task add. If you intentionally need a draft task, pass `--force`.
         "task_dispatch_requires_approval" => Some(format!(
             "✗ this plan is not approved for dispatch.\nfix: inspect and approve it before dispatching:\n  codeterm plan state {plan_id}\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}"
         )),
+        "dispatch_in_flight" => {
+            let attempt_id = data
+                .get("attempt_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<attempt_id>");
+            let tab_id = data
+                .get("tab_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<tab_id>");
+            let task = task_id.unwrap_or("<task_id>");
+            Some(format!(
+                "✗ dispatch refused: live attempt '{attempt_id}' of task '{task}' is already running in tab '{tab_id}'. No worker was spawned.
+do not dispatch again; follow the running attempt:
+  codeterm plan task show {plan_id} {task}
+  codeterm tab get-text --tab {tab_id}"
+            ))
+        }
         "unauthorized_gate_claim" => {
             let claimed = data
                 .get("claimed")

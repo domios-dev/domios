@@ -13,6 +13,7 @@ use super::provider::{
 
 pub struct MockProvider {
     id: String,
+    launch_binary: Option<String>,
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     system_prompt_delivery: SystemPromptDelivery,
@@ -22,12 +23,16 @@ pub struct MockProvider {
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
     usage_source: Option<UsageSourceSpec>,
+    empty_launch_command: bool,
+    empty_launch_command_when_task_present: bool,
+    task_delivery: TaskDelivery,
 }
 
 impl MockProvider {
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
+            launch_binary: None,
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::External,
@@ -37,6 +42,9 @@ impl MockProvider {
             session_file: None,
             session_models: Default::default(),
             usage_source: None,
+            empty_launch_command: false,
+            empty_launch_command_when_task_present: false,
+            task_delivery: TaskDelivery::PtyInput,
         }
     }
 
@@ -115,6 +123,27 @@ impl MockProvider {
         }
     }
 
+    pub fn with_empty_launch_command(id: &str) -> Self {
+        Self {
+            empty_launch_command: true,
+            ..Self::new(id)
+        }
+    }
+
+    pub fn with_empty_launch_command_when_task_present(id: &str) -> Self {
+        Self {
+            empty_launch_command_when_task_present: true,
+            system_prompt_delivery: SystemPromptDelivery::SessionConfig,
+            task_delivery: TaskDelivery::InlineFlag,
+            ..Self::new(id)
+        }
+    }
+
+    pub fn with_launch_binary(mut self, binary: &str) -> Self {
+        self.launch_binary = Some(binary.to_string());
+        self
+    }
+
     pub fn with_session(id: &str, session_id: &str) -> Self {
         Self {
             sessions: [session_id.to_string()].into_iter().collect(),
@@ -130,7 +159,15 @@ impl AgentProvider for MockProvider {
     fn display_name(&self) -> &str {
         &self.id
     }
+    fn binary_name(&self) -> &str {
+        self.launch_binary.as_deref().unwrap_or(&self.id)
+    }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        if self.empty_launch_command
+            || (self.empty_launch_command_when_task_present && params.task.is_some())
+        {
+            return String::new();
+        }
         let mut cmd = format!("{}-cli", self.id);
         if let Some(args) = &params.args {
             for a in args {
@@ -165,7 +202,7 @@ impl AgentProvider for MockProvider {
         vec!["--effort".into(), effort.into()]
     }
     fn task_delivery(&self) -> TaskDelivery {
-        TaskDelivery::PtyInput
+        self.task_delivery.clone()
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()

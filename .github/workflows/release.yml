@@ -1,208 +1,140 @@
-name: Release (self-hosted build machine)
+name: Release
+run-name: Release ${{ inputs.tag || github.ref_name }}
 
-# Tag-driven release. Push a tag like `release-1.4.5` on master and the self-hosted
-# build machine (this Mac, label `codeterm-builder`) builds macOS + Linux and publishes.
-# Windows is built on the ROG self-hosted runner via release-windows.yml (same tag trigger).
-# Self-hosted runner minutes are free (does NOT consume the Actions quota) — this is the
-# whole point: releases without burning GitHub-hosted minutes.
 on:
   push:
     tags:
       - 'release-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release trigger tag to build (release-X.Y.Z)'
+        required: true
+        type: string
+      mirror:
+        description: 'Publish to the public mirror'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
-  contents: read
+  actions: read
+  contents: write
+  issues: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  release:
-    runs-on: [self-hosted, codeterm-builder]
-    timeout-minutes: 180
-    # gh in the runner's launchd service session can't reach the keychain-stored login, and a
-    # release touches TWO repos (codeterm + codeterm-releases), so the default GITHUB_TOKEN
-    # (single-repo) isn't enough — use a PAT (repo scope on both) provided as GH_RELEASE_TOKEN.
-    env:
-      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
-      # Absolute: the prebuild step runs from the repo root and tauri-action runs
-      # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
-      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
-      CODETERM_RELEASE_FEATURES: embeddings
-      CARGO_INCREMENTAL: '0'
+  prepare:
+    name: prepare release
+    runs-on: [self-hosted, linux-build]
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      mirror: ${{ steps.release.outputs.mirror }}
     steps:
-      - name: Parse + validate version
-        id: ver
-        run: |
-          RAW="${GITHUB_REF_NAME#release-}"
-          echo "raw=$RAW"
-          if ! echo "$RAW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::tag must be release-X.Y.Z (got '$GITHUB_REF_NAME')"; exit 1
-          fi
-          echo "ver=$RAW"   >> "$GITHUB_OUTPUT"
-          echo "tag=v$RAW"  >> "$GITHUB_OUTPUT"
-
-      - name: Checkout repo (full history + tags)
+      - name: Checkout release source
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
-      - name: Preflight (toolchain + signing + engines reachable)
+      - name: Resolve release version
+        id: release
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-        run: |
-          # Collect every result before exiting, so one bad credential reports the
-          # whole picture instead of hiding the checks behind it.
-          rc=0
-          echo "host: $(uname -msr)"
-          security find-identity -v -p codesigning | grep -q ANDREY && echo "✅ Developer ID present" || { echo "::error::no Developer ID"; rc=1; }
-          test -f "$HOME/.tauri/codeterm.key" && echo "✅ minisign key" || { echo "::error::missing minisign key"; rc=1; }
-          gh auth status 2>&1 | grep -q "Logged in" && echo "✅ gh auth" || { echo "::error::gh not authed"; rc=1; }
-          docker image inspect codeterm-build-linux-arm64 >/dev/null 2>&1 && echo "✅ docker arm64 image" || echo "::warning::bake codeterm-build-linux-arm64"
-          docker image inspect codeterm-build-linux-x64   >/dev/null 2>&1 && echo "✅ docker x64 image"   || echo "::warning::bake codeterm-build-linux-x64"
-
-          # Authenticate with the credentials the build will actually use. The
-          # keychain profile is deliberately not consulted: it cannot be
-          # provisioned non-interactively, so it rots silently (cost v1.7.5 a run).
-          if [ -z "${APPLE_ID:-}" ] && [ -f "$HOME/.claude/.secrets/apple-notary.env" ]; then
-            set -a; . "$HOME/.claude/.secrets/apple-notary.env"; set +a
-          fi
-          NOTARY_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${APPLE_PASSWORD:-}}"
-          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ] || [ -z "$NOTARY_PASSWORD" ]; then
-            echo "::error::notary credentials missing — set the APPLE_ID / APPLE_TEAM_ID / APPLE_PASSWORD repo secrets"; rc=1
-          elif xcrun notarytool history --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-                 --password "$NOTARY_PASSWORD" >/tmp/codeterm-notary-preflight.log 2>&1; then
-            echo "✅ Apple notary credentials accepted"
-          else
-            tail -20 /tmp/codeterm-notary-preflight.log
-            echo "::error::Apple notary rejected these credentials — rotate the APPLE_PASSWORD app-specific password, or check the team's Developer agreements"; rc=1
-          fi
-          exit "$rc"
-
-      - name: Stamp the v${{ steps.ver.outputs.ver }} build tag at the release commit
-        run: |
-          # Single trigger tag: push release-X.Y.Z. build-all.sh bundles a stable
-          # vX.Y.Z ref from THIS checkout, so the tag only needs to exist locally;
-          # the origin push is best-effort bookkeeping, never a build gate.
-          TAG="${{ steps.ver.outputs.tag }}"
-          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
-          if ! git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
-            git tag -a "$TAG" "$GITHUB_SHA" -m "$TAG"
-            git push origin "$TAG" 2>/dev/null \
-              || echo "::warning::could not push $TAG to origin — building from the local tag"
-          fi
-          echo "✅ $TAG -> $(git rev-parse --short "$TAG^{commit}")"
-
-      - name: Ensure Docker is running (Linux engines)
-        run: |
-          if ! docker info >/dev/null 2>&1; then
-            echo "Docker daemon down — starting Docker Desktop..."
-            open -a Docker || true
-            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
-          fi
-          docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available after wait"; exit 1; }
-
-      - name: Build macOS + Linux (2 engines × 2 waves)
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-        run: |
-          # Windows is built separately on the ROG self-hosted runner via
-          # release-windows.yml (tag-triggered); this Mac builds mac+linux only.
-          .codeterm/build-machine/scripts/build-all.sh "${{ steps.ver.outputs.tag }}"
-
-      # A dropped upload leaves a starter asset that holds the name and makes every
-      # later upload of it fail opaquely, including tauri-action's own.
-      - name: Clear wedged release assets
-        run: |
-          node scripts/release-clear-wedged-assets.mjs "${{ github.repository }}" "${{ steps.ver.outputs.tag }}"
-          node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "${{ steps.ver.outputs.tag }}"
-
-      - name: Publish (private archive + public mirror + signed latest.json)
-        run: |
-          .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"
-
-      - name: Sync full release notes to source and public mirror
-        run: |
-          node scripts/sync-release-notes.mjs --tag "${{ steps.ver.outputs.tag }}"
-
-  completion:
-    name: publish release completion signal
-    if: ${{ always() }}
-    needs: release
-    # GitHub-hosted minutes are unavailable; the Mac runner has bash, jq, gh and python3 and frees up before the Linux runner.
-    runs-on: [self-hosted, codeterm-builder]
-    permissions:
-      actions: read
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Publish completion signal
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SOURCE_REPO: ${{ github.repository }}
-          RELEASE_REF: ${{ github.ref_name }}
-          SOURCE_SHA: ${{ github.sha }}
-          RELEASE_RESULT: ${{ needs.release.result }}
+          REQUESTED_REF: ${{ inputs.tag || github.ref_name }}
+          MIRROR_INPUT: ${{ inputs.mirror }}
+          EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
           set -euo pipefail
-          tag="v${RELEASE_REF#release-}"
-          status=success
-          reason="release publication and notes synchronization completed"
-          if [ "$RELEASE_RESULT" != success ]; then
-            status=failure
-            reason="release workflow concluded $RELEASE_RESULT before publication completed"
+          case "$REQUESTED_REF" in
+            release-*) version="${REQUESTED_REF#release-}" ;;
+            v*) version="${REQUESTED_REF#v}" ;;
+            *) echo "::error::expected release-X.Y.Z or vX.Y.Z (got '$REQUESTED_REF')"; exit 1 ;;
+          esac
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag must identify a stable X.Y.Z version (got '$REQUESTED_REF')"
+            exit 1
           fi
-          mkdir -p "$RUNNER_TEMP/release-completion"
-          jq -n \
-            --arg schema release-completion-v1 \
-            --arg release_tag "$tag" \
-            --arg workflow "Release (self-hosted build machine)" \
-            --arg status "$status" \
-            --arg reason "$reason" \
-            --arg source_sha "$SOURCE_SHA" \
-            --arg run_id "$GITHUB_RUN_ID" \
-            --argjson platforms '["darwin-aarch64", "darwin-x86_64", "linux-aarch64"]' \
-            '{schema: $schema, release_tag: $release_tag, workflow: $workflow,
-              status: $status, reason: $reason, source_sha: $source_sha,
-              run_id: $run_id, platforms: $platforms}' \
-            > "$RUNNER_TEMP/release-completion/release-completion-release.json"
-          if ! gh release view "$tag" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
-            gh release create "$tag" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
-              --title "CodeTerm $tag" --notes "Release completion signal."
+          if [ "$EVENT_NAME" = push ] && [ "$REQUESTED_REF" != "release-$version" ]; then
+            echo "::error::tag pushes must use release-X.Y.Z"
+            exit 1
           fi
-          gh release upload "$tag" \
-            "$RUNNER_TEMP/release-completion/release-completion-release.json" \
-            --repo "$SOURCE_REPO" --clobber
+          mirror=true
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then mirror="$MIRROR_INPUT"; fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$REQUESTED_REF" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "mirror=$mirror" >> "$GITHUB_OUTPUT"
 
-      - name: Assert the release validator is armed
-        if: ${{ always() }}
+      - name: Create draft releases before parallel uploads
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           SOURCE_REPO: ${{ github.repository }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          LEG: ${{ github.workflow }}
+          TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          PUBLISH_MIRROR: ${{ steps.release.outputs.mirror }}
         shell: bash
         run: |
           set -euo pipefail
-          validator=release-manifest-validate
-          file=".github/workflows/$validator.yml"
-          api="repos/$SOURCE_REPO"
-          raw="Accept: application/vnd.github.raw"
-          state=$(gh api "$api/actions/workflows/$validator.yml" --jq .state 2>/dev/null || true)
-          source=$(gh api "$api/contents/$file?ref=$DEFAULT_BRANCH" -H "$raw" 2>/dev/null || true)
-          fixture="$RUNNER_TEMP/validator-armed.json"
-          jq -n --arg validator "$validator" --arg leg "$LEG" --arg branch "$DEFAULT_BRANCH" --arg state "$state" --arg source "$source" '{validator: $validator, leg: $leg, default_branch: $branch, state: (if $state == "" then null else $state end), default_branch_source: (if $source == "" then null else $source end)}' > "$fixture"
-          set +e
-          output=$(python3 scripts/release_validator_armed.py "$fixture" 2>&1)
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          [ "$status" -eq 0 ] || { echo "::error::$output"; exit "$status"; }
+          if ! gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
+              --title "CodeTerm $TAG" --notes "See the assets to download this version and install."
+          fi
+          node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
+
+          if [ "$PUBLISH_MIRROR" = true ]; then
+            export GH_TOKEN="$MIRROR_TOKEN"
+            if ! gh release view "$TAG" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
+              gh release create "$TAG" --repo rollacode/codeterm-releases \
+                --draft --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+            fi
+            node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
+          fi
+
+  macos-linux-arm64:
+    name: macOS + Linux arm64
+    needs: prepare
+    uses: ./.github/workflows/release-builder.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+    secrets: inherit
+
+  linux-x86_64:
+    name: Linux x86_64
+    needs: prepare
+    uses: ./.github/workflows/release-linux.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+    secrets: inherit
+
+  windows:
+    name: Windows x64 + arm64
+    needs: prepare
+    uses: ./.github/workflows/release-windows.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+    secrets: inherit
+
+  release-manifest:
+    name: release manifest, mirror, and verification
+    needs: [prepare, macos-linux-arm64, linux-x86_64, windows]
+    uses: ./.github/workflows/release-manifest-validate.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
+      mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+    secrets: inherit

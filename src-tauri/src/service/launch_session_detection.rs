@@ -50,6 +50,10 @@ fn mint_launch_marker(tab_id: &str) -> String {
     marker
 }
 
+pub(crate) fn clear_launch_marker(tab_id: &str) {
+    LAUNCH_MARKERS.lock().remove(tab_id);
+}
+
 /// A launch command carrying the inert marker this launch registers for its
 /// tab. Minted for every provider; the provider alone decides whether to use it.
 pub(crate) fn marked_agent_command(
@@ -61,14 +65,18 @@ pub(crate) fn marked_agent_command(
     registry: &crate::agent::registry::AgentRegistry,
 ) -> String {
     let marker = mint_launch_marker(tab_id);
-    super::orchestrator::build_agent_command_with_launch_marker(
+    let command = super::orchestrator::build_agent_command_with_launch_marker(
         agent_cmd,
         params,
         task,
         injected_session_id,
         registry,
         Some(&marker),
-    )
+    );
+    if command.trim().is_empty() {
+        clear_launch_marker(tab_id);
+    }
+    command
 }
 
 /// Gives hand-built fresh launch params a marker minted and registered for this tab.

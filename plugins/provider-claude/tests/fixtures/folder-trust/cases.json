@@ -1,4 +1,10 @@
 [
+  { "file": "quick-safety-no-first.txt", "expect": "move-down" },
+  { "file": "quick-safety-yes-focused.txt", "expect": "enter" },
+  { "file": "quick-safety-ambiguous-focus.txt", "expect": "hold" },
+  { "file": "quick-safety-wrapped-header.txt", "expect": "move-down" },
+  { "file": "quick-safety-path-residue.txt", "expect": "move-down" },
+  { "file": "quick-safety-path-in-dialog.txt", "expect": "hold" },
   { "file": "trust-box-focus-refusal.txt", "expect": "move-down" },
   { "file": "trust-rule-focus-affirmative.txt", "expect": "enter" },
   { "file": "trust-numbered-focus-affirmative.txt", "expect": "enter" },
@@ -6,9 +12,10 @@
   { "file": "trust-continue-without-permissions.txt", "expect": "hold" },
   { "file": "trust-without-title.txt", "expect": "hold" },
   { "file": "trust-numbered-unfocused.txt", "expect": "none" },
-  { "file": "trust-without-path.txt", "expect": "none" },
+  { "file": "trust-without-path.txt", "expect": "move-down" },
   { "file": "tool-permission.txt", "expect": "none" },
   { "file": "edit-two-option-mentions-trust.txt", "expect": "hold" },
   { "file": "bypass-permissions-warning.txt", "expect": "none" },
+  { "file": "trust-mentioned-bypass-warning.txt", "expect": "none" },
   { "file": "mcp-server.txt", "expect": "none" }
 ]

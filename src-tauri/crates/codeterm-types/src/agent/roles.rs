@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::plan::TaskStatus;
+
 /// The two structural agent roles. Every finer-grained kind lives in
 /// `role_profile` and resolves through `role_kind` descriptors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -42,13 +44,28 @@ impl AgentRole {
     }
 }
 
+pub fn is_legacy_cartographer_worker_binding(
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> bool {
+    role.map(str::trim) == Some("Worker")
+        && role_profile.map(str::trim) == Some(super::role_kind::builtins::CARTOGRAPHER)
+}
+
 /// Literal legacy migration for a persisted `(role, role_profile)` pair. Legacy
 /// `Orchestrator`/`Conductor` rows carried no profile; a kindless `Manager` has no anchor to inherit.
 pub fn restore_role(role: Option<&str>, role_profile: Option<&str>) -> Option<RestoredRole> {
     let profile = role_profile
         .map(str::trim)
         .filter(|profile| !profile.is_empty());
-    match role.map(str::trim)? {
+    let role = role.map(str::trim)?;
+    if is_legacy_cartographer_worker_binding(Some(role), profile) {
+        return Some(RestoredRole::new(
+            AgentRole::Manager,
+            Some(super::role_kind::builtins::CARTOGRAPHER),
+        ));
+    }
+    match role {
         "Orchestrator" | "Conductor" => Some(RestoredRole::new(
             AgentRole::Manager,
             Some(super::role_kind::builtins::ORCHESTRATOR),
@@ -83,6 +100,15 @@ impl ReportStatus {
             ReportStatus::InReview => "In Review",
             ReportStatus::Blocked => "Blocked",
             ReportStatus::Partial => "Partial",
+        }
+    }
+
+    pub fn task_transition(self) -> Result<Option<TaskStatus>, &'static str> {
+        match self {
+            ReportStatus::Done => Err("workers must not report --status done because only the owner can close a task. Use --status in_review when the work is ready for review, --status partial for progress, or ask the owner to close after review."),
+            ReportStatus::InReview => Ok(Some(TaskStatus::InReview)),
+            ReportStatus::Blocked => Ok(Some(TaskStatus::Blocked)),
+            ReportStatus::Partial => Ok(None),
         }
     }
 }
@@ -151,6 +177,20 @@ mod tests {
         assert_eq!(
             restored("Worker", Some("rust-platform-dev")),
             Some((AgentRole::Worker, Some("rust-platform-dev".to_string())))
+        );
+    }
+
+    #[test]
+    fn legacy_cartographer_worker_binding_rewrites_idempotently() {
+        let migrated = restore_role(Some("Worker"), Some("cartographer")).unwrap();
+        assert_eq!(migrated.role, AgentRole::Manager);
+        assert_eq!(migrated.role_profile.as_deref(), Some("cartographer"));
+        assert_eq!(
+            restore_role(
+                Some(migrated.role.label()),
+                migrated.role_profile.as_deref()
+            ),
+            Some(migrated)
         );
     }
 

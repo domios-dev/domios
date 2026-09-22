@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.11.6",
-  "minCodeterm": "1.11.6",
+  "version": "1.11.7",
+  "minCodeterm": "1.11.7",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -43,6 +43,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
+    "supportsDirectoryTrustPromptParsing": true,
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
@@ -83,11 +84,6 @@
       "id": "gpt-5.5",
       "displayName": "GPT-5.5",
       "description": "Proven previous-generation model for coding and general work."
-    },
-    {
-      "id": "gpt-5.4-mini",
-      "displayName": "GPT-5.4-Mini",
-      "description": "Small, fast, and cost-efficient model for simpler coding tasks."
     },
     {
       "id": "gpt-5.3-codex-spark",

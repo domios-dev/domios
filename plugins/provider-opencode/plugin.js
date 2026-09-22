@@ -509,18 +509,31 @@ function opencodePluginEntryMatches(entry, target) {
   if (!value) return false;
   return value.replace(/\\/g, "/") === target;
 }
-function opencodeBindingPluginSource(apiPort) {
+function isCurrentOpencodeBindingPluginSource(text) {
+  const required = [
+    CODETERM_OPENCODE_PLUGIN_MARKER,
+    "CODETERM_API_URL",
+    "CODETERM_API_TOKEN",
+    "CODETERM_SESSION_BINDING_NONCE",
+    "CODETERM_TAB_ID",
+    "/api/tabs/",
+    "x-codeterm-binding-nonce",
+    "authorization"
+  ];
+  return required.every((value) => text.includes(value)) && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+}
+function opencodeBindingPluginSource() {
   return [
     "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
     'const PROVIDER_ID = "opencode";',
-    'const FALLBACK_PORT = "' + String(apiPort || 7686) + '";',
     "",
     "function endpoint() {",
     "  const tab = process.env.CODETERM_TAB_ID;",
+    "  const token = process.env.CODETERM_API_TOKEN;",
+    "  const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;",
     "  if (!tab) return null;",
-    "  const base =",
-    "    process.env.CODETERM_API_URL ||",
-    "    `http://127.0.0.1:${process.env.CODETERM_API_PORT || FALLBACK_PORT}`;",
+    "  if (!token || !nonce || !process.env.CODETERM_API_URL) return null;",
+    '  const base = process.env.CODETERM_API_URL.replace(/\\/+$/, "");',
     "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
     "}",
     "",
@@ -544,13 +557,9 @@ function opencodeBindingPluginSource(apiPort) {
     "  const headers = {",
     '    "content-type": "application/json",',
     '    "x-codeterm-agent-provider": PROVIDER_ID,',
+    '    "x-codeterm-binding-nonce": process.env.CODETERM_SESSION_BINDING_NONCE,',
+    "    authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
     "  };",
-    "  if (process.env.CODETERM_SESSION_BINDING_NONCE) {",
-    '    headers["x-codeterm-binding-nonce"] = process.env.CODETERM_SESSION_BINDING_NONCE;',
-    "  }",
-    "  if (process.env.CODETERM_API_TOKEN) {",
-    "    headers.authorization = `Bearer ${process.env.CODETERM_API_TOKEN}`;",
-    "  }",
     "  await fetch(url, {",
     '    method: "POST",',
     "    headers,",
@@ -854,7 +863,7 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
-    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && pluginBody.indexOf("CODETERM_TAB_ID") !== -1 && pluginBody.indexOf("/api/tabs/") !== -1;
+    const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
@@ -884,7 +893,10 @@ var plugin = {
       plugin_installed: installed
     };
   },
-  installIntegration(apiPort, _options) {
+  installIntegration(_apiPort, options) {
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
@@ -896,7 +908,7 @@ var plugin = {
     if (!Array.isArray(json.plugin)) json.plugin = [];
     json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
     json.plugin.push(target);
-    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource(apiPort | 0))) {
+    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource())) {
       return { ok: false, error: "writeFile failed for " + pluginPath };
     }
     if (!host.fs.writeJson(cfg, json)) {
@@ -923,10 +935,8 @@ var plugin = {
     }
     return { ok: true };
   },
-  ensureIntegrationOnStartup(apiPort) {
-    const status = this.checkIntegration();
-    if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
-    return this.installIntegration(apiPort, { consent: true });
+  ensureIntegrationOnStartup(_apiPort) {
+    return this.checkIntegration();
   },
   sessionExists(_cwd, sessionId) {
     const db = opencodeDbPath();

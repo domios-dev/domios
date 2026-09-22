@@ -8,6 +8,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
+import "./prompt.test";
 
 let passed = 0;
 let failed = 0;
@@ -220,7 +221,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
 {
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
-    "hasEventMarkers", "detectEvents", "parsePrompt", "buildPromptResponse", "directoryTrustPromptResponse",
+    "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse",
     "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
@@ -408,68 +409,6 @@ console.log("\n--- hasEventMarkers: picker/menu screens gate a screen read (/mod
   assert(evp.hasEventMarkers("› 1. gpt-5.5 (current)"), "fires on a › selector option row");
   assert(evp.hasEventMarkers("Would you like to run the following command"), "still fires on approval phrasing");
   assert(!evp.hasEventMarkers("Wrote 12 lines to src/lib/foo.ts and ran the tests."), "stays quiet on normal output");
-}
-
-console.log("\n--- parsePrompt + buildPromptResponse: /model numbered picker ---\n");
-{
-  const evp = loadHostPlugin();
-  const modelScreen = fs.readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "model-picker.txt"),
-    "utf8",
-  );
-  const parsed = evp.parsePrompt(modelScreen);
-  eq(
-    parsed && parsed.question,
-    "Select Reasoning Level for gpt-5.5",
-    "parsePrompt uses the active picker cluster",
-  );
-  eq(
-    parsed && parsed.options,
-    [
-      ["Low                        Fast responses with lighter reasoning", "1"],
-      ["Medium (default) (current) Balances speed and reasoning depth for everyday tasks", "2"],
-      ["High                       Greater reasoning depth for complex problems", "3"],
-      ["Extra high                 Extra high reasoning depth for complex problems", "4"],
-    ],
-    "parsePrompt extracts active numbered options with 1-based values",
-  );
-  eq(evp.buildPromptResponse(1, modelScreen), ["DQ=="], "current highlighted option → Enter only");
-  eq(evp.buildPromptResponse(0, modelScreen), ["G1tB", "DQ=="], "target above current → Up + Enter");
-  eq(evp.buildPromptResponse(3, modelScreen), ["G1tC", "G1tC", "DQ=="], "target below current → Down ×2 + Enter");
-}
-
-console.log("\n--- parsePrompt + buildPromptResponse: prose choice prompts ---\n");
-{
-  const evp = loadHostPlugin();
-  const abc = [
-    "• Which release strategy should we use?",
-    "  A) Fast patch release now",
-    "  B) Minor release with bundled fixes",
-    "  C) Delay for more testing",
-  ].join("\n");
-  const parsed = evp.parsePrompt(abc);
-  eq(parsed && parsed.question, "Which release strategy should we use?", "lettered prose question extracts");
-  eq(
-    parsed && parsed.options,
-    [
-      ["Fast patch release now", "A"],
-      ["Minor release with bundled fixes", "B"],
-      ["Delay for more testing", "C"],
-    ],
-    "lettered prose options extract",
-  );
-  eq(evp.buildPromptResponse(1, abc), ["Qg0="], "lettered click sends selected value plus Enter");
-
-  const numbered = [
-    "• Which test strategy should we use?",
-    "",
-    "  1. Unit tests first",
-    "  2. Integration smoke tests",
-    "  3. Full end-to-end suite",
-  ].join("\n");
-  const parsedNumbered = evp.parsePrompt(numbered);
-  eq(parsedNumbered && parsedNumbered.question, "Which test strategy should we use?", "numbered prose question extracts");
-  eq(evp.buildPromptResponse(2, numbered), ["Mw0="], "numbered click sends selected value plus Enter");
 }
 
 console.log("\n--- parseSessionDelta hardening ---\n");
@@ -780,13 +719,22 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     "session_start hook curl carries the binding-nonce header",
     cmd,
   );
+  assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+    "session_start hook command carries its ownership marker", cmd);
   assert(
     writtenScript.includes("codeterm-profile-cleanup-v1") &&
-      writtenScript.includes('codeterm-$profileSuffix.config.toml') &&
-      writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
+      writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
+      writtenScript.includes("del /F /Q") &&
+      writtenScript.includes("curl.exe") &&
+      writtenScript.includes("--max-time 30") &&
+      writtenScript.includes("X-CodeTerm-Hook: "),
     "Windows session_start removes the tab-scoped profile after Codex loads it",
     writtenScript,
   );
+  const windowsCommand = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
+  assert(windowsCommand.indexOf("powershell") === -1, "Windows hook command avoids a PowerShell spawn", windowsCommand);
+  assert(windowsCommand.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
+    "Windows hook command carries the in-command ownership marker", windowsCommand);
 }
 
 {
@@ -886,12 +834,12 @@ for (const [name, fixture] of [
 {
   const hooksPath = "/tmp/home\\.codex\\hooks.json";
   const configPath = "/tmp/home\\.codex\\config.toml";
-  const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-hook.cmd";
   const ownershipPath = configPath + ".codeterm-hook-trust-owned";
   const initial = new Map<string, string>([
     [hooksPath, '{"foreign":"hooks"}'],
     [configPath, `[hooks.state."${hooksPath}:session_start:owned"]\nenabled = false\nforeign = "config"\n`],
-    [scriptPath, "# foreign script\r\n"],
+    [scriptPath, "rem codeterm-codex-session-binding-v1\r\n"],
     [ownershipPath, "foreign ownership bytes"],
     [hooksPath + ".codeterm-backup", "prior hooks backup"],
     [configPath + ".codeterm-backup", "prior config backup"],
@@ -925,7 +873,7 @@ for (const [name, fixture] of [
 
 {
   const hooksPath = "/tmp/home\\.codex\\hooks.json";
-  const scriptPath = "/tmp/home\\.codex\\codeterm-session-start.ps1";
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-hook.cmd";
   const files = new Map<string, string>([
     [hooksPath, '{"hooks":{"SessionStart":[]}}'],
     [scriptPath, "# user-owned replacement\nWrite-Host foreign\n"],
@@ -950,7 +898,7 @@ for (const [name, fixture] of [
   const p = loadCodexWithHost(baseHost({
     platform: () => "windows",
     fs: {
-      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-hook.cmd"),
       readJson: () => ({
         hooks: {
           SessionStart: [{ hooks: [{
@@ -959,7 +907,7 @@ for (const [name, fixture] of [
           }] }],
         },
       }),
-      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? staleScript : "",
+      readFile: (path: string) => path.endsWith("codeterm-session-hook.cmd") ? staleScript : "",
       writeJson: () => true,
       writeFile: () => true,
     },
@@ -981,7 +929,7 @@ for (const [name, fixture] of [
   const p = loadCodexWithHost(baseHost({
     platform: () => "windows",
     fs: {
-      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-hook.cmd"),
       readJson: () => ({
         hooks: {
           SessionStart: [{ hooks: [{
@@ -990,7 +938,7 @@ for (const [name, fixture] of [
           }] }],
         },
       }),
-      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? stalePaneScript : "",
+      readFile: (path: string) => path.endsWith("codeterm-session-hook.cmd") ? stalePaneScript : "",
       writeJson: () => true,
       writeFile: () => true,
     },
@@ -1001,14 +949,15 @@ for (const [name, fixture] of [
   );
 }
 
-// Startup remains read-only; a hook carrying the binding nonce is current.
+// Startup remains read-only; a hook carrying the binding nonce and the
+// cold-start-tolerant budget is current.
 {
-  const sessionStartHook = (cmd: string) =>
+  const sessionStartHook = (cmd: string, timeout = 60) =>
     baseHost({
       fs: {
         fileExists: () => true,
         readFile: () => "",
-        readJson: () => ({ hooks: { SessionStart: [{ hooks: [{ command: cmd }] }] } }),
+        readJson: () => ({ hooks: { SessionStart: [{ hooks: [{ command: cmd, timeout }] }] } }),
         writeJson: () => true,
         writeFile: () => true,
       },
@@ -1016,6 +965,7 @@ for (const [name, fixture] of [
   const preNonce =
     "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
     "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
     '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @-';
   const old = loadCodexWithHost(sessionStartHook(preNonce));
   assert(
@@ -1031,6 +981,51 @@ for (const [name, fixture] of [
   );
 }
 
+// An install that predates the budget fix must read as stale so Repair rewrites
+// it; otherwise the 5s budget would survive the fix forever.
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
+  const nonceCommand =
+    "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+    "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
+    '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+    '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-';
+  const stopCommand = nonceCommand.replace("/hook/session_start", "/hook/stop");
+  const ownedHook = (command: string, timeout: number) => ({
+    type: "command", command, timeout, _source: "codeterm-codex-session-binding-v1",
+  });
+  const hooksJson = (timeout: number) => JSON.stringify({
+    hooks: {
+      SessionStart: [{ hooks: [ownedHook(nonceCommand, timeout)] }],
+      Stop: [{ hooks: [ownedHook(stopCommand, timeout)] }],
+    },
+  });
+  const load = (timeout: number) => loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (file: string) => file === hooksPath || file === configPath,
+      readFile: (file: string) => (file === configPath ? 'model = "gpt-5.6"\n' : ""),
+      readJson: (file: string) => (file === hooksPath ? JSON.parse(hooksJson(timeout)) : null),
+      writeJson: () => true,
+      writeFile: () => true,
+      removeFile: () => true,
+    },
+  }));
+  assert(
+    load(5).checkIntegration().session_start_hook === false,
+    "a hook carrying the old 5s budget is stale",
+  );
+  assert(
+    load(5).ensureIntegrationOnStartup(7686).actionable === true,
+    "startup asks for a consented repair of the old budget",
+  );
+  assert(
+    load(60).checkIntegration().session_start_hook === true,
+    "a hook carrying the cold-start budget is current",
+  );
+}
+
 {
   const hooksPath = "/tmp/home/.codex/hooks.json";
   const configPath = "/tmp/home/.codex/config.toml";
@@ -1041,6 +1036,7 @@ for (const [name, fixture] of [
           command:
             "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start " +
             "-H 'X-CodeTerm-Agent-Provider: codex' " +
+            '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
             '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-',
         }],
       }],
@@ -1118,6 +1114,7 @@ for (const [name, fixture] of [
         command:
           "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
           '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+          '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
           '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"',
       }] }],
       Stop: [],

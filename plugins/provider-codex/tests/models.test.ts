@@ -1,11 +1,6 @@
 /**
- * Codex model discovery tests: the live cache is authoritative, the manifest is
- * a fallback for a machine whose cache is missing or unreadable, and the two
- * must agree on hidden entries.
+ * Codex model discovery tests cover live cache, manifest fallback, and catalog freshness.
  * Run: npx tsx plugins/provider-codex/tests/models.test.ts
- *
- * No test here names a real model. A literal id fails on the next Codex release
- * without having found a defect, and someone edits it out of annoyance.
  */
 
 import fs from "node:fs";
@@ -41,6 +36,11 @@ const manifestSeed = {
   ],
 };
 
+const bundledManifest = JSON.parse(fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"),
+  "utf8",
+)) as { models?: Array<{ id: string }> };
+
 const baseHost = (over: Record<string, unknown>) => ({
   manifestJson: () => JSON.stringify(manifestSeed),
   homeDir: () => "/tmp/home",
@@ -66,6 +66,14 @@ const baseHost = (over: Record<string, unknown>) => ({
 });
 
 console.log("\n--- discoverModels ---\n");
+
+{
+  const p = loadCodexWithHost(baseHost({ manifestJson: () => JSON.stringify(bundledManifest) }));
+  const manifestIds = (bundledManifest.models || []).map((model) => model.id);
+  const discoveredIds = (p.discoverModels() as Array<{ id: string }>).map((model) => model.id);
+  eq(discoveredIds, manifestIds, "the bundled model catalog is the live-cache fallback");
+  assert(!manifestIds.includes("gpt-5.4-mini"), "a removed model is absent from launch choices");
+}
 
 {
   const p = loadCodexWithHost(baseHost({

@@ -24,11 +24,18 @@ further down are the fallback for when the runners are down.
 
 ## ⚡ Default release path: single trigger tag (automated, self-hosted CI)
 
-The whole pipeline runs itself on the **self-hosted runners**: Mac `codeterm-builder` via
-`.github/workflows/release.yml`, Windows `windows-build` via `release-windows.yml`, and WSL2
-Linux `linux-build` via `release-linux.yml`. **Self-hosted runner minutes are free** — this is
-how we release without burning GitHub-hosted minutes. You do NOT build by hand on multiple
-machines anymore (that's the fallback at the bottom).
+One push of `release-X.Y.Z` starts one `.github/workflows/release.yml` run. It prepares draft
+releases, then runs three reusable platform jobs in parallel: Mac `codeterm-builder` builds
+macOS and arm64 Linux, Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
+builds x86_64 Linux. A final `release-manifest` job needs all three jobs, merges their updater
+fragments, publishes the signed public manifests, marks the releases, verifies served bytes, and
+closes eligible public issues. The platform workflows are reusable pieces and do not start their
+own tag runs. Each platform job clears incomplete upload slots before building, so a failed platform
+can be rerun by itself. Self-hosted runner minutes are free, so releases do not burn GitHub-hosted
+minutes.
+
+For a manual build, dispatch `release.yml` with the same `release-X.Y.Z` tag. Set `mirror` false
+only for a dry run; it leaves the private release draft unpublished and skips public verification.
 
 **Normal change flow:** verify the UI from the main checkout on `release/X.Y.Z`, clean old lane
 worktrees, then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`,
@@ -71,22 +78,20 @@ back-merge step waiting on it:
 git push origin --delete "release/$VER"
 ```
 
-Pushing `release-X.Y.Z` triggers the runners, which **fully automatically**:
-1. preflight (Developer ID, notary, minisign key, docker images, VM, gh) →
-2. builds **all platforms** across three self-hosted workflows: Mac `codeterm-builder` builds
-   macOS x64+arm64 plus arm64 Linux in Docker; ROG `windows-build` builds Windows x64+arm64;
-   ROG WSL2 `linux-build` builds x86_64 Linux natively →
-3. **signs** on each runner and **notarizes** the macOS DMGs on the Mac →
-4. **publishes** to private `rollacode/codeterm` + public mirror `rollacode/codeterm-releases`
-   with a signed `latest.json`, marks `--latest` →
-5. verifies anon updater URLs return 200 and the manifest version is live.
+Pushing `release-X.Y.Z` creates one Actions run. After release preparation, its Mac + arm64 Linux,
+x86_64 Linux, and Windows build jobs run in parallel. The Mac job signs and notarizes macOS
+artifacts; Linux jobs package AppImage and Debian assets; Windows builds the NSIS installers. The
+final `release-manifest` job runs only after all platform jobs succeed. It merges every updater
+fragment, uploads `latest.json` and the Debian manifest to both repositories, publishes the
+releases, syncs notes, verifies all six updater platforms against public served bytes, then applies
+the issue-closure contract.
 
 The publication path also runs `scripts/sync-release-notes.mjs --tag vX.Y.Z` after both GitHub
 releases exist. It preserves authored source notes or replaces a known placeholder with generated
 notes from the release PR (with GitHub generation as fallback), then writes the identical body to
 the private release and public mirror.
 
-End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/codeterm`.
+End-to-end ≈ 25–30 min, hands-off. Watch the single run: `gh run watch --repo rollacode/codeterm`.
 
 **Prereqs for the automated path** (one-time, see `.agents/skills/build-machine/SKILL.md`):
 - self-hosted runner registered + running (`~/actions-runner`; `./svc.sh install` for always-on);
@@ -333,7 +338,7 @@ The captured `ARM_SIG` / `X64_SIG` go straight into latest.json below.
 .agents/skills/github-release/scripts/release-status.sh "$VER"
 ```
 
-Compact one-shot view of: private/public assets, latest.json manifest plat coverage, and per-platform CI run state. Replaces 3-4 separate `gh` queries.
+Compact one-shot view of: private/public assets, latest.json platform coverage, and the single release run state.
 
 Cross-compile detail (why this script exists): `references/macos-x86-64.md`.
 
@@ -355,7 +360,7 @@ The GUI updater fetches `latest.json` anonymously, so the manifest plus the asse
 
 Pointing macOS `latest.json` at `.dmg` makes `codeterm update install --auto` fail with `invalid gzip header`. In Tauri v2 mode, Windows `.exe` and Linux `.AppImage` are valid updater URLs; `.nsis.zip` / `.AppImage.tar.gz` are the old v1-compatible artifact names.
 
-**Preferred path:** tag-push CI builds each platform, uploads source artifacts to `rollacode/codeterm`, writes updater fragments whose URLs point at `rollacode/codeterm-releases`, then mirrors public assets and merged `latest.json`.
+**Preferred path:** one tag-push run builds all platform jobs in parallel, uploads source artifacts to `rollacode/codeterm`, writes updater fragments whose URLs point at `rollacode/codeterm-releases`, then the final job mirrors assets and the merged manifests.
 
 ```bash
 .agents/skills/github-release/scripts/release-status.sh "$VER"
@@ -367,7 +372,8 @@ node scripts/verify-updater-manifest.mjs \
   --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)" \
   --require-version "$VER" \
   --require-platform darwin-aarch64 --require-platform darwin-x86_64 \
-  --require-platform windows-x86_64 --require-platform linux-x86_64 \
+  --require-platform windows-x86_64 --require-platform windows-aarch64 \
+  --require-platform linux-x86_64 --require-platform linux-aarch64 \
   --evidence "$RUNNER_TEMP/manifest-verification.json"
 
 # Closing a public issue is authorised by that record, never by owning the release.
@@ -375,16 +381,10 @@ node scripts/check-release-closure.mjs \
   --evidence "$RUNNER_TEMP/manifest-verification.json" --version "$VER" --issue <n>
 ```
 
-`windows-aarch64` and `linux-aarch64` are omitted on purpose - the ARM64 Windows runner can be
-unavailable (1.7.2 shipped without it) and `linux-aarch64` rides only on `LINUX_ARM_SIG`. The
-closure guard reports which of them were absent rather than certifying a set that was never built.
-
-All three platform lanes run the verifier. `release-macos.yml` checks both darwin platforms in a
-separate `verify` job that `needs: build`, because both fragments exist only after the matrix
-finishes; it is a `workflow_dispatch` fallback lane and now takes a `mirror` input like the Linux
-lane. `release.yml` - the path that actually ships macOS - verifies the five unconditional
-platforms before minting `issue-closure-boundary.json`, so an unverified release produces no
-closure authority at all.
+The consolidated `release-manifest` job is the only automatic verifier. It runs after the Mac +
+arm64 Linux, x86_64 Linux, and Windows jobs succeed, requires all six platform keys, and verifies
+the public served bytes before minting `issue-closure-boundary.json`. A partial platform recovery
+must not mint closure authority.
 
 **Manual mirror fallback:** use only when CI produced source assets but the public mirror failed (usually `PACKAGE_REPOS_TOKEN` 403 or a workflow script bug). This is what keeps the release shippable without rebuilding all platforms.
 
@@ -468,7 +468,9 @@ codeterm update install --auto     # → must NOT fail with 'invalid gzip header
                             # If it does, the manifest is still wrong — fix and re-publish before continuing.
 ```
 
-If the Windows or Linux build is still pending, do not publish the source release yet. Wait for all four updater platforms to exist in public `latest.json`, or users on the missing platform will not auto-update.
+The consolidated run keeps both releases in draft until every platform job succeeds. The final
+manifest job requires all six updater platforms before it publishes the source release or public
+mirror.
 
 ### 8. Windows build
 
@@ -506,7 +508,9 @@ What the script does internally (`scripts/win-bundle.sh` + `win-upload.sh`):
 
 Wall times (BLACKSTAR, cache-warm): ~3min build, +~30s install if `node_modules` cold, +~10s upload. Cold from a fresh `pnpm install`: ~5-7min total.
 
-**CI path (`release-windows.yml`)**: still triggers automatically on tag push and uploads `.exe` + `.exe.sig` to the private repo. Treat CI artifacts as a back-up source for `gh release download` when the worker is offline.
+**CI path (`release.yml` → `release-windows.yml`)**: the Windows reusable job runs inside the
+single release run and uploads signed NSIS bundles and updater fragments. Treat CI artifacts as a
+back-up source for `gh release download` when the worker is offline.
 
 Direct local invocation (on a Windows machine with a checkout, e.g. for testing the pipeline without dispatching an agent):
 
@@ -531,9 +535,8 @@ Alternative paths (debugging tactics, not normal flow):
 # Private source repo:
 gh release edit v$VER --draft=false --latest
 gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
-# Expect 4-5 assets on the source repo: aarch64.dmg, x64.dmg, x64-setup.exe + the
-# Linux artifacts (`amd64.deb`, `amd64.AppImage`) when CI shipped them via release-linux.yml.
-# The mirror (codeterm-releases) holds the same set plus `.app.tar.gz` and `latest.json`.
+# Expect Mac DMGs, both Windows installers, Linux deb/AppImage assets, updater bundles,
+# per-platform fragments, and the merged manifests. The final job mirrors and verifies them.
 
 # Public mirror — once Windows .exe arrives, also update its sig in latest.json
 # and re-upload --clobber. Verify GUI updater can resolve anonymously:
@@ -785,7 +788,7 @@ As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agen
 Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
 `CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares both the
 `codeterm` application and `codeterm-embed` bins in one Cargo invocation, so Tauri can reuse
-the dependency graph. The three self-hosted workflows do not use Rust target caches; clean
+the dependency graph. The reusable platform jobs do not use Rust target caches; clean
 checkouts therefore remain explicit and reproducible.
 
 The 1.10.22 baseline was captured from runs `35009190163` (Mac), `35009189838` (Windows),
@@ -797,7 +800,7 @@ and `35009190153` (Linux):
 | Windows arm64 | release-inputs 7m04s; Tauri 5m30s; cache save 42s | app target was selected in separate Cargo invocations; target upload failed |
 | Windows x86_64 | release-inputs 8m01s; Tauri 5m15s; cache save 43s | same separate target selection; target upload failed |
 | Linux x86_64 | release-inputs 18m45s; Tauri 16m05s; cache save 1m33s | release-inputs used `target/release`, Tauri used `target/x86_64-unknown-linux-gnu/release` |
-| Completion signals | Mac queued 19m54s; Windows queued 7m37s | metadata-only jobs waited for `linux-build` |
+| Completion signals | Mac queued 19m54s; Windows queued 7m37s | former validator jobs waited for `linux-build` |
 
 The Windows logs show the same `CARGO_BUILD_TARGET` and `CARGO_INCREMENTAL=0` in both steps,
 but no Cargo fingerprint or feature diagnostics. The verified source-level cause is that
@@ -812,10 +815,9 @@ gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate \
   --jq '.jobs[] | [.name, .started_at, .completed_at, .conclusion] | @tsv'
 ```
 
-The expected observation is one `release-inputs` and one Tauri build per target, no cache-save
-step, overlap between Mac arm64 notarization and x86_64 compilation, and completion jobs
-running on the self-hosted Mac runner `codeterm-builder`. The release remains incomplete until the existing five-platform
-updater-manifest verification passes.
+The next run should show three parallel platform jobs inside one caller run, one `release-inputs`
+and one Tauri build per target, no cache-save step, and the final manifest job waiting on every
+platform job. The release remains incomplete until six-platform updater verification passes.
 
 
 ## 7. Runner restoration boundaries
@@ -898,12 +900,14 @@ issue prose but reject malformed `Public-Issue:` metadata. The validator uses
 prints the normalized set in the check summary. This metadata is deliberately not a GitHub
 closing keyword, so merging private source cannot close a public issue prematurely.
 
-After all publisher completion signals are present, `release-manifest-validate.yml` verifies that
-the private and matching public releases are published, that the mirror has `latest.json`, and
-that every version-pinned public updater asset URL resolves. Only then does it resolve commits and
-associated private PRs in the release range, union their validated metadata, and close still-open
-public issues. Each close comment names `vX.Y.Z` and a declaring commit or private PR URL.
-Already-closed issues are skipped, making reruns idempotent.
+The single `release.yml` run has three parallel reusable platform jobs and a final
+`release-manifest` job whose `needs` includes all three. That final job rebuilds `latest.json` and
+the Debian manifest from every uploaded updater fragment, uploads both manifests to the source
+release and public mirror, publishes the releases, and verifies the public served bytes. Only a
+successful verification proceeds to resolve commits and associated private PRs in the release
+range, union their validated metadata, and close still-open public issues. Each close comment names
+`vX.Y.Z` and a declaring commit or private PR URL. Already-closed issues are skipped, making
+reruns idempotent.
 
 The close step is downstream of build, private/public publication, and mirror verification.
 Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
@@ -918,15 +922,16 @@ did not run, so a range start was taken from a release nothing had verified.
 The minted asset therefore carries `validator_run_id`, `validator_repository` and
 `validator_run_url` — the validator run that produced it. Reading it back, the validator downloads
 each historical boundary, asks Actions for the run it names, and accepts the release only when
-that run is the release manifest validator, concluded `success`, and the boundary's `source_sha`
+that run is the release workflow run, concluded `success`, and the boundary's `source_sha`
 is the release's own commit. A boundary with no run id, or one whose run Actions cannot confirm,
 is refused and `range-start` falls back to the previous release that can be confirmed. Refusing
 widens the commit range, which over-reports candidate issues; accepting an unverified boundary
 narrows it, which silently drops shipped work. Reading a run back from the Actions API needs
 `actions: read` on the job token.
 
-Boundaries minted before this gate carry no run id and are refused by design. Re-mint one by
-re-running the validator for that tag with the `workflow_dispatch` fallback above.
+Boundaries minted before run ids were added carry no run id and are refused by design. Re-mint one
+by rerunning the `release-manifest` job in the successful `release.yml` run. Historical boundaries
+from the former standalone validator remain accepted when Actions confirms their run path.
 
 Closure authority is evidence-bound, never role-bound. Owning the release is not grounds; the
 grounds are a passing published-manifest verification for **this** release, and the close cites

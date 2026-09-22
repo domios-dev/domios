@@ -4,14 +4,18 @@
 //! have been provisioned, and two payloads disagreeing about which checkout is
 //! canonical.
 
-use crate::plan::{ExecutionIntent, OrchestratorRef, Plan, TaskExecutionIntent, TaskLaneMetadata};
-use crate::service::plan::{NewTask, PlanStore};
+use crate::plan::{
+    AgentRef, ExecutionIntent, OrchestratorRef, Plan, TaskExecutionAttempt, TaskExecutionIntent,
+    TaskLaneMetadata, TaskStatus,
+};
+use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
 use crate::service::{
     provision_lane_for_test, refuse_unsafe_task_bound_mutating_lane, LaneProtection,
     ProvisionedWorkerLane, WorkerLaneProvenance,
 };
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::super::lane_safety::{
     atomic_lane_commitment, refuse_unsafe_mutating_write, REFUSAL_MUTATING_WRITE_IN_CANONICAL,
@@ -24,7 +28,7 @@ use super::super::{
 
 struct Fixture {
     root: tempfile::TempDir,
-    _store: PlanStore,
+    store: PlanStore,
     plan: Plan,
     project: PathBuf,
     mine: String,
@@ -87,12 +91,164 @@ fn fixture() -> Fixture {
     let plan = store.get(&created.id).unwrap();
     Fixture {
         root,
-        _store: store,
+        store,
         plan,
         project,
         mine,
         theirs,
     }
+}
+
+#[test]
+fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
+    let fixture = fixture();
+    let first_lane = fixture.lane_for(&fixture.mine);
+    let first = first_lane.verify().expect("the initial lane verifies");
+    fixture
+        .store
+        .update_task_lane(
+            &fixture.plan.id,
+            &fixture.mine,
+            TaskLaneUpdate {
+                tab_id: Some(Some("tab-worker".into())),
+                workspace_id: Some(Some("ws_old".into())),
+                workspace_name: Some(Some("old workspace".into())),
+                worktree_path: Some(Some(first.worktree_path.clone())),
+                branch: Some(Some(first.branch.clone())),
+                base: Some(Some(first.base.clone())),
+                destination: Some(Some(first.base.clone())),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+    fixture
+        .store
+        .with_plan(&fixture.plan.id, 5, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == fixture.mine)
+                .expect("fixture task")
+                .execution_attempts
+                .push(TaskExecutionAttempt {
+                    id: "attempt-preserved".into(),
+                    executor_tab_id: "tab-worker".into(),
+                    branch: Some(first.branch.clone()),
+                    worktree_path: Some(first.worktree_path.clone()),
+                    assigned_at: Some(2),
+                    acknowledged_at: Some(3),
+                    reported_at: Some(5),
+                    ..Default::default()
+                });
+            Ok(())
+        })
+        .unwrap();
+    fixture
+        .store
+        .close_task(
+            &fixture.plan.id,
+            &fixture.mine,
+            Some("finished"),
+            AgentRef::from_tab("orch"),
+            6,
+        )
+        .unwrap();
+
+    let terminal_plan = fixture.store.get(&fixture.plan.id).unwrap();
+    let outcome = crate::service::plan::lane_cleanup::try_cleanup_task_lane(
+        &fixture.store,
+        &terminal_plan,
+        &fixture.mine,
+        |_| false,
+        7,
+    );
+
+    assert!(matches!(
+        outcome,
+        crate::service::plan::lane_cleanup::LaneCleanupOutcome::Cleaned
+    ));
+    assert!(!Path::new(&first.worktree_path).exists());
+    assert!(!branch_exists(&fixture.project, &first.branch));
+
+    let cleaned = fixture.store.show_task(&fixture.mine).unwrap().task;
+    assert_eq!(cleaned.status, TaskStatus::Done);
+    assert!(cleaned.assigned_tab_id.is_none());
+    assert!(cleaned.lane.tab_id.is_none());
+    assert!(cleaned.lane.workspace_id.is_none());
+    assert!(cleaned.lane.workspace_name.is_none());
+    assert!(cleaned.lane.worktree_path.is_none());
+    assert!(cleaned.lane.branch.is_none());
+    assert_eq!(cleaned.lane.base.as_deref(), Some(first.base.as_str()));
+    assert_eq!(
+        cleaned.lane.destination.as_deref(),
+        Some(first.base.as_str())
+    );
+    assert_eq!(cleaned.lane.cleanup_status.as_deref(), Some("done"));
+    let attempt = &cleaned.execution_attempts[0];
+    assert_eq!(
+        attempt.worktree_path.as_deref(),
+        Some(first.worktree_path.as_str())
+    );
+    assert_eq!(attempt.branch.as_deref(), Some(first.branch.as_str()));
+    assert_eq!(attempt.assigned_at, Some(2));
+    assert_eq!(attempt.acknowledged_at, Some(3));
+    assert_eq!(attempt.reported_at, Some(5));
+    assert_eq!(attempt.closed_at, Some(6));
+
+    let repeated = crate::service::plan::lane_cleanup::try_cleanup_task_lane(
+        &fixture.store,
+        &fixture.store.get(&fixture.plan.id).unwrap(),
+        &fixture.mine,
+        |_| false,
+        8,
+    );
+    assert_eq!(
+        repeated,
+        crate::service::plan::lane_cleanup::LaneCleanupOutcome::Noop
+    );
+
+    fixture
+        .store
+        .update_task(
+            &fixture.plan.id,
+            &fixture.mine,
+            None,
+            None,
+            None,
+            None,
+            Some("pending"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            9,
+        )
+        .unwrap();
+    let pending_plan = fixture.store.get(&fixture.plan.id).unwrap();
+    let pending_task = fixture.store.show_task(&fixture.mine).unwrap().task;
+    let resolved = resolved_from_workspace(&fixture.project, &pending_task.lane);
+    let placement = plan_dispatch_lane_placement(
+        &pending_plan,
+        pending_task.id.as_str(),
+        &pending_task.lane,
+        resolved,
+    )
+    .expect("the reopened task receives a freshly provisioned isolated lane");
+    let DispatchLanePlacement::Provision { base_checkout } = placement else {
+        panic!("expected fresh lane provisioning, got {placement:?}");
+    };
+    let next_lane = provision_lane_for_test(&base_checkout, "after-terminal-cleanup").unwrap();
+    let next = next_lane.verify().expect("the next isolated lane verifies");
+    assert_ne!(next.worktree_path, first.worktree_path);
+    assert_ne!(next.branch, first.branch);
+    assert!(!same_dir(&next.worktree_path, &fixture.project));
 }
 
 impl Fixture {
@@ -139,6 +295,18 @@ fn resolved_from_workspace(project: &Path, lane: &TaskLaneMetadata) -> WorkerLan
 
 fn same_dir(a: &str, b: &Path) -> bool {
     std::fs::canonicalize(a).unwrap() == std::fs::canonicalize(b).unwrap()
+}
+
+fn branch_exists(project: &Path, branch: &str) -> bool {
+    let reference = format!("refs/heads/{branch}");
+    let mut command = Command::new("git");
+    crate::process_util::no_window_std(&mut command);
+    command
+        .current_dir(project)
+        .args(["show-ref", "--verify", "--quiet", &reference])
+        .status()
+        .expect("git runs")
+        .success()
 }
 
 fn recorded(worktree: &str) -> TaskLaneMetadata {
@@ -259,25 +427,203 @@ fn dispatch_refuses_a_recorded_foreign_lane_before_provisioning() {
     foreign.cleanup().unwrap();
 }
 
-/// A lane the task recorded is never swapped for a fresh one: the work inside
-/// it is exactly what the record protects.
 #[test]
-fn dispatch_refuses_when_a_recorded_lane_did_not_verify() {
+fn vanished_recorded_lane_is_cleared_and_a_fresh_lane_is_provisioned() {
     let fixture = fixture();
-    let missing = fixture.root.path().join("gone-lane");
-    let lane = recorded(missing.to_str().unwrap());
-    let resolved = resolved_from_workspace(&fixture.project, &lane);
+    let old_lane = fixture.lane_for(&fixture.mine);
+    let old = old_lane.verify().expect("old lane verifies");
+    fixture
+        .store
+        .update_task_lane(
+            &fixture.plan.id,
+            &fixture.mine,
+            TaskLaneUpdate {
+                tab_id: Some(Some("old-tab".into())),
+                workspace_id: Some(Some("old-workspace".into())),
+                workspace_name: Some(Some("old workspace".into())),
+                worktree_path: Some(Some(old.worktree_path.clone())),
+                branch: Some(Some(old.branch.clone())),
+                base: Some(Some(old.base.clone())),
+                destination: Some(Some(old.base.clone())),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+    fixture
+        .store
+        .with_plan(&fixture.plan.id, 5, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == fixture.mine)
+                .expect("fixture task")
+                .execution_attempts
+                .push(TaskExecutionAttempt {
+                    id: "old-attempt".into(),
+                    executor_tab_id: "old-tab".into(),
+                    branch: Some(old.branch.clone()),
+                    worktree_path: Some(old.worktree_path.clone()),
+                    assigned_at: Some(4),
+                    ..Default::default()
+                });
+            Ok(())
+        })
+        .unwrap();
+    std::fs::remove_dir_all(&old.worktree_path).unwrap();
+    super::git(&fixture.project, &["worktree", "prune", "--expire", "now"]);
+    super::git(&fixture.project, &["branch", "-D", &old.branch]);
 
-    let error =
-        plan_dispatch_lane_placement(&fixture.plan, &fixture.mine, &lane, resolved).unwrap_err();
-
-    assert_eq!(error.code, -32012);
-    assert_eq!(error.data.as_ref().unwrap()["type"], "checkout_required");
-    assert!(
-        error.message.contains(missing.to_str().unwrap()),
-        "{}",
-        error.message
+    let plan = fixture.store.get(&fixture.plan.id).unwrap();
+    let recorded_task = fixture.store.show_task(&fixture.mine).unwrap().task;
+    assert_eq!(recorded_task.assigned_tab_id.as_deref(), Some("old-tab"));
+    assert_eq!(
+        recorded_task.lane.worktree_path.as_deref(),
+        Some(old.worktree_path.as_str())
     );
+    assert_eq!(
+        recorded_task.lane.branch.as_deref(),
+        Some(old.branch.as_str())
+    );
+    assert_eq!(recorded_task.execution_attempts.len(), 1);
+    assert_eq!(
+        recorded_task.execution_attempts[0].worktree_path.as_deref(),
+        Some(old.worktree_path.as_str())
+    );
+    assert_eq!(
+        recorded_task.execution_attempts[0].branch.as_deref(),
+        Some(old.branch.as_str())
+    );
+
+    let resolved = resolved_from_workspace(&fixture.project, &recorded_task.lane);
+    let placement =
+        plan_dispatch_lane_placement(&plan, &fixture.mine, &recorded_task.lane, resolved)
+            .expect("dispatch resolves to a fresh lane placement");
+    let DispatchLanePlacement::Provision { base_checkout } = placement else {
+        panic!("expected fresh lane provisioning, got {placement:?}");
+    };
+    assert!(same_dir(&base_checkout, &fixture.project));
+
+    let mut stale_route = recorded_task.lane.clone();
+    super::super::lane_commit::clear_replaced_lane_routing_fields(&mut stale_route);
+    assert!(stale_route.tab_id.is_none());
+    assert!(stale_route.workspace_id.is_none());
+    assert!(stale_route.workspace_name.is_none());
+    assert!(stale_route.worktree_path.is_none());
+    assert!(stale_route.branch.is_none());
+    let fresh = provision_lane_for_test(&base_checkout, "fresh-after-vanish").unwrap();
+    let provenance = fresh.verify().unwrap();
+    let starting_lane = atomic_lane_commitment(&lane_metadata_for_dispatch(
+        &stale_route,
+        &provenance,
+        &fixture.project.display().to_string(),
+    ));
+    fixture
+        .store
+        .begin_task_dispatch_with_policy(
+            &fixture.plan.id,
+            &fixture.mine,
+            "fresh-tab",
+            "Worker",
+            starting_lane,
+            ExecutionIntent::Mutating,
+            None,
+            Some("codex"),
+            6,
+        )
+        .unwrap();
+    let committed = fixture.store.show_task(&fixture.mine).unwrap().task;
+    assert_eq!(committed.assigned_tab_id.as_deref(), Some("fresh-tab"));
+    assert_eq!(
+        committed.lane.worktree_path.as_deref(),
+        Some(provenance.worktree_path.as_str())
+    );
+    assert_eq!(
+        committed.lane.branch.as_deref(),
+        Some(provenance.branch.as_str())
+    );
+    assert_eq!(committed.execution_attempts.len(), 2);
+    assert_eq!(
+        committed.execution_attempts[0].worktree_path.as_deref(),
+        Some(old.worktree_path.as_str())
+    );
+    fresh.cleanup().unwrap();
+}
+
+#[test]
+fn recorded_lane_with_surviving_branch_commits_still_refuses() {
+    let fixture = fixture();
+    let old_lane = fixture.lane_for(&fixture.mine);
+    let old = old_lane.verify().expect("old lane verifies");
+    std::fs::write(
+        Path::new(&old.worktree_path).join("work.txt"),
+        "unmerged work",
+    )
+    .unwrap();
+    super::git(Path::new(&old.worktree_path), &["add", "work.txt"]);
+    super::git(
+        Path::new(&old.worktree_path),
+        &["commit", "-qm", "unmerged work"],
+    );
+    std::fs::remove_dir_all(&old.worktree_path).unwrap();
+    super::git(&fixture.project, &["worktree", "prune", "--expire", "now"]);
+    let lane = TaskLaneMetadata {
+        worktree_path: Some(old.worktree_path.clone()),
+        branch: Some(old.branch.clone()),
+        base: Some(old.base.clone()),
+        ..Default::default()
+    };
+    let resolved = resolved_from_workspace(&fixture.project, &TaskLaneMetadata::default());
+
+    let error = plan_dispatch_lane_placement(&fixture.plan, &fixture.mine, &lane, resolved)
+        .expect_err("a surviving branch must prevent provisioning over possible work");
+
+    assert!(error.message.contains(&old.branch), "{}", error.message);
+    assert!(error.message.contains("branch '") && error.message.contains("commits not merged"));
+    assert!(error.message.contains("codeterm plan lane-remove"));
+    assert!(error.message.contains("--project"));
+    assert!(!error.message.contains("branch -D"));
+    super::git(&fixture.project, &["branch", "-D", &old.branch]);
+}
+
+#[test]
+fn recorded_lane_with_a_surviving_worktree_registration_still_refuses() {
+    let fixture = fixture();
+    // macOS temp dirs sit behind the /var symlink, and git records the resolved path.
+    let root = if cfg!(unix) {
+        fixture.root.path().canonicalize().unwrap()
+    } else {
+        fixture.root.path().to_path_buf()
+    };
+    let registered_path = root.join("registered-lane");
+    super::git(
+        &fixture.project,
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            "-q",
+            registered_path.to_str().unwrap(),
+            "HEAD",
+        ],
+    );
+    std::fs::remove_dir_all(&registered_path).unwrap();
+    let lane = TaskLaneMetadata {
+        worktree_path: Some(registered_path.display().to_string()),
+        branch: Some("lane/already-gone".into()),
+        ..Default::default()
+    };
+    let resolved = resolved_from_workspace(&fixture.project, &TaskLaneMetadata::default());
+
+    let error = plan_dispatch_lane_placement(&fixture.plan, &fixture.mine, &lane, resolved)
+        .expect_err("a stale registration still protects its recorded lane");
+
+    assert!(error.message.contains("Git worktree registration"));
+    assert!(error
+        .message
+        .contains(&registered_path.display().to_string()));
+    assert!(error.message.contains("codeterm plan lane-remove"));
+    assert!(error.message.contains("--project"));
+    super::git(&fixture.project, &["worktree", "prune", "--expire", "now"]);
 }
 
 #[test]

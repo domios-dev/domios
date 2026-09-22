@@ -479,13 +479,16 @@ fn list_agent_providers_deserialize() {
 // Tests stay on the pure helper so both `Tab list` and `Tab find` keep full workspace context.
 
 #[test]
-fn tab_list_attaches_tab_title_and_workspace_name() {
+fn tab_list_exposes_one_name_and_workspace_context() {
     use crate::multiplexer::state::MultiplexerState;
     let (mut state, initial_tab) = MultiplexerState::new();
     let snapshot = state.snapshot();
     let ws = snapshot.workspaces.first().expect("default ws").clone();
     let tab_id = state.find_tab_for_tab(&initial_tab).expect("default tab");
     state.rename_tab(&tab_id, "Dalton").unwrap();
+    state
+        .set_tab_description(&tab_id, Some("Tracks inventory and party filters".into()))
+        .unwrap();
     let snapshot = state.snapshot();
     let tabs = build_tab_list_json(&snapshot);
     let tab = tabs
@@ -493,9 +496,17 @@ fn tab_list_attaches_tab_title_and_workspace_name() {
         .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(initial_tab.as_str()))
         .expect("default Tab present in list");
     assert_eq!(
-        tab.get("tab_title").and_then(|v| v.as_str()),
+        tab.get("title").and_then(|v| v.as_str()),
         Some("Dalton"),
-        "tab_title must be attached so CLI can show the sidebar label",
+        "the tab name is serialized in title",
+    );
+    assert!(
+        tab.get("tab_title").is_none(),
+        "duplicate name field remains"
+    );
+    assert_eq!(
+        tab.get("description").and_then(|v| v.as_str()),
+        Some("Tracks inventory and party filters"),
     );
     assert_eq!(
         tab.get("tab_id").and_then(|v| v.as_str()),
@@ -807,7 +818,8 @@ fn tab_list_keeps_tab_info_after_rename_to_fibonacci() {
     let tabs = build_tab_list_json(&snapshot);
     assert_eq!(tabs.len(), 1);
     assert_eq!(
-        tabs[0].get("tab_title").and_then(|v| v.as_str()),
+        tabs[0].get("title").and_then(|v| v.as_str()),
         Some("Fibonacci"),
     );
+    assert!(tabs[0].get("tab_title").is_none());
 }

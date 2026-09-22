@@ -24,6 +24,7 @@ pub struct LaneCleanupInput<'a> {
     pub worktree_path: Option<&'a str>,
     pub worktree_exists: bool,
     pub branch: Option<&'a str>,
+    pub branch_exists: bool,
     pub integration_target: Option<&'a str>,
 }
 
@@ -67,8 +68,7 @@ where
 {
     let worktree = non_empty(input.worktree_path);
     let branch = non_empty(input.branch);
-    let has_residue = (input.worktree_exists && worktree.is_some()) || branch.is_some();
-    if !has_residue {
+    if worktree.is_none() && branch.is_none() {
         return LaneCleanupDecision::Noop;
     }
     if input.tab_live {
@@ -77,16 +77,18 @@ where
             "worker tab {tab} is still live; close it before cleanup"
         ));
     }
-    if let Some(branch) = branch {
-        let Some(target) = non_empty(input.integration_target) else {
-            return LaneCleanupDecision::Refuse(format!(
-                "branch {branch} has no known integration target; leaving lane intact"
-            ));
-        };
-        if !branch_merged(branch, target) {
-            return LaneCleanupDecision::Refuse(format!(
-                "branch {branch} is not merged into {target}; leaving lane intact"
-            ));
+    if input.branch_exists {
+        if let Some(branch) = branch {
+            let Some(target) = non_empty(input.integration_target) else {
+                return LaneCleanupDecision::Refuse(format!(
+                    "branch {branch} has no known integration target; leaving lane intact"
+                ));
+            };
+            if !branch_merged(branch, target) {
+                return LaneCleanupDecision::Refuse(format!(
+                    "branch {branch} is not merged into {target}; leaving lane intact"
+                ));
+            }
         }
     }
     let mut actions = Vec::new();
@@ -95,14 +97,12 @@ where
             actions.push(LaneCleanupAction::RemoveWorktree(worktree.to_string()));
         }
     }
-    if let Some(branch) = branch {
-        actions.push(LaneCleanupAction::DeleteBranch(branch.to_string()));
+    if input.branch_exists {
+        if let Some(branch) = branch {
+            actions.push(LaneCleanupAction::DeleteBranch(branch.to_string()));
+        }
     }
-    if actions.is_empty() {
-        LaneCleanupDecision::Noop
-    } else {
-        LaneCleanupDecision::Clean(actions)
-    }
+    LaneCleanupDecision::Clean(actions)
 }
 
 pub fn try_cleanup_task_lane<F>(
@@ -123,32 +123,91 @@ where
         .cleanup_status
         .as_deref()
         .is_some_and(|s| s.eq_ignore_ascii_case("done"));
-    if already_done {
-        return LaneCleanupOutcome::Noop;
-    }
     let tab_id = task
         .lane
         .tab_id
         .as_deref()
         .or(task.assigned_tab_id.as_deref());
-    let tab_is_live = tab_id.map(|p| tab_live(p)).unwrap_or(false);
-    let worktree_path = task.lane.worktree_path.as_deref();
-    let worktree_exists = worktree_path.is_some_and(|p| Path::new(p).exists());
+    let project_path = plan_project_path(plan);
+    let worktree_path = non_empty(task.lane.worktree_path.as_deref());
+    let branch = non_empty(task.lane.branch.as_deref());
+    let has_lane_references = tab_id.is_some()
+        || worktree_path.is_some()
+        || branch.is_some()
+        || task.lane.workspace_id.is_some()
+        || task.lane.workspace_name.is_some();
+    if !has_lane_references {
+        return LaneCleanupOutcome::Noop;
+    }
+
+    if tab_id.is_some_and(&mut tab_live) {
+        return LaneCleanupOutcome::Refused(format!(
+            "worker tab {} is still live; close it before cleanup",
+            tab_id.unwrap_or("worker")
+        ));
+    }
+
+    let worktree_exists = worktree_path.is_some_and(|path| Path::new(path).exists());
+    let branch_is_present = branch.is_some_and(|name| branch_exists(project_path, name));
+    let mut stale_references = TaskLaneUpdate::default();
+    if already_done {
+        stale_references.cleanup_status = Some(None);
+    }
+    if task.lane.tab_id.is_some() || task.assigned_tab_id.is_some() {
+        stale_references.tab_id = Some(None);
+    }
+    if !worktree_exists {
+        if worktree_path.is_some() {
+            stale_references.worktree_path = Some(None);
+        }
+        if task.lane.workspace_id.is_some() {
+            stale_references.workspace_id = Some(None);
+        }
+        if task.lane.workspace_name.is_some() {
+            stale_references.workspace_name = Some(None);
+        }
+    }
+    if branch.is_some() && !branch_is_present {
+        stale_references.branch = Some(None);
+    }
+    let stale_references_changed = !stale_references.is_empty();
+    if let Err(error) = update_task_lane(store, &plan.id, task_id, stale_references, now_ms) {
+        return LaneCleanupOutcome::Partial(error);
+    }
+
+    let worktree_to_remove = worktree_path.filter(|_| worktree_exists);
+    let branch_to_delete = branch.filter(|_| branch_is_present);
+    if worktree_to_remove.is_none() && branch_to_delete.is_none() {
+        return match update_task_lane(
+            store,
+            &plan.id,
+            task_id,
+            TaskLaneUpdate {
+                cleanup_status: Some(Some("done".into())),
+                ..Default::default()
+            },
+            now_ms,
+        ) {
+            Ok(()) => LaneCleanupOutcome::Cleaned,
+            Err(error) => LaneCleanupOutcome::Partial(error),
+        };
+    }
+
     let integration_target = task
         .lane
         .destination
         .as_deref()
         .or(task.lane.base.as_deref())
         .or_else(|| plan_integration_fallback(plan));
-    let project_path = plan_project_path(plan);
 
     let decision = decide_lane_cleanup(
         &LaneCleanupInput {
             tab_id,
-            tab_live: tab_is_live,
-            worktree_path,
-            worktree_exists,
-            branch: task.lane.branch.as_deref(),
+            tab_live: false,
+            worktree_path: worktree_to_remove,
+            worktree_exists: worktree_to_remove.is_some(),
+            branch: branch_to_delete,
+            branch_exists: branch_to_delete.is_some(),
             integration_target,
         },
         |branch, target| branch_is_merged(project_path, branch, target),
@@ -156,21 +215,61 @@ where
 
     match decision {
         LaneCleanupDecision::Noop => LaneCleanupOutcome::Noop,
+        LaneCleanupDecision::Refuse(reason) if stale_references_changed => {
+            LaneCleanupOutcome::Partial(reason)
+        }
         LaneCleanupDecision::Refuse(reason) => LaneCleanupOutcome::Refused(reason),
         LaneCleanupDecision::Clean(actions) => {
             for action in &actions {
-                if let Err(err) = run_action(project_path, action) {
-                    return LaneCleanupOutcome::Partial(err);
+                if let Err(error) = run_action(project_path, action) {
+                    return LaneCleanupOutcome::Partial(error);
+                }
+                let update = match action {
+                    LaneCleanupAction::RemoveWorktree(_) => TaskLaneUpdate {
+                        workspace_id: Some(None),
+                        workspace_name: Some(None),
+                        worktree_path: Some(None),
+                        ..Default::default()
+                    },
+                    LaneCleanupAction::DeleteBranch(_) => TaskLaneUpdate {
+                        branch: Some(None),
+                        ..Default::default()
+                    },
+                };
+                if let Err(error) = update_task_lane(store, &plan.id, task_id, update, now_ms) {
+                    return LaneCleanupOutcome::Partial(error);
                 }
             }
-            let update = TaskLaneUpdate {
-                cleanup_status: Some(Some("done".into())),
-                ..Default::default()
-            };
-            let _ = store.update_task_lane(&plan.id, task_id, update, now_ms);
-            LaneCleanupOutcome::Cleaned
+            match update_task_lane(
+                store,
+                &plan.id,
+                task_id,
+                TaskLaneUpdate {
+                    cleanup_status: Some(Some("done".into())),
+                    ..Default::default()
+                },
+                now_ms,
+            ) {
+                Ok(()) => LaneCleanupOutcome::Cleaned,
+                Err(error) => LaneCleanupOutcome::Partial(error),
+            }
         }
     }
+}
+
+fn update_task_lane(
+    store: &PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    update: TaskLaneUpdate,
+    now_ms: u64,
+) -> Result<(), String> {
+    if update.is_empty() {
+        return Ok(());
+    }
+    store
+        .update_task_lane(plan_id, task_id, update, now_ms)
+        .map_err(|error| format!("task lane metadata update failed: {error}"))
 }
 
 // Lanes in a plan share a base; borrow a sibling's target when this lane omits it.
@@ -192,6 +291,14 @@ fn branch_is_merged(project_path: &str, branch: &str, target: &str) -> bool {
     git_ok(
         project_path,
         &["merge-base", "--is-ancestor", branch, target],
+    )
+}
+
+fn branch_exists(project_path: &str, branch: &str) -> bool {
+    let reference = format!("refs/heads/{branch}");
+    git_ok(
+        project_path,
+        &["show-ref", "--verify", "--quiet", &reference],
     )
 }
 

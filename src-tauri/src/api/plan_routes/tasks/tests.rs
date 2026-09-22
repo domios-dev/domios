@@ -8,6 +8,19 @@ use crate::service::test_fixture::ServiceFixture;
 use serde_json::json;
 use std::sync::Arc;
 
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// The exact live owner identity the update seam authorizes against:
 /// tab id, bound session and the nonce the tab itself reported back.
 pub(crate) fn owner_headers(tab_id: &str) -> HeaderMap {
@@ -182,6 +195,65 @@ fn rest_update_external_refs_round_trips_non_null() {
         task.external_refs[0].canonical_url,
         "https://github.com/rollacode/codeterm-releases/issues/17"
     );
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn rest_cleanup_done_refusal_returns_conflict_for_unmerged_lane_branch() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let project = fixture.temp.path();
+    git(project, &["init", "-q"]);
+    git(project, &["config", "user.email", "test@example.com"]);
+    git(project, &["config", "user.name", "Test"]);
+    std::fs::write(project.join("README.md"), "fixture").unwrap();
+    git(project, &["add", "README.md"]);
+    git(project, &["commit", "-qm", "fixture"]);
+    let lane =
+        crate::service::provision_lane_for_test(project.to_str().unwrap(), "rest-cleanup-refusal")
+            .unwrap();
+    let provenance = lane.verify().unwrap();
+    std::fs::write(
+        std::path::Path::new(&lane.cwd).join("unmerged.txt"),
+        "unmerged work",
+    )
+    .unwrap();
+    git(std::path::Path::new(&lane.cwd), &["add", "unmerged.txt"]);
+    git(
+        std::path::Path::new(&lane.cwd),
+        &["commit", "-qm", "unmerged work"],
+    );
+    fixture
+        .service
+        .plan_store
+        .update_task_lane(
+            &plan_id,
+            &task_id,
+            TaskLaneUpdate {
+                worktree_path: Some(Some(provenance.worktree_path.clone())),
+                branch: Some(Some(provenance.branch.clone())),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    std::fs::remove_dir_all(&lane.cwd).unwrap();
+    git(project, &["worktree", "prune", "--expire", "now"]);
+
+    let result = task_update_core(
+        &Arc::new(fixture.service.clone()),
+        &owner_headers(&owner),
+        &plan_id,
+        &task_id,
+        json!({"lane": {"cleanup_status": "done"}}),
+    );
+
+    let (status, Json(body)) = result.expect_err("unmerged commits refuse cleanup completion");
+    assert_eq!(status, axum::http::StatusCode::CONFLICT);
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("commits not merged"));
+    assert!(body["error"].as_str().unwrap().contains(&provenance.branch));
 }
 
 #[test]

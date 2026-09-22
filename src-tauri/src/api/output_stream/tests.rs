@@ -116,3 +116,105 @@ fn tab_scoped_stream_excludes_cross_tab_output_server_side() {
     assert!(!tab_is_in_scope("other", Some("owned")));
     assert!(tab_is_in_scope("other", None));
 }
+
+#[test]
+fn output_stream_builds_no_diagnostics_when_level_is_none() {
+    let diagnostics =
+        build_stream_diagnostics(None, Some("unused-session".into()), "*".into(), None, None);
+    assert!(diagnostics.is_none());
+}
+
+#[test]
+fn seed_initial_without_cursor_emits_tab_boot_frame_and_starts_at_zero() {
+    let (boot_frame, tracked, starts) = seed_initial_state(
+        "boot-current".into(),
+        None,
+        Some("tab-1"),
+        vec![InitialTab {
+            tab_id: "tab-1".into(),
+            pty_id: "pty-1".into(),
+            total_written: 42,
+            retained_from: 4,
+        }],
+    );
+
+    assert_eq!(
+        boot_frame,
+        Some(serde_json::json!({ "boot": "boot-current" }))
+    );
+    assert_eq!(tracked.get("tab-1").map(|tab| tab.offset), Some(0));
+    assert_eq!(starts[0].resume_offset, Some(0));
+    assert_eq!(starts[0].replay_truncated_from, Some(4));
+    assert!(!starts[0].boot_changed);
+
+    let (boot_frame, tracked, starts) = seed_initial_state(
+        "boot-current".into(),
+        None,
+        None,
+        vec![InitialTab {
+            tab_id: "tab-1".into(),
+            pty_id: "pty-1".into(),
+            total_written: 42,
+            retained_from: 4,
+        }],
+    );
+    assert_eq!(boot_frame, None);
+    assert_eq!(tracked.get("tab-1").map(|tab| tab.offset), Some(42));
+    assert_eq!(starts[0].resume_offset, Some(42));
+    assert_eq!(starts[0].replay_truncated, Some(false));
+}
+
+#[test]
+fn seed_initial_same_boot_resumes_cursor_without_boot_frame() {
+    let mut tabs = HashMap::new();
+    tabs.insert("tab-1".into(), 17);
+    let (boot_frame, tracked, starts) = seed_initial_state(
+        "boot-current".into(),
+        Some(Cursor {
+            boot: "boot-current".into(),
+            tabs,
+        }),
+        Some("tab-1"),
+        vec![InitialTab {
+            tab_id: "tab-1".into(),
+            pty_id: "pty-1".into(),
+            total_written: 42,
+            retained_from: 4,
+        }],
+    );
+
+    assert_eq!(boot_frame, None);
+    assert_eq!(tracked.get("tab-1").map(|tab| tab.offset), Some(17));
+    assert_eq!(starts[0].resume_offset, Some(17));
+    assert_eq!(starts[0].replay_truncated, Some(false));
+    assert!(!starts[0].boot_changed);
+}
+
+#[test]
+fn seed_initial_different_boot_emits_boot_changed_and_starts_at_tail() {
+    let mut tabs = HashMap::new();
+    tabs.insert("tab-1".into(), 17);
+    let (boot_frame, tracked, starts) = seed_initial_state(
+        "boot-current".into(),
+        Some(Cursor {
+            boot: "boot-old".into(),
+            tabs,
+        }),
+        Some("tab-1"),
+        vec![InitialTab {
+            tab_id: "tab-1".into(),
+            pty_id: "pty-1".into(),
+            total_written: 42,
+            retained_from: 4,
+        }],
+    );
+
+    assert_eq!(
+        boot_frame,
+        Some(serde_json::json!({ "boot_changed": true, "boot": "boot-current" }))
+    );
+    assert_eq!(tracked.get("tab-1").map(|tab| tab.offset), Some(42));
+    assert_eq!(starts[0].resume_offset, Some(42));
+    assert_eq!(starts[0].replay_truncated, Some(false));
+    assert!(starts[0].boot_changed);
+}

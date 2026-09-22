@@ -412,9 +412,8 @@ impl ReportStore {
         }
     }
 
-    pub fn claim_pending_for(&mut self, orchestrator_tab_id: &str) -> Vec<AgentReport> {
-        let pending: Vec<AgentReport> = self
-            .reports
+    pub fn pending_for(&self, orchestrator_tab_id: &str) -> Vec<AgentReport> {
+        self.reports
             .get(orchestrator_tab_id)
             .into_iter()
             .flatten()
@@ -422,7 +421,11 @@ impl ReportStore {
                 !self.delivered.contains(&report.id) && !self.in_flight.contains(&report.id)
             })
             .cloned()
-            .collect();
+            .collect()
+    }
+
+    pub fn claim_pending_for(&mut self, orchestrator_tab_id: &str) -> Vec<AgentReport> {
+        let pending = self.pending_for(orchestrator_tab_id);
         self.in_flight
             .extend(pending.iter().map(|report| report.id.clone()));
         pending
@@ -537,11 +540,15 @@ mod tests {
     fn pending_reports_clear_only_after_delivery() {
         let mut store = ReportStore::new(100);
         let report = store.add("cond-1", "w1", "W1", "ready");
+        assert_eq!(store.pending_for("cond-1").len(), 1);
         assert_eq!(store.claim_pending_for("cond-1").len(), 1);
+        assert!(store.pending_for("cond-1").is_empty());
         assert!(store.claim_pending_for("cond-1").is_empty());
         store.release_delivery(&report.id);
+        assert_eq!(store.pending_for("cond-1").len(), 1);
         assert_eq!(store.claim_pending_for("cond-1").len(), 1);
         store.mark_delivered(&report.id);
+        assert!(store.pending_for("cond-1").is_empty());
         assert!(store.claim_pending_for("cond-1").is_empty());
     }
 

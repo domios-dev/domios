@@ -6,6 +6,7 @@ mod planner_binding;
 mod planner_delivery;
 #[cfg(test)]
 mod report_attribution;
+mod report_delivery;
 mod report_event;
 mod report_persistence;
 pub(crate) mod report_plan_ctx;
@@ -16,6 +17,7 @@ mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
+pub(crate) use report_delivery::HierarchyReportDelivery;
 pub(crate) use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };
@@ -54,39 +56,22 @@ impl ServiceContext {
         });
     }
 
-    fn replay_pending_reports_if_routable(&self, tab_id: &str) {
-        let pending = self.report_store.lock().claim_pending_for(tab_id);
+    pub(super) fn replay_pending_reports_if_routable(&self, tab_id: &str) {
+        self.replay_pending_reports_with_delivery(tab_id, self);
+    }
+
+    pub(super) fn replay_pending_reports_with_delivery(
+        &self,
+        tab_id: &str,
+        delivery: &impl HierarchyReportDelivery,
+    ) {
+        let pending = self.report_store.lock().pending_for(tab_id);
+        if pending.is_empty() {
+            return;
+        }
+        let gate = self.hierarchy_report_recipient_gate(tab_id);
         for report in pending {
-            let envelope = crate::service::messenger::MessageEnvelope::report(
-                &report.from_title,
-                &report.from_tab_id,
-            )
-            .model(report.model.clone());
-            match self.gateway_deliver(
-                tab_id,
-                envelope,
-                &report.inject_body(),
-                crate::service::message_gateway::DeliveryClass::AgentTraffic,
-            ) {
-                Ok(delivery) => {
-                    self.report_store.lock().mark_delivered(&report.id);
-                    log::info!(
-                        "[report/replay] target={} report={} delivered via {:?}",
-                        tab_id,
-                        report.id,
-                        delivery
-                    );
-                }
-                Err(error) => {
-                    self.report_store.lock().release_delivery(&report.id);
-                    log::warn!(
-                        "[report/replay] target={} report={} deferred: {}",
-                        tab_id,
-                        report.id,
-                        error
-                    );
-                }
-            }
+            self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
         }
     }
 
@@ -574,6 +559,8 @@ impl ServiceContext {
                         h_task.to_string(),
                         from_ref.clone(),
                         task_status,
+                        (details.status == Some(ReportStatus::Blocked))
+                            .then(|| message.to_string()),
                         milestone_text(message, details.status),
                         milestone_kind.unwrap_or("status_update").to_string(),
                     ) {
@@ -894,6 +881,7 @@ impl ServiceContext {
         task_id: String,
         from_ref: AgentRef,
         task_status: Option<&'static str>,
+        status_label: Option<String>,
         ms_text: String,
         ms_kind: String,
     ) -> Result<(), String> {
@@ -915,6 +903,7 @@ impl ServiceContext {
                 "op": "set_task_status",
                 "task": task_id,
                 "status": status,
+                "status_label": status_label,
             }));
         }
         ops.push(serde_json::json!({
@@ -1041,14 +1030,11 @@ impl ServiceContext {
 fn report_task_status_transition(
     status: Option<ReportStatus>,
 ) -> Result<Option<&'static str>, String> {
-    match status {
-        Some(ReportStatus::Done) => Err(
-            "workers must not report --status done because only the owner can close a task. Use --status in_review when the work is ready for review, --status partial for progress, or ask the owner to close after review.".to_string(),
-        ),
-        Some(ReportStatus::InReview) => Ok(Some("in_review")),
-        Some(ReportStatus::Blocked) => Ok(Some("blocked")),
-        Some(ReportStatus::Partial) | None => Ok(None),
-    }
+    status
+        .map(ReportStatus::task_transition)
+        .transpose()
+        .map(|transition| transition.flatten().map(|status| status.key()))
+        .map_err(str::to_string)
 }
 
 fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
@@ -1104,3 +1090,7 @@ fn ledger_with_live_children(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "hierarchy/lifecycle_delivery_tests.rs"]
+mod lifecycle_delivery_tests;

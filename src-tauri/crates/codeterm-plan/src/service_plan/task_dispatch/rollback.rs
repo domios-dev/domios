@@ -50,6 +50,7 @@ impl PlanStore {
             return Ok(superseded(&current));
         }
         let mut outcome = None;
+        let mut restored_task = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -57,7 +58,23 @@ impl PlanStore {
                 outcome = Some(superseded(task));
                 return Ok(());
             }
-            *task = snapshot.clone();
+            let failed_attempt = task
+                .execution_attempts
+                .iter()
+                .find(|attempt| attempt.id == attempt_id)
+                .cloned();
+            let mut restored = snapshot.clone();
+            if let Some(mut failed_attempt) = failed_attempt {
+                failed_attempt.closed_at = Some(now_ms);
+                restored.lane.destination = task.lane.destination.clone();
+                restored.lane.cleanup_status = task.lane.cleanup_status.clone();
+                restored.lane.cleanup_hints = task.lane.cleanup_hints.clone();
+                failed_attempt.destination = restored.lane.destination.clone();
+                restored.execution_attempts.push(failed_attempt);
+                restored.updated_at = now_ms;
+            }
+            restored_task = Some(restored.clone());
+            *task = restored;
             plan.mode = plan_mode.clone();
             outcome = Some(DispatchRollback::Restored);
             Ok(())
@@ -80,7 +97,11 @@ impl PlanStore {
             .and_then(|plan| {
                 let task = crate::plan::task_key::find_task(&plan.tasks, &task_id)
                     .ok_or(PlanError::TaskNotFound)?;
-                if *task == *snapshot && plan.mode == plan_mode {
+                if restored_task
+                    .as_ref()
+                    .is_some_and(|restored| task == restored)
+                    && plan.mode == plan_mode
+                {
                     Ok(())
                 } else {
                     Err(Self::task_readback_error(

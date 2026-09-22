@@ -61,6 +61,18 @@ pub enum QaState {
 }
 
 impl TaskStatus {
+    pub fn key(&self) -> &'static str {
+        match self {
+            TaskStatus::Pending => "pending",
+            TaskStatus::InProgress => "in_progress",
+            TaskStatus::InReview => "in_review",
+            TaskStatus::Blocked => "blocked",
+            TaskStatus::Paused => "paused",
+            TaskStatus::Done => "done",
+            TaskStatus::Cancelled => "cancelled",
+        }
+    }
+
     pub fn is_terminal(&self) -> bool {
         matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
     }

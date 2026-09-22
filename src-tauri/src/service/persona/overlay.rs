@@ -24,7 +24,11 @@ const CAPABILITY_KEYS: &[&str] = &[
     "anchoring",
     "can_spawn",
     "capability",
+    "manages",
     "origin",
+    "plan_approval",
+    "plan_edit",
+    "release",
     "requires_parent",
     "spawns",
     "team_authority",
@@ -297,6 +301,13 @@ fn claimed_base(table: &toml::value::Table) -> Result<ClaimedBase, RejectionReas
             Some(descriptor) if descriptor.has_team_authority() => {
                 Err(RejectionReason::TeamAuthorityClaim {
                     base: base.to_string(),
+                })
+            }
+            // A managing leaf without team authority (Cartographer) is still a
+            // Manager kind: an overlay base may only be a leaf.
+            Some(descriptor) if descriptor.manages() => {
+                Err(RejectionReason::CapabilityEscalation {
+                    claim: format!("base = \"{base}\""),
                 })
             }
             Some(_) => Ok(ClaimedBase::Leaf),

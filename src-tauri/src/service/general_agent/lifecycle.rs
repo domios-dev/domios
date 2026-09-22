@@ -8,6 +8,38 @@ use readiness::{await_agent_launch_evidence, await_agent_output};
 #[cfg(test)]
 use readiness::{await_agent_output_with_signal, ScreenChangeSubscription};
 
+struct AutomaticLaunchClaim<'a> {
+    mux: &'a crate::MuxState,
+    tab_id: String,
+}
+
+impl<'a> AutomaticLaunchClaim<'a> {
+    fn acquire(mux: &'a crate::MuxState, tab_id: &str) -> Result<Self, String> {
+        let mut m = mux.write();
+        let tab = m
+            .get_tab_mut(tab_id)
+            .ok_or_else(|| format!("General Agent Tab {tab_id} is missing"))?;
+        apply_general_agent_launch_claim(tab);
+        Ok(Self {
+            mux,
+            tab_id: tab_id.to_string(),
+        })
+    }
+}
+
+impl Drop for AutomaticLaunchClaim<'_> {
+    fn drop(&mut self) {
+        if let Some(tab) = self.mux.write().get_tab_mut(&self.tab_id) {
+            tab.agent_booting = false;
+        }
+    }
+}
+
+fn apply_general_agent_launch_claim(tab: &mut crate::multiplexer::types::Tab) {
+    tab.agent_booting = true;
+    crate::service::boot_stage::apply_boot_stage(tab, BootStage::PtyStarting, None);
+}
+
 fn deliver_before_binding<T>(
     deliver: impl FnOnce() -> Result<(), String>,
     wait_for_binding: impl FnOnce() -> T,
@@ -231,6 +263,14 @@ pub fn start_general_agent(
             }
         }
     };
+    let _automatic_launch_claim = match AutomaticLaunchClaim::acquire(mux, &tab_id) {
+        Ok(claim) => claim,
+        Err(error) => {
+            log::error!("[general-agent] Start blocked: {error}");
+            return;
+        }
+    };
+    svc.emit_boot_stage(&tab_id, BootStage::PtyStarting, None);
     let force_fresh_session = state::take_fresh_session_requirement();
     let session_id = if force_fresh_session {
         svc.set_agent_session_id(&tab_id, None);
@@ -313,6 +353,7 @@ pub fn start_general_agent(
         svc.rotate_session_binding_nonce(&tab_id),
         config,
     );
+    crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -413,10 +454,12 @@ pub fn start_general_agent(
         ) {
             Some(cmd) => cmd,
             None => {
-                log::error!(
-                    "[general-agent] Provider '{}' not registered or resume unsupported",
+                let reason = format!(
+                    "Provider '{}' not registered or resume unsupported",
                     provider_name
                 );
+                log::error!("[general-agent] {reason}");
+                fail_general_agent_start(svc, mux, &tab_id, &reason);
                 return;
             }
         }
@@ -493,10 +536,9 @@ pub fn start_general_agent(
         ) {
             Some(cmd) => cmd,
             None => {
-                log::error!(
-                    "[general-agent] Provider '{}' not registered",
-                    provider_name
-                );
+                let reason = format!("Provider '{}' not registered", provider_name);
+                log::error!("[general-agent] {reason}");
+                fail_general_agent_start(svc, mux, &tab_id, &reason);
                 return;
             }
         };
@@ -753,9 +795,7 @@ fn validate_general_agent_tab_retry_inner(
     if claim {
         let _ = tab;
         if let Some(tab) = m.get_tab_mut(&general_tab_id) {
-            tab.agent_booting = true;
-            tab.boot_stage = Some(BootStage::PtyStarting);
-            tab.boot_failure_reason = None;
+            apply_general_agent_launch_claim(tab);
         }
     }
     Ok(true)

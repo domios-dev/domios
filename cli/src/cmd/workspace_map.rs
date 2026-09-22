@@ -194,11 +194,8 @@ fn tab_rows(value: &Value, caller_tab_id: Option<&str>) -> Vec<TabRow> {
             if id.is_empty() {
                 return None;
             }
-            let label = ["tab_title", "title"]
-                .into_iter()
-                .map(|key| text(tab, key))
-                .find(|value| !value.is_empty())
-                .unwrap_or(id);
+            let label = crate::tab_name::tab_name(tab);
+            let label = if label.is_empty() { id } else { label };
             let model = super::tab::labels::agent_label(tab).unwrap_or_default();
             let role = super::tab::labels::role_label(tab);
             Some(TabRow {
@@ -392,7 +389,7 @@ mod tests {
             {"id":"worker","tab_title":"Docs audit","workspace_id":"ws_code","team_id":"team_cli","parent_tab_id":"orch","agent_type":"codex","agent_session_model":"gpt-5.6-sol","agent_liveness":"live","role_profile":"worker","status":"working"},
             {"id":"orch","tab_title":"CLI audit","workspace_id":"ws_code","team_id":"team_cli","agent_type":"claude","agent_session_model":"opus","agent_liveness":"live","role_profile":"orchestrator","status":"idle"},
             {"id":"other","tab_title":"A second independent team with a title that is too long","workspace_id":"ws_code","team_id":"team_other"},
-            {"id":"shell","tab_title":"logs","workspace_id":"ws_code"}
+            {"id":"shell","title":"logs","workspace_id":"ws_code"}
         ]);
         let teams = json!({"teams":[
             {"id":"team_cli","name":"CLI council","workspace_id":"ws_code","lifecycle":"active"},

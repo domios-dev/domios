@@ -1,3 +1,4 @@
+mod reservation;
 mod rollback;
 mod worker_ack_subject;
 
@@ -5,12 +6,20 @@ use super::lane_metadata::normalize_lane_metadata;
 use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
+pub(super) use reservation::DispatchReservationOwner;
+pub use reservation::TaskDispatchReservation;
 pub use rollback::DispatchRollback;
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
     ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
     ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchStartupOwner {
+    pub attempt_id: String,
+    pub tab_id: String,
+}
 
 fn startup_attempt<'a>(
     task: &'a crate::plan::Task,
@@ -85,7 +94,41 @@ fn startup_status_allows(task: &crate::plan::Task) -> bool {
     )
 }
 
+fn current_dispatch_startup_owner(task: &crate::plan::Task) -> Option<DispatchStartupOwner> {
+    let tab_id = task.assigned_tab_id.as_deref()?;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .rfind(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())?;
+    if attempt.executor_tab_id != tab_id
+        || attempt.executor_title.is_none()
+        || attempt.acknowledged_at.is_some()
+        || attempt.reported_at.is_some()
+        || attempt.report.is_some()
+        || attempt.competition_group_id.is_some()
+        || !startup_status_allows(task)
+        || startup_attempt(task, tab_id, &attempt.id).is_none()
+    {
+        return None;
+    }
+    Some(DispatchStartupOwner {
+        attempt_id: attempt.id.clone(),
+        tab_id: tab_id.to_string(),
+    })
+}
+
 impl PlanStore {
+    pub fn dispatch_startup_owner_candidate(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Option<DispatchStartupOwner> {
+        self.get(plan_id).and_then(|plan| {
+            crate::plan::task_key::find_task(&plan.tasks, task_id)
+                .and_then(current_dispatch_startup_owner)
+        })
+    }
+
     pub fn worker_startup_attempt_owns(
         &self,
         plan_id: &str,
@@ -102,6 +145,8 @@ impl PlanStore {
                 .is_some_and(|(task, attempt)| {
                     startup_status_allows(task)
                         && attempt.acknowledged_at.is_none()
+                        && attempt.reported_at.is_none()
+                        && attempt.report.is_none()
                         && session_id.is_none_or(|session_id| {
                             attempt.session_id.as_deref() == Some(session_id)
                         })
@@ -265,6 +310,9 @@ impl PlanStore {
             None,
             None,
             crate::plan::WorkerPlacement::IsolatedLane,
+            None,
+            false,
+            false,
             now_ms,
         )
     }
@@ -295,6 +343,9 @@ impl PlanStore {
             Some(attempt_id),
             None,
             crate::plan::WorkerPlacement::IsolatedLane,
+            None,
+            false,
+            false,
             now_ms,
         )
     }
@@ -327,6 +378,76 @@ impl PlanStore {
             Some(attempt_id),
             Some(authorized_gates),
             placement,
+            None,
+            false,
+            false,
+            now_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        intent: crate::plan::ExecutionIntent,
+        allowance: Option<crate::plan::ProviderAllowance>,
+        provider: Option<&str>,
+        attempt_id: &str,
+        authorized_gates: Vec<String>,
+        placement: crate::plan::WorkerPlacement,
+        observed_startup_owner: Option<DispatchStartupOwner>,
+        observed_startup_owner_is_live: bool,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            intent,
+            allowance,
+            provider,
+            Some(attempt_id),
+            Some(authorized_gates),
+            placement,
+            observed_startup_owner,
+            observed_startup_owner_is_live,
+            true,
+            now_ms,
+        )
+    }
+
+    pub fn begin_task_dispatch_with_observation(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        observed_startup_owner: Option<DispatchStartupOwner>,
+        observed_startup_owner_is_live: bool,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            crate::plan::ExecutionIntent::Unspecified,
+            None,
+            None,
+            None,
+            None,
+            crate::plan::WorkerPlacement::IsolatedLane,
+            observed_startup_owner,
+            observed_startup_owner_is_live,
+            true,
             now_ms,
         )
     }
@@ -345,6 +466,9 @@ impl PlanStore {
         reserved_attempt_id: Option<&str>,
         authorized_gates: Option<Vec<String>>,
         placement: crate::plan::WorkerPlacement,
+        observed_startup_owner: Option<DispatchStartupOwner>,
+        observed_startup_owner_is_live: bool,
+        startup_owner_observation_made: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
@@ -368,6 +492,21 @@ impl PlanStore {
             )?;
             original_status = Some(plan.tasks[task_index].status.clone());
             let task = &mut plan.tasks[task_index];
+            let current_owner = current_dispatch_startup_owner(task);
+            let dispatch_in_flight = startup_owner_observation_made
+                && current_owner.as_ref().is_some_and(|owner| {
+                    observed_startup_owner.as_ref() != Some(owner) || observed_startup_owner_is_live
+                });
+            if dispatch_in_flight {
+                let owner = current_owner.expect("in-flight owner must be present");
+                return Err(PlanError::DispatchInFlight {
+                    attempt_id: owner.attempt_id,
+                    tab_id: owner.tab_id,
+                });
+            }
+            lane.destination = task.lane.destination.clone();
+            lane.cleanup_status = task.lane.cleanup_status.clone();
+            lane.cleanup_hints = task.lane.cleanup_hints.clone();
             task.lane = normalize_lane_metadata(lane);
             task.assigned_tab_id = Some(tab_id.to_string());
             task.taken_by_role = Some("worker".into());
@@ -575,7 +714,8 @@ impl PlanStore {
         tab_id: &str,
         attempt_id: &str,
         now_ms: u64,
-    ) -> Result<super::task_attempts::TaskAttemptCreated, PlanError> {
+    ) -> Result<super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
+        let _writer_turn = self.mutation_writer.enter();
         let current_task = self.read_task_for_verification(plan_id, task_id)?;
         let Some((current_attempt, competitive)) =
             startup_attempt(&current_task, tab_id, attempt_id)
@@ -586,17 +726,12 @@ impl PlanStore {
             ));
         };
         if current_attempt.acknowledged_at.is_some() {
-            if current_task.status != crate::plan::TaskStatus::InProgress {
-                return Err(Self::task_readback_error(
-                    "task_dispatch_ack",
-                    "acknowledged attempt no longer owns an acknowledged task",
-                ));
-            }
             let attempt = current_attempt.clone();
-            return Ok(super::task_attempts::TaskAttemptCreated {
+            return Ok(super::task_attempts::TaskAttemptAcknowledgement {
                 plan_id: plan_id.to_string(),
                 task_id: current_task.id,
                 attempt,
+                already_acknowledged: true,
             });
         }
         if !startup_status_allows(&current_task) {
@@ -606,7 +741,7 @@ impl PlanStore {
             ));
         }
         let mut acknowledged = None;
-        let write = self.with_plan(plan_id, now_ms, |plan| {
+        let write = self.with_plan_in_writer(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt_index = plan.tasks[task_index]
@@ -671,10 +806,11 @@ impl PlanStore {
             Ok(())
         })();
         pending_after_verified(write, verified, Some(task_id.to_string()))?;
-        Ok(super::task_attempts::TaskAttemptCreated {
+        Ok(super::task_attempts::TaskAttemptAcknowledgement {
             plan_id: plan_id.to_string(),
             task_id: task_id.to_string(),
             attempt,
+            already_acknowledged: false,
         })
     }
 
@@ -710,23 +846,32 @@ impl PlanStore {
     pub fn superseded_attempt_for_tab(
         &self,
         tab_id: &str,
-    ) -> Option<(String, String, Option<String>)> {
+    ) -> Option<(String, String, String, String, String)> {
         self.list_full().into_iter().find_map(|plan| {
             let plan_id = plan.id.clone();
             plan.tasks.into_iter().find_map(|task| {
-                let owned = task
+                let (owned_index, owned) = task
                     .execution_attempts
                     .iter()
-                    .rfind(|attempt| attempt.executor_tab_id == tab_id)?;
+                    .enumerate()
+                    .rev()
+                    .find(|(_, attempt)| attempt.executor_tab_id == tab_id)?;
                 owned.closed_at?;
                 let live = task
                     .execution_attempts
                     .iter()
-                    .rfind(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none());
+                    .enumerate()
+                    .skip(owned_index + 1)
+                    .rev()
+                    .find(|(_, attempt)| {
+                        attempt.closed_at.is_none() && attempt.retired_at.is_none()
+                    })?;
                 Some((
                     plan_id.clone(),
                     task.id.clone(),
-                    live.map(|attempt| attempt.executor_tab_id.clone()),
+                    owned.id.clone(),
+                    live.1.id.clone(),
+                    live.1.executor_tab_id.clone(),
                 ))
             })
         })
@@ -741,20 +886,31 @@ impl PlanStore {
         plan_hint: Option<&str>,
         task_hint: Option<&str>,
         now_ms: u64,
-    ) -> Result<super::task_attempts::TaskAttemptCreated, PlanError> {
+    ) -> Result<super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
         let bound = self.live_task_attempts_for_tab(tab_id);
         let acknowledgeable = bound
             .iter()
             .filter(|candidate| {
-                candidate.plan_active && candidate.task_status.counts_as_open_work()
+                candidate.plan_active
+                    && (candidate.task_status.counts_as_open_work()
+                        || candidate.attempt.acknowledged_at.is_some())
             })
             .collect::<Vec<_>>();
         let selected = match acknowledgeable.len() {
             1 => acknowledgeable[0],
             0 => {
                 let cause = match self.superseded_attempt_for_tab(tab_id) {
-                    Some((plan_id, task_id, live_tab)) if bound.is_empty() => {
-                        superseded_subject_cause(tab_id, &plan_id, &task_id, live_tab.as_deref())
+                    Some((plan_id, task_id, previous_attempt_id, current_attempt_id, live_tab))
+                        if bound.is_empty() =>
+                    {
+                        superseded_subject_cause(
+                            tab_id,
+                            &plan_id,
+                            &task_id,
+                            &previous_attempt_id,
+                            &current_attempt_id,
+                            &live_tab,
+                        )
                     }
                     _ => unresolved_subject_cause(tab_id, &bound),
                 };

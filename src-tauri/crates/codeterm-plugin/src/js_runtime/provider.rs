@@ -358,6 +358,16 @@ impl AgentProvider for JsProvider {
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
     }
 
+    fn parse_directory_trust_prompt(&self, screen: &str) -> Option<PendingPrompt> {
+        if let Some(value) =
+            self.try_call::<Option<Value>>("parseDirectoryTrustPrompt", &[json!(screen)])
+        {
+            return value.and_then(prompt_parse::parsed_prompt_from_js);
+        }
+        self.native()
+            .and_then(|provider| provider.parse_directory_trust_prompt(screen))
+    }
+
     fn build_prompt_response(&self, option_index: usize, screen: &str) -> Vec<Vec<u8>> {
         // Plugin returns a list of base64-encoded byte strings, one per PTY write step. Lets plugins emit vim j/k, arrow keys, escape sequences — whatever the TUI expects. `screen` lets a plugin navigate relative to the live highlight (cursor /model).
         if let Some(steps) = self
@@ -851,6 +861,13 @@ impl AgentProvider for JsProvider {
             || self
                 .native()
                 .is_some_and(|n| n.supports_structured_prompts())
+    }
+
+    fn supports_directory_trust_prompt_parsing(&self) -> bool {
+        self.manifest.spawn.supports_directory_trust_prompt_parsing
+            || self
+                .native()
+                .is_some_and(|n| n.supports_directory_trust_prompt_parsing())
     }
 
     fn structured_pending_prompt(&self, cwd: &str, session_id: &str) -> Option<PendingPrompt> {

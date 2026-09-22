@@ -46,7 +46,7 @@ Paired peers are the same user's machines on a private Tailnet, so a host-inject
 
 ### Tab titles
 
-A tab that is not task-bound may take a short task-shaped title with `codeterm tab rename --tab "$CODETERM_TAB_ID" "short task name"`. Task-bound tabs keep their executor name and record progress with `codeterm tab describe`; the General Agent home tab (`main` / `general`) keeps its title.
+A tab title is one word. A tab that is not task-bound may choose a stable name with `codeterm tab rename --tab "$CODETERM_TAB_ID" "Scout"`; pass activity text with `--description` when spawning or set it later with `codeterm tab describe`. Task-bound tabs keep their executor name and record progress in the description; the General Agent home tab (`main` / `general`) keeps its title.
 
 ### Rendering in the chat
 

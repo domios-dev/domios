@@ -55,16 +55,15 @@ pub(super) fn dispatch(
         "team.close" => {
             let team_id = get_string_param(params, "team_id")?;
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
-            let team = svc
-                .close_team(
-                    &team_id,
-                    crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
-                )
-                .map_err(|message| JsonRpcError {
-                    code: -32602,
-                    message,
-                    data: None,
-                })?;
+            let team = tauri::async_runtime::block_on(svc.close_team(
+                &team_id,
+                crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
+            ))
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })?;
             Ok(serde_json::json!({ "team": team }))
         }
         "team.adopt_plan" => {
@@ -145,6 +144,12 @@ fn team_members(mux: &crate::multiplexer::state::MultiplexerState, team_id: &str
                 "tab_id": tab.id,
                 "title": tab.title,
                 "role": tab.role_kind_id().unwrap_or("roleless"),
+                "role_type": match tab.role {
+                    Some(codeterm_types::agent::roles::AgentRole::Manager) => "Manager",
+                    Some(codeterm_types::agent::roles::AgentRole::Worker) => "Worker",
+                    None => "roleless",
+                },
+                "role_profile": tab.role_profile,
                 "anchors_team": tab.anchors_team(),
             })
         })
@@ -177,6 +182,35 @@ fn required_caller_tab(params: &Option<Value>, action: &str) -> Result<String, J
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn team_members_reports_cartographer_as_a_manager_kind() {
+        let (mut mux, orchestrator) = crate::multiplexer::state::MultiplexerState::new();
+        let team_id = mux
+            .resolve_or_mint_team_for_parent(&orchestrator)
+            .unwrap()
+            .team_id;
+        let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+        let cartographer = mux.create_tab(&workspace_id).unwrap();
+        mux.set_tab_role_kind(
+            &cartographer,
+            codeterm_types::agent::roles::AgentRole::Manager,
+            Some(codeterm_types::agent::role_kind::builtins::CARTOGRAPHER),
+            Some(&orchestrator),
+        )
+        .unwrap();
+
+        let members = team_members(&mux, &team_id);
+        let member = members
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|member| member["tab_id"] == cartographer)
+            .expect("cartographer is a Team member");
+        assert_eq!(member["role"], "cartographer");
+        assert_eq!(member["role_type"], "Manager");
+        assert_eq!(member["role_profile"], "cartographer");
+    }
 
     #[test]
     fn required_caller_tab_names_the_refused_action() {

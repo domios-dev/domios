@@ -883,8 +883,14 @@ async fn spent_question_rewrite_clears_the_inline_keyboard_on_the_wire() {
     .await;
     assert!(rewritten, "the fake accepts the rewrite");
 
-    let recorded = captured.lock();
-    assert_eq!(recorded.len(), 1, "requests: {:?}", *recorded);
+    // A reused port can deliver another test's stray request; count only bot calls.
+    let recorded: Vec<_> = captured
+        .lock()
+        .iter()
+        .filter(|(path, _)| path.contains("/botFAKETOKEN/"))
+        .cloned()
+        .collect();
+    assert_eq!(recorded.len(), 1, "requests: {:?}", recorded);
     assert!(recorded[0].0.ends_with("/editMessageText"));
     assert_eq!(
         recorded[0].1.get("message_id").and_then(|v| v.as_i64()),
@@ -990,3 +996,5 @@ async fn spent_question_a_placed_message_reports_where_it_landed() {
         "a locator round-trips through the one place that spells it"
     );
 }
+
+mod notification_dispatch;

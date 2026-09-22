@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.11.6"
+version = "1.11.7"
 edition = "2021"
 default-run = "codeterm"
 
@@ -24,7 +24,7 @@ tauri-plugin-single-instance = "2"
 portable-pty = { path = "pty-fork" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 codeterm-types = { path = "crates/codeterm-types" }

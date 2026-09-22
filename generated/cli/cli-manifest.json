@@ -7493,7 +7493,7 @@
               "value_name": "BRANCH",
               "possible_values": [],
               "default": null,
-              "help": "Lane branch to delete after the worktree is gone",
+              "help": "Lane branch to delete after worktree removal, if merged into project HEAD",
               "aliases": []
             },
             {
@@ -7503,7 +7503,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "Canonical checkout that owns the lane (default: derived from the lane itself)",
+              "help": "Canonical checkout (needed for a missing worktree unless its task identifies the project)",
               "aliases": []
             },
             {
@@ -14310,6 +14310,44 @@
               "possible_values": [],
               "default": null,
               "help": "Plan ID",
+              "aliases": []
+            },
+            {
+              "name": "team_id",
+              "positional": true,
+              "required": true,
+              "value_name": "TEAM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Team ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "attach-cartographer",
+          "about": "Attach the one optional Cartographer Manager to a Team",
+          "aliases": [],
+          "args": [
+            {
+              "name": "model",
+              "positional": false,
+              "required": false,
+              "value_name": "MODEL",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider model ID",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Agent provider ID",
               "aliases": []
             },
             {

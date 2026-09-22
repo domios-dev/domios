@@ -28,6 +28,190 @@ impl DirectoryTrustRefusal {
 
 const NOTE_BUDGET: usize = 16;
 
+pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
+    let rows = screen.lines().collect::<Vec<_>>();
+    let options = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| numbered_menu_option(row).map(|option| (index, option)))
+        .collect::<Vec<_>>();
+    let Some(last_option) = options.last().cloned() else {
+        return false;
+    };
+    let mut active_options = vec![last_option];
+    for option in options.iter().rev().skip(1) {
+        if active_options[0].0.abs_diff(option.0) > 2 {
+            break;
+        }
+        active_options.insert(0, option.clone());
+    }
+    if active_options.len() != 2 {
+        return false;
+    }
+    let first_choice = active_options[0].0;
+    let last_choice = active_options[1].0;
+    let selected = active_options
+        .iter()
+        .filter(|(_, option)| option.highlighted)
+        .count();
+    if selected != 1
+        || active_options[0].1.number != 1
+        || active_options[1].1.number != 2
+        || !active_options[0]
+            .1
+            .label
+            .to_ascii_lowercase()
+            .starts_with("yes")
+        || !active_options[1]
+            .1
+            .label
+            .to_ascii_lowercase()
+            .starts_with("no")
+    {
+        return false;
+    }
+    let footer = (last_choice + 1..rows.len().min(last_choice + 5)).find(|index| {
+        let row = rows[*index].to_ascii_lowercase();
+        row.contains("enter") && (row.contains("continue") || row.contains("select"))
+    });
+    let Some(footer) = footer else {
+        return false;
+    };
+    let last_meaningful = rows.iter().rposition(|row| {
+        let row = row.trim();
+        !row.is_empty() && !row.chars().all(|ch| matches!(ch, '─' | '━' | '═' | '-'))
+    });
+    if last_meaningful != Some(footer) {
+        return false;
+    }
+    let context_rows = &rows[first_choice.saturating_sub(12)..first_choice];
+    if !context_rows.iter().any(|row| directory_context_row(row)) {
+        return false;
+    }
+    let mut preamble_start = first_choice;
+    while preamble_start > 0 && rows[preamble_start - 1].trim().is_empty() {
+        preamble_start -= 1;
+    }
+    while preamble_start > 0 && !rows[preamble_start - 1].trim().is_empty() {
+        preamble_start -= 1;
+    }
+    let preamble = rows[preamble_start..first_choice]
+        .iter()
+        .filter(|row| !directory_context_row(row))
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    directory_trust_content(&preamble)
+}
+
+#[derive(Clone)]
+struct NumberedMenuOption {
+    number: usize,
+    label: String,
+    highlighted: bool,
+}
+
+fn numbered_menu_option(row: &str) -> Option<NumberedMenuOption> {
+    let row = row.trim_start();
+    let first = row.chars().next()?;
+    let (row, highlighted) = match first {
+        '>' | '❯' | '▶' | '➤' | '›' => (&row[first.len_utf8()..], true),
+        _ => (row, false),
+    };
+    let row = row.trim_start();
+    let digit_count = row.chars().take_while(char::is_ascii_digit).count();
+    let number = row.get(..digit_count)?.parse::<usize>().ok()?;
+    let suffix = row.get(digit_count..)?.trim_start();
+    let separator = suffix.chars().next()?;
+    if !matches!(separator, '.' | ')') {
+        return None;
+    }
+    let label = suffix.get(separator.len_utf8()..)?.trim_start();
+    (!label.is_empty()).then(|| NumberedMenuOption {
+        number,
+        label: label.to_string(),
+        highlighted,
+    })
+}
+
+fn directory_context_row(row: &str) -> bool {
+    let row = row.trim();
+    let context = row
+        .strip_prefix('>')
+        .or_else(|| row.strip_prefix('❯'))
+        .or_else(|| row.strip_prefix('›'));
+    let Some(context) = context else {
+        return false;
+    };
+    context
+        .split_whitespace()
+        .any(|path| absolute_path_token(path))
+}
+
+fn absolute_path_token(token: &str) -> bool {
+    let path = token.trim_end_matches(|ch| matches!(ch, ')' | ',' | ';'));
+    let bytes = path.as_bytes();
+    path.starts_with('/')
+        || path.starts_with(r"\\")
+        || path.starts_with("//")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/'))
+}
+
+fn directory_trust_content(preamble: &str) -> bool {
+    let content = preamble.to_ascii_lowercase();
+    let words = content
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    if ["bypass", "disable", "override"]
+        .iter()
+        .any(|term| words.contains(term))
+        || content.contains("without restrictions")
+    {
+        return false;
+    }
+    let Some((question, explanation)) = content.split_once('?') else {
+        return false;
+    };
+    let has_directory = ["folder", "directory", "workspace"].iter().any(|term| {
+        question
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|word| word == *term)
+    });
+    let has_trust_intent = ["trust", "trusted", "trusting", "load", "loaded", "loading"]
+        .iter()
+        .any(|term| {
+            question
+                .split(|ch: char| !ch.is_ascii_alphanumeric())
+                .any(|word| word == *term)
+        });
+    let has_local_policy = [
+        "guidance",
+        "rules",
+        "config",
+        "configuration",
+        "settings",
+        "policy",
+        "policies",
+        "instructions",
+        "hooks",
+    ]
+    .iter()
+    .any(|term| {
+        explanation
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|word| word == *term)
+    });
+    let explanation_words = explanation
+        .split_whitespace()
+        .filter(|word| !word.is_empty())
+        .count();
+    has_directory && has_trust_intent && has_local_policy && explanation_words >= 8
+}
+
 /// Provenance is host state written by the code that created the directory; a
 /// spawn-supplied cwd never carries it, so it can never self-authorize trust.
 pub(crate) fn directory_trust_provenance(tab: &Tab) -> Result<(), DirectoryTrustRefusal> {
@@ -98,8 +282,9 @@ pub(crate) fn legacy_auto_approve_permitted(
     trust: &TrustDecision,
     session_authenticated: bool,
     structured_prompt: bool,
+    directory_trust_prompt: bool,
 ) -> bool {
-    !trust.owns_prompt() && (session_authenticated || structured_prompt)
+    !directory_trust_prompt && !trust.owns_prompt() && (session_authenticated || structured_prompt)
 }
 
 #[derive(Debug, Default)]

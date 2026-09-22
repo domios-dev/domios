@@ -98,6 +98,10 @@ pub(crate) fn commit_materialized_rebind_session(
         Some(expected_evidence),
     )?
     .ok_or_else(|| {
+        log::warn!(
+            "[hook-refusal] tab={} event=session_start reason=evidence_changed source=validated_rebind",
+            tab_id
+        );
         (
             StatusCode::CONFLICT,
             "tab session evidence changed during provider validation".to_string(),
@@ -199,8 +203,10 @@ fn commit_reported_session(
     let Some(tab) = mux.get_tab(tab_id) else {
         return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
     };
-    if tab.cwd.clone().unwrap_or_default() != probe.cwd
-        || tab.agent_session_id != probe.previous_session_id
+    if !crate::service::ServiceContext::paths_equal(
+        tab.cwd.as_deref().unwrap_or_default(),
+        &probe.cwd,
+    ) || tab.agent_session_id != probe.previous_session_id
     {
         return Ok(None);
     }
@@ -209,6 +215,10 @@ fn commit_reported_session(
             crate::agent::provider_identity::ProviderIdentityEvidence::capture(tab) != *expected
         })
     {
+        log::warn!(
+            "[hook-refusal] tab={} event=session_start reason=evidence_changed source=validated_rebind",
+            tab_id
+        );
         return Err((
             StatusCode::CONFLICT,
             "tab session evidence changed during provider validation".to_string(),
@@ -222,8 +232,9 @@ fn commit_reported_session(
         match report_nonce {
             Some(reported) if reported != expected => {
                 log::warn!(
-                    "[hook_session_start] rejecting sid {} for Tab {} provider={}: binding nonce mismatch",
-                    session_id, tab_id, provider_id,
+                    "[hook-refusal] tab={} event=session_start reason=nonce_mismatch provider={}",
+                    tab_id,
+                    provider_id,
                 );
                 return Err((
                     StatusCode::CONFLICT,
@@ -240,6 +251,10 @@ fn commit_reported_session(
 
     if source == SessionBindingSource::LaunchDetection {
         if !nonce_verified {
+            log::warn!(
+                "[hook-refusal] tab={} event=session_start reason=missing_nonce source=launch_detection",
+                tab_id
+            );
             return Err((
                 StatusCode::CONFLICT,
                 "launch detection does not carry this tab's launch nonce".to_string(),

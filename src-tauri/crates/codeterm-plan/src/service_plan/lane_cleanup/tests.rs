@@ -15,6 +15,7 @@ fn input<'a>(
         worktree_path: Some("/tmp/lane"),
         worktree_exists,
         branch,
+        branch_exists: branch.is_some(),
         integration_target: target,
     }
 }
@@ -64,8 +65,21 @@ fn missing_integration_target_is_refused() {
 
 #[test]
 fn no_residue_is_noop() {
-    let decision = decide_lane_cleanup(&input(false, false, None, Some("main")), |_, _| true);
+    let mut input = input(false, false, None, Some("main"));
+    input.worktree_path = None;
+    let decision = decide_lane_cleanup(&input, |_, _| true);
     assert_eq!(decision, LaneCleanupDecision::Noop);
+}
+
+#[test]
+fn missing_worktree_and_branch_are_cleaned_as_stale_references() {
+    let mut input = input(false, false, Some("lane/gone"), Some("main"));
+    input.branch_exists = false;
+
+    assert_eq!(
+        decide_lane_cleanup(&input, |_, _| false),
+        LaneCleanupDecision::Clean(Vec::new())
+    );
 }
 
 #[test]

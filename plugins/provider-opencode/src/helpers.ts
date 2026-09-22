@@ -613,18 +613,33 @@ export function opencodePluginEntryMatches(entry: unknown, target: string | null
   return value.replace(/\\/g, "/") === target;
 }
 
-export function opencodeBindingPluginSource(apiPort: number): string {
+export function isCurrentOpencodeBindingPluginSource(text: string): boolean {
+  const required = [
+    CODETERM_OPENCODE_PLUGIN_MARKER,
+    "CODETERM_API_URL",
+    "CODETERM_API_TOKEN",
+    "CODETERM_SESSION_BINDING_NONCE",
+    "CODETERM_TAB_ID",
+    "/api/tabs/",
+    "x-codeterm-binding-nonce",
+    "authorization",
+  ];
+  return required.every((value) => text.includes(value))
+    && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+}
+
+export function opencodeBindingPluginSource(): string {
   return [
     "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
     "const PROVIDER_ID = \"opencode\";",
-    "const FALLBACK_PORT = \"" + String(apiPort || 7686) + "\";",
     "",
     "function endpoint() {",
     "  const tab = process.env.CODETERM_TAB_ID;",
+    "  const token = process.env.CODETERM_API_TOKEN;",
+    "  const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;",
     "  if (!tab) return null;",
-    "  const base =",
-    "    process.env.CODETERM_API_URL ||",
-    "    `http://127.0.0.1:${process.env.CODETERM_API_PORT || FALLBACK_PORT}`;",
+    "  if (!token || !nonce || !process.env.CODETERM_API_URL) return null;",
+    "  const base = process.env.CODETERM_API_URL.replace(/\\/+$/, \"\");",
     "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
     "}",
     "",
@@ -648,13 +663,9 @@ export function opencodeBindingPluginSource(apiPort: number): string {
     "  const headers = {",
     "    \"content-type\": \"application/json\",",
     "    \"x-codeterm-agent-provider\": PROVIDER_ID,",
+    "    \"x-codeterm-binding-nonce\": process.env.CODETERM_SESSION_BINDING_NONCE,",
+    "    authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
     "  };",
-    "  if (process.env.CODETERM_SESSION_BINDING_NONCE) {",
-    "    headers[\"x-codeterm-binding-nonce\"] = process.env.CODETERM_SESSION_BINDING_NONCE;",
-    "  }",
-    "  if (process.env.CODETERM_API_TOKEN) {",
-    "    headers.authorization = `Bearer ${process.env.CODETERM_API_TOKEN}`;",
-    "  }",
     "  await fetch(url, {",
     "    method: \"POST\",",
     "    headers,",

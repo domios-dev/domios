@@ -61,6 +61,8 @@ pub enum BatchOp {
         client_id: Option<String>,
         task: String,
         status: String,
+        #[serde(default)]
+        status_label: Option<String>,
     },
     SetGoal {
         #[serde(default)]
@@ -532,9 +534,12 @@ impl PlanStore {
                             client_id,
                             task,
                             status,
+                            status_label,
                         } => {
                             let task_id = resolve_ref(&task, &result.ids);
                             let parsed = parse_status(&status)?;
+                            let status_label =
+                                status_label.filter(|label| !label.trim().is_empty());
                             let task_index = find_task_index(&working.tasks, &task_id)
                                 .ok_or(PlanError::TaskNotFound)?;
                             let task_id = working.tasks[task_index].id.clone();
@@ -543,12 +548,15 @@ impl PlanStore {
                                 &task_id,
                                 &working.tasks[task_index].status,
                                 &parsed,
-                                None,
+                                status_label.as_deref().map(Some),
                             )?;
                             let task = &mut working.tasks[task_index];
                             if task.status != parsed {
                                 task.status = parsed;
                                 task.status_changed_at = now_ms;
+                            }
+                            if let Some(status_label) = status_label {
+                                task.status_label = Some(status_label);
                             }
                             super::qa::normalize_task_review_fields(task);
                             task.updated_at = now_ms;

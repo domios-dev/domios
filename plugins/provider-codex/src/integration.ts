@@ -6,8 +6,10 @@ import {
   isCodetermCodexHook,
   removeOwnedCodexHooks,
   isOwnedCodexWindowsHookScript,
+  isCurrentCodexHookScriptContent,
+  hasAdequateCodexHookTimeout,
   CODETERM_CODEX_HOOK_MARKER,
-  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+  CODEX_HOOK_TIMEOUT_SECS,
 } from "./hooks";
 
 declare const host: {
@@ -61,17 +63,11 @@ export function checkIntegration(): unknown {
     : "";
   const windowsReady = host.platform() !== "windows" || (
     !!winScript &&
-    winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 &&
     Array.isArray(arr) &&
     arr.some(hasCodetermCodexWindowsCommand)
   );
   const contractOk = host.platform() === "windows"
-    ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
-      winScriptText.indexOf("CODETERM_TAB_ID") !== -1 &&
-      winScriptText.indexOf("CODETERM_API_URL") !== -1 &&
-      winScriptText.indexOf("CODETERM_API_TOKEN") !== -1 &&
-      !hasLiteralPort(winScriptText) &&
-      winScriptText.indexOf("/api/tabs/") !== -1
+    ? isCurrentCodexHookScriptContent(winScriptText)
     : (Array.isArray(arr) && arr.some((entry) => {
         const hk = entry && entry.hooks;
         return Array.isArray(hk) && hk.some((h) => {
@@ -80,11 +76,12 @@ export function checkIntegration(): unknown {
             command.indexOf("CODETERM_TAB_ID") !== -1 &&
             command.indexOf("CODETERM_API_URL") !== -1 &&
             command.indexOf("CODETERM_API_TOKEN") !== -1 &&
+            command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 &&
             !hasLiteralPort(command) &&
             command.indexOf("/api/tabs/") !== -1;
         });
       }));
-  const current = installed && windowsReady && contractOk;
+  const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
   const trustState = codexHookTrustState(path);
   const trustOk = trustState !== "disabled";
   const integrationState = !installed
@@ -205,6 +202,9 @@ export function installIntegration(
     return { ok: false, error: "could not read existing hook script at " + scriptPath };
   }
   const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
+  if (scriptPath && scriptExisted && !isOwnedCodexWindowsHookScript(scriptPath)) {
+    return { ok: false, error: "refusing to replace unowned hook script at " + scriptPath };
+  }
   const ownershipPath = codexHookTrustOwnershipPath();
   const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
   if (ownershipPath && !ownershipSnapshot) {
@@ -254,16 +254,18 @@ export function installIntegration(
 
   const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
   const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-  const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+  const markerH = '-H "X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '"';
+  const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ] && [ -n "${CODETERM_SESSION_BINDING_NONCE:-}" ]; then ';
   const hookCmd = (route: string) => guard + 'curl -s -X POST "$CODETERM_API_URL'
     + "/api/tabs/$CODETERM_TAB_ID/hook/" + route + '" '
     + "-H 'Content-Type: application/json' "
     + "-H 'X-CodeTerm-Agent-Provider: codex' "
+    + markerH + " "
     + nonceH + " "
     + authH
     + ' --data-binary @- > /dev/null 2>&1 || true; fi';
   const winCmd = (route: string) => scriptPath
-    ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '" -HookEvent ' + route
+    ? '"' + scriptPath + '" ' + route + ' X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER
     : hookCmd(route);
 
   if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
@@ -276,7 +278,7 @@ export function installIntegration(
       type: "command",
       command: hookCmd("session_start"),
       commandWindows: winCmd("session_start"),
-      timeout: 5,
+      timeout: CODEX_HOOK_TIMEOUT_SECS,
       _source: CODETERM_CODEX_HOOK_MARKER,
     }],
   });
@@ -285,7 +287,7 @@ export function installIntegration(
       type: "command",
       command: hookCmd("stop"),
       commandWindows: winCmd("stop"),
-      timeout: 5,
+      timeout: CODEX_HOOK_TIMEOUT_SECS,
       _source: CODETERM_CODEX_HOOK_MARKER,
     }],
   });
@@ -403,7 +405,8 @@ export function ensureIntegrationOnStartup(
   const scriptStale =
     host.platform() === "windows" &&
     !!scriptPath &&
-    (!host.fs.fileExists(scriptPath) || !isOwnedCodexWindowsHookScript(scriptPath));
+    (!host.fs.fileExists(scriptPath)
+      || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
   const commandStale = owned.some((entry) => {
     const hooks = (entry && entry.hooks) || [];
     return hooks.some(
@@ -412,12 +415,15 @@ export function ensureIntegrationOnStartup(
         return command.indexOf("$CODETERM_API_URL") === -1
           || command.indexOf("${CODETERM_API_TOKEN}") === -1
           || command.indexOf("$CODETERM_TAB_ID") === -1
+          || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1
+          || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1
           || hasLiteralPort(command);
       },
     );
   });
   const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
-  if (!scriptStale && !commandStale && stopOwned) return { ok: true, changed: false };
+  const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
+  if (!scriptStale && !commandStale && !timeoutStale && stopOwned) return { ok: true, changed: false };
 
   return {
     ok: false,
@@ -438,6 +444,16 @@ function hasLiteralPort(value: string): boolean {
   return /:\d{2,5}/.test(value);
 }
 
+/// A CodeTerm-owned entry is only current when every one of its hooks grants the
+/// cold-start-tolerant budget; the old 5s value is the bug this repairs.
+function hookTimeoutsAdequate(
+  sessionStart: CodexHookEntry[] | undefined,
+  stop: CodexHookEntry[] | undefined,
+): boolean {
+  const owned = [...(sessionStart || []), ...(stop || [])].filter(isCodetermCodexHook);
+  return owned.length > 0 && owned.every(hasAdequateCodexHookTimeout);
+}
+
 function codexConfigPath(): string | null {
   const home = host.homeDir();
   if (!home) return null;
@@ -449,7 +465,7 @@ function codexWindowsHookScriptPath(): string | null {
   const home = host.homeDir();
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
+  return home + sep + ".codex" + sep + "codeterm-session-hook.cmd";
 }
 
 function codexHookTrustOwnershipPath(): string | null {
@@ -561,9 +577,13 @@ function hasCodetermCodexWindowsCommand(entry: CodexHookEntry): boolean {
   if (!Array.isArray(hooks)) return false;
   for (let i = 0; i < hooks.length; i++) {
     const hook = hooks[i];
-    if (!hook || hook._source !== CODETERM_CODEX_HOOK_MARKER) continue;
+    if (!hook) continue;
     const command = String(hook.commandWindows || "");
-    if (command.indexOf("codeterm-session-start.ps1") !== -1) {
+    const fullCommand = String(hook.command || "") + "\n" + command;
+    const owned = fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1
+      || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1
+      || hook._source === CODETERM_CODEX_HOOK_MARKER;
+    if (owned && command.indexOf("codeterm-session-hook.cmd") !== -1) {
       return true;
     }
   }

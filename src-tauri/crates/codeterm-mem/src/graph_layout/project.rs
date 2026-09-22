@@ -1,6 +1,8 @@
 //! Full 2D projection job: vectors -> 2D seed -> grid clusters -> cache swap.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(feature = "embeddings")]
+use std::collections::HashSet;
 
 use super::cache::{LayoutCache, Position};
 use super::placement;
@@ -382,6 +384,7 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
 
 /// Entities without a vector get placed at the centroid of their graph-related
 /// placed positions (+ jitter). Unplaceable entities are skipped.
+#[cfg(feature = "embeddings")]
 fn place_vectorless_entities(
     conn: &rusqlite::Connection,
     positions: &mut HashMap<String, Position>,

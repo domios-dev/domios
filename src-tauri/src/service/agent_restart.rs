@@ -205,6 +205,7 @@ impl ServiceContext {
             launch_task,
             None,
             None,
+            None,
         );
 
         let ready = self.finish_observed_restart(

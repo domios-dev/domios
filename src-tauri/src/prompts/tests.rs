@@ -14,11 +14,12 @@ const CLI_MANIFEST: &str = include_str!("../../../generated/cli/cli-manifest.jso
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
-fn cli_teaching_fragments() -> [(&'static str, &'static str); 9] {
+fn cli_teaching_fragments() -> [(&'static str, &'static str); 10] {
     [
         ("general_agent.md", GENERAL_AGENT_TEMPLATE),
         ("codeterm_rule.md", CODETERM_RULE),
         ("codeterm_cli.md", CODETERM_CLI),
+        ("interactive_child_pty.md", INTERACTIVE_CHILD_PTY_OPERATION),
         ("planner_suffix.md", PLANNER_SUFFIX),
         ("orchestrator_suffix.md", ORCHESTRATOR_SUFFIX),
         ("worker_suffix.md", WORKER_SUFFIX),
@@ -782,6 +783,7 @@ fn every_prompt_md_has_a_loader() {
         "worker_codeterm_context.md",
         "rich_rendering_guidance.md",
         "codeterm_cli.md",
+        "interactive_child_pty.md",
         "bootstrap_instructions.md",
         "worker_task_preamble.md",
         "plugin_agent_task_preamble.md",
@@ -810,6 +812,12 @@ fn every_prompt_md_has_a_loader() {
         "orphaned prompt files with no include_str!() loader: {:?}",
         orphans
     );
+}
+
+#[test]
+fn child_pty_recovery_id_is_shared_with_startup_events() {
+    assert!(INTERACTIVE_CHILD_PTY_OPERATION.contains(INTERACTIVE_CHILD_PTY_CAPABILITY_ID));
+    assert!(ORCH_CHILD_PTY_RECOVERY_TRIGGER.contains(INTERACTIVE_CHILD_PTY_CAPABILITY_ID));
 }
 
 /// The seven fields the mandatory list held before the executor role joined it.

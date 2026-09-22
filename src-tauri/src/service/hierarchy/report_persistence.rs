@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::agent::reports::ReportDetails;
-use crate::plan::AgentRef;
+use crate::agent::reports::{ReportDetails, ReportStatus};
+use crate::plan::{AgentRef, TaskStatus};
 use crate::service::plan::batch::{BatchOp, BatchRequest};
 use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::PlanStore;
@@ -69,7 +69,8 @@ pub(super) fn persist_authorized_local_task_report(
             "report caller binding is stale, spoofed, or rebound",
         ));
     }
-    let result = persist_local_task_report(
+    drop(mux);
+    persist_local_task_report(
         &svc.plan_store,
         tab_id,
         plan_id,
@@ -80,9 +81,7 @@ pub(super) fn persist_authorized_local_task_report(
         task_status,
         milestone_kind,
         now_ms,
-    );
-    drop(mux);
-    result
+    )
 }
 
 fn persist_authorized_plan_evidence_report(
@@ -287,12 +286,26 @@ fn persist_explicit_report(
     now_ms: u64,
 ) -> Result<(), String> {
     let mut ops = Vec::new();
-    if let Some(status) = task_status {
-        ops.push(BatchOp::SetTaskStatus {
-            client_id: None,
-            task: task_id.to_string(),
-            status: status.to_string(),
-        });
+    let blocked_review_note = details.status == Some(ReportStatus::Blocked)
+        && store
+            .get(plan_id)
+            .and_then(|plan| {
+                plan.tasks
+                    .into_iter()
+                    .find(|task| task.id == task_id)
+                    .map(|task| task.status == TaskStatus::InReview)
+            })
+            .unwrap_or(false);
+    if !blocked_review_note {
+        if let Some(status) = task_status {
+            ops.push(BatchOp::SetTaskStatus {
+                client_id: None,
+                task: task_id.to_string(),
+                status: status.to_string(),
+                status_label: (details.status == Some(ReportStatus::Blocked))
+                    .then(|| message.to_string()),
+            });
+        }
     }
     ops.push(BatchOp::AddMilestone {
         client_id: Some("report".into()),
@@ -471,6 +484,93 @@ mod tests {
         assert!(bound.tasks[0].milestones.is_empty());
         let explicit = store.get(&explicit_plan.id).unwrap();
         assert_eq!(explicit.tasks[0].milestones[0].text, "EXPLICIT_MARKER");
+    }
+
+    #[test]
+    fn blocked_explicit_report_sets_status_and_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut plan = Plan::new(
+            "explicit blocked report".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = add_task(&store, &plan.id, "blocked task", 2);
+        let reason = "explicit worker report reason";
+        let details = ReportDetails {
+            status: Some(ReportStatus::Blocked),
+            ..Default::default()
+        };
+
+        persist_local_task_report(
+            &store,
+            "worker",
+            &plan.id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            reason,
+            &details,
+            Some("blocked"),
+            Some("worker_report"),
+            3,
+        )
+        .unwrap();
+
+        let task = store.get(&plan.id).unwrap().tasks.remove(0);
+        assert_eq!(task.status, TaskStatus::Blocked);
+        assert_eq!(task.status_label.as_deref(), Some(reason));
+        assert_eq!(task.milestones.len(), 1);
+    }
+
+    #[test]
+    fn blocked_explicit_report_on_in_review_task_is_kept_as_a_milestone() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut plan = Plan::new(
+            "explicit blocked review note".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = add_task(&store, &plan.id, "reviewed task", 2);
+        store
+            .with_plan(&plan.id, 3, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
+                task.status = TaskStatus::InReview;
+                Ok(())
+            })
+            .unwrap();
+
+        let details = ReportDetails {
+            status: Some(ReportStatus::Blocked),
+            ..Default::default()
+        };
+        persist_local_task_report(
+            &store,
+            "worker",
+            &plan.id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            "review still owns this task",
+            &details,
+            Some("blocked"),
+            Some("worker_report"),
+            4,
+        )
+        .unwrap();
+
+        let task = store.get(&plan.id).unwrap().tasks.remove(0);
+        assert_eq!(task.status, TaskStatus::InReview);
+        assert_eq!(task.milestones.len(), 1);
+        assert_eq!(
+            task.milestones[0].text,
+            "BLOCKED: review still owns this task"
+        );
     }
 
     #[test]

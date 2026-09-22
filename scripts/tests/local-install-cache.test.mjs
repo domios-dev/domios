@@ -32,6 +32,14 @@ test("relocated output is preserved and replaced with an empty owned target", ()
   assert.equal(prepareLocalInstallCache(target), null);
 }));
 
+test("a redirected cache target is refused", () => fixture(({ root, target }) => {
+  const redirected = path.join(root, "redirected");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.mkdirSync(redirected);
+  fs.symlinkSync(redirected, target, process.platform === "win32" ? "junction" : "dir");
+  assert.throws(() => prepareLocalInstallCache(target), /redirected local-install cache/);
+}));
+
 test("a workspace or arbitrary directory is never a cache target", () => fixture(({ root }) => {
   fs.writeFileSync(path.join(root, "source"), "untouched");
   assert.throws(() => prepareLocalInstallCache(root), /canonical local-install/);

@@ -11,16 +11,22 @@ When a user says this live tab has the wrong provider identity, repair it in pla
 
 **Built-in tools to avoid:** do NOT use the built-in `CronCreate`/`CronList`/`TaskCreate` tools — CodeTerm has its own cron and agent system that must be used instead.
 
-**Auto-name your tab on session start:**
+**Give the tab a single word name and put the activity in its description:**
 ```bash
-codeterm tab rename "fix login bug"
+codeterm tab rename "Scout"
+codeterm tab describe "Reviews the login flow and records findings"
 ```
-Short, task-shaped title based on the user's first message.
+Choose a stable name with a single word. For a new agent, pass the activity as
+`--description`; on an existing tab, use `codeterm tab describe`.
 The protected General Agent home tab (`main` / `general`) is the exception: its stable title is machine chrome, so never rename it.
 
 ---
 
 {codeterm_cli}
+
+---
+
+{interactive_child_pty_operation}
 
 ---
 
@@ -59,4 +65,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 64 -->
+<!-- revision: 66 -->

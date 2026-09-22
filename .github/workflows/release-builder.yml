@@ -1,0 +1,137 @@
+name: Release builder platforms
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      mirror:
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: macOS + Linux arm64
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 180
+    # gh in the runner's launchd service session can't reach the keychain-stored login, and a
+    # release touches TWO repos (codeterm + codeterm-releases), so the default GITHUB_TOKEN
+    # (single-repo) isn't enough — use a PAT (repo scope on both) provided as GH_RELEASE_TOKEN.
+    env:
+      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      # Absolute: the prebuild step runs from the repo root and tauri-action runs
+      # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      CODETERM_RELEASE_FEATURES: embeddings
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Parse + validate version
+        id: ver
+        run: |
+          TAG="${{ inputs.tag }}"
+          RAW="${TAG#v}"
+          echo "raw=$RAW"
+          if ! echo "$RAW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag must be vX.Y.Z (got '$TAG')"; exit 1
+          fi
+          echo "ver=$RAW"   >> "$GITHUB_OUTPUT"
+          echo "tag=v$RAW"  >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repo (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Clear incomplete release uploads for retry
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          PUBLISH_MIRROR: ${{ inputs.mirror }}
+          TAG: ${{ inputs.tag }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
+          if [ "$PUBLISH_MIRROR" = true ]; then
+            GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
+          fi
+
+      - name: Preflight (toolchain + signing + engines reachable)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        run: |
+          # Collect every result before exiting, so one bad credential reports the
+          # whole picture instead of hiding the checks behind it.
+          rc=0
+          echo "host: $(uname -msr)"
+          security find-identity -v -p codesigning | grep -q ANDREY && echo "✅ Developer ID present" || { echo "::error::no Developer ID"; rc=1; }
+          test -f "$HOME/.tauri/codeterm.key" && echo "✅ minisign key" || { echo "::error::missing minisign key"; rc=1; }
+          gh auth status 2>&1 | grep -q "Logged in" && echo "✅ gh auth" || { echo "::error::gh not authed"; rc=1; }
+          docker image inspect codeterm-build-linux-arm64 >/dev/null 2>&1 && echo "✅ docker arm64 image" || echo "::warning::bake codeterm-build-linux-arm64"
+          docker image inspect codeterm-build-linux-x64   >/dev/null 2>&1 && echo "✅ docker x64 image"   || echo "::warning::bake codeterm-build-linux-x64"
+
+          # Authenticate with the credentials the build will actually use. The
+          # keychain profile is deliberately not consulted: it cannot be
+          # provisioned non-interactively, so it rots silently (cost v1.7.5 a run).
+          if [ -z "${APPLE_ID:-}" ] && [ -f "$HOME/.claude/.secrets/apple-notary.env" ]; then
+            set -a; . "$HOME/.claude/.secrets/apple-notary.env"; set +a
+          fi
+          NOTARY_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${APPLE_PASSWORD:-}}"
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ] || [ -z "$NOTARY_PASSWORD" ]; then
+            echo "::error::notary credentials missing — set the APPLE_ID / APPLE_TEAM_ID / APPLE_PASSWORD repo secrets"; rc=1
+          elif xcrun notarytool history --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                 --password "$NOTARY_PASSWORD" >/tmp/codeterm-notary-preflight.log 2>&1; then
+            echo "✅ Apple notary credentials accepted"
+          else
+            tail -20 /tmp/codeterm-notary-preflight.log
+            echo "::error::Apple notary rejected these credentials — rotate the APPLE_PASSWORD app-specific password, or check the team's Developer agreements"; rc=1
+          fi
+          exit "$rc"
+
+      - name: Stamp the v${{ steps.ver.outputs.ver }} build tag at the release commit
+        run: |
+          # Single trigger tag: push release-X.Y.Z. build-all.sh bundles a stable
+          # vX.Y.Z ref from THIS checkout, so the tag only needs to exist locally;
+          # the origin push is best-effort bookkeeping, never a build gate.
+          TAG="${{ steps.ver.outputs.tag }}"
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+          if ! git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
+            git tag -a "$TAG" "$GITHUB_SHA" -m "$TAG"
+            git push origin "$TAG" 2>/dev/null \
+              || echo "::warning::could not push $TAG to origin — building from the local tag"
+          fi
+          echo "✅ $TAG -> $(git rev-parse --short "$TAG^{commit}")"
+
+      - name: Ensure Docker is running (Linux engines)
+        run: |
+          if ! docker info >/dev/null 2>&1; then
+            echo "Docker daemon down — starting Docker Desktop..."
+            open -a Docker || true
+            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
+          fi
+          docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available after wait"; exit 1; }
+
+      - name: Build macOS + Linux (2 engines × 2 waves)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          CT_BUILD_LINUX: '1'
+        run: |
+          .codeterm/build-machine/scripts/build-all.sh "${{ steps.ver.outputs.tag }}"
+
+      - name: Publish platform assets and updater fragments
+        env:
+          DEFER_RELEASE_FINALIZE: '1'
+          PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
+        run: |
+          .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"

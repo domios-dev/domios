@@ -244,22 +244,40 @@ fn canonical_writer_occupied_canonical_refuses_a_second_live_writer() {
     );
     let mut plan = store.get(&plan_id).unwrap();
 
-    let error =
-        preflight_dispatch_placement(&plan, &ids[1], &canonical, LaneProtection::Enforced, false)
-            .unwrap_err();
+    let error = preflight_dispatch_placement(
+        &plan,
+        &ids[1],
+        &canonical,
+        LaneProtection::Enforced,
+        false,
+        &Default::default(),
+    )
+    .unwrap_err();
     assert_eq!(error.code, -32011);
     let data = error.data.unwrap();
     assert_eq!(data["occupying_task_id"], ids[0]);
     assert_eq!(data["occupying_attempt_id"], first_attempt);
 
-    preflight_dispatch_placement(&plan, &ids[1], &canonical, LaneProtection::Enforced, true)
-        .expect(
-            "an ordinary lane dispatch keeps its provisioning contract while canonical is held",
-        );
+    preflight_dispatch_placement(
+        &plan,
+        &ids[1],
+        &canonical,
+        LaneProtection::Enforced,
+        true,
+        &Default::default(),
+    )
+    .expect("an ordinary lane dispatch keeps its provisioning contract while canonical is held");
 
     close_live_attempts(&mut plan, &ids[0]);
-    preflight_dispatch_placement(&plan, &ids[1], &canonical, LaneProtection::Enforced, false)
-        .expect("a closed canonical writer releases the checkout");
+    preflight_dispatch_placement(
+        &plan,
+        &ids[1],
+        &canonical,
+        LaneProtection::Enforced,
+        false,
+        &Default::default(),
+    )
+    .expect("a closed canonical writer releases the checkout");
 }
 
 #[test]

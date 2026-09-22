@@ -596,12 +596,36 @@ pub async fn mesh_remote_tab_action(
     .await?;
     let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
     let response = client.send_relay(&command).await?;
-    if !response.ok {
-        return Err(response
-            .error
-            .unwrap_or_else(|| "remote tab unavailable".into()));
+    remote_tab_action_outcome(&suffix, response)
+}
+
+fn remote_tab_action_outcome(
+    suffix: &str,
+    response: crate::mesh::types::RelayResponse,
+) -> Result<serde_json::Value, String> {
+    if response.ok {
+        return Ok(response.data.unwrap_or(serde_json::Value::Null));
     }
-    Ok(response.data.unwrap_or(serde_json::Value::Null))
+    if suffix == "/prompt/respond"
+        && response.status == 409
+        && response
+            .data
+            .as_ref()
+            .and_then(|data| data.get("ok"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+        && response
+            .data
+            .as_ref()
+            .and_then(|data| data.get("reason"))
+            .and_then(serde_json::Value::as_str)
+            == Some("prompt_not_on_screen")
+    {
+        return Ok(response.data.unwrap_or(serde_json::Value::Null));
+    }
+    Err(response
+        .error
+        .unwrap_or_else(|| "remote tab unavailable".into()))
 }
 
 #[tauri::command]
@@ -1022,6 +1046,40 @@ mod tests {
         } else {
             Err(format!("HTTP {status}"))
         }
+    }
+
+    #[test]
+    fn remote_prompt_miss_is_a_quiet_ui_result() {
+        let response = crate::mesh::types::RelayResponse {
+            ok: false,
+            status: 409,
+            data: Some(serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"})),
+            error: Some("HTTP 409".into()),
+        };
+        assert_eq!(
+            remote_tab_action_outcome("/prompt/respond", response),
+            Ok(serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"}))
+        );
+        let false_success_body = crate::mesh::types::RelayResponse {
+            ok: false,
+            status: 409,
+            data: Some(serde_json::json!({"ok": true, "reason": "prompt_not_on_screen"})),
+            error: Some("HTTP 409".into()),
+        };
+        assert_eq!(
+            remote_tab_action_outcome("/prompt/respond", false_success_body),
+            Err("HTTP 409".into())
+        );
+        let unrelated = crate::mesh::types::RelayResponse {
+            ok: false,
+            status: 409,
+            data: Some(serde_json::json!({"reason": "prompt_not_on_screen"})),
+            error: Some("HTTP 409".into()),
+        };
+        assert_eq!(
+            remote_tab_action_outcome("/chat-send", unrelated),
+            Err("HTTP 409".into())
+        );
     }
 
     #[test]

@@ -418,18 +418,13 @@ fn cmd_tab_inspect(
 pub(crate) fn build_tab_list_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
 ) -> Vec<serde_json::Value> {
-    let mut tab_index: std::collections::HashMap<String, (String, String, String, String)> =
+    let mut tab_index: std::collections::HashMap<String, (String, String, String)> =
         std::collections::HashMap::new();
     for ws in &snapshot.workspaces {
         for tab_id in &ws.tabs {
-            let tab_title = snapshot
-                .tabs
-                .get(tab_id)
-                .map(|tab| tab.title.clone())
-                .unwrap_or_else(|| tab_id.chars().take(8).collect());
             tab_index.insert(
                 tab_id.clone(),
-                (tab_id.clone(), tab_title, ws.id.clone(), ws.name.clone()),
+                (tab_id.clone(), ws.id.clone(), ws.name.clone()),
             );
         }
     }
@@ -445,12 +440,8 @@ pub(crate) fn build_tab_list_json(
                     "focused".into(),
                     serde_json::Value::Bool(focused_id == Some(p.id.as_str())),
                 );
-                if let Some((tab_id, tab_title, ws_id, ws_name)) = tab_index.get(&p.id) {
+                if let Some((tab_id, ws_id, ws_name)) = tab_index.get(&p.id) {
                     obj.insert("tab_id".into(), serde_json::Value::String(tab_id.clone()));
-                    obj.insert(
-                        "tab_title".into(),
-                        serde_json::Value::String(tab_title.clone()),
-                    );
                     obj.insert(
                         "workspace_id".into(),
                         serde_json::Value::String(ws_id.clone()),

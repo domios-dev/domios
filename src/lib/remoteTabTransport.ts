@@ -1,5 +1,5 @@
 import type { ApiConfig } from "./types";
-import { daemonAuthToken, daemonHttpBase } from "./webApi";
+import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
 export interface RemoteTransportCall {
   ordinaryTabId: string;
@@ -88,6 +88,16 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "resize_pty": return call("POST", "/pty/resize", { cols: args.cols, rows: args.rows, client_id: args.clientId });
     case "claim_resize_owner": return call("POST", "/pty/claim-resize", {
       pty_id: args.ptyId, client_id: args.clientId, cols: args.cols, rows: args.rows, force: args.force === true,
+    }, (value) => {
+      const result = value as { owner?: Record<string, unknown> };
+      return {
+        ...result,
+        owner: result.owner ? {
+          ...result.owner,
+          tab_id: identity.ordinaryTabId,
+          pty_id: String(args.ptyId ?? identity.ordinaryTabId),
+        } : result.owner,
+      };
     });
     case "read_pty": {
       const offset = readOffsets.get(identity.ordinaryTabId) ?? 0;
@@ -111,7 +121,9 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       text: args.text,
       scheduled_at_ms: args.scheduledAtMs,
     });
-    case "mux_respond_prompt": return call("POST", "/prompt/respond", args);
+    case "mux_respond_prompt": return call("POST", "/prompt/respond", args, (value) =>
+      isPromptNotOnScreenResponse(value) ? undefined : value,
+    );
     case "mux_set_permission_auto_confirm": return call(
       "POST",
       "/permission-auto-confirm",

@@ -759,6 +759,40 @@ mod tests {
     }
 
     #[test]
+    fn fresh_install_reconciles_after_recorded_consent() {
+        let provider = RepairProbeProvider::new(serde_json::json!({
+            "integration_state": "absent",
+            "hooks_installed": false
+        }));
+        let outcome = repair_integration_on_startup(&provider, 7686, true, false);
+        assert_eq!(outcome, IntegrationRepairOutcome::Repaired);
+        assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
+        assert_eq!(grants(&provider), 1);
+    }
+
+    #[test]
+    fn upgraded_owned_stale_hook_reconciles_after_recorded_consent() {
+        let provider = RepairProbeProvider::new(serde_json::json!({
+            "integration_state": "stale_version",
+            "hooks_installed": true,
+            "hooks_owned": true,
+            "hook_contract_current": false,
+            "session_start_hook": false,
+            "stop_hook": false
+        }));
+        let outcome = repair_integration_on_startup(&provider, 7686, true, false);
+        assert_eq!(outcome, IntegrationRepairOutcome::Repaired);
+        assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
+        assert_eq!(grants(&provider), 1);
+        assert_eq!(
+            provider.check_integration()["session_start_route"],
+            "tab-session-start"
+        );
+    }
+
+    #[test]
     fn hook_contract_repair_is_idempotent_by_write_count() {
         let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
         repair_integration_on_startup(&provider, 7686, true, false);

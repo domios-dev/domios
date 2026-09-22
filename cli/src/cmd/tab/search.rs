@@ -28,19 +28,21 @@ pub fn rank_tabs<'a>(
     let needle_translit = translit(&needle);
     let needle_compact = strip_separators(&needle);
     let needle_translit_compact = strip_separators(&needle_translit);
-    let mut scored: Vec<(i32, &serde_json::Value)> = tabs
+    let mut scored: Vec<(bool, i32, &serde_json::Value)> = tabs
         .iter()
         .filter_map(|p| {
             let id = field(p, "id");
             let title = field(p, "title");
-            let tab_title = field(p, "tab_title");
+            let legacy_tab_title = field(p, "tab_title");
+            let tab_title = crate::tab_name::tab_name(p).to_lowercase();
             let ws_name = field(p, "workspace_name");
             let sname = field(p, "agent_session_name");
             let agent = field(p, "agent_type");
             let model = field(p, "agent_session_model");
             let mut score = 0i32;
             // id prefix only counts at ≥4 chars — one-letter needles like "a" otherwise match ~6% of all UUIDs and drown the real result.
-            if needle.len() >= 4 && id.starts_with(&needle) {
+            let id_prefix = needle.len() >= 4 && id.starts_with(&needle);
+            if id_prefix {
                 score += 100;
             }
             score += score_field(&sname, &needle, &needle_translit, 80, 50);
@@ -65,7 +67,9 @@ pub fn rank_tabs<'a>(
                     score += 38;
                 }
             }
-            score += score_field(&title, &needle, &needle_translit, 35, 20);
+            if !legacy_tab_title.is_empty() && legacy_tab_title != title {
+                score += score_field(&title, &needle, &needle_translit, 35, 20);
+            }
             if !ws_name.is_empty() {
                 let ws_translit = translit(&ws_name);
                 if ws_name.contains(&needle) || ws_translit.contains(&needle_translit) {
@@ -79,7 +83,7 @@ pub fn rank_tabs<'a>(
                 score += 10;
             }
             if score > 0 {
-                Some((score, p))
+                Some((id_prefix, score, p))
             } else {
                 None
             }
@@ -87,13 +91,16 @@ pub fn rank_tabs<'a>(
         .collect();
     // Stable tie-break by id so identical scores keep a deterministic order.
     scored.sort_by(|a, b| {
-        b.0.cmp(&a.0).then_with(|| {
-            let ai = a.1.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            let bi = b.1.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)).then_with(|| {
+            let ai = a.2.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let bi = b.2.get("id").and_then(|v| v.as_str()).unwrap_or("");
             ai.cmp(bi)
         })
     });
     scored
+        .into_iter()
+        .map(|(_, score, tab)| (score, tab))
+        .collect()
 }
 
 fn field(v: &serde_json::Value, key: &str) -> String {
