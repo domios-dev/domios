@@ -588,7 +588,13 @@ fn recorded_lane_with_surviving_branch_commits_still_refuses() {
 #[test]
 fn recorded_lane_with_a_surviving_worktree_registration_still_refuses() {
     let fixture = fixture();
-    let registered_path = fixture.root.path().join("registered-lane");
+    // macOS temp dirs sit behind the /var symlink, and git records the resolved path.
+    let root = if cfg!(unix) {
+        fixture.root.path().canonicalize().unwrap()
+    } else {
+        fixture.root.path().to_path_buf()
+    };
+    let registered_path = root.join("registered-lane");
     super::git(
         &fixture.project,
         &[

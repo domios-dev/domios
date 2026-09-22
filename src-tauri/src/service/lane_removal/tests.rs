@@ -295,8 +295,11 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
     std::fs::remove_dir_all(&lane_path).unwrap();
     std::fs::remove_dir_all(&unrelated_path).unwrap();
     assert!(worktree_registered(project.to_str().unwrap(), &lane_path).unwrap());
-    let verbatim_path = format!("\\\\?\\{}", lane_path.replace('/', "\\"));
-    assert!(worktree_registered(project.to_str().unwrap(), &verbatim_path).unwrap());
+    #[cfg(windows)]
+    {
+        let verbatim_path = format!("\\\\?\\{}", lane_path.replace('/', "\\"));
+        assert!(worktree_registered(project.to_str().unwrap(), &verbatim_path).unwrap());
+    }
     assert!(worktree_registered(
         project.to_str().unwrap(),
         &unrelated_path.display().to_string()
