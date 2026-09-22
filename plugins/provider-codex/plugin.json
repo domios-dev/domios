@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.11.7",
-  "minCodeterm": "1.11.7",
+  "version": "1.11.8",
+  "minCodeterm": "1.11.8",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -66,6 +66,16 @@
       "description": "Our most capable model for complex, demanding work."
     },
     {
+      "id": "gpt-6-sol",
+      "displayName": "GPT-6-Sol",
+      "description": "GPT-6 Sol Codex model."
+    },
+    {
+      "id": "gpt-6-luna",
+      "displayName": "GPT-6-Luna",
+      "description": "GPT-6 Luna Codex model."
+    },
+    {
       "id": "gpt-5.6-sol",
       "displayName": "GPT-5.6-Sol",
       "description": "Reliable agentic workhorse for everyday tasks."
@@ -84,14 +94,9 @@
       "id": "gpt-5.5",
       "displayName": "GPT-5.5",
       "description": "Proven previous-generation model for coding and general work."
-    },
-    {
-      "id": "gpt-5.3-codex-spark",
-      "displayName": "GPT-5.3-Codex-Spark",
-      "description": "Ultra-fast coding model."
     }
   ],
-  "defaultModel": "gpt-5.5",
+  "defaultModel": "gpt-5.6-sol",
   "reasoningEfforts": [
     {
       "id": "low",
