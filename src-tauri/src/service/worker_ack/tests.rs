@@ -465,6 +465,7 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_ack_from_a_task_bound_tab_refuses_and_names_agent_ack() {
     let (fixture, _, worker_tab_id) = lifecycle_fixture(false);
     fixture
@@ -827,6 +828,7 @@ fn startup_supervisor_registration_is_idempotent_for_the_same_task_identity() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn task_bound_startup_fails_without_a_supervisor_and_accepts_hold_when_registered() {
     let (mut mux, parent_tab_id) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();

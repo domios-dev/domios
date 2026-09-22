@@ -902,6 +902,7 @@ mod respond_prompt_tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn respond_prompt_rejects_invalid_options_before_pty_access() {
         let (fixture, tab_id) = fixture_with_pending_prompt();
         for value in ["3", "two"] {
