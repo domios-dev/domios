@@ -42,6 +42,11 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+
       - name: Resolve release version
         id: release
         env:
