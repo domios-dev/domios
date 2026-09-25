@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.11.7",
-  "minCodeterm": "1.11.7",
+  "version": "1.11.8",
+  "minCodeterm": "1.11.8",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
