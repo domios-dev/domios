@@ -54,8 +54,8 @@ export function classifyCodexFolderTrustPrompt(
   const options = activeMenuOptions(screen);
   if (options.length !== 2) return null;
   if (!hasDirectoryContextLine(screen)) return null;
-  const affirmativeIndex = options.findIndex((option) => /^yes\b/i.test(option.label));
-  const negativeIndex = options.findIndex((option) => /^no\b/i.test(option.label));
+  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
   if (affirmativeIndex < 0 || negativeIndex < 0) return null;
 
   const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
@@ -90,7 +90,7 @@ function hasConfirmFooter(screen: string, lastOptionLine: number): boolean {
   const lines = normalizeLines(screen);
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\benter\s+to\s+(?:confirm|continue|select)\b/i.test(lines[i])) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
       footerLine = i;
       break;
     }
@@ -101,8 +101,7 @@ function hasConfirmFooter(screen: string, lastOptionLine: number): boolean {
 function hasDirectoryContextLine(screen: string): boolean {
   return normalizeLines(screen).some((line) => {
     const text = line.trim();
-    const context = /^[>❯›][ \t]+(.+)$/.exec(text)?.[1];
-    if (!context) return false;
+    const context = /^[>❯›][ \t]+(.+)$/.exec(text)?.[1] || text;
     return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
   });
 }
@@ -168,7 +167,7 @@ export function parseActiveTerminalChoice(screen: string): ActiveTerminalChoice 
   const lastOptionLine = options[options.length - 1].line;
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\b(?:press\s+)?enter\s+to\b/i.test(lines[i])) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
       footerLine = i;
       break;
     }

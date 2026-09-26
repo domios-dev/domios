@@ -570,17 +570,6 @@ const plugin: PluginModule = {
     return classifyCodexTabState(snapshot, host.unixNowMs());
   },
 
-  providerSelfUpdateCapability(): {
-    inSession: boolean;
-    restartRequired: boolean;
-    completionSignal: "provider_classification";
-  } {
-    return {
-      inSession: true,
-      restartRequired: true,
-      completionSignal: "provider_classification",
-    };
-  },
 };
 
 // types shared by the parsers above

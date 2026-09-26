@@ -15,7 +15,6 @@ type TabState =
   | "working"
   | "waiting_on_auth"
   | "update_prompt"
-  | "provider_update_completed"
   | "rate_limited"
   | "clarifying_question"
   | "idle_stuck"

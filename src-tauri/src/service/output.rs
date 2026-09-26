@@ -18,10 +18,55 @@ fn parse_manual_update_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
     snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
 ) -> Option<crate::multiplexer::types::PendingPrompt> {
+    if !manual_update_prompt_candidate(&snapshot.screen_text) {
+        return None;
+    }
     let classification = provider.classify_tab_state(snapshot);
     crate::agent::state_reactor::is_manual_update_prompt(classification.as_ref())
         .then(|| provider.parse_prompt(&snapshot.screen_text))
         .flatten()
+}
+
+fn manual_update_prompt_candidate(screen: &str) -> bool {
+    let mut options = Vec::new();
+    let mut footer = false;
+    for row in screen.lines() {
+        let lower = row.to_ascii_lowercase();
+        if lower.contains("enter")
+            && ["confirm", "continue", "select"]
+                .iter()
+                .any(|word| lower.contains(word))
+        {
+            footer = true;
+        }
+        let row = row.trim_start();
+        let row = row
+            .strip_prefix('>')
+            .or_else(|| row.strip_prefix('❯'))
+            .or_else(|| row.strip_prefix('›'))
+            .unwrap_or(row)
+            .trim_start();
+        let digits = row.chars().take_while(char::is_ascii_digit).count();
+        if digits == 0 {
+            continue;
+        }
+        let Some(separator) = row[digits..].trim_start().chars().next() else {
+            continue;
+        };
+        if !matches!(separator, '.' | ')') {
+            continue;
+        }
+        let label = row[digits..]
+            .trim_start()
+            .get(separator.len_utf8()..)
+            .unwrap_or_default()
+            .trim_start()
+            .to_ascii_lowercase();
+        options.push(label);
+    }
+    footer
+        && options.iter().any(|label| label.contains("update"))
+        && options.iter().any(|label| label.contains("skip"))
 }
 
 /// Per-tab notification cooldown: (tab_id, event_kind) → last fire time.
@@ -36,6 +81,10 @@ static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
 
 static AGENT_STOP_SUPPRESS_UNTIL: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
+
+#[cfg(test)]
+static BOUND_PROMPT_STEP_DISPATCHES: LazyLock<parking_lot::Mutex<HashMap<String, usize>>> =
+    LazyLock::new(Default::default);
 
 const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
 
@@ -216,51 +265,48 @@ impl ServiceContext {
             }
         }
 
+        let changed_screen = screen_changed.then(|| {
+            self.screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default()
+        });
+        let mut trust_candidate = false;
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
             self.maybe_detect_agent_session(pid, at);
             if directory_trust_eligible && screen_changed {
-                let screen = self.screen_state.lock().get_screen_text(pty_id);
-                let trust_parser = self
-                    .agent_registry
-                    .with_provider(at, |provider| {
-                        provider.supports_directory_trust_prompt_parsing()
-                    })
-                    .unwrap_or(false);
-                if !trust_parser
-                    || screen.as_deref().is_some_and(
-                        crate::service::directory_trust::directory_trust_prompt_candidate,
-                    )
-                {
-                    self.respond_to_directory_trust(pid, screen.as_deref());
-                }
+                trust_candidate = self
+                    .respond_to_directory_trust(pid, changed_screen.as_deref())
+                    .owns_prompt();
             } else if let Some(reason) = directory_trust_skip {
                 self.note_directory_trust(pid, reason, None);
             }
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
+                let update_candidate = changed_screen
+                    .as_deref()
+                    .is_some_and(manual_update_prompt_candidate);
 
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
-                let trust_prompt_parser = self
-                    .agent_registry
-                    .with_provider(at, |provider| {
-                        provider.supports_directory_trust_prompt_parsing()
-                    })
-                    .unwrap_or(false);
-                let trust_candidate_screen = if trust_prompt_parser && screen_changed {
-                    self.screen_state.lock().get_screen_text(pty_id)
-                } else {
-                    None
-                };
-                let trust_candidate = trust_candidate_screen
-                    .as_deref()
-                    .is_some_and(crate::service::directory_trust::directory_trust_prompt_candidate);
+                let trust_candidate_screen = trust_candidate.then(|| {
+                    self.screen_state
+                        .lock()
+                        .get_screen_text(pty_id)
+                        .unwrap_or_default()
+                });
                 let check_screen =
-                    has_markers || has_active_prompt || is_auto_approve || trust_candidate;
+                    has_markers
+                        || has_active_prompt
+                        || is_auto_approve
+                        || trust_candidate
+                        || update_candidate;
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
                     let clean_text = if check_screen {
-                        trust_candidate_screen.or_else(|| screen_state.get_screen_text(pty_id))
+                        trust_candidate_screen
+                            .or_else(|| changed_screen.clone())
+                            .or_else(|| screen_state.get_screen_text(pty_id))
                     } else {
                         None
                     };
@@ -276,7 +322,20 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                let (provider_prompt, manual_update_prompt) = if structured.is_none() {
+                let manual_update_candidate = structured.is_none() && update_candidate;
+                if manual_update_candidate && screen_changed {
+                    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                        tab_id: pid.to_string(),
+                        agent_type: at.to_string(),
+                        session_id: agent_session_id.clone(),
+                        cwd: tab_cwd.clone(),
+                        screen_text: changed_screen.clone().unwrap_or_default(),
+                    };
+                    self.classify_manual_update_prompt_off_runtime(pty_id.to_string(), snapshot);
+                }
+                let (provider_prompt, manual_update_prompt) = if structured.is_none()
+                    && !manual_update_candidate
+                {
                     clean_text
                         .as_deref()
                         .map(|screen| {
@@ -290,22 +349,7 @@ impl ServiceContext {
                                 });
                                 (prompt, false)
                             } else {
-                                let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-                                    tab_id: pid.to_string(),
-                                    agent_type: at.to_string(),
-                                    session_id: agent_session_id.clone(),
-                                    cwd: tab_cwd.clone(),
-                                    screen_text: screen.to_string(),
-                                };
-                                let prompt = crate::agent::prompt::parse_prompt_safely(|| {
-                                    self.agent_registry
-                                        .with_provider(at, |provider| {
-                                            parse_manual_update_prompt(provider, &snapshot)
-                                        })
-                                        .flatten()
-                                });
-                                let manual = prompt.is_some();
-                                (prompt, manual)
+                                (None, false)
                             }
                         })
                         .unwrap_or((None, false))
@@ -329,12 +373,16 @@ impl ServiceContext {
                 if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
                 }
-                let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
-                    pid,
-                    check_screen || prompt_signal,
-                    clean_text.is_some() || native_prompt_input.is_some(),
-                    parsed,
-                );
+                let decision = if manual_update_candidate {
+                    PromptDecision::None
+                } else {
+                    self.prompt_detector.lock().evaluate_pty_output_parsed(
+                        pid,
+                        check_screen || prompt_signal,
+                        clean_text.is_some() || native_prompt_input.is_some(),
+                        parsed,
+                    )
+                };
 
                 self.apply_prompt_decision_with_screen(
                     &decision,
@@ -700,6 +748,50 @@ impl ServiceContext {
         self.apply_prompt_decision_with_screen(decision, None, false, false);
     }
 
+    fn classify_manual_update_prompt_off_runtime(
+        &self,
+        pty_id: String,
+        snapshot: codeterm_plugin::tab_state::TabStateSnapshot,
+    ) {
+        let svc = self.clone();
+        std::thread::spawn(move || {
+            let prompt = svc
+                .agent_registry
+                .with_provider(&snapshot.agent_type, |provider| {
+                    parse_manual_update_prompt(provider, &snapshot)
+                })
+                .flatten();
+            let Some(prompt) = prompt else {
+                return;
+            };
+            let screen = svc
+                .screen_state
+                .lock()
+                .get_screen_text(&pty_id);
+            if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
+                return;
+            }
+            let decision = svc
+                .prompt_detector
+                .lock()
+                .evaluate_pty_output_parsed(
+                    &snapshot.tab_id,
+                    true,
+                    true,
+                    Some(crate::agent::prompt::ResolvedPrompt {
+                        prompt,
+                        explicit: false,
+                    }),
+                );
+            svc.apply_prompt_decision_with_screen(
+                &decision,
+                Some(&snapshot.screen_text),
+                false,
+                true,
+            );
+        });
+    }
+
     /// Set (or clear) a tab's pending prompt from a PUSH structured handle
     /// (opencode SSE). No-op when unchanged. Bypasses the auto-approve PTY
     /// send-back in `apply_prompt_decision` — structured prompts are answered
@@ -987,6 +1079,11 @@ pub(super) fn write_bound_prompt_steps<F>(
 ) where
     F: FnOnce() -> bool + Send + 'static,
 {
+    #[cfg(test)]
+    *BOUND_PROMPT_STEP_DISPATCHES
+        .lock()
+        .entry(pty_id.clone())
+        .or_default() += 1;
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
         if !still_bound() {
@@ -997,6 +1094,15 @@ pub(super) fn write_bound_prompt_steps<F>(
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     });
+}
+
+#[cfg(test)]
+pub(super) fn bound_prompt_step_dispatch_count_for_test(pty_id: &str) -> usize {
+    BOUND_PROMPT_STEP_DISPATCHES
+        .lock()
+        .get(pty_id)
+        .copied()
+        .unwrap_or_default()
 }
 
 /// Does the screen's last non-empty line look like a bare shell prompt? Combined

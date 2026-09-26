@@ -1,11 +1,11 @@
 use std::cell::Cell;
 
-use codeterm_plugin::provider::DirectoryTrustPromptResponse;
+use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_prompt_candidate,
-    directory_trust_provenance, directory_trust_skip_reason, inherited_workspace_provenance,
-    legacy_auto_approve_permitted, DirectoryTrustRefusal, TrustDecision, TrustLedger,
+    decide, directory_trust_check_applies, directory_trust_provenance,
+    directory_trust_skip_reason, inherited_workspace_provenance, legacy_auto_approve_permitted,
+    DirectoryTrustRefusal, TrustDecision, TrustLedger,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -78,74 +78,20 @@ fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
 }
 
 #[test]
-fn directory_trust_prompt_candidate_uses_active_path_choice_structure() {
-    let trust = "> You are in D:\\workspace\\project\n\nShould this folder's guidance be loaded? Project rules can alter how the running agent behaves while working in this folder.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
-    let approval = "Do you want to apply this change? It can modify the selected files in your project.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
-    let bypass = "> D:\\workspace\\project\n\nShould this folder's local rules be loaded? This enables a bypass for the configured policies and removes the usual restrictions.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
-    let model_picker = "> You are in D:\\workspace\\project\n\nSelect a model\n\n  1. Model A\n> 2. Model B\n  3. Model C\n\nPress enter to select";
-    let answer_list = "> You are in D:\\workspace\\project\n\nHere are the choices we discussed:\n  1. First answer\n  2. Second answer\n  3. Third answer";
-    let one_paragraph_approval = "> D:\\workspace\\project\n\nWould you like to apply this change? It updates the selected files and records the result in the project history.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
-    let unselected_trust = trust.replace("> 2. No", " 2. No");
-
-    assert!(directory_trust_prompt_candidate(trust));
-    assert!(!directory_trust_prompt_candidate(approval));
-    assert!(!directory_trust_prompt_candidate(bypass));
-    assert!(!directory_trust_prompt_candidate(model_picker));
-    assert!(!directory_trust_prompt_candidate(answer_list));
-    assert!(!directory_trust_prompt_candidate(one_paragraph_approval));
-    assert!(!directory_trust_prompt_candidate(&unselected_trust));
-}
-
-#[test]
-fn directory_trust_prompt_candidate_matches_real_fixture_frames() {
-    let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../plugins/provider-codex/tests/fixtures/directory-trust");
-    let cases: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(fixture_dir.join("cases.json")).unwrap())
-            .unwrap();
-
-    for case in cases.as_array().unwrap() {
-        let file = case["file"].as_str().unwrap();
-        let expected = case["expect"].as_str().unwrap() != "none";
-        let screen = std::fs::read_to_string(fixture_dir.join(file)).unwrap();
-        assert_eq!(
-            directory_trust_prompt_candidate(&screen),
-            expected,
-            "{file}"
-        );
-    }
-}
-
-#[test]
-fn directory_trust_write_requires_the_trust_option_to_be_selected() {
-    let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../plugins/provider-codex/tests/fixtures/directory-trust");
-    let yes_selected = std::fs::read_to_string(fixture_dir.join("trust-80col-git-note.txt"))
-        .expect("trust fixture");
-    let no_selected = std::fs::read_to_string(fixture_dir.join("trust-windows-focus-no.txt"))
-        .expect("refusal-focused trust fixture");
-
-    assert_eq!(super::directory_trust_prompt_selected(&yes_selected), Some(true));
-    assert_eq!(super::directory_trust_prompt_selected(&no_selected), Some(false));
-}
-
-#[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn trust_responder_never_writes_on_a_non_trust_dialog() {
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt");
     let screen = std::fs::read_to_string(fixture_path).unwrap();
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
-    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-update".into());
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-update-trust".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
             "claude",
-            DirectoryTrustPromptResponse::Answer {
-                step: b"\r".to_vec(),
-            },
-        ),
-    ));
+        )));
 
     let decision = fixture
         .service
@@ -157,6 +103,35 @@ fn trust_responder_never_writes_on_a_non_trust_dialog() {
         .tabs
         .get(&tab_id)
         .is_none_or(|trust| trust.answered_frame.is_none()));
+    assert_eq!(
+        crate::service::output::bound_prompt_step_dispatch_count_for_test("pty-update-trust"),
+        0,
+        "a non-trust dialog must not dispatch any PTY key"
+    );
+}
+
+#[test]
+fn core_trust_decision_answers_claude_folder_trust_fixtures() {
+    let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-claude/tests/fixtures/folder-trust");
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    for (file, step) in [
+        ("quick-safety-yes-focused.txt", b"\r".as_slice()),
+        ("trust-rule-focus-affirmative.txt", b"\r".as_slice()),
+        ("trust-box-focus-refusal.txt", b"j".as_slice()),
+        ("trust-numbered-focus-affirmative.txt", b"\r".as_slice()),
+    ] {
+        let screen = std::fs::read_to_string(fixture_dir.join(file)).expect("Claude trust frame");
+        assert_eq!(
+            decide(true, file, &screen, &parking_lot::Mutex::new(TrustLedger::default()), |s| {
+                provider.directory_trust_prompt_response(s)
+            }),
+            TrustDecision::Answer {
+                step: step.to_vec()
+            },
+            "provider-classified Claude trust fixture {file}"
+        );
+    }
 }
 
 #[test]

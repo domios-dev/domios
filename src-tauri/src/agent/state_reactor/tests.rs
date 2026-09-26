@@ -22,7 +22,6 @@ fn keys_action(keys: &[&str]) -> TabStateAction {
         keys: Some(keys.iter().map(|k| k.to_string()).collect()),
         delayed_resume: None,
         surface: None,
-        provider_update: None,
     }
 }
 
@@ -73,7 +72,6 @@ fn waiting_on_auth_is_never_auto_acted_surface_only() {
         keys: Some(vec!["enter".to_string()]),
         delayed_resume: None,
         surface: Some(surface.clone()),
-        provider_update: None,
     };
     let c = classification(TabState::WaitingOnAuth, 0.99, Some(action));
     assert_eq!(
@@ -126,7 +124,6 @@ fn action_with_no_keys_produces_no_writes() {
             then_keys: None,
         }),
         surface: None,
-        provider_update: None,
     };
     assert!(action_to_writes(&action).is_empty());
 }
@@ -136,15 +133,6 @@ fn unknown_keys_are_skipped_not_injected() {
     let action = keys_action(&["down", "frobnicate", "enter"]);
     let writes = action_to_writes(&action);
     assert_eq!(writes, vec![b"\x1b[B".to_vec(), b"\r".to_vec()]);
-}
-
-#[test]
-fn provider_update_completion_is_a_structural_event() {
-    let c = classification(TabState::ProviderUpdateCompleted, 1.0, None);
-    assert_eq!(
-        decide(TabStatus::Idle, Some(&c)),
-        ReactorDecision::ProviderUpdateCompleted
-    );
 }
 
 #[test]
@@ -162,28 +150,12 @@ fn update_prompt_classification_is_a_manual_prompt_guard() {
 fn update_prompt_without_an_explicit_update_action_is_never_acted() {
     let prompt = classification(TabState::UpdatePrompt, 1.0, None);
     assert_eq!(decide(TabStatus::Idle, Some(&prompt)), ReactorDecision::Ignore);
-}
-
-#[test]
-fn hidden_update_runner_completes_only_after_install_leaves_the_prompt() {
-    let prompt = classification(TabState::UpdatePrompt, 1.0, None);
-    let shell = classification(TabState::Working, 0.0, None);
-    assert!(!runner_update_completed(
-        TabStatus::Idle,
-        Some(&prompt),
-        true
-    ));
-    assert!(!runner_update_completed(
-        TabStatus::Working,
-        Some(&shell),
-        true
-    ));
-    assert!(!runner_update_completed(
-        TabStatus::Idle,
-        Some(&shell),
-        false
-    ));
-    assert!(runner_update_completed(TabStatus::Idle, Some(&shell), true));
+    let keyed = classification(
+        TabState::UpdatePrompt,
+        1.0,
+        Some(keys_action(&["enter"])),
+    );
+    assert_eq!(decide(TabStatus::Idle, Some(&keyed)), ReactorDecision::Ignore);
 }
 
 #[test]

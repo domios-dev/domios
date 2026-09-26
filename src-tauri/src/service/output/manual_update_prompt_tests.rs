@@ -114,6 +114,11 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
             .collect::<Vec<_>>(),
         ["1", "2", "3"]
     );
+    assert_eq!(
+        super::bound_prompt_step_dispatch_count_for_test("pty-update"),
+        0,
+        "manual update prompts must never dispatch PTY keys automatically"
+    );
 }
 
 #[test]
