@@ -17,7 +17,10 @@ use crate::provider::{
     SettingField,
 };
 
-use super::{call_json, PluginManifest, PluginVm, VmError};
+use super::{
+    call_json, call_json_strict, host_credentials, manifest_settings_sections, CwdEncoding,
+    PluginManifest, PluginVm, VmError,
+};
 
 /// One generic provider per plugin bundle.
 pub struct JsProvider {
