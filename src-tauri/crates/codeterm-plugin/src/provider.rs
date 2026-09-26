@@ -13,6 +13,15 @@ pub struct IntegrationInstallOptions {
     pub repair: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IntegrationKind {
+    ClaudeSettingsJson,
+    ProviderManaged,
+    PluginFile,
+    None,
+}
+
 pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
 /// Bind address for a provider's structured-prompt server (opencode SSE bus).
@@ -852,8 +861,7 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // CodeTerm integration varies: Claude uses hooks for permission/task callbacks;
-    // Codex/OpenCode are PTY-observed and need no extra provider config.
+    // Providers can integrate through hook configuration, managed settings, or marked files.
 
     /// Status of CodeTerm's notification integration with this provider —
     /// returned as opaque JSON so each provider shapes it for its own UI.
@@ -863,14 +871,18 @@ pub trait AgentProvider: Send + Sync {
         serde_json::json!({ "status": "ok" })
     }
 
-    /// Whether the provider's manifest declares an installable integration.
-    /// Startup repair is capability-gated so core never identifies providers.
-    fn has_installable_integration(&self) -> bool {
-        false
+    /// The integration surface this provider owns and may reconcile.
+    fn integration_kind(&self) -> IntegrationKind {
+        IntegrationKind::None
     }
 
-    /// Install CodeTerm's notification integration. `api_port` is the local
-    /// CodeTerm HTTP port that callbacks should target. Default no-op.
+    /// Startup repair is capability-gated so core never identifies providers.
+    fn has_installable_integration(&self) -> bool {
+        self.integration_kind() != IntegrationKind::None
+    }
+
+    /// Install CodeTerm's provider integration. `api_port` targets local callback
+    /// routes when the integration uses hooks. Default no-op.
     fn install_integration(
         &self,
         _api_port: u16,

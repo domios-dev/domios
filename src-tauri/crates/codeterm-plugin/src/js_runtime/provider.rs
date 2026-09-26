@@ -1121,11 +1121,11 @@ impl AgentProvider for JsProvider {
             .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
     }
 
-    fn has_installable_integration(&self) -> bool {
+    fn integration_kind(&self) -> IntegrationKind {
         self.manifest
             .integration
             .as_ref()
-            .is_some_and(|integration| !matches!(integration.kind, IntegrationKind::None))
+            .map_or(IntegrationKind::None, |integration| integration.kind)
     }
 
     fn install_integration(

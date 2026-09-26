@@ -403,8 +403,8 @@ impl AgentProvider for ClaudeProvider {
         integration::check_integration()
     }
 
-    fn has_installable_integration(&self) -> bool {
-        true
+    fn integration_kind(&self) -> crate::provider::IntegrationKind {
+        crate::provider::IntegrationKind::ClaudeSettingsJson
     }
 
     fn install_integration(

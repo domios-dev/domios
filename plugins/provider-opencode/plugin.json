@@ -54,6 +54,10 @@
       }
     }
   ],
+  "integration": {
+    "kind": "plugin_file",
+    "settingsPath": "~/.config/opencode/codeterm-session-binding.js"
+  },
   "modelGroups": [
     {
       "id": "opencode",

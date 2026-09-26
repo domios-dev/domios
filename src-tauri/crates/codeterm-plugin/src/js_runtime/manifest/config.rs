@@ -1,3 +1,4 @@
+pub use crate::provider::IntegrationKind;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
@@ -359,10 +360,9 @@ pub enum CwdEncoding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct IntegrationConfig {
-    /// What kind of integration to install. The kind declares whether native
-    /// or provider-managed review/backup/restore semantics apply.
+    /// The owned integration surface and its reconciliation semantics.
     pub kind: IntegrationKind,
-    /// Where the integration is stored (e.g. `~/.claude/settings.json`).
+    /// The integration's primary target path.
     pub settings_path: String,
     /// Optional `integration.trust_grant` capability declaration: managed hook
     /// key(s) core passes to the plugin's `grantIntegrationTrust` per install.
@@ -375,18 +375,6 @@ pub struct IntegrationConfig {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TrustGrantConfig {
     pub managed_keys: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IntegrationKind {
-    /// Claude-style: edit a JSON file's `hooks` object with curl-back
-    /// commands.
-    ClaudeSettingsJson,
-    /// Provider JS owns a reviewable global-config merge and backup/restore flow.
-    ProviderManaged,
-    /// No installable integration. PTY parser does it all.
-    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
