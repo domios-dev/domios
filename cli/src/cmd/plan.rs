@@ -243,7 +243,9 @@ pub(crate) fn lane_params(
 
 pub fn handle_plan(client: &mut dyn RpcClient, json: bool, action: PlanAction) {
     let action = match action {
-        PlanAction::Task(task @ PlanTaskAction::Dispatch { .. }) => {
+        PlanAction::Task {
+            action: task @ PlanTaskAction::Dispatch { .. },
+        } => {
             match task_cmd::run_dispatch(client, json, task) {
                 Ok(None) => {}
                 Ok(Some(value)) => print_plan_result(json, &value),

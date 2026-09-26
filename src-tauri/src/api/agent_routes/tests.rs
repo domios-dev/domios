@@ -91,10 +91,17 @@ fn spawn_rejection_serializes_a_structured_error_not_bare_text() {
 
 #[tokio::test]
 async fn unknown_authoritative_model_returns_structured_422_without_retry_hint() {
-    let registry = facade_with_agent(
-        BinaryProvider::new("rest-catalogue", "rest-catalogue", None)
-            .with_authoritative_models(&["model-a", "model-b"]),
+    let provider = BinaryProvider::new("rest-catalogue", "rest-catalogue", None)
+        .with_authoritative_models(&["model-a", "model-b"]);
+    crate::agent::model_catalog::register(
+        provider.id,
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: provider.models.clone(),
+            default: provider.models.first().map(|model| model.id.clone()),
+        },
     );
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(provider));
     let rejection =
         super::model_error::validate_agent_model(&registry, "rest-catalogue", Some("model-z"))
             .expect_err("unknown authoritative ids are a REST refusal");
