@@ -849,7 +849,7 @@ pub(super) fn dispatch(
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
             };
-            let draft = store
+            let mut draft = store
                 .build_task_respawn_draft(&id, &tid, request)
                 .map_err(plan_rpc_err)?;
             let original_task = task.clone();
@@ -900,6 +900,8 @@ pub(super) fn dispatch(
                 workspace_id: draft.workspace_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
+                planned_reasoning_effort: draft.reasoning_effort.clone(),
+                reasoning_effort: draft.reasoning_effort.clone(),
                 spawned_by_tab_id: Some(parent_tab_id.clone()),
                 ..Default::default()
             };
@@ -911,6 +913,9 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+            draft.provider = spawn.agent.clone();
+            draft.model = spawn.provider_resolved_model.clone();
+            draft.reasoning_effort = spawn.reasoning_effort.clone();
             let created = record_spawned_attempt(svc, &spawn.tab_id, || {
                 store.record_task_respawn_attempt_with_profile(
                     &id,
@@ -931,6 +936,7 @@ pub(super) fn dispatch(
                 now,
             )
             .map_err(plan_rpc_err)?;
+            svc.persist_current_attempt_session_model(&spawn.tab_id);
             emit_plan_changed(app, &id);
             let startup = super::plan_task_dispatch::DispatchStartup {
                 app: app.clone(),

@@ -135,6 +135,26 @@ pub struct AgentLaunchParams {
     /// gap — the host allocates the port instead of the caller hand-passing args.
     pub structured_prompt_server: Option<StructuredPromptServer>,
     pub launch_marker: Option<String>,
+    pub instance_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchArtifactSweepRequest {
+    pub instance_id: String,
+    pub live_tab_ids: Vec<String>,
+    #[serde(default)]
+    pub confirm: bool,
+    #[serde(default)]
+    pub include_legacy: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchArtifactSweepReport {
+    pub dead: Vec<String>,
+    pub legacy: Vec<String>,
+    pub removed: Vec<String>,
 }
 
 /// Everything a resumed session needs beyond its id. `system_prompt` is the

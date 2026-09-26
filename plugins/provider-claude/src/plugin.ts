@@ -749,6 +749,7 @@ const plugin: PluginModule = {
       return {
         settings_exists: false,
         hooks_installed: false,
+        integration_owned: false,
         notification_hook: false,
         permission_request_hook: false,
         stop_hook: false,
@@ -761,7 +762,12 @@ const plugin: PluginModule = {
     }
     const json = host.fs.readJson<ClaudeSettings>(path);
     if (!json) {
-      return { settings_exists: true, hooks_installed: false };
+      return {
+        settings_exists: true,
+        hooks_installed: false,
+        integration_owned: false,
+        integration_state: "unreadable",
+      };
     }
     function present(key: string): boolean {
       const arr = json!.hooks && json!.hooks[key];
@@ -782,6 +788,10 @@ const plugin: PluginModule = {
         }
       }
       return false;
+    }
+    function markerOwnedPresent(key: string): boolean {
+      const arr = json!.hooks && json!.hooks[key];
+      return Array.isArray(arr) && arr.some((entry) => entryCarriesMarker(entry));
     }
     // SessionStart must also carry the binding-nonce header, else it's a pre-nonce hook to force-upgrade.
     function sessionStartCurrent(): boolean {
@@ -806,9 +816,10 @@ const plugin: PluginModule = {
     const n = present("Notification");
     const pr = present("PermissionRequest");
     const s = present("Stop");
-    const pc = present("PreCompact");
+    const pc = markerOwnedPresent("PreCompact");
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
+    const owned = INTEGRATION_HOOK_KEYS.some((key) => markerOwnedPresent(key));
     // False means the machine still runs pre-marker hooks the consented
     // reconciliation migrates once; it never means the hooks are broken.
     let marked = true;
@@ -819,6 +830,7 @@ const plugin: PluginModule = {
     return {
       settings_exists: true,
       hooks_installed: installed,
+      integration_owned: owned,
       hook_contract_current: installed && marked,
       notification_hook: n,
       permission_request_hook: pr,
@@ -1080,6 +1092,13 @@ const CODETERM_CURRENT_ROUTES = [
 
 function commandCarriesMarker(cmd: string): boolean {
   return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+
+function entryCarriesMarker(entry: HookEntry): boolean {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+  });
 }
 
 // Migration compatibility only: the current command as it exists on machines

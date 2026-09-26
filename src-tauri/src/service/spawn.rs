@@ -1054,6 +1054,7 @@ impl ServiceContext {
                     &hidden_cwd,
                 ),
                 launch_marker: None,
+                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             };
             let launch_cmd = super::launch_session_detection::marked_provider_launch_command(
                 &svc_outer.agent_registry,

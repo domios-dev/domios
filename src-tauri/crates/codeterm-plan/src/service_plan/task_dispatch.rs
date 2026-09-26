@@ -6,6 +6,12 @@ use super::lane_metadata::normalize_lane_metadata;
 use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
+#[derive(Debug, Clone)]
+pub(super) struct DispatchedAttemptMetadata {
+    model: Option<String>,
+    reasoning_effort: Option<String>,
+}
+
 pub(super) use reservation::DispatchReservationOwner;
 pub use reservation::TaskDispatchReservation;
 pub use rollback::DispatchRollback;
@@ -298,7 +304,7 @@ impl PlanStore {
         provider: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -313,6 +319,7 @@ impl PlanStore {
             None,
             false,
             false,
+            None,
             now_ms,
         )
     }
@@ -331,7 +338,7 @@ impl PlanStore {
         attempt_id: &str,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -346,6 +353,7 @@ impl PlanStore {
             None,
             false,
             false,
+            None,
             now_ms,
         )
     }
@@ -366,7 +374,7 @@ impl PlanStore {
         placement: crate::plan::WorkerPlacement,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -381,6 +389,7 @@ impl PlanStore {
             None,
             false,
             false,
+            None,
             now_ms,
         )
     }
@@ -397,13 +406,16 @@ impl PlanStore {
         allowance: Option<crate::plan::ProviderAllowance>,
         provider: Option<&str>,
         attempt_id: &str,
-        authorized_gates: Vec<String>,
+        authorized_gates: Option<Vec<String>>,
         placement: crate::plan::WorkerPlacement,
+        model: Option<String>,
+        reasoning_effort: Option<String>,
         observed_startup_owner: Option<DispatchStartupOwner>,
         observed_startup_owner_is_live: bool,
+        startup_owner_observation_made: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -413,11 +425,15 @@ impl PlanStore {
             allowance,
             provider,
             Some(attempt_id),
-            Some(authorized_gates),
+            authorized_gates,
             placement,
             observed_startup_owner,
             observed_startup_owner_is_live,
-            true,
+            startup_owner_observation_made,
+            Some(DispatchedAttemptMetadata {
+                model,
+                reasoning_effort,
+            }),
             now_ms,
         )
     }
@@ -433,7 +449,7 @@ impl PlanStore {
         observed_startup_owner_is_live: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -448,12 +464,13 @@ impl PlanStore {
             observed_startup_owner,
             observed_startup_owner_is_live,
             true,
+            None,
             now_ms,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn begin_task_dispatch_with_policy_inner(
+    fn begin_task_dispatch_with_policy_and_dispatched_metadata(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -469,6 +486,7 @@ impl PlanStore {
         observed_startup_owner: Option<DispatchStartupOwner>,
         observed_startup_owner_is_live: bool,
         startup_owner_observation_made: bool,
+        dispatched_metadata: Option<DispatchedAttemptMetadata>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
@@ -522,6 +540,10 @@ impl PlanStore {
             attempt.executor_title = Some(executor_title.to_string());
             attempt.provider = provider.map(str::to_string);
             attempt.agent_type = provider.map(str::to_string);
+            if let Some(metadata) = dispatched_metadata.as_ref() {
+                attempt.model = metadata.model.clone();
+                attempt.reasoning_effort = metadata.reasoning_effort.clone();
+            }
             attempt.authorized_gates = authorized_gates.clone();
             attempt.placement = placement;
             task.interruption.execution_intent = intent.clone();
@@ -569,6 +591,10 @@ impl PlanStore {
                 || attempt.executor_title.as_deref() != Some(executor_title)
                 || attempt.provider.as_deref() != provider
                 || attempt.agent_type.as_deref() != provider
+                || dispatched_metadata.as_ref().is_some_and(|metadata| {
+                    attempt.model != metadata.model
+                        || attempt.reasoning_effort != metadata.reasoning_effort
+                })
                 || attempt.session_id.is_some()
                 || task.interruption.execution_intent != intent
                 || task.interruption.allowance != allowance

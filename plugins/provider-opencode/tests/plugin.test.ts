@@ -11,6 +11,7 @@ import plugin from "../src/index";
 import {
   isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
+  ownsOpencodeBindingPluginSource,
 } from "../src/helpers";
 
 let passed = 0;
@@ -56,10 +57,96 @@ assert(plugin.titlePattern!.test("opencode"), "titlePattern matches 'opencode'")
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns non-empty");
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
-assert(
-  isCurrentOpencodeBindingPluginSource(opencodeBindingPluginSource()),
-  "the generated binding plugin source satisfies its currentness contract",
+const bindingPluginSource = opencodeBindingPluginSource();
+assert(isCurrentOpencodeBindingPluginSource(bindingPluginSource), "generated binding plugin is current");
+const previousBindingPluginSource = bindingPluginSource.replace(
+  "codeterm-opencode-session-binding-v3",
+  "codeterm-opencode-session-binding-v2",
 );
+assert(ownsOpencodeBindingPluginSource(previousBindingPluginSource), "older CodeTerm binding versions remain owned");
+assert(!isCurrentOpencodeBindingPluginSource(previousBindingPluginSource), "older binding version is stale");
+assert(!ownsOpencodeBindingPluginSource("// foreign-opencode-plugin\nconst value = true;"), "foreign plugin header is not owned");
+assert(
+  !isCurrentOpencodeBindingPluginSource(`// foreign-opencode-plugin\n${bindingPluginSource}`),
+  "currentness requires the exact CodeTerm header",
+);
+assert(
+  !ownsOpencodeBindingPluginSource("// codeterm-opencode-session-binding-vendor\nconst value = true;"),
+  "non-version marker suffix is not owned",
+);
+
+async function loadGeneratedBindingHooks() {
+  const requests: Array<{ session_id: string; source: string }> = [];
+  const source = opencodeBindingPluginSource().replace(
+    "export default async function CodeTermSessionBindingPlugin",
+    "async function CodeTermSessionBindingPlugin",
+  );
+  const context = {
+    process: {
+      env: {
+        CODETERM_TAB_ID: "tab-1",
+        CODETERM_API_TOKEN: "token",
+        CODETERM_SESSION_BINDING_NONCE: "nonce",
+        CODETERM_API_URL: "http://dev",
+      },
+    },
+    fetch: async (_url: string, options: { body: string }) => {
+      const body = JSON.parse(options.body) as { session_id?: unknown; source?: unknown };
+      if (typeof body.session_id === "string" && typeof body.source === "string") {
+        requests.push({ session_id: body.session_id, source: body.source });
+      }
+      return { ok: true };
+    },
+    module: { exports: undefined as unknown },
+  };
+  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(context);
+  const makePlugin = context.module.exports as (input: { directory: string }) => Promise<{
+    event: (input: { event: unknown }) => Promise<void>;
+    "chat.message": (input: { sessionID: string }) => Promise<void>;
+    "tool.execute.before": (input: { sessionID: string }) => Promise<void>;
+    "shell.env": (input: { sessionID: string }, output: unknown) => Promise<unknown>;
+  }>;
+  const hooks = await makePlugin({ directory: "/work" });
+  return { hooks, requests };
+}
+
+console.log("\n--- session binding deduplicates by active session ---\n");
+{
+  const { hooks, requests } = await loadGeneratedBindingHooks();
+  const sameSession = "ses_existing";
+  await hooks.event({ event: { type: "session.created", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "session.updated", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "tui.session.select", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "message.updated", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "message.part.updated", properties: { sessionID: sameSession } } });
+  await hooks["chat.message"]({ sessionID: sameSession });
+  await hooks["tool.execute.before"]({ sessionID: sameSession });
+  const output = { OPENCODE_TEST_ENV: "1" };
+  eq(await hooks["shell.env"]({ sessionID: sameSession }, output), output, "shell hook preserves its output");
+  eq(
+    requests.map(({ session_id, source: event }) => ({ session_id, source: event })),
+    [{ session_id: sameSession, source: "session.created" }],
+    "repeated event and hook reports for one session make one POST",
+  );
+  const changedSession = "ses_switched";
+  await hooks.event({ event: { type: "session.updated", properties: { sessionID: changedSession } } });
+  await hooks.event({ event: { type: "message.part.updated", properties: { sessionID: changedSession } } });
+  eq(
+    requests.map(({ session_id }) => session_id),
+    [sameSession, changedSession],
+    "a session change creates one new binding POST",
+  );
+}
+
+{
+  const resumed = await loadGeneratedBindingHooks();
+  await resumed.hooks.event({ event: { type: "message.part.updated", properties: { sessionID: "ses_resumed" } } });
+  eq(
+    resumed.requests.map(({ session_id }) => session_id),
+    ["ses_resumed"],
+    "the first event in a resumed provider process rebinds its existing session",
+  );
+}
 
 function loadOpencodeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
@@ -495,14 +582,22 @@ console.log("\n--- discoverModels ---\n");
     old.checkIntegration().plugin_file_current === false,
     "pre-nonce opencode plugin reads as not-current",
   );
+  assert(
+    old.checkIntegration().plugin_file_owned === true,
+    "older CodeTerm plugin versions remain owned and refreshable",
+  );
+  const foreignFile = loadOpencodeWithHost(withBody("// foreign-opencode-plugin\nconst x = 1;"));
+  assert(foreignFile.checkIntegration().plugin_file_owned === false, "foreign plugin files are not refreshable as ours");
   const cur = loadOpencodeWithHost(
     withBody(
-      "// codeterm-opencode-session-binding-v2\n" +
+      "// codeterm-opencode-session-binding-v3\n" +
       "const base = process.env.CODETERM_API_URL;\n" +
       "const token = process.env.CODETERM_API_TOKEN;\n" +
       "const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
       "process.env.CODETERM_TAB_ID;\n" +
       'const endpoint = "/api/tabs/";\n' +
+      "let lastReported = null;\n" +
+      "sessionID === lastReported;\n" +
       '"x-codeterm-binding-nonce";\n' +
       "authorization;",
     ),
@@ -511,6 +606,7 @@ console.log("\n--- discoverModels ---\n");
     cur.checkIntegration().plugin_file_current === true,
     "opencode plugin carrying the nonce reads as current",
   );
+  assert(cur.checkIntegration().plugin_file_owned === true, "current plugin reports marker ownership");
   const stalePane = loadOpencodeWithHost(
     withBody(
       "// codeterm-opencode-session-binding-v2\n" +
@@ -536,6 +632,23 @@ console.log("\n--- discoverModels ---\n");
     ),
   );
   assert(staleInstance.checkIntegration().plugin_file_current === false, "instance-bound helper is stale");
+  const foreign = loadOpencodeWithHost(withBody("const endpoint = process.env.CODETERM_API_URL;"));
+  assert(foreign.checkIntegration().plugin_file_owned === false, "unmarked file is not CodeTerm-owned");
+  const unreadableConfig = loadOpencodeWithHost(
+    ocHost({
+      fs: {
+        fileExists: () => true,
+        readFile: () => "// codeterm-opencode-session-binding-v2",
+        readJson: () => null,
+        writeFile: () => false,
+        writeJson: () => false,
+      },
+    }),
+  );
+  assert(
+    unreadableConfig.checkIntegration().integration_state === "unreadable",
+    "an unreadable config reports a reconciliation state instead of absence",
+  );
 }
 
 console.log("--- permission_request: opencode declared session state ---");

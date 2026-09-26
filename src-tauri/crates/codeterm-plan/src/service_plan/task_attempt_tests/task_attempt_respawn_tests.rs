@@ -9,6 +9,71 @@ use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus}
 use codeterm_types::agent::ReportStatus;
 
 #[test]
+fn attempt_model_fields_round_trip() {
+    let (dir, store, plan_id, task_id) = super::bound_report_store();
+    let attempt_id = store.list_task_attempts(&plan_id, &task_id).unwrap()[0]
+        .attempt_id
+        .clone();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+                .unwrap();
+            attempt.provider = Some("codex".into());
+            attempt.model = Some("gpt-6-luna".into());
+            attempt.reasoning_effort = Some("xhigh".into());
+            attempt.session_model = Some("gpt-runtime".into());
+            Ok(())
+        })
+        .unwrap();
+
+    let reloaded = PlanStore::new_for_test(dir.path());
+    let saved = reloaded
+        .list_task_attempts(&plan_id, &task_id)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let json = serde_json::to_value(&saved).unwrap();
+    assert_eq!(json["provider"], "codex");
+    assert_eq!(json["model"], "gpt-6-luna");
+    assert_eq!(json["reasoning_effort"], "xhigh");
+    assert_eq!(json["session_model"], "gpt-runtime");
+
+    let draft = reloaded
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(draft.provider, "codex");
+    assert_eq!(draft.model.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(draft.reasoning_effort.as_deref(), Some("xhigh"));
+
+    let respawned = reloaded
+        .record_task_respawn_attempt(&plan_id, &task_id, "worker-next", &draft, Some("worker"), 5)
+        .unwrap();
+    assert_eq!(respawned.attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(respawned.attempt.model.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(
+        respawned.attempt.reasoning_effort.as_deref(),
+        Some("xhigh")
+    );
+    assert_eq!(respawned.attempt.session_model, None);
+}
+
+#[test]
 fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());

@@ -76,6 +76,46 @@ function callObjects(source: string, toolName: string): string[] {
   return objects;
 }
 
+function scriptCommands(raw: string): string[] {
+  const commandBodies = [
+    ...callObjects(raw, "exec_command"),
+    ...callObjects(raw, "shell_command"),
+  ];
+  return commandBodies
+    .map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "")
+    .filter(Boolean);
+}
+
+export function commandText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
+  const argv = value as string[];
+  if (!argv[0].trim()) return "";
+  return argv.map((argument) => argument === "" || /[\s\"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
+}
+
+export interface CommandExecutionWrapper {
+  command: string;
+  detail: string;
+}
+
+export function unwrapCommandExecution(value: unknown): CommandExecutionWrapper | null {
+  if (typeof value === "string") return value.trim() ? { command: value, detail: value } : null;
+  if (!Array.isArray(value) || value.length < 3 || !value.every((argument) => typeof argument === "string")) return null;
+  const argv = value as string[];
+  for (let i = 1; i < argv.length - 1; i++) {
+    const option = argv[i].toLowerCase();
+    if (option !== "-command" && option !== "-c" && option !== "-lc" && option !== "/c") continue;
+    if (!argv[i + 1].trim()) return null;
+    return { command: argv[i + 1], detail: commandText(argv) };
+  }
+  return null;
+}
+
+export function execScriptCommands(raw: string): string[] {
+  return typeof raw === "string" ? scriptCommands(raw) : [];
+}
+
 function jsonCallObject(source: string): Record<string, unknown> | null {
   const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
   if (!match) return null;
@@ -148,13 +188,7 @@ function fallbackSummary(raw: string): ExecScriptSummary {
 
 export function summarizeExecScript(raw: string): ExecScriptSummary | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
-  const commandBodies = [
-    ...callObjects(raw, "exec_command"),
-    ...callObjects(raw, "shell_command"),
-  ];
-  const commands = commandBodies
-    .map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "")
-    .filter(Boolean);
+  const commands = scriptCommands(raw);
   if (commands.length > 0) return commandSummary(commands);
 
   const image = callObjects(raw, "view_image")[0];

@@ -48,6 +48,7 @@ fn launch_marker_binds_only_the_rollout_that_carries_it() {
     let command = codex.build_launch_command(&AgentLaunchParams {
         task: Some("assigned task".into()),
         launch_marker: Some(MARKER.into()),
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let instructions = written_instructions(&command);

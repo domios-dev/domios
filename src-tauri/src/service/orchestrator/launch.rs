@@ -1205,6 +1205,7 @@ pub(crate) fn build_agent_command_with_launch_marker(
         session_id: injected_session_id.map(std::string::ToString::to_string),
         structured_prompt_server: params.structured_prompt_server.clone(),
         launch_marker: launch_marker.map(str::to_string),
+        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
     let cmd = match registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params)) {
         Some(command) if command.trim().is_empty() => return String::new(),

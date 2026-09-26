@@ -7,6 +7,11 @@ export interface TabContext {
   cwd?: string | null;
 }
 
+export interface SessionDeltaContext {
+  session_key: string;
+  from_offset: number;
+}
+
 // ── statusBubble ──
 
 export type BubbleTone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
@@ -71,7 +76,22 @@ export interface LaunchParams {
   structuredPromptServer?: { hostname: string; port: number };
   /** Host-minted inert token a provider may carry into its own session record. */
   launchMarker?: string;
+  /** Stable identity for the CodeTerm data directory writing this launch. */
+  instanceId?: string;
   [key: string]: unknown;
+}
+
+export interface LaunchArtifactSweepRequest {
+  instanceId: string;
+  liveTabIds: string[];
+  confirm: boolean;
+  includeLegacy: boolean;
+}
+
+export interface LaunchArtifactSweepReport {
+  dead: string[];
+  legacy: string[];
+  removed: string[];
 }
 
 /** One process in the tab's own PTY tree; `startToken` is its OS process start time. */
@@ -177,6 +197,8 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
+  releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
+  sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
   /** Implement only when a resumed session drops the launch-time system prompt. */
   buildResumeCommandWithContext?(params: ResumeParams): string;
@@ -201,7 +223,7 @@ export interface AgentProvider {
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
-  parseSessionDelta?(chunk: string): unknown;
+  parseSessionDelta?(chunk: string, context?: SessionDeltaContext): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;

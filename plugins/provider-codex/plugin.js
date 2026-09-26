@@ -20,9 +20,12 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // plugins/provider-codex/src/plugin.ts
 var plugin_exports = {};
 __export(plugin_exports, {
+  codexProfileInstanceId: () => codexProfileInstanceId,
   codexProfileTabId: () => codexProfileTabId,
-  codexProfilesToSweep: () => codexProfilesToSweep,
   default: () => plugin_default,
+  inspectCodexProfiles: () => inspectCodexProfiles,
+  manageCodexProfiles: () => manageCodexProfiles,
+  releaseCodexProfile: () => releaseCodexProfile,
   sweepCodexProfiles: () => sweepCodexProfiles
 });
 module.exports = __toCommonJS(plugin_exports);
@@ -971,6 +974,35 @@ function callObjects(source, toolName) {
   }
   return objects;
 }
+function scriptCommands(raw) {
+  const commandBodies = [
+    ...callObjects(raw, "exec_command"),
+    ...callObjects(raw, "shell_command")
+  ];
+  return commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
+}
+function commandText(value) {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
+  const argv = value;
+  if (!argv[0].trim()) return "";
+  return argv.map((argument) => argument === "" || /[\s\"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
+}
+function unwrapCommandExecution(value) {
+  if (typeof value === "string") return value.trim() ? { command: value, detail: value } : null;
+  if (!Array.isArray(value) || value.length < 3 || !value.every((argument) => typeof argument === "string")) return null;
+  const argv = value;
+  for (let i = 1; i < argv.length - 1; i++) {
+    const option = argv[i].toLowerCase();
+    if (option !== "-command" && option !== "-c" && option !== "-lc" && option !== "/c") continue;
+    if (!argv[i + 1].trim()) return null;
+    return { command: argv[i + 1], detail: commandText(argv) };
+  }
+  return null;
+}
+function execScriptCommands(raw) {
+  return typeof raw === "string" ? scriptCommands(raw) : [];
+}
 function jsonCallObject(source) {
   const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
   if (!match) return null;
@@ -1030,11 +1062,7 @@ function fallbackSummary(raw) {
 }
 function summarizeExecScript(raw) {
   if (typeof raw !== "string" || !raw.trim()) return null;
-  const commandBodies = [
-    ...callObjects(raw, "exec_command"),
-    ...callObjects(raw, "shell_command")
-  ];
-  const commands = commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
+  const commands = scriptCommands(raw);
   if (commands.length > 0) return commandSummary(commands);
   const image = callObjects(raw, "view_image")[0];
   if (image) {
@@ -1384,13 +1412,6 @@ function parsedReadTitle(value) {
 function text4(value) {
   return typeof value === "string" ? value : "";
 }
-function commandText(value) {
-  if (typeof value === "string") return value;
-  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
-  const argv = value;
-  if (!argv[0].trim()) return "";
-  return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
-}
 function exactOutcomeNumber(value, nonnegative) {
   if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return void 0;
   if (nonnegative && value < 0) return void 0;
@@ -1435,11 +1456,10 @@ function completedActivity(value, ts, timestamp, turnId) {
         name: "command_execution",
         input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
         ...fields2,
+        tool_echo: true,
         tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields2),
         ...outcome2,
         ...flow,
-        // The exec call that ran this command is already in the transcript; no source id links the two.
-        tool_echo: true,
         tool_status: failed ? "error" : "success"
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome2 } }
@@ -1479,6 +1499,96 @@ function completedActivity(value, ts, timestamp, turnId) {
   if (item.type === "CollabAgentToolCall") return collabCallRow(fields, turnId, ts, timestamp);
   if (item.type === "Reasoning") return reasoningItemRow(fields, ts, timestamp);
   return null;
+}
+
+// plugins/provider-codex/src/profile-sweep.ts
+var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
+var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
+function codexProfileTabId(fileName) {
+  return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
+}
+function codexProfileInstanceId(contents) {
+  const firstLine = contents.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
+  return INSTANCE_MARKER_RE.exec(firstLine)?.[1] ?? null;
+}
+function profilePath(host2, name) {
+  if (host2.platform() !== "windows") return null;
+  const home = host2.homeDir();
+  return home ? `${home}\\.codex\\${name}` : null;
+}
+function profiles(host2) {
+  if (host2.platform() !== "windows") return null;
+  const home = host2.homeDir();
+  if (!home) return null;
+  const dir = `${home}\\.codex`;
+  try {
+    const entries = host2.fs.readDir(dir);
+    if (!Array.isArray(entries)) return null;
+    return entries.filter((entry) => entry?.isFile).map((entry) => entry.name);
+  } catch {
+    return null;
+  }
+}
+function readProfile(host2, path) {
+  try {
+    return host2.fs.readFile(path);
+  } catch {
+    return null;
+  }
+}
+function removeProfile(host2, path) {
+  try {
+    return host2.fs.removeFile(path);
+  } catch {
+    return false;
+  }
+}
+function inspectCodexProfiles(host2, liveTabIds, instanceId) {
+  const listing = profiles(host2);
+  if (!listing) return { dead: [], legacy: [] };
+  const live = new Set(liveTabIds);
+  const dead = [];
+  const legacy = [];
+  for (const name of listing) {
+    const tabId = codexProfileTabId(name);
+    if (tabId === null) continue;
+    const path = profilePath(host2, name);
+    if (!path) continue;
+    const contents = readProfile(host2, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    if (owner === instanceId && !live.has(tabId)) dead.push(name);
+    else if (owner === null) legacy.push(name);
+  }
+  return { dead, legacy };
+}
+function sweepCodexProfiles(host2, liveTabIds, instanceId) {
+  return manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
+}
+function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy) {
+  const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId);
+  const removed = [];
+  if (!confirm) return { ...candidates, removed };
+  for (const name of [...candidates.dead, ...includeLegacy ? candidates.legacy : []]) {
+    const path = profilePath(host2, name);
+    if (!path) continue;
+    const contents = readProfile(host2, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    const stillOwned = owner === instanceId;
+    const stillLegacy = includeLegacy && owner === null;
+    if ((stillOwned || stillLegacy) && removeProfile(host2, path)) removed.push(name);
+  }
+  return { ...candidates, removed };
+}
+function releaseCodexProfile(host2, tabId, instanceId) {
+  const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const name = `codeterm-${suffix}.config.toml`;
+  const path = profilePath(host2, name);
+  if (!path || codexProfileTabId(name) === null) return false;
+  const contents = readProfile(host2, path);
+  if (contents === null || codexProfileInstanceId(contents) !== instanceId) return false;
+  return removeProfile(host2, path);
 }
 
 // plugins/provider-codex/src/tabState.ts
@@ -2479,43 +2589,18 @@ function hasCodetermCodexWindowsCommand(entry) {
   return false;
 }
 
-// plugins/provider-codex/src/profile-sweep.ts
-var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
-function codexProfileTabId(fileName) {
-  const m = CODEX_PROFILE_NAME_RE.exec(fileName);
-  return m ? m[1] : null;
-}
-function codexProfilesToSweep(fileNames, liveTabIds) {
-  const out = [];
-  for (const name of fileNames) {
-    const tabId = codexProfileTabId(name);
-    if (tabId === null) continue;
-    if (!liveTabIds.has(tabId)) out.push(name);
-  }
-  return out;
-}
-function sweepCodexProfiles(host2, liveTabIds) {
-  if (host2.platform() !== "windows") return { removed: [] };
-  const home = host2.homeDir();
-  if (!home) return { removed: [] };
-  const dir = home + "\\.codex";
-  let entries;
-  try {
-    entries = host2.fs.readDir(dir);
-  } catch {
-    return { removed: [] };
-  }
-  if (!Array.isArray(entries)) return { removed: [] };
-  const names = entries.filter((e) => e && e.isFile).map((e) => e.name);
-  const toRemove = codexProfilesToSweep(names, new Set(liveTabIds));
-  const removed = [];
-  for (const name of toRemove) {
-    if (host2.fs.removeFile(dir + "\\" + name)) removed.push(name);
-  }
-  return { removed };
-}
-
 // plugins/provider-codex/src/plugin.ts
+function profileSweepHost() {
+  return {
+    platform: () => host.platform(),
+    homeDir: () => host.homeDir(),
+    fs: {
+      readDir: (path) => host.fs.readDir(path),
+      readFile: (path) => host.fs.readFile(path),
+      removeFile: (path) => host.fs.removeFile(path)
+    }
+  };
+}
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -2611,6 +2696,18 @@ var plugin = {
   discoverModels() {
     return discoverCodexModels();
   },
+  releaseTabLaunchArtifacts(tabId, instanceId) {
+    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+  sweepLaunchArtifacts(request) {
+    return manageCodexProfiles(
+      profileSweepHost(),
+      request.liveTabIds,
+      request.instanceId,
+      request.confirm,
+      request.includeLegacy
+    );
+  },
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = [];
@@ -2624,12 +2721,17 @@ var plugin = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
+      if (host.platform() === "windows" && !instanceId) {
+        return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
+      }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : void 0);
       const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `$ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); try { `;
+        const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
+        prefix = `$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; $ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); $ctInstanceId = ${quotedInstanceId}; Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); try { `;
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -2671,8 +2773,9 @@ var plugin = {
     return this.sessionFilePath(cwd, sessionId);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
-  parseSessionDelta(chunk) {
+  parseSessionDelta(chunk, context) {
     const out = [];
+    const commandPairing = commandPairingState(context);
     const activityIds = /* @__PURE__ */ new Set();
     const pushOnce = (row2) => {
       if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
@@ -2739,6 +2842,7 @@ var plugin = {
       if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
+        clearTurnPairings(commandPairing, turnId);
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
@@ -2748,6 +2852,7 @@ var plugin = {
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+        if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
         pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
         continue;
       }
@@ -2824,9 +2929,15 @@ var plugin = {
         });
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
+        if (pending) commandPairing.pending.delete(callId);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
+          blocks: [{ kind: "tool_result", data: {
+            content: codexToolOutputText(p.output),
+            tool_use_id: callId,
+            ...pending ? commandPairingResult(pending) : {}
+          } }],
           ts,
           timestamp: tsIso
         });
@@ -2857,13 +2968,31 @@ var plugin = {
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const canonical = canonicalToolFields(name, input);
-        out.push({
+        const message = {
           role: "assistant",
           blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
           ts,
           timestamp: tsIso
-        });
+        };
+        const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
+        out.push(message);
+        if (commands.length > 0) {
+          const turnId = callTurnId(p);
+          if (!turnId) continue;
+          commandPairing.pending.delete(callId);
+          commandPairing.pending.set(callId, {
+            commandCount: commands.length,
+            commands,
+            completedCommands: /* @__PURE__ */ new Set(),
+            commandResults: [],
+            turnId
+          });
+          trimPendingCalls(commandPairing);
+        }
       }
+    }
+    if (commandPairing.sessionKey && commandPairing.pending.size === 0) {
+      commandPairingSessions.delete(commandPairing.sessionKey);
     }
     stampRows(lines.length - 1);
     return { messages: out };
@@ -2977,6 +3106,91 @@ var plugin = {
     };
   }
 };
+var commandPairingSessions = /* @__PURE__ */ new Map();
+var MAX_PAIRING_SESSIONS = 32;
+var MAX_PENDING_CALLS_PER_SESSION = 64;
+function commandPairingState(context) {
+  const sessionKey = typeof context?.session_key === "string" ? context.session_key : "";
+  const offset = context?.from_offset;
+  if (!sessionKey || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
+    return { pending: /* @__PURE__ */ new Map() };
+  }
+  let state = commandPairingSessions.get(sessionKey);
+  if (state && state.lastOffset !== void 0 && offset <= state.lastOffset) {
+    commandPairingSessions.delete(sessionKey);
+    state = void 0;
+  }
+  if (!state) state = { pending: /* @__PURE__ */ new Map(), sessionKey };
+  state.lastOffset = offset;
+  commandPairingSessions.delete(sessionKey);
+  commandPairingSessions.set(sessionKey, state);
+  while (commandPairingSessions.size > MAX_PAIRING_SESSIONS) {
+    const oldest = commandPairingSessions.keys().next().value;
+    if (typeof oldest !== "string") break;
+    commandPairingSessions.delete(oldest);
+  }
+  return state;
+}
+function trimPendingCalls(state) {
+  while (state.pending.size > MAX_PENDING_CALLS_PER_SESSION) {
+    const oldest = state.pending.keys().next().value;
+    if (typeof oldest !== "string") break;
+    state.pending.delete(oldest);
+  }
+}
+function clearTurnPairings(state, turnId) {
+  for (const [callId, call] of state.pending) {
+    if (call.turnId === turnId) state.pending.delete(callId);
+  }
+}
+function commandPairingResult(call) {
+  if (call.commandResults.length === 0) return {};
+  const results = [...call.commandResults].sort((left, right) => Number(left.command_index) - Number(right.command_index));
+  const failed = results.find((result) => result.tool_status === "error");
+  const complete = results.length === call.commandCount;
+  const durations = results.map((result) => result.tool_duration_ms);
+  const completeDurations = complete && durations.every((duration) => typeof duration === "number");
+  const failureCode = failed && typeof failed.tool_exit_code === "number" && failed.tool_exit_code !== 0 ? failed.tool_exit_code : void 0;
+  return {
+    tool_wrapper_detail: results.map((result) => result.wrapper_detail).join("\n\n"),
+    tool_command_results: results,
+    ...failed ? { tool_status: "error", is_error: true } : complete ? { tool_status: "success", is_error: false } : {},
+    ...failureCode !== void 0 ? { tool_exit_code: failureCode } : complete ? { tool_exit_code: 0 } : {},
+    ...completeDurations ? { tool_duration_ms: durations.reduce((sum, duration) => sum + Number(duration), 0) } : {}
+  };
+}
+function callTurnId(payload) {
+  if (typeof payload.turn_id === "string") return payload.turn_id;
+  const metadata = payload.internal_chat_message_metadata_passthrough;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return void 0;
+  const turnId = metadata.turn_id;
+  return typeof turnId === "string" && turnId ? turnId : void 0;
+}
+function pairCommandExecution(item, turnId, state) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  const execution = item;
+  if (execution.type !== "CommandExecution") return false;
+  const wrapper = unwrapCommandExecution(execution.command);
+  const currentTurn = typeof turnId === "string" ? turnId : "";
+  if (!wrapper || !currentTurn) return false;
+  const candidates = Array.from(state.pending.values()).filter((call2) => call2.turnId === currentTurn && call2.commands.some((command, index) => command === wrapper.command && !call2.completedCommands.has(index)));
+  if (candidates.length !== 1) return false;
+  const call = candidates[0];
+  const commandIndex = call.commands.findIndex((command, index) => command === wrapper.command && !call.completedCommands.has(index));
+  const activity = completedActivity(item, null, null, turnId);
+  const toolData = activity?.blocks.find((block) => block.kind === "tool_use")?.data;
+  if (!toolData) return false;
+  call.completedCommands.add(commandIndex);
+  call.commandResults.push({
+    command_index: commandIndex,
+    command: wrapper.command,
+    wrapper_detail: wrapper.detail,
+    ...toolData.tool_status !== void 0 ? { tool_status: toolData.tool_status } : {},
+    ...toolData.tool_exit_code !== void 0 ? { tool_exit_code: toolData.tool_exit_code } : {},
+    ...toolData.tool_duration_ms !== void 0 ? { tool_duration_ms: toolData.tool_duration_ms } : {}
+  });
+  return true;
+}
 function nestedApplyPatch(raw) {
   const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
   if (!call) return null;
