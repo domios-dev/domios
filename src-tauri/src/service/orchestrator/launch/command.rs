@@ -98,7 +98,19 @@ fn build_agent_command_inner(
         .model
         .as_deref()
         .filter(|model| !model.is_empty())
-        .map(|model| crate::agent::model_catalog::resolve_model(agent_cmd, Some(model)).id);
+        .map(|model| {
+            if registry.with_provider(agent_cmd, |_| ()).is_some() {
+                crate::service::spawn::resolve_fresh_agent_model(
+                    registry,
+                    agent_cmd,
+                    Some(model.to_string()),
+                    None,
+                )
+                .unwrap_or_default()
+            } else {
+                crate::agent::model_catalog::resolve_model(agent_cmd, Some(model)).id
+            }
+        });
     if let Some(model) = resolved_model.as_deref() {
         let model_args = registry
             .with_provider(agent_cmd, |p| p.model_launch_args(model))

@@ -620,6 +620,45 @@ fn undeclared_provider_resume_keeps_todays_behaviour() {
     );
 }
 
+#[test]
+fn free_form_unknown_model_is_preserved_in_launch_command() {
+    let provider_id = "free-form-launch-command-test";
+    let requested_model = "opencode/qa-free-form-id";
+    crate::agent::model_catalog::register(
+        provider_id,
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: vec![crate::agent::provider::ModelInfo {
+                id: "opencode/big-pickle".into(),
+                display_name: "Big Pickle".into(),
+                ..Default::default()
+            }],
+            default: Some("opencode/big-pickle".into()),
+        },
+    );
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        provider_id,
+    )));
+    let params = SpawnAgentParams {
+        agent: Some(provider_id.into()),
+        model: Some(requested_model.into()),
+        ..Default::default()
+    };
+    let resolved_model = crate::service::spawn::resolve_fresh_agent_model(
+        &registry,
+        provider_id,
+        Some(requested_model.into()),
+        None,
+    )
+    .expect("explicit free-form model stays selected");
+
+    let command = build_agent_command(provider_id, &params, None, None, &registry);
+
+    assert_eq!(resolved_model, requested_model);
+    assert!(command.contains(&resolved_model), "{command}");
+    assert!(!command.contains("opencode/big-pickle"), "{command}");
+}
+
 struct SpawnableChatBackend;
 
 impl ChatBackendProvider for SpawnableChatBackend {
