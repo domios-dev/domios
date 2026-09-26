@@ -174,7 +174,7 @@ All fields optional.
 
 | Field | Type / legal values | Meaning |
 |---|---|---|
-| `kind` | `"claude_settings_json"` \| `"provider_managed"` \| `"none"` | `claude_settings_json`: edit a JSON file's `hooks` object with curl-back commands. `provider_managed`: provider JS owns a reviewable config merge + backup/restore. `none`: PTY parser does it all. |
+| `kind` | `"claude_settings_json"` \| `"provider_managed"` \| `"plugin_file"` \| `"none"` | `claude_settings_json`: edit a JSON file's `hooks` object with curl-back commands. `provider_managed`: provider JS owns a reviewable config merge + backup/restore. `plugin_file`: provider owns a marked plugin file that core may refresh only while its ownership marker remains. `none`: PTY parser does it all. |
 | `settingsPath` | string | Where the integration is stored (e.g. `~/.claude/settings.json`). |
 | `trust_grant` (alias `trustGrant`) | object? | One field, `managedKeys` (string[]): managed hook keys core passes to `grantIntegrationTrust` per install. |
 
