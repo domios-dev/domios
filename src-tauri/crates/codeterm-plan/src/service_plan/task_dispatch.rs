@@ -1,4 +1,3 @@
-mod dispatched_model;
 mod reservation;
 mod rollback;
 mod worker_ack_subject;
@@ -305,7 +304,7 @@ impl PlanStore {
         provider: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -320,6 +319,7 @@ impl PlanStore {
             None,
             false,
             false,
+            None,
             now_ms,
         )
     }
@@ -338,7 +338,7 @@ impl PlanStore {
         attempt_id: &str,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -353,6 +353,7 @@ impl PlanStore {
             None,
             false,
             false,
+            None,
             now_ms,
         )
     }
@@ -373,7 +374,7 @@ impl PlanStore {
         placement: crate::plan::WorkerPlacement,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -388,6 +389,7 @@ impl PlanStore {
             None,
             false,
             false,
+            None,
             now_ms,
         )
     }
@@ -404,13 +406,16 @@ impl PlanStore {
         allowance: Option<crate::plan::ProviderAllowance>,
         provider: Option<&str>,
         attempt_id: &str,
-        authorized_gates: Vec<String>,
+        authorized_gates: Option<Vec<String>>,
         placement: crate::plan::WorkerPlacement,
+        model: Option<String>,
+        reasoning_effort: Option<String>,
         observed_startup_owner: Option<DispatchStartupOwner>,
         observed_startup_owner_is_live: bool,
+        startup_owner_observation_made: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -420,11 +425,15 @@ impl PlanStore {
             allowance,
             provider,
             Some(attempt_id),
-            Some(authorized_gates),
+            authorized_gates,
             placement,
             observed_startup_owner,
             observed_startup_owner_is_live,
-            true,
+            startup_owner_observation_made,
+            Some(DispatchedAttemptMetadata {
+                model,
+                reasoning_effort,
+            }),
             now_ms,
         )
     }
@@ -440,7 +449,7 @@ impl PlanStore {
         observed_startup_owner_is_live: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        self.begin_task_dispatch_with_policy_inner(
+        self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
             tab_id,
@@ -455,6 +464,7 @@ impl PlanStore {
             observed_startup_owner,
             observed_startup_owner_is_live,
             true,
+            None,
             now_ms,
         )
     }

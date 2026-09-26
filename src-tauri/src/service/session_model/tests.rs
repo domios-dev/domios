@@ -299,6 +299,12 @@ mod model_refresh_tests {
             .write()
             .create_tab(&workspace_id)
             .unwrap();
+        let foreign_tab = fixture
+            .service
+            .mux
+            .write()
+            .create_tab(&workspace_id)
+            .unwrap();
         {
             let mut mux = fixture.service.mux.write();
             let tab = mux.get_tab_mut(&unknown_tab).unwrap();
@@ -308,6 +314,13 @@ mod model_refresh_tests {
             tab.agent_session_id = Some("session-unknown".into());
             tab.session_binding_nonce = Some("nonce-unknown".into());
             tab.reported_session_binding_nonce = Some("nonce-unknown".into());
+            let tab = mux.get_tab_mut(&foreign_tab).unwrap();
+            tab.cwd = Some(CWD.into());
+            tab.agent_type = Some(AGENT.into());
+            tab.agent_type_locked = true;
+            tab.agent_session_id = Some("foreign-newer".into());
+            tab.session_binding_nonce = Some("nonce-foreign-tab".into());
+            tab.reported_session_binding_nonce = Some("nonce-foreign-tab".into());
         }
         fixture
             .service
@@ -355,9 +368,16 @@ mod model_refresh_tests {
                 .unwrap();
             task_id
         };
-        let own_task = add_and_bind(&tab_id, "session-owned", "nonce-owned", 2);
-        let unknown_task = add_and_bind(&unknown_tab, "session-unknown", "nonce-unknown", 5);
+        let foreign_session_task =
+            add_and_bind(&tab_id, "foreign-newer", "nonce-foreign-session", 2);
+        let nonce_mismatch_task =
+            add_and_bind(&tab_id, "session-owned", "nonce-foreign", 5);
+        let own_task = add_and_bind(&tab_id, "session-owned", "nonce-owned", 8);
+        let unknown_task = add_and_bind(&unknown_tab, "session-unknown", "nonce-unknown", 11);
+        let foreign_tab_task =
+            add_and_bind(&foreign_tab, "foreign-newer", "nonce-foreign-tab", 14);
 
+        fixture.service.refresh_session_model_after_binding(&foreign_tab);
         fixture.service.refresh_session_model_after_binding(&tab_id);
         fixture
             .service
@@ -375,12 +395,86 @@ mod model_refresh_tests {
             .list_task_attempts(&plan.id, &unknown_task)
             .unwrap()
             .remove(0);
+        let foreign_session_attempt = fixture
+            .service
+            .plan_store
+            .list_task_attempts(&plan.id, &foreign_session_task)
+            .unwrap()
+            .remove(0);
+        let nonce_mismatch_attempt = fixture
+            .service
+            .plan_store
+            .list_task_attempts(&plan.id, &nonce_mismatch_task)
+            .unwrap()
+            .remove(0);
+        let foreign_tab_attempt = fixture
+            .service
+            .plan_store
+            .list_task_attempts(&plan.id, &foreign_tab_task)
+            .unwrap()
+            .remove(0);
         assert_eq!(
             own_attempt.attempt.session_model.as_deref(),
             Some("opus"),
             "a newer foreign session must not replace the tab's own model"
         );
+        assert_eq!(foreign_session_attempt.attempt.session_model, None);
+        assert_eq!(nonce_mismatch_attempt.attempt.session_model, None);
+        assert_eq!(foreign_tab_attempt.attempt.session_model.as_deref(), Some("sonnet"));
         assert_eq!(unknown_attempt.attempt.session_model, None);
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn unbound_attempt_model_refresh_does_not_rewrite_its_plan() {
+        use crate::plan::{OrchestratorRef, Plan};
+        use crate::service::plan::NewTask;
+
+        let (mut mux, tab_id) = seeded_tab(Some("session-live"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("nonce-live".into());
+        tab.reported_session_binding_nonce = Some("nonce-live".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(SessionModelProvider::new(&[(
+                "session-live",
+                "claude-opus-5",
+            )])));
+        let mut plan = Plan::new(
+            "unbound attempt refresh".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orchestrator"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "unbound worker".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .assign_task(&plan.id, &task_id, &tab_id, None, 3)
+            .unwrap();
+        let before = fixture.service.plan_store.get(&plan.id).unwrap();
+
+        fixture.service.refresh_session_model_after_binding(&tab_id);
+
+        let after = fixture.service.plan_store.get(&plan.id).unwrap();
+        assert_eq!(after.updated_at, before.updated_at);
+        assert_eq!(
+            after.tasks[0].execution_attempts[0].session_model,
+            None,
+        );
     }
 
     /// The rejection half: the session rolls between the detector read and the

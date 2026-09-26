@@ -193,7 +193,7 @@ fn bind_worker_task_to_tab(
         .task
         .lane;
     let attempt_id = store
-        .begin_task_dispatch_with_reserved_attempt_and_dispatched_model(
+        .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
             &plan_id,
             &task_id,
             tab_id,
@@ -203,8 +203,13 @@ fn bind_worker_task_to_tab(
             allowance,
             provider,
             attempt_id,
+            None,
+            crate::plan::WorkerPlacement::IsolatedLane,
             model,
             reasoning_effort,
+            None,
+            false,
+            false,
             now_ms,
         )
         .map_err(|error| error.to_string())?;
@@ -297,7 +302,6 @@ impl ServiceContext {
             session_binding_nonce,
             provider,
             model,
-            reasoning_effort,
         ) = {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
@@ -307,18 +311,15 @@ impl ServiceContext {
                     tab.session_binding_nonce.clone(),
                     tab.agent_type.clone(),
                     tab.agent_provider_resolved_model.clone(),
-                    tab.reasoning_effort_identity.resolved.clone(),
                 )
             });
-            let (session_id, session_binding_nonce, provider, model, reasoning_effort) =
-                binding.unwrap_or_default();
+            let (session_id, session_binding_nonce, provider, model) = binding.unwrap_or_default();
             (
                 title,
                 session_id,
                 session_binding_nonce,
                 provider,
                 model,
-                reasoning_effort,
             )
         };
         let binding = self.create_worker_task_binding(
@@ -330,7 +331,7 @@ impl ServiceContext {
             session_binding_nonce.as_deref(),
             provider.as_deref(),
             model,
-            reasoning_effort,
+            params.reasoning_effort.clone(),
             now_ms,
         );
         let binding = match binding {

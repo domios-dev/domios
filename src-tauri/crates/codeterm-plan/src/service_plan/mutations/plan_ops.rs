@@ -184,7 +184,8 @@ impl PlanStore {
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
         let _writer_turn = self.mutation_writer.enter();
-        self.with_plan_in_writer(id, now_ms, f)
+        self.with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
+            .expect("unconditional plan mutation returns a value")
     }
 
     pub(in crate::service_plan) fn with_plan_in_writer<T, F>(
@@ -196,6 +197,32 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
+        self.with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
+            .expect("unconditional plan mutation returns a value")
+    }
+
+    pub(in crate::service_plan) fn with_plan_if_changed<T, F>(
+        &self,
+        id: &str,
+        now_ms: u64,
+        f: F,
+    ) -> Result<Option<T>, PlanError>
+    where
+        F: FnOnce(&mut Plan) -> Result<Option<T>, PlanError>,
+    {
+        let _writer_turn = self.mutation_writer.enter();
+        self.with_plan_if_changed_in_writer(id, now_ms, f)
+    }
+
+    fn with_plan_if_changed_in_writer<T, F>(
+        &self,
+        id: &str,
+        now_ms: u64,
+        f: F,
+    ) -> Result<Option<T>, PlanError>
+    where
+        F: FnOnce(&mut Plan) -> Result<Option<T>, PlanError>,
+    {
         let arc = self
             .plans
             .read()
@@ -204,7 +231,9 @@ impl PlanStore {
             .ok_or(PlanError::NotFound)?;
         let mut staged = arc.lock().clone();
         let previous = staged.clone();
-        let out = f(&mut staged)?;
+        let Some(out) = f(&mut staged)? else {
+            return Ok(None);
+        };
         let existing_ids: std::collections::HashSet<_> =
             previous.tasks.iter().map(|task| task.id.as_str()).collect();
         for task in &staged.tasks {
@@ -235,7 +264,7 @@ impl PlanStore {
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
         self.reset_bound_tabs(&committed);
-        Ok(out)
+        Ok(Some(out))
     }
 
     pub fn owner_of(&self, id: &str) -> Option<OrchestratorRef> {

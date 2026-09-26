@@ -425,11 +425,15 @@ pub fn new_assignment_attempt_with_id(
     attempt_id: Option<&str>,
     now_ms: u64,
 ) -> TaskExecutionAttempt {
+    let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
         id: attempt_id
             .map(str::to_string)
             .unwrap_or_else(gen_attempt_id),
         executor_tab_id: tab_id.to_string(),
+        provider: provider.clone(),
+        agent_type: provider,
+        model,
         role: role.map(str::to_string),
         mesh_peer: peer.map(str::to_string).or_else(|| task.peer.clone()),
         branch: task.lane.branch.clone(),
@@ -632,6 +636,7 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
         tab_id: &str,
+        attempt_id: &str,
         session_id: &str,
         session_binding_nonce: &str,
         model: &str,
@@ -646,42 +651,37 @@ impl PlanStore {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
-        if !task.execution_attempts.iter().rev().any(|attempt| {
-            attempt.executor_tab_id == tab_id
+        if !task.execution_attempts.iter().any(|attempt| {
+            attempt.id == attempt_id
+                && attempt.executor_tab_id == tab_id
                 && attempt.closed_at.is_none()
                 && attempt.retired_at.is_none()
                 && attempt.session_model.is_none()
-                && attempt
-                    .session_id
-                    .as_deref()
-                    .is_none_or(|current| current == session_id)
-                && attempt
-                    .session_binding_nonce
-                    .as_deref()
-                    .is_none_or(|current| current == session_binding_nonce)
+                && attempt.session_id.as_deref() == Some(session_id)
+                && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
         })
         {
             return Ok(false);
         }
-        self.with_plan(plan_id, now_ms, |plan| {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            let Some(attempt) = task.execution_attempts.iter_mut().rev().find(|attempt| {
-                attempt.executor_tab_id == tab_id
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
                     && attempt.closed_at.is_none()
                     && attempt.retired_at.is_none()
                     && attempt.session_model.is_none()
                     && attempt.session_id.as_deref() == Some(session_id)
                     && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
             }) else {
-                return Ok(false);
+                return Ok(None);
             };
-            attempt.session_id = Some(session_id.into());
-            attempt.session_binding_nonce = Some(session_binding_nonce.into());
             attempt.session_model = Some(model.into());
             task.updated_at = now_ms;
-            Ok(true)
+            Ok(Some(true))
         })
+        .map(|changed| changed.unwrap_or(false))
     }
 
     pub fn build_task_compete_drafts(
