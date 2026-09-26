@@ -889,6 +889,10 @@ pub(crate) fn launch_agent_in_background_with_env(
             })
             .unwrap_or_default();
         let input_readiness_timeout = provider_readiness.timeout();
+        let provider_up_readiness = startup_readiness::provider_readiness_with_timeout(
+            &provider_readiness,
+            crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+        );
         log::info!(
             "[provider-readiness-stage] tab={} pty={} strategy={:?} require_composer={}",
             tab_id,
@@ -923,6 +927,23 @@ pub(crate) fn launch_agent_in_background_with_env(
                 pty_id,
                 readiness,
             );
+        }
+        let composer_ready = launch_input_readiness.is_some_and(|readiness| {
+            readiness == crate::service::launch_input_gate::LaunchInputEvidence::ProviderComposer
+        });
+        if resumes_on_first_turn
+            && !composer_ready
+            && !svc.await_provider_readiness_on_screen(&pty_id, &agent_cmd, provider_up_readiness)
+        {
+            let failure = LaunchFailure::ProviderInputNotReady(
+                "provider-up evidence was not observed before the readiness deadline".into(),
+            );
+            launch.fail(&svc, failure.clone());
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(failure.reason()));
+            }
+            return;
         }
         let input_ready_stage =
             startup_readiness::input_ready_stage_after_provider_ready(resumes_on_first_turn);
