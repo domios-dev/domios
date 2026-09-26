@@ -1,6 +1,5 @@
-use codeterm_plugin::provider::{
-    LaunchArtifactSweepReport, LaunchArtifactSweepRequest,
-};
+use crate::agent::registry::AgentRegistry;
+use codeterm_plugin::provider::{LaunchArtifactSweepReport, LaunchArtifactSweepRequest};
 
 use super::ServiceContext;
 
@@ -38,6 +37,20 @@ pub(crate) fn sweep_after_restore(service: &ServiceContext) {
                 log::warn!("[startup] launch artifact sweep failed: {error}");
             }
             _ => {}
+        }
+    }
+}
+
+pub(crate) fn release_closed_tabs(
+    registry: &AgentRegistry,
+    agent_providers: &[(String, String)],
+) {
+    let instance_id = crate::paths::codeterm_instance_id();
+    for (tab_id, provider_id) in agent_providers {
+        if let Some(Err(error)) = registry.with_provider(provider_id, |provider| {
+            provider.release_tab_launch_artifacts(tab_id, instance_id)
+        }) {
+            log::warn!("[tab-close] launch artifact release failed for {tab_id}: {error}");
         }
     }
 }

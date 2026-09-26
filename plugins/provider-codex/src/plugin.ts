@@ -241,7 +241,7 @@ const plugin: PluginModule = {
         ? p.instanceId
         : null;
       if (host.platform() === "windows" && !instanceId) {
-        throw new Error("CodeTerm instance identity is required for a Windows launch profile");
+        return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
       }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : undefined);
       const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");

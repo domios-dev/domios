@@ -169,11 +169,10 @@ console.log("\n--- task instructions launch ---\n");
   assert(!silent.includes(" -- '"), "silent launch has no positional starter turn");
   const empty = p.buildLaunchCommand({ task: "   " });
   assert(!empty.includes("Execute the assigned task."), "empty instructions never create a starter message");
-  assert.throws(
-    () => p.buildLaunchCommand({ task: hostileTask }),
-    /CodeTerm instance identity is required/,
-    "Windows refuses to write an unmarked profile without an instance identity",
-  );
+  const missingIdentity = p.buildLaunchCommand({ task: hostileTask });
+  assert(missingIdentity.includes("Write-Error 'CodeTerm refused the Codex launch"), "Windows reports why it refused an unowned profile");
+  assert(missingIdentity.includes("exit 1"), "Windows stops after the explicit launch refusal");
+  assert(!missingIdentity.includes("--profile"), "Windows does not write a profile when instance identity is absent");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "team launch uses the host-owned starter text");

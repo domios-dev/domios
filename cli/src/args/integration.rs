@@ -26,7 +26,7 @@ pub enum IntegrationAction {
         /// Remove the profiles listed by this instance's scan.
         #[arg(long)]
         confirm: bool,
-        /// Include unmarked legacy profiles in the removal set.
+        /// Include every unmarked legacy profile, regardless of tab liveness.
         #[arg(long)]
         include_legacy: bool,
     },
