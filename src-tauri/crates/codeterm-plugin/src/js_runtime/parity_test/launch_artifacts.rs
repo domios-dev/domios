@@ -19,6 +19,23 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         String::new()
     }
 
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
     fn release_tab_launch_artifacts(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
         Ok(tab_id == "closed-tab" && instance_id == "instance-fixture")
     }
