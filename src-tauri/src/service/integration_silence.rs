@@ -418,6 +418,15 @@ pub fn read_contract_current(status: &Json) -> Option<bool> {
     status.get("hook_contract_current").and_then(Json::as_bool)
 }
 
+pub fn read_integration_owned(status: &Json) -> bool {
+    status
+        .get("integration_owned")
+        .or_else(|| status.get("hooks_owned"))
+        .or_else(|| status.get("plugin_file_owned"))
+        .and_then(Json::as_bool)
+        .unwrap_or(false)
+}
+
 pub fn read_target(status: &Json) -> Option<String> {
     status
         .get("target")
@@ -491,15 +500,14 @@ pub fn authorize_reconciliation(facts: &IntegrationFacts) -> ReconcileAuthorizat
     let Some(state) = facts.state else {
         return ReconcileAuthorization::Unreadable;
     };
-    // Recorded consent covers the rewrite and the trust grant the install makes.
     if state == IntegrationState::UntrustedHash && !facts.consent_recorded {
         return ReconcileAuthorization::TrustGrantRequired;
     }
-    if state == IntegrationState::Installed && facts.contract_current != Some(false) {
-        return ReconcileAuthorization::AlreadyCurrent;
-    }
     if !facts.consent_recorded {
         return ReconcileAuthorization::ConsentMissing;
+    }
+    if state == IntegrationState::Installed && facts.contract_current != Some(false) {
+        return ReconcileAuthorization::AlreadyCurrent;
     }
     ReconcileAuthorization::Reconcile
 }

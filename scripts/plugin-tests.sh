@@ -30,6 +30,8 @@ case "${1:-all}" in
       plugins/provider-codex/tests/session-paths.test.ts
       plugins/provider-codex/tests/trust-grant.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
+      plugins/provider-codex/tests/transcript-dedupe.test.ts
+      plugins/provider-codex/tests/tool-fields.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts

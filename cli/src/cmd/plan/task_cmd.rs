@@ -85,12 +85,20 @@ fn render_attempts(value: &Value) -> String {
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         let model = attempt.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+        let reasoning_effort = attempt
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let session_model = attempt
+            .get("session_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
         let assigned_at = render_attempt_timestamp(&attempt, "assigned_at");
         let acknowledged_at = render_attempt_timestamp(&attempt, "acknowledged_at");
         let reported_at = render_attempt_timestamp(&attempt, "reported_at");
         let closed_at = render_attempt_timestamp(&attempt, "closed_at");
         out.push_str(&format!(
-            "attempt_id={id} executor_tab_id={tab} status={status} provider={provider} model={model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} closed_at={closed_at}\n"
+            "attempt_id={id} executor_tab_id={tab} status={status} provider={provider} model={model} reasoning_effort={reasoning_effort} session_model={session_model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} closed_at={closed_at}\n"
         ));
     }
     out
@@ -104,9 +112,7 @@ fn render_attempt(value: &Value) -> String {
         "executor_tab_id",
         "executor_title",
         "status",
-        "provider",
         "agent_type",
-        "model",
         "session_id",
         "role",
         "parent_tab_id",
@@ -135,6 +141,13 @@ fn render_attempt(value: &Value) -> String {
                 .unwrap_or_else(|| v.to_string());
             out.push_str(&format!("{key}: {rendered}\n"));
         }
+    }
+    for key in ["provider", "model", "reasoning_effort", "session_model"] {
+        let value = attempt
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        out.push_str(&format!("{key}: {value}\n"));
     }
     if let Some(command) = attempt.get("report_command").and_then(|v| v.as_str()) {
         out.push_str("\nreport_command:\n");

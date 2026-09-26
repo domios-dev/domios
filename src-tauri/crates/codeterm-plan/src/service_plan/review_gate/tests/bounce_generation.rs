@@ -28,6 +28,9 @@ fn real_ingest_fixture() -> (
     let binding = AssignmentRuntimeBinding {
         session_id: "worker-session".into(),
         session_binding_nonce: "worker-nonce".into(),
+        provider: None,
+        model: None,
+        session_model: None,
     };
     store
         .assign_task_with_runtime_binding(

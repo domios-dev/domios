@@ -105,6 +105,10 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub session_model: Option<String>,
+    #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
     pub session_binding_nonce: Option<String>,

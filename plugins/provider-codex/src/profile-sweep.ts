@@ -1,72 +1,132 @@
-// A killed codex (see plugin.ts buildLaunchCommand) skips its `finally` and
-// never relaunches, so its Windows profile file orphans forever; this sweeps it.
-
-interface SweepHostFs {
-  readDir(path: string): { name: string; isFile: boolean }[];
-  removeFile(path: string): boolean;
-}
-
-export interface SweepHost {
+export interface ProfileSweepHost {
   platform(): string;
   homeDir(): string | null;
-  fs: SweepHostFs;
+  fs: {
+    readDir(path: string): { name: string; isFile: boolean }[];
+    readFile(path: string): string | null;
+    removeFile(path: string): boolean;
+  };
+}
+
+export interface ProfileSweepReport {
+  dead: string[];
+  legacy: string[];
+  removed: string[];
 }
 
 const CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
+const INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
 
-/**
- * Tab id encoded in a codeterm-owned Codex Windows profile filename, or
- * `null` if the name isn't one CodeTerm wrote. Never touch what we didn't
- * create.
- */
 export function codexProfileTabId(fileName: string): string | null {
-  const m = CODEX_PROFILE_NAME_RE.exec(fileName);
-  return m ? m[1] : null;
+  return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
 }
 
-/**
- * Which owned profile file names to remove: exactly those naming a tab id
- * that is NOT in `liveTabIds`. Conservative by construction — a name that
- * doesn't match the owned-profile shape, or that names a live tab, is never
- * included.
- */
-export function codexProfilesToSweep(
-  fileNames: readonly string[],
-  liveTabIds: ReadonlySet<string>,
-): string[] {
-  const out: string[] = [];
-  for (const name of fileNames) {
+export function codexProfileInstanceId(contents: string): string | null {
+  const firstLine = contents.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
+  return INSTANCE_MARKER_RE.exec(firstLine)?.[1] ?? null;
+}
+
+function profilePath(host: ProfileSweepHost, name: string): string | null {
+  if (host.platform() !== "windows") return null;
+  const home = host.homeDir();
+  return home ? `${home}\\.codex\\${name}` : null;
+}
+
+function profiles(host: ProfileSweepHost): string[] | null {
+  if (host.platform() !== "windows") return null;
+  const home = host.homeDir();
+  if (!home) return null;
+  const dir = `${home}\\.codex`;
+  try {
+    const entries = host.fs.readDir(dir);
+    if (!Array.isArray(entries)) return null;
+    return entries.filter((entry) => entry?.isFile).map((entry) => entry.name);
+  } catch {
+    return null;
+  }
+}
+
+function readProfile(host: ProfileSweepHost, path: string): string | null {
+  try {
+    return host.fs.readFile(path);
+  } catch {
+    return null;
+  }
+}
+
+function removeProfile(host: ProfileSweepHost, path: string): boolean {
+  try {
+    return host.fs.removeFile(path);
+  } catch {
+    return false;
+  }
+}
+
+export function inspectCodexProfiles(
+  host: ProfileSweepHost,
+  liveTabIds: readonly string[],
+  instanceId: string,
+): Pick<ProfileSweepReport, "dead" | "legacy"> {
+  const listing = profiles(host);
+  if (!listing) return { dead: [], legacy: [] };
+  const live = new Set(liveTabIds);
+  const dead: string[] = [];
+  const legacy: string[] = [];
+  for (const name of listing) {
     const tabId = codexProfileTabId(name);
     if (tabId === null) continue;
-    if (!liveTabIds.has(tabId)) out.push(name);
+    const path = profilePath(host, name);
+    if (!path) continue;
+    const contents = readProfile(host, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    if (owner === instanceId && !live.has(tabId)) dead.push(name);
+    else if (owner === null) legacy.push(name);
   }
-  return out;
+  return { dead, legacy };
 }
 
-/**
- * Sweep `~/.codex/codeterm-*.config.toml`: remove every owned profile whose
- * tab id is not in `liveTabIds`. Windows-only — the profile file is a
- * Windows-only launch artefact. Any failure to read the directory is treated
- * as "nothing to sweep" — never as "sweep everything" — so an unreadable
- * `~/.codex` leaves every file in place rather than risking a wrong deletion.
- */
-export function sweepCodexProfiles(host: SweepHost, liveTabIds: readonly string[]): { removed: string[] } {
-  if (host.platform() !== "windows") return { removed: [] };
-  const home = host.homeDir();
-  if (!home) return { removed: [] };
-  const dir = home + "\\.codex";
-  let entries: { name: string; isFile: boolean }[];
-  try {
-    entries = host.fs.readDir(dir);
-  } catch {
-    return { removed: [] };
-  }
-  if (!Array.isArray(entries)) return { removed: [] };
-  const names = entries.filter((e) => e && e.isFile).map((e) => e.name);
-  const toRemove = codexProfilesToSweep(names, new Set(liveTabIds));
+export function sweepCodexProfiles(
+  host: ProfileSweepHost,
+  liveTabIds: readonly string[],
+  instanceId: string,
+): ProfileSweepReport {
+  return manageCodexProfiles(host, liveTabIds, instanceId, true, false);
+}
+
+export function manageCodexProfiles(
+  host: ProfileSweepHost,
+  liveTabIds: readonly string[],
+  instanceId: string,
+  confirm: boolean,
+  includeLegacy: boolean,
+): ProfileSweepReport {
+  const candidates = inspectCodexProfiles(host, liveTabIds, instanceId);
   const removed: string[] = [];
-  for (const name of toRemove) {
-    if (host.fs.removeFile(dir + "\\" + name)) removed.push(name);
+  if (!confirm) return { ...candidates, removed };
+  for (const name of [...candidates.dead, ...(includeLegacy ? candidates.legacy : [])]) {
+    const path = profilePath(host, name);
+    if (!path) continue;
+    const contents = readProfile(host, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    const stillOwned = owner === instanceId;
+    const stillLegacy = includeLegacy && owner === null;
+    if ((stillOwned || stillLegacy) && removeProfile(host, path)) removed.push(name);
   }
-  return { removed };
+  return { ...candidates, removed };
+}
+
+export function releaseCodexProfile(
+  host: ProfileSweepHost,
+  tabId: string,
+  instanceId: string,
+): boolean {
+  const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const name = `codeterm-${suffix}.config.toml`;
+  const path = profilePath(host, name);
+  if (!path || codexProfileTabId(name) === null) return false;
+  const contents = readProfile(host, path);
+  if (contents === null || codexProfileInstanceId(contents) !== instanceId) return false;
+  return removeProfile(host, path);
 }

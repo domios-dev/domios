@@ -87,7 +87,7 @@ export function resolveTaskExecutionAttempts(
     tab_id: tabId,
     tab_title: tabId ? tabs[tabId]?.title ?? null : null,
     agent_type: tabId ? tabs[tabId]?.agent_type ?? null : null,
-    model: task.model,
+    model: null,
     role: task.taken_by_role ?? null,
     branch: task.lane?.branch ?? null,
     worktree_path: task.lane?.worktree_path ?? null,
