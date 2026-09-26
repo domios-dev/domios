@@ -421,6 +421,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
     crate::model_catalog::put_live(
         "am",
         vec![crate::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "live".into(),
             display_name: "Live".into(),
             description: Some("from catalog".into()),
@@ -467,6 +468,7 @@ fn settings_model_options_follow_catalog_changes() {
     crate::model_catalog::put_live(
         "dynamic-settings-models",
         vec![crate::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "live".into(),
             display_name: "Live".into(),
             description: None,

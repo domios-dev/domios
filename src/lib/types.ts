@@ -804,6 +804,8 @@ export interface ModelInfo {
   group?: string | null;
   /** Omitted uses provider reasoning_efforts; [] means no selector. */
   reasoning_efforts?: ReasoningEffortInfo[] | null;
+  /** Provider-reported default for this model, before provider-wide fallback. */
+  default_reasoning_effort?: string;
 }
 
 /** Provider-owned grouping of its models, e.g. the upstream company a routed

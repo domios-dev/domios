@@ -8,6 +8,7 @@ fn executor_tab(task_id: &str) -> String {
 
 fn attempt(_task_id: &str, id: &str, tab_id: &str, checkout: &str) -> TaskExecutionAttempt {
     TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: id.into(),
         executor_tab_id: tab_id.into(),
         worktree_path: Some(checkout.into()),

@@ -526,6 +526,7 @@ mod tests {
 
     fn model(id: &str, display_name: &str, available: Option<bool>) -> ModelInfo {
         ModelInfo {
+            default_reasoning_effort: None,
             id: id.into(),
             display_name: display_name.into(),
             description: Some(format!("{id} description")),
