@@ -36,15 +36,19 @@ pub(super) fn provider_classifies_directory_trust_prompt(
             .unwrap_or(false)
 }
 
+pub(super) struct ProviderDialogIdentity<'a> {
+    pub(super) agent_type: &'a str,
+    pub(super) tab_id: &'a str,
+}
+
 pub(super) fn provider_classifies_non_auto_ack_dialog(
     service: &crate::service::ServiceContext,
-    agent_type: &str,
-    tab_id: &str,
+    identity: ProviderDialogIdentity<'_>,
     screen: &str,
 ) -> bool {
     let (session_id, cwd) = {
         let mux = service.mux.read();
-        let Some(tab) = mux.get_tab(tab_id) else {
+        let Some(tab) = mux.get_tab(identity.tab_id) else {
             return false;
         };
         (
@@ -53,15 +57,15 @@ pub(super) fn provider_classifies_non_auto_ack_dialog(
         )
     };
     let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-        tab_id: tab_id.to_string(),
-        agent_type: agent_type.to_string(),
+        tab_id: identity.tab_id.to_string(),
+        agent_type: identity.agent_type.to_string(),
         session_id,
         cwd,
         screen_text: screen.to_string(),
     };
     service
         .agent_registry
-        .with_provider(agent_type, |provider| {
+        .with_provider(identity.agent_type, |provider| {
             (may_be_directory_trust_prompt(screen)
                 && provider.directory_trust_prompt_response(screen).is_some())
                 || (super::manual_update_prompt_candidate(screen)

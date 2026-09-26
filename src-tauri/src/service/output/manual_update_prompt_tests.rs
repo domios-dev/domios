@@ -89,8 +89,10 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
     fixture.service.agent_registry.register_provider(Box::new(provider));
     assert!(super::trust_candidate::provider_classifies_non_auto_ack_dialog(
         &fixture.service,
-        "fixture",
-        &tab_id,
+        super::trust_candidate::ProviderDialogIdentity {
+            agent_type: "fixture",
+            tab_id: &tab_id,
+        },
         &snapshot.screen_text,
     ));
     fixture.service.apply_prompt_decision_with_screen(
