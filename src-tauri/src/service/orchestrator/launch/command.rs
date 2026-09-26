@@ -2,8 +2,6 @@ use super::{AgentRegistry, ServiceContext};
 use crate::agent::provider::AgentLaunchParams;
 use crate::service::orchestrator::types::SpawnAgentParams;
 
-/// Build a single shell command that launches the agent.
-/// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
 pub(crate) fn build_agent_command(
     agent_cmd: &str,
     params: &SpawnAgentParams,
@@ -11,8 +9,7 @@ pub(crate) fn build_agent_command(
     injected_session_id: Option<&str>,
     registry: &AgentRegistry,
 ) -> String {
-    build_agent_command_inner(
-        None,
+    build_agent_command_with_launch_marker(
         agent_cmd,
         params,
         task,
@@ -42,8 +39,6 @@ pub(crate) fn build_agent_command_for_service(
     )
 }
 
-/// `launch_marker` is the inert per-launch token a provider may carry into its
-/// own session record for hook-independent binding.
 pub(crate) fn build_agent_command_with_launch_marker(
     agent_cmd: &str,
     params: &SpawnAgentParams,
@@ -101,39 +96,41 @@ fn build_agent_command_inner(
         .map(|model| crate::agent::model_catalog::resolve_model(agent_cmd, Some(model)).id);
     if let Some(model) = resolved_model.as_deref() {
         let model_args = registry
-            .with_provider(agent_cmd, |p| p.model_launch_args(model))
+            .with_provider(agent_cmd, |provider| provider.model_launch_args(model))
             .unwrap_or_else(|| vec!["--model".into(), model.to_string()]);
         args.extend(model_args);
     }
-    if let Some(ref effort) = params.reasoning_effort {
-        if !effort.is_empty() {
-            let effort_args = if let Some((service, tab_id)) = notice_context {
-                service.reasoning_effort_launch_args_or_notice(
-                    tab_id,
-                    agent_cmd,
-                    resolved_model.as_deref(),
-                    Some(effort.as_str()),
-                )
-            } else {
-                match registry.with_provider(agent_cmd, |provider| {
-                    let supported = provider.reasoning_efforts_for_model(resolved_model.as_deref());
-                    supported
-                        .iter()
-                        .any(|level| level.id == effort.as_str())
-                        .then(|| provider.reasoning_effort_launch_args(effort))
-                }) {
-                    Some(Some(args)) => args,
-                    _ => {
-                        log::warn!(
-                            "[reasoning-effort] provider={agent_cmd} model={} requested={effort}; omitted from launch without service notice context",
-                            resolved_model.as_deref().unwrap_or("provider default")
-                        );
-                        Vec::new()
-                    }
+    if let Some(effort) = params
+        .reasoning_effort
+        .as_deref()
+        .filter(|effort| !effort.is_empty())
+    {
+        let effort_args = if let Some((service, tab_id)) = notice_context {
+            service.reasoning_effort_launch_args_or_notice(
+                tab_id,
+                agent_cmd,
+                resolved_model.as_deref(),
+                Some(effort),
+            )
+        } else {
+            match registry.with_provider(agent_cmd, |provider| {
+                let supported = provider.reasoning_efforts_for_model(resolved_model.as_deref());
+                supported
+                    .iter()
+                    .any(|level| level.id == effort)
+                    .then(|| provider.reasoning_effort_launch_args(effort))
+            }) {
+                Some(Some(args)) => args,
+                _ => {
+                    log::warn!(
+                        "[reasoning-effort] provider={agent_cmd} model={} requested={effort}; omitted from launch without service notice context",
+                        resolved_model.as_deref().unwrap_or("provider default")
+                    );
+                    Vec::new()
                 }
-            };
-            args.extend(effort_args);
-        }
+            }
+        };
+        args.extend(effort_args);
     }
 
     let system_prompt = registry
@@ -146,18 +143,20 @@ fn build_agent_command_inner(
         })
         .flatten();
 
-    if let Some(ref sid) = params.resume_session_id {
+    if let Some(session_id) = &params.resume_session_id {
         let resume = crate::agent::provider::AgentResumeParams {
-            session_id: sid.clone(),
+            session_id: session_id.clone(),
             skip_permissions: params.permission_bypass_requested(agent_cmd),
             system_prompt: system_prompt.clone(),
             args: args.clone(),
         };
-        if let Some(cmd) = registry
-            .with_provider(agent_cmd, |p| p.build_resume_command_with_context(&resume))
+        if let Some(command) = registry
+            .with_provider(agent_cmd, |provider| {
+                provider.build_resume_command_with_context(&resume)
+            })
             .flatten()
         {
-            return cmd;
+            return command;
         }
     }
 
@@ -175,7 +174,7 @@ fn build_agent_command_inner(
         .unwrap_or_default();
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
-        task: launch_task.clone(),
+        task: launch_task,
         starter_prompt: params.starter_prompt,
         args: if args.is_empty() {
             None
@@ -183,19 +182,20 @@ fn build_agent_command_inner(
             Some(args.clone())
         },
         skip_permissions: params.permission_bypass_requested(agent_cmd),
-        session_id: injected_session_id.map(std::string::ToString::to_string),
+        session_id: injected_session_id.map(str::to_string),
         structured_prompt_server: params.structured_prompt_server.clone(),
         launch_marker: launch_marker.map(str::to_string),
         instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
-    let cmd = match registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params)) {
-        Some(command) if command.trim().is_empty() => return String::new(),
+    match registry.with_provider(agent_cmd, |provider| {
+        provider.build_launch_command(&launch_params)
+    }) {
+        Some(command) if command.trim().is_empty() => String::new(),
         Some(command) => crate::agent::stub_launch::apply(agent_cmd, command),
         None => {
-            let mut parts: Vec<String> = vec![agent_cmd.to_string()];
-            parts.extend(args.iter().cloned());
+            let mut parts = vec![agent_cmd.to_string()];
+            parts.extend(args);
             parts.join(" ")
         }
-    };
-    cmd
+    }
 }

@@ -56,6 +56,13 @@ impl LaunchGeneration {
         })
     }
 
+    pub(super) fn emit_resume_first_turn_input_ready(&mut self, svc: &ServiceContext) -> bool {
+        self.transition(BootStage::AgentReady);
+        self.commit_if_current(|| {
+            svc.emit_boot_stage(&self.tab_id, BootStage::AgentReady, None);
+        })
+    }
+
     pub(super) fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
         // A fault proving process death voids its binding, so it cannot outrank the failure.
         if failure.proves_process_gone() {
