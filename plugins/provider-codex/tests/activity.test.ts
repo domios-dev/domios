@@ -208,24 +208,28 @@ for (const parser of parsers) {
     custom("call-b1", `const r = await tools.view_image({path:"/repo/shot.png"}); image(r.image_url);`),
   ]);
   assert.deepEqual(flow.map((message) => message.blocks[0].kind), [
-    "tool_flow", "tool_use", "tool_use", "tool_use", "tool_result", "tool_use", "tool_result", "tool_flow", "tool_flow", "tool_use",
+    "tool_flow", "tool_use", "tool_use", "tool_use", "tool_use", "tool_result", "tool_flow", "tool_flow", "tool_use",
   ]);
   assert.deepEqual(flow[0].blocks[0].data, { state: "start", flow_id: "turn-a" });
-  assert.deepEqual(flow[7].blocks[0].data, { state: "end", flow_id: "turn-a" });
-  assert.deepEqual(flow[8].blocks[0].data, { state: "start", flow_id: "turn-b" });
-  assert.equal(flow[5].blocks[0].data.tool_title, "npm test");
-  assert.deepEqual(flow[5].blocks[0].data.input, { raw: commandScript });
-  assert.equal(flow[1].blocks[0].data.tool_title, "Wait for command output");
-  assert.equal(flow[1].blocks[0].data.tool_summary, "Wait for command output");
-  assert.equal(flow[2].blocks[0].data.name, "wait_agent");
-  assert.equal(flow[2].blocks[0].data.tool_title, "wait_agent");
-  assert.deepEqual(flow[2].blocks[0].data.input, waitAgentArgs);
-  assert.equal(flow[3].blocks[0].data.tool_flow_id, "turn-a");
-  assert.equal(flow[3].blocks[0].data.tool_title, command);
-  assert.equal(flow[4].blocks[0].data.content, output);
-  assert.equal(flow[6].blocks[0].data.content, "opaque-command-output");
-  assert.equal(flow[9].blocks[0].data.tool_title, "Read shot.png");
-  assert.equal(flow[5].blocks[0].data.tool_flow_id, undefined, "calls rely on the boundary row instead of a guessed turn");
+  assert.deepEqual(flow[6].blocks[0].data, { state: "end", flow_id: "turn-a" });
+  assert.deepEqual(flow[7].blocks[0].data, { state: "start", flow_id: "turn-b" });
+  assert.equal(flow[1].blocks[0].data.tool_title, "npm test");
+  assert.deepEqual(flow[1].blocks[0].data.input, { raw: commandScript });
+  assert.equal(flow[1].blocks[0].data.tool_flow_id, undefined, "calls rely on the boundary row instead of a guessed turn");
+  assert.equal(flow[1].blocks[0].data.tool_echo, undefined, "the logical call is emitted at its source position");
+  assert.equal(flow[2].blocks[0].data.tool_title, "Wait for command output");
+  assert.equal(flow[2].blocks[0].data.tool_summary, "Wait for command output");
+  assert.equal(flow[3].blocks[0].data.name, "wait_agent");
+  assert.equal(flow[3].blocks[0].data.tool_title, "wait_agent");
+  assert.deepEqual(flow[3].blocks[0].data.input, waitAgentArgs);
+  assert.equal(flow[4].blocks[0].data.tool_flow_id, "turn-a");
+  assert.equal(flow[4].blocks[0].data.tool_title, command);
+  assert.equal(flow[4].blocks[0].data.tool_echo, true, "an unmatched command completion remains visible as an echo");
+  assert.equal(flow[4].blocks[1].kind, "tool_result");
+  assert.equal(flow[4].blocks[1].data.tool_use_id, "exec-turn-a");
+  assert.equal(flow[4].blocks[1].data.content, output, "the command completion result stays in its activity row");
+  assert.equal(flow[5].blocks[0].data.content, "opaque-command-output");
+  assert.equal(flow[8].blocks[0].data.tool_title, "Read shot.png");
 
   const listOutput = [
     { type: "input_text", text: "Script completed\nWall time 1.2 seconds\nOutput:\n" },
