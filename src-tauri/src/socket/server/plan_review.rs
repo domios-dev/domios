@@ -783,7 +783,7 @@ mod tests {
             )
             .unwrap();
         store
-            .assign_task(&plan.id, &task_id, &worker_tab_id, Some("Worker"), 3)
+            .assign_task(&plan.id, &task_id, &worker_tab_id, None, 3)
             .unwrap();
         let lane_path = fixture.temp.path().join("worker-lane");
         let lane_path = lane_path.to_string_lossy().into_owned();
