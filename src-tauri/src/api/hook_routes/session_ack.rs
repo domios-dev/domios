@@ -41,7 +41,7 @@ pub(super) fn acknowledge_authenticated_launch(
     })
 }
 
-fn acknowledge_and_reconcile_session_binding(
+pub(super) fn acknowledge_and_reconcile_session_binding(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     claim: &SessionStartClaim,

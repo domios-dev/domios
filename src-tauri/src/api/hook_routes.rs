@@ -16,7 +16,9 @@ use crate::api::{
 mod run_session;
 mod session_ack;
 mod session_claim;
-use session_ack::{acknowledge_authenticated_launch, unchanged_acknowledged_hook_report};
+#[cfg(test)]
+use session_ack::acknowledge_authenticated_launch;
+use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report};
 #[cfg(test)]
 #[path = "hook_routes/review_regressions.rs"]
 mod review_regressions;

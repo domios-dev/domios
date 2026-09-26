@@ -60,7 +60,7 @@ pub(crate) fn binding_source_label(source: BindingSource) -> &'static str {
 }
 
 fn update_hook_binding_fallback(
-    fallbacks: &mut HashMap<String, HookBindingFallback>,
+    fallbacks: &mut HookBindingFallbacks,
     provider_id: &str,
     session_id: &str,
     source: BindingSource,
