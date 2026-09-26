@@ -12,9 +12,11 @@
 //! provider requires zero changes here.
 
 use serde_json::Value as Json;
+use codeterm_types::notification::NotifyLevel;
 use tauri::State;
 
 use crate::service::ServiceState;
+use crate::service::notification::{NotificationOrigin, PushIntent};
 
 fn runtime_api_port() -> Result<u16, String> {
     let value = std::env::var("CODETERM_API_PORT")
@@ -284,9 +286,15 @@ pub fn install_provider_rule(
 pub fn ensure_integrations_for_all(
     registry: &crate::agent::registry::AgentRegistry,
     config: &crate::config::ConfigState,
+    service: ServiceState,
 ) {
     for provider in registry.all_provider_arcs() {
-        spawn_reconciliation(provider, config.lock().agents.clone(), Some(config.clone()));
+        spawn_reconciliation(
+            provider,
+            config.lock().agents.clone(),
+            Some(config.clone()),
+            Some(service.clone()),
+        );
     }
 }
 
@@ -301,7 +309,7 @@ pub fn ensure_integration_for_provider(
     for provider in registry.all_provider_arcs() {
         if provider.id() == provider_id {
             // Startup alone infers consent for existing marked installs.
-            spawn_reconciliation(provider, consented.clone(), None);
+            spawn_reconciliation(provider, consented.clone(), None, None);
         }
     }
 }
@@ -355,6 +363,7 @@ fn spawn_reconciliation(
     provider: std::sync::Arc<dyn crate::agent::provider::AgentProvider>,
     mut consented: ProviderConfigs,
     config: Option<crate::config::ConfigState>,
+    service: Option<ServiceState>,
 ) {
     let id = provider.id().to_string();
     if !provider.has_installable_integration() {
@@ -449,6 +458,15 @@ fn spawn_reconciliation(
                 )),
             };
             log_reconciliation(&id, &outcome, consent_inferred);
+            if let Some(service) = service.as_ref() {
+                notify_reconciliation_owner(
+                    service,
+                    provider.display_name(),
+                    &id,
+                    &status,
+                    &outcome,
+                );
+            }
             reconciling().lock().remove(&done);
         })
     {
@@ -611,6 +629,54 @@ fn log_reconciliation(
     }
 }
 
+fn reconciliation_needs_owner_notice(outcome: &IntegrationRepairOutcome) -> bool {
+    matches!(
+        outcome,
+        IntegrationRepairOutcome::ConsentMissing
+            | IntegrationRepairOutcome::Unreadable
+            | IntegrationRepairOutcome::TrustGrantRequired
+            | IntegrationRepairOutcome::RepairFailed(_)
+    )
+}
+
+fn notify_reconciliation_owner(
+    service: &ServiceState,
+    provider_name: &str,
+    provider_id: &str,
+    status: &Json,
+    outcome: &IntegrationRepairOutcome,
+) {
+    if !reconciliation_needs_owner_notice(outcome) {
+        return;
+    }
+    let detail = match outcome {
+        IntegrationRepairOutcome::RepairFailed(error) => error.as_str(),
+        IntegrationRepairOutcome::Unreadable => status
+            .get("hook_trust_reason")
+            .and_then(Json::as_str)
+            .unwrap_or("provider integration status could not be verified"),
+        IntegrationRepairOutcome::TrustGrantRequired => {
+            "the hook trust grant needs explicit consent"
+        }
+        _ => "provider integration consent is missing",
+    };
+    service.create_notification_ext(
+        format!("{provider_name} integration needs attention"),
+        Some(format!(
+            "{detail}. Open Settings > Integrations and approve the provider repair, or run `codeterm integration install --provider {provider_id} --json` after consent."
+        )),
+        Some("warning"),
+        None,
+        Some(true),
+        NotificationOrigin::default(),
+        PushIntent {
+            level: Some(NotifyLevel::ActionNeeded),
+            event_key: Some(format!("provider-integration-repair:{provider_id}")),
+        },
+        None,
+    );
+}
+
 fn repair_integration_on_startup(
     provider: &dyn crate::agent::provider::AgentProvider,
     api_port: u16,
@@ -656,3 +722,6 @@ fn repair_integration_on_startup(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "hooks/owner_notice_tests.rs"]
+mod owner_notice_tests;

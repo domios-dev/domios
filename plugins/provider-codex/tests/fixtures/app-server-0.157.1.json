@@ -1,0 +1,89 @@
+{
+  "codexVersion": "0.157.1",
+  "initialize": {
+    "id": 1,
+    "result": {
+      "userAgent": "codeterm/0.157.1",
+      "codexHome": "<CODEX_HOME>",
+      "platformFamily": "windows",
+      "platformOs": "windows"
+    }
+  },
+  "hooksListUntrusted": {
+    "id": 2,
+    "result": {
+      "data": [
+        {
+          "cwd": "<WORKING_DIR>",
+          "hooks": [
+            {
+              "key": "<CODEX_HOME>\\hooks.json:session_start:0:0",
+              "eventName": "sessionStart",
+              "handlerType": "command",
+              "command": "cmd.exe /d /s /c call \"<CODEX_HOME>\\codeterm-session-hook.cmd\" session_start X-CodeTerm-Hook: codeterm-codex-session-binding-v1",
+              "sourcePath": "<CODEX_HOME>\\hooks.json",
+              "source": "user",
+              "currentHash": "sha256:15ed93ba02dfd33e59203e9e3184c5efc7cea910865f9b51034b1aee27ce67c5",
+              "trustStatus": "untrusted"
+            },
+            {
+              "key": "<CODEX_HOME>\\hooks.json:stop:0:0",
+              "eventName": "stop",
+              "handlerType": "command",
+              "command": "cmd.exe /d /s /c call \"<CODEX_HOME>\\codeterm-session-hook.cmd\" stop X-CodeTerm-Hook: codeterm-codex-session-binding-v1",
+              "sourcePath": "<CODEX_HOME>\\hooks.json",
+              "source": "user",
+              "currentHash": "sha256:bb2d1de1115a764cf42273d303ad04ac2ce025ba122d735e40d8eada8990e33d",
+              "trustStatus": "untrusted"
+            }
+          ],
+          "warnings": [],
+          "errors": []
+        }
+      ]
+    }
+  },
+  "configBatchWrite": {
+    "id": 2,
+    "result": {
+      "status": "ok",
+      "version": "sha256:39e564612686377742c42e809d3dbd2683e197fae5291607f499145f5eadf731",
+      "filePath": "<CODEX_HOME>\\config.toml",
+      "overriddenMetadata": null
+    }
+  },
+  "hooksListTrusted": {
+    "id": 3,
+    "result": {
+      "data": [
+        {
+          "cwd": "<WORKING_DIR>",
+          "hooks": [
+            {
+              "key": "<CODEX_HOME>\\hooks.json:session_start:0:0",
+              "eventName": "sessionStart",
+              "handlerType": "command",
+              "command": "cmd.exe /d /s /c call \"<CODEX_HOME>\\codeterm-session-hook.cmd\" session_start X-CodeTerm-Hook: codeterm-codex-session-binding-v1",
+              "sourcePath": "<CODEX_HOME>\\hooks.json",
+              "source": "user",
+              "currentHash": "sha256:15ed93ba02dfd33e59203e9e3184c5efc7cea910865f9b51034b1aee27ce67c5",
+              "trustStatus": "trusted"
+            },
+            {
+              "key": "<CODEX_HOME>\\hooks.json:stop:0:0",
+              "eventName": "stop",
+              "handlerType": "command",
+              "command": "cmd.exe /d /s /c call \"<CODEX_HOME>\\codeterm-session-hook.cmd\" stop X-CodeTerm-Hook: codeterm-codex-session-binding-v1",
+              "sourcePath": "<CODEX_HOME>\\hooks.json",
+              "source": "user",
+              "currentHash": "sha256:bb2d1de1115a764cf42273d303ad04ac2ce025ba122d735e40d8eada8990e33d",
+              "trustStatus": "trusted"
+            }
+          ],
+          "warnings": [],
+          "errors": []
+        }
+      ]
+    }
+  }
+}

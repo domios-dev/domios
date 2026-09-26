@@ -26,6 +26,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/activity.test.ts
       plugins/provider-codex/tests/rich-results.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/app-server-0.157.1.test.ts
       plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts
@@ -77,6 +78,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/activity.test.ts
       plugins/provider-codex/tests/rich-results.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/app-server-0.157.1.test.ts
       plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts

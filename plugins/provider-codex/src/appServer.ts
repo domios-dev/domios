@@ -1,16 +1,16 @@
 // Codex remains the trust-hash authority because its private hash algorithm can change across releases.
+import { CODETERM_CODEX_HOOK_MARKER } from "./hooks";
 
 declare const host: {
   platform(): string;
-  fs: {
-    fileExists(path: string): boolean;
-    readFile(path: string): string | null;
-    writeFile(path: string, contents: string): boolean;
-    removeFile(path: string): boolean;
-  };
   exec: ((optsJson: string) => string) & {
     async?: (
-      opts: { bin: string; args: string[]; stdin: string; timeoutMs: number },
+      opts: {
+        bin: string;
+        args: string[];
+        conversation: { stdin: string; awaitResponseIds: number[] }[];
+        timeoutMs: number;
+      },
       then: (result: unknown) => unknown,
     ) => unknown;
   };
@@ -26,8 +26,6 @@ export interface CodexTrustGrantOutcome {
   degraded: boolean;
   /** True when the post-write hooks/list re-verify failed closed. */
   verify_failed: boolean;
-  /** Set after a mutating failure: whether config bytes were restored. */
-  restored?: boolean;
   reason?: string;
   entries?: { key: string; hash: string }[];
 }
@@ -55,6 +53,11 @@ type SessionOutcome =
   | { kind: "unavailable"; reason: string }
   | { kind: "failed"; reason: string };
 
+export interface CodexHookTrustInspection {
+  verdict: "trusted" | "stale" | "unknown";
+  reason?: string;
+}
+
 // Bounded failure deadline around process exit (the server exits on stdin
 // EOF); elapsed time is never treated as readiness or success.
 const APP_SERVER_EXIT_DEADLINE_MS = 20000;
@@ -68,9 +71,8 @@ function isMethodNotFound(error: RpcError): boolean {
   return error.code === JSON_RPC_METHOD_NOT_FOUND || /method not found/i.test(String(error.message || ""));
 }
 
-/** One short-lived `codex app-server` stdio JSONL session. All requests are
- *  pre-composed on stdin (the server answers them in order and exits on EOF);
- *  the exec deadline only bounds a wedged child, never signals readiness. */
+/** One short-lived `codex app-server` stdio JSONL session. Each stage waits for
+ *  its response before stdin advances; EOF closes the server after the RPCs. */
 function parseAppServerSession(raw: unknown): SessionOutcome {
   let result: { code?: number; stdout?: string; stderr?: string; error?: string };
   try {
@@ -108,27 +110,36 @@ function parseAppServerSession(raw: unknown): SessionOutcome {
     if (isMethodNotFound(init.error)) return { kind: "unavailable", reason: "codex app-server does not support initialize" };
     return { kind: "failed", reason: "initialize failed: " + String(init.error.message || "unknown error") };
   }
+  if (typeof result.code === "number" && result.code !== 0) {
+    return { kind: "failed", reason: "codex app-server exited with code " + result.code };
+  }
   return { kind: "ok", responses };
 }
 
 function runAppServerSession(requests: RpcRequest[], then: (session: SessionOutcome) => unknown): unknown {
-  const lines: string[] = [
-    JSON.stringify({
+  const initialize = JSON.stringify({
       method: "initialize",
       id: 1,
-      params: { clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" } },
-    }),
-    JSON.stringify({ method: "initialized" }),
-  ];
+      params: {
+        clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" },
+        capabilities: { experimentalApi: true },
+      },
+    });
+  const requestLines: string[] = [JSON.stringify({ method: "initialized" })];
+  const responseIds: number[] = [];
   for (let i = 0; i < requests.length; i++) {
     const req: Record<string, unknown> = { method: requests[i].method, id: requests[i].id };
     if (requests[i].params !== undefined) req.params = requests[i].params;
-    lines.push(JSON.stringify(req));
+    requestLines.push(JSON.stringify(req));
+    if (typeof requests[i].id === "number") responseIds.push(requests[i].id);
   }
   const opts = {
     bin: "codex",
     args: ["app-server"],
-    stdin: lines.join("\n") + "\n",
+    conversation: [
+      { stdin: initialize + "\n", awaitResponseIds: [1] },
+      { stdin: requestLines.join("\n") + "\n", awaitResponseIds: responseIds },
+    ],
     timeoutMs: APP_SERVER_EXIT_DEADLINE_MS,
   };
   try {
@@ -197,7 +208,9 @@ function isCodetermManagedHookCommand(command: string | null): boolean {
   const c = String(command || "");
   return c.indexOf("/hook/session_start") !== -1
     || c.indexOf("/hook/stop") !== -1
-    || c.indexOf("codeterm-session-start.ps1") !== -1;
+    || c.indexOf("codeterm-session-start.ps1") !== -1
+    || (c.indexOf("codeterm-session-hook.cmd") !== -1
+      && c.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1);
 }
 
 function managedListings(listings: HookListing[], hooksPath: string, labels: string[]): HookListing[] {
@@ -255,40 +268,34 @@ export function inspectCodexHookTrust(opts: {
   config: string;
   managedLabels: string[];
   listCwd: string;
-}, then: (verdict: "trusted" | "stale" | "unknown") => unknown = (verdict) => verdict): unknown {
+}, then: (inspection: CodexHookTrustInspection) => unknown = (inspection) => inspection): unknown {
   return runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } },
   ], (session) => {
     const result = requestOutcome(session, 2, "hooks/list");
-    if (result.kind !== "ok") return then("unknown");
+    if (result.kind !== "ok") return then({ verdict: "unknown", reason: result.reason });
     const managed = managedListings(collectHookListings(result.result), opts.hooksPath, opts.managedLabels);
-    if (managed.length !== opts.managedLabels.length) return then("unknown");
+    if (managed.length !== opts.managedLabels.length) {
+      return then({
+        verdict: "unknown",
+        reason: "Codex returned " + managed.length + " managed hooks, expected " + opts.managedLabels.length,
+      });
+    }
     for (let i = 0; i < managed.length; i++) {
       const listing = managed[i];
       const recorded = recordedTrustedHash(opts.config, listing.key);
-      if (recorded === null) return then("unknown");
-      if (recorded !== listing.currentHash) return then("stale");
-      if (listing.trustStatus !== "trusted") return then("unknown");
+      if (recorded === null) {
+        return then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key });
+      }
+      if (recorded !== listing.currentHash) {
+        return then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key });
+      }
+      if (listing.trustStatus !== "trusted") {
+        return then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key });
+      }
     }
-    return then("trusted");
+    return then({ verdict: "trusted" });
   });
-}
-
-interface ConfigSnapshot {
-  path: string;
-  existed: boolean;
-  bytes: string;
-}
-
-function snapshotConfig(path: string): ConfigSnapshot | null {
-  const existed = host.fs.fileExists(path);
-  const bytes = existed ? host.fs.readFile(path) : "";
-  return typeof bytes === "string" ? { path, existed, bytes } : null;
-}
-
-function restoreConfig(snapshot: ConfigSnapshot): boolean {
-  if (snapshot.existed) return host.fs.writeFile(snapshot.path, snapshot.bytes);
-  return !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
 }
 
 function outcome(partial: Partial<CodexTrustGrantOutcome>): CodexTrustGrantOutcome {
@@ -305,9 +312,7 @@ function outcome(partial: Partial<CodexTrustGrantOutcome>): CodexTrustGrantOutco
  * Grants Codex hook trust for exactly the managed CodeTerm hook entries via
  * one bounded RPC lane: hooks/list → config/batchWrite → hooks/list re-verify.
  * The upserted hash is always the hash Codex itself reported on hooks/list.
- * Failure paths: missing RPC surface degrades to the enable-only install
- * behavior; a mutating failure or re-verify mismatch restores the exact
- * pre-grant config bytes and reports the grant failed.
+ * Failure paths never write config directly: Codex owns every trust-hash edit.
  */
 export function grantCodexHookTrust(opts: {
   hooksPath: string;
@@ -361,9 +366,6 @@ function grantCodexHookTrustFromCodex(opts: {
     }
 
     if (!opts.configPath) return then(outcome({ reason: "Codex config path is unknown; trust was not granted" }));
-    const snapshot = snapshotConfig(opts.configPath);
-    if (!snapshot) return then(outcome({ reason: "could not snapshot Codex config before granting trust" }));
-
     const value: Record<string, { trusted_hash: string }> = {};
     for (let i = 0; i < needingTrust.length; i++) {
       const currentHash = needingTrust[i].currentHash;
@@ -378,28 +380,32 @@ function grantCodexHookTrustFromCodex(opts: {
       },
       { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } },
     ], (writeSession) => {
-      const failedWrite = (reason: string, verifyFailed: boolean): unknown => {
-        const restored = restoreConfig(snapshot);
-        return then(outcome({ wrote: true, verify_failed: verifyFailed, restored, reason }));
-      };
       const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
       if (writeResult.kind !== "ok") return then(outcome({ reason: writeResult.reason }));
+      const writeStatus = writeResult.result && typeof writeResult.result === "object"
+        ? (writeResult.result as { status?: unknown }).status
+        : undefined;
+      if (writeStatus !== "ok") {
+        return then(outcome({ reason: "config/batchWrite did not confirm status=ok" }));
+      }
       const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
-      if (verifyResult.kind !== "ok") return failedWrite(verifyResult.reason, true);
+      if (verifyResult.kind !== "ok") {
+        return then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason }));
+      }
 
       const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
       if (verified.length !== opts.managedLabels.length) {
-        return failedWrite("post-grant verify reported " + verified.length + " managed entries", true);
+        return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" }));
       }
       const expectedHashes: Record<string, string> = {};
       for (let i = 0; i < managed.length; i++) expectedHashes[managed[i].key] = managed[i].currentHash;
       for (let i = 0; i < verified.length; i++) {
         const listing = verified[i];
         if (listing.trustStatus !== "trusted") {
-          return failedWrite("post-grant verify left " + listing.key + " " + listing.trustStatus, true);
+          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus }));
         }
         if (expectedHashes[listing.key] !== listing.currentHash) {
-          return failedWrite("post-grant verify reported a different hash for " + listing.key, true);
+          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key }));
         }
       }
       return then(outcome({

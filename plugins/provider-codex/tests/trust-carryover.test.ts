@@ -63,6 +63,24 @@ assert.equal(
   "[projects.'C:\\Untrusted']\r\ntrust_level = 'untrusted'\r\n",
   "carries Codex's explicit untrusted answer as well as trusted answers",
 );
+const provisionedProfile = [
+  "[projects.'c:\\users\\user\\.codeterm-dev-qa\\provisioned-workspaces\\qa-c9-prov-90b4425239c0']",
+  'trust_level = "trusted"',
+  "",
+  "[projects.'C:\\Users\\dev\\src\\manual-project']",
+  'trust_level = "trusted"',
+  "",
+].join("\r\n");
+const provisionedMerge = mergeTrustedProjectEntries(provisionedProfile, config);
+assert.ok(provisionedMerge, "merges the user project while filtering the provisioned workspace");
+assert.ok(provisionedMerge.includes("manual-project"), "preserves user-granted project trust");
+assert.ok(!provisionedMerge.includes("provisioned-workspaces"), "does not persist auto-answered provisioned workspace trust");
+{
+  const files = new Map<string, string>([["profile", provisionedProfile], [configPath, config]]);
+  assert.equal(carryCodexProjectTrust(hostFor(files), "profile", configPath), true);
+  assert.ok(files.get(configPath)?.includes("manual-project"));
+  assert.ok(!files.get(configPath)?.includes("provisioned-workspaces"));
+}
 assert.equal(
   mergeTrustedProjectEntries(profile, "projects = { 'C:\\Other' = { trust_level = 'trusted' } }\n"),
   null,

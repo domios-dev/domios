@@ -1,11 +1,17 @@
 // The `host` global injected into every plugin QuickJS VM — the raw host_api.rs
 // bindings plus the vm.rs preamble convenience layer. QuickJS is not a browser:
 
+export interface ExecConversationStep {
+  stdin: string;
+  awaitResponseIds: number[];
+}
+
 export interface ExecOpts {
   bin: string;
   args?: string[];
   env?: Record<string, string>;
   stdin?: string;
+  conversation?: ExecConversationStep[];
   timeoutMs?: number;
   detach?: boolean;
   logFile?: string;
