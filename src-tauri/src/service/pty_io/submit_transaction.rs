@@ -786,7 +786,7 @@ pub(crate) fn submit_text_with_key_claimed(
     let mut key_guard = |allow_initial_key: bool| {
         let (tab_id, agent_id, session_bound, session_id, cwd, owns_pty) = {
             let mux = svc.mux.read();
-            let Some(tab_id) = mux.tab_id_for_pty(pty_id).map(str::to_string) else {
+            let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
                 return Err(InjectionError::AgentInputUnavailable {
                     pty_id: pty_id.to_string(),
                 });
