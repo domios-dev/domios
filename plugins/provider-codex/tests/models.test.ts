@@ -1,5 +1,5 @@
 /**
- * Codex model discovery tests cover live cache, manifest fallback, and catalog freshness.
+ * Codex model discovery tests cover live cache, missing-cache reporting, and catalog freshness.
  * Run: npx tsx plugins/provider-codex/tests/models.test.ts
  */
 
@@ -70,8 +70,7 @@ console.log("\n--- discoverModels ---\n");
 {
   const p = loadCodexWithHost(baseHost({ manifestJson: () => JSON.stringify(bundledManifest) }));
   const manifestIds = (bundledManifest.models || []).map((model) => model.id);
-  const discoveredIds = (p.discoverModels() as Array<{ id: string }>).map((model) => model.id);
-  eq(discoveredIds, manifestIds, "the bundled model catalog is the live-cache fallback");
+  eq(p.discoverModels(), null, "a missing live cache reports no discovery so the host applies its seed");
   assert(!manifestIds.includes("gpt-5.4-mini"), "a removed model is absent from launch choices");
 }
 
@@ -149,7 +148,7 @@ console.log("\n--- discoverModels ---\n");
 
 {
   const p = loadCodexWithHost(baseHost({}));
-  eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Codex cache exists");
+  eq(p.discoverModels(), null, "discoverModels reports no discovery when no Codex cache exists");
 }
 
 // Live cache → clean, current, priority-ordered chat models: hidden + non-chat dropped.
@@ -210,8 +209,8 @@ console.log("\n--- discoverModels: fallback trigger conditions ---\n");
       writeFile: () => true,
     },
   }));
-  eq(p.discoverModels(), manifestSeed.models, "missing cache file falls through to the manifest fallback");
-  eq(manifestCalls, 1, "manifest is consulted exactly once when the cache file is absent");
+  eq(p.discoverModels(), null, "missing cache file reports no discovery; the host applies its seed");
+  eq(manifestCalls, 0, "the plugin never reads the manifest seed itself");
 }
 
 {
@@ -227,34 +226,8 @@ console.log("\n--- discoverModels: fallback trigger conditions ---\n");
       writeFile: () => true,
     },
   }));
-  eq(p.discoverModels(), manifestSeed.models, "unreadable cache falls through to the manifest fallback");
-  eq(manifestCalls, 1, "manifest is consulted exactly once when the cache is present but unreadable");
-}
-
-console.log("\n--- discoverModels: hidden entries excluded from the manifest fallback too ---\n");
-{
-  const seed = {
-    models: [
-      { id: "visible-model", displayName: "Visible", description: "shown", visibility: "list" },
-      { id: "hidden-model", displayName: "Hidden", description: "internal", visibility: "hide" },
-    ],
-  };
-  const p = loadCodexWithHost(baseHost({
-    manifestJson: () => JSON.stringify(seed),
-    fs: {
-      fileExists: () => false,
-      readFile: () => null,
-      readJson: () => null,
-      writeJson: () => true,
-      writeFile: () => true,
-    },
-  }));
-  const models = p.discoverModels() as Array<{ id: string }>;
-  eq(
-    models.map((m) => m.id),
-    ["visible-model"],
-    "manifest fallback drops hide-visibility entries, matching the cache path's own filter",
-  );
+  eq(p.discoverModels(), null, "unreadable cache reports no discovery; the host applies its seed");
+  eq(manifestCalls, 0, "the plugin never reads the manifest seed for an unreadable cache");
 }
 
 console.log("\n--- discoverModels: cache priority order wins over array position ---\n");
