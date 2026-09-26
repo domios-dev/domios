@@ -196,7 +196,7 @@ fn recovery_burst_stops_when_update_dialog_appears_after_initial_submit() {
                 }
                 _ => {
                     assert!(!shell_submit);
-                    Err(InjectionError::AgentInputUnavailable {
+                    Err(InjectionError::AgentTuiPresent {
                         pty_id: "same-pty".into(),
                     })
                 }
@@ -241,7 +241,7 @@ fn recovery_burst_stops_on_trust_dialog_after_shell_started_tui() {
                 }
                 _ => {
                     assert!(!shell_submit);
-                    Err(InjectionError::AgentInputUnavailable {
+                    Err(InjectionError::AgentTuiPresent {
                         pty_id: "same-pty".into(),
                     })
                 }
@@ -350,7 +350,8 @@ fn empty_enter_guard_refusal_after_initial_key_is_not_a_new_error() {
 #[test]
 fn recovery_keys_require_same_pty_proof() {
     let io = GuardTransport::new();
-    let error = run_with_submit_key(
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(
         &io,
         "payload",
         true,
@@ -359,19 +360,64 @@ fn recovery_keys_require_same_pty_proof() {
             initial_key_delay: Duration::from_millis(1),
         },
         opts(),
-        |_| {
-            Err(InjectionError::AgentInputUnavailable {
-                pty_id: "same-pty".into(),
-            })
+        |allow_initial_key| {
+            guard_checks += 1;
+            if guard_checks == 1 {
+                assert!(allow_initial_key);
+                Ok(())
+            } else {
+                assert!(!allow_initial_key);
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: "same-pty".into(),
+                })
+            }
         },
     )
-    .unwrap_err();
+    .unwrap();
 
-    assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
-    assert_eq!(&*io.writes.borrow(), &["paste:payload"]);
+    assert_eq!(guard_checks, 2);
+    assert_eq!(&*io.writes.borrow(), &["paste:payload", "enter"]);
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(!result.submit_observed);
+    let error = result
+        .require_submission(true, result.elapsed, "recovery proof absent".into())
+        .unwrap_err();
     let delivery = crate::service::delivery_error::DeliveryError::from_injection("same-pty", error);
     assert_eq!(delivery.code(), "submit_unconfirmed");
     assert!(delivery.bytes_written());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the ServiceContext harness requires an interactive desktop runtime"
+)]
+fn failed_agent_readiness_is_not_overridden_by_shell_prompt_text() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::delivery_error::DeliveryError;
+    use crate::service::test_fixture::ServiceFixture;
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let pty_id = "stale-agent-shell";
+    mux.link_pty(&tab_id, pty_id.to_string());
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("codex".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
+    tab.boot_failure_reason = Some("agent exited".into());
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"PS C:\\Users\\Tester>");
+
+    let error = fixture
+        .service
+        .send_text_input_delivery(&tab_id, "codex --no-daemon", true, None)
+        .unwrap_err();
+
+    assert!(matches!(error, DeliveryError::TabBusyRefused { .. }));
+    assert!(!error.bytes_written());
 }
 
 #[test]
