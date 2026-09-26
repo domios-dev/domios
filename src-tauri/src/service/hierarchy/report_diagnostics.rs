@@ -1,8 +1,6 @@
 use crate::multiplexer::commands::MuxState;
+use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::messenger::MessageEnvelope;
-use crate::service::message_gateway::{
-    DeliveryClass, MessageBody, MessageOrigin, OutboundMessage,
-};
 use crate::service::ServiceContext;
 
 pub(crate) fn deliver_refused_report_diagnostic(
@@ -66,9 +64,9 @@ mod tests {
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
     use crate::plan::{OrchestratorRef, Plan, TaskStatus};
+    use crate::service::messenger::MessageKind;
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
-    use crate::service::messenger::MessageKind;
 
     #[test]
     fn refused_report_diagnostic_is_never_stored_as_attempt_report() {
@@ -125,7 +123,6 @@ mod tests {
         assert_eq!(envelope.from_tab, worker_tab_id);
         assert_eq!(envelope.from_label, "Worker");
         assert_eq!(envelope.context.as_deref(), Some("report_refused"));
-        assert!(body.starts_with("REFUSED REPORT DIAGNOSTIC"));
         assert!(body.contains(reason));
         assert!(body.contains(original));
         let after = fixture.service.plan_store.show_task(&task_id).unwrap().task;

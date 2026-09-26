@@ -4,6 +4,7 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
+use codeterm_types::pty::BootStage;
 
 /// The closed loop: with no session ever registered there is no lineage to
 /// prove, so the repair could never run. Presenting the tab's own launch
@@ -193,9 +194,8 @@ fn binding_pending_covers_agent_ready_but_not_a_settled_or_expired_launch() {
         PlanAuthorityError::SessionUnregistered
     );
     tab.boot_stage = Some(BootStage::AgentReady);
-    tab.agent_set_at = Some(
-        std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
-    );
+    tab.agent_set_at =
+        Some(std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE);
     assert!(!launch_binding_is_pending(tab));
     assert_eq!(
         binding_failure_class(tab, None, Some("nonce-1")),
@@ -289,6 +289,56 @@ fn fixture() -> (
         caller(planner, "planner-session", "planner-nonce"),
         caller(owner, "owner-session", "owner-nonce"),
     )
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[tokio::test(flavor = "current_thread")]
+async fn http_plan_authority_wait_does_not_block_another_request() {
+    let (fixture, plan_id, _, owner) = fixture();
+    let owner_tab_id = owner.tab_id.clone().unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&owner_tab_id).unwrap();
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        tab.boot_stage = Some(BootStage::ProviderReady);
+        tab.agent_set_at = Some(
+            std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+                + std::time::Duration::from_secs(3),
+        );
+    }
+    let pending_service = fixture.service.clone();
+    let pending_plan = plan_id.clone();
+    let pending = tokio::spawn(async move {
+        crate::api::plan_routes::authorize_plan_orchestrator_http(
+            &pending_service,
+            &pending_plan,
+            owner,
+        )
+        .await
+    });
+    tokio::task::yield_now().await;
+    assert!(!pending.is_finished());
+
+    crate::api::plan_routes::authorize_plan_orchestrator_http(
+        &fixture.service,
+        &plan_id,
+        AuthenticatedPlanCaller::default(),
+    )
+    .await
+    .expect("a concurrent user plan write can complete while the launch binding is pending");
+
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&owner_tab_id).unwrap();
+        tab.agent_session_id = Some("owner-session".into());
+        tab.reported_session_binding_nonce = Some("owner-nonce".into());
+    }
+    crate::service::general_agent::binding_wait::notify_binding_state_changed();
+    pending
+        .await
+        .expect("pending HTTP authorization task must finish")
+        .expect("binding event must release the pending authorization");
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
