@@ -294,21 +294,25 @@ pub(super) fn dispatch(
                         });
                     }
                 };
+            let not_required = matches!(
+                acknowledgment,
+                crate::service::worker_ack::AgentStartupAcknowledgement::NotRequired
+            );
             log_ack_event(
                 "startup_ack",
-                "accepted",
+                if not_required {
+                    "not_required"
+                } else {
+                    "accepted"
+                },
                 "none",
                 Some(&caller_tab_id),
                 Some(&attempt_id),
             );
-            let already_acknowledged = matches!(
-                acknowledgment,
-                crate::service::worker_ack::AgentStartupAcknowledgement::AlreadyAcknowledged
-            );
             Ok(startup_ack_success_response(
                 &caller_tab_id,
                 &attempt_id,
-                already_acknowledged,
+                acknowledgment,
             ))
         }
 
@@ -431,8 +435,17 @@ fn task_ack_success_response(
 fn startup_ack_success_response(
     tab_id: &str,
     attempt_id: &str,
-    already_acknowledged: bool,
+    acknowledgment: crate::service::worker_ack::AgentStartupAcknowledgement,
 ) -> Value {
+    if acknowledgment == crate::service::worker_ack::AgentStartupAcknowledgement::NotRequired {
+        return serde_json::json!({
+            "ok": true,
+            "accepted": false,
+            "state": "not_required",
+        });
+    }
+    let already_acknowledged = acknowledgment
+        == crate::service::worker_ack::AgentStartupAcknowledgement::AlreadyAcknowledged;
     let state = if already_acknowledged {
         "already_acknowledged"
     } else {
@@ -609,7 +622,11 @@ mod tests {
 
     #[test]
     fn repeated_startup_ack_is_an_explicit_success_for_the_attempt() {
-        let response = startup_ack_success_response("tab-demo", "attempt-demo", true);
+        let response = startup_ack_success_response(
+            "tab-demo",
+            "attempt-demo",
+            crate::service::worker_ack::AgentStartupAcknowledgement::AlreadyAcknowledged,
+        );
 
         assert_eq!(response["ok"], true);
         assert_eq!(response["accepted"], true);
@@ -617,6 +634,19 @@ mod tests {
         assert_eq!(response["state"], "already_acknowledged");
         assert_eq!(response["tab_id"], "tab-demo");
         assert_eq!(response["attempt_id"], "attempt-demo");
+    }
+
+    #[test]
+    fn startup_ack_without_an_armed_attempt_is_successfully_not_required() {
+        let response = startup_ack_success_response(
+            "tab-demo",
+            "attempt-demo",
+            crate::service::worker_ack::AgentStartupAcknowledgement::NotRequired,
+        );
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["accepted"], false);
+        assert_eq!(response["state"], "not_required");
     }
 
     #[test]
