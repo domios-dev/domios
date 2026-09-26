@@ -273,9 +273,8 @@ impl ServiceContext {
                 .get_screen_text(pty_id)
                 .unwrap_or_default()
         });
-        let mut trust_candidate = false;
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
-            trust_candidate = trust_candidate::candidate_for_output(
+            let trust_candidate = trust_candidate::candidate_for_output(
                 self,
                 pid,
                 at,

@@ -28,13 +28,13 @@ mod spawn_model;
 mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    attach_planned_model, model_fallback_notice_title, normalize_session_model,
+    attach_planned_model, normalize_session_model,
     persist_model_launch_identity, resolve_fresh_agent_model,
     resolve_fresh_agent_model_with_notice, unrequested_substitution_severity,
     CatalogBackgroundModelPort,
 };
 pub(crate) use spawn_model_catalogue::{
-    normalize_requested_model, validate_agent_model, InvalidModelError,
+    validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -253,20 +253,38 @@ impl ServiceContext {
     }
 }
 
-/// Structurally validate a requested reasoning effort against the provider's
-/// declared capability. Empty/absent is always valid (no selection). An
-/// unsupported value returns the provider's structured rejection message and the
-/// caller aborts the spawn — never a silent downgrade. An unknown provider is an
-/// error too: we cannot honestly claim support we can't verify.
+/// Validate against model levels when present and use the provider fallback otherwise.
 pub(crate) fn validate_agent_reasoning_effort(
     registry: &AgentRegistry,
     provider_id: &str,
+    model: Option<&str>,
     effort: Option<&str>,
 ) -> Result<(), String> {
     let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
         return Ok(());
     };
-    match registry.with_provider(provider_id, |p| p.validate_reasoning_effort(Some(effort))) {
+    match registry.with_provider(provider_id, |p| {
+        if let Some(model) = model {
+            let supported = p.reasoning_efforts_for_model(Some(model));
+            if supported.iter().any(|level| level.id == effort) {
+                return Ok(());
+            }
+            let levels = supported
+                .iter()
+                .map(|level| level.id.as_str())
+                .collect::<Vec<_>>();
+            let levels = if levels.is_empty() {
+                "none".to_string()
+            } else {
+                levels.join(", ")
+            };
+            return Err(format!(
+                "model '{model}' does not support reasoning effort '{effort}'; supported: {levels}"
+            ));
+        }
+        p.validate_reasoning_effort(Some(effort))
+            .map_err(|rejection| rejection.to_string())
+    }) {
         Some(Ok(())) => Ok(()),
         Some(Err(rejection)) => Err(rejection.to_string()),
         None => Err(format!(
@@ -322,10 +340,11 @@ impl ServiceContext {
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
+            launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
-            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+            self.notify_model_fallback(notice);
         }
 
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
@@ -677,7 +696,8 @@ impl ServiceContext {
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = visible_agent_launch_command(
+        let launch_cmd = visible_agent_launch_command_for_service(
+            self,
             &tab_id,
             &agent_cmd,
             &legacy_params,
@@ -756,10 +776,11 @@ impl ServiceContext {
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent.provider,
+            launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
-            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+            self.notify_model_fallback(notice);
         }
 
         let ws_id = {
@@ -972,15 +993,12 @@ impl ServiceContext {
                     .with_provider(&agent.provider, |p| p.model_launch_args(m))
             })
             .unwrap_or_default();
-        if let Some(ref effort) = agent.reasoning_effort {
-            if !effort.is_empty() {
-                let effort_args = self
-                    .agent_registry
-                    .with_provider(&agent.provider, |p| p.reasoning_effort_launch_args(effort))
-                    .unwrap_or_default();
-                model_args.extend(effort_args);
-            }
-        }
+        model_args.extend(self.reasoning_effort_launch_args_or_notice(
+            &tab_id,
+            &agent.provider,
+            launch_model.as_deref(),
+            agent.reasoning_effort.as_deref(),
+        ));
 
         let svc_outer = std::sync::Arc::new(self.clone());
         let tab_id_outer = tab_id.clone();
@@ -1127,6 +1145,7 @@ impl ServiceContext {
 
 /// A visible launch carries a minted marker so a hook-less provider still binds
 /// its own session.
+#[cfg(test)]
 fn visible_agent_launch_command(
     tab_id: &str,
     agent_cmd: &str,
@@ -1136,6 +1155,26 @@ fn visible_agent_launch_command(
     registry: &AgentRegistry,
 ) -> String {
     super::launch_session_detection::marked_agent_command(
+        tab_id,
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+    )
+}
+
+fn visible_agent_launch_command_for_service(
+    service: &ServiceContext,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &AgentRegistry,
+) -> String {
+    super::launch_session_detection::marked_agent_command_for_service(
+        service,
         tab_id,
         agent_cmd,
         params,

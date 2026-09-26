@@ -42,6 +42,7 @@ fn provider_descriptor_round_trip() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             model_catalogue: ModelCatalogueCapability::default(),
             model_groups: Vec::new(),
@@ -206,6 +207,7 @@ impl AgentProvider for StubProvider {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             },
             ModelInfo {
                 id: "unsupported".into(),
@@ -216,6 +218,7 @@ impl AgentProvider for StubProvider {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             },
         ]
     }

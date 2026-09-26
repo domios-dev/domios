@@ -11,8 +11,8 @@ use parking_lot::Mutex;
 
 use super::provider::{
     usage_sources_from_session_file, AgentLaunchParams, AgentProvider, LaunchArtifactSweepReport,
-    LaunchArtifactSweepRequest, ReadinessStrategy, ReasoningEffortInfo, SystemPromptDelivery,
-    TaskDelivery, UsageSourceSpec,
+    LaunchArtifactSweepRequest, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
+    SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
 pub struct MockProvider {
@@ -20,6 +20,7 @@ pub struct MockProvider {
     launch_binary: Option<String>,
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
+    models: Vec<ModelInfo>,
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
     update_command: Option<String>,
@@ -44,6 +45,7 @@ impl MockProvider {
             launch_binary: None,
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
+            models: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
             update_command: None,
@@ -138,6 +140,35 @@ impl MockProvider {
                 .collect(),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_model_reasoning_efforts(
+        id: &str,
+        model: &str,
+        levels: &[&str],
+    ) -> Self {
+        let mut provider = Self::with_reasoning_efforts(id, &["low", "medium", "high", "xhigh"]);
+        provider.models = vec![ModelInfo {
+            id: model.to_string(),
+            display_name: model.to_string(),
+            reasoning_efforts: Some(
+                levels
+                    .iter()
+                    .map(|level| ReasoningEffortInfo {
+                        id: (*level).to_string(),
+                        display_name: (*level).to_string(),
+                        description: None,
+                    })
+                    .collect(),
+            ),
+            ..ModelInfo::default()
+        }];
+        provider
+    }
+
+    pub fn with_models(mut self, models: Vec<ModelInfo>) -> Self {
+        self.models.extend(models);
+        self
     }
 
     pub fn with_update_command(id: &str, command: &str) -> Self {
@@ -261,6 +292,9 @@ impl AgentProvider for MockProvider {
     }
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
         self.reasoning_efforts.clone()
+    }
+    fn available_models(&self) -> Vec<ModelInfo> {
+        self.models.clone()
     }
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
         if effort.is_empty() {

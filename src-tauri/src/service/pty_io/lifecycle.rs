@@ -69,22 +69,69 @@ fn restored_snapshot_launch_command(
     provider_id: &str,
     input: &RestoredSnapshotLaunchInput,
 ) -> String {
+    restored_snapshot_launch_command_inner(None, registry, tab_id, provider_id, input)
+}
+
+fn restored_snapshot_launch_command_for_service(
+    service: &ServiceContext,
+    tab_id: &str,
+    provider_id: &str,
+    input: &RestoredSnapshotLaunchInput,
+) -> String {
+    restored_snapshot_launch_command_inner(
+        Some(service),
+        &service.agent_registry,
+        tab_id,
+        provider_id,
+        input,
+    )
+}
+
+fn restored_snapshot_launch_command_inner(
+    service: Option<&ServiceContext>,
+    registry: &crate::agent::registry::AgentRegistry,
+    tab_id: &str,
+    provider_id: &str,
+    input: &RestoredSnapshotLaunchInput,
+) -> String {
     match input.params.resume_session_id {
-        Some(_) => crate::service::orchestrator::build_agent_command(
-            provider_id,
-            &input.params,
-            input.launch_task.as_deref(),
-            None,
-            registry,
-        ),
-        None => crate::service::launch_session_detection::marked_agent_command(
-            tab_id,
-            provider_id,
-            &input.params,
-            input.launch_task.as_deref(),
-            None,
-            registry,
-        ),
+        Some(_) => match service {
+            Some(service) => crate::service::orchestrator::build_agent_command_for_service(
+                service,
+                tab_id,
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            ),
+            None => crate::service::orchestrator::build_agent_command(
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            ),
+        },
+        None => match service {
+            Some(service) => crate::service::launch_session_detection::marked_agent_command_for_service(
+                service,
+                tab_id,
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            ),
+            None => crate::service::launch_session_detection::marked_agent_command(
+                tab_id,
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            ),
+        },
     }
 }
 
@@ -480,8 +527,8 @@ impl ServiceContext {
                     .agent
                     .clone()
                     .expect("restored launch provider");
-                let launch_cmd = restored_snapshot_launch_command(
-                    &self.agent_registry,
+                let launch_cmd = restored_snapshot_launch_command_for_service(
+                    self,
                     tab_id,
                     &provider_id,
                     &input,

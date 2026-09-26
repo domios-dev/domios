@@ -2,8 +2,110 @@ use super::spawn_model_catalogue::{
     catalogue_lookup_model, model_catalogue_capability, normalize_requested_model,
     preserve_context_suffix,
 };
+use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 pub use crate::multiplexer::types::ModelFallbackNotice;
+
+impl ServiceContext {
+    pub(crate) fn reasoning_effort_launch_args_or_notice(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Vec<String> {
+        let Some(effort) = effort.map(str::trim).filter(|effort| !effort.is_empty()) else {
+            return Vec::new();
+        };
+        let result = self.agent_registry.with_provider(provider_id, |provider| {
+            let supported = provider.reasoning_efforts_for_model(model);
+            if supported.iter().any(|level| level.id == effort) {
+                Ok(provider.reasoning_effort_launch_args(effort))
+            } else {
+                Err(supported
+                    .into_iter()
+                    .map(|level| level.id)
+                    .collect::<Vec<_>>())
+            }
+        });
+        match result {
+            Some(Ok(args)) => args,
+            Some(Err(supported)) => {
+                self.notify_reasoning_effort_omitted(
+                    tab_id,
+                    provider_id,
+                    model,
+                    effort,
+                    &supported,
+                );
+                Vec::new()
+            }
+            None => {
+                self.notify_reasoning_effort_omitted(tab_id, provider_id, model, effort, &[]);
+                Vec::new()
+            }
+        }
+    }
+
+    fn notify_reasoning_effort_omitted(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        model: Option<&str>,
+        effort: &str,
+        supported: &[String],
+    ) {
+        let model = model.unwrap_or("provider default");
+        let supported = if supported.is_empty() {
+            "none".to_string()
+        } else {
+            supported.join(", ")
+        };
+        let title = format!("reasoning effort {effort} unavailable for model {model}");
+        let body = format!(
+            "The saved effort was omitted from the launch. Supported efforts: {supported}."
+        );
+        log::warn!(
+            "[reasoning-effort] tab={tab_id} provider={provider_id} model={model} requested={effort} supported={supported}; omitted from launch"
+        );
+        self.publish_model_reconciliation_warning(
+            title,
+            Some(body),
+            Some(tab_id),
+        );
+    }
+
+    pub(crate) fn notify_model_fallback(&self, notice: &ModelFallbackNotice) {
+        self.publish_model_reconciliation_warning(
+            model_fallback_notice_title(notice),
+            None,
+            None,
+        );
+    }
+
+    fn publish_model_reconciliation_warning(
+        &self,
+        title: String,
+        body: Option<String>,
+        tab_id: Option<&str>,
+    ) {
+        let origin = tab_id
+            .map(|tab_id| {
+                crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string())
+            })
+            .unwrap_or_default();
+        self.create_notification_ext(
+            title,
+            body,
+            Some("warning"),
+            None,
+            None,
+            origin,
+            crate::service::notification::PushIntent::default(),
+            None,
+        );
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FreshAgentModelResolution {

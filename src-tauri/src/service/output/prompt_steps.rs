@@ -11,7 +11,7 @@ pub(super) fn write_prompt_steps(pty: crate::PtyState, pty_id: String, steps: Ve
     dispatch_prompt_steps(pty, pty_id, steps, || true);
 }
 
-pub(super) fn write_bound_prompt_steps<F>(
+pub(in crate::service) fn write_bound_prompt_steps<F>(
     pty: crate::PtyState,
     pty_id: String,
     steps: Vec<Vec<u8>>,
@@ -31,10 +31,12 @@ fn dispatch_prompt_steps<F>(
     F: FnOnce() -> bool + Send + 'static,
 {
     #[cfg(test)]
-    *PROMPT_STEP_DISPATCHES
-        .lock()
-        .entry(pty_id.clone())
-        .or_default() += 1;
+    {
+        *PROMPT_STEP_DISPATCHES
+            .lock()
+            .entry(pty_id.clone())
+            .or_default() += 1;
+    }
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
         if !still_bound() {
@@ -48,7 +50,7 @@ fn dispatch_prompt_steps<F>(
 }
 
 #[cfg(test)]
-pub(super) fn prompt_step_dispatch_count_for_test(pty_id: &str) -> usize {
+pub(in crate::service) fn prompt_step_dispatch_count_for_test(pty_id: &str) -> usize {
     PROMPT_STEP_DISPATCHES
         .lock()
         .get(pty_id)

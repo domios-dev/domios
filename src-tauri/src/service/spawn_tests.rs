@@ -265,6 +265,7 @@ impl ModelProvider {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
@@ -509,6 +510,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         default_model: Some("gpt-5.5".into()),
         model_catalogue: Default::default(),
@@ -580,6 +582,7 @@ fn background_model_ignores_a_model_from_another_provider() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("model-a".into()),
         },
@@ -616,6 +619,7 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }
     }
 

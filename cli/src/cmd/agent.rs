@@ -381,9 +381,42 @@ fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
                 id, name, marker, description
             ));
         }
+        if let Some(efforts) = format_model_reasoning_efforts(m, default_reasoning_effort(target)) {
+            out.push_str(&efforts);
+        }
     }
     out.push_str(&format_reasoning_efforts(target));
     out
+}
+
+fn default_reasoning_effort(target: &serde_json::Value) -> Option<&str> {
+    target
+        .get("default_reasoning_effort")
+        .and_then(|value| value.as_str())
+}
+
+fn format_model_reasoning_efforts(
+    model: &serde_json::Value,
+    default: Option<&str>,
+) -> Option<String> {
+    let efforts = model.get("reasoning_efforts")?.as_array()?;
+    let levels = efforts
+        .iter()
+        .map(|effort| {
+            let id = effort.get("id").and_then(|value| value.as_str()).unwrap_or("?");
+            if default == Some(id) {
+                format!("{id} (default)")
+            } else {
+                id.to_string()
+            }
+        })
+        .collect::<Vec<_>>();
+    let levels = if levels.is_empty() {
+        "none".to_string()
+    } else {
+        levels.join(", ")
+    };
+    Some(format!("             Reasoning effort: {levels}\n"))
 }
 
 fn format_reasoning_efforts(target: &serde_json::Value) -> String {
@@ -394,10 +427,8 @@ fn format_reasoning_efforts(target: &serde_json::Value) -> String {
     let Some(efforts) = efforts else {
         return String::new();
     };
-    let default = target
-        .get("default_reasoning_effort")
-        .and_then(|v| v.as_str());
-    let mut out = String::from("\nReasoning effort:\n");
+    let default = default_reasoning_effort(target);
+    let mut out = String::from("\nProvider fallback reasoning effort:\n");
     for e in efforts {
         let id = e.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         let name = e.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
