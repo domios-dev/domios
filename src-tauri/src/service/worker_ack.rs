@@ -297,7 +297,8 @@ impl WorkerAckRegistry {
         binding_nonce: Option<&str>,
     ) -> Option<AgentStartupAcknowledgement> {
         self.acknowledge_startup_matching(tab_id, attempt_id, |authority| {
-            authority.session_id.as_deref() == session_id
+            // A session that binds after supervision armed is the same launch: the nonce owns it.
+            (authority.session_id.is_none() || authority.session_id.as_deref() == session_id)
                 && authority.binding_nonce.as_deref() == binding_nonce
         })
     }
