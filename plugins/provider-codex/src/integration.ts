@@ -265,7 +265,13 @@ export function installIntegration(
     + authH
     + ' --data-binary @- > /dev/null 2>&1 || true; fi';
   const winCmd = (route: string) => scriptPath
-    ? '"' + scriptPath + '" ' + route + ' X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER
+    ? [
+        "cmd.exe /d /s /c call",
+        '"' + scriptPath + '"',
+        route,
+        "X-CodeTerm-Hook:",
+        CODETERM_CODEX_HOOK_MARKER,
+      ].join(" ")
     : hookCmd(route);
 
   if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
@@ -417,13 +423,20 @@ export function ensureIntegrationOnStartup(
           || command.indexOf("$CODETERM_TAB_ID") === -1
           || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1
           || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1
-          || hasLiteralPort(command);
+          || hasLiteralPort(command)
+          || (host.platform() === "windows" && !hasCodetermCodexWindowsCommand(entry));
       },
     );
   });
-  const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
+  const stopEntries = json.hooks.Stop || [];
+  const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
+  const stopOwned = ownedStopEntries.length > 0;
+  const stopCommandStale = host.platform() === "windows"
+    && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
   const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
-  if (!scriptStale && !commandStale && !timeoutStale && stopOwned) return { ok: true, changed: false };
+  if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned) {
+    return { ok: true, changed: false };
+  }
 
   return {
     ok: false,
@@ -583,7 +596,11 @@ function hasCodetermCodexWindowsCommand(entry: CodexHookEntry): boolean {
     const owned = fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1
       || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1
       || hook._source === CODETERM_CODEX_HOOK_MARKER;
-    if (owned && command.indexOf("codeterm-session-hook.cmd") !== -1) {
+    if (
+      owned
+      && command.startsWith('cmd.exe /d /s /c call "')
+      && command.indexOf("codeterm-session-hook.cmd") !== -1
+    ) {
       return true;
     }
   }

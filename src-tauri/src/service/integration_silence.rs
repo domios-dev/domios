@@ -7,20 +7,108 @@
 //! install and consent records the daemon already holds. It never infers the
 //! gap from an absence of sessions, which would need a window to decide in.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 
-use codeterm_types::notification::NotifyLevel;
-
-use super::notification::{NotificationOrigin, PushIntent};
-use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 use crate::notification::dedupe::{
     provider_integration_missing_condition, ConditionTransition, MACHINE_SCOPE,
 };
+use crate::session::lifecycle::BindingSource;
+use codeterm_types::notification::NotifyLevel;
+
+use super::notification::{NotificationOrigin, PushIntent};
+use super::ServiceContext;
 
 #[cfg(test)]
 mod tests;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HookBindingFallback {
+    session_id: String,
+    source: BindingSource,
+}
+
+fn hook_binding_fallbacks() -> &'static parking_lot::Mutex<HashMap<String, HookBindingFallback>> {
+    static FALLBACKS: OnceLock<parking_lot::Mutex<HashMap<String, HookBindingFallback>>> =
+        OnceLock::new();
+    FALLBACKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn binding_source_label(source: BindingSource) -> &'static str {
+    match source {
+        BindingSource::Hook => "hook",
+        BindingSource::PidRegistry => "pid_registry",
+        BindingSource::LaunchMarker => "launch_marker",
+    }
+}
+
+fn update_hook_binding_fallback(
+    fallbacks: &mut HashMap<String, HookBindingFallback>,
+    provider_id: &str,
+    session_id: &str,
+    source: BindingSource,
+    hook_execution_observed: bool,
+) -> bool {
+    if hook_execution_observed {
+        fallbacks.remove(provider_id);
+        return false;
+    }
+    if source == BindingSource::Hook {
+        return false;
+    }
+    let fallback = HookBindingFallback {
+        session_id: session_id.to_string(),
+        source,
+    };
+    if fallbacks.get(provider_id) == Some(&fallback) {
+        return false;
+    }
+    fallbacks.insert(provider_id.to_string(), fallback);
+    true
+}
+
+pub(crate) fn record_hook_binding_source(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    session_id: &str,
+    source: BindingSource,
+    hook_execution_observed: bool,
+) {
+    let has_hooks = registry
+        .with_provider(provider_id, |provider| provider.has_hooks())
+        .unwrap_or(false);
+    if !has_hooks {
+        return;
+    }
+    let changed = {
+        let mut fallbacks = hook_binding_fallbacks().lock();
+        update_hook_binding_fallback(
+            &mut fallbacks,
+            provider_id,
+            session_id,
+            source,
+            hook_execution_observed,
+        )
+    };
+    if changed {
+        log::warn!(
+            "[provider-integration] session binding used fallback source={} provider={}",
+            binding_source_label(source),
+            provider_id,
+        );
+    }
+}
+
+pub(crate) fn hook_binding_fallback_source(provider_id: &str) -> Option<String> {
+    hook_binding_fallbacks()
+        .lock()
+        .get(provider_id)
+        .map(|fallback| binding_source_label(fallback.source).to_string())
+}
 
 /// What the daemon knows outright about one provider's session-registering
 /// integration. Every field is a record readable now, none is an observation

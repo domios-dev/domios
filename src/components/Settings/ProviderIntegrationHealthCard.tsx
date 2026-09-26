@@ -162,6 +162,16 @@ export function ProviderIntegrationHealthCard({
           </div>
         )}
 
+        {health?.codeterm_binding_fallback_source && (
+          <div
+            role="status"
+            data-provider-integration-binding-fallback={health.codeterm_binding_fallback_source}
+            className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--ct-fg)]"
+          >
+            The last session bound through {health.codeterm_binding_fallback_source}; its session hook may not have run.
+          </div>
+        )}
+
         {health?.target && (
           <div className="flex items-center justify-between gap-3 text-[10px]">
             <span className="text-[var(--ct-muted)]">Configuration</span>

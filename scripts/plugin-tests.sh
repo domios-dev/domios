@@ -34,6 +34,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-codex/tests/windows-launch.test.ts
+      plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
@@ -81,6 +82,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-codex/tests/windows-launch.test.ts
+      plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
     )
