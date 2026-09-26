@@ -24,44 +24,6 @@ pub(crate) const GENERAL_AGENT_OUTPUT_DEADLINE: &str = "agent output deadline el
 /// An ordinary spawn's readiness deadline: this observer gave up, nothing more.
 pub(crate) const SPAWN_READINESS_DEADLINE: &str = "launch readiness deadline elapsed";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LaunchInputEvidence {
-    SessionBinding,
-    ResumeFirstTurn,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LaunchInputRefusal {
-    Deadline,
-    AttemptSuperseded,
-    SessionBindingNotAuthenticated,
-}
-
-impl LaunchInputRefusal {
-    pub(crate) fn reason(self) -> String {
-        match self {
-            Self::Deadline => {
-                "session binding was not observed before the readiness deadline".into()
-            }
-            Self::AttemptSuperseded => "launch attempt changed before input readiness".into(),
-            Self::SessionBindingNotAuthenticated => {
-                "launch acknowledgement did not authenticate the current session".into()
-            }
-        }
-    }
-}
-
-pub(crate) fn launch_input_evidence(
-    session_bound: bool,
-    resumes_on_first_turn: bool,
-) -> Option<LaunchInputEvidence> {
-    if session_bound {
-        Some(LaunchInputEvidence::SessionBinding)
-    } else {
-        resumes_on_first_turn.then_some(LaunchInputEvidence::ResumeFirstTurn)
-    }
-}
-
 /// The one launch an observation speaks for: the tab, the PTY it launched on,
 /// and that launch's binding nonce. A prior PTY or a rotated nonce is a
 /// different attempt and can never settle this one.
