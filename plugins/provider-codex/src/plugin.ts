@@ -40,6 +40,7 @@ import {
 import {
   detectSessionId as detectCodexSessionId,
   detectSessionModel as detectCodexSessionModel,
+  detectSessionReasoningEffort as detectCodexSessionReasoningEffort,
   enumerateSessions as enumerateCodexSessions,
   extractSessionUuid,
   findSession as findCodexSession,
@@ -588,6 +589,10 @@ const plugin: PluginModule = {
   // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd: string, sessionId: string): string | null {
     return detectCodexSessionModel(cwd, sessionId);
+  },
+
+  detectSessionReasoningEffort(cwd: string, sessionId: string): string | null {
+    return detectCodexSessionReasoningEffort(cwd, sessionId);
   },
 
   // Mirror native parse_session_messages for response_item message blocks.

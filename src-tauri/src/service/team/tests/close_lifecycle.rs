@@ -166,6 +166,35 @@ fn close_team_detaches_cartographer_manager_with_every_member_tab() {
 }
 
 #[test]
+fn team_close_collects_members_even_after_role_change() {
+    let (mut mux, team_id, orchestrator, planner, worker) = team_members();
+    let (_plan_dir, plan_store) = isolated_plan_store();
+    for tab_id in [&planner, &worker] {
+        let tab = mux.get_tab_mut(tab_id).expect("team member");
+        tab.role = None;
+        tab.role_profile = None;
+    }
+    assert_eq!(mux.team_member_tab_ids(&team_id).len(), 2);
+
+    let events = crate::api::events::EventBroadcaster::new();
+    let (_, cleanup, _) = close_team_with_state_change(
+        &mut mux,
+        &events,
+        &plan_store,
+        &team_id,
+        &TeamMutationCaller::AgentTab(orchestrator),
+        1,
+    )
+    .expect("role changes do not hide team members from close");
+
+    assert!(cleanup.member_tab_ids.contains(&planner));
+    assert!(cleanup.member_tab_ids.contains(&worker));
+    assert!(mux.get_tab(&planner).is_none());
+    assert!(mux.get_tab(&worker).is_none());
+    assert!(mux.get_team(&team_id).is_none());
+}
+
+#[test]
 fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
     let dir = tempfile::tempdir().unwrap();
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
@@ -683,6 +712,7 @@ fn add_team_lane_task(
     };
     task.execution_attempts
         .push(crate::plan::TaskExecutionAttempt {
+            actual_reasoning_effort: None,
             id: format!("attempt_{task_id}"),
             executor_tab_id: tab_id.into(),
             worktree_path: Some(worktree_path.display().to_string()),

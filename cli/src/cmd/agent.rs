@@ -381,7 +381,12 @@ fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
                 id, name, marker, description
             ));
         }
-        if let Some(efforts) = format_model_reasoning_efforts(m, default_reasoning_effort(target)) {
+        if let Some(efforts) = format_model_reasoning_efforts(
+            m,
+            m.get("default_reasoning_effort")
+                .and_then(|value| value.as_str())
+                .or_else(|| default_reasoning_effort(target)),
+        ) {
             out.push_str(&efforts);
         }
     }

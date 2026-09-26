@@ -33,6 +33,18 @@ fn parse_manual_update_prompt(
         .flatten()
 }
 
+fn parse_directory_trust_prompt(
+    provider: &dyn codeterm_plugin::provider::AgentProvider,
+    screen: &str,
+) -> Option<crate::multiplexer::types::PendingPrompt> {
+    if !trust_candidate::may_be_directory_trust_prompt(screen)
+        || !provider.supports_directory_trust_prompt_parsing()
+    {
+        return None;
+    }
+    provider.parse_directory_trust_prompt(screen)
+}
+
 fn manual_update_prompt_candidate(screen: &str) -> bool {
     let mut options = Vec::new();
     let mut footer = false;
@@ -289,6 +301,15 @@ impl ServiceContext {
                 let update_candidate = changed_screen
                     .as_deref()
                     .is_some_and(manual_update_prompt_candidate);
+                let trust_prompt_candidate = changed_screen.as_deref().is_some_and(|screen| {
+                    trust_candidate::may_be_directory_trust_prompt(screen)
+                        && self
+                            .agent_registry
+                            .with_provider(at, |provider| {
+                                provider.supports_directory_trust_prompt_parsing()
+                            })
+                            .unwrap_or(false)
+                });
 
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
                 let trust_candidate_screen = trust_candidate.then(|| {
@@ -302,6 +323,7 @@ impl ServiceContext {
                         || has_active_prompt
                         || is_auto_approve
                         || trust_candidate
+                        || trust_prompt_candidate
                         || update_candidate;
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
@@ -335,21 +357,22 @@ impl ServiceContext {
                     };
                     self.classify_manual_update_prompt_off_runtime(pty_id.to_string(), snapshot);
                 }
-                let (provider_prompt, manual_update_prompt) = if structured.is_none()
+                let (provider_prompt, directory_trust_prompt) = if structured.is_none()
                     && !manual_update_candidate
                 {
                     clean_text
                         .as_deref()
                         .map(|screen| {
-                            if trust_candidate {
+                            if trust_prompt_candidate {
                                 let prompt = crate::agent::prompt::parse_prompt_safely(|| {
                                     self.agent_registry
                                         .with_provider(at, |provider| {
-                                            provider.parse_directory_trust_prompt(screen)
+                                            parse_directory_trust_prompt(provider, screen)
                                         })
                                         .flatten()
                                 });
-                                (prompt, false)
+                                let parsed_trust_prompt = prompt.is_some();
+                                (prompt, parsed_trust_prompt)
                             } else {
                                 (None, false)
                             }
@@ -389,8 +412,8 @@ impl ServiceContext {
                 self.apply_prompt_decision_with_screen(
                     &decision,
                     clean_text.as_deref(),
-                    trust_candidate,
-                    manual_update_prompt,
+                    trust_candidate || directory_trust_prompt,
+                    manual_update_candidate,
                 );
 
                 if has_markers {

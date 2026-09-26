@@ -703,6 +703,7 @@ fn free_form_unknown_model_is_preserved_in_launch_command() {
         provider_id,
         crate::agent::model_catalog::RegisteredDefaults {
             models: vec![crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: "opencode/big-pickle".into(),
                 display_name: "Big Pickle".into(),
                 ..Default::default()

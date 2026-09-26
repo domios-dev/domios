@@ -233,6 +233,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
                 .expect("fixture task")
                 .execution_attempts
                 .push(crate::plan::TaskExecutionAttempt {
+                    actual_reasoning_effort: None,
                     id: "attempt-kept".into(),
                     executor_tab_id: "worker-tab".into(),
                     branch: Some(branch.clone()),
@@ -382,6 +383,7 @@ fn cleanup_status_done_clears_vanished_lane_references() {
                 .expect("fixture task")
                 .execution_attempts
                 .push(crate::plan::TaskExecutionAttempt {
+                    actual_reasoning_effort: None,
                     id: "attempt-kept".into(),
                     executor_tab_id: "worker-tab".into(),
                     branch: Some(branch.clone()),

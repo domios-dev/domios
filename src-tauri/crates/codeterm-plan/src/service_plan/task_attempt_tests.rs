@@ -382,6 +382,7 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
 
     let mut attempts = redispatched.execution_attempts;
     let replacement = TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: "later-replacement".into(),
         executor_tab_id: "later-worker".into(),
         ..Default::default()

@@ -249,3 +249,58 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
         "provider-classified trust dialog must not reach the General Agent auto-ack writer"
     );
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() {
+    let screen = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+    )
+    .expect("Codex user directory trust fixture");
+    let visible = menu_options(&screen);
+    let parsed = PendingPrompt {
+        question: "folder access choice".into(),
+        options: visible.clone(),
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::new("fixture").with_parsed_prompt(parsed);
+    let pending = super::parse_directory_trust_prompt(&provider, &screen)
+        .expect("supported folder trust dialog is parsed without provenance");
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("fixture".into());
+    tab.cwd = Some("C:\\Users\\User\\workspace".into());
+    tab.pty_id = Some("pty-user-dir-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture.service.apply_prompt_decision_with_screen(
+        &PromptDecision::NewPrompt {
+            tab_id: tab_id.clone(),
+            prompt: pending,
+        },
+        Some(&screen),
+        true,
+        false,
+    );
+
+    let mux = fixture.service.mux.read();
+    let pending = mux
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .expect("folder trust options remain available to tab respond");
+    assert_eq!(pending.options, visible);
+    assert_eq!(
+        pending.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        ["1", "2"]
+    );
+    assert_eq!(
+        super::prompt_step_dispatch_count_for_test("pty-user-dir-trust"),
+        0,
+        "a user-directory trust dialog stays user controlled"
+    );
+}
