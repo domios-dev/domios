@@ -1,8 +1,11 @@
 use super::startup_readiness::reused_provider_tui_owns_launch;
+use super::startup_readiness::{
+    input_ready_stage_after_provider_ready, resume_waits_for_first_turn,
+};
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
     take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
-    LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
+    LaunchGeneration, LaunchRegistry, ProviderSessionBinding, LAUNCH_REGISTRY,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
@@ -46,6 +49,55 @@ fn delivery_fixture() -> (
     gate.mark_shell_ready();
     gate.mark_provider_ready();
     (mux, tab_id, gate)
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
+    use crate::agent::test_provider::MockProvider;
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let pty_id = "resume-first-turn-pty";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("resume-first-turn-fixture".into());
+        tab.agent_session_id = Some("saved-session".into());
+        tab.pty_id = Some(pty_id.into());
+        tab.restored_from_snapshot = true;
+    }
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("resume-first-turn-fixture").with_resume_binds_on_first_user_turn(),
+    ));
+
+    assert!(resume_waits_for_first_turn(
+        &harness.service,
+        &tab_id,
+        "resume-first-turn-fixture",
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+    ));
+    assert!(!resume_waits_for_first_turn(
+        &harness.service,
+        &tab_id,
+        "resume-first-turn-fixture",
+        crate::service::launch_diagnostics::AgentLaunchOrigin::AtomicSpawn,
+    ));
+
+    let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
+    let input_ready_stage = input_ready_stage_after_provider_ready(true);
+    assert_eq!(input_ready_stage, BootStage::AgentReady);
+    assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
+    assert!(launch.emit_resume_first_turn_input_ready(&harness.service));
+    let mux = harness.service.mux.read();
+    let tab = mux.get_tab(&tab_id).expect("restored tab remains present");
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert_eq!(tab.boot_failure_reason, None);
+    assert!(!tab.launch_session_authenticated());
+    drop(mux);
+    LAUNCH_REGISTRY.lock().finish(&launch);
 }
 
 #[test]
@@ -487,6 +539,7 @@ fn launch_readiness_requires_binding_evidence_not_screen_heuristics() {
 
     assert!(LaunchSettlement::Ready.authorizes_agent_ready(true));
     assert!(!LaunchSettlement::Ready.authorizes_agent_ready(false));
+    assert!(!LaunchSettlement::AwaitingFirstTurn.authorizes_agent_ready(true));
     let provisional = LaunchSettlement::Provisional {
         stage: BootStage::LaunchDeadlineElapsed,
         reason: "binding was not observed".into(),

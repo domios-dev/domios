@@ -139,6 +139,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 | `agentStateStatusReconciliation` | bool | false | Provider participates in agent-state ↔ status reconciliation. |
 | `supportsLazySkills` | bool | false | Provider can lazy-load skills via trigger words; otherwise skills merge into the system prompt up-front. |
 | `hasHooks` | bool | false | Provider has hook-based detection. |
+| `resumeBindsOnFirstUserTurn` | bool | false | A restored resume needs the owner's first turn to emit its session-binding hook; the host accepts input once the provider is ready. |
 | `hookEventRoster` | `[{event, route}]`? | absent | Declared hook events: each entry names an `event` and a core ingestion `route`. Unknown routes fail the **whole roster** closed. Absent ⇒ native fallback's roster, else SessionStart-only when `hasHooks`. |
 | `interactiveEvents` | bool | false | Plugin exports `parseInteractiveEvents`; host calls it to extract interactive prompts. False ⇒ native fallback handles it. |
 | `supportsStructuredPrompts` | bool | false | Provider exposes a structured prompt source; host builds `pending_prompt` from it instead of scraping the PTY. **JS-only providers cannot serve this** — see caveats. |
