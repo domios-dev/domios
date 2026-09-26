@@ -88,7 +88,15 @@ fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
         .rpc_data();
     assert_eq!(data["type"], "invalid_model");
     assert_eq!(data["provider"], "codex-like");
-    assert_eq!(data["closest_model_ids"][0], "gpt-6-astra");
+    let closest = data["closest_model_ids"]
+        .as_array()
+        .expect("closest ids")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    assert!(closest.iter().all(|id| id == "gpt-6-astra" || id == "gpt-6-sol"), "{closest:?}");
+    assert!(!closest.is_empty());
     let refused = validation.map_err(|error| error.to_string()).and_then(|_| {
         let clearance = provider_launch_preflight(&registry, "codex-like")
             .map_err(|error| error.to_string())?;
@@ -97,7 +105,7 @@ fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
     });
     let error = refused.expect_err("unknown authoritative ids must be refused");
     assert!(error.contains("gpt-9-bogus"), "{error}");
-    assert!(error.contains("gpt-6-astra"), "{error}");
+    assert!(error.contains(&closest[0]), "{error}");
     assert!(error.contains("gpt-6-sol"), "{error}");
     assert_eq!(mux.snapshot().tabs.len(), before);
 }

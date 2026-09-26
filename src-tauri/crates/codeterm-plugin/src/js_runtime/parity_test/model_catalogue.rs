@@ -16,7 +16,43 @@ impl AgentProvider for FreeFormNativeStub {
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
         String::new()
     }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
+    fn readiness_strategy(&self) -> crate::provider::ReadinessStrategy {
+        crate::provider::ReadinessStrategy::FixedDelay {
+            duration: std::time::Duration::ZERO,
+        }
+    }
+
+    fn task_delivery(&self) -> crate::provider::TaskDelivery {
+        crate::provider::TaskDelivery::PtyInput
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
 }
+
 #[test]
 fn model_catalogue_authority_native_js_parity() {
     use std::sync::Arc;
