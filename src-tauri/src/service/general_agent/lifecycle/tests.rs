@@ -356,6 +356,16 @@ fn startup_turn_is_delivered_before_session_binding_wait() {
 #[test]
 fn general_agent_bootstrap_only_before_first_run_completes() {
     let mem = crate::mem::MemManager::open_in_memory().expect("mem store");
+    mem.seed_bundled_if_needed().expect("seed bundled mem");
+    let seeded_identity = mem
+        .get("preference_identity")
+        .expect("read seeded identity")
+        .expect("seeded identity record");
+    assert!(seeded_identity
+        .source
+        .as_deref()
+        .is_some_and(|source| source.starts_with("bundled:")));
+
     let dir = tempfile::tempdir().expect("temporary directory");
     let bootstrap_path = dir.path().join("bootstrap.md");
     std::fs::write(&bootstrap_path, "BOOTSTRAP_SENTINEL").expect("bootstrap file");
@@ -363,22 +373,8 @@ fn general_agent_bootstrap_only_before_first_run_completes() {
     let startup = super::compose_startup_message(&mem, &bootstrap_path).expect("first run");
     assert!(startup.contains("BOOTSTRAP_SENTINEL"));
 
-    let id = mem
-        .save_replace(crate::mem::NewMemItem {
-            kind: crate::mem::MemKind::Preference,
-            scope: crate::mem::MemScope::Global,
-            title: "identity".into(),
-            summary: None,
-            area: None,
-            tags: Vec::new(),
-            body: "IDENTITY_COMPLETE_SENTINEL".into(),
-            source: None,
-            importance: 5.0,
-            source_path: None,
-            pinned: false,
-        })
-        .expect("identity record");
-    assert_eq!(id, "preference_identity");
+    std::fs::write(dir.path().join("identity.md"), "IDENTITY_COMPLETE_SENTINEL")
+        .expect("completed identity file");
     assert!(bootstrap_path.exists());
     assert!(super::compose_startup_message(&mem, &bootstrap_path).is_none());
 }
@@ -426,11 +422,8 @@ fn general_agent_launch_uses_system_prompt_channel_when_available() {
 fn provider_without_bootstrap_receives_no_interactive_startup_turn() {
     let dir = tempfile::tempdir().expect("temporary directory");
     let bootstrap_path = dir.path().join("bootstrap.md");
-    assert!(super::compose_startup_message(
-        &crate::mem::MemManager::open_in_memory().expect("mem store"),
-        &bootstrap_path,
-    )
-    .is_none());
+    let mem = crate::mem::MemManager::open_in_memory().expect("mem store");
+    assert!(super::compose_startup_message(&mem, &bootstrap_path).is_none());
 }
 
 #[test]

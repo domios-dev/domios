@@ -100,22 +100,25 @@ fn deliver_confirmed_general_message(
     }
 }
 
-fn general_agent_first_run_complete(mem: &crate::mem::MemManager) -> bool {
-    mem.get("preference_identity")
-        .ok()
-        .flatten()
-        .is_some_and(|identity| {
-            identity.kind == "preference"
-                && identity.title == "identity"
-                && !identity.body.trim().is_empty()
-        })
+fn general_agent_first_run_complete(
+    mem: &crate::mem::MemManager,
+    general_dir: &std::path::Path,
+) -> bool {
+    if mem.get("preference_identity").is_err() {
+        return false;
+    }
+    std::fs::read_to_string(general_dir.join("identity.md"))
+        .is_ok_and(|identity| !identity.trim().is_empty())
 }
 
 fn compose_startup_message(
     mem: &crate::mem::MemManager,
     bootstrap_path: &std::path::Path,
 ) -> Option<String> {
-    if general_agent_first_run_complete(mem) {
+    if bootstrap_path
+        .parent()
+        .is_some_and(|general_dir| general_agent_first_run_complete(mem, general_dir))
+    {
         return None;
     }
     std::fs::read_to_string(bootstrap_path).ok().map(|body| {
