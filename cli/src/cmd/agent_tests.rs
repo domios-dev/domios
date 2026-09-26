@@ -116,7 +116,7 @@ fn agent_models_cli_preserves_codex_live_default_from_models_cache() {
         r#"host.homeDir = function () {{ return "/fixture-home"; }};
 host.platform = function () {{ return "linux"; }};
 host.fs.fileExists = function (path) {{ return path.endsWith("/.codex/models_cache.json"); }};
-host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache.json") ? JSON.parse({cache_json}) : null; }};"#
+host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache.json") ? ({cache_json}) : null; }};"#
     );
     let bundle = format!(
         "{host_setup}\n{}",
