@@ -10,11 +10,18 @@ use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::agent::registry::AgentRegistry;
 use crate::api::{
     optional_json::OptionalJson,
-    routes::{resolve_tab, AppState},
+    routes::{check_auth, resolve_tab, AppState},
 };
 
 mod run_session;
+mod session_ack;
 mod session_claim;
+#[cfg(test)]
+use session_ack::acknowledge_authenticated_launch;
+use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report};
+#[cfg(test)]
+#[path = "hook_routes/review_regressions.rs"]
+mod review_regressions;
 
 #[cfg(test)]
 pub(crate) use session_claim::bind_validated_rebind_session;
@@ -63,6 +70,35 @@ fn escaped_hook_log_field(value: &str) -> String {
     format!("{value:?}")
 }
 
+pub async fn release_launch_artifacts_api(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_tab_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id)
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let provider_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.agent_type.clone());
+    let Some(provider_id) = provider_id else {
+        return Ok(Json(serde_json::json!({ "ok": true, "released": false })));
+    };
+    let registry = state.svc.agent_registry.clone();
+    let released = tokio::task::spawn_blocking(move || {
+        crate::service::launch_artifacts::release_tab(&registry, &tab_id, &provider_id)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(
+        serde_json::json!({ "ok": true, "released": released }),
+    ))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SessionBindingSource {
     Hook,
@@ -80,6 +116,15 @@ impl SessionStartClaim {
     ) -> &crate::agent::provider_identity::ProviderIdentityEvidence {
         &self.identity_evidence
     }
+}
+
+fn can_short_circuit_session_start(
+    claim: &SessionStartClaim,
+    fallback_pending: bool,
+    fallback_retry_available: bool,
+) -> bool {
+    claim.is_unchanged_acknowledged_report()
+        && !(fallback_pending && claim.nonce_verified && fallback_retry_available)
 }
 
 fn epoch_ms() -> u64 {
@@ -456,6 +501,13 @@ pub async fn hook_session_start(
         .and_then(|v| v.as_str())
         .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
         .map(|s| s.to_string());
+    log::debug!(
+        "[hook_session_start] received tab={} source={} session_id_present={} nonce_present={}",
+        tab_id,
+        source,
+        session_id.is_some(),
+        report_nonce.is_some(),
+    );
 
     let Some(sid) = session_id else {
         log::warn!(
@@ -503,6 +555,7 @@ pub async fn hook_session_start(
         return Err((StatusCode::CONFLICT, message));
     };
 
+    let mut fallback_retry = None;
     let claim = match bind_reported_session(
         &state.svc.mux,
         state.svc.agent_registry.as_ref(),
@@ -511,18 +564,33 @@ pub async fn hook_session_start(
         &sid,
         report_nonce.as_deref(),
     ) {
-        Ok(claim) if claim.is_unchanged_acknowledged_report() => {
-            return Ok(unchanged_acknowledged_hook_report(
-                &state.svc,
-                &tab_id,
-                &provider_id,
-                &sid,
-                &source,
-                &claim,
-                report_nonce.as_deref(),
-            ));
+        Ok(claim) => {
+            let fallback_pending =
+                crate::service::integration_silence::has_hook_binding_fallback(&provider_id, &sid);
+            let fallback_retry_available =
+                if claim.is_unchanged_acknowledged_report() && fallback_pending {
+                    fallback_retry =
+                        crate::service::integration_silence::reserve_hook_binding_fallback_retry(
+                            &provider_id,
+                            &sid,
+                        );
+                    fallback_retry.is_some()
+                } else {
+                    false
+                };
+            if can_short_circuit_session_start(&claim, fallback_pending, fallback_retry_available) {
+                return Ok(unchanged_acknowledged_hook_report(
+                    &state.svc,
+                    &tab_id,
+                    &provider_id,
+                    &sid,
+                    &source,
+                    &claim,
+                    report_nonce.as_deref(),
+                ));
+            }
+            claim
         }
-        Ok(claim) => claim,
         Err((status, message, Some(premise))) => {
             let transcript_path = reported_transcript_path(&body)
                 .map(std::path::PathBuf::from)
@@ -599,7 +667,7 @@ pub async fn hook_session_start(
             return Err((status, message));
         }
     };
-    finish_session_binding(
+    let result = finish_session_binding(
         &state.svc,
         &tab_id,
         &provider_id,
@@ -612,7 +680,13 @@ pub async fn hook_session_start(
         crate::session::lifecycle::BindingSource::Hook,
         true,
     )
-    .await
+    .await;
+    if result.is_ok() {
+        if let Some(retry) = fallback_retry.take() {
+            retry.commit();
+        }
+    }
+    result
 }
 
 pub(crate) fn defer_session_binding(
@@ -776,21 +850,27 @@ pub(crate) async fn finish_session_binding(
     body: &serde_json::Value,
     claim: SessionStartClaim,
     binding_source: crate::session::lifecycle::BindingSource,
-    hook_execution_observed: bool,
+    session_binding_hook_succeeded: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if claim.changed {
+        if let Some(previous_session_id) = claim.prev.as_deref() {
+            crate::service::integration_silence::clear_hook_binding_fallback_session(
+                provider_id,
+                previous_session_id,
+            );
+        }
         svc.deferred_session_bindings.clear(tab_id);
     } else {
         svc.deferred_session_bindings.clear_session(tab_id, sid);
     }
     svc.emit_session_binding_state(tab_id);
-    if claim.nonce_verified && (claim.changed || hook_execution_observed) {
+    if claim.nonce_verified && (claim.changed || session_binding_hook_succeeded) {
         crate::service::integration_silence::record_hook_binding_source(
             svc.agent_registry.as_ref(),
             provider_id,
             sid,
             binding_source,
-            hook_execution_observed,
+            session_binding_hook_succeeded,
         );
     }
     let (current_nonce, reported_nonce) = {
@@ -871,7 +951,6 @@ pub(crate) async fn finish_session_binding(
     if let Some(evidence) = launch_identity.as_ref() {
         svc.retire_provisional_launch(tab_id, evidence);
     }
-
     // while it runs — not only after completion.
     run_session::propagate(svc, tab_id, sid);
     if let Some(reported_transcript) = reported_transcript_path(body) {
@@ -975,85 +1054,6 @@ async fn durable_transcript_progress(
     })
     .await
     .unwrap_or(false)
-}
-
-/// The authoritative launch identity of a session-start report: the tab's own
-/// live PTY paired with the launch nonce its agent echoed and the commit above
-/// already verified against this tab's current launch.
-fn authenticated_launch_identity(
-    mux: &crate::multiplexer::commands::MuxState,
-    tab_id: &str,
-    claim: &SessionStartClaim,
-    report_nonce: Option<&str>,
-) -> Option<crate::service::ProviderSessionBinding> {
-    if !claim.nonce_verified {
-        return None;
-    }
-    let binding_nonce = report_nonce?;
-    let mux = mux.read();
-    mux.get_tab(tab_id).and_then(|tab| {
-        (tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce))
-            .then(|| tab.pty_id.clone())
-            .flatten()
-            .map(|pty_id| crate::service::ProviderSessionBinding {
-                pty_id,
-                binding_nonce: binding_nonce.to_string(),
-            })
-    })
-}
-
-fn acknowledge_authenticated_launch(
-    mux: &crate::multiplexer::commands::MuxState,
-    tab_id: &str,
-    claim: &SessionStartClaim,
-    report_nonce: Option<&str>,
-) -> bool {
-    authenticated_launch_identity(mux, tab_id, claim, report_nonce).is_some_and(|binding| {
-        let launch_acknowledged = crate::service::record_provider_session(tab_id, &binding);
-        let readiness_acknowledged = crate::service::launch_readiness::note_acknowledged(
-            tab_id,
-            &binding.pty_id,
-            &binding.binding_nonce,
-        );
-        launch_acknowledged || readiness_acknowledged
-    })
-}
-
-fn acknowledge_and_reconcile_session_binding(
-    svc: &crate::service::ServiceContext,
-    tab_id: &str,
-    claim: &SessionStartClaim,
-    report_nonce: Option<&str>,
-) -> Option<crate::service::ProviderSessionBinding> {
-    let launch_identity = authenticated_launch_identity(&svc.mux, tab_id, claim, report_nonce);
-    acknowledge_authenticated_launch(&svc.mux, tab_id, claim, report_nonce);
-    if claim.nonce_verified {
-        svc.rearm_authenticated_agent_input(tab_id);
-        svc.reconcile_boot_stage_with_session_binding(tab_id);
-    }
-    launch_identity
-}
-
-fn unchanged_acknowledged_hook_report(
-    svc: &crate::service::ServiceContext,
-    tab_id: &str,
-    provider_id: &str,
-    session_id: &str,
-    source: &str,
-    claim: &SessionStartClaim,
-    report_nonce: Option<&str>,
-) -> Json<serde_json::Value> {
-    log::info!(
-        "[hook-duplicate] tab={} provider={} source={} session={} nonce_verified={} nonce_already_acknowledged={}",
-        escaped_hook_log_field(tab_id),
-        escaped_hook_log_field(provider_id),
-        escaped_hook_log_field(source),
-        escaped_hook_log_field(session_id),
-        claim.nonce_verified,
-        claim.nonce_already_acknowledged,
-    );
-    acknowledge_and_reconcile_session_binding(svc, tab_id, claim, report_nonce);
-    Json(serde_json::json!({"ok": true, "changed": false}))
 }
 
 /// A report carrying a binding nonce that disagrees with the tab's own launch

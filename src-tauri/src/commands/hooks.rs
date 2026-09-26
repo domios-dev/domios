@@ -29,22 +29,21 @@ pub fn check_provider_integration(
     svc: State<'_, ServiceState>,
     provider_id: String,
 ) -> Result<Json, String> {
+    let live_session_ids = svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(provider_id.as_str()))
+        .filter_map(|tab| tab.agent_session_id.clone())
+        .collect::<Vec<_>>();
     svc.agent_registry
         .with_provider(&provider_id, |provider| {
-            let mut status = provider.check_integration();
-            if provider.has_hooks() {
-                if let Some(source) =
-                    crate::service::integration_silence::hook_binding_fallback_source(&provider_id)
-                {
-                    if let Some(fields) = status.as_object_mut() {
-                        fields.insert(
-                            "codeterm_binding_fallback_source".into(),
-                            Json::String(source),
-                        );
-                    }
-                }
-            }
-            status
+            crate::service::integration_silence::integration_status_with_binding_fallback(
+                provider.check_integration(),
+                &provider_id,
+                provider.has_hooks(),
+                &live_session_ids,
+            )
         })
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))
 }
@@ -380,6 +379,9 @@ fn spawn_reconciliation(
     if let Err(error) = std::thread::Builder::new()
         .name(format!("integration-repair-{id}"))
         .spawn(move || {
+            if let Ok(api_port) = port.as_ref() {
+                provider.ensure_integration_on_startup(*api_port);
+            }
             let status = provider.check_integration();
             let previously_consented = recorded_flag(
                 &consented,
