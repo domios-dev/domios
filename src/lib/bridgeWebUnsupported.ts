@@ -36,8 +36,6 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "The model probe execs the provider CLI on the daemon host; the web mirror cannot spawn a host subprocess and receives the refreshed catalog through models-updated and the binary watcher instead",
   provider_model_usage:
     "Per-group model usage is read from a provider-owned store on the daemon host; the web mirror renders the picker without it",
-  respond_provider_update_prompt:
-    "Applying a provider update is a desktop-host action with no REST route; the web mirror shows the prompt and answers it on the machine that owns the install",
   restart_rest_api:
     "An HTTP client cannot restart the listener carrying its own request",
   check_provider_integration:

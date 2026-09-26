@@ -83,10 +83,6 @@ pub fn persist_state(app: &tauri::AppHandle) {
     }
 
     if let Some(svc) = app.try_state::<crate::service::ServiceState>() {
-        let joined = svc.shutdown_provider_update_waiters();
-        if joined > 0 {
-            log::info!("[shutdown] joined {joined} provider-update waiter(s)");
-        }
         match svc.mem.checkpoint_and_close() {
             Ok((busy, log_frames, checkpointed)) => log::info!(
                 "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",

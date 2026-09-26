@@ -120,7 +120,6 @@ export type TabState =
   | "working"
   | "waiting_on_auth"
   | "update_prompt"
-  | "provider_update_completed"
   | "rate_limited"
   | "clarifying_question"
   | "idle_stuck"
@@ -150,7 +149,6 @@ export interface TabStateAction {
   delayedResume?: DelayedResume;
   /** A user-facing surface: `kind` names the card template, `payload` its body. */
   surface?: { kind: string; payload: unknown };
-  providerUpdate?: { installKeys: string[]; declineKeys: string[] };
 }
 
 export interface TabStateClassification {
@@ -167,14 +165,6 @@ export interface TabStateClassification {
 export interface SettingField {
   kind: string;
   [key: string]: unknown;
-}
-
-// ── provider self-update (mirrors codeterm-plugin provider/capabilities.rs) ──
-
-export interface ProviderSelfUpdateCapability {
-  inSession: boolean;
-  restartRequired: boolean;
-  completionSignal?: "provider_classification";
 }
 
 export interface AgentProvider {
@@ -252,7 +242,6 @@ export interface AgentProvider {
   /** Provider-specific settings sections; absent ⇒ manifest-derived sections. */
   settingsSchema?(): SettingField[];
   notificationsSchema?(): SettingField[];
-  providerSelfUpdateCapability?(): ProviderSelfUpdateCapability | null;
 }
 
 // ── secretBackend (mirrors the bitwarden plugin + JsSecretBackend) ──

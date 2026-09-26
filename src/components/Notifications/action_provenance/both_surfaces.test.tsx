@@ -2,7 +2,6 @@
 
 import {
   CALLER_SUPPLIED_INVOKE,
-  DAEMON_INVOKE,
   NON_INVOKE_KINDS,
   assert,
   clickThrough,
@@ -18,13 +17,12 @@ function check(condition: unknown, message: string): void {
 }
 
 const CASES: Array<{ name: string; actions: unknown[]; labels: string[] }> = [
-  { name: "caller-supplied invoke", actions: [CALLER_SUPPLIED_INVOKE], labels: ["Go"] },
-  { name: "daemon invoke", actions: [DAEMON_INVOKE], labels: ["Update"] },
+  { name: "caller-supplied legacy action", actions: [CALLER_SUPPLIED_INVOKE], labels: [] },
   { name: "non-invoke kinds", actions: NON_INVOKE_KINDS, labels: ["Docs", "Later"] },
   {
     name: "mixed row",
-    actions: [CALLER_SUPPLIED_INVOKE, DAEMON_INVOKE, ...NON_INVOKE_KINDS],
-    labels: ["Go", "Update", "Docs", "Later"],
+    actions: [CALLER_SUPPLIED_INVOKE, ...NON_INVOKE_KINDS],
+    labels: ["Docs", "Later"],
   },
 ];
 
@@ -53,10 +51,7 @@ async function run() {
       outward(panel) === outward(toast),
       `${testCase.name}: the surfaces disagree - panel ${outward(panel)} vs toast ${outward(toast)}`,
     );
-    check(
-      panel.invoked.every((call) => call.command === "respond_provider_update_prompt"),
-      `${testCase.name}: only a daemon command may reach the bridge from either surface`,
-    );
+    check(panel.invoked.length === 0, `${testCase.name}: legacy actions never reach the bridge`);
   }
 
   report("action_provenance both surfaces", checked);

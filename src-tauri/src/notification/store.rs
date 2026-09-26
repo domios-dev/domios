@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -159,8 +159,6 @@ struct PushSlot {
 
 pub struct NotificationStore {
     notifications: Vec<Notification>,
-    provider_updates: HashMap<String, String>,
-    provider_update_prompts: HashMap<String, String>,
     max_notifications: usize,
     /// One open coalescing slot per (scope, level). Closed on read, clear,
     /// eviction or tab close — never by elapsed time.
@@ -177,8 +175,6 @@ impl NotificationStore {
     pub fn new(max: usize) -> Self {
         Self {
             notifications: Vec::new(),
-            provider_updates: HashMap::new(),
-            provider_update_prompts: HashMap::new(),
             max_notifications: max,
             push_slots: HashMap::new(),
             push_counts: HashMap::new(),
@@ -422,73 +418,6 @@ impl NotificationStore {
         self.push_slots.retain(|_, slot| slot.notification_id != id);
     }
 
-    pub fn add_provider_update(
-        &mut self,
-        provider_id: String,
-        prompt_id: String,
-        title: String,
-        body: String,
-        actions: Vec<NotificationAction>,
-        provenance: NotificationProvenance,
-    ) -> DedupAdmission {
-        // Dead mappings must be dropped before coalescing, or a second notification can open while stale state remains.
-        let live_ids: HashSet<&str> = self.notifications.iter().map(|n| n.id.as_str()).collect();
-        self.provider_updates
-            .retain(|_, id| live_ids.contains(id.as_str()));
-        let live_providers: HashSet<String> = self.provider_updates.keys().cloned().collect();
-        self.provider_update_prompts
-            .retain(|_, provider| live_providers.contains(provider));
-
-        if let Some(existing_provider) = self.provider_update_prompts.get(&prompt_id).cloned() {
-            if let Some(id) = self.provider_updates.get(&existing_provider) {
-                return DedupAdmission::Duplicate(id.clone());
-            }
-            self.provider_update_prompts.remove(&prompt_id);
-        }
-
-        if let Some(id) = self.provider_updates.get(&provider_id).cloned() {
-            if let Some(notification) = self.notifications.iter_mut().find(|item| item.id == id) {
-                notification.read = false;
-                self.provider_update_prompts.insert(prompt_id, provider_id);
-                return DedupAdmission::Coalesced(id);
-            }
-            self.provider_updates.remove(&provider_id);
-        }
-        let id = self.add_ext(
-            title,
-            Some(body),
-            NotificationSeverity::Info,
-            provenance,
-            Ask::offering(Some(actions)),
-            Some(true),
-            None,
-        );
-        self.provider_updates
-            .insert(provider_id.clone(), id.clone());
-        self.provider_update_prompts.insert(prompt_id, provider_id);
-        DedupAdmission::Added(id)
-    }
-
-    pub fn resolve_provider_update(&mut self, prompt_id: &str) -> Option<String> {
-        let provider_id = self.provider_update_prompts.get(prompt_id)?.clone();
-        let id = self.provider_updates.get(&provider_id)?.clone();
-        if let Some(notification) = self.notifications.iter().find(|item| item.id == id) {
-            let target_is_valid = notification.actions.as_deref().is_some_and(|actions| {
-                actions
-                    .iter()
-                    .any(|action| action_targets_prompt(action, prompt_id))
-            });
-            if !target_is_valid {
-                return None;
-            }
-        }
-        self.provider_updates.remove(&provider_id);
-        self.provider_update_prompts
-            .retain(|_, provider| provider != &provider_id);
-        self.clear(Some(&id));
-        Some(id)
-    }
-
     /// Point this record at the message the latest send named. Always a full
     /// overwrite, so a rewritten record never keeps a stale jump target.
     pub fn set_target(&mut self, id: &str, target: NotificationTarget) -> bool {
@@ -529,18 +458,11 @@ impl NotificationStore {
         match id {
             Some(id) => {
                 self.notifications.retain(|n| n.id != id);
-                self.provider_updates.retain(|_, value| value != id);
-                let live_providers: HashSet<String> =
-                    self.provider_updates.keys().cloned().collect();
-                self.provider_update_prompts
-                    .retain(|_, provider| live_providers.contains(provider));
                 self.close_push_slot_for(id);
                 self.deliveries.release(id);
             }
             None => {
                 self.notifications.clear();
-                self.provider_updates.clear();
-                self.provider_update_prompts.clear();
                 self.push_slots.clear();
                 self.deliveries.clear();
             }
@@ -650,15 +572,6 @@ impl NotificationStore {
 
     pub fn unread_count(&self) -> usize {
         self.notifications.iter().filter(|n| !n.read).count()
-    }
-}
-
-fn action_targets_prompt(action: &NotificationAction, prompt_id: &str) -> bool {
-    match action {
-        NotificationAction::Invoke {
-            args: Some(args), ..
-        } => args.get("promptId").and_then(serde_json::Value::as_str) == Some(prompt_id),
-        _ => false,
     }
 }
 

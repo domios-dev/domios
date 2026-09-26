@@ -300,6 +300,99 @@ pub(crate) fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObser
 }
 
 impl ServiceContext {
+    pub(crate) fn await_launch_input_readiness(
+        &self,
+        attempt: &LaunchAttempt,
+        agent_id: &str,
+        timeout: std::time::Duration,
+    ) -> Option<crate::service::launch_delivery::LaunchInputEvidence> {
+        let signal = self
+            .screen_state
+            .lock()
+            .arm_screen_change_signal(&attempt.pty_id);
+        let deadline = Instant::now() + timeout;
+        let mut generation = signal.generation();
+
+        loop {
+            let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
+            else {
+                return None;
+            };
+            if &current != attempt {
+                return None;
+            }
+
+            let (session_bound, session_id, cwd) = {
+                let mux = self.mux.read();
+                let tab = mux.get_tab(&attempt.tab_id)?;
+                if !attempt_owns_tab(tab, attempt) {
+                    return None;
+                }
+                (
+                    tab.launch_session_authenticated(),
+                    tab.agent_session_id.clone(),
+                    tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                )
+            };
+            let (screen, input) = {
+                let screen_state = self.screen_state.lock();
+                (
+                    screen_state
+                        .get_screen_text(&attempt.pty_id)
+                        .unwrap_or_default(),
+                    screen_state.composer_input_state(&attempt.pty_id),
+                )
+            };
+            let structural_composer = input.is_some_and(launch_composer_input_ready);
+            let structured_choice = structured_choice_candidate(&screen);
+            let provider_observation = if session_bound || structural_composer {
+                let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                    tab_id: attempt.tab_id.clone(),
+                    agent_type: agent_id.to_string(),
+                    session_id,
+                    cwd,
+                    screen_text: screen.clone(),
+                };
+                self.agent_registry.with_provider(agent_id, |provider| {
+                    let provider_tui = provider.screen_has_tui(&screen);
+                    let composer_ready = input.is_some_and(|state| {
+                        launch_composer_input_ready(state)
+                            && (provider_tui || state.alternate_screen)
+                    });
+                    let prompt = provider.parse_prompt(&screen).is_some()
+                        || provider
+                            .directory_trust_prompt_response(&screen)
+                            .is_some();
+                    let state = provider
+                        .classify_tab_state(&snapshot)
+                        .map(|classification| classification.state);
+                    (composer_ready, prompt, state)
+                })
+            } else {
+                None
+            };
+            let (composer_ready, provider_prompt, provider_state) =
+                provider_observation.unwrap_or((false, false, None));
+            if let Some(readiness) = crate::service::launch_delivery::launch_input_evidence(
+                crate::service::launch_delivery::LaunchInputObservation {
+                    session_bound,
+                    composer_ready,
+                    provider_prompt,
+                    structured_choice,
+                    provider_state,
+                },
+            ) {
+                return Some(readiness);
+            }
+
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            if remaining.is_zero() || !signal.wait_after(generation, remaining) {
+                return None;
+            }
+            generation = signal.generation();
+        }
+    }
+
     /// Record one piece of launch-readiness evidence for both launch paths.
     pub(crate) fn settle_launch_readiness(
         &self,
@@ -450,4 +543,49 @@ impl ServiceContext {
         });
         receiver
     }
+}
+
+fn launch_composer_input_ready(
+    input: codeterm_pty::pty::screen_state::ComposerInputState,
+) -> bool {
+    crate::agent::offline_state_classifier::composer_cursor_ready(
+        input.cursor_visible,
+        input.cursor_row,
+        input.rows,
+    ) || input
+        .inverse_caret_row
+        .zip(input.last_nonblank_row)
+        .is_some_and(|(row, bottom)| {
+            crate::agent::offline_state_classifier::composer_cursor_ready(
+                true,
+                row,
+                bottom.saturating_add(1),
+            )
+        })
+}
+
+pub(crate) fn structured_choice_candidate(screen: &str) -> bool {
+    let mut option_lines = Vec::new();
+    for (index, line) in screen.lines().enumerate() {
+        let mut row = line.trim_start();
+        row = row.strip_prefix('│').unwrap_or(row).trim_start();
+        row = row
+            .strip_prefix('›')
+            .or_else(|| row.strip_prefix('❯'))
+            .or_else(|| row.strip_prefix('>'))
+            .unwrap_or(row)
+            .trim_start();
+        let digits = row.chars().take_while(char::is_ascii_digit).count();
+        if digits == 0 {
+            continue;
+        }
+        let Some(separator) = row[digits..].chars().next() else {
+            continue;
+        };
+        let remainder = row[digits + separator.len_utf8()..].trim();
+        if matches!(separator, '.' | ')') && !remainder.is_empty() {
+            option_lines.push(index);
+        }
+    }
+    option_lines.windows(2).any(|pair| pair[1] - pair[0] <= 2)
 }

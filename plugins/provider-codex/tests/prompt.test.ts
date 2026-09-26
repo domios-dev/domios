@@ -110,6 +110,25 @@ console.log("\n--- Codex folder trust prompt classification ---\n");
   }
   eq(bundled.buildPromptResponse(0, screen), ["G1tB", "DQ=="], "tab respond moves to the affirmative trust option");
 
+  const currentTrustScreen = fixtureText("directory-trust/trust-folder-access-0.157.1.txt");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    eq(
+      provider.parsePrompt?.(currentTrustScreen)?.options?.map(([, value]: [string, string]) => value),
+      ["1", "2"],
+      `${label} general parser exposes current trust choices in order`,
+    );
+    eq(
+      provider.parseDirectoryTrustPrompt?.(currentTrustScreen)?.options?.map(([, value]: [string, string]) => value),
+      ["1", "2"],
+      `${label} trust parser exposes current choices in order`,
+    );
+    eq(
+      provider.directoryTrustPromptResponse?.(currentTrustScreen),
+      ["DQ=="],
+      `${label} trust responder confirms only the focused affirmative choice`,
+    );
+  }
+
   const ordinaryApproval = fixtureText("directory-trust/approval-paragraph.txt");
   assert(Boolean(plugin.parsePrompt?.(ordinaryApproval)?.options?.length), "generic yes/no approval remains available to parsePrompt");
   assert(Boolean(bundled.parsePrompt(ordinaryApproval)?.options?.length), "bundled generic yes/no approval remains available to tab respond");

@@ -2,6 +2,7 @@
   { "file": "trust-windows-120col-wrapped.txt", "expect": "enter" },
   { "file": "trust-80col-git-note.txt", "expect": "enter" },
   { "file": "trust-48col-phrase-split.txt", "expect": "enter" },
+  { "file": "trust-folder-access-0.157.1.txt", "expect": "enter" },
   { "file": "trust-windows-focus-no.txt", "expect": "move-up" },
   { "file": "command-approval-mentions-trust.txt", "expect": "none" },
   { "file": "approval-paragraph.txt", "expect": "none" },

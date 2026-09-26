@@ -154,6 +154,7 @@ enum LaunchFailure {
     TabClosed,
     LaunchWrite(String),
     TaskDelivery(String),
+    ProviderInputNotReady,
     SessionBindingNotObserved(String),
     StartupSupervision(String),
 }
@@ -169,6 +170,9 @@ impl LaunchFailure {
             Self::TabClosed => "TabClosedBeforePtyLink".into(),
             Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
+            Self::ProviderInputNotReady => {
+                "ProviderInputNotReady: provider composer or session binding was not observed".into()
+            }
             Self::SessionBindingNotObserved(reason) => {
                 format!("SessionBindingNotObserved: {reason}")
             }
@@ -927,6 +931,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 provider.provider_readiness_strategy()
             })
             .unwrap_or_default();
+        let input_readiness_timeout = provider_readiness.timeout();
         log::info!(
             "[provider-readiness-stage] tab={} pty={} strategy={:?} require_composer={}",
             tab_id,
@@ -934,34 +939,37 @@ pub(crate) fn launch_agent_in_background_with_env(
             provider_readiness,
             provider_readiness.requires_composer(),
         );
-        let diagnostic_svc = svc.clone();
-        let diagnostic_launch = launch.clone();
-        let diagnostic_tab_id = tab_id.clone();
-        let diagnostic_pty_id = pty_id.clone();
-        let diagnostic_agent_cmd = agent_cmd.clone();
-        std::thread::spawn(move || {
-            let hook_ready = diagnostic_launch.await_provider_ack(std::time::Duration::ZERO);
-            let hook_satisfies = hook_ready && !provider_readiness.requires_composer();
-            let screen_ready = hook_satisfies
-                || diagnostic_svc.await_provider_readiness_on_screen(
-                    &diagnostic_pty_id,
-                    &diagnostic_agent_cmd,
-                    provider_readiness,
-                );
+        let launch_input_readiness = if fallback_spec.is_some() {
+            svc.await_launch_input_readiness(
+                &readiness_attempt,
+                &agent_cmd,
+                input_readiness_timeout,
+            )
+        } else {
+            None
+        };
+        if let Some(readiness) = launch_input_readiness {
             log::info!(
-                "[provider-readiness-diagnostic] tab={} pty={} hook_ready={} screen_ready={}",
-                diagnostic_tab_id,
-                diagnostic_pty_id,
-                hook_ready,
-                screen_ready,
+                "[launch-input-readiness] tab={} pty={} evidence={:?}",
+                tab_id,
+                pty_id,
+                readiness,
             );
-        });
+        }
+        if fallback_spec.is_some() && launch_input_readiness.is_none() {
+            let failure = LaunchFailure::ProviderInputNotReady;
+            launch.fail(&svc, failure.clone());
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(failure.reason()));
+            }
+            return;
+        }
         if !launch.emit(&svc, BootStage::ProviderReady) {
             return;
         }
         delivery_gate.mark_provider_ready();
 
-        // Launch bytes own queue order; visual readiness is diagnostic only.
         if let Some(spec) = fallback_spec {
             let task_text = spec.payload.clone();
             set_booting(false);
@@ -975,23 +983,43 @@ pub(crate) fn launch_agent_in_background_with_env(
             let submit_strategy = registry
                 .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                 .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-            let consumption = delivery_gate.consume_injection(&svc.mux, &tab_id, &svc, || {
-                crate::service::pty_io::submit_transaction::submit_text_with_key(
-                    &svc,
-                    &pty_id,
-                    &task_text,
-                    true,
-                    b"\r",
-                    submit_strategy,
-                    crate::service::inject_verify::VerifyOpts {
-                        require_prompt_first: false,
-                        verify_echo: true,
-                        verify_submit: true,
-                        ..Default::default()
-                    },
-                    None,
-                )
-            });
+            let launch_input_readiness = svc.await_launch_input_readiness(
+                &readiness_attempt,
+                &agent_cmd,
+                std::time::Duration::ZERO,
+            );
+            if launch_input_readiness.is_none() {
+                let failure = LaunchFailure::ProviderInputNotReady;
+                launch.fail(&svc, failure.clone());
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(failure.reason()));
+                }
+                return;
+            }
+            let consumption = delivery_gate.consume_injection_with_readiness(
+                &svc.mux,
+                &tab_id,
+                &svc,
+                launch_input_readiness,
+                || {
+                    crate::service::pty_io::submit_transaction::submit_text_with_key(
+                        &svc,
+                        &pty_id,
+                        &task_text,
+                        true,
+                        b"\r",
+                        submit_strategy,
+                        crate::service::inject_verify::VerifyOpts {
+                            require_prompt_first: false,
+                            verify_echo: true,
+                            verify_submit: true,
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                },
+            );
             let delivery_error = match consumption {
                 Ok(receipt)
                     if receipt.outcome
