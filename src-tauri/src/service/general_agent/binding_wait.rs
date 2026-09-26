@@ -15,7 +15,7 @@ fn signal() -> &'static BindingSignal {
     })
 }
 
-pub(crate) fn notify_session_bound() {
+pub(crate) fn notify_binding_state_changed() {
     let signal = signal();
     *signal.generation.lock() += 1;
     signal.changed.notify_all();
@@ -68,7 +68,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("waiter must inspect the binding before waiting");
         bound.store(true, Ordering::SeqCst);
-        notify_session_bound();
+        notify_binding_state_changed();
 
         assert_eq!(
             done_rx

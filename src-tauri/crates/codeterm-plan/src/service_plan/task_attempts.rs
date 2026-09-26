@@ -863,7 +863,7 @@ impl PlanStore {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
-        super::task_dispatch::task_startup_status(&task.status)?;
+        super::task_dispatch::task_respawn_status(&task.status)?;
         let source = find_attempt(task, &request.attempt_id)
             .cloned()
             .ok_or(PlanError::TaskNotFound)?;
@@ -929,16 +929,26 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            let startup_status = super::task_dispatch::task_startup_status(
+            super::task_dispatch::task_respawn_status(
                 &plan.tasks[task_index].status,
             )?;
-            if startup_status == TaskStatus::Pending {
+            if matches!(
+                plan.tasks[task_index].status,
+                TaskStatus::Pending | TaskStatus::Blocked
+            ) {
                 super::review_gate::validate_dispatch_review_capacity(
                     plan,
                     &plan.tasks[task_index],
                 )?;
             }
-            super::task_dispatch::record_blocked_task_unblock(plan, task_index, "respawn", now_ms);
+            let attempt_id = gen_attempt_id();
+            super::task_dispatch::record_blocked_task_unblock(
+                plan,
+                task_index,
+                "respawn",
+                Some(&attempt_id),
+                now_ms,
+            );
             let task = &mut plan.tasks[task_index];
             task.assigned_tab_id = Some(tab_id.into());
             task.lane.tab_id = Some(tab_id.into());
@@ -948,7 +958,14 @@ impl PlanStore {
             task.status_changed_at = now_ms;
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
+            let mut attempt = new_assignment_attempt_with_id(
+                task,
+                tab_id,
+                None,
+                role,
+                Some(&attempt_id),
+                now_ms,
+            );
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();

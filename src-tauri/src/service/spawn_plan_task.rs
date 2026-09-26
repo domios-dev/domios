@@ -50,7 +50,7 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
         if !is_worker_spawn(params) {
             return Err("authorized gates are only valid with --role Worker".into());
         }
-        if worker_spawn_plan_task_ref(params).is_some() && params.task_prompt_override.is_none() {
+        if worker_spawn_plan_task_ref(params).is_some() {
             return Err(concat!(
                 "authorized gates are not carried by a task-bound spawn; declare them ",
                 "on the dispatch, where they are also enforced"
@@ -141,11 +141,9 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     store
         .validate_task_startup_status(&resolved.plan_id, &resolved.task_id)
         .map_err(|error| error.to_string())?;
-    if params.task_prompt_override.is_none() || params.title.is_none() {
-        if let Some(title) = planned_task_title(&detail.task) {
-            params.title = Some(title);
-            params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
-        }
+    if let Some(title) = planned_task_title(&detail.task) {
+        params.title = Some(title);
+        params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
     }
     if params.planned_reasoning_effort.is_none() {
         params.planned_reasoning_effort = params.reasoning_effort.clone();
@@ -157,28 +155,17 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         lane_base: detail.task.lane.base.clone(),
     });
     let instruction = params.task.take();
-    let manifest = match params.task_prompt_override.as_ref() {
-        Some(_) => match params.plan_skill_manifest.take() {
-            Some(manifest) => manifest,
-            None => crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
-                .map_err(|error| error.to_string())?,
-        },
-        None => crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
-            .map_err(|error| error.to_string())?,
-    };
-    let brief = if let Some(prompt) = params.task_prompt_override.take() {
-        prompt
-    } else {
-        crate::service::plan::task_brief::render_task_brief(
-            &detail.task,
-            &detail.sections,
-            detail.task.personality.as_deref(),
-            instruction.as_deref(),
-            Some(&resolved.plan_id),
-            &manifest,
-            &[],
-        )
-    };
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
+        .map_err(|error| error.to_string())?;
+    let brief = crate::service::plan::task_brief::render_task_brief(
+        &detail.task,
+        &detail.sections,
+        detail.task.personality.as_deref(),
+        instruction.as_deref(),
+        Some(&resolved.plan_id),
+        &manifest,
+        &[],
+    );
     params.plan_skill_manifest = Some(manifest);
     params.task = Some(brief);
     params.plan_id = Some(resolved.plan_id);
@@ -991,27 +978,6 @@ mod tests {
             task.execution_attempts.last().unwrap().acknowledged_at,
             Some(7)
         );
-    }
-
-    #[test]
-    fn respawn_prompt_override_allows_declared_gates_without_changing_brief() {
-        let dir = tempfile::tempdir().unwrap();
-        let (store, plan_id, task_id) = store_with_task(dir.path());
-        let prompt = "restored respawn brief";
-        let mut params = SpawnAgentParams {
-            role: Some("Worker".into()),
-            plan_id: Some(plan_id),
-            plan_task: Some(task_id),
-            task_prompt_override: Some(prompt.into()),
-            plan_skill_manifest: Some(vec![]),
-            authorized_gates: vec!["gate-token".into()],
-            ..Default::default()
-        };
-
-        validate_worker_plan_task_spawn(&params).unwrap();
-        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
-        assert_eq!(params.task.as_deref(), Some(prompt));
-        assert!(params.task_prompt_override.is_none());
     }
 
     #[test]

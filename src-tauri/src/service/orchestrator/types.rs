@@ -110,8 +110,6 @@ pub struct SpawnAgentParams {
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
     #[serde(default, skip)]
-    pub(crate) task_prompt_override: Option<String>,
-    #[serde(default, skip)]
     pub(crate) starter_prompt: crate::agent::provider::StarterPrompt,
     /// Bound task id (CODETERM_TASK_ID).
     pub task_id: Option<String>,

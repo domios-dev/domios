@@ -7,6 +7,7 @@ use codeterm_types::agent::ReportStatus;
 mod plan_skill_evidence;
 mod session_model_replay;
 mod task_attempt_respawn_tests;
+mod blocked_dispatch_tests;
 
 pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();

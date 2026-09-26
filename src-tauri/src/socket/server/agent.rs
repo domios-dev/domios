@@ -117,6 +117,28 @@ pub(super) fn dispatch(
         "agent.report" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let message = get_string_param(params, "message")?;
+            if params
+                .as_ref()
+                .and_then(|value| value.get("kind"))
+                .and_then(Value::as_str)
+                == Some("report_refused")
+            {
+                let target_tab_id = svc
+                    .send_refused_report_diagnostic(&tab_id, &message)
+                    .map_err(|message| JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    })?;
+                return Ok(serde_json::json!({
+                    "ok": true,
+                    "accepted": false,
+                    "state": "refused",
+                    "kind": "report_refused",
+                    "refused_report_diagnostic_sent": true,
+                    "diagnostic_target_tab_id": target_tab_id,
+                }));
+            }
             let plan_id = params
                 .as_ref()
                 .and_then(|p| p.get("plan_id"))
@@ -499,12 +521,80 @@ mod tests {
         task_ack_success_response,
     };
     use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::TaskBinding;
+    use crate::multiplexer::types::{AgentRole, TaskBinding};
     use crate::plan::{OrchestratorRef, PlanMode, TaskStatus};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
     use crate::service::worker_ack::{WorkerAckIdentity, WorkerAckSignal};
     use std::sync::Arc;
+
+    #[test]
+    fn agent_report_refused_kind_routes_to_diagnostic_without_recording_report() {
+        let (mut mux, parent_tab_id) = MultiplexerState::new();
+        let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();
+        let worker_tab_id = mux.create_tab(&workspace_id).unwrap();
+        mux.set_tab_role(&worker_tab_id, AgentRole::Worker, Some(&parent_tab_id))
+            .unwrap();
+        let fixture = ServiceFixture::new(mux);
+        let plan = fixture
+            .service
+            .plan_store
+            .create_plan_for_team(
+                "Refused report socket route".into(),
+                fixture.temp.path().display().to_string(),
+                OrchestratorRef::from_tab(&parent_tab_id),
+                "team-refused-report".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "refused report task".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .assign_task(&plan.id, &task_id, &worker_tab_id, None, 3)
+            .unwrap();
+        let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let service: crate::service::ServiceState = Arc::new(fixture.service.clone());
+
+        let response = crate::socket::server::dispatch_service_rpc(
+            "agent.report",
+            Some(serde_json::json!({
+                "tab_id": worker_tab_id,
+                "kind": "report_refused",
+                "status": "in_review",
+                "plan_id": plan.id,
+                "task_id": task_id,
+                "message": "REPORT NOT SENT: canonical checkout is dirty. Original report: in_review",
+            })),
+            &service,
+        )
+        .unwrap();
+
+        assert_eq!(response["accepted"], false);
+        assert_eq!(response["state"], "refused");
+        assert_eq!(response["kind"], "report_refused");
+        assert_eq!(response["refused_report_diagnostic_sent"], true);
+        assert_eq!(response["diagnostic_target_tab_id"], parent_tab_id);
+        let after = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(after.status, before.status);
+        assert_eq!(
+            after.execution_attempts[0].report,
+            before.execution_attempts[0].report
+        );
+        assert_eq!(after.execution_attempts[0].report, None);
+    }
 
     #[test]
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

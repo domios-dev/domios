@@ -1,6 +1,8 @@
 use crate::multiplexer::commands::MuxState;
 use crate::service::messenger::MessageEnvelope;
-use crate::service::message_gateway::DeliveryClass;
+use crate::service::message_gateway::{
+    DeliveryClass, MessageBody, MessageOrigin, OutboundMessage,
+};
 use crate::service::ServiceContext;
 
 pub(crate) fn deliver_refused_report_diagnostic(
@@ -9,14 +11,17 @@ pub(crate) fn deliver_refused_report_diagnostic(
     message: &str,
     deliver: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>,
 ) -> Result<String, String> {
-    let recipient = mux
+    let (recipient, reporter_label) = mux
         .read()
         .get_tab(reporter_tab_id)
-        .and_then(|tab| tab.parent_tab_id.as_deref())
-        .filter(|parent| !parent.trim().is_empty() && *parent != reporter_tab_id)
-        .map(str::to_string)
+        .and_then(|tab| {
+            tab.parent_tab_id
+                .as_deref()
+                .filter(|parent| !parent.trim().is_empty() && *parent != reporter_tab_id)
+                .map(|parent| (parent.to_string(), tab.title.clone()))
+        })
         .ok_or_else(|| "refused report diagnostic has no live parent tab".to_string())?;
-    let mut envelope = MessageEnvelope::from_codeterm();
+    let mut envelope = MessageEnvelope::report(reporter_label, reporter_tab_id);
     envelope.context = Some("report_refused".into());
     let body = format!("REFUSED REPORT DIAGNOSTIC\n{message}");
     deliver(&recipient, envelope, &body)?;
@@ -34,13 +39,22 @@ impl ServiceContext {
             reporter_tab_id,
             message,
             |recipient, envelope, body| {
-                self.gateway_deliver(
-                    recipient,
-                    envelope,
-                    body,
-                    DeliveryClass::SystemNotice,
-                )
-                .map(|_| ())
+                self.gateway
+                    .submit(
+                        self,
+                        OutboundMessage {
+                            target: recipient.to_string(),
+                            body: MessageBody::Text {
+                                body: body.to_string(),
+                            },
+                            envelope: Some(envelope),
+                            class: DeliveryClass::AgentTraffic,
+                            origin: MessageOrigin::LocalTab,
+                            idempotency_key: None,
+                        },
+                    )
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
             },
         )
     }
@@ -107,7 +121,9 @@ mod tests {
         let (recipient, envelope, body) = received.unwrap();
         assert_eq!(target, parent_tab_id);
         assert_eq!(recipient, target);
-        assert_eq!(envelope.kind, MessageKind::System);
+        assert_eq!(envelope.kind, MessageKind::Report);
+        assert_eq!(envelope.from_tab, worker_tab_id);
+        assert_eq!(envelope.from_label, "Worker");
         assert_eq!(envelope.context.as_deref(), Some("report_refused"));
         assert!(body.starts_with("REFUSED REPORT DIAGNOSTIC"));
         assert!(body.contains(reason));

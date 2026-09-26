@@ -127,6 +127,10 @@ any open state → cancelled
 
 - `in_progress` requires both a live runtime binding and the Worker's durable
   `codeterm agent ack`; either may arrive first.
+- Explicit dispatch or respawn of a blocked task returns it to pending in the
+  same mutation that reserves the new attempt, preserving the old block reason
+  in a plan stride. Dispatch refuses review-held tasks; respawn can replace a
+  review-held attempt through the documented review recovery path.
 - `dispatch_ready` proves PTY, session, and lane readiness but does not start
   the task. A missing ACK emits `worker_ack_timeout` after the bounded deadline.
 - `codeterm agent report --status in_review` atomically records the handoff,
@@ -207,4 +211,4 @@ and every verdict requires `--note`, never `--reason`. Review credit repair,
 task-less evidence reporters, and Planner parent resolution are plan surface
 contracts (API-PLAN).
 
-<!-- revision: 88 -->
+<!-- revision: 89 -->
