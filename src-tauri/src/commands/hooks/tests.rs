@@ -1,7 +1,7 @@
 use super::{
     infer_consent_for_owned_install, install_and_record_integration,
-    install_provider_integration_body, reconciliation_log_line, repair_integration_on_startup,
-    resolve_precompact_choice, run_install_off_runtime, IntegrationRepairOutcome,
+    install_provider_integration_body, repair_integration_on_startup, resolve_precompact_choice,
+    run_install_off_runtime, update_precompact_choice, IntegrationRepairOutcome,
 };
 use crate::agent::provider::{
     install_integration_with_trust_grant, AgentLaunchParams, AgentProvider,
@@ -232,6 +232,11 @@ fn refresh_without_precompact_flag_preserves_existing_precompact_hook() {
     assert_eq!(*choices.lock().unwrap(), vec![true]);
     let status = serde_json::json!({ "precompact_hook": true });
     assert!(resolve_precompact_choice(None, &status, Some(false)));
+    assert!(!resolve_precompact_choice(
+        None,
+        &serde_json::json!({ "precompact_hook": false }),
+        Some(true)
+    ));
     assert!(resolve_precompact_choice(
         None,
         &serde_json::json!({}),
@@ -243,6 +248,50 @@ fn refresh_without_precompact_flag_preserves_existing_precompact_hook() {
         &serde_json::json!({}),
         Some(false)
     ));
+
+    let disabled_choices = Arc::new(StdMutex::new(Vec::new()));
+    let disabled_registry = Arc::new(AgentRegistry::new());
+    disabled_registry.register_provider(Box::new(InstallProbeProvider::with_choice_sink(
+        "no-precompact",
+        Err("halt before persist".into()),
+        serde_json::json!({ "precompact_hook": false }),
+        disabled_choices.clone(),
+    )));
+    let disabled_config = empty_config();
+    disabled_config
+        .lock()
+        .agents
+        .entry("no-precompact".into())
+        .or_default()
+        .extra
+        .insert(
+            "precompact_memory_export".into(),
+            toml::Value::Boolean(true),
+        );
+    assert!(install_provider_integration_body(
+        &disabled_registry,
+        &disabled_config,
+        "no-precompact".into(),
+        Some(7686),
+        true,
+        None,
+    )
+    .is_err());
+    assert_eq!(*disabled_choices.lock().unwrap(), vec![false]);
+}
+
+#[test]
+fn precompact_choice_updates_only_when_reported_and_changed() {
+    let mut config = crate::config::schema::AppConfig::default();
+    assert!(!update_precompact_choice(&mut config, "opencode", None));
+    assert!(!config.agents.contains_key("opencode"));
+    assert!(update_precompact_choice(&mut config, "claude", Some(true)));
+    assert!(!update_precompact_choice(&mut config, "claude", Some(true)));
+    assert!(update_precompact_choice(&mut config, "claude", Some(false)));
+    assert_eq!(
+        config.agents["claude"].extra["precompact_memory_export"].as_bool(),
+        Some(false)
+    );
 }
 
 #[test]
@@ -451,7 +500,7 @@ fn fresh_install_reconciles_after_recorded_consent() {
         "hooks_installed": false
     }));
     let outcome = reconcile_probe(&provider, true, false);
-    assert_eq!(outcome, IntegrationRepairOutcome::Repaired);
+    assert_eq!(outcome, repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
     assert_eq!(grants(&provider), 1);
@@ -468,7 +517,7 @@ fn upgraded_owned_stale_hook_reconciles_after_recorded_consent() {
         "stop_hook": false
     }));
     let outcome = reconcile_probe(&provider, true, false);
-    assert_eq!(outcome, IntegrationRepairOutcome::Repaired);
+    assert_eq!(outcome, repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
     assert_eq!(grants(&provider), 1);
@@ -498,13 +547,10 @@ fn startup_reconciles_stale_claude_and_opencode_with_recorded_consent() {
         }),
     );
 
-    assert_eq!(
-        reconcile_probe(&claude, true, true),
-        IntegrationRepairOutcome::Repaired
-    );
+    assert_eq!(reconcile_probe(&claude, true, true), repaired_with_grant());
     assert_eq!(
         reconcile_probe(&opencode, true, false),
-        IntegrationRepairOutcome::Repaired
+        repaired_with_grant()
     );
     assert_eq!(claude.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(opencode.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -526,7 +572,7 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
         "claude",
         &status,
         1_790_403_600,
-        true,
+        Some(true),
     ));
     let provider_config = &config.agents["claude"];
     assert_eq!(
@@ -550,7 +596,7 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
         "claude",
         &status,
         1_790_403_700,
-        false,
+        Some(false),
     ));
     assert_eq!(
         config.agents["claude"].extra["integration_consent_recorded_at"].as_integer(),
@@ -567,15 +613,50 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
         "legacy-provider",
         &legacy_status,
         1_790_403_700,
-        false,
+        None,
     ));
 
     let provider = RepairProbeProvider::with_id("claude", status);
     assert_eq!(
         reconcile_probe(&provider, true, false),
-        IntegrationRepairOutcome::Repaired
+        repaired_with_grant()
     );
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn explicit_consent_false_blocks_owned_install_inference() {
+    let status = serde_json::json!({
+        "hooks_installed": true,
+        "integration_owned": true,
+        "hook_contract_current": false
+    });
+    let mut config = crate::config::schema::AppConfig::default();
+    config
+        .agents
+        .entry("claude".into())
+        .or_default()
+        .extra
+        .insert(
+            crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
+            toml::Value::Boolean(false),
+        );
+
+    assert!(!infer_consent_for_owned_install(
+        &mut config,
+        "claude",
+        &status,
+        1_790_403_600,
+        Some(true),
+    ));
+    let provider_config = &config.agents["claude"];
+    assert_eq!(
+        provider_config.extra[crate::config::schema::INTEGRATION_CONSENT_GRANTED].as_bool(),
+        Some(false)
+    );
+    assert!(!provider_config
+        .extra
+        .contains_key("integration_consent_recorded_at"));
 }
 
 #[test]
@@ -613,28 +694,12 @@ fn unowned_hooks_are_never_rewritten_at_startup() {
 }
 
 #[test]
-fn reconciliation_outcomes_have_one_summary_line_and_inference_note() {
-    let cases = [
-        (IntegrationRepairOutcome::Current, "current"),
-        (IntegrationRepairOutcome::Repaired, "repaired"),
-        (IntegrationRepairOutcome::ConsentMissing, "consent missing"),
-        (
-            IntegrationRepairOutcome::TrustGrantRequired,
-            "trust required",
-        ),
-        (IntegrationRepairOutcome::Unreadable, "unreadable"),
-        (
-            IntegrationRepairOutcome::Skipped("fixture reason".into()),
-            "skipped (fixture reason)",
-        ),
-    ];
-    for (outcome, expected) in cases {
-        let line = reconciliation_log_line(&outcome, true);
-        assert!(line.starts_with("integration reconciliation: "));
-        assert!(line.contains(expected));
-        assert!(line.contains("consent inferred from existing CodeTerm-owned install"));
-        assert!(!line.contains('\n'));
-    }
+fn reconciliation_returns_structured_repair_outcome_with_trust_grant() {
+    let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
+    assert_eq!(
+        reconcile_probe(&provider, true, false),
+        repaired_with_grant()
+    );
 }
 
 #[test]
@@ -649,6 +714,10 @@ fn grants(provider: &RepairProbeProvider) -> usize {
     provider
         .grant_calls
         .load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn repaired_with_grant() -> IntegrationRepairOutcome {
+    IntegrationRepairOutcome::Repaired(Some(serde_json::json!({ "granted": true })))
 }
 
 #[test]
@@ -668,7 +737,7 @@ fn untrusted_hash_with_recorded_consent_is_rewritten_and_regranted() {
     let provider =
         RepairProbeProvider::new(serde_json::json!({ "integration_state": "untrusted_hash" }));
     let outcome = reconcile_probe(&provider, true, false);
-    assert_eq!(outcome, IntegrationRepairOutcome::Repaired);
+    assert_eq!(outcome, repaired_with_grant());
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(grants(&provider), 1);
 }

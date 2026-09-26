@@ -97,6 +97,7 @@ fn install_provider_integration_body(
         .and_then(|value| value.as_str())
         .map(str::to_owned)
         .unwrap_or_else(|| "provider global configuration".into());
+    let reported_precompact = read_precompact_choice(&status);
     let recorded_precompact = config.lock().agents.get(&provider_id).and_then(|provider| {
         provider
             .extra
@@ -133,22 +134,27 @@ fn install_provider_integration_body(
         || {
             let mut current = config.lock();
             let mut updated = current.clone();
-            let provider = updated.agents.entry(provider_id.clone()).or_default();
-            provider.extra.insert(
-                crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
-                toml::Value::Boolean(true),
-            );
-            provider.extra.insert(
-                "integration_consent_recorded_at".into(),
-                toml::Value::Integer(recorded_at),
-            );
-            provider
-                .extra
-                .insert("integration_target".into(), toml::Value::String(target));
-            provider.extra.insert(
-                "precompact_memory_export".into(),
-                toml::Value::Boolean(options.precompact_memory_export),
-            );
+            {
+                let provider = updated.agents.entry(provider_id.clone()).or_default();
+                provider.extra.insert(
+                    crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
+                    toml::Value::Boolean(true),
+                );
+                provider.extra.insert(
+                    "integration_consent_recorded_at".into(),
+                    toml::Value::Integer(recorded_at),
+                );
+                provider
+                    .extra
+                    .insert("integration_target".into(), toml::Value::String(target));
+            }
+            if reported_precompact.is_some() {
+                update_precompact_choice(
+                    &mut updated,
+                    &provider_id,
+                    Some(options.precompact_memory_export),
+                );
+            }
             crate::config::save_config_pub(&updated)?;
             *current = updated;
             Ok(())
@@ -260,6 +266,7 @@ pub fn ensure_integration_for_provider(
     let consented = crate::config::load_config().agents;
     for provider in registry.all_provider_arcs() {
         if provider.id() == provider_id {
+            // Startup alone infers consent for existing marked installs.
             spawn_reconciliation(provider, consented.clone(), None);
         }
     }
@@ -283,10 +290,13 @@ fn resolve_precompact_choice(
         status
             .get("precompact_hook")
             .and_then(Json::as_bool)
-            .filter(|present| *present)
             .or(recorded)
             .unwrap_or(false)
     })
+}
+
+fn read_precompact_choice(status: &Json) -> Option<bool> {
+    status.get("precompact_hook").and_then(Json::as_bool)
 }
 
 /// One reconciliation per provider at a time. Daemon start and a plugin reload
@@ -336,12 +346,13 @@ fn spawn_reconciliation(
                 &status,
                 recorded_flag(&consented, &id, "precompact_memory_export"),
             );
+            let reported_precompact = read_precompact_choice(&status);
             let mut consent_inferred = false;
             if !previously_consented
                 && crate::service::integration_silence::read_integration_owned(&status)
             {
                 if let Some(config) = config.as_ref() {
-                    match record_inferred_owned_consent(config, &id, &status, precompact) {
+                    match record_inferred_owned_consent(config, &id, &status, reported_precompact) {
                         Ok(recorded) => consent_inferred = recorded,
                         Err(error) => {
                             log_reconciliation(
@@ -365,7 +376,7 @@ fn spawn_reconciliation(
             ) == Some(true);
             if previously_consented {
                 if let Some(config) = config.as_ref() {
-                    if let Err(error) = record_precompact_choice(config, &id, precompact) {
+                    if let Err(error) = record_precompact_choice(config, &id, reported_precompact) {
                         log_reconciliation(
                             &id,
                             &IntegrationRepairOutcome::Skipped(format!(
@@ -408,34 +419,32 @@ fn infer_consent_for_owned_install(
     provider_id: &str,
     status: &Json,
     recorded_at: i64,
-    precompact_memory_export: bool,
+    precompact_memory_export: Option<bool>,
 ) -> bool {
-    let provider = config.agents.entry(provider_id.to_string()).or_default();
-    if provider
-        .extra
-        .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
-        .and_then(toml::Value::as_bool)
-        == Some(true)
-        || !crate::service::integration_silence::read_integration_owned(status)
+    if config.agents.get(provider_id).is_some_and(|provider| {
+        provider
+            .extra
+            .contains_key(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+    }) || !crate::service::integration_silence::read_integration_owned(status)
     {
         return false;
     }
-    provider.extra.insert(
-        crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
-        toml::Value::Boolean(true),
-    );
-    provider.extra.insert(
-        "integration_consent_recorded_at".into(),
-        toml::Value::Integer(recorded_at),
-    );
-    provider.extra.insert(
-        "integration_consent_note".into(),
-        toml::Value::String("inferred from an existing CodeTerm-owned integration".into()),
-    );
-    provider.extra.insert(
-        "precompact_memory_export".into(),
-        toml::Value::Boolean(precompact_memory_export),
-    );
+    {
+        let provider = config.agents.entry(provider_id.to_string()).or_default();
+        provider.extra.insert(
+            crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
+            toml::Value::Boolean(true),
+        );
+        provider.extra.insert(
+            "integration_consent_recorded_at".into(),
+            toml::Value::Integer(recorded_at),
+        );
+        provider.extra.insert(
+            "integration_consent_note".into(),
+            toml::Value::String("inferred from an existing CodeTerm-owned integration".into()),
+        );
+    }
+    update_precompact_choice(config, provider_id, precompact_memory_export);
     true
 }
 
@@ -443,7 +452,7 @@ fn record_inferred_owned_consent(
     config: &crate::config::ConfigState,
     provider_id: &str,
     status: &Json,
-    precompact_memory_export: bool,
+    precompact_memory_export: Option<bool>,
 ) -> Result<bool, String> {
     let mut current = config.lock();
     let mut updated = current.clone();
@@ -468,32 +477,46 @@ fn record_inferred_owned_consent(
 fn record_precompact_choice(
     config: &crate::config::ConfigState,
     provider_id: &str,
-    precompact_memory_export: bool,
+    precompact_memory_export: Option<bool>,
 ) -> Result<(), String> {
     let mut current = config.lock();
     let mut updated = current.clone();
-    let provider = updated.agents.entry(provider_id.to_string()).or_default();
+    if !update_precompact_choice(&mut updated, provider_id, precompact_memory_export) {
+        return Ok(());
+    }
+    crate::config::save_config_pub(&updated)?;
+    *current = updated;
+    Ok(())
+}
+
+fn update_precompact_choice(
+    config: &mut crate::config::schema::AppConfig,
+    provider_id: &str,
+    precompact_memory_export: Option<bool>,
+) -> bool {
+    let Some(precompact_memory_export) = precompact_memory_export else {
+        return false;
+    };
+    let provider = config.agents.entry(provider_id.to_string()).or_default();
     let recorded = provider
         .extra
         .get("precompact_memory_export")
         .and_then(toml::Value::as_bool);
     if recorded == Some(precompact_memory_export) {
-        return Ok(());
+        return false;
     }
     provider.extra.insert(
         "precompact_memory_export".into(),
         toml::Value::Boolean(precompact_memory_export),
     );
-    crate::config::save_config_pub(&updated)?;
-    *current = updated;
-    Ok(())
+    true
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum IntegrationRepairOutcome {
     Current,
     ConsentMissing,
-    Repaired,
+    Repaired(Option<Json>),
     Unreadable,
     TrustGrantRequired,
     Skipped(String),
@@ -501,24 +524,24 @@ enum IntegrationRepairOutcome {
 }
 
 fn reconciliation_log_line(outcome: &IntegrationRepairOutcome, consent_inferred: bool) -> String {
-    let (label, detail) = match outcome {
-        IntegrationRepairOutcome::Current => ("current", None),
-        IntegrationRepairOutcome::ConsentMissing => ("consent missing", None),
-        IntegrationRepairOutcome::Repaired => ("repaired", None),
-        IntegrationRepairOutcome::Unreadable => ("unreadable", None),
-        IntegrationRepairOutcome::TrustGrantRequired => ("trust required", None),
-        IntegrationRepairOutcome::Skipped(detail) => ("skipped", Some(detail.as_str())),
-        IntegrationRepairOutcome::RepairFailed(detail) => ("repair failed", Some(detail.as_str())),
+    let outcome = match outcome {
+        IntegrationRepairOutcome::Current => "current".into(),
+        IntegrationRepairOutcome::ConsentMissing => "consent missing".into(),
+        IntegrationRepairOutcome::Repaired(Some(grant)) => {
+            format!("repaired; trust grant: {grant}")
+        }
+        IntegrationRepairOutcome::Repaired(None) => "repaired".into(),
+        IntegrationRepairOutcome::Unreadable => "unreadable".into(),
+        IntegrationRepairOutcome::TrustGrantRequired => "trust required".into(),
+        IntegrationRepairOutcome::Skipped(detail) => format!("skipped ({detail})"),
+        IntegrationRepairOutcome::RepairFailed(detail) => format!("repair failed ({detail})"),
     };
     let inferred = if consent_inferred {
         "; consent inferred from existing CodeTerm-owned install"
     } else {
         ""
     };
-    match detail {
-        Some(detail) => format!("integration reconciliation: {label} ({detail}){inferred}"),
-        None => format!("integration reconciliation: {label}{inferred}"),
-    }
+    format!("integration reconciliation: {outcome}{inferred}")
 }
 
 fn log_reconciliation(
@@ -572,10 +595,7 @@ fn repair_integration_on_startup(
     // Trust is keyed to content, so a rewrite without the grant disarms the hook.
     match crate::agent::provider::install_integration_with_trust_grant(provider, api_port, &options)
     {
-        Ok(grant) => {
-            let _ = grant;
-            IntegrationRepairOutcome::Repaired
-        }
+        Ok(grant) => IntegrationRepairOutcome::Repaired(grant),
         Err(error) => IntegrationRepairOutcome::RepairFailed(error),
     }
 }

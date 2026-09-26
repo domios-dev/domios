@@ -35,8 +35,6 @@ pub struct IntegrationFacts {
     pub installed: Option<bool>,
     /// Consent recorded by the install path, which refuses without it.
     pub consent_recorded: bool,
-    /// The provider reports a CodeTerm ownership marker on its installed integration.
-    pub integration_owned: bool,
     /// Where the provider says its integration lives.
     pub target: Option<String>,
     pub state: Option<IntegrationState>,
@@ -385,7 +383,6 @@ pub fn facts_from_status(
         state: read_state(status, installed),
         installed,
         consent_recorded,
-        integration_owned: read_integration_owned(status),
         target: read_target(status),
         content_hash: read_content_hash(status),
         contract_current: read_contract_current(status),
