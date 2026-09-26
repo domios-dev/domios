@@ -848,7 +848,7 @@ mod tests {
         );
         assert_eq!(task.execution_attempts[0].closed_at, None);
         assert_eq!(task.lane.worktree_path.as_deref(), Some(lane_path.as_str()));
-        let occupancy = super::super::plan_task_dispatch::preflight_checkout_occupancy(
+        let occupancy = super::super::plan_task_dispatch::lane_safety::preflight_checkout_occupancy(
             &stored_plan,
             "retry-task",
             &lane_path,
