@@ -975,12 +975,18 @@ where
     let tab_id = spawn.tab_id.clone();
     drop(dispatch_reservation);
     // The resolved effort is attempt telemetry; failing to record it must not kill a live Worker.
-    if let Err(error) = store.update_dispatched_attempt_reasoning_effort(
+    let reasoning_effort_identity = svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .map(|tab| tab.reasoning_effort_identity.clone());
+    if let Err(error) = crate::service::spawn_plan_task::persist_dispatched_attempt_reasoning_effort(
+        store,
         &plan_id,
         &task_id,
         &tab_id,
         &attempt_id,
-        spawn.reasoning_effort.clone(),
+        reasoning_effort_identity.as_ref(),
         now,
     ) {
         log::warn!(

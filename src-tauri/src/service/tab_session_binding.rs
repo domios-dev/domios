@@ -48,7 +48,7 @@ impl ServiceContext {
         drop(mux);
         if changed {
             self.deferred_session_bindings.clear(tab_id);
-            self.schedule_session_model_refresh_after_binding(tab_id);
+            self.schedule_session_model_refresh_for_current_tab(tab_id);
             self.emit_session_binding_state(tab_id);
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.
@@ -64,6 +64,7 @@ impl ServiceContext {
                 .mark_live_task_attempt_runtime_ready_for_tab(tab_id, session_id, epoch_ms())
             {
                 Ok(Some(ready)) => {
+                    self.persist_current_attempt_session_model(tab_id);
                     if let Err(error) = self.arm_bound_worker_ack_deadline_for_tab(
                         tab_id,
                         format!(
