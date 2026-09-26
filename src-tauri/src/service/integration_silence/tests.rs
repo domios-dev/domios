@@ -483,7 +483,6 @@ fn facts_with_hash(state: IntegrationState, hash: Option<&str>) -> IntegrationFa
         registers_sessions_via_hooks: true,
         installed: Some(false),
         consent_recorded: true,
-        integration_owned: false,
         target: Some(FIXTURE_TARGET.to_string()),
         state: Some(state),
         content_hash: hash.map(str::to_string),
