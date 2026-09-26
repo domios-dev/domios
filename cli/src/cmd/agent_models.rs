@@ -9,6 +9,15 @@ pub(super) fn provider_availability_marker(provider: &serde_json::Value) -> &'st
     }
 }
 
+pub(super) fn format_agent_models_json(target: &serde_json::Value) -> String {
+    serde_json::to_string_pretty(
+        target
+            .get("available_models")
+            .unwrap_or(&serde_json::Value::Null),
+    )
+    .unwrap()
+}
+
 fn availability_marker(model: &serde_json::Value) -> &'static str {
     match model.get("availability").and_then(|v| v.as_str()) {
         Some("unavailable") => AVAILABILITY_UNAVAILABLE,

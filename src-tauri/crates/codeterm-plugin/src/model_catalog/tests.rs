@@ -4,6 +4,7 @@
 use super::*;
 
 mod model_resolution;
+mod cache_schema;
 
 // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
 // test depends on the registry being empty or seeing another test's writes.
@@ -603,6 +604,7 @@ fn prime_does_not_clobber_a_live_snapshot() {
     let _ = std::fs::remove_file(cache_path(id));
     // Persist an OLD cache to disk, then publish a NEWER in-memory snapshot.
     let payload = CachedSnapshot {
+        schema_version: CACHE_SCHEMA_VERSION,
         fetched_at_unix: 1,
         default: Some("old".into()),
         models: vec![model("old", "Old")],
