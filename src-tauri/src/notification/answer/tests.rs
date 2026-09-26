@@ -34,7 +34,7 @@ fn asked_from(tab_id: Option<&str>) -> (NotificationStore, String) {
 #[test]
 fn notify_answer_kind_cannot_express_a_command_or_arguments() {
     for smuggled in [
-        serde_json::json!({"type": "answer", "label": "Yes", "value": "respond_provider_update_prompt"}),
+        serde_json::json!({"type": "answer", "label": "Yes", "value": "retired_provider_action"}),
         serde_json::json!({"type": "answer", "label": "Yes", "args": {"promptId": "p1"}}),
         serde_json::json!({"type": "answer", "label": "Yes", "value": "x", "args": {}}),
         serde_json::json!({"type": "answer", "label": "Yes", "command": "x"}),

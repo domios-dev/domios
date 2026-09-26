@@ -574,32 +574,7 @@ fn notify_dedupe_an_acknowledged_message_may_arrive_again() {
     assert_eq!(store.lock().unread_count(), 1);
 }
 
-#[test]
-fn notify_dedupe_standing_condition_survives_a_cleared_inbox() {
-    let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-    let scope = push::tab_scope("tab_a");
-    let condition = crate::notification::dedupe::provider_update_condition("codex");
-
-    assert_eq!(
-        store.lock().observe_condition_present(&scope, &condition),
-        crate::notification::dedupe::ConditionTransition::Announce
-    );
-    store.lock().clear(None);
-    assert_eq!(
-        store.lock().observe_condition_present(&scope, &condition),
-        crate::notification::dedupe::ConditionTransition::AlreadyAnnounced,
-        "wiping history does not make a still-true condition news again"
-    );
-
-    store.lock().observe_condition_absent(&scope, &condition);
-    assert_eq!(
-        store.lock().observe_condition_present(&scope, &condition),
-        crate::notification::dedupe::ConditionTransition::Announce,
-        "only the condition resolving re-arms the announcement"
-    );
-}
-
-/// `level` and `severity` are independent axes on the wire — these
+/// `level` and `severity` are independent axes on the wire; these
 /// exercise the payload, which is what the surfaces actually read.
 mod notification_level_field {
     use super::*;

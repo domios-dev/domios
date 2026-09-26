@@ -26,9 +26,9 @@ impl AutoAckKind {
 pub fn classify(
     prompt: &PendingPrompt,
     screen: &str,
-    directory_trust_prompt: bool,
+    non_auto_ack_dialog: bool,
 ) -> Option<AutoAck> {
-    if directory_trust_prompt {
+    if non_auto_ack_dialog {
         return None;
     }
     classify_repair_menu(prompt, screen).or_else(|| classify_first_affirmative(prompt))

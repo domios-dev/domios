@@ -286,9 +286,9 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
-        /// Reasoning-effort level (provider-specific, e.g. codex low/medium/high).
-        /// Capability-validated: an unsupported value is rejected, never silently
-        /// downgraded. Run `codeterm agent models <provider>` to see supported levels.
+        /// Reasoning-effort level supported by the selected model. The provider's
+        /// list is used when that model publishes no per-model levels; unsupported
+        /// values are rejected, never silently downgraded.
         #[arg(long = "reasoning-effort")]
         reasoning_effort: Option<String>,
         /// Override the shell system prompt when spawning a chatBackend shell.

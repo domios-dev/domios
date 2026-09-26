@@ -121,6 +121,18 @@ fix: codeterm plan task update {plan_id} {} --tag work:<frontend|backend|design|
             task_id.unwrap_or("<task_id>")
         )),
         "not_found" => Some(render_not_found(plan_id, loop_id, params)),
+        "invalid_model" => {
+            let render = crate::cmd::model_error::render_model_catalogue_error(data)
+                .unwrap_or_else(|| {
+                    format!(
+                        "✗ {}",
+                        data["message"]
+                            .as_str()
+                            .unwrap_or("invalid model selection")
+                    )
+                });
+            Some(render)
+        }
         "task_not_found" => Some(with_cross_daemon_hint(format!(
             "✗ no task '{}' was found in plan '{plan_id}'.\nfix: codeterm plan list --active",
             task_id.unwrap_or("<task_id>")
@@ -354,7 +366,7 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 .or(task_id)
                 .unwrap_or("<task_id>");
             Some(format!(
-                "✗ task '{task}' was found, but no single execution attempt on it resolves to bounce.\nfix: inspect its attempts, then retry:\n  codeterm plan task show {plan_id} {task}"
+                "✗ task '{task}' was found, but its review attempt is missing or ambiguous.\nfix: inspect its attempts, then use the reopen path when one attempt resolves:\n  codeterm plan task show {plan_id} {task}\n  codeterm plan review bounce {plan_id} {task} --note \"<required changes>\""
             ))
         }
         "review_continuation_delivery_refused" => {
@@ -663,6 +675,24 @@ do not retry blindly: inspect current state first with `codeterm task show {targ
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn authoritative_model_refusal_renders_close_ids_and_refresh_command() {
+        let message = render_plan_error(
+            &json!({
+                "type": "invalid_model",
+                "provider": "codex",
+                "requested_model": "gpt-9-bogus",
+                "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+                "message": "model id 'gpt-9-bogus' is not in provider 'codex' authoritative catalogue; closest catalogue ids: gpt-6-sol, gpt-6-astra",
+            }),
+            &json!({}),
+        )
+        .expect("invalid_model must have a renderer");
+        assert!(message.contains("gpt-9-bogus"), "{message}");
+        assert!(message.contains("gpt-6-sol"), "{message}");
+        assert!(message.contains("codeterm agent models codex"), "{message}");
+    }
 
     /// Selected by `data.type`, and the rendered remedy carries the flag the
     /// server named. Neither half asserts the refusal's prose.

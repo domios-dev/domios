@@ -98,6 +98,10 @@
     }
   ],
   "defaultModel": "gpt-6-sol",
+  "modelCatalogue": {
+    "authority": "authoritative",
+    "liveDiscoveryRequired": true
+  },
   "reasoningEfforts": [
     {
       "id": "low",

@@ -296,7 +296,7 @@ impl fmt::Display for PlanError {
             PlanError::ReviewNotInReview => write!(f, "task is not in_review"),
             PlanError::ReviewContinuationAttemptNotFound { task_id } => write!(
                 f,
-                "task '{task_id}' was found but has no single resolvable execution attempt to bounce; inspect its attempts with `codeterm plan task show <plan_id> {task_id}` before retrying"
+                "task '{task_id}' was found but its review attempt is missing or ambiguous; inspect it with `codeterm plan task show <plan_id> {task_id}`, then use `codeterm plan review bounce <plan_id> {task_id} --note \"<required changes>\"` when one attempt resolves"
             ),
             PlanError::ReviewContinuationDeliveryRefused {
                 task_id,

@@ -106,6 +106,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command launched in a visible shell from an update notification. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
+| `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, CodeTerm preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
 | `credentials` | `[{id, file, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
@@ -175,7 +176,7 @@ All fields optional.
 
 | Field | Type / legal values | Meaning |
 |---|---|---|
-| `kind` | `"claude_settings_json"` \| `"provider_managed"` \| `"none"` | `claude_settings_json`: edit a JSON file's `hooks` object with curl-back commands. `provider_managed`: provider JS owns a reviewable config merge + backup/restore. `none`: PTY parser does it all. |
+| `kind` | `"claude_settings_json"` \| `"provider_managed"` \| `"plugin_file"` \| `"none"` | `claude_settings_json`: edit a JSON file's `hooks` object with curl-back commands. `provider_managed`: provider JS owns a reviewable config merge + backup/restore. `plugin_file`: provider owns a marked plugin file that core may refresh only while its ownership marker remains. `none`: PTY parser does it all. |
 | `settingsPath` | string | Where the integration is stored (e.g. `~/.claude/settings.json`). |
 | `trust_grant` (alias `trustGrant`) | object? | One field, `managedKeys` (string[]): managed hook keys core passes to `grantIntegrationTrust` per install. |
 

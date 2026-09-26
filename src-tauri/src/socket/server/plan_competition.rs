@@ -454,6 +454,8 @@ pub(super) fn compete(
             workspace_id: draft.workspace_id.clone(),
             model: draft.model.clone(),
             planned_model: draft.planned_model.clone(),
+            planned_reasoning_effort: draft.reasoning_effort.clone(),
+            reasoning_effort: draft.reasoning_effort.clone(),
             spawned_by_tab_id: Some(parent_tab_id.clone()),
             provisioned_cwd: draft.branch.is_some().then(|| draft.cwd.clone()),
             ..Default::default()
@@ -482,7 +484,7 @@ pub(super) fn compete(
         };
         draft.provider = spawn.agent.clone();
         draft.model = spawn.provider_resolved_model.clone();
-        draft.reasoning_effort = spawn.reasoning_effort.clone();
+        draft.reasoning_effort = svc.resolved_worker_launch_effort_for_tab(&spawn.tab_id);
         let created = match record_spawned_attempt_reporting_close(svc, &spawn.tab_id, || {
             store.record_task_compete_attempt(
                 &id,

@@ -424,6 +424,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );
@@ -469,6 +470,7 @@ fn settings_model_options_follow_catalog_changes() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );

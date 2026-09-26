@@ -84,6 +84,13 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let provider = get_string_param(params, "provider")?;
             let role = get_string_param(params, "role")?;
+            let model = opt_string_param(params, "model");
+            crate::service::spawn::validate_agent_model(
+                &svc.agent_registry,
+                &provider,
+                model.as_deref(),
+            )
+            .map_err(super::model_errors::invalid_model_rpc_error)?;
             // A Team whose Orchestrator is gone has no membership left to spend,
             // so this verb accepts an absent caller and lets staffing judge it.
             let caller_tab_id = opt_string_param(params, "caller_tab_id")
@@ -97,7 +104,7 @@ pub(super) fn dispatch(
                     role,
                     title: opt_string_param(params, "title"),
                     task: opt_string_param(params, "task"),
-                    model: opt_string_param(params, "model"),
+                    model,
                 },
             ))
             .map_err(|message| JsonRpcError {

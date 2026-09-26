@@ -89,6 +89,16 @@ fn pair_retry_command_preserves_provider_models_and_workspace() {
 }
 
 #[test]
+fn pair_without_model_does_not_promote_provider_defaults_to_explicit_requests() {
+    assert_eq!(explicit_pair_model(None), None);
+    assert_eq!(explicit_pair_model(Some("  ".into())), None);
+    assert_eq!(
+        explicit_pair_model(Some("gpt-6-sol".into())).as_deref(),
+        Some("gpt-6-sol")
+    );
+}
+
+#[test]
 fn pair_followup_refuses_bare_shell_and_booting_agent() {
     use codeterm_types::pty::BootStage;
 

@@ -206,9 +206,6 @@ pub fn run() {
             commands::restart_general_agent,
             commands::restart_general_agent_tab,
             commands::restart_agent_tab,
-            commands::list_provider_update_prompts,
-            commands::respond_provider_update_prompt,
-            commands::acknowledge_provider_update_prompt,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
@@ -851,7 +848,6 @@ pub fn run() {
                     ),
                 )),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
-                provider_updates: Default::default(),
                 chat_registry: crate::service::tab_chat::ChatRegistry::new(),
                 delayed_send,
                 secret_registry: secret_registry.clone(),
@@ -900,9 +896,6 @@ pub fn run() {
                     service_state.app_handle.clone(),
                 ),
             ));
-            service_state
-                .provider_updates
-                .bind_execution_owner(&service_state);
             service_state
                 .mem
                 .extraction_authority()

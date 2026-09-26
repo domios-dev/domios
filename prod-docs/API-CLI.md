@@ -68,6 +68,13 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
+Choose a model with `codeterm agent models <provider>` and pass its id with
+`codeterm agent spawn <provider> --model <id>`. Providers with an authoritative
+catalogue refuse unknown ids before creating a tab and list close catalogue ids
+in the error. Free-form providers accept provider-owned ids. If a live catalogue
+is unavailable, the requested id is launched unchanged and the response includes
+a warning; CodeTerm does not substitute a default model.
+
 ### Open agent shells (`chatBackend`)
 
 Beyond PTY agents, a tab can host an **open agent shell** — a non-PTY chat tab
@@ -149,4 +156,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
