@@ -23,6 +23,15 @@ import { codexFileDiffs } from "./fileDiffs";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
 import {
+  codexProfileInstanceId,
+  codexProfileTabId,
+  inspectCodexProfiles,
+  manageCodexProfiles,
+  releaseCodexProfile,
+  sweepCodexProfiles,
+  type ProfileSweepHost,
+} from "./profile-sweep";
+import {
   classifyCodexTabState,
   type TabStateClassification,
   type TabStateSnapshot,
@@ -45,8 +54,26 @@ import {
   uninstallIntegration as uninstallCodexIntegration,
   type CodexIntegrationInstallOptions,
 } from "./integration";
-// Not yet called from ensureIntegrationOnStartup — apiPort alone carries no safe live-tab-id source.
-export { sweepCodexProfiles, codexProfileTabId, codexProfilesToSweep, type SweepHost } from "./profile-sweep";
+export {
+  codexProfileInstanceId,
+  codexProfileTabId,
+  inspectCodexProfiles,
+  manageCodexProfiles,
+  releaseCodexProfile,
+  sweepCodexProfiles,
+};
+
+function profileSweepHost(): ProfileSweepHost {
+  return {
+    platform: () => host.platform(),
+    homeDir: () => host.homeDir(),
+    fs: {
+      readDir: (path) => host.fs.readDir(path),
+      readFile: (path) => host.fs.readFile(path),
+      removeFile: (path) => host.fs.removeFile(path),
+    },
+  };
+}
 
 const TITLE_RE = /codex/i;
 const OUTPUT_FINGERPRINTS = [
@@ -177,6 +204,25 @@ const plugin: PluginModule = {
     return discoverCodexModels();
   },
 
+  releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {
+    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+
+  sweepLaunchArtifacts(request: {
+    instanceId: string;
+    liveTabIds: string[];
+    confirm: boolean;
+    includeLegacy: boolean;
+  }) {
+    return manageCodexProfiles(
+      profileSweepHost(),
+      request.liveTabIds,
+      request.instanceId,
+      request.confirm,
+      request.includeLegacy,
+    );
+  },
+
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
     const parts: string[] = [];
@@ -191,17 +237,26 @@ const plugin: PluginModule = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
+        ? p.instanceId
+        : null;
+      if (host.platform() === "windows" && !instanceId) {
+        throw new Error("CodeTerm instance identity is required for a Windows launch profile");
+      }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : undefined);
       const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `$ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); `
+        const quotedInstanceId = host.shell.quoteFor(instanceId!, host.platform());
+        prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
+          + `$ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); `
           + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
-          + "$ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
+          + "$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; "
           + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
           + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
-          + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); "
+          + `$ctInstanceId = ${quotedInstanceId}; `
+          + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); "
           + "try { ";
         parts.push("--profile");
         parts.push("$ctProfileName");

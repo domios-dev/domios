@@ -149,6 +149,36 @@ pub async fn check_hooks_api(
     Ok(Json(status))
 }
 
+#[derive(Deserialize)]
+pub struct SweepProfilesQuery {
+    pub provider: String,
+    #[serde(default)]
+    pub confirm: bool,
+    #[serde(default)]
+    pub include_legacy: bool,
+}
+
+pub async fn sweep_profiles_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<SweepProfilesQuery>,
+) -> Result<Json<crate::agent::provider::LaunchArtifactSweepReport>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let service = state.svc.clone();
+    let report = tokio::task::spawn_blocking(move || {
+        crate::service::launch_artifacts::sweep_for_owner(
+            &service,
+            &query.provider,
+            query.confirm,
+            query.include_legacy,
+        )
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    Ok(Json(report))
+}
+
 #[derive(serde::Deserialize)]
 pub struct InstallHooksQuery {
     pub provider: String,

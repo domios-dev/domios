@@ -1,125 +1,105 @@
-/**
- * Codex Windows launch-profile sweep tests (codex profile lifecycle).
- * Run: npx tsx plugins/provider-codex/tests/profile-sweep.test.ts
- *
- * Proves BOTH directions the sweep must get right: a profile naming a tab id
- * that is not live gets removed, and a profile naming a tab id that IS live
- * is left untouched. A sweep that can remove a live tab's profile must never
- * ship — these tests exist to catch exactly that regression.
- */
+import assert from "node:assert/strict";
+import {
+  codexProfileInstanceId,
+  codexProfileTabId,
+  manageCodexProfiles,
+  releaseCodexProfile,
+  sweepCodexProfiles,
+  type ProfileSweepHost,
+} from "../src/profile-sweep";
 
-import { codexProfileTabId, codexProfilesToSweep, sweepCodexProfiles, type SweepHost } from "../src/profile-sweep";
-
-let passed = 0;
-let failed = 0;
-
-function assert(condition: boolean, name: string, detail?: string) {
-  if (condition) { passed++; console.log(`  ✓ ${name}`); }
-  else { failed++; console.error(`  ✗ ${name}${detail ? `: ${detail}` : ""}`); }
+function eq(actual: unknown, expected: unknown, message: string): void {
+  assert.deepEqual(actual, expected, message);
 }
 
-function eq(actual: unknown, expected: unknown, name: string) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  assert(a === e, name, `expected ${e}, got ${a}`);
-}
-
-console.log("\n--- codexProfileTabId ---\n");
-{
-  eq(codexProfileTabId("codeterm-abc123.config.toml"), "abc123", "extracts the tab id from an owned profile name");
-  eq(codexProfileTabId("codeterm-tab-with-dashes_and_underscores.config.toml"), "tab-with-dashes_and_underscores",
-    "tab ids may contain dashes and underscores");
-  eq(codexProfileTabId("config.toml"), null, "the base config file is never treated as an owned profile");
-  eq(codexProfileTabId("codeterm-abc123.config.toml.codeterm-backup"), null,
-    "a backup/sibling file with extra suffix is not matched");
-  eq(codexProfileTabId("someone-elses-file.toml"), null, "a file CodeTerm didn't write is never matched");
-}
-
-console.log("\n--- codexProfilesToSweep: both directions ---\n");
-{
-  const files = [
-    "codeterm-dead-tab.config.toml",
-    "codeterm-live-tab.config.toml",
-    "config.toml",
-    "hooks.json",
-  ];
-  const live = new Set(["live-tab"]);
-  const toRemove = codexProfilesToSweep(files, live);
-
-  assert(toRemove.includes("codeterm-dead-tab.config.toml"), "a profile naming a NON-live tab id is swept");
-  assert(!toRemove.includes("codeterm-live-tab.config.toml"), "a profile naming a LIVE tab id is preserved");
-  assert(!toRemove.includes("config.toml"), "a file that isn't an owned profile is never swept");
-  assert(!toRemove.includes("hooks.json"), "an unrelated file is never swept");
-  eq(toRemove.length, 1, "exactly one file matched the sweep in this fixture");
-}
-{
-  // All-live and all-dead extremes, so neither direction is a coincidence of a mixed set.
-  const files = ["codeterm-a.config.toml", "codeterm-b.config.toml"];
-  eq(codexProfilesToSweep(files, new Set(["a", "b"])), [], "every profile live -> nothing swept");
-  eq(
-    codexProfilesToSweep(files, new Set()),
-    ["codeterm-a.config.toml", "codeterm-b.config.toml"],
-    "no tab live -> every owned profile swept",
-  );
-}
-
-console.log("\n--- sweepCodexProfiles: fs-level both directions ---\n");
-{
-  function makeHost(platform: string, entries: { name: string; isFile: boolean }[], removed: string[]): SweepHost {
-    return {
-      platform: () => platform,
-      homeDir: () => "C:\\Users\\test",
-      fs: {
-        readDir: () => entries,
-        removeFile: (path: string) => { removed.push(path); return true; },
-      },
-    };
-  }
-
+function makeHost(files: Record<string, string>, unreadableDirectory = false) {
   const removed: string[] = [];
-  const host = makeHost("windows", [
-    { name: "codeterm-dead-tab.config.toml", isFile: true },
-    { name: "codeterm-live-tab.config.toml", isFile: true },
-    { name: "config.toml", isFile: true },
-    { name: ".codex", isFile: false },
-  ], removed);
-
-  const result = sweepCodexProfiles(host, ["live-tab"]);
-  eq(result.removed, ["codeterm-dead-tab.config.toml"], "sweep reports exactly the dead-tab profile as removed");
-  eq(removed, ["C:\\Users\\test\\.codex\\codeterm-dead-tab.config.toml"],
-    "host.fs.removeFile is invoked only for the dead-tab profile's real path");
-  assert(!removed.some((p) => p.indexOf("live-tab") !== -1), "removeFile is never called for the live tab's profile");
-}
-{
-  const removed: string[] = [];
-  const host = makeHostNonWindows(removed);
-  const result = sweepCodexProfiles(host, []);
-  eq(result.removed, [], "non-Windows platforms never sweep — the profile file is a Windows-only artefact");
-  eq(removed, [], "removeFile is never called on a non-Windows platform");
-}
-{
-  // No homeDir -> conservative no-op, never a wrong deletion.
-  const removed: string[] = [];
-  const host: SweepHost = {
+  const host: ProfileSweepHost = {
     platform: () => "windows",
-    homeDir: () => null,
-    fs: { readDir: () => { throw new Error("must never be reached"); }, removeFile: (p: string) => { removed.push(p); return true; } },
-  };
-  const result = sweepCodexProfiles(host, ["anything"]);
-  eq(result.removed, [], "an unresolvable home dir leaves every file in place");
-  eq(removed, [], "removeFile is never called when the home dir can't be resolved");
-}
-
-function makeHostNonWindows(removed: string[]): SweepHost {
-  return {
-    platform: () => "darwin",
-    homeDir: () => "/Users/test",
+    homeDir: () => "C:\\Users\\test",
     fs: {
-      readDir: () => { throw new Error("must never be reached on non-Windows"); },
-      removeFile: (path: string) => { removed.push(path); return true; },
+      readDir: () => {
+        if (unreadableDirectory) throw new Error("denied");
+        return Object.keys(files).map((name) => ({ name, isFile: true }));
+      },
+      readFile: (path) => files[path.slice(path.lastIndexOf("\\") + 1)] ?? null,
+      removeFile: (path) => {
+        const name = path.slice(path.lastIndexOf("\\") + 1);
+        removed.push(name);
+        delete files[name];
+        return true;
+      },
     },
   };
+  return { host, files, removed };
 }
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-if (failed > 0) process.exit(1);
+console.log("\n--- profile marker and name parsing ---\n");
+eq(codexProfileTabId("codeterm-tab-with-dashes_and_underscores.config.toml"), "tab-with-dashes_and_underscores",
+  "extracts only a CodeTerm profile tab id");
+eq(codexProfileTabId("config.toml"), null, "does not match the base Codex config");
+eq(codexProfileTabId("codeterm-tab.config.toml.codeterm-backup"), null, "does not match backup names");
+eq(codexProfileInstanceId("\uFEFF# codeterm-instance: instance-dev\r\ndeveloper_instructions = \"x\""), "instance-dev",
+  "reads the instance marker from the first TOML line");
+eq(codexProfileInstanceId("developer_instructions = \"x\"\n# codeterm-instance: instance-dev"), null,
+  "does not accept a marker after the first line");
+
+console.log("\n--- automatic sweep only removes this instance's dead profiles ---\n");
+{
+  const { host, files, removed } = makeHost({
+    "codeterm-dead-tab.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"dead\"",
+    "codeterm-live-tab.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"live\"",
+    "codeterm-foreign-tab.config.toml": "# codeterm-instance: instance-prod\ndeveloper_instructions = \"foreign\"",
+    "codeterm-legacy-tab.config.toml": "developer_instructions = \"legacy\"",
+    "foreign.config.toml": "# codeterm-instance: instance-dev",
+  });
+  const report = sweepCodexProfiles(host, ["live-tab"], "instance-dev");
+  eq(report.dead, ["codeterm-dead-tab.config.toml"], "reports only a dead profile owned by this instance");
+  eq(report.removed, ["codeterm-dead-tab.config.toml"], "removes only the owned dead profile");
+  eq(removed, ["codeterm-dead-tab.config.toml"], "never removes another instance or unmarked profile");
+  assert.ok(files["codeterm-live-tab.config.toml"], "keeps this instance's live tab profile");
+  assert.ok(files["codeterm-foreign-tab.config.toml"], "keeps another instance's unknown tab profile");
+  assert.ok(files["codeterm-legacy-tab.config.toml"], "keeps the unmarked legacy profile automatically");
+}
+
+console.log("\n--- unreadable directories fail closed ---\n");
+{
+  const { host, removed } = makeHost({
+    "codeterm-dead-tab.config.toml": "# codeterm-instance: instance-dev",
+  }, true);
+  const report = sweepCodexProfiles(host, [], "instance-dev");
+  eq(report.removed, [], "reports no removals after a directory read failure");
+  eq(removed, [], "keeps files after a directory read failure");
+}
+
+console.log("\n--- owner command dry run and legacy opt-in ---\n");
+{
+  const { host, files, removed } = makeHost({
+    "codeterm-dead-tab.config.toml": "# codeterm-instance: instance-dev",
+    "codeterm-legacy-tab.config.toml": "developer_instructions = \"legacy\"",
+    "codeterm-foreign-tab.config.toml": "# codeterm-instance: instance-prod",
+  });
+  const preview = manageCodexProfiles(host, [], "instance-dev", false, false);
+  eq(preview.dead, ["codeterm-dead-tab.config.toml"], "lists owned dead profiles by default");
+  eq(preview.legacy, ["codeterm-legacy-tab.config.toml"], "lists unmarked profiles for owner review");
+  eq(preview.removed, [], "dry run does not delete files");
+  eq(removed, [], "dry run leaves profiles intact");
+  const confirmed = manageCodexProfiles(host, [], "instance-dev", true, false);
+  eq(confirmed.removed, ["codeterm-dead-tab.config.toml"], "confirm removes owned dead profiles only");
+  assert.ok(files["codeterm-legacy-tab.config.toml"], "legacy files require --include-legacy");
+  const legacyConfirmed = manageCodexProfiles(host, [], "instance-dev", true, true);
+  eq(legacyConfirmed.removed, ["codeterm-legacy-tab.config.toml"], "includeLegacy plus confirm deletes unmarked profiles");
+}
+
+console.log("\n--- close releases only the profile marked by this instance ---\n");
+{
+  const { host, removed } = makeHost({
+    "codeterm-tab.config.toml": "# codeterm-instance: instance-dev",
+    "codeterm-foreign.config.toml": "# codeterm-instance: instance-prod",
+  });
+  eq(releaseCodexProfile(host, "tab", "instance-dev"), true, "removes the tab's own profile");
+  eq(releaseCodexProfile(host, "foreign", "instance-dev"), false, "keeps a profile marked by another instance");
+  eq(removed, ["codeterm-tab.config.toml"], "only the same-instance file was removed");
+}
+
+console.log("\nPASS instance-scoped Codex profile cleanup\n");

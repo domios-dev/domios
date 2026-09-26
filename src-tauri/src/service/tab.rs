@@ -110,6 +110,21 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
+    pub(crate) fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
+        let instance_id = crate::paths::codeterm_instance_id();
+        if let Some(Err(error)) = self.agent_registry.with_provider(provider_id, |provider| {
+            provider.release_tab_launch_artifacts(tab_id, instance_id)
+        }) {
+            log::warn!("[tab-close] launch artifact release failed for {tab_id}: {error}");
+        }
+    }
+
+    pub(crate) fn tab_launch_artifact_provider(&self, tab_id: &str) -> Option<String> {
+        let mux = self.mux.read();
+        let canonical = mux.resolve_tab_id(tab_id).unwrap_or_else(|| tab_id.to_string());
+        mux.get_tab(&canonical)?.agent_type.clone()
+    }
+
     pub(crate) fn prepare_tab_close(
         &self,
         tab_id: &str,
@@ -220,11 +235,17 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
-        let (pre_focus, reservation) = {
+        let (pre_focus, reservation, provider_id, canonical_tab_id) = {
             let mut mux = self.mux.write();
+            let canonical_tab_id = mux.resolve_tab_id(tab_id).unwrap_or_else(|| tab_id.to_string());
+            let provider_id = mux
+                .get_tab(&canonical_tab_id)
+                .and_then(|tab| tab.agent_type.clone());
             (
                 mux.get_focused_tab_id().map(str::to_string),
                 mux.reserve_tab_close(tab_id)?,
+                provider_id,
+                canonical_tab_id,
             )
         };
         if let Err(error) = self.prepare_tab_close(tab_id, reason) {
@@ -235,6 +256,9 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
+        if let Some(provider_id) = provider_id {
+            self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
+        }
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.finish_tab_close(tab_id)?;
@@ -1019,6 +1043,42 @@ mod self_close_tests {
     fn plain_worker_is_not_coordinator() {
         assert!(!is_coordinator(Some(AgentRole::Worker), None, false, false));
         assert!(!is_coordinator(None, None, false, false));
+    }
+}
+
+#[cfg(test)]
+mod launch_artifact_close_tests {
+    use crate::agent::provider::LaunchArtifactSweepRequest;
+    use crate::agent::test_provider::MockProvider;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn closing_a_codex_tab_releases_its_own_profile() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("codex".into());
+        let fixture = ServiceFixture::new(mux);
+        let releases = Arc::new(Mutex::new(Vec::new()));
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::new("codex").with_launch_artifact_logs(
+                Arc::new(Mutex::new(Vec::<LaunchArtifactSweepRequest>::new())),
+                releases.clone(),
+            ),
+        ));
+
+        fixture.service.close_tab(&tab_id).unwrap();
+
+        let releases = releases.lock();
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].0, tab_id);
+        assert!(!releases[0].1.is_empty());
+        assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
     }
 }
 

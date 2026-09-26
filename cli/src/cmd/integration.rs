@@ -24,6 +24,20 @@ pub fn api_request(action: &IntegrationAction) -> (String, String, Option<String
             ),
             None,
         ),
+        IntegrationAction::SweepProfiles {
+            provider,
+            confirm,
+            include_legacy,
+        } => (
+            "POST".into(),
+            format!(
+                "/api/integration/sweep-profiles?provider={}&confirm={}&include_legacy={}",
+                urlencoding::encode(provider),
+                confirm,
+                include_legacy
+            ),
+            None,
+        ),
     }
 }
 
@@ -128,5 +142,39 @@ mod tests {
     #[test]
     fn install_requires_a_provider() {
         assert!(crate::Cli::try_parse_from(["codeterm", "integration", "install"]).is_err());
+    }
+
+    #[test]
+    fn sweep_profiles_is_dry_run_by_default() {
+        let request = api_request(&action(&[
+            "codeterm",
+            "integration",
+            "sweep-profiles",
+            "--provider",
+            "codex",
+        ]));
+        assert_eq!(
+            request,
+            (
+                "POST".to_string(),
+                "/api/integration/sweep-profiles?provider=codex&confirm=false&include_legacy=false"
+                    .to_string(),
+                None
+            )
+        );
+    }
+
+    #[test]
+    fn sweep_profiles_requires_both_explicit_deletion_flags() {
+        let request = api_request(&action(&[
+            "codeterm",
+            "integration",
+            "sweep-profiles",
+            "--provider",
+            "codex",
+            "--confirm",
+            "--include-legacy",
+        ]));
+        assert!(request.1.ends_with("confirm=true&include_legacy=true"));
     }
 }

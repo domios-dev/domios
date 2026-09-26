@@ -341,6 +341,17 @@ pub trait AgentProvider: Send + Sync {
     /// Build the shell command to launch this agent.
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String;
 
+    fn release_tab_launch_artifacts(&self, _tab_id: &str, _instance_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+
+    fn sweep_launch_artifacts(
+        &self,
+        _request: &LaunchArtifactSweepRequest,
+    ) -> Result<Option<LaunchArtifactSweepReport>, String> {
+        Ok(None)
+    }
+
     fn starter_prompt_text(&self, _: StarterPrompt) -> Option<String> {
         None
     }

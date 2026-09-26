@@ -163,8 +163,12 @@ Session binding needs each provider's CodeTerm hooks installed and trusted. No S
 codeterm integration status --provider codex            # read install/trust state
 codeterm integration install --provider codex           # records consent, installs, grants trust
 codeterm integration install --provider claude --mesh PEER   # same on a paired peer
+codeterm integration sweep-profiles --provider codex    # preview dead profiles and legacy files
+codeterm integration sweep-profiles --provider codex --confirm  # delete this instance's dead profiles
+codeterm integration sweep-profiles --provider codex --confirm --include-legacy  # also delete unmarked files
 ```
 Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted CodeTerm hook by themselves (reinstall plus trust grant). Foreign hooks are never rewritten or trusted.
+Profile cleanup is dry-run by default. `--confirm` deletes only files marked for this instance whose tab ids are not live here; unmarked legacy files also require `--include-legacy`.
 
 ### Config Management
 Read/write CodeTerm config at runtime:
@@ -179,4 +183,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->

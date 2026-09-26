@@ -16,6 +16,7 @@ const LANE_BRANCH_PREFIX: &str = "lane/";
 #[derive(Debug)]
 pub(crate) struct CloseTeamCleanup {
     pub(super) member_tab_ids: Vec<String>,
+    pub(super) agent_providers: Vec<(String, String)>,
     pub(super) chat_backings: Vec<(String, String)>,
     pub(super) pty_ids: Vec<String>,
 }
@@ -38,6 +39,7 @@ pub(super) struct PreparedTeamClose {
 struct StagedTeamClose {
     team: Team,
     member_tab_ids: Vec<String>,
+    agent_providers: Vec<(String, String)>,
     chat_backings: Vec<(String, String)>,
     pty_ids: Vec<String>,
     closed_roots: Vec<String>,
@@ -296,6 +298,14 @@ where
         .map(|tab| tab.id.clone())
         .collect();
     member_tab_ids.sort();
+    let agent_providers = member_tab_ids
+        .iter()
+        .filter_map(|tab_id| {
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.agent_type.clone())
+                .map(|provider_id| (tab_id.clone(), provider_id))
+        })
+        .collect();
     super::authorize_team_close(mux, team_id, caller, &member_tab_ids)?;
     let chat_backings = member_tab_ids
         .iter()
@@ -323,6 +333,7 @@ where
     Ok(StagedTeamClose {
         team,
         member_tab_ids,
+        agent_providers,
         chat_backings,
         pty_ids,
         closed_roots,
@@ -339,6 +350,7 @@ fn commit_staged_team_close(
         staged.team,
         CloseTeamCleanup {
             member_tab_ids: staged.member_tab_ids,
+            agent_providers: staged.agent_providers,
             chat_backings: staged.chat_backings,
             pty_ids: staged.pty_ids,
         },
