@@ -316,12 +316,14 @@ fn assigned_only_attempt_labels_each_timestamp() {
             "status": "assigned",
             "provider": "codex",
             "model": "gpt-test",
+            "reasoning_effort": "xhigh",
+            "session_model": "gpt-runtime",
             "assigned_at": 100,
             "acknowledged_at": null,
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
+        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test reasoning_effort=xhigh session_model=gpt-runtime\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
     );
 }
 
@@ -339,7 +341,7 @@ fn acknowledged_in_progress_attempt_separates_ack_from_assignment() {
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
+        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
     );
 }
 
@@ -357,7 +359,7 @@ fn reported_partial_attempt_separates_report_from_ack() {
             "reported_at": 120,
             "closed_at": null,
         }),
-        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
+        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
     );
 }
 
@@ -375,7 +377,7 @@ fn closed_attempt_labels_its_closure_separately() {
             "reported_at": 120,
             "closed_at": 130,
         }),
-        "attempt_id=attempt-closed executor_tab_id=tab-worker status=closed provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=130\n",
+        "attempt_id=attempt-closed executor_tab_id=tab-worker status=closed provider=codex model=gpt-test reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=130\n",
     );
 }
 
@@ -384,6 +386,10 @@ fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
     let response = json!({
         "attempts": [{
             "attempt_id": "attempt-json",
+            "provider": "codex",
+            "model": "gpt-6-luna",
+            "reasoning_effort": "xhigh",
+            "session_model": null,
             "assigned_at": 100,
             "acknowledged_at": 110,
             "reported_at": null,
@@ -408,4 +414,25 @@ fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
     assert_eq!(out["attempts"][0]["acknowledged_at"], 110);
     assert_eq!(out["attempts"][0]["reported_at"], Value::Null);
     assert_eq!(out["attempts"][0]["closed_at"], Value::Null);
+    assert_eq!(out["attempts"][0]["provider"], "codex");
+    assert_eq!(out["attempts"][0]["model"], "gpt-6-luna");
+    assert_eq!(out["attempts"][0]["reasoning_effort"], "xhigh");
+    assert_eq!(out["attempts"][0]["session_model"], Value::Null);
+}
+
+#[test]
+fn attempt_detail_labels_dispatched_and_session_models() {
+    let rendered = render_attempt(&json!({
+        "attempt": {
+            "provider": "codex",
+            "model": "gpt-6-luna",
+            "reasoning_effort": "xhigh",
+            "session_model": null,
+        }
+    }));
+
+    assert!(rendered.contains("provider: codex\n"), "{rendered}");
+    assert!(rendered.contains("model: gpt-6-luna\n"), "{rendered}");
+    assert!(rendered.contains("reasoning_effort: xhigh\n"), "{rendered}");
+    assert!(rendered.contains("session_model: -\n"), "{rendered}");
 }

@@ -64,6 +64,12 @@ pub struct ReasoningEffortIdentity {
     pub actual_source: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionModelIdentity {
+    pub session_id: String,
+    pub session_binding_nonce: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextEpochArchive {
     pub provider: String,
@@ -538,6 +544,8 @@ pub struct Tab {
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_model: Option<String>,
+    #[serde(skip, default)]
+    pub agent_session_model_identity: Option<SessionModelIdentity>,
     /// Model selected by plan/task routing before a launch-time override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_planned_model: Option<String>,
@@ -857,6 +865,7 @@ mod tests {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_session_model_identity: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,

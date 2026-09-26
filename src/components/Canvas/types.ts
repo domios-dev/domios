@@ -157,8 +157,11 @@ export interface TaskExecutionAttempt {
   tab_title?: string | null;
   executor_tab_id?: string | null;
   executor_title?: string | null;
+  provider?: string | null;
   agent_type?: string | null;
   model?: string | null;
+  reasoning_effort?: string | null;
+  session_model?: string | null;
   session_id?: string | null;
   role?: string | null;
   branch?: string | null;
