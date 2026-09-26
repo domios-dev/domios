@@ -2,7 +2,6 @@
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
-  CODETERM_OPENCODE_PLUGIN_MARKER,
   lastPromptShape,
   parsePermissionPrompt,
   parseQuestionMenuPrompt,
@@ -21,6 +20,7 @@ import {
   opencodePluginEntry,
   opencodePluginEntryMatches,
   isCurrentOpencodeBindingPluginSource,
+  ownsOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
   opencodeSessionRecord,
   partToChatMsg,
@@ -308,8 +308,7 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath!) || "") : "";
-    const pluginOwned = pluginExists
-      && pluginBody.startsWith("// " + CODETERM_OPENCODE_PLUGIN_MARKER);
+    const pluginOwned = pluginExists && ownsOpencodeBindingPluginSource(pluginBody);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
