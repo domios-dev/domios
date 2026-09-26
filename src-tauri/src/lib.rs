@@ -1143,6 +1143,7 @@ pub fn run() {
 
             // Mark shutting down the moment exit is requested, so the liveness watchdog doesn't read the imminent API-down as a crash.
             if let tauri::RunEvent::ExitRequested { .. } = _event {
+                log::info!("[shutdown] RunEvent::ExitRequested received");
                 crash::shutdown::mark_shutting_down();
             }
 
@@ -1151,4 +1152,5 @@ pub fn run() {
                 crash::exit::handle_run_exit(_app);
             }
         });
+    log::info!("[shutdown] Tauri event loop returned");
 }
