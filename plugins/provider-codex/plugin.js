@@ -20,9 +20,12 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // plugins/provider-codex/src/plugin.ts
 var plugin_exports = {};
 __export(plugin_exports, {
+  codexProfileInstanceId: () => codexProfileInstanceId,
   codexProfileTabId: () => codexProfileTabId,
-  codexProfilesToSweep: () => codexProfilesToSweep,
   default: () => plugin_default,
+  inspectCodexProfiles: () => inspectCodexProfiles,
+  manageCodexProfiles: () => manageCodexProfiles,
+  releaseCodexProfile: () => releaseCodexProfile,
   sweepCodexProfiles: () => sweepCodexProfiles
 });
 module.exports = __toCommonJS(plugin_exports);
@@ -1481,6 +1484,96 @@ function completedActivity(value, ts, timestamp, turnId) {
   return null;
 }
 
+// plugins/provider-codex/src/profile-sweep.ts
+var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
+var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
+function codexProfileTabId(fileName) {
+  return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
+}
+function codexProfileInstanceId(contents) {
+  const firstLine = contents.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
+  return INSTANCE_MARKER_RE.exec(firstLine)?.[1] ?? null;
+}
+function profilePath(host2, name) {
+  if (host2.platform() !== "windows") return null;
+  const home = host2.homeDir();
+  return home ? `${home}\\.codex\\${name}` : null;
+}
+function profiles(host2) {
+  if (host2.platform() !== "windows") return null;
+  const home = host2.homeDir();
+  if (!home) return null;
+  const dir = `${home}\\.codex`;
+  try {
+    const entries = host2.fs.readDir(dir);
+    if (!Array.isArray(entries)) return null;
+    return entries.filter((entry) => entry?.isFile).map((entry) => entry.name);
+  } catch {
+    return null;
+  }
+}
+function readProfile(host2, path) {
+  try {
+    return host2.fs.readFile(path);
+  } catch {
+    return null;
+  }
+}
+function removeProfile(host2, path) {
+  try {
+    return host2.fs.removeFile(path);
+  } catch {
+    return false;
+  }
+}
+function inspectCodexProfiles(host2, liveTabIds, instanceId) {
+  const listing = profiles(host2);
+  if (!listing) return { dead: [], legacy: [] };
+  const live = new Set(liveTabIds);
+  const dead = [];
+  const legacy = [];
+  for (const name of listing) {
+    const tabId = codexProfileTabId(name);
+    if (tabId === null) continue;
+    const path = profilePath(host2, name);
+    if (!path) continue;
+    const contents = readProfile(host2, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    if (owner === instanceId && !live.has(tabId)) dead.push(name);
+    else if (owner === null) legacy.push(name);
+  }
+  return { dead, legacy };
+}
+function sweepCodexProfiles(host2, liveTabIds, instanceId) {
+  return manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
+}
+function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy) {
+  const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId);
+  const removed = [];
+  if (!confirm) return { ...candidates, removed };
+  for (const name of [...candidates.dead, ...includeLegacy ? candidates.legacy : []]) {
+    const path = profilePath(host2, name);
+    if (!path) continue;
+    const contents = readProfile(host2, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    const stillOwned = owner === instanceId;
+    const stillLegacy = includeLegacy && owner === null;
+    if ((stillOwned || stillLegacy) && removeProfile(host2, path)) removed.push(name);
+  }
+  return { ...candidates, removed };
+}
+function releaseCodexProfile(host2, tabId, instanceId) {
+  const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const name = `codeterm-${suffix}.config.toml`;
+  const path = profilePath(host2, name);
+  if (!path || codexProfileTabId(name) === null) return false;
+  const contents = readProfile(host2, path);
+  if (contents === null || codexProfileInstanceId(contents) !== instanceId) return false;
+  return removeProfile(host2, path);
+}
+
 // plugins/provider-codex/src/tabState.ts
 var CLASSIFY_THRESHOLD = 0.8;
 var RESUME_BUFFER_MS = 60 * 1e3;
@@ -2479,43 +2572,18 @@ function hasCodetermCodexWindowsCommand(entry) {
   return false;
 }
 
-// plugins/provider-codex/src/profile-sweep.ts
-var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
-function codexProfileTabId(fileName) {
-  const m = CODEX_PROFILE_NAME_RE.exec(fileName);
-  return m ? m[1] : null;
-}
-function codexProfilesToSweep(fileNames, liveTabIds) {
-  const out = [];
-  for (const name of fileNames) {
-    const tabId = codexProfileTabId(name);
-    if (tabId === null) continue;
-    if (!liveTabIds.has(tabId)) out.push(name);
-  }
-  return out;
-}
-function sweepCodexProfiles(host2, liveTabIds) {
-  if (host2.platform() !== "windows") return { removed: [] };
-  const home = host2.homeDir();
-  if (!home) return { removed: [] };
-  const dir = home + "\\.codex";
-  let entries;
-  try {
-    entries = host2.fs.readDir(dir);
-  } catch {
-    return { removed: [] };
-  }
-  if (!Array.isArray(entries)) return { removed: [] };
-  const names = entries.filter((e) => e && e.isFile).map((e) => e.name);
-  const toRemove = codexProfilesToSweep(names, new Set(liveTabIds));
-  const removed = [];
-  for (const name of toRemove) {
-    if (host2.fs.removeFile(dir + "\\" + name)) removed.push(name);
-  }
-  return { removed };
-}
-
 // plugins/provider-codex/src/plugin.ts
+function profileSweepHost() {
+  return {
+    platform: () => host.platform(),
+    homeDir: () => host.homeDir(),
+    fs: {
+      readDir: (path) => host.fs.readDir(path),
+      readFile: (path) => host.fs.readFile(path),
+      removeFile: (path) => host.fs.removeFile(path)
+    }
+  };
+}
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -2611,6 +2679,18 @@ var plugin = {
   discoverModels() {
     return discoverCodexModels();
   },
+  releaseTabLaunchArtifacts(tabId, instanceId) {
+    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+  sweepLaunchArtifacts(request) {
+    return manageCodexProfiles(
+      profileSweepHost(),
+      request.liveTabIds,
+      request.instanceId,
+      request.confirm,
+      request.includeLegacy
+    );
+  },
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = [];
@@ -2624,12 +2704,17 @@ var plugin = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
+      if (host.platform() === "windows" && !instanceId) {
+        return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
+      }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : void 0);
       const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `$ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); try { `;
+        const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
+        prefix = `$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; $ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); $ctInstanceId = ${quotedInstanceId}; Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); try { `;
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {

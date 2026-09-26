@@ -24,14 +24,17 @@ if (process.platform !== "win32") {
       },
     };
     vm.runInNewContext(fs.readFileSync("plugins/provider-codex/plugin.js", "utf8"), context);
-    const command = context.module.exports.default.buildLaunchCommand({ task: token, silent: true });
+    const command = context.module.exports.default.buildLaunchCommand({ task: token, silent: true, instanceId: "instance-launch-test" });
     const script = `$ErrorActionPreference = 'Stop'
 $env:USERPROFILE = ${quote(root)}
 $env:CODETERM_TAB_ID = 'owned-launch-fixture'
 function codex {
   $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
   $profileText = [IO.File]::ReadAllText($profilePath)
-  $value = $profileText.Substring('developer_instructions = '.Length) | ConvertFrom-Json
+  $lines = $profileText -split "`r?`n"
+  if ($lines[0] -ne '# codeterm-instance: instance-launch-test') { throw 'instance marker is not the first profile line' }
+  $assignment = $profileText.Substring($profileText.IndexOf('developer_instructions = ') + 'developer_instructions = '.Length)
+  $value = $assignment | ConvertFrom-Json
   if ($value -isnot [string]) { throw 'instructions were serialized as a provider object' }
   [IO.File]::WriteAllText(${quote(receiptPath)}, ($value | ConvertTo-Json -Compress))
 }

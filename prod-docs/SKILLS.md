@@ -165,8 +165,12 @@ codeterm integration install --provider codex           # records consent, insta
 codeterm integration install --provider claude --mesh PEER   # same on a paired peer
 codeterm integration install --provider claude --precompact-memory-export       # enable memory export
 codeterm integration install --provider claude --no-precompact-memory-export    # disable memory export
+codeterm integration sweep-profiles --provider codex    # preview dead profiles and legacy files
+codeterm integration sweep-profiles --provider codex --confirm  # delete this instance's dead profiles
+codeterm integration sweep-profiles --provider codex --confirm --include-legacy  # also delete unmarked files
 ```
 Omitting either PreCompact flag preserves the current CodeTerm hook choice or its recorded setting. Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted CodeTerm hook by themselves (reinstall plus trust grant). An existing CodeTerm-owned install without a consent record is recorded as consent before reconciliation; foreign hooks are never rewritten or trusted.
+Profile cleanup is dry-run by default. `--confirm` deletes only files marked for this instance whose tab ids are not live here. `--include-legacy` with `--confirm` deletes every unmarked profile, regardless of tab liveness, so review the preview before opting in.
 
 ### Config Management
 Read/write CodeTerm config at runtime:
@@ -181,4 +185,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 63 -->
+<!-- revision: 65 -->

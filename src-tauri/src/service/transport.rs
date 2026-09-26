@@ -161,6 +161,7 @@ impl AgentTransport for PtyTransport {
             session_id: None,
             structured_prompt_server,
             launch_marker: None,
+            instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         };
         let launch_command =
             crate::service::launch_session_detection::marked_provider_launch_command(
