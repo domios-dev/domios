@@ -95,7 +95,8 @@ fn build_or_refuse_orchestrated_launch_command(
     bg_task: Option<&str>,
     launch_session_id: Option<&str>,
 ) -> Result<String, String> {
-    let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+    let launch_cmd = crate::service::launch_session_detection::marked_agent_command_for_service(
+        service,
         tab_id,
         agent_cmd,
         params,

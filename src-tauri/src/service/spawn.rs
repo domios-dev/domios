@@ -350,7 +350,7 @@ impl ServiceContext {
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
-            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+            self.notify_model_fallback(notice);
         }
 
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
@@ -699,7 +699,8 @@ impl ServiceContext {
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = visible_agent_launch_command(
+        let launch_cmd = visible_agent_launch_command_for_service(
+            self,
             &tab_id,
             &agent_cmd,
             &legacy_params,
@@ -781,7 +782,7 @@ impl ServiceContext {
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
-            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+            self.notify_model_fallback(notice);
         }
 
         let ws_id = {
@@ -994,19 +995,12 @@ impl ServiceContext {
                     .with_provider(&agent.provider, |p| p.model_launch_args(m))
             })
             .unwrap_or_default();
-        if let Some(ref effort) = agent.reasoning_effort {
-            if !effort.is_empty() {
-                let effort_args = self
-                    .agent_registry
-                    .with_provider(&agent.provider, |p| {
-                        p.supports_reasoning_effort_for_model(launch_model.as_deref(), effort)
-                            .then(|| p.reasoning_effort_launch_args(effort))
-                    })
-                    .flatten()
-                    .unwrap_or_default();
-                model_args.extend(effort_args);
-            }
-        }
+        model_args.extend(self.reasoning_effort_launch_args_or_notice(
+            &tab_id,
+            &agent.provider,
+            launch_model.as_deref(),
+            agent.reasoning_effort.as_deref(),
+        ));
 
         let svc_outer = std::sync::Arc::new(self.clone());
         let tab_id_outer = tab_id.clone();
@@ -1161,6 +1155,26 @@ fn visible_agent_launch_command(
     registry: &AgentRegistry,
 ) -> String {
     super::launch_session_detection::marked_agent_command(
+        tab_id,
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+    )
+}
+
+fn visible_agent_launch_command_for_service(
+    service: &ServiceContext,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &AgentRegistry,
+) -> String {
+    super::launch_session_detection::marked_agent_command_for_service(
+        service,
         tab_id,
         agent_cmd,
         params,

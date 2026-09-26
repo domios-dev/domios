@@ -124,6 +124,30 @@ console.log("\n--- discoverModels ---\n");
 }
 
 {
+  const cache = {
+    models: [
+      { slug: "gpt-empty", supported_reasoning_levels: [] },
+      { slug: "gpt-invalid", supported_reasoning_levels: [{}, { effort: 12 }, { effort: " " }] },
+    ],
+  };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{ reasoningEfforts?: unknown }>;
+  eq(
+    models.map((model) => model.reasoningEfforts),
+    [undefined, undefined],
+    "empty or wholly invalid cache levels leave per-model support absent for provider fallback",
+  );
+}
+
+{
   const p = loadCodexWithHost(baseHost({}));
   eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Codex cache exists");
 }
