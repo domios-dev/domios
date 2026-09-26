@@ -41,28 +41,18 @@ curl -N "http://host:7685/api/tabs/$TAB/output/stream"
 
 ```bash
 # Create workspace + tab
-WS=$(curl -s -X POST http://host:7685/api/workspaces \
-  -H "Content-Type: application/json" \
-  -d '{"name":"my-project"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+WS=$(curl -s -X POST http://host:7685/api/workspaces -H "Content-Type: application/json" -d '{"name":"my-project"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 # Get tab and run command
 TAB=$(curl -s http://host:7685/api/tabs | python3 -c "import sys,json;print(json.load(sys.stdin)[-1]['id'])")
-curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
-  -H "Content-Type: application/json" \
-  -d '{"command": "npm test", "timeout_ms": 30000}'
+curl -X POST "http://host:7685/api/tabs/$TAB/exec" -H "Content-Type: application/json" -d '{"command": "npm test", "timeout_ms": 30000}'
 # Send with batch (e.g. launch Claude Code)
-curl -X POST "http://host:7685/api/tabs/$TAB/send" \
-  -H "Content-Type: application/json" \
-  -d '{"batch": [{"text": "claude"}, {"text": "", "delay_ms": 8000}]}'
+curl -X POST "http://host:7685/api/tabs/$TAB/send" -H "Content-Type: application/json" -d '{"batch": [{"text": "claude"}, {"text": "", "delay_ms": 8000}]}'
 
 # Register webhook for agent events
-curl -X POST http://host:7685/api/webhooks \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://my-orchestrator/hook", "events": ["agent.permission_request"]}'
+curl -X POST http://host:7685/api/webhooks -H "Content-Type: application/json" -d '{"url": "https://my-orchestrator/hook", "events": ["agent.permission_request"]}'
 
 # One-shot webhook (fires once, then auto-deletes — like a Promise)
-curl -X POST http://host:7685/api/webhooks \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
+curl -X POST http://host:7685/api/webhooks -H "Content-Type: application/json" -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
 ```
 The updater and Git surfaces are not transport; they live in API-INTEGRATIONS.
 
@@ -89,10 +79,7 @@ treated as the oldest protocol, never crashed on — receives one typed error
 instead of method-level parse noise:
 
 ```json
-{"code": -32002,
- "message": "client protocol v0, server requires >=1 — run ./build.sh cli",
- "data": {"type": "version_skew", "client_protocol": 0, "server_protocol": 1,
-          "recovery": "./build.sh cli"}}
+{"code": -32002, "message": "client protocol v0, server requires >=1 — run ./build.sh cli", "data": {"type": "version_skew", "client_protocol": 0, "server_protocol": 1, "recovery": "./build.sh cli"}}
 ```
 
 `recovery` is `./build.sh cli` on dev builds and `codeterm update install --auto`
@@ -248,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Plan writes still
 require the live bound session; pending status does not authorize the mutation.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

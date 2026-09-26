@@ -17,19 +17,10 @@ Restart an agent whose process is currently observed live in a tab. The body is 
 **Ready response** (`202 Accepted`):
 ```json
 {
-  "restart_accepted": true,
-  "old_pty_torn_down": true,
-  "agent_ready": true,
-  "recovered_in_place": false,
-  "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e",
-  "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
-  "tab_id": "a3f1b2c7",
-  "provider": "claude",
-  "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
-  "session_was_stale": false,
-  "session_action": "resume",
-  "full_access": true,
-  "force": false
+  "restart_accepted": true, "old_pty_torn_down": true, "agent_ready": true, "recovered_in_place": false,
+  "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e", "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
+  "tab_id": "a3f1b2c7", "provider": "claude", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+  "session_was_stale": false, "session_action": "resume", "full_access": true, "force": false
 }
 ```
 
@@ -90,14 +81,10 @@ Prevents the machine from sleeping (and optionally from dimming the display) whi
 
 **Status shape (`KeepAwakeStatus`):**
 ```json
-{
-  "active": true,
-  "display": false,
-  "expires_at": 1744387200000
-}
+{"active": true, "display": false, "expires_at": 1744387200000}
 ```
 - `active` — whether a keep-awake session is currently running.
-- `display` — whether the display is also being kept on (not just the system).
+- `display` — whether the display is also kept on.
 - `expires_at` — unix milliseconds when the session auto-expires, or `null` for an indefinite session.
 
 **GET /api/keepawake** — returns the current `KeepAwakeStatus`. When no session is active, `active=false`, `display=false`, `expires_at=null`.
@@ -247,4 +234,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->
