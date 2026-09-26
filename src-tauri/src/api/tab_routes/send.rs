@@ -470,25 +470,13 @@ pub async fn send_text(
                                 tab.agent_type.clone()?,
                                 tab.agent_session_id.clone(),
                                 tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
-                                tab.launch_session_authenticated(),
                             ))
                         })
                     };
-                    target.and_then(|(pty_id, agent_type, session_id, cwd, session_bound)| {
-                        let (screen, input) = {
-                            let screen_state = svc.screen_state.lock();
-                            (
-                                screen_state.get_screen_text(&pty_id),
-                                screen_state.composer_input_state(&pty_id),
-                            )
-                        };
-                        let Some(screen) = screen else {
-                            return Some("provider screen state is unavailable".to_string());
-                        };
-                        let shell_prompt =
-                            crate::pty::screen_state::screen_has_bare_shell_prompt(&screen);
-                        let provider_result =
-                            svc.agent_registry.with_provider(&agent_type, |provider| {
+                    target.and_then(|(pty_id, agent_type, session_id, cwd)| {
+                        let screen = svc.screen_state.lock().get_screen_text(&pty_id)?;
+                        svc.agent_registry
+                            .with_provider(&agent_type, |provider| {
                                 use codeterm_plugin::tab_state::TabState;
 
                                 let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
@@ -514,50 +502,16 @@ pub async fn send_text(
                                         .as_ref()
                                         .is_some_and(|value| value.state == TabState::UpdatePrompt);
                                 if provider.directory_trust_prompt_response(&screen).is_some() {
-                                    return Err("provider trust dialog is visible".to_string());
-                                }
-                                if update_dialog {
-                                    return Err("provider update dialog is visible".to_string());
-                                }
-                                if structured_choice {
-                                    return Err("provider structured-choice dialog is visible".to_string());
-                                }
-                                let composer_ready = !shell_prompt
-                                    && input.as_ref().is_some_and(|state| {
-                                        let cursor_ready =
-                                            crate::agent::offline_state_classifier::composer_cursor_ready(
-                                                state.cursor_visible,
-                                                state.cursor_row,
-                                                state.rows,
-                                            ) || state
-                                                .inverse_caret_row
-                                                .zip(state.last_nonblank_row)
-                                                .is_some_and(|(row, bottom)| {
-                                                    crate::agent::offline_state_classifier::composer_cursor_ready(
-                                                        true,
-                                                        row,
-                                                        bottom.saturating_add(1),
-                                                    )
-                                                });
-                                        cursor_ready
-                                            && (provider.screen_has_tui(&screen)
-                                                || state.alternate_screen)
-                                    });
-                                if shell_prompt
-                                    || (!shell_prompt && session_bound)
-                                    || composer_ready
-                                {
-                                    Ok(())
+                                    Some("provider trust dialog is visible".to_string())
+                                } else if update_dialog {
+                                    Some("provider update dialog is visible".to_string())
+                                } else if structured_choice {
+                                    Some("provider structured-choice dialog is visible".to_string())
                                 } else {
-                                    Err("provider input readiness is not proven".to_string())
+                                    None
                                 }
-                            });
-                        match provider_result {
-                            Some(Ok(())) => None,
-                            Some(Err(detail)) => Some(detail),
-                            None if shell_prompt => None,
-                            None => Some("provider input readiness is not proven".to_string()),
-                        }
+                            })
+                            .flatten()
                     })
                 };
                 let action_refusal = || {
