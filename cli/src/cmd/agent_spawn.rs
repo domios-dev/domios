@@ -457,8 +457,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             }
         }
         Err(e) => {
-            eprintln!("{}", crate::cmd::model_error::render_socket_error(&e));
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json, e);
         }
     }
 }
@@ -520,8 +519,7 @@ fn add_team_orchestrator(
             }
         }
         Err(e) => {
-            eprintln!("{}", crate::cmd::model_error::render_socket_error(&e));
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json, e);
         }
     }
 }

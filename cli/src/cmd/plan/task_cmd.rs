@@ -8,7 +8,11 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, inject_trusted_session, lane_params, maybe_inject_caller_tab, resolve_text};
+use super::{
+    call, call_plan_rpc_detailed, inject_trusted_session, lane_params, maybe_inject_caller_tab,
+    resolve_text,
+};
+use crate::cmd::print::CliError;
 
 /// Parent-free addressing: with one positional the ref is the task and the plan is inferred
 /// daemon-side; with two, the first is the plan ref and the second the task ref.
@@ -143,10 +147,7 @@ fn render_attempt(value: &Value) -> String {
         }
     }
     for key in ["provider", "model", "reasoning_effort", "session_model"] {
-        let value = attempt
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or("-");
+        let value = attempt.get(key).and_then(Value::as_str).unwrap_or("-");
         out.push_str(&format!("{key}: {value}\n"));
     }
     if let Some(command) = attempt.get("report_command").and_then(|v| v.as_str()) {
@@ -285,6 +286,74 @@ pub(crate) fn render_empty_reason(reason: &Value) -> Option<String> {
         EMPTY_REASON_NO_MATCH_FOR_FILTERS => Some("No task matched the supplied filters.".into()),
         _ => None,
     }
+}
+
+pub(super) fn run_dispatch(
+    client: &mut dyn RpcClient,
+    json: bool,
+    action: PlanTaskAction,
+) -> Result<Option<Value>, CliError> {
+    let PlanTaskAction::Dispatch {
+        plan_id,
+        task_id,
+        agent,
+        authorized_gates,
+        canonical_writer,
+        model,
+        reasoning_effort,
+        parent,
+        workspace,
+        cwd,
+        execution_intent,
+        provider_reserve_pct,
+    } = action
+    else {
+        unreachable!()
+    };
+    let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
+    let mut params = json!({
+        "task_id": task_ref,
+        "execution_intent": execution_intent,
+        "provider_reserve_pct": provider_reserve_pct,
+        "authorized_gates": authorized_gates,
+    });
+    if let Some(pid) = plan_ref {
+        params["plan_id"] = json!(pid);
+    }
+    if canonical_writer {
+        params["placement"] = json!("canonical_writer");
+    }
+    if let Some(agent) = agent {
+        params["agent"] = json!(agent);
+    }
+    if let Some(model) = model {
+        params["model"] = json!(model);
+    }
+    if let Some(effort) = reasoning_effort {
+        params["reasoning_effort"] = json!(effort);
+    }
+    if let Some(parent) = parent {
+        params["parent_tab_id"] = json!(parent);
+    }
+    if let Some(workspace) = workspace {
+        params["workspace_id"] = json!(workspace);
+    }
+    if let Some(cwd) = cwd {
+        params["cwd"] = json!(cwd);
+    }
+    inject_trusted_session(&mut params);
+    let val = call_plan_rpc_detailed(client, "plan.task.dispatch", params)?;
+    if json {
+        return Ok(Some(val));
+    }
+    if let Some(warnings) = val.get("warnings").and_then(|v| v.as_array()) {
+        for warning in warnings.iter().filter_map(|v| v.as_str()) {
+            eprintln!("warning: {warning}");
+        }
+    }
+    print_safety_nudges(&val);
+    print!("{}", render_dispatch_response(&val));
+    Ok(None)
 }
 
 pub(super) fn run_task(
@@ -722,64 +791,8 @@ pub(super) fn run_task(
             inject_trusted_session(&mut params);
             call(client, "plan.task.assign", params).map(Some)
         }
-        PlanTaskAction::Dispatch {
-            plan_id,
-            task_id,
-            agent,
-            authorized_gates,
-            canonical_writer,
-            model,
-            reasoning_effort,
-            parent,
-            workspace,
-            cwd,
-            execution_intent,
-            provider_reserve_pct,
-        } => {
-            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
-            let mut params = json!({
-                "task_id": task_ref,
-                "execution_intent": execution_intent,
-                "provider_reserve_pct": provider_reserve_pct,
-                "authorized_gates": authorized_gates,
-            });
-            if let Some(pid) = plan_ref {
-                params["plan_id"] = json!(pid);
-            }
-            if canonical_writer {
-                params["placement"] = json!("canonical_writer");
-            }
-            if let Some(agent) = agent {
-                params["agent"] = json!(agent);
-            }
-            if let Some(model) = model {
-                params["model"] = json!(model);
-            }
-            if let Some(effort) = reasoning_effort {
-                params["reasoning_effort"] = json!(effort);
-            }
-            if let Some(parent) = parent {
-                params["parent_tab_id"] = json!(parent);
-            }
-            if let Some(workspace) = workspace {
-                params["workspace_id"] = json!(workspace);
-            }
-            if let Some(cwd) = cwd {
-                params["cwd"] = json!(cwd);
-            }
-            inject_trusted_session(&mut params);
-            let val = call(client, "plan.task.dispatch", params)?;
-            if json {
-                return Ok(Some(val));
-            }
-            if let Some(warnings) = val.get("warnings").and_then(|v| v.as_array()) {
-                for w in warnings.iter().filter_map(|v| v.as_str()) {
-                    eprintln!("warning: {w}");
-                }
-            }
-            print_safety_nudges(&val);
-            print!("{}", render_dispatch_response(&val));
-            Ok(None)
+        dispatch @ PlanTaskAction::Dispatch { .. } => {
+            run_dispatch(client, json, dispatch).map_err(|error| error.message)
         }
         PlanTaskAction::Attempts { plan_id, task_id } => {
             let val = call(

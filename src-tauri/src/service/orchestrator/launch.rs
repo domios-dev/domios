@@ -28,6 +28,7 @@ pub(crate) struct LaunchRegistry {
     next_generation: u64,
     tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
+mod command;
 #[cfg(test)]
 #[path = "launch/exit_recovery_shell_tests.rs"]
 mod exit_recovery_shell_tests;
@@ -36,15 +37,14 @@ mod failure;
 #[path = "launch/generation.rs"]
 mod generation;
 mod startup_readiness;
-#[cfg(test)]
-#[path = "launch/tests.rs"]
-mod tests;
-use failure::LaunchFailure;
-mod command;
 pub(crate) use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service,
 };
+#[cfg(test)]
+#[path = "launch/tests.rs"]
+mod tests;
+use failure::LaunchFailure;
 #[derive(Clone, Debug)]
 struct RegisteredLaunch {
     pty_id: String,
@@ -445,6 +445,8 @@ pub(crate) fn launch_agent_in_background_with_env(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
+    let resumes_on_first_turn =
+        startup_readiness::resume_waits_for_first_turn(&svc, &tab_id, &agent_cmd, origin);
     let launch_started = std::time::Instant::now();
     let (role, role_profile) = svc
         .mux
@@ -877,6 +879,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
             crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+            resumes_on_first_turn,
         );
 
         let provider_readiness = svc
@@ -921,7 +924,17 @@ pub(crate) fn launch_agent_in_background_with_env(
                 readiness,
             );
         }
-        if !launch.emit(&svc, BootStage::ProviderReady) {
+        let input_ready_stage =
+            startup_readiness::input_ready_stage_after_provider_ready(resumes_on_first_turn);
+        if resumes_on_first_turn {
+            set_booting(false);
+        }
+        let input_ready = if resumes_on_first_turn {
+            launch.emit_resume_first_turn_input_ready(&svc)
+        } else {
+            launch.emit(&svc, input_ready_stage)
+        };
+        if !input_ready {
             return;
         }
         delivery_gate.mark_provider_ready();
@@ -1034,6 +1047,18 @@ pub(crate) fn launch_agent_in_background_with_env(
                 reason: "launch readiness observer stopped before session binding".into(),
             }
         });
+        if let Some(finished) =
+            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness)
+        {
+            if finished {
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Ok(()));
+                }
+            } else if let Some(tx) = ready_tx {
+                let _ = tx.send(Err("launch readiness was superseded".into()));
+            }
+            return;
+        }
         if let Err(error) = startup_readiness::emit_agent_ready(&mut launch, &svc, readiness) {
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
