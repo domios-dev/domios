@@ -1,4 +1,4 @@
-import { unwrapShellCommand } from "../src/execWrapper";
+import { execScriptCommands, unwrapCommandExecution, unwrapShellCommand } from "../src/execWrapper";
 import { patchEdits } from "../src/patchEdits";
 
 function eq(actual: unknown, expected: unknown, label: string): void {
@@ -21,6 +21,17 @@ eq(
   "unwraps generated Windows JSON wrapper",
 );
 eq(unwrapShellCommand(String.raw`tools.shell_command({command:"unterminated})`), null, "rejects unbalanced wrapper");
+eq(
+  execScriptCommands(String.raw`const r = await tools.exec_command({cmd:"git status --short"}); text(r.output)`),
+  ["git status --short"],
+  "extracts the nested executable command",
+);
+eq(
+  unwrapCommandExecution(["C:\\Opaque Tools\\shell.exe", "-Command", "git status --short"]),
+  { command: "git status --short", detail: '"C:\\\\Opaque Tools\\\\shell.exe" -Command "git status --short"' },
+  "unwraps a command from shell argv structure",
+);
+eq(unwrapCommandExecution(["C:\\Opaque Tools\\shell.exe", "-NoProfile"]), null, "rejects an argv without a command switch");
 eq(
   patchEdits("*** Begin Patch\n*** Update File: src/demo.ts\n@@\n-old\n+new\n*** End Patch"),
   [{ path: "src/demo.ts", old: "old", new: "new" }],

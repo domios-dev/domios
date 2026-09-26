@@ -15,7 +15,7 @@ import {
   responseKeysForIndex,
 } from "./prompt";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
-import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
+import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
 import { agentMessageRow, reasoningResponseRow, subAgentRow } from "./agentActivity";
@@ -327,6 +327,7 @@ const plugin: PluginModule = {
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+        if (pairCommandExecution(v.payload.item, v.payload.turn_id, ts, tsIso)) continue;
         pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
         continue;
       }
@@ -401,6 +402,21 @@ const plugin: PluginModule = {
         });
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const deferred = p.type === "custom_tool_call_output" ? deferredCommandCalls.get(callId) : undefined;
+        if (deferred) {
+          const data = deferred.message.blocks[0].data;
+          if (deferred.wrapperDetails.length > 0) data.tool_detail = deferred.wrapperDetails.join("\n\n");
+          Object.assign(data, deferred.completionFields);
+          out.push(deferred.message);
+          out.push({
+            role: "assistant",
+            blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
+            ts: ts,
+            timestamp: tsIso,
+          });
+          deferredCommandCalls.delete(callId);
+          continue;
+        }
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
@@ -432,12 +448,26 @@ const plugin: PluginModule = {
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const canonical = canonicalToolFields(name, input);
-        out.push({
+        const message: DeferredCommandCall["message"] = {
           role: "assistant",
           blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input, ...canonical } }],
           ts: ts,
           timestamp: tsIso,
-        });
+        };
+        const commands = name === "exec" && callId && typeof input.raw === "string"
+          ? execScriptCommands(input.raw)
+          : [];
+        if (commands.length > 0) {
+          deferredCommandCalls.set(callId, {
+            message,
+            remainingCommands: commands,
+            wrapperDetails: [],
+            completionFields: {},
+            turnId: callTurnId(p),
+          });
+        } else {
+          out.push(message);
+        }
       }
     }
     stampRows(lines.length - 1);
@@ -610,6 +640,57 @@ interface CodexPayload {
   changes?: unknown;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
+
+interface DeferredCommandCall {
+  message: {
+    role: "assistant";
+    blocks: { kind: string; data: Record<string, unknown> }[];
+    ts: number | null;
+    timestamp: string | null;
+  };
+  remainingCommands: string[];
+  wrapperDetails: string[];
+  completionFields: Record<string, unknown>;
+  turnId?: string;
+}
+
+const deferredCommandCalls = new Map<string, DeferredCommandCall>();
+
+function callTurnId(payload: CodexPayload): string | undefined {
+  if (typeof payload.turn_id === "string") return payload.turn_id;
+  const metadata = payload.internal_chat_message_metadata_passthrough;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const turnId = (metadata as Record<string, unknown>).turn_id;
+  return typeof turnId === "string" ? turnId : undefined;
+}
+
+function pairCommandExecution(item: unknown, turnId: unknown, ts: number | null, timestamp: string | null): boolean {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  const execution = item as Record<string, unknown>;
+  if (execution.type !== "CommandExecution") return false;
+  const wrapper = unwrapCommandExecution(execution.command);
+  if (!wrapper) return false;
+  let candidates = Array.from(deferredCommandCalls.values()).filter((call) => call.remainingCommands.indexOf(wrapper.command) !== -1);
+  const currentTurn = typeof turnId === "string" ? turnId : undefined;
+  if (currentTurn) {
+    const sameTurn = candidates.filter((call) => call.turnId === currentTurn);
+    candidates = sameTurn.length > 0 ? sameTurn : candidates.filter((call) => !call.turnId);
+  }
+  if (candidates.length !== 1) return false;
+  const call = candidates[0];
+  const commandIndex = call.remainingCommands.indexOf(wrapper.command);
+  call.remainingCommands.splice(commandIndex, 1);
+  call.wrapperDetails.push(wrapper.detail);
+  const activity = completedActivity(item, ts, timestamp, turnId);
+  const toolData = activity?.blocks.find((block) => block.kind === "tool_use")?.data;
+  if (toolData) {
+    for (const key of ["tool_status", "tool_exit_code", "tool_duration_ms", "tool_flow_id"]) {
+      if (toolData[key] !== undefined) call.completionFields[key] = toolData[key];
+    }
+  }
+  return true;
+}
+
 export interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
 
 function nestedApplyPatch(raw: string): string | null {

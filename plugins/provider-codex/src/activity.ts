@@ -1,5 +1,6 @@
 import { actionTitle, baseName } from "./actionTitle";
 import { collabCallRow, reasoningItemRow, subAgentRow } from "./agentActivity";
+import { commandText } from "./execWrapper";
 import { changedPaths, codexFileDiffs, diffEdits } from "./fileDiffs";
 import { extensionResult, imageViewResult } from "./richResults";
 
@@ -44,14 +45,6 @@ export interface ActivityMessage {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function commandText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
-  const argv = value as string[];
-  if (!argv[0].trim()) return "";
-  return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
 }
 
 function exactOutcomeNumber(value: unknown, nonnegative: boolean): number | undefined {
@@ -99,8 +92,6 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
       { kind: "tool_use", data: {
         id, name: "command_execution", input: { command, ...(Array.isArray(item.command) ? { argv: item.command } : {}) },
         ...fields, tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields), ...outcome, ...flow,
-        // The exec call that ran this command is already in the transcript; no source id links the two.
-        tool_echo: true,
         tool_status: failed ? "error" : "success",
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome } },
