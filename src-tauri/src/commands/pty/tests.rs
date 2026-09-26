@@ -170,14 +170,17 @@ mod restored_fresh_launch_tests {
     /// makes the command reachable at all — an unregistered id returns None.
     #[test]
     fn restored_fresh_launch_command_carries_the_identity_exactly_once() {
-        let registry = crate::agent::registry::AgentRegistry::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(
+            crate::multiplexer::state::MultiplexerState::new().0,
+        );
+        let registry = &*fixture.service.agent_registry;
         registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 
         for historical_task in [Some(HISTORICAL_TASK), None] {
             let input =
-                restored_fresh_launch_input(&registry, worker_params("claude", historical_task));
+                restored_fresh_launch_input(registry, worker_params("claude", historical_task));
             let command = input
-                .command(&registry, "tab-restored-identity")
+                .command(&fixture.service, "tab-restored-identity")
                 .expect("restored launch command");
 
             assert_eq!(command.matches("--append-system-prompt-file").count(), 1);
@@ -198,13 +201,16 @@ mod restored_fresh_launch_tests {
     fn restored_fresh_launch_passes_a_minted_marker_and_resume_passes_none() {
         use crate::service::launch_session_detection::registered_launch_marker;
 
-        let registry = crate::agent::registry::AgentRegistry::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(
+            crate::multiplexer::state::MultiplexerState::new().0,
+        );
+        let registry = &*fixture.service.agent_registry;
         registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
             "restored-marked",
         )));
 
-        let fresh = restored_fresh_launch_input(&registry, worker_params("restored-marked", None))
-            .command(&registry, "tab-restored-fresh")
+        let fresh = restored_fresh_launch_input(registry, worker_params("restored-marked", None))
+            .command(&fixture.service, "tab-restored-fresh")
             .expect("restored fresh launch command");
         let marker = registered_launch_marker("tab-restored-fresh")
             .expect("restored fresh launch registers its launch marker");
@@ -213,8 +219,8 @@ mod restored_fresh_launch_tests {
 
         let mut resume_params = worker_params("restored-marked", None);
         resume_params.resume_session_id = Some("session-restored".into());
-        let resumed = restored_fresh_launch_input(&registry, resume_params)
-            .command(&registry, "tab-restored-resume")
+        let resumed = restored_fresh_launch_input(registry, resume_params)
+            .command(&fixture.service, "tab-restored-resume")
             .expect("restored resume command");
         assert!(!resumed.contains("--launch-marker"));
         assert_eq!(registered_launch_marker("tab-restored-resume"), None);

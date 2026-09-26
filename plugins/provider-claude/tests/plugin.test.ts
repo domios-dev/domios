@@ -102,6 +102,34 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
+console.log("\n--- session model detection ---\n");
+{
+  const transcript = '{"type":"assistant","message":{"model":"claude-opus-5","content":[]}}';
+  let fullReads = 0;
+  let tailBytes = 0;
+  const p = loadClaudeWithHost(baseHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => { fullReads += 1; return transcript; },
+      readFileTail: (_path: string, maxBytes: number) => {
+        tailBytes = maxBytes;
+        return transcript;
+      },
+      readJson: () => null,
+      writeTempFile: () => "/tmp/ct-task",
+      writeJson: () => true,
+    },
+  }));
+
+  eq(
+    p.detectSessionModel("/fixture/project", "session-model"),
+    "Opus",
+    "session model uses the exact session transcript",
+  );
+  eq(fullReads, 0, "session model avoids loading the full transcript");
+  eq(tailBytes, 4 * 1024 * 1024, "session model reads a bounded 4 MiB transcript tail");
+}
+
 console.log("\n--- meta ---\n");
 
 eq(plugin.meta.id, "claude", "meta.id is 'claude'");
@@ -237,6 +265,13 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   const titleless = fs.readFileSync(path.join(dir, "trust-without-title.txt"), "utf8");
   eq(claudeFolderTrustPrompt(titleless), null, "an untitled folder trust prompt is refused");
   eq(claudeFolderTrustHighlightedOptionIndex(titleless), null, "an untitled prompt has no trusted focus");
+  const updateDialogPath = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+  );
+  const updateDialog = fs.readFileSync(updateDialogPath, "utf8");
+  eq(hostPlugin.directoryTrustPromptResponse(updateDialog), null, "Claude trust responder refuses the unrelated update menu");
+  eq(claudeFolderTrustPrompt(updateDialog), null, "Claude folder-trust parser refuses the unrelated update menu");
   const underscoreTrust = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8")
     .replace(/^([ \t]*Yes\b[^\r\n]*)\btrust\b/im, "$1_trust");
   eq(claudeFolderTrustPrompt(underscoreTrust), null, "underscore is part of the trust token");

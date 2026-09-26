@@ -657,6 +657,51 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     models
 }
 
+pub fn has_live_snapshot(provider_id: &str) -> bool {
+    registry()
+        .read()
+        .get(provider_id)
+        .is_some_and(|snapshot| snapshot.source == Source::Live)
+}
+
+pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
+    registry()
+        .read()
+        .get(provider_id)
+        .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()))
+}
+
+pub fn resolve_live_default_model(provider_id: &str) -> Option<String> {
+    let registry = registry();
+    let guard = registry.read();
+    let snapshot = guard.get(provider_id)?;
+    if snapshot.source != Source::Live {
+        return None;
+    }
+    snapshot
+        .default
+        .as_deref()
+        .and_then(|default| find_model(&snapshot.models, default))
+        .map(|model| model.id.clone())
+        .or_else(|| {
+            snapshot
+                .models
+                .iter()
+                .find(|model| model.available != Some(false))
+                .map(|model| model.id.clone())
+        })
+}
+
+pub fn resolve_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {
+    let models = resolve_models(provider_id);
+    find_model(&models, requested).cloned()
+}
+
+pub fn resolve_live_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {
+    let models = resolve_live_models(provider_id)?;
+    find_model(&models, requested).cloned()
+}
+
 fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
     let snapshot = registry().read().get(provider_id).cloned();
     let Some(snapshot) = snapshot else {
@@ -974,6 +1019,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             featured: m.featured,
                             badge: m.badge,
                             group: m.group,
+                            reasoning_efforts: None,
                         })
                         .collect(),
                     default_effort: p.default_effort,
@@ -1016,7 +1062,16 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
 /// the end. Result: built-in updates flow in automatically, user additions
 /// stick around, user re-titles of built-ins win.
 fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo> {
-    merge_by_id(builtin, overrides, |model| model.id.as_str())
+    let mut merged = merge_by_id(builtin, overrides, |model| model.id.as_str());
+    for model in &mut merged {
+        if model.reasoning_efforts.is_none() {
+            model.reasoning_efforts = builtin
+                .iter()
+                .find(|base| base.id == model.id)
+                .and_then(|base| base.reasoning_efforts.clone());
+        }
+    }
+    merged
 }
 
 /// Overlay an override onto a live catalog: every base model stays, matching
@@ -1042,6 +1097,7 @@ fn overlay_only(base: &[ModelInfo], overlay: &[ModelInfo]) -> Vec<ModelInfo> {
                 featured: o.featured.or(model.featured),
                 badge: o.badge.clone().or_else(|| model.badge.clone()),
                 group: o.group.clone().or_else(|| model.group.clone()),
+                reasoning_efforts: model.reasoning_efforts.clone(),
             }
         })
         .collect()

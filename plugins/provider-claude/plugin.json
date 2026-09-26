@@ -63,6 +63,9 @@
     }
   ],
   "defaultModel": "sonnet",
+  "modelCatalogue": {
+    "authority": "authoritative"
+  },
   "reasoningEfforts": [
     {
       "id": "low",

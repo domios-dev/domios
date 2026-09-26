@@ -113,21 +113,6 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-console.log("\n--- provider update capability ---\n");
-
-{
-  const p = loadHostPlugin();
-  eq(
-    p.providerSelfUpdateCapability(),
-    {
-      inSession: true,
-      restartRequired: true,
-      completionSignal: "provider_classification",
-    },
-    "in-session updates declare the completion signal required for restart",
-  );
-}
-
 console.log("\n--- task instructions launch ---\n");
 
 {
@@ -235,7 +220,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "parseSessionMessages", "classifyTabState",
-    "providerSelfUpdateCapability", "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts",
+    "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   assert(

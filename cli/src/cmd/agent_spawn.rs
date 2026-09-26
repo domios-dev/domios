@@ -426,7 +426,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             body["spawned_by_tab_id"] = serde_json::json!(spawner);
         }
     }
-    match client.call("agent.spawn", Some(body)) {
+    match client.call_detailed("agent.spawn", Some(body)) {
         Ok(val) => {
             if json {
                 crate::cmd::print::print_json(&val);
@@ -457,8 +457,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json, e);
         }
     }
 }
@@ -489,7 +488,7 @@ fn add_team_orchestrator(
     if let Some(model) = model {
         body["model"] = serde_json::json!(model);
     }
-    match client.call("team.add_member", Some(body)) {
+    match client.call_detailed("team.add_member", Some(body)) {
         Ok(val) => {
             if json {
                 crate::cmd::print::print_json(&val);
@@ -515,10 +514,12 @@ fn add_team_orchestrator(
                 }
                 _ => {}
             }
+            if let Some(warning) = val.get("warning").and_then(|value| value.as_str()) {
+                eprintln!("Warning: {warning}");
+            }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json, e);
         }
     }
 }

@@ -1,19 +1,20 @@
 use std::io::Write;
 
 use crate::client::SocketCallError;
-use crate::cmd::plan_output::error_envelope;
+use crate::cmd::plan_output::error_envelope_with_data;
 
 /// Exit status of every failed CLI command, with and without `--json`.
 pub const CLI_ERROR_EXIT_CODE: i32 = 1;
 
 const UNEXPLAINED_RPC_FAILURE: &str = "the daemon rejected this command without an explanation";
 
-/// A CLI failure split into the human-facing explanation and the machine-facing
-/// JSON-RPC code, so the code can reach `--json` without reaching the operator.
+/// A CLI failure with human-readable text and machine-readable RPC metadata.
+/// Structured daemon data stays intact through the `--json` error envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliError {
     pub message: String,
     pub code: Option<i32>,
+    pub data: Option<serde_json::Value>,
 }
 
 impl CliError {
@@ -21,6 +22,7 @@ impl CliError {
         Self {
             message: message.into(),
             code: None,
+            data: None,
         }
     }
 }
@@ -32,6 +34,7 @@ impl From<SocketCallError> for CliError {
             SocketCallError::Rpc(rpc) => Self {
                 message: rpc_explanation(&rpc.message),
                 code: Some(rpc.code),
+                data: rpc.data,
             },
         }
     }
@@ -76,7 +79,11 @@ pub(crate) fn write_cli_error(
     err: &mut impl Write,
 ) {
     if json {
-        let _ = writeln!(out, "{}", error_envelope(&error.message, error.code));
+        let _ = writeln!(
+            out,
+            "{}",
+            error_envelope_with_data(&error.message, error.code, error.data.as_ref())
+        );
         return;
     }
     let _ = out.flush();

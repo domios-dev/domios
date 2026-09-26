@@ -151,14 +151,6 @@ impl ConditionLedger {
     }
 }
 
-/// "An update is available" is a state, not an event: it stays true until the
-/// update is installed.
-pub const PROVIDER_UPDATE_AVAILABLE: &str = "provider-update-available";
-
-pub fn provider_update_condition(provider_id: &str) -> String {
-    format!("{PROVIDER_UPDATE_AVAILABLE}:{provider_id}")
-}
-
 /// Owner of a condition that is true for the machine rather than for one tab.
 /// A per-tab latch would announce the same machine-wide gap once per tab.
 pub const MACHINE_SCOPE: &str = "<machine>";

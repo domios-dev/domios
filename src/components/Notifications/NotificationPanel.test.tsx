@@ -148,30 +148,6 @@ async function run() {
     "a standing answer offers no choice buttons, delivered or not",
   );
 
-  // The pre-existing action kinds still render and still run through the
-  // generic runner, untouched by the new kind.
-  panel = await render({
-    ...asked,
-    actions: [
-      {
-        label: "Update",
-        type: "invoke",
-        command: "respond_provider_update_prompt",
-        args: { promptId: "prompt-1", accept: true },
-      },
-    ],
-    answer: undefined,
-  });
-  const update = Array.from(panel.querySelectorAll("button")).find(
-    (button) => button.textContent === "Update",
-  ) as HTMLElement;
-  assert(update, "an invoke action should still render its button");
-  await act(async () => update.click());
-  assert(
-    invoked.length === 1 && invoked[0].command === "respond_provider_update_prompt",
-    "the pre-existing invoke path should be unchanged",
-  );
-
   // The expand control the panel already had is reused, not replaced.
   const expand = panel.querySelector<HTMLButtonElement>(
     '[aria-label$="complete message for Which branch?"]',

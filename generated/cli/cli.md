@@ -161,7 +161,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--provider-reserve-pct`
-- `--reasoning-effort` — Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels
+- `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
@@ -2347,7 +2347,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
-- `--reasoning-effort` — Provider-supported reasoning effort (rejected if unsupported)
+- `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
 

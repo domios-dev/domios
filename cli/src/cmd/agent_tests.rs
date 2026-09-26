@@ -34,6 +34,46 @@ fn agent_models_formats_descriptor_models_from_api_snapshot() {
 }
 
 #[test]
+fn agent_models_formats_per_model_efforts_and_provider_fallback() {
+    let provider = serde_json::json!({
+        "id": "codex",
+        "default_model": "gpt-6-sol",
+        "default_reasoning_effort": "medium",
+        "reasoning_efforts": [
+            { "id": "low", "display_name": "Low" },
+            { "id": "medium", "display_name": "Medium" },
+            { "id": "high", "display_name": "High" },
+            { "id": "xhigh", "display_name": "Extra high" }
+        ],
+        "available_models": [
+            {
+                "id": "gpt-6-sol",
+                "display_name": "GPT-6 Sol",
+                "reasoning_efforts": [
+                    { "id": "low" }, { "id": "medium" }, { "id": "max" }, { "id": "ultra" }
+                ]
+            },
+            {
+                "id": "gpt-5.5",
+                "display_name": "GPT-5.5",
+                "reasoning_efforts": [
+                    { "id": "low" }, { "id": "medium" }, { "id": "high" }, { "id": "xhigh" }
+                ]
+            },
+            { "id": "fallback-model", "display_name": "Fallback Model" }
+        ]
+    });
+
+    let out = format_agent_models(&provider, "codex");
+
+    assert!(out.contains("GPT-6 Sol (default)\n             Reasoning effort: low, medium (default), max, ultra"));
+    assert!(out.contains("GPT-5.5\n             Reasoning effort: low, medium (default), high, xhigh"));
+    assert!(out.contains("Fallback Model\n"));
+    assert!(out.contains("Provider fallback reasoning effort:"));
+    assert!(out.contains(&format!("{:<10} {}", "xhigh", "Extra high")));
+}
+
+#[test]
 fn env_default_uses_explicit_value_before_worker_env() {
     std::env::set_var("CODETERM_TEST_REPORT_DEFAULT", "from-env");
     assert_eq!(

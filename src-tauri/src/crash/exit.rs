@@ -62,6 +62,7 @@ pub(crate) fn save_and_sync_sidecars(
                 crate::session::scrollback_sync::sync_scrollback_sidecars_after_save_with(
                     &outcome, mux, output_buf, session,
                 );
+                log::info!("[shutdown] scrollback sidecars synchronized");
             }
         }
         Err(e) => log::error!("[shutdown] session save failed: {}", e),
@@ -71,6 +72,7 @@ pub(crate) fn save_and_sync_sidecars(
 /// Provider-update waiter join, session snapshot, mem WAL checkpoint. Idempotent
 /// and side-effect-free for process liveness, so every exit signal runs it.
 pub fn persist_state(app: &tauri::AppHandle) {
+    log::info!("[shutdown] state persistence started");
     if let (Some(mux), Some(session)) =
         (app.try_state::<MuxState>(), app.try_state::<SessionState>())
     {
@@ -83,10 +85,6 @@ pub fn persist_state(app: &tauri::AppHandle) {
     }
 
     if let Some(svc) = app.try_state::<crate::service::ServiceState>() {
-        let joined = svc.shutdown_provider_update_waiters();
-        if joined > 0 {
-            log::info!("[shutdown] joined {joined} provider-update waiter(s)");
-        }
         match svc.mem.checkpoint_and_close() {
             Ok((busy, log_frames, checkpointed)) => log::info!(
                 "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
@@ -97,11 +95,13 @@ pub fn persist_state(app: &tauri::AppHandle) {
             Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
         }
     }
+    log::info!("[shutdown] state persistence completed");
 }
 
 /// Clean-exit declaration: `.clean_exit` sentinel + keepawake child teardown +
 /// webview reap journal clear. Only a genuine quit may run this.
 pub fn declare_clean_exit(app: &tauri::AppHandle) {
+    log::info!("[shutdown] clean-exit declaration started");
     crate::crash::shutdown::mark_shutting_down();
     if let Some(state) = app.try_state::<KeepAwakeStateHandle>() {
         crate::keepawake::cleanup_active_children_for_exit_with_state(&state);
@@ -109,6 +109,7 @@ pub fn declare_clean_exit(app: &tauri::AppHandle) {
         crate::keepawake::cleanup_active_children_for_exit();
     }
     crate::webview2_reap::clear_journal_for_exit();
+    log::info!("[shutdown] clean-exit declaration completed");
 }
 
 /// Signal-driven graceful exit. Tray Quit and the macOS terminate hook reach
@@ -121,6 +122,7 @@ pub fn graceful_exit_cleanup(app: &tauri::AppHandle) {
 
 /// `RunEvent::Exit` entry point: always persist, declare only on a genuine quit.
 pub fn handle_run_exit(app: &tauri::AppHandle) {
+    log::info!("[shutdown] RunEvent::Exit received");
     let plan = plan_run_exit(
         cfg!(target_os = "macos"),
         crate::crash::shutdown::is_shutting_down(),
@@ -131,4 +133,5 @@ pub fn handle_run_exit(app: &tauri::AppHandle) {
         );
     }
     execute_exit_plan(plan, || declare_clean_exit(app), || persist_state(app));
+    log::info!("[shutdown] RunEvent::Exit handler completed");
 }

@@ -350,7 +350,7 @@ pub enum PlanTaskAction {
         model: Option<String>,
         #[arg(
             long = "reasoning-effort",
-            help = "Provider-supported reasoning effort (rejected if unsupported)"
+            help = "Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)"
         )]
         reasoning_effort: Option<String>,
         #[arg(

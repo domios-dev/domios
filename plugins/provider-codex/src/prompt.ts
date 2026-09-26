@@ -17,7 +17,12 @@ export interface ActiveTerminalChoice {
 }
 
 export type CodexFolderTrustPrompt =
-  | { kind: "active"; prompt: ParsedPrompt; affirmativeIndex: number }
+  | {
+      kind: "active";
+      prompt: ParsedPrompt;
+      affirmativeIndex: number;
+      affirmativeSelected: boolean;
+    }
   | { kind: "not_on_screen" };
 
 interface ParsedOptionState {
@@ -48,9 +53,9 @@ export function classifyCodexFolderTrustPrompt(
 ): CodexFolderTrustPrompt | null {
   const options = activeMenuOptions(screen);
   if (options.length !== 2) return null;
-  if (!hasDirectoryContextLine(screen)) return null;
-  const affirmativeIndex = options.findIndex((option) => /^yes\b/i.test(option.label));
-  const negativeIndex = options.findIndex((option) => /^no\b/i.test(option.label));
+  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
+  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
   if (affirmativeIndex < 0 || negativeIndex < 0) return null;
 
   const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
@@ -58,6 +63,7 @@ export function classifyCodexFolderTrustPrompt(
   const questionEnd = preamble.indexOf("?");
   const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
   if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
   const choice = parseActiveTerminalChoice(screen);
   if (
     !choice ||
@@ -70,6 +76,7 @@ export function classifyCodexFolderTrustPrompt(
   return {
     kind: "active",
     affirmativeIndex,
+    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
     prompt: {
       question: preamble.slice(0, questionEnd + 1).trim(),
       options: choice.options.map((option) => [option.label, option.value] as [string, string]),
@@ -79,13 +86,34 @@ export function classifyCodexFolderTrustPrompt(
   };
 }
 
-function hasDirectoryContextLine(screen: string): boolean {
-  return normalizeLines(screen).some((line) => {
-    const text = line.trim();
-    const context = /^[>❯›][ \t]+(.+)$/.exec(text)?.[1];
-    if (!context) return false;
-    return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
-  });
+function hasConfirmFooter(screen: string, lastOptionLine: number): boolean {
+  const lines = normalizeLines(screen);
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
+}
+
+function hasDirectoryContextLine(screen: string, firstOptionLine: number): boolean {
+  const lines = normalizeLines(screen);
+  const start = Math.max(0, firstOptionLine - 12);
+  const context = lines.slice(start, firstOptionLine).map((line) => line.trim()).filter(Boolean).join(" ");
+  const questionEnds: number[] = [];
+  const questionPattern = /\?/g;
+  let questionMatch: RegExpExecArray | null;
+  while ((questionMatch = questionPattern.exec(context)) !== null) questionEnds.push(questionMatch.index);
+  for (let i = questionEnds.length - 1; i >= 0; i--) {
+    const questionEnd = questionEnds[i];
+    const prefix = context.slice(0, questionEnd + 1);
+    if (!/\b(folder|directory|workspace)\b/i.test(prefix)) continue;
+    if (!/\b(trust|load(?:ed|ing)?)\b/i.test(prefix)) continue;
+    if (prefix.split(/\s+/).some((token) => isAbsolutePathToken(token))) return true;
+  }
+  return false;
 }
 
 function hasDirectoryTrustContent(preamble: string): boolean {
@@ -149,7 +177,7 @@ export function parseActiveTerminalChoice(screen: string): ActiveTerminalChoice 
   const lastOptionLine = options[options.length - 1].line;
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\b(?:press\s+)?enter\s+to\b/i.test(lines[i])) {
+    if (isActiveChoiceEnterFooter(lines[i])) {
       footerLine = i;
       break;
     }
@@ -210,6 +238,7 @@ function activeMenuOptions(screen: string): MenuOption[] {
 function promptFooterNear(lines: string[], lastLine: number): boolean {
   for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
     const t = lines[i].toLowerCase();
+    if (isActiveChoiceEnterFooter(t)) return true;
     if (
       (t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) &&
       (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 ||
@@ -217,6 +246,11 @@ function promptFooterNear(lines: string[], lastLine: number): boolean {
     ) return true;
   }
   return false;
+}
+
+function isActiveChoiceEnterFooter(line: string): boolean {
+  return /\benter\b.{0,40}\b(?:confirm|continue|select|authenticate)\b/i.test(line)
+    || /\benter\b.{0,32}\bopen\b.{0,24}\bbrowser\b/i.test(line);
 }
 
 function questionForMenu(lines: string[], firstLine: number): string {

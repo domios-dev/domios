@@ -122,6 +122,8 @@ grep -q 'POST http://127.0.0.1:7799/api/debug/shutdown/clean-restart' "$marker_f
 
 pid_translation_source="$(sed -n '/^process_pid_for_cleanup() {/,/^}/p' build.sh)"
 eval "$pid_translation_source"
+wait_for_dev_exit_source="$(sed -n '/^wait_for_dev_exit() {/,/^}/p' build.sh)"
+eval "$wait_for_dev_exit_source"
 tail -f /dev/null >/dev/null 2>&1 &
 pid_translation_shell_pid=$!
 expected_cleanup_pid="$pid_translation_shell_pid"
@@ -136,6 +138,10 @@ fi
 kill "$pid_translation_shell_pid" 2>/dev/null || true
 wait "$pid_translation_shell_pid" 2>/dev/null || true
 pid_translation_shell_pid=""
+if ! wait_for_dev_exit "$expected_cleanup_pid"; then
+  echo "wait_for_dev_exit must accept a dev PID that exited before the wait attached" >&2
+  exit 1
+fi
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-windows-dev-cleanup-selection.ps1
 

@@ -85,10 +85,12 @@ placement. `canonical_writer` requires `execution_intent: "mutating"`, a
 repository task, and no recorded lane (otherwise `invalid_task_dispatch`). It
 verifies canonical as an attached checkout, skips lane provisioning, and runs the
 checkout occupancy preflight against canonical, so any live attempt there refuses
-it with `checkout_occupied`. The attempt persists `placement`, and on readiness
-records `worktree_path` as the canonical checkout with no `base`, which keeps the
-report guard strict. `task.lane` stays empty, so lane cleanup never touches
-canonical. The dispatch response echoes `placement`.
+it with `checkout_occupied`. The attempt persists `placement`; readiness reports
+use that placement to validate `--sha` against the plan's canonical checkout,
+including when the attempt has no `worktree_path`. Canonical reports keep no base,
+so they require the reported commit to match canonical `HEAD` and refuse any dirty
+checkout, even with `--acknowledge-dirty`. `task.lane` stays empty, so lane cleanup
+never touches canonical. The dispatch response echoes `placement`.
 
 While such an attempt is live, `plan.review.accept` on another task that records
 a lane is refused with code `-32015`, `data.type = "canonical_writer_holds_checkout"`,
@@ -190,4 +192,4 @@ the deadline — is not a dispatch failure: the dispatch stays spawned-and-await
 and the provider's own launch detection or the worker-ack deadline settles it.
 Only a confirmed-gone tab fails the dispatch.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

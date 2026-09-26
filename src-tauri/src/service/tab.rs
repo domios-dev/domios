@@ -31,6 +31,7 @@ pub(crate) fn normalize_optional_tab_description(
 
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+mod lifecycle_clear;
 mod rename_guard;
 
 pub(crate) use rename_guard::refuse_task_bound_rename;
@@ -148,6 +149,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        self.cancel_agent_startup_supervision(tab_id);
         let pad_result = self.revoke_agent_pad(tab_id);
         self.clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
@@ -395,75 +397,6 @@ impl ServiceContext {
             let _ = self.pty.lock().rearm_guarded_input(&pty_id);
             crate::service::boot_wait::notify_boot_changed();
         }
-    }
-
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit(&self, tab_id: &str) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-            tab_id,
-            "agent identity cleared on lifecycle exit",
-        )
-    }
-
-    /// Same teardown, with the observed cause of death written to the lifecycle
-    /// journal instead of a generic label.
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-        &self,
-        tab_id: &str,
-        cause: &str,
-    ) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_during(
-            tab_id,
-            cause,
-            crate::crash::shutdown::active_shutdown(),
-        )
-    }
-
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_during(
-        &self,
-        tab_id: &str,
-        cause: &str,
-        shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
-    ) -> bool {
-        // An armed shutdown killed the provider itself; the snapshot saved at
-        // exit must still carry the identity the next boot resumes.
-        if let Some(reason) = shutdown {
-            log::info!(
-                "[agent-lifecycle] preserving Tab identity during shutdown ({reason:?}): tab={tab_id} cause={cause}"
-            );
-            return false;
-        }
-        // Every observed lifecycle exit funnels here, so the observed launch is
-        // claimed before the clear below retires it.
-        let exited = self.claim_launch_exit(tab_id, None, None);
-        let cleared = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .is_some_and(clear_agent_identity_for_lifecycle_exit)
-        };
-        // After the clear, so the launch verdict is the stage that stands.
-        if let Some(exited) = exited {
-            self.publish_launch_exit(&exited);
-        }
-        if !cleared {
-            return false;
-        }
-        self.record_lifecycle_end(
-            tab_id,
-            crate::session::lifecycle::LifecycleTransition::RolledBack {
-                reason: cause.to_string(),
-            },
-        );
-        self.invalidate_guarded_agent_input(tab_id);
-        log::info!("[agent-lifecycle] cleared Tab identity: tab={tab_id} cause={cause}");
-        self.signal_worker_interruption(
-            tab_id,
-            crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
-        );
-        self.clear_dead_planner_binding(tab_id);
-        self.prompt_detector.lock().clear(tab_id);
-        crate::service::structured_prompt::clear_tab(tab_id);
-        self.emit_state_changed();
-        true
     }
 
     /// Boot path: refresh model once for every tab that already has an

@@ -455,18 +455,139 @@ pub async fn send_text(
         } else {
             let svc = state.svc.clone();
             let action_tab = tab_id.clone();
-            tokio::task::spawn_blocking(move || {
+            let bytes_written = std::cell::Cell::new(false);
+            let action_result = tokio::task::spawn_blocking(move || {
+                let provider_action_refusal = || {
+                    let target = {
+                        let mux = svc.mux.read();
+                        mux.get_tab(&action_tab).and_then(|tab| {
+                            let pty_id = tab.pty_id.as_deref()?;
+                            if mux.tab_id_for_pty(pty_id)? != action_tab.as_str() {
+                                return None;
+                            }
+                            Some((
+                                pty_id.to_string(),
+                                tab.agent_type.clone()?,
+                                tab.agent_session_id.clone(),
+                                tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                            ))
+                        })
+                    };
+                    target.and_then(|(pty_id, agent_type, session_id, cwd)| {
+                        let screen = svc.screen_state.lock().get_screen_text(&pty_id)?;
+                        svc.agent_registry
+                            .with_provider(&agent_type, |provider| {
+                                use codeterm_plugin::tab_state::TabState;
+
+                                let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                                    tab_id: action_tab.clone(),
+                                    agent_type: agent_type.clone(),
+                                    session_id,
+                                    cwd,
+                                    screen_text: screen.clone(),
+                                };
+                                let classification = provider.classify_tab_state(&snapshot);
+                                let high_confidence =
+                                    classification.as_ref().is_some_and(|value| {
+                                        value.confidence
+                                            >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                                    });
+                                let structured_choice = high_confidence
+                                    && classification.as_ref().is_some_and(|value| {
+                                        value.state == TabState::ClarifyingQuestion
+                                    })
+                                    && provider.parse_prompt(&screen).is_some();
+                                let update_dialog = high_confidence
+                                    && classification
+                                        .as_ref()
+                                        .is_some_and(|value| value.state == TabState::UpdatePrompt);
+                                if provider.directory_trust_prompt_response(&screen).is_some() {
+                                    Some("provider trust dialog is visible".to_string())
+                                } else if update_dialog {
+                                    Some("provider update dialog is visible".to_string())
+                                } else if structured_choice {
+                                    Some("provider structured-choice dialog is visible".to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten()
+                    })
+                };
+                let action_refusal = || {
+                    let detail = provider_action_refusal()?;
+                    log::info!(
+                        "[send-actions] refused tab={} detail={}",
+                        action_tab,
+                        detail
+                    );
+                    Some(if bytes_written.get() {
+                        DeliveryError::SubmitUnconfirmed {
+                            tab: action_tab.clone(),
+                            detail,
+                        }
+                    } else {
+                        DeliveryError::TabBusyRefused {
+                            tab: action_tab.clone(),
+                            detail,
+                        }
+                    })
+                };
+                if let Some(error) = action_refusal() {
+                    return Err(error);
+                }
                 crate::service::pty_io::execute_ordered_actions(
                     &text,
                     &ordered,
                     |body, enter| {
                         if enter {
-                            svc.send_text(&action_tab, body)
-                        } else {
-                            svc.insert_text(&action_tab, body)
+                            if let Some(error) = action_refusal() {
+                                return Err(error);
+                            }
+                        }
+                        match svc.send_text_input_delivery(&action_tab, body, enter, None) {
+                            Ok(()) => {
+                                bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
+                                Ok(())
+                            }
+                            Err(error) if enter && !error.bytes_written() => {
+                                if let Some(action_error) = action_refusal() {
+                                    Err(action_error)
+                                } else if bytes_written.get() {
+                                    Err(DeliveryError::SubmitUnconfirmed {
+                                        tab: action_tab.clone(),
+                                        detail: error.to_string(),
+                                    })
+                                } else {
+                                    Err(error)
+                                }
+                            }
+                            Err(error) if bytes_written.get() && !error.bytes_written() => {
+                                Err(DeliveryError::SubmitUnconfirmed {
+                                    tab: action_tab.clone(),
+                                    detail: error.to_string(),
+                                })
+                            }
+                            Err(error) => Err(error),
                         }
                     },
-                    |bytes| svc.write_raw(&action_tab, bytes),
+                    |bytes| {
+                        if let Some(error) = action_refusal() {
+                            return Err(error);
+                        }
+                        svc.write_raw(&action_tab, bytes)
+                            .map_err(|error| {
+                                if bytes_written.get() {
+                                    DeliveryError::SubmitUnconfirmed {
+                                        tab: action_tab.clone(),
+                                        detail: error,
+                                    }
+                                } else {
+                                    DeliveryError::from_opaque(&action_tab, error)
+                                }
+                            })
+                            .map(|()| bytes_written.set(bytes_written.get() || !bytes.is_empty()))
+                    },
                     crate::service::pty_io::await_action_deadline,
                 )
             })
@@ -476,8 +597,8 @@ pub async fn send_text(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "action delivery task failed",
                 )
-            })?
-            .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+            })?;
+            action_result?;
         }
 
         let preview = if raw_text.is_empty() {
@@ -541,11 +662,7 @@ pub async fn send_text(
         && transport == TabInputTransport::Pty
     {
         let text = prepend(&raw_text);
-        state
-            .svc
-            .send_text_when_ready(&tab_id, &text)
-            .await
-            .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+        state.svc.send_text_when_ready(&tab_id, &text).await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({"ok": true, "mesh": true})));
     }
@@ -559,18 +676,16 @@ pub async fn send_text(
     let text = prepend(&stage(raw_text));
     // A plain text send always submits — no-Enter/keystroke cases go through
     // `actions` or `raw`.
-    state
-        .svc
-        .send_text_when_ready(&tab_id, &text)
-        .await
-        .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+    state.svc.send_text_when_ready(&tab_id, &text).await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &text);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
 #[cfg(test)]
 mod delivery_classification_tests {
-    use super::classify_delivery_failure;
+    use super::{classify_delivery_failure, SendRejection};
+    use crate::service::delivery_error::DeliveryError;
+    use axum::http::StatusCode;
 
     /// #240: a submit that failed AFTER the paste reached the PTY must never be
     /// reported as a missing tab — the caller would retry onto parked text.
@@ -586,19 +701,120 @@ mod delivery_classification_tests {
 
     #[test]
     fn booting_tab_refusal_is_a_zero_byte_busy_error() {
-        let err = classify_delivery_failure(
-            "53854ac8",
-            "Agent in Tab 53854ac8 is still booting — input would be lost",
-        );
+        let typed = DeliveryError::TabBusyRefused {
+            tab: "53854ac8".into(),
+            detail: "Agent in Tab 53854ac8 is still booting — input would be lost".into(),
+        };
+        let err = classify_delivery_failure("53854ac8", &typed.ledger_message());
         assert_eq!(err.code(), "tab_busy_refused");
         assert!(!err.bytes_written());
+    }
+
+    #[test]
+    fn pre_write_refusal_is_never_submit_unconfirmed() {
+        let typed = DeliveryError::TabBusyRefused {
+            tab: "53854ac8".into(),
+            detail: "provider-classified update dialog is visible".into(),
+        };
+        let err = classify_delivery_failure("53854ac8", &typed.ledger_message());
+
+        assert_eq!(err.code(), "tab_busy_refused");
+        assert_eq!(err.status(), StatusCode::CONFLICT);
+        assert!(!err.bytes_written());
+        let rejection = SendRejection::from(err);
+        assert_eq!(rejection.status, StatusCode::CONFLICT);
+        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
+        assert_eq!(rejection.body["error"]["bytes_written"], false);
+        assert!(rejection.body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nothing written"));
+    }
+
+    #[test]
+    fn written_payload_failure_reports_submit_unconfirmed_with_bytes_written() {
+        let rejection = SendRejection::from(DeliveryError::SubmitUnconfirmed {
+            tab: "53854ac8".into(),
+            detail: "provider modal appeared before recovery Enter".into(),
+        });
+
+        assert_eq!(rejection.status, StatusCode::BAD_GATEWAY);
+        assert_eq!(rejection.body["error"]["code"], "submit_unconfirmed");
+        assert_eq!(rejection.body["error"]["bytes_written"], true);
     }
 }
 
 #[cfg(test)]
 mod action_delivery_tests {
+    use super::SendRejection;
+    use crate::service::delivery_error::DeliveryError;
     use crate::service::inject_verify::InjectionError;
     use crate::service::pty_io::{execute_ordered_actions, OrderedPtyAction};
+    use axum::http::StatusCode;
+
+    #[test]
+    fn send_actions_enter_into_provider_modal_writes_zero_bytes() {
+        let mut bytes_written = 0usize;
+        let result = execute_ordered_actions(
+            "",
+            &[OrderedPtyAction::Submit],
+            |body, enter| {
+                assert!(body.is_empty());
+                assert!(enter);
+                Err::<(), _>(DeliveryError::TabBusyRefused {
+                    tab: "53854ac8".into(),
+                    detail: "provider update dialog is visible".into(),
+                })
+            },
+            |bytes| {
+                bytes_written += bytes.len();
+                Ok(())
+            },
+            |_| {},
+        );
+        let rejection = SendRejection::from(result.unwrap_err());
+
+        assert_eq!(bytes_written, 0);
+        assert_eq!(rejection.status, StatusCode::CONFLICT);
+        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
+        assert_eq!(rejection.body["error"]["bytes_written"], false);
+        assert_eq!(
+            rejection.body["error"]["detail"],
+            "provider update dialog is visible"
+        );
+    }
+
+    #[test]
+    fn send_actions_raw_key_into_provider_modal_writes_zero_bytes() {
+        let mut raw_writes = Vec::new();
+        let result = execute_ordered_actions(
+            "",
+            &[OrderedPtyAction::Raw(b"up".to_vec())],
+            |_, _| panic!("raw action must not wait for public agent readiness"),
+            |bytes| {
+                if bytes == b"up" {
+                    Err(DeliveryError::TabBusyRefused {
+                        tab: "53854ac8".into(),
+                        detail: "provider trust dialog is visible".into(),
+                    })
+                } else {
+                    raw_writes.push(bytes.to_vec());
+                    Ok(())
+                }
+            },
+            |_| {},
+        );
+        let rejection = SendRejection::from(result.unwrap_err());
+
+        assert!(raw_writes.is_empty());
+        assert_eq!(rejection.status, StatusCode::CONFLICT);
+        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
+        assert_eq!(rejection.body["error"]["bytes_written"], false);
+        assert_eq!(
+            rejection.body["error"]["detail"],
+            "provider trust dialog is visible"
+        );
+    }
 
     #[test]
     fn api_send_actions_text_enter_uses_acknowledged_submit() {
@@ -637,10 +853,14 @@ mod action_delivery_tests {
         ];
         let mut raw_writes = Vec::new();
         let mut deadlines = Vec::new();
+        let mut preflights = Vec::new();
         execute_ordered_actions(
             "",
             &actions,
-            |_, _| Ok::<_, String>(()),
+            |text, enter| {
+                preflights.push((text.to_string(), enter));
+                Ok::<_, String>(())
+            },
             |bytes| {
                 raw_writes.push(bytes.to_vec());
                 Ok(())
@@ -650,6 +870,30 @@ mod action_delivery_tests {
         .unwrap();
         assert_eq!(raw_writes, [b"up".to_vec(), b"esc".to_vec()]);
         assert_eq!(deadlines, [std::time::Duration::from_millis(25)]);
+        assert!(preflights.is_empty());
+    }
+
+    #[test]
+    fn send_actions_enter_and_ctrl_c_to_shell_write_their_bytes() {
+        let written = std::cell::RefCell::new(Vec::new());
+        let result = execute_ordered_actions(
+            "",
+            &[OrderedPtyAction::Submit, OrderedPtyAction::Raw(vec![0x03])],
+            |text, enter| {
+                assert!(text.is_empty());
+                assert!(enter);
+                written.borrow_mut().extend_from_slice(b"\r");
+                Ok::<_, DeliveryError>(())
+            },
+            |bytes| {
+                written.borrow_mut().extend_from_slice(bytes);
+                Ok(())
+            },
+            |_| {},
+        );
+
+        result.unwrap();
+        assert_eq!(written.into_inner(), b"\r\x03");
     }
 
     #[test]

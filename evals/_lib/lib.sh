@@ -223,7 +223,8 @@ dev_run() {
     "CODETERM_TAB_ID=$caller_tab_id"
     "CODETERM_PARENT_TAB_ID="
   )
-  env "${dev_vars[@]}" "$@"
+  # A prod tab's own identity (attempt, nonce, session, team, plan, task) must never reach dev.
+  env -u CODETERM_STARTUP_ATTEMPT_ID -u CODETERM_SESSION_BINDING_NONCE -u CODETERM_SESSION_ID     -u CODETERM_TEAM_ID -u CODETERM_PLAN_ID -u CODETERM_TASK_ID -u CODETERM_ATTEMPT_ID     "${dev_vars[@]}" "$@"
 }
 
 dev_api_url() {

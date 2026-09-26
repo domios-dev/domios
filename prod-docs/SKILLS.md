@@ -75,7 +75,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 6. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
 7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator)
 8. **Compact context**: `codeterm agent compact [--tab ID]` (sends /compact to Claude)
-9. **Choose model**: use `codeterm agent models <provider>` to list valid ids and `codeterm agent spawn <provider> --model MODEL --task "..."` to select one. Do not treat `codeterm agent model` as a universal live switch.
+9. **Choose model**: use `codeterm agent models <provider>` to list ids and `codeterm agent spawn <provider> --model MODEL --task "..."` to select one. Authoritative catalogues refuse unknown ids before creating a tab and show close ids; free-form providers accept provider-owned ids. If a required live catalogue is unavailable, the requested id is launched unchanged with a warning. Do not treat `codeterm agent model` as a universal live switch.
 10. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
 11. **Message a running agent**: `codeterm send --tab ID "status?"` (immediate agent-directed message via the normal send transport)
 12. **List tabs / hierarchy**: `codeterm tab list` (all local workspaces with tab counts, paths, Teams and active Plans, sub-agents nested, caller marked `(self)`; `--workspace <id>` selects the existing scoped tree and `--agents` filters to agent tabs). Use `codeterm tab inspect <id>` for one tab's full payload, or add `--lifecycle` for its journal telemetry.

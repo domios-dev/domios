@@ -1,5 +1,5 @@
 use super::*;
-use crate::client::SocketCallError;
+use crate::client::{RpcError, SocketCallError};
 use std::collections::VecDeque;
 
 /// Tokens no CLI code path can synthesize: if one reaches rendered output it
@@ -11,6 +11,7 @@ const DAEMON_CALLER_PROJECT: &str = "<daemon-reported-caller-project>";
 struct FakeRpc {
     calls: Vec<(String, Option<Value>)>,
     responses: VecDeque<Value>,
+    failure: Option<(String, SocketCallError)>,
 }
 
 impl FakeRpc {
@@ -18,6 +19,15 @@ impl FakeRpc {
         Self {
             calls: vec![],
             responses: VecDeque::from(responses),
+            failure: None,
+        }
+    }
+
+    fn refusing_after(method: &str, response: Value, error: SocketCallError) -> Self {
+        Self {
+            responses: VecDeque::from([response]),
+            failure: Some((method.to_string(), error)),
+            ..Self::default()
         }
     }
 
@@ -36,6 +46,14 @@ impl RpcClient for FakeRpc {
         params: Option<Value>,
     ) -> Result<Value, SocketCallError> {
         self.calls.push((method.to_string(), params));
+        if self
+            .failure
+            .as_ref()
+            .is_some_and(|(expected, _)| expected == method)
+        {
+            let (_, error) = self.failure.take().expect("matching failure remains");
+            return Err(error);
+        }
         if let Some(scripted) = self.responses.pop_front() {
             return Ok(scripted);
         }
@@ -45,6 +63,64 @@ impl RpcClient for FakeRpc {
             "plan_title": "Probe plan"
         }))
     }
+}
+
+#[test]
+fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
+    let data = json!({
+        "type": "invalid_model",
+        "provider": "codex",
+        "requested_model": "gpt-9-bogus",
+        "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+        "refresh_command": "codeterm agent models codex",
+        "message": "unknown model"
+    });
+    let mut client = FakeRpc::refusing_after(
+        "plan.task.dispatch",
+        json!({ "task": { "interruption": { "owner_epoch": 17 } } }),
+        SocketCallError::Rpc(RpcError {
+            code: -32602,
+            message: "unknown model".into(),
+            data: Some(data),
+        }),
+    );
+    let error = run_dispatch(
+        &mut client,
+        true,
+        PlanTaskAction::Dispatch {
+            plan_id: "plan_a".into(),
+            task_id: Some("task_a".into()),
+            agent: Some("codex".into()),
+            authorized_gates: Vec::new(),
+            canonical_writer: false,
+            model: Some("gpt-9-bogus".into()),
+            reasoning_effort: None,
+            parent: None,
+            workspace: None,
+            cwd: None,
+            execution_intent: "read_only".into(),
+            provider_reserve_pct: 0.0,
+        },
+    )
+    .expect_err("unknown authoritative model is a structured dispatch error");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    crate::cmd::print::write_cli_error(true, &error, &mut out, &mut err);
+
+    assert!(err.is_empty());
+    assert_eq!(client.calls[1].0, "plan.task.dispatch");
+    let output: Value = serde_json::from_slice(&out).expect("one JSON error envelope");
+    assert_eq!(output["ok"], false);
+    assert_eq!(output["kind"], "error");
+    assert_eq!(output["data"]["type"], "invalid_model");
+    assert_eq!(output["data"]["provider"], "codex");
+    assert_eq!(output["data"]["requested_model"], "gpt-9-bogus");
+    assert_eq!(output["data"]["closest_model_ids"][0], "gpt-6-sol");
+    assert_eq!(
+        output["data"]["refresh_command"],
+        "codeterm agent models codex"
+    );
+    assert_eq!(output["code"], -32602);
 }
 
 fn list_action(status: Option<&str>) -> PlanTaskAction {
