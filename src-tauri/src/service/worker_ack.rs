@@ -72,6 +72,7 @@ pub(crate) enum AgentStartupSignal {
 pub(crate) enum AgentStartupAcknowledgement {
     Acknowledged,
     AlreadyAcknowledged,
+    NotRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,6 +213,7 @@ pub(crate) struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
+    finalized_startups: Mutex<HashMap<String, StartupAuthority>>,
     pending_task_startup_acks: Mutex<HashMap<String, registry::PendingTaskStartupAck>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
@@ -221,6 +223,9 @@ impl WorkerAckRegistry {
     fn arm_startup(&self, authority: StartupAuthority) -> AgentStartupArm {
         let (sender, receiver) = mpsc::channel();
         let mut startup_waiters = self.startup_waiters.lock();
+        self.finalized_startups
+            .lock()
+            .remove(&authority.child_tab_id);
         if let Some(waiter) = startup_waiters
             .get_mut(&authority.child_tab_id)
             .filter(|waiter| waiter.authority == authority)
@@ -410,6 +415,44 @@ impl WorkerAckRegistry {
         Some(acknowledgement)
     }
 
+    fn startup_ack_refusal(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: Option<&str>,
+        binding_nonce: &str,
+    ) -> Option<String> {
+        let waiters = self.startup_waiters.lock();
+        if let Some(waiter) = waiters.get(tab_id) {
+            let authority = &waiter.authority;
+            if authority.attempt_id != attempt_id {
+                return Some(format!(
+                    "startup attempt {attempt_id} for Tab {tab_id} was superseded by {}",
+                    authority.attempt_id
+                ));
+            }
+            if authority.binding_nonce.as_deref() != Some(binding_nonce)
+                || (authority.session_id.is_some() && authority.session_id.as_deref() != session_id)
+            {
+                return Some(format!(
+                    "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
+                ));
+            }
+        }
+        let finalized = self.finalized_startups.lock();
+        finalized
+            .get(tab_id)
+            .filter(|authority| {
+                authority.attempt_id == attempt_id
+                    && authority.binding_nonce.as_deref() == Some(binding_nonce)
+            })
+            .map(|_| {
+                format!(
+                    "startup attempt {attempt_id} for Tab {tab_id} is finalized and not awaiting acknowledgement"
+                )
+            })
+    }
+
     /// Authorize and hold under one lock so a replacement attempt armed
     /// concurrently can never be held by the previous attempt's creator.
     pub(crate) fn hold_startup_authorized(
@@ -432,6 +475,9 @@ impl WorkerAckRegistry {
             Err(refusal) => return Err((refusal, supervised)),
         };
         let waiter = waiters.remove(tab_id).expect("waiter authorized above");
+        self.finalized_startups
+            .lock()
+            .insert(tab_id.to_string(), authority.clone());
         drop(waiters);
         self.clear_startup_supervisor(&authority);
         if let Some(team_id) = authority.team_id.as_deref() {
@@ -501,11 +547,15 @@ impl WorkerAckRegistry {
         let expired = waiters
             .remove(&authority.child_tab_id)
             .map(|waiter| waiter.authority);
-        drop(waiters);
         if let Some(expired) = expired {
+            self.finalized_startups
+                .lock()
+                .insert(expired.child_tab_id.clone(), expired.clone());
+            drop(waiters);
             self.clear_startup_supervisor(&expired);
             WaiterExpiry::Expired
         } else {
+            drop(waiters);
             WaiterExpiry::NoLongerCurrent
         }
     }
@@ -578,6 +628,7 @@ impl WorkerAckRegistry {
     fn cancel_startup_supervisor(&self, tab_id: &str) {
         self.startup_supervisors.lock().remove(tab_id);
         self.pending_task_startup_acks.lock().remove(tab_id);
+        self.finalized_startups.lock().remove(tab_id);
     }
 }
 
@@ -643,6 +694,7 @@ fn agent_startup_failed_event(
     attempt_id: &str,
     exit_code: Option<i32>,
     provider_output: Option<&str>,
+    failure_reason: Option<&str>,
 ) -> Value {
     json!({
         "kind": "agent_startup_failed",
@@ -659,6 +711,7 @@ fn agent_startup_failed_event(
             "selected_phase_seconds": COLD_START_DEADLINE_SECS,
         },
         "provider": { "exit_code": exit_code, "output": provider_output },
+        "failure_reason": failure_reason,
         "impact": "Provider startup expired; the tab remains alive for inspection.",
         "fallback": "Invoke recovery.capability for this exact tab and attempt before spawning a replacement.",
     })
@@ -716,17 +769,24 @@ fn worker_lifecycle_notice(
     };
     let detail = if matches!(kind, "agent_startup_failed" | "worker_ack_startup_failed") {
         payload
-            .pointer("/provider/output")
+            .get("failure_reason")
             .and_then(Value::as_str)
-            .map(compact_provider_failure)
-            .filter(|detail| !detail.is_empty())
-            .or_else(|| provider_output.map(compact_provider_failure))
+            .map(|reason| compact_notice_text(reason, 120))
             .filter(|detail| !detail.is_empty())
             .or_else(|| {
                 payload
-                    .pointer("/provider/exit_code")
-                    .and_then(Value::as_i64)
-                    .map(|code| format!("provider exit code {code}"))
+                    .pointer("/provider/output")
+                    .and_then(Value::as_str)
+                    .map(compact_provider_failure)
+                    .filter(|detail| !detail.is_empty())
+                    .or_else(|| provider_output.map(compact_provider_failure))
+                    .filter(|detail| !detail.is_empty())
+                    .or_else(|| {
+                        payload
+                            .pointer("/provider/exit_code")
+                            .and_then(Value::as_i64)
+                            .map(|code| format!("provider exit code {code}"))
+                    })
             })
     } else {
         None
