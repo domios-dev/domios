@@ -10,7 +10,7 @@ use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::agent::registry::AgentRegistry;
 use crate::api::{
     optional_json::OptionalJson,
-    routes::{resolve_tab, AppState},
+    routes::{check_auth, resolve_tab, AppState},
 };
 
 mod run_session;
@@ -63,6 +63,33 @@ fn escaped_hook_log_field(value: &str) -> String {
     format!("{value:?}")
 }
 
+pub async fn release_launch_artifacts_api(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_tab_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id)
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let provider_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.agent_type.clone());
+    let Some(provider_id) = provider_id else {
+        return Ok(Json(serde_json::json!({ "ok": true, "released": false })));
+    };
+    let registry = state.svc.agent_registry.clone();
+    let released = tokio::task::spawn_blocking(move || {
+        crate::service::launch_artifacts::release_tab(&registry, &tab_id, &provider_id)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(serde_json::json!({ "ok": true, "released": released })))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SessionBindingSource {
     Hook,
@@ -80,6 +107,10 @@ impl SessionStartClaim {
     ) -> &crate::agent::provider_identity::ProviderIdentityEvidence {
         &self.identity_evidence
     }
+}
+
+fn can_short_circuit_session_start(claim: &SessionStartClaim, fallback_pending: bool) -> bool {
+    claim.is_unchanged_acknowledged_report() && !fallback_pending
 }
 
 fn epoch_ms() -> u64 {
@@ -455,6 +486,13 @@ pub async fn hook_session_start(
         .and_then(|v| v.as_str())
         .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
         .map(|s| s.to_string());
+    log::info!(
+        "[hook_session_start] received tab={} source={} session_id_present={} nonce_present={}",
+        tab_id,
+        source,
+        session_id.is_some(),
+        report_nonce.is_some(),
+    );
 
     let Some(sid) = session_id else {
         log::warn!(
@@ -510,7 +548,21 @@ pub async fn hook_session_start(
         &sid,
         report_nonce.as_deref(),
     ) {
-        Ok(claim) if claim.is_unchanged_acknowledged_report() => {
+        Ok(claim)
+            if can_short_circuit_session_start(
+                &claim,
+                crate::service::integration_silence::has_hook_binding_fallback(
+                    &provider_id,
+                    &sid,
+                ),
+            ) =>
+        {
+            log::info!(
+                "[hook_session_start] acknowledged duplicate tab={} provider={} source={}",
+                tab_id,
+                provider_id,
+                source,
+            );
             return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
         }
         Ok(claim) => claim,
@@ -767,7 +819,7 @@ pub(crate) async fn finish_session_binding(
     body: &serde_json::Value,
     claim: SessionStartClaim,
     binding_source: crate::session::lifecycle::BindingSource,
-    hook_execution_observed: bool,
+    session_binding_hook_succeeded: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if claim.changed {
         svc.deferred_session_bindings.clear(tab_id);
@@ -775,13 +827,13 @@ pub(crate) async fn finish_session_binding(
         svc.deferred_session_bindings.clear_session(tab_id, sid);
     }
     svc.emit_session_binding_state(tab_id);
-    if claim.nonce_verified && (claim.changed || hook_execution_observed) {
+    if claim.nonce_verified && (claim.changed || session_binding_hook_succeeded) {
         crate::service::integration_silence::record_hook_binding_source(
             svc.agent_registry.as_ref(),
             provider_id,
             sid,
             binding_source,
-            hook_execution_observed,
+            session_binding_hook_succeeded,
         );
     }
     let (current_nonce, reported_nonce) = {
@@ -865,6 +917,14 @@ pub(crate) async fn finish_session_binding(
     // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {
         svc.retire_provisional_launch(tab_id, evidence);
+    }
+    if claim.nonce_verified && (claim.changed || session_binding_hook_succeeded) {
+        crate::service::launch_artifacts::release_after_session_binding(
+            svc.agent_registry.clone(),
+            tab_id.to_string(),
+            provider_id.to_string(),
+        )
+        .await;
     }
 
     // while it runs — not only after completion.

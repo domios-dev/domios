@@ -69,9 +69,13 @@ function profileSweepHost(): ProfileSweepHost {
     platform: () => host.platform(),
     homeDir: () => host.homeDir(),
     fs: {
+      fileExists: (path) => host.fs.fileExists(path),
       readDir: (path) => host.fs.readDir(path),
       readFile: (path) => host.fs.readFile(path),
       removeFile: (path) => host.fs.removeFile(path),
+      writeFileAtomic: (path, contents) => host.fs.writeFileAtomic(path, contents),
+      lockFile: (path) => host.fs.lockFile(path),
+      unlockFile: (id) => host.fs.unlockFile(id),
     },
   };
 }
@@ -271,7 +275,13 @@ const plugin: PluginModule = {
         parts.push(host.shell.quoteFor(prompt, host.platform()));
       }
       if (host.platform() === "windows") {
-        return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
+        return prefix + parts.join(" ")
+          + " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; "
+          + "try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { "
+          + "$ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
+          + "$ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
+          + "$ctProfileReleased = $ctRelease.released -eq $true } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; "
+          + "if ($ctProfileReleased) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } } }";
       }
     }
     return prefix + parts.join(" ");

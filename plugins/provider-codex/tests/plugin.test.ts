@@ -1166,6 +1166,60 @@ for (const [name, fixture] of [
 
 {
   const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
+  const command = (event: string) =>
+    `curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/${event}" ` +
+    '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
+    '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
+  const hooks = JSON.stringify({
+    hooks: {
+      SessionStart: [{ hooks: [{ command: command("session_start"), timeout: 60 }] }],
+      Stop: [{ hooks: [{ command: command("stop"), timeout: 60 }] }],
+    },
+  });
+  const keyStart = `${hooksPath}:session_start:0:0`;
+  const keyStop = `${hooksPath}:stop:0:0`;
+  const config = [
+    `[hooks.state.'${keyStart}']`,
+    'trusted_hash = "sha256:old-start"',
+    `[hooks.state.'${keyStop}']`,
+    'trusted_hash = "sha256:old-stop"',
+    "",
+  ].join("\n");
+  const files = new Map([[hooksPath, hooks], [configPath, config]]);
+  const listings = [
+    { key: keyStart, command: command("session_start"), currentHash: "sha256:new-start", trustStatus: "untrusted" },
+    { key: keyStop, command: command("stop"), currentHash: "sha256:new-stop", trustStatus: "untrusted" },
+  ];
+  const p = loadCodexWithHost(baseHost({
+    exec: () => JSON.stringify({
+      code: 0,
+      stdout: [
+        JSON.stringify({ id: 1, result: {} }),
+        JSON.stringify({ id: 2, result: { data: [{ hooks: listings }] } }),
+      ].join("\n"),
+      stderr: "",
+    }),
+    fs: {
+      fileExists: (path: string) => files.has(path),
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => JSON.parse(files.get(path) || "{}"),
+      writeFile: () => { throw new Error("status and startup checks are read-only"); },
+      writeJson: () => { throw new Error("status and startup checks are read-only"); },
+    },
+  }));
+  const status = p.checkIntegration();
+  assert(status.hook_trust_state === "stale", "Codex-reported content hashes expose stale recorded trust");
+  assert(status.session_start_hook === false, "stale content trust does not report an active SessionStart hook");
+  assert(status.integration_state === "untrusted_hash", "a stale hash requires the existing consented repair path");
+  assert(p.ensureIntegrationOnStartup(7686).actionable === true,
+    "startup reconciliation treats a current-content hash mismatch as actionable");
+  assert.equal(files.get(configPath), config, "status and startup detection never write trusted_hash");
+}
+
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
   const foreign = JSON.stringify({
     hooks: {
       SessionStart: [{ hooks: [{

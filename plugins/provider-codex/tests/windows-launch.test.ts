@@ -13,6 +13,7 @@ if (process.platform !== "win32") {
     const token = 'opaque-launch-token "quoted"\nsecond-line \\ ${notAnExpression}';
     const taskPath = path.join(root, "instructions.txt");
     const receiptPath = path.join(root, "receipt.json");
+    const releasePath = path.join(root, "release-uri.txt");
     fs.writeFileSync(taskPath, token, "utf8");
     fs.mkdirSync(path.join(root, ".codex"));
     const quote = (value: string) => "'" + value.replace(/'/g, "''") + "'";
@@ -28,6 +29,14 @@ if (process.platform !== "win32") {
     const script = `$ErrorActionPreference = 'Stop'
 $env:USERPROFILE = ${quote(root)}
 $env:CODETERM_TAB_ID = 'owned-launch-fixture'
+$env:CODETERM_API_URL = 'http://127.0.0.1:7686'
+$env:CODETERM_API_TOKEN = 'fixture-token'
+function Invoke-RestMethod {
+  [CmdletBinding()]
+  param($Method, $Uri, $Headers, $ContentType, $Body)
+  [IO.File]::WriteAllText((Join-Path $env:USERPROFILE 'release-uri.txt'), $Uri)
+  return @{ released = $true }
+}
 function codex {
   $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
   $profileText = [IO.File]::ReadAllText($profilePath)
@@ -49,6 +58,10 @@ ${command}`;
       assert.equal(result.status, 0, result.stderr || result.error?.message);
       assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token);
       assert.equal(fs.readdirSync(path.join(root, ".codex")).length, 0);
+      assert.equal(
+        fs.readFileSync(releasePath, "utf8"),
+        "http://127.0.0.1:7686/api/tabs/owned-launch-fixture/launch-artifacts/release",
+      );
       assert.equal(fs.readFileSync(taskPath, "utf8"), token);
       console.log(`PASS ${shell} exact instruction round trip, retained brief, and owned profile cleanup`);
     }

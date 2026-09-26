@@ -14,6 +14,8 @@
 /// or it's skipped at load. Bump on any breaking change to the host or `AgentProvider` surface.
 pub const HOST_API_VERSION: u32 = 2;
 
+use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
 
@@ -23,6 +25,11 @@ use rquickjs::{CatchResultExt, Ctx};
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
+
+fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, File>> {
+    static LOCKS: OnceLock<parking_lot::Mutex<HashMap<String, File>>> = OnceLock::new();
+    LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
 
 /// A write-once, weakly-held ref populated after construction — the VM is built
 /// before the `ServiceContext` exists, so it can't be a constructor argument.
@@ -491,6 +498,38 @@ pub(super) fn install(
             }
         }
         std::fs::write(p, contents).is_ok()
+    });
+    let sb = sandbox.clone();
+    bind!("writeFileAtomic", move |path: String, contents: String| -> bool {
+        if !sb.can_write(&path) {
+            log::warn!("[plugin] denied writeFileAtomic outside sandbox: {path}");
+            return false;
+        }
+        codeterm_util::atomic_write::write_atomic(Path::new(&path), contents).is_ok()
+    });
+    let sb = sandbox.clone();
+    bind!("lockFile", move |path: String| -> Option<String> {
+        if !sb.can_write(&path) {
+            log::warn!("[plugin] denied lockFile outside sandbox: {path}");
+            return None;
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .ok()?;
+        file.lock().ok()?;
+        let id = uuid::Uuid::new_v4().to_string();
+        held_file_locks().lock().insert(id.clone(), file);
+        Some(id)
+    });
+    bind!("unlockFile", move |id: String| -> bool {
+        let Some(file) = held_file_locks().lock().remove(&id) else {
+            return false;
+        };
+        file.unlock().is_ok()
     });
     let sb = sandbox.clone();
     bind!("removeFile", move |path: String| -> bool {

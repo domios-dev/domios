@@ -1,5 +1,5 @@
 import type { CodexHookEntry } from "./plugin";
-import { grantCodexHookTrust } from "./appServer";
+import { grantCodexHookTrust, inspectCodexHookTrust } from "./appServer";
 import {
   codexHookContentHash,
   codexWindowsHookScript,
@@ -83,10 +83,10 @@ export function checkIntegration(): unknown {
       }));
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
   const trustState = codexHookTrustState(path);
-  const trustOk = trustState !== "disabled";
+  const trustOk = trustState === "enabled" || trustState === "trusted";
   const integrationState = !installed
     ? CODEX_INTEGRATION_STATE_ABSENT
-    : (!trustOk || trustState === "missing" || trustState === "unknown"
+    : (!trustOk || trustState === "stale" || trustState === "missing" || trustState === "unknown"
       ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH
       : (!current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED));
   return {
@@ -403,7 +403,8 @@ export function ensureIntegrationOnStartup(
   if (!json || !json.hooks) return { ok: true, changed: false };
   const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
   if (owned.length === 0) return { ok: true, changed: false };
-  if (codexHookTrustState(path) === "disabled") {
+  const trustState = codexHookTrustState(path);
+  if (trustState === "disabled") {
     return { ok: true, changed: false, reason: "Codex hook trust is disabled" };
   }
 
@@ -434,7 +435,8 @@ export function ensureIntegrationOnStartup(
   const stopCommandStale = host.platform() === "windows"
     && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
   const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
-  if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned) {
+  const trustStale = trustState === "stale";
+  if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned && !trustStale) {
     return { ok: true, changed: false };
   }
 
@@ -504,7 +506,7 @@ function restoreIntegrationFiles(snapshots: IntegrationFileSnapshot[]): boolean 
   return restored;
 }
 
-function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" | "trusted" {
+function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" | "trusted" | "stale" {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
   const text = String(host.fs.readFile(cfg) || "");
@@ -512,8 +514,21 @@ function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missi
   const block = findCodexHookTrustBlock(text, hooksPath);
   if (block == null) return "missing";
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
-  if (m) return m[1] === "true" ? "enabled" : "disabled";
-  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) return "trusted";
+  if (m && m[1] === "false") return "disabled";
+  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) {
+    const hooks = host.fs.readJson<CodexHooks>(hooksPath)?.hooks;
+    const labels: string[] = [];
+    if ((hooks?.SessionStart || []).some(isCodetermCodexHook)) labels.push("session_start");
+    if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
+    if (!labels.includes("session_start")) return "unknown";
+    return inspectCodexHookTrust({
+      hooksPath,
+      config: text,
+      managedLabels: labels,
+      listCwd: host.homeDir() || ".",
+    });
+  }
+  if (m) return "enabled";
   return "unknown";
 }
 

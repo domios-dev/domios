@@ -194,6 +194,64 @@ function managedListings(listings: HookListing[], hooksPath: string, labels: str
   return out;
 }
 
+function trustTableKey(line: string): string | null {
+  const value = line.trim();
+  const prefix = "[hooks.state.";
+  if (!value.startsWith(prefix) || !value.endsWith("]")) return null;
+  const raw = value.slice(prefix.length, -1);
+  if (raw.length >= 2 && raw[0] === "'" && raw[raw.length - 1] === "'") {
+    return raw.slice(1, -1);
+  }
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    try { return JSON.parse(raw); } catch (_) { return null; }
+  }
+  return null;
+}
+
+function recordedTrustedHash(config: string, key: string): string | null {
+  const lines = config.split("\n");
+  const normalizedKey = slashNormalize(key);
+  for (let i = 0; i < lines.length; i++) {
+    const tableKey = trustTableKey(lines[i]);
+    const normalizedTableKey = tableKey === null ? null : slashNormalize(tableKey);
+    const sameKey = host.platform() === "windows"
+      ? normalizedTableKey?.toLowerCase() === normalizedKey.toLowerCase()
+      : normalizedTableKey === normalizedKey;
+    if (!sameKey) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const trimmed = lines[j].trim();
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) break;
+      const match = /^trusted_hash\s*=\s*(['"])([^'"\r\n]+)\1\s*(?:#.*)?\r?$/.exec(lines[j]);
+      if (match) return match[2];
+    }
+    return null;
+  }
+  return null;
+}
+
+export function inspectCodexHookTrust(opts: {
+  hooksPath: string;
+  config: string;
+  managedLabels: string[];
+  listCwd: string;
+}): "trusted" | "stale" | "unknown" {
+  const session = runAppServerSession([
+    { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } },
+  ]);
+  const result = requestOutcome(session, 2, "hooks/list");
+  if (result.kind !== "ok") return "unknown";
+  const managed = managedListings(collectHookListings(result.result), opts.hooksPath, opts.managedLabels);
+  if (managed.length !== opts.managedLabels.length) return "unknown";
+  for (let i = 0; i < managed.length; i++) {
+    const listing = managed[i];
+    const recorded = recordedTrustedHash(opts.config, listing.key);
+    if (recorded === null) return "unknown";
+    if (recorded !== listing.currentHash) return "stale";
+    if (listing.trustStatus !== "trusted") return "unknown";
+  }
+  return "trusted";
+}
+
 interface ConfigSnapshot {
   path: string;
   existed: boolean;
@@ -230,6 +288,26 @@ function outcome(partial: Partial<CodexTrustGrantOutcome>): CodexTrustGrantOutco
  * pre-grant config bytes and reports the grant failed.
  */
 export function grantCodexHookTrust(opts: {
+  hooksPath: string;
+  configPath: string | null;
+  managedLabels: string[];
+  listCwd: string;
+}): CodexTrustGrantOutcome {
+  if (!opts.configPath) {
+    return outcome({ degraded: true, reason: "could not resolve Codex config path" });
+  }
+  const lockId = host.fs.lockFile(opts.configPath + ".project-trust.lock");
+  if (lockId === null) {
+    return outcome({ reason: "could not lock Codex config before granting hook trust" });
+  }
+  try {
+    return grantCodexHookTrustWithLock(opts);
+  } finally {
+    host.fs.unlockFile(lockId);
+  }
+}
+
+function grantCodexHookTrustWithLock(opts: {
   hooksPath: string;
   configPath: string | null;
   managedLabels: string[];
