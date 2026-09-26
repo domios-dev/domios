@@ -2192,7 +2192,13 @@ function installIntegration(apiPort, options) {
   const markerH = '-H "X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '"';
   const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ] && [ -n "${CODETERM_SESSION_BINDING_NONCE:-}" ]; then ';
   const hookCmd = (route) => guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + markerH + " " + nonceH + " " + authH + " --data-binary @- > /dev/null 2>&1 || true; fi";
-  const winCmd = (route) => scriptPath ? '"' + scriptPath + '" ' + route + " X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER : hookCmd(route);
+  const winCmd = (route) => scriptPath ? [
+    "cmd.exe /d /s /c call",
+    '"' + scriptPath + '"',
+    route,
+    "X-CodeTerm-Hook:",
+    CODETERM_CODEX_HOOK_MARKER
+  ].join(" ") : hookCmd(route);
   if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
     return fail("writeFile failed for " + scriptPath);
   }
@@ -2323,13 +2329,18 @@ function ensureIntegrationOnStartup(apiPort, install) {
     return hooks.some(
       (hook) => {
         const command = String(hook && hook.command || "");
-        return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command);
+        return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command) || host.platform() === "windows" && !hasCodetermCodexWindowsCommand(entry);
       }
     );
   });
-  const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
+  const stopEntries = json.hooks.Stop || [];
+  const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
+  const stopOwned = ownedStopEntries.length > 0;
+  const stopCommandStale = host.platform() === "windows" && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
   const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
-  if (!scriptStale && !commandStale && !timeoutStale && stopOwned) return { ok: true, changed: false };
+  if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned) {
+    return { ok: true, changed: false };
+  }
   return {
     ok: false,
     changed: false,
@@ -2461,7 +2472,7 @@ function hasCodetermCodexWindowsCommand(entry) {
     const command = String(hook.commandWindows || "");
     const fullCommand = String(hook.command || "") + "\n" + command;
     const owned = fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1 || hook._source === CODETERM_CODEX_HOOK_MARKER;
-    if (owned && command.indexOf("codeterm-session-hook.cmd") !== -1) {
+    if (owned && command.startsWith('cmd.exe /d /s /c call "') && command.indexOf("codeterm-session-hook.cmd") !== -1) {
       return true;
     }
   }

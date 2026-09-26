@@ -128,7 +128,7 @@ if (process.platform !== "win32") {
       fs.rmSync(marker, { force: true });
       const env = { ...process.env, CODETERM_TEST_MARKER: marker };
       const result = shell === "cmd.exe"
-        ? spawnSync(shell, ["/d", "/s", "/c", command], { encoding: "utf8", env })
+        ? spawnSync(shell, ["/d", "/s", "/c", command], { encoding: "utf8", env, windowsVerbatimArguments: true })
         : spawnSync(
             shell,
             ["-NoProfile", "-NonInteractive", "-Command", command],
