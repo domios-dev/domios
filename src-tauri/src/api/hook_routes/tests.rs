@@ -238,7 +238,13 @@ fn repeated_verified_hook_reports_skip_side_effects_until_the_session_changes() 
         assert!(!repeated.changed);
         assert!(repeated.nonce_verified);
         assert!(repeated.nonce_already_acknowledged);
-        if !repeated.is_unchanged_acknowledged_report() {
+        assert!(can_short_circuit_session_start(&repeated, false, false));
+        assert!(!can_short_circuit_session_start(&repeated, true, true));
+        assert!(can_short_circuit_session_start(&repeated, true, false));
+        let mut unverified_duplicate = repeated.clone();
+        unverified_duplicate.nonce_verified = false;
+        assert!(!can_short_circuit_session_start(&unverified_duplicate, true, true));
+        if !can_short_circuit_session_start(&repeated, false, false) {
             binding_side_effects += 1;
         }
     }
@@ -526,6 +532,61 @@ fn session_start_string_reads_codex_session_meta_payload() {
         session_start_string(&fallback, &["payload", "id"]).as_deref(),
         Some("sid-from-id")
     );
+}
+
+#[test]
+fn session_start_hook_binds_on_codex_0_157_1_payload() {
+    let body = serde_json::json!({
+        "type": "session_meta",
+        "source": "startup",
+        "payload": { "id": "sid-codex-01571" }
+    });
+    let sid = session_start_string(&body, &["payload", "id"]).unwrap();
+    let provider_id = "codex-session-start-fixture";
+    let registry = registry_with_sessions(vec![(provider_id, vec!["sid-codex-01571"])]);
+    let (mux, tab_id) = shared_mux();
+    {
+        let mut mux = mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.cwd = Some("/tmp/project".into());
+        tab.agent_type = Some(provider_id.into());
+        tab.session_binding_nonce = Some("launch-nonce".into());
+    }
+
+    let claim = bind_reported_session(
+        &mux,
+        &registry,
+        &tab_id,
+        provider_id,
+        &sid,
+        Some("launch-nonce"),
+    )
+    .expect("Codex SessionStart payload binds to the launched tab");
+    assert!(claim.changed);
+    assert!(claim.nonce_verified);
+    assert_eq!(
+        mux.read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some(sid.as_str())
+    );
+
+    crate::service::integration_silence::record_hook_binding_source(
+        &registry,
+        provider_id,
+        &sid,
+        crate::session::lifecycle::BindingSource::Hook,
+        true,
+    );
+    let status = crate::service::integration_silence::integration_status_with_binding_fallback(
+        serde_json::json!({ "session_start_hook": true }),
+        provider_id,
+        true,
+        &[sid],
+    );
+    assert!(status.get("codeterm_binding_fallback_source").is_none());
 }
 
 #[test]
