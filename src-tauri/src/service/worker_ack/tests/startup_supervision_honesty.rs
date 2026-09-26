@@ -119,6 +119,13 @@ fn startup_ack_with_an_armed_attempt_still_acknowledges() {
 
     assert_eq!(acknowledgement, AgentStartupAcknowledgement::Acknowledged);
     assert_eq!(receiver.recv().unwrap(), AgentStartupSignal::Ready);
+    assert_eq!(
+        fixture
+            .service
+            .acknowledge_agent_startup(&tab_id, "launch-a", "nonce-a")
+            .expect("a repeated ACK remains an explicit success"),
+        AgentStartupAcknowledgement::AlreadyAcknowledged
+    );
 }
 
 #[test]
@@ -164,8 +171,77 @@ fn finalized_startup_attempt_still_refuses_its_acknowledgement() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn closing_a_tab_removes_its_finalized_startup_authority() {
+    let (fixture, parent_tab_id, tab_id) = prompt_fixture();
+    let authority =
+        StartupAuthority::new(&parent_tab_id, &tab_id, "launch-a").for_binding(None, "nonce-a");
+    let receiver = startup_receiver(&fixture.service.worker_ack, authority.clone());
+    assert_eq!(
+        fixture
+            .service
+            .worker_ack
+            .expire_startup_generation(&authority, 0),
+        WaiterExpiry::Expired
+    );
+    drop(receiver);
+    assert!(fixture
+        .service
+        .worker_ack
+        .finalized_startups
+        .lock()
+        .contains_key(&tab_id));
+
+    fixture
+        .service
+        .close_tab(&tab_id)
+        .expect("normal tab close succeeds");
+
+    assert!(!fixture
+        .service
+        .worker_ack
+        .finalized_startups
+        .lock()
+        .contains_key(&tab_id));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn closing_a_tab_cancels_its_live_startup_waiter() {
+    let (fixture, parent_tab_id, tab_id) = prompt_fixture();
+    let authority =
+        StartupAuthority::new(&parent_tab_id, &tab_id, "launch-a").for_binding(None, "nonce-a");
+    let receiver = startup_receiver(&fixture.service.worker_ack, authority);
+
+    fixture
+        .service
+        .close_tab(&tab_id)
+        .expect("normal tab close succeeds");
+
+    assert_eq!(receiver.recv().unwrap(), AgentStartupSignal::Superseded);
+    assert!(!fixture
+        .service
+        .worker_ack
+        .startup_waiters
+        .lock()
+        .contains_key(&tab_id));
+    assert!(!fixture
+        .service
+        .worker_ack
+        .finalized_startups
+        .lock()
+        .contains_key(&tab_id));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_deadline_on_a_trust_prompt_records_the_classified_reason() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.lifecycle_epoch = Some(7);
+        tab.lifecycle_operation_id = Some("startup-lifecycle".into());
+    }
     fixture
         .service
         .screen_state
@@ -189,6 +265,16 @@ fn startup_deadline_on_a_trust_prompt_records_the_classified_reason() {
             .and_then(|tab| tab.boot_failure_reason.as_deref()),
         Some(reason)
     );
+    {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.boot_stage, None);
+        assert_eq!(tab.lifecycle_epoch, Some(7));
+        assert_eq!(
+            tab.lifecycle_operation_id.as_deref(),
+            Some("startup-lifecycle")
+        );
+    }
     assert_eq!(payload["kind"], "agent_startup_failed");
     assert_eq!(payload["failure_reason"], reason);
     let notice = worker_lifecycle_notice("Worker", Some("test"), None, &payload);

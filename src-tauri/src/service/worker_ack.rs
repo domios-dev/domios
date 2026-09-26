@@ -198,6 +198,15 @@ fn startup_ack_owns_attempt(
         && tab.session_binding_nonce.as_deref() == Some(binding_nonce)
 }
 
+fn startup_authority_matches_binding(
+    authority: &StartupAuthority,
+    session_id: Option<&str>,
+    binding_nonce: &str,
+) -> bool {
+    (authority.session_id.is_none() || authority.session_id.as_deref() == session_id)
+        && authority.binding_nonce.as_deref() == Some(binding_nonce)
+}
+
 pub(crate) fn startup_task_identity_from_env(
     env: &HashMap<String, String>,
 ) -> Option<StartupTaskIdentity> {
@@ -294,6 +303,7 @@ impl WorkerAckRegistry {
         })
     }
 
+    #[cfg(test)]
     fn acknowledge_startup_for_binding(
         &self,
         tab_id: &str,
@@ -306,6 +316,78 @@ impl WorkerAckRegistry {
             (authority.session_id.is_none() || authority.session_id.as_deref() == session_id)
                 && authority.binding_nonce.as_deref() == binding_nonce
         })
+    }
+
+    fn resolve_startup_ack_for_binding(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: Option<&str>,
+        binding_nonce: &str,
+    ) -> Result<AgentStartupAcknowledgement, String> {
+        let (acknowledgement, completed_authority) = {
+            let mut waiters = self.startup_waiters.lock();
+            if let Some(waiter) = waiters.get(tab_id) {
+                let authority = &waiter.authority;
+                if authority.attempt_id != attempt_id {
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} was superseded by {}",
+                        authority.attempt_id
+                    ));
+                }
+                if !startup_authority_matches_binding(authority, session_id, binding_nonce) {
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
+                    ));
+                }
+                let waiter = waiters.remove(tab_id).expect("waiter inspected above");
+                let AgentStartupWaiter {
+                    authority, sender, ..
+                } = waiter;
+                let _ = sender.send(AgentStartupSignal::Ready);
+                self.startup_acknowledged
+                    .lock()
+                    .insert(tab_id.to_string(), authority.clone());
+                (AgentStartupAcknowledgement::Acknowledged, Some(authority))
+            } else {
+                let acknowledged = self.startup_acknowledged.lock();
+                if let Some(authority) = acknowledged
+                    .get(tab_id)
+                    .filter(|authority| authority.attempt_id == attempt_id)
+                {
+                    if startup_authority_matches_binding(authority, session_id, binding_nonce) {
+                        return Ok(AgentStartupAcknowledgement::AlreadyAcknowledged);
+                    }
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
+                    ));
+                }
+                drop(acknowledged);
+
+                let finalized = self.finalized_startups.lock();
+                if let Some(authority) = finalized
+                    .get(tab_id)
+                    .filter(|authority| authority.attempt_id == attempt_id)
+                {
+                    if !startup_authority_matches_binding(authority, session_id, binding_nonce) {
+                        return Err(format!(
+                            "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
+                        ));
+                    }
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} is finalized and not awaiting acknowledgement"
+                    ));
+                }
+                (AgentStartupAcknowledgement::NotRequired, None)
+            }
+        };
+        if let Some(authority) = completed_authority.as_ref() {
+            self.clear_startup_supervisor(authority);
+            if let Some(team_id) = authority.team_id.as_deref() {
+                self.release_startup_lease(team_id);
+            }
+        }
+        Ok(acknowledgement)
     }
 
     fn acknowledge_task_startup(
@@ -371,6 +453,7 @@ impl WorkerAckRegistry {
         Some(acknowledgement)
     }
 
+    #[cfg(test)]
     fn acknowledge_startup_matching(
         &self,
         tab_id: &str,
@@ -413,44 +496,6 @@ impl WorkerAckRegistry {
             self.release_startup_lease(team_id);
         }
         Some(acknowledgement)
-    }
-
-    fn startup_ack_refusal(
-        &self,
-        tab_id: &str,
-        attempt_id: &str,
-        session_id: Option<&str>,
-        binding_nonce: &str,
-    ) -> Option<String> {
-        let waiters = self.startup_waiters.lock();
-        if let Some(waiter) = waiters.get(tab_id) {
-            let authority = &waiter.authority;
-            if authority.attempt_id != attempt_id {
-                return Some(format!(
-                    "startup attempt {attempt_id} for Tab {tab_id} was superseded by {}",
-                    authority.attempt_id
-                ));
-            }
-            if authority.binding_nonce.as_deref() != Some(binding_nonce)
-                || (authority.session_id.is_some() && authority.session_id.as_deref() != session_id)
-            {
-                return Some(format!(
-                    "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
-                ));
-            }
-        }
-        let finalized = self.finalized_startups.lock();
-        finalized
-            .get(tab_id)
-            .filter(|authority| {
-                authority.attempt_id == attempt_id
-                    && authority.binding_nonce.as_deref() == Some(binding_nonce)
-            })
-            .map(|_| {
-                format!(
-                    "startup attempt {attempt_id} for Tab {tab_id} is finalized and not awaiting acknowledgement"
-                )
-            })
     }
 
     /// Authorize and hold under one lock so a replacement attempt armed
@@ -626,9 +671,17 @@ impl WorkerAckRegistry {
     }
 
     fn cancel_startup_supervisor(&self, tab_id: &str) {
+        let waiter = {
+            let mut waiters = self.startup_waiters.lock();
+            let waiter = waiters.remove(tab_id);
+            self.finalized_startups.lock().remove(tab_id);
+            waiter
+        };
+        if let Some(waiter) = waiter {
+            let _ = waiter.sender.send(AgentStartupSignal::Superseded);
+        }
         self.startup_supervisors.lock().remove(tab_id);
         self.pending_task_startup_acks.lock().remove(tab_id);
-        self.finalized_startups.lock().remove(tab_id);
     }
 }
 

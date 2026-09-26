@@ -68,16 +68,13 @@ fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
     );
 }
 
-fn apply_startup_handshake(
-    params: &mut SpawnAgentParams,
-    supervised: bool,
-    prepared_starter_prompt: crate::agent::provider::StarterPrompt,
-) {
-    params.starter_prompt = crate::service::launch_delivery::startup_starter_prompt(
+fn apply_startup_handshake(params: &mut SpawnAgentParams, supervised: bool) {
+    if let Some(prompt) = crate::service::launch_delivery::startup_starter_prompt(
         supervised,
         params.task_launch_authority.is_some(),
-    )
-    .unwrap_or(prepared_starter_prompt);
+    ) {
+        params.starter_prompt = prompt;
+    }
 }
 
 fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
@@ -746,8 +743,7 @@ impl ServiceContext {
             prepare_standard_starter_prompt(&mut params);
             None
         };
-        let prepared_starter_prompt = params.starter_prompt;
-        apply_startup_handshake(&mut params, startup_supervised, prepared_starter_prompt);
+        apply_startup_handshake(&mut params, startup_supervised);
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {
