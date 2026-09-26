@@ -454,11 +454,18 @@ function cleanToolText(value, fallback) {
   return text.length > 120 ? text.slice(0, 117) + "..." : text;
 }
 function opencodeDbPath() {
-  let base = host.envGet("XDG_DATA_HOME");
-  if (!base) base = host.expandHome("~/.local/share");
+  const windows = host.platform() === "windows";
+  const sep = windows ? "\\" : "/";
+  const configuredDb = host.envGet("OPENCODE_DB");
+  if (configuredDb === ":memory:") return null;
+  if (configuredDb) {
+    const absolute = windows ? /^[A-Za-z]:[\\/]|^[\\/]{1,2}/.test(configuredDb) : configuredDb.startsWith("/");
+    if (absolute) return configuredDb;
+  }
+  const base = host.envGet("XDG_DATA_HOME") || host.expandHome("~/.local/share");
   if (!base) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return base + sep + "opencode" + sep + "opencode.db";
+  const dataDir = base + sep + "opencode";
+  return configuredDb ? dataDir + sep + configuredDb : dataDir + sep + "opencode.db";
 }
 function opencodeSessionRecord(row, db) {
   return {
@@ -960,10 +967,10 @@ var plugin = {
     if (!db || !host.fs.fileExists(db)) return false;
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
+      "SELECT id FROM session WHERE id = ?1 LIMIT 1",
       [sessionId]
     );
-    return rows.length > 0;
+    return rows.some((row) => row.id === sessionId);
   },
   // opencode keeps every session in one sqlite log, so the source carries the
   // session id: the reader must not charge a sibling's tokens to this tab.
