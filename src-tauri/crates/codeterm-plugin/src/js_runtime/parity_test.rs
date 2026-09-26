@@ -117,7 +117,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
                     description: None,
                 },
             ]),
-            default_reasoning_effort: None,
+            default_reasoning_effort: Some("max".into()),
         },
         ModelInfo {
             default_reasoning_effort: None,
