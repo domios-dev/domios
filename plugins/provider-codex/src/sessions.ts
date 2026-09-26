@@ -9,6 +9,7 @@ declare const host: {
     fileExists(path: string): boolean;
     readFile(path: string): string | null;
     readFileHead(path: string, maxBytes: number): string | null;
+    readFileTail(path: string, maxBytes: number): string | null;
     readDir(path: string): { name: string; isFile: boolean }[];
     sqliteQuery<T>(db: string, sql: string, params: unknown[]): T[];
   };
@@ -130,6 +131,22 @@ export function findSession(sessionId: string): unknown | null {
 
 export function detectSessionModel(_cwd: string, sessionId: string): string | null {
   return trimmedField(threadRow(sessionId), "model");
+}
+
+export function detectSessionReasoningEffort(_cwd: string, sessionId: string): string | null {
+  const path = sessionFilePath(_cwd, sessionId);
+  if (!path) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (typeof contents !== "string") return null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry: { type?: unknown; payload?: { effort?: unknown } };
+    try { entry = JSON.parse(lines[index]); } catch (_) { continue; }
+    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
+    const effort = entry.payload.effort.trim();
+    if (effort) return effort;
+  }
+  return null;
 }
 
 interface CodexThreadRow {

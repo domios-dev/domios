@@ -163,6 +163,7 @@ impl crate::chatbackend::ChatBackendProvider for ListingShell {
         &self,
     ) -> Result<Vec<crate::agent::provider::ModelInfo>, crate::chatbackend::ChatBackendError> {
         Ok(vec![crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "qwen".into(),
             display_name: "Qwen".into(),
             description: None,
@@ -300,6 +301,7 @@ impl BinaryProvider {
         self.models = ids
             .iter()
             .map(|id| crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: (*id).into(),
                 display_name: (*id).into(),
                 description: None,
@@ -434,6 +436,37 @@ fn provider_listing_uses_binary_name_not_optional_install_metadata() {
     assert_eq!(
         listed(&listing, "listing-without-install-metadata")["availability"],
         serde_json::json!("unavailable")
+    );
+}
+
+#[test]
+fn agent_models_reports_per_model_default() {
+    let mut provider = BinaryProvider::new(
+        "model-default-fixture",
+        "codeterm-missing-model-default-fixture",
+        None,
+    )
+    .with_authoritative_models(&["gpt-5.6-sol"]);
+    provider.models[0].reasoning_efforts = Some(vec![
+        crate::agent::provider::ReasoningEffortInfo {
+            id: "low".into(),
+            display_name: "Low".into(),
+            description: None,
+        },
+        crate::agent::provider::ReasoningEffortInfo {
+            id: "medium".into(),
+            display_name: "Medium".into(),
+            description: None,
+        },
+    ]);
+    provider.models[0].default_reasoning_effort = Some("low".into());
+    let registry = facade_with_agent(provider);
+    let listing = super::list_agent_provider_values(&registry);
+
+    assert_eq!(
+        listed(&listing, "model-default-fixture")["available_models"][0]
+            ["default_reasoning_effort"],
+        "low"
     );
 }
 

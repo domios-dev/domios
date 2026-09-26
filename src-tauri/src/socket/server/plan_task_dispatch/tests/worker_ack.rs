@@ -141,6 +141,72 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
 }
 
 #[test]
+fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, source_attempt_id) =
+        dispatched_worker_task(&store, &project, "blocked-respawn", "tab-first", 1);
+    let block_reason = "awaiting dependency evidence";
+    store
+        .with_plan(&plan_id, 10, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
+            task.status = TaskStatus::Blocked;
+            task.status_label = Some(block_reason.into());
+            task.status_changed_at = 10;
+            Ok(())
+        })
+        .unwrap();
+    let draft = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            crate::service::plan::task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let replacement = store
+        .record_task_respawn_attempt(
+            &plan_id,
+            &task_id,
+            "tab-respawn",
+            &draft,
+            Some("worker"),
+            11,
+        )
+        .unwrap();
+    let pending = store.show_task(&task_id).unwrap().task;
+    assert_eq!(pending.status, TaskStatus::Pending);
+    assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
+        stride.links.iter().any(|link| link == &task_id)
+            && stride.text.starts_with("unblocked by respawn: ")
+            && stride.text.contains(block_reason)
+    }));
+    store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "tab-respawn",
+            &replacement.attempt.id,
+            "session-respawn",
+            "nonce-respawn",
+            pending.lane,
+            12,
+        )
+        .unwrap();
+
+    let acknowledged = store
+        .acknowledge_live_task_attempt_for_tab("tab-respawn", None, None, 13)
+        .unwrap();
+
+    assert_eq!(acknowledged.attempt.id, replacement.attempt.id);
+    assert_eq!(acknowledged.attempt.acknowledged_at, Some(13));
+}
+
+#[test]
 fn superseded_ack_error_names_retired_and_live_attempts() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();

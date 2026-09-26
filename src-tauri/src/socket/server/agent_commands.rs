@@ -184,6 +184,7 @@ mod tests {
             Some(("p".into(), "do.it".into()))
         );
         assert!(parse_method("agent.report").is_none());
+        assert!(parse_method("agent.diagnostic").is_none());
         assert!(parse_method("plugin:noverb").is_none());
         assert!(parse_method("plugin:.verb").is_none());
     }

@@ -20,7 +20,7 @@ impl ServiceContext {
             return None;
         }
         let journal = TabLifecycleJournal::shared();
-        let epoch = crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id);
+        let epoch = journal.next_epoch_for_tab(tab_id);
         let key = LifecycleKey::new(tab_id, epoch, uuid::Uuid::new_v4().to_string());
         if !self
             .mux
@@ -72,7 +72,7 @@ impl ServiceContext {
         }
     }
 
-    /// Journal the role/Team authority this operation just committed.
+    /// Journal committed role and Team state, minting diagnostic lineage when needed.
     pub(crate) fn record_role_transition(&self, tab_id: &str) {
         let committed = {
             let mux = self.mux.read();
@@ -84,14 +84,26 @@ impl ServiceContext {
                     tab.depth,
                     tab.team_id.clone(),
                     tab.parent_tab_id.clone(),
+                    mux.lifecycle_key(tab_id),
                 )
             })
         };
-        let Some((role, role_profile, can_spawn, depth, team_id, parent_tab_id)) = committed else {
+        let Some((role, role_profile, can_spawn, depth, team_id, parent_tab_id, lifecycle_key)) =
+            committed
+        else {
             return;
         };
-        self.record_lifecycle(
-            tab_id,
+        let journal = TabLifecycleJournal::shared();
+        let key = lifecycle_key.unwrap_or_else(|| {
+            LifecycleKey::new(
+                tab_id,
+                journal.next_epoch_for_tab(tab_id),
+                format!("role-transition-{}", uuid::Uuid::new_v4()),
+            )
+        });
+        append(
+            journal,
+            key.clone(),
             LifecycleTransition::RoleBinding {
                 role,
                 role_profile,
@@ -99,8 +111,9 @@ impl ServiceContext {
                 depth,
             },
         );
-        self.record_lifecycle(
-            tab_id,
+        append(
+            journal,
+            key,
             LifecycleTransition::TeamBinding {
                 team_id,
                 parent_tab_id,
@@ -118,7 +131,7 @@ pub(crate) fn append_minted(
 ) {
     let key = LifecycleKey::new(
         tab_id,
-        crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id),
+        journal.next_epoch_for_tab(tab_id),
         format!("{operation_prefix}-{}", uuid::Uuid::new_v4()),
     );
     append(journal, key, transition);

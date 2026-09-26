@@ -601,6 +601,7 @@ mod tests {
             id,
             crate::plugin::model_catalog::RegisteredDefaults {
                 models: vec![crate::agent::provider::ModelInfo {
+                    default_reasoning_effort: None,
                     id: "phantom-model".into(),
                     display_name: "Phantom Model".into(),
                     description: None,
@@ -617,6 +618,7 @@ mod tests {
         crate::agent::model_catalog::put_live(
             id,
             vec![crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: "cache-model".into(),
                 display_name: "Cache Model".into(),
                 description: None,
