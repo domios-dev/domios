@@ -435,6 +435,14 @@ export interface ModelInfo {
   // Provider-declared picker section label. Models sharing a group render
   // together under that heading; omitted models stay in the flat list.
   group?: string;
+  // Omitted uses the provider's reasoningEfforts fallback; [] means no selector.
+  reasoningEfforts?: ReasoningEffortInfo[];
+}
+
+export interface ReasoningEffortInfo {
+  id: string;
+  displayName: string;
+  description?: string;
 }
 
 export interface Model extends ModelInfo {

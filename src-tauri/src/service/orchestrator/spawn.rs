@@ -469,6 +469,7 @@ impl ServiceContext {
         crate::service::spawn::validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
+            params.model.as_deref(),
             params.reasoning_effort.as_deref(),
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.

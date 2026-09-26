@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use crate::{
     chatbackend_provider::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry},
-    provider::{AgentLaunchParams, AgentProvider, ModelInfo},
+    provider::{AgentLaunchParams, AgentProvider, ModelInfo, ReasoningEffortInfo},
 };
 
 use super::{load_one, JsProvider};
@@ -102,6 +102,18 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: Some("alpha".into()),
+            reasoning_efforts: Some(vec![
+                ReasoningEffortInfo {
+                    id: "max".into(),
+                    display_name: "Max".into(),
+                    description: Some("Maximum reasoning".into()),
+                },
+                ReasoningEffortInfo {
+                    id: "ultra".into(),
+                    display_name: "Ultra".into(),
+                    description: None,
+                },
+            ]),
         },
         ModelInfo {
             id: "live-b".into(),
@@ -112,6 +124,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         // A probe that could not run is a capability answer of its own, so the
         // native and JS paths must agree it is unknown, not unavailable.
@@ -124,6 +137,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ]
 }
@@ -309,6 +323,7 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         ModelInfo {
             id: "sentinel-b".into(),
@@ -319,6 +334,7 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ]
 }
@@ -439,7 +455,10 @@ async fn discover_models_native_js_parity() {
             module.exports.default = {
                 discoverModels() {
                     return [
-                        { id: 'live-a', displayName: 'Live A', group: 'alpha' },
+                        { id: 'live-a', displayName: 'Live A', group: 'alpha', reasoningEfforts: [
+                            { id: 'max', displayName: 'Max', description: 'Maximum reasoning' },
+                            { id: 'ultra', displayName: 'Ultra' }
+                        ] },
                         { id: 'live-b', displayName: 'Live B', description: 'second' },
                         { id: 'live-c', displayName: 'Live C', availability: 'unknown' }
                     ];
@@ -465,6 +484,31 @@ async fn discover_models_native_js_parity() {
         crate::provider::ModelAvailability::Unknown,
         "a could-not-run verdict must not arrive as unavailable"
     );
+}
+
+#[tokio::test]
+async fn per_model_reasoning_efforts_native_js_parity() {
+    let native = DiscoverModelsNativeStub;
+    let js = load_inline_js(
+        "discover-fixture",
+        r#"
+            module.exports.default = {
+                discoverModels() {
+                    return [
+                        { id: 'live-a', displayName: 'Live A', group: 'alpha', reasoningEfforts: [
+                            { id: 'max', displayName: 'Max', description: 'Maximum reasoning' },
+                            { id: 'ultra', displayName: 'Ultra' }
+                        ] },
+                        { id: 'live-b', displayName: 'Live B', description: 'second' },
+                        { id: 'live-c', displayName: 'Live C', availability: 'unknown' }
+                    ];
+                }
+            };
+        "#,
+    );
+
+    assert_eq!(js.discover_models().await, Some(discover_models_fixture()));
+    assert_eq!(native.discover_models().await, js.discover_models().await);
 }
 
 #[test]

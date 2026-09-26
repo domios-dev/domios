@@ -730,6 +730,23 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    fn reasoning_efforts_for_model(&self, model: Option<&str>) -> Vec<ReasoningEffortInfo> {
+        model
+            .and_then(|model_id| {
+                self.available_models()
+                    .into_iter()
+                    .find(|model| model.id.eq_ignore_ascii_case(model_id))
+                    .and_then(|model| model.reasoning_efforts)
+            })
+            .unwrap_or_else(|| self.reasoning_efforts())
+    }
+
+    fn supports_reasoning_effort_for_model(&self, model: Option<&str>, effort: &str) -> bool {
+        self.reasoning_efforts_for_model(model)
+            .iter()
+            .any(|supported| supported.id == effort)
+    }
+
     /// Default reasoning-effort id, must match one of `reasoning_efforts()`.
     fn default_reasoning_effort(&self) -> Option<String> {
         None

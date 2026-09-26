@@ -974,6 +974,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             featured: m.featured,
                             badge: m.badge,
                             group: m.group,
+                            reasoning_efforts: None,
                         })
                         .collect(),
                     default_effort: p.default_effort,
@@ -1016,7 +1017,16 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
 /// the end. Result: built-in updates flow in automatically, user additions
 /// stick around, user re-titles of built-ins win.
 fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo> {
-    merge_by_id(builtin, overrides, |model| model.id.as_str())
+    let mut merged = merge_by_id(builtin, overrides, |model| model.id.as_str());
+    for model in &mut merged {
+        if model.reasoning_efforts.is_none() {
+            model.reasoning_efforts = builtin
+                .iter()
+                .find(|base| base.id == model.id)
+                .and_then(|base| base.reasoning_efforts.clone());
+        }
+    }
+    merged
 }
 
 /// Overlay an override onto a live catalog: every base model stays, matching
@@ -1042,6 +1052,7 @@ fn overlay_only(base: &[ModelInfo], overlay: &[ModelInfo]) -> Vec<ModelInfo> {
                 featured: o.featured.or(model.featured),
                 badge: o.badge.clone().or_else(|| model.badge.clone()),
                 group: o.group.clone().or_else(|| model.group.clone()),
+                reasoning_efforts: model.reasoning_efforts.clone(),
             }
         })
         .collect()

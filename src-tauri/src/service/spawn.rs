@@ -260,20 +260,38 @@ pub(crate) fn validate_agent_model(
     Ok(())
 }
 
-/// Structurally validate a requested reasoning effort against the provider's
-/// declared capability. Empty/absent is always valid (no selection). An
-/// unsupported value returns the provider's structured rejection message and the
-/// caller aborts the spawn — never a silent downgrade. An unknown provider is an
-/// error too: we cannot honestly claim support we can't verify.
+/// Validate against model levels when present and use the provider fallback otherwise.
 pub(crate) fn validate_agent_reasoning_effort(
     registry: &AgentRegistry,
     provider_id: &str,
+    model: Option<&str>,
     effort: Option<&str>,
 ) -> Result<(), String> {
     let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
         return Ok(());
     };
-    match registry.with_provider(provider_id, |p| p.validate_reasoning_effort(Some(effort))) {
+    match registry.with_provider(provider_id, |p| {
+        if let Some(model) = model {
+            let supported = p.reasoning_efforts_for_model(Some(model));
+            if supported.iter().any(|level| level.id == effort) {
+                return Ok(());
+            }
+            let levels = supported
+                .iter()
+                .map(|level| level.id.as_str())
+                .collect::<Vec<_>>();
+            let levels = if levels.is_empty() {
+                "none".to_string()
+            } else {
+                levels.join(", ")
+            };
+            return Err(format!(
+                "model '{model}' does not support reasoning effort '{effort}'; supported: {levels}"
+            ));
+        }
+        p.validate_reasoning_effort(Some(effort))
+            .map_err(|rejection| rejection.to_string())
+    }) {
         Some(Ok(())) => Ok(()),
         Some(Err(rejection)) => Err(rejection.to_string()),
         None => Err(format!(
@@ -328,6 +346,7 @@ impl ServiceContext {
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
+            launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
@@ -758,6 +777,7 @@ impl ServiceContext {
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent.provider,
+            launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
@@ -978,7 +998,11 @@ impl ServiceContext {
             if !effort.is_empty() {
                 let effort_args = self
                     .agent_registry
-                    .with_provider(&agent.provider, |p| p.reasoning_effort_launch_args(effort))
+                    .with_provider(&agent.provider, |p| {
+                        p.supports_reasoning_effort_for_model(launch_model.as_deref(), effort)
+                            .then(|| p.reasoning_effort_launch_args(effort))
+                    })
+                    .flatten()
                     .unwrap_or_default();
                 model_args.extend(effort_args);
             }

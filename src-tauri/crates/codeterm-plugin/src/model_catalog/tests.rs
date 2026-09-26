@@ -21,6 +21,7 @@ fn register_and_read_back() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("m1".into()),
         },
@@ -68,6 +69,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         ModelInfo {
             id: "sonnet".into(),
@@ -78,6 +80,11 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: Some(vec![crate::provider::ReasoningEffortInfo {
+                id: "max".into(),
+                display_name: "Max".into(),
+                description: None,
+            }]),
         },
         ModelInfo {
             id: "haiku".into(),
@@ -88,6 +95,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ];
     let overrides = vec![
@@ -100,6 +108,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         ModelInfo {
             id: "my-finetune".into(),
@@ -110,6 +119,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ];
     let merged = merge_models(&builtin, &overrides);
@@ -117,6 +127,11 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
     assert_eq!(merged[0].id, "opus");
     assert_eq!(merged[1].id, "sonnet");
     assert_eq!(merged[1].display_name, "My Sonnet"); // override won
+    assert_eq!(
+        merged[1].reasoning_efforts.as_ref().unwrap()[0].id,
+        "max",
+        "presentation overrides retain model capability data",
+    );
     assert_eq!(merged[2].id, "haiku");
     assert_eq!(merged[3].id, "my-finetune");
 }
@@ -132,6 +147,7 @@ fn merge_with_empty_override_is_builtin_verbatim() {
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }];
     let merged = merge_models(&builtin, &[]);
     assert_eq!(merged.len(), 1);
@@ -149,10 +165,34 @@ fn merge_with_empty_builtin_is_override_verbatim() {
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }];
     let merged = merge_models(&[], &overrides);
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].id, "x");
+}
+
+#[test]
+fn live_catalog_keeps_per_model_efforts_authoritative_over_presentation_overrides() {
+    let mut live = model("gpt-6-sol", "GPT-6 Sol");
+    live.reasoning_efforts = Some(vec![crate::provider::ReasoningEffortInfo {
+        id: "max".into(),
+        display_name: "Max".into(),
+        description: None,
+    }]);
+    let mut presentation = model("gpt-6-sol", "GPT Six Sol");
+    presentation.reasoning_efforts = Some(vec![crate::provider::ReasoningEffortInfo {
+        id: "ultra".into(),
+        display_name: "Ultra".into(),
+        description: None,
+    }]);
+
+    let merged = overlay_only(&[live], &[presentation]);
+
+    assert_eq!(
+        merged[0].reasoning_efforts.as_ref().unwrap()[0].id,
+        "max"
+    );
 }
 
 #[test]
@@ -203,6 +243,7 @@ fn register_twice_replaces() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("a".into()),
         },
@@ -219,6 +260,7 @@ fn register_twice_replaces() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("b".into()),
         },
@@ -399,6 +441,7 @@ fn is_stale_uses_injected_now() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("seed".into()),
         },
@@ -415,6 +458,7 @@ fn is_stale_uses_injected_now() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );
@@ -449,6 +493,7 @@ fn resolve_model_matches_exact_id() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
@@ -459,6 +504,7 @@ fn resolve_model_matches_exact_id() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -488,6 +534,7 @@ fn resolve_model_matches_display_case_insensitively() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("gpt-5.5".into()),
         },
@@ -519,6 +566,7 @@ fn resolve_model_unknown_falls_back_to_default() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
@@ -529,6 +577,7 @@ fn resolve_model_unknown_falls_back_to_default() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -813,6 +862,7 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("opus".into()),
     );
@@ -904,6 +954,7 @@ fn availability_flag_is_carried_through_resolve() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
             ],
             default: Some("opus".into()),
@@ -1014,6 +1065,7 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
             ],
             default: Some("stable".into()),
@@ -1063,6 +1115,7 @@ fn unknown_model(id: &str, display: &str) -> ModelInfo {
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }
 }
 
@@ -1085,6 +1138,7 @@ fn unknown_verdict_never_persists_as_a_negative() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             },
         ],
         Some("sonnet".into()),
@@ -1144,6 +1198,7 @@ async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }]),
     });
     let refreshed = refresh_for_reader(provider).await;
@@ -1181,6 +1236,7 @@ async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("fable".into()),
     );

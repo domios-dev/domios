@@ -53,15 +53,24 @@ function resolveModel(
 
 export function resolveEffort(
   provider: ProviderDescriptor | undefined,
+  modelId?: string,
   selectedEffortId?: string,
 ): string | undefined {
-  const efforts = provider?.reasoning_efforts ?? [];
+  const efforts = reasoningEffortsForModel(provider, modelId);
   if (efforts.length === 0) return undefined;
   if (efforts.some((effort) => effort.id === selectedEffortId)) return selectedEffortId;
   if (efforts.some((effort) => effort.id === provider?.default_reasoning_effort)) {
     return provider?.default_reasoning_effort;
   }
   return efforts[0]?.id;
+}
+
+export function reasoningEffortsForModel(
+  provider: ProviderDescriptor | undefined,
+  modelId?: string,
+): NonNullable<ProviderDescriptor["reasoning_efforts"]> {
+  const model = provider?.available_models.find((candidate) => candidate.id === modelId);
+  return model?.reasoning_efforts ?? provider?.reasoning_efforts ?? [];
 }
 
 export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSessionChoice {
@@ -72,10 +81,10 @@ export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSes
     mode: "pair",
     orchestratorProviderId: providerId,
     orchestratorModelId: modelId,
-    orchestratorEffortId: resolveEffort(provider),
+    orchestratorEffortId: resolveEffort(provider, modelId),
     plannerProviderId: providerId,
     plannerModelId: modelId,
-    plannerEffortId: resolveEffort(provider),
+    plannerEffortId: resolveEffort(provider, modelId),
   };
 }
 
@@ -85,23 +94,26 @@ function resolvePersistedChoice(
 ): NewSessionChoice {
   if (choice.mode === "single") {
     const provider = resolveProvider(providers, choice.providerId);
+    const modelId = resolveModel(provider, choice.modelId);
     return {
       mode: "single",
       providerId: provider?.id ?? "",
-      modelId: resolveModel(provider, choice.modelId),
-      effortId: resolveEffort(provider, choice.effortId),
+      modelId,
+      effortId: resolveEffort(provider, modelId, choice.effortId),
     };
   }
   const orchestrator = resolveProvider(providers, choice.orchestratorProviderId);
   const planner = resolveProvider(providers, choice.plannerProviderId);
+  const orchestratorModelId = resolveModel(orchestrator, choice.orchestratorModelId);
+  const plannerModelId = resolveModel(planner, choice.plannerModelId);
   return {
     mode: "pair",
     orchestratorProviderId: orchestrator?.id ?? "",
-    orchestratorModelId: resolveModel(orchestrator, choice.orchestratorModelId),
-    orchestratorEffortId: resolveEffort(orchestrator, choice.orchestratorEffortId),
+    orchestratorModelId,
+    orchestratorEffortId: resolveEffort(orchestrator, orchestratorModelId, choice.orchestratorEffortId),
     plannerProviderId: planner?.id ?? "",
-    plannerModelId: resolveModel(planner, choice.plannerModelId),
-    plannerEffortId: resolveEffort(planner, choice.plannerEffortId),
+    plannerModelId,
+    plannerEffortId: resolveEffort(planner, plannerModelId, choice.plannerEffortId),
   };
 }
 

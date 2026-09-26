@@ -520,6 +520,8 @@ pub struct SerdeModelInfo {
     /// See `ModelInfo::group`. Provider-declared picker section label.
     #[serde(default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub reasoning_efforts: Option<Vec<SerdeReasoningEffortInfo>>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -533,6 +535,12 @@ impl From<&SerdeModelInfo> for ModelInfo {
             featured: s.featured,
             badge: s.badge.clone(),
             group: s.group.clone(),
+            reasoning_efforts: s.reasoning_efforts.as_ref().map(|efforts| {
+                efforts
+                    .iter()
+                    .map(ReasoningEffortInfo::from)
+                    .collect()
+            }),
         }
     }
 }
@@ -620,5 +628,42 @@ mod tests {
         assert_eq!(model.badge, None);
         assert_eq!(model.group, None);
         assert!(!model.is_featured());
+    }
+
+    #[test]
+    fn serde_model_info_carries_per_model_reasoning_efforts() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "gpt-6-sol",
+            "displayName": "GPT-6 Sol",
+            "reasoningEfforts": [
+                { "id": "max", "displayName": "Max", "description": "Maximum reasoning" },
+                { "id": "ultra", "displayName": "Ultra" }
+            ]
+        }))
+        .expect("per-model reasoning efforts parse");
+
+        let model: ModelInfo = (&parsed).into();
+        let wire = serde_json::to_value(&model).expect("model serializes");
+        assert_eq!(wire["reasoning_efforts"][0]["id"], "max");
+        assert_eq!(wire["reasoning_efforts"][0]["display_name"], "Max");
+        let efforts = model.reasoning_efforts.expect("per-model effort list");
+        assert_eq!(
+            efforts.iter().map(|effort| effort.id.as_str()).collect::<Vec<_>>(),
+            vec!["max", "ultra"]
+        );
+        assert_eq!(efforts[0].description.as_deref(), Some("Maximum reasoning"));
+    }
+
+    #[test]
+    fn serde_model_info_preserves_an_explicit_empty_effort_list() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "model-without-selector",
+            "displayName": "Model Without Selector",
+            "reasoningEfforts": []
+        }))
+        .expect("empty effort list parses");
+
+        let model: ModelInfo = (&parsed).into();
+        assert_eq!(model.reasoning_efforts, Some(Vec::new()));
     }
 }
