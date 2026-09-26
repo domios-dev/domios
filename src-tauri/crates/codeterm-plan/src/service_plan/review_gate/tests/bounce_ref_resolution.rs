@@ -63,6 +63,10 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
         assert_eq!(task.status, crate::plan::TaskStatus::Pending);
         assert_eq!(task.status_label.as_deref(), Some("review bounced"));
         assert!(task.execution_attempts[0].closed_at.is_some());
+        assert_eq!(
+            task.execution_attempts[0].closure_reason.as_deref(),
+            Some("review_bounce_executor_gone")
+        );
         assert!(task
             .milestones
             .last()
@@ -220,6 +224,10 @@ fn bounce_reopens_in_review_task_whose_executor_is_gone() {
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].executor_tab_id, "tab_impl");
     assert_eq!(task.execution_attempts[0].closed_at, Some(7));
+    assert_eq!(
+        task.execution_attempts[0].closure_reason.as_deref(),
+        Some("review_bounce_executor_gone")
+    );
     assert!(task
         .review_evidence
         .last()

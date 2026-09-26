@@ -331,6 +331,8 @@ pub struct ReviewContinuation {
     pub attempt_id: String,
     pub executor_tab_id: String,
     pub session_id: String,
+    #[serde(skip)]
+    pub mesh_peer: Option<String>,
     pub epoch: u32,
     pub review_round: u32,
     pub state: String,
@@ -733,6 +735,9 @@ impl PlanStore {
                     task_id: task.id.clone(),
                 })?;
             attempt.closed_at.get_or_insert(now_ms);
+            attempt
+                .closure_reason
+                .get_or_insert_with(|| "review_bounce_executor_gone".into());
             attempt.continuation.state = Some("executor_gone".into());
             task.status = TaskStatus::Pending;
             task.status_label = Some("review bounced".into());

@@ -602,8 +602,7 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
 }
 
 fn live_team_planner_ref(mux: &MultiplexerState, team_id: &str) -> Option<crate::plan::PlannerRef> {
-    let tabs = mux.snapshot().tabs;
-    let mut planners = tabs.values().filter(|tab| {
+    let mut planners = mux.all_tabs().filter(|tab| {
         tab.team_id.as_deref() == Some(team_id)
             && tab.role == Some(AgentRole::Manager)
             && tab.role_profile.as_deref()

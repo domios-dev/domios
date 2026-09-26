@@ -47,6 +47,45 @@ fn exact_closed_review_attempt(task: &Task) -> Option<usize> {
 }
 
 impl PlanStore {
+    pub fn closed_review_continuation(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Option<ReviewContinuation> {
+        let plan = self.get(plan_id)?;
+        let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)?;
+        let task = &plan.tasks[task_index];
+        let continuation_replay = task.status == TaskStatus::InProgress
+            && matches!(
+                task.status_label.as_deref(),
+                Some("awaiting_continuation" | "bounce_continuation_failed" | "review bounced")
+            );
+        if (task.status != TaskStatus::InReview && !continuation_replay)
+            || task.execution_attempts.iter().any(|attempt| {
+                attempt.closed_at.is_none() && review_attempt_matches_task(task, attempt)
+            })
+        {
+            return None;
+        }
+        let attempt_index = exact_closed_review_attempt(task)?;
+        let attempt = &task.execution_attempts[attempt_index];
+        Some(ReviewContinuation {
+            attempt_id: attempt.id.clone(),
+            executor_tab_id: attempt.executor_tab_id.clone(),
+            session_id: attempt.session_id.clone()?,
+            mesh_peer: attempt.mesh_peer.clone().or_else(|| task.peer.clone()),
+            epoch: attempt.continuation.epoch,
+            review_round: task.review_round,
+            state: attempt
+                .continuation
+                .state
+                .clone()
+                .unwrap_or_else(|| "executor_gone".into()),
+        })
+    }
+}
+
+impl PlanStore {
     pub fn bounce_review(
         &self,
         plan_id: &str,
@@ -57,11 +96,34 @@ impl PlanStore {
         from: AgentRef,
         now_ms: u64,
     ) -> Result<ReviewTransitionResult, PlanError> {
+        self.bounce_review_with_recorded_status(
+            plan_id,
+            task_id,
+            note,
+            changed_executable_surfaces,
+            distinct_oracle,
+            from,
+            now_ms,
+        )
+        .map(|(result, _)| result)
+    }
+
+    pub fn bounce_review_with_recorded_status(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        note: &str,
+        changed_executable_surfaces: bool,
+        distinct_oracle: bool,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<(ReviewTransitionResult, bool), PlanError> {
         let note = note.trim();
         if note.is_empty() {
             return Err(PlanError::QaNoteRequired);
         }
         let mut result = None;
+        let mut recorded = false;
         self.with_plan(plan_id, now_ms, |p| {
             let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -100,6 +162,10 @@ impl PlanStore {
                                     task_id: p.tasks[idx].id.clone(),
                                 }
                             })?,
+                            mesh_peer: attempt
+                                .mesh_peer
+                                .clone()
+                                .or_else(|| p.tasks[idx].peer.clone()),
                             epoch: attempt.continuation.epoch,
                             review_round: p.tasks[idx].review_round,
                             state: attempt
@@ -140,6 +206,9 @@ impl PlanStore {
                             }
                         })?;
                     attempt.continuation.state = Some("executor_gone".into());
+                    attempt
+                        .closure_reason
+                        .get_or_insert_with(|| "review_bounce_executor_gone".into());
                     task.status = TaskStatus::Pending;
                     task.status_label = Some("review bounced".into());
                     task.status_changed_at = now_ms;
@@ -219,6 +288,9 @@ impl PlanStore {
                     attempt.continuation.state = Some("executor_gone".into());
                     attempt.continuation.milestone_id = Some(mid.clone());
                     attempt.continuation.delivered_at = None;
+                    attempt
+                        .closure_reason
+                        .get_or_insert_with(|| "review_bounce_executor_gone".into());
                     task.status = TaskStatus::Pending;
                     task.status_label = Some("review bounced".into());
                 }
@@ -250,14 +322,19 @@ impl PlanStore {
                         attempt_id: attempt.id.clone(),
                         executor_tab_id: attempt.executor_tab_id.clone(),
                         session_id: attempt.session_id.clone().unwrap_or_default(),
+                        mesh_peer: attempt
+                            .mesh_peer
+                            .clone()
+                            .or_else(|| p.tasks[idx].peer.clone()),
                         epoch: attempt.continuation.epoch,
                         review_round: p.tasks[idx].review_round,
                         state: "awaiting_continuation".into(),
                     }
                 }),
             });
+            recorded = true;
             Ok(())
         })?;
-        result.ok_or(PlanError::TaskNotFound)
+        Ok((result.ok_or(PlanError::TaskNotFound)?, recorded))
     }
 }
