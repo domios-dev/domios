@@ -665,9 +665,31 @@ pub fn has_live_snapshot(provider_id: &str) -> bool {
 }
 
 pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
-    registry().read().get(provider_id).and_then(|snapshot| {
-        (snapshot.source == Source::Live).then(|| snapshot.models.clone())
-    })
+    registry()
+        .read()
+        .get(provider_id)
+        .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()))
+}
+
+pub fn resolve_live_default_model(provider_id: &str) -> Option<String> {
+    let registry = registry();
+    let guard = registry.read();
+    let snapshot = guard.get(provider_id)?;
+    if snapshot.source != Source::Live {
+        return None;
+    }
+    snapshot
+        .default
+        .as_deref()
+        .and_then(|default| find_model(&snapshot.models, default))
+        .map(|model| model.id.clone())
+        .or_else(|| {
+            snapshot
+                .models
+                .iter()
+                .find(|model| model.available != Some(false))
+                .map(|model| model.id.clone())
+        })
 }
 
 pub fn resolve_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {
