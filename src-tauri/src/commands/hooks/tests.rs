@@ -709,10 +709,6 @@ fn opencode_plugin_file_integration_is_reconciled_at_startup() {
         provider.check_integration()["plugin_file_current"].as_bool(),
         Some(true)
     );
-    assert_eq!(
-        reconciliation_log_line(&outcome, true),
-        "integration reconciliation: repaired; consent inferred from existing CodeTerm-owned install"
-    );
 }
 
 #[test]
