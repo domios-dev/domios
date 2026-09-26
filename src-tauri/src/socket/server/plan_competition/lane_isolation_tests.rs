@@ -74,6 +74,7 @@ fn draft(plan: &Plan, task_id: &str, lane: u32) -> TaskCompeteDraft {
         provider: "claude".into(),
         planned_model: None,
         model: None,
+        reasoning_effort: None,
         parent_tab_id: Some("orch".into()),
         workspace_id: None,
         title: None,

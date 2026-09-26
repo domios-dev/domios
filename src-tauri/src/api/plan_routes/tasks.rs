@@ -39,7 +39,7 @@ fn record_respawn_attempt_and_persist_identity(
     now_ms: u64,
 ) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
 {
-    record_respawn_attempt_and_persist_identity_for(
+    let created = record_respawn_attempt_and_persist_identity_for(
         &state.svc.plan_store,
         &state.svc.mux,
         planner_role_for_tab(state, tab_id).or(Some("worker")),
@@ -49,7 +49,9 @@ fn record_respawn_attempt_and_persist_identity(
         draft,
         title,
         now_ms,
-    )
+    )?;
+    state.svc.persist_current_attempt_session_model(tab_id);
+    Ok(created)
 }
 
 fn record_respawn_attempt_and_persist_identity_for(
@@ -943,7 +945,7 @@ pub async fn task_respawn(
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
-    let draft = state
+    let mut draft = state
         .svc
         .plan_store
         .build_task_respawn_draft(&id, &tid, body)
@@ -963,12 +965,17 @@ pub async fn task_respawn(
                 spawned_by_tab_id: draft.parent_tab_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
+                planned_reasoning_effort: draft.reasoning_effort.clone(),
+                reasoning_effort: draft.reasoning_effort.clone(),
                 ..Default::default()
             },
             None,
         )
         .await
         .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    draft.provider = spawn.agent.clone();
+    draft.model = spawn.provider_resolved_model.clone();
+    draft.reasoning_effort = spawn.reasoning_effort.clone();
     let created = record_respawn_attempt_and_persist_identity(
         &state,
         &id,
