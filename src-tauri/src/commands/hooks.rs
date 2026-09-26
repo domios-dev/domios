@@ -464,6 +464,7 @@ fn spawn_reconciliation(
                     provider.display_name(),
                     &id,
                     &status,
+                    previously_consented,
                     &outcome,
                 );
             }
@@ -629,14 +630,20 @@ fn log_reconciliation(
     }
 }
 
-fn reconciliation_needs_owner_notice(outcome: &IntegrationRepairOutcome) -> bool {
-    matches!(
-        outcome,
-        IntegrationRepairOutcome::ConsentMissing
-            | IntegrationRepairOutcome::Unreadable
-            | IntegrationRepairOutcome::TrustGrantRequired
-            | IntegrationRepairOutcome::RepairFailed(_)
-    )
+fn reconciliation_needs_owner_notice(
+    status: &Json,
+    consent_recorded: bool,
+    outcome: &IntegrationRepairOutcome,
+) -> bool {
+    let owned = crate::service::integration_silence::read_integration_owned(status);
+    (owned || consent_recorded)
+        && matches!(
+            outcome,
+            IntegrationRepairOutcome::ConsentMissing
+                | IntegrationRepairOutcome::Unreadable
+                | IntegrationRepairOutcome::TrustGrantRequired
+                | IntegrationRepairOutcome::RepairFailed(_)
+        )
 }
 
 fn notify_reconciliation_owner(
@@ -644,9 +651,10 @@ fn notify_reconciliation_owner(
     provider_name: &str,
     provider_id: &str,
     status: &Json,
+    consent_recorded: bool,
     outcome: &IntegrationRepairOutcome,
 ) {
-    if !reconciliation_needs_owner_notice(outcome) {
+    if !reconciliation_needs_owner_notice(status, consent_recorded, outcome) {
         return;
     }
     let detail = match outcome {

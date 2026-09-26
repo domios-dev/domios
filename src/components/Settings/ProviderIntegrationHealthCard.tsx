@@ -30,6 +30,7 @@ export function providerIntegrationState(
   health: ProviderIntegrationHealth | null,
 ): Exclude<ProviderIntegrationState, "checking" | "error"> {
   if (!health) return "unknown";
+  if (health.integration_state === "unknown") return "unknown";
   if (health.integration_state === "absent") return "absent";
   if (health.integration_state === "stale_version") return "stale-version";
   if (health.integration_state === "untrusted_hash") return "untrusted-hash";
