@@ -20,6 +20,12 @@ interface CodexCachedModel {
   description?: string;
   visibility?: string;
   priority?: number;
+  supported_reasoning_levels?: CodexReasoningLevel[];
+}
+
+interface CodexReasoningLevel {
+  effort?: string;
+  description?: string;
 }
 
 // `null` tells the host no genuine discovery ran; the seed is the host's to apply.
@@ -62,9 +68,29 @@ function discoverCodexModelsFromCache(): ModelInfo[] | null {
       description: typeof item.description === "string" && item.description.trim()
         ? item.description.trim()
         : undefined,
+      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
     });
   }
   return models.length ? models : null;
+}
+
+function reasoningEffortsFrom(levels: CodexReasoningLevel[] | undefined): ModelInfo["reasoningEfforts"] {
+  if (!Array.isArray(levels)) return undefined;
+  const efforts: NonNullable<ModelInfo["reasoningEfforts"]> = [];
+  const seen = new Set<string>();
+  for (const level of levels) {
+    const id = typeof level.effort === "string" ? level.effort.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    efforts.push({
+      id,
+      displayName: id,
+      description: typeof level.description === "string" && level.description.trim()
+        ? level.description.trim()
+        : undefined,
+    });
+  }
+  return efforts;
 }
 
 function priorityOf(m: CodexCachedModel): number {

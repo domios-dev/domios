@@ -77,7 +77,7 @@ export function NewSessionPicker({
         mode: "single",
         providerId: initialProviderId,
         modelId: provider?.default_model,
-        effortId: resolveEffort(provider),
+        effortId: resolveEffort(provider, provider?.default_model),
       });
     } else {
       setChoice(restored);
@@ -431,10 +431,18 @@ export function NewSessionPicker({
                   mode: "single",
                   providerId,
                   modelId: provider?.default_model,
-                  effortId: resolveEffort(provider),
+                  effortId: resolveEffort(provider, provider?.default_model),
                 });
               }}
-              onModelChange={(modelId) => setChoice({ ...choice, modelId })}
+              onModelChange={(modelId) => setChoice({
+                ...choice,
+                modelId,
+                effortId: resolveEffort(
+                  visibleProviders.find((provider) => provider.id === choice.providerId),
+                  modelId,
+                  choice.effortId,
+                ),
+              })}
               onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
               effortTestId="picker-effort-single"
               onInstallProvider={handleInstallProvider}

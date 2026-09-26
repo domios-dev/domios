@@ -1104,20 +1104,22 @@ pub(crate) fn build_agent_command_with_launch_marker(
     launch_marker: Option<&str>,
 ) -> String {
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
-    if let Some(ref model) = params.model {
-        if !model.is_empty() {
-            let resolved = crate::agent::model_catalog::resolve_model(agent_cmd, Some(model));
-            let model_args = registry
-                .with_provider(agent_cmd, |p| p.model_launch_args(&resolved.id))
-                .unwrap_or_else(|| vec!["--model".into(), resolved.id]);
-            args.extend(model_args);
-        }
+    let resolved_model = params
+        .model
+        .as_deref()
+        .filter(|model| !model.is_empty())
+        .map(|model| crate::agent::model_catalog::resolve_model(agent_cmd, Some(model)).id);
+    if let Some(model) = resolved_model.as_deref() {
+        let model_args = registry
+            .with_provider(agent_cmd, |p| p.model_launch_args(model))
+            .unwrap_or_else(|| vec!["--model".into(), model.to_string()]);
+        args.extend(model_args);
     }
     if let Some(ref effort) = params.reasoning_effort {
         if !effort.is_empty() {
             if let Some(effort_args) = registry
                 .with_provider(agent_cmd, |p| {
-                    p.supports_reasoning_effort(effort)
+                    p.supports_reasoning_effort_for_model(resolved_model.as_deref(), effort)
                         .then(|| p.reasoning_effort_launch_args(effort))
                 })
                 .flatten()

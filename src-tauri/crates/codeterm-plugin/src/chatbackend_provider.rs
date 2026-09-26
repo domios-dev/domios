@@ -534,6 +534,7 @@ mod tests {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }
     }
 

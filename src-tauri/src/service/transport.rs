@@ -114,7 +114,7 @@ impl AgentTransport for PtyTransport {
             if let Some(effort_args) = svc
                 .agent_registry
                 .with_provider(ctx.provider_id, |p| {
-                    p.supports_reasoning_effort(effort)
+                    p.supports_reasoning_effort_for_model(model_resolution.model.as_deref(), effort)
                         .then(|| p.reasoning_effort_launch_args(effort))
                 })
                 .flatten()

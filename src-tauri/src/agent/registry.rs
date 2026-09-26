@@ -609,6 +609,7 @@ mod tests {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 }],
                 default: Some("phantom-model".into()),
             },
@@ -624,6 +625,7 @@ mod tests {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             Some("cache-model".into()),
         );

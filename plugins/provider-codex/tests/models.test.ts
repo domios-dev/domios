@@ -95,6 +95,35 @@ console.log("\n--- discoverModels ---\n");
 }
 
 {
+  const cache = JSON.parse(fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "models_cache.json"),
+    "utf8",
+  )) as { models: unknown[] };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{
+    id: string;
+    reasoningEfforts?: Array<{ id: string; displayName: string; description?: string }>;
+  }>;
+  eq(
+    models.map((model) => [model.id, model.reasoningEfforts?.map((effort) => effort.id)]),
+    [
+      ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+      ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],
+      ["gpt-5.5", ["low", "medium", "high", "xhigh"]],
+    ],
+    "live reasoning levels are carried per model without adding unsupported levels",
+  );
+}
+
+{
   const p = loadCodexWithHost(baseHost({}));
   eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Codex cache exists");
 }
