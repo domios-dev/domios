@@ -681,11 +681,17 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     "const r = await tools.view_image({path:\"C:\\\\work\\\\update-error.png\",detail:\"original\"});\r\nimage(r.image_url);",
     "first readable line\r\nsecond line",
   ];
-  const parsed = hostPlugin.parseSessionDelta(calls.map((input, index) => JSON.stringify({
-    type: "response_item",
-    payload: { type: "custom_tool_call", name: "exec", call_id: `call_readable_${index}`, input },
-  })).join("\n")) as { messages: any[] };
-  const data = parsed.messages.map((message) => message.blocks[0].data);
+  const records = calls.flatMap((input, index) => {
+    const callId = `call_readable_${index}`;
+    return [
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", call_id: callId, input } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: callId, output: `output-${index}` } }),
+    ];
+  });
+  const parsed = hostPlugin.parseSessionDelta(records.join("\n")) as { messages: any[] };
+  const data = parsed.messages
+    .filter((message) => message.blocks[0]?.kind === "tool_use")
+    .map((message) => message.blocks[0].data);
 
   eq(data[0].tool_kind, "command", "nested exec_command renders as a command");
   eq(data[0].tool_summary, "./build.sh check", "nested exec_command exposes its command");

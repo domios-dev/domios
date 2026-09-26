@@ -168,16 +168,19 @@ for (const parser of parsers) {
   const wrapper = JSON.stringify({ type: "response_item", payload: {
     type: "custom_tool_call", name: "exec", call_id: "outer-opaque",
     input: `text(await tools.exec_command({cmd: ${JSON.stringify(command)}}));`,
+    internal_chat_message_metadata_passthrough: { turn_id: "turn-wrapper" },
   } });
   const result = JSON.stringify({ type: "response_item", payload: {
     type: "custom_tool_call_output", call_id: "outer-opaque", output: "opaque-running-handle",
   } });
-  const batch = parse([wrapper, result, completed(execution)]);
-  assert.equal(batch.length, 3);
+  const wrappedExecution = { ...execution, id: "exec-wrapper-pair", command: ["C:\\Opaque Tools\\pwsh.exe", "-Command", command] };
+  const batch = parse([wrapper, completed(wrappedExecution).replace('"item_completed",', '"item_completed","turn_id":"turn-wrapper",'), result]);
+  assert.equal(batch.length, 2);
   assert.equal(batch[0].blocks[0].data.id, "outer-opaque");
+  assert.equal(batch[0].blocks[0].data.tool_summary, command);
   assert.equal(batch[1].blocks[0].data.tool_use_id, "outer-opaque");
-  assert.equal(batch[2].blocks[0].data.id, execution.id);
-  assert.equal(batch[2].blocks[1].data.content, output);
+  assert.equal(batch[1].blocks[0].data.content, "opaque-running-handle");
+  assert.ok(String(batch[1].blocks[0].data.tool_wrapper_detail).includes("-Command"));
   assert.equal(messages[0].blocks[0].data.tool_flow_id, undefined, "activity without a source turn keeps its flow unknown");
 
   const turn = (type: "task_started" | "task_complete", turnId?: string) => JSON.stringify({
@@ -197,31 +200,32 @@ for (const parser of parsers) {
       type: "function_call", name: "wait_agent", call_id: "call-a3", arguments: JSON.stringify(waitAgentArgs),
     } }),
     completed({ ...execution, id: "exec-turn-a" }).replace('"item_completed",', '"item_completed","turn_id":"turn-a",'),
+    JSON.stringify({ type: "response_item", timestamp, payload: {
+      type: "custom_tool_call_output", call_id: "call-a1", output: "opaque-command-output",
+    } }),
     turn("task_complete", "turn-a"),
     turn("task_started", "turn-b"),
     custom("call-b1", `const r = await tools.view_image({path:"/repo/shot.png"}); image(r.image_url);`),
   ]);
   assert.deepEqual(flow.map((message) => message.blocks[0].kind), [
-    "tool_flow", "tool_use", "tool_use", "tool_use", "tool_use", "tool_flow", "tool_flow", "tool_use",
+    "tool_flow", "tool_use", "tool_use", "tool_use", "tool_result", "tool_use", "tool_result", "tool_flow", "tool_flow", "tool_use",
   ]);
   assert.deepEqual(flow[0].blocks[0].data, { state: "start", flow_id: "turn-a" });
-  assert.deepEqual(flow[5].blocks[0].data, { state: "end", flow_id: "turn-a" });
-  assert.deepEqual(flow[6].blocks[0].data, { state: "start", flow_id: "turn-b" });
-  assert.equal(flow[1].blocks[0].data.tool_title, "npm test");
-  assert.deepEqual(flow[1].blocks[0].data.input, { raw: commandScript });
-  assert.equal(flow[2].blocks[0].data.tool_title, "Wait for command output");
-  assert.equal(flow[2].blocks[0].data.tool_summary, "Wait for command output");
-  assert.equal(flow[3].blocks[0].data.name, "wait_agent");
-  assert.equal(flow[3].blocks[0].data.tool_title, "wait_agent");
-  assert.deepEqual(flow[3].blocks[0].data.input, waitAgentArgs);
-  assert.equal(flow[4].blocks[0].data.tool_flow_id, "turn-a");
-  assert.equal(flow[4].blocks[0].data.tool_title, command);
-  assert.equal(flow[4].blocks[1].data.content, output);
-  assert.equal(flow[7].blocks[0].data.tool_title, "Read shot.png");
-  assert.equal(flow[1].blocks[0].data.tool_flow_id, undefined, "calls rely on the boundary row instead of a guessed turn");
-  assert.equal(flow[4].blocks[0].data.tool_echo, true, "command activity is marked as an echo of its exec call");
-  assert.equal(flow[1].blocks[0].data.tool_echo, undefined, "a real call is never an echo");
-  assert.equal(flow[3].blocks[0].data.tool_echo, undefined, "wait_agent is a real call");
+  assert.deepEqual(flow[7].blocks[0].data, { state: "end", flow_id: "turn-a" });
+  assert.deepEqual(flow[8].blocks[0].data, { state: "start", flow_id: "turn-b" });
+  assert.equal(flow[5].blocks[0].data.tool_title, "npm test");
+  assert.deepEqual(flow[5].blocks[0].data.input, { raw: commandScript });
+  assert.equal(flow[1].blocks[0].data.tool_title, "Wait for command output");
+  assert.equal(flow[1].blocks[0].data.tool_summary, "Wait for command output");
+  assert.equal(flow[2].blocks[0].data.name, "wait_agent");
+  assert.equal(flow[2].blocks[0].data.tool_title, "wait_agent");
+  assert.deepEqual(flow[2].blocks[0].data.input, waitAgentArgs);
+  assert.equal(flow[3].blocks[0].data.tool_flow_id, "turn-a");
+  assert.equal(flow[3].blocks[0].data.tool_title, command);
+  assert.equal(flow[4].blocks[0].data.content, output);
+  assert.equal(flow[6].blocks[0].data.content, "opaque-command-output");
+  assert.equal(flow[9].blocks[0].data.tool_title, "Read shot.png");
+  assert.equal(flow[5].blocks[0].data.tool_flow_id, undefined, "calls rely on the boundary row instead of a guessed turn");
 
   const listOutput = [
     { type: "input_text", text: "Script completed\nWall time 1.2 seconds\nOutput:\n" },
