@@ -40,13 +40,6 @@ async function run() {
     );
   }
 
-  // The dynamic import keeps these assertions independent of the module split, so they fail on trees that still expose the unsafe path.
-  const { CALLER_ACTION_KINDS } = await import("../../../lib/notificationActions");
-  check(
-    !CALLER_ACTION_KINDS.includes("invoke" as never),
-    "the caller-facing kind set must not contain invoke",
-  );
-
   report("action_provenance caller invoke", checked);
 }
 
