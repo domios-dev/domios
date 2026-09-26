@@ -312,7 +312,8 @@ export function mergeTrustedProjectEntries(profile: string, config: string): str
   });
   if (existing.rootInline && missing.length) return null;
   if (missing.length === 0) return config;
-  const newline = config.includes("\r\n") ? "\r\n" : "\n";
+  const newlineSource = config || profile;
+  const newline = newlineSource.includes("\r\n") ? "\r\n" : "\n";
   const separator = !config ? "" : config.endsWith(newline + newline)
     ? ""
     : config.endsWith(newline) ? newline : newline + newline;

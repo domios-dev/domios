@@ -56,6 +56,9 @@ function codex {
 }
 ${command}`;
     for (const shell of ["powershell.exe", "pwsh.exe"]) {
+      for (const name of fs.readdirSync(path.join(root, ".codex"))) {
+        fs.rmSync(path.join(root, ".codex", name), { recursive: true, force: true });
+      }
       fs.rmSync(receiptPath, { force: true });
       fs.rmSync(releaseLogPath, { force: true });
       fs.writeFileSync(
