@@ -746,12 +746,16 @@ impl AgentProvider for JsProvider {
         let consumed_bytes = window.new_offset - from_offset;
         // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
         let chunk = String::from_utf8_lossy(&window.bytes).to_string();
+        let context = serde_json::json!({
+            "session_key": path.to_string_lossy(),
+            "from_offset": from_offset,
+        });
         #[derive(serde::Deserialize)]
         struct JsDelta {
             messages: Vec<serde_json::Value>,
         }
         let parsed = self
-            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk)])
+            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk), context])
             .and_then(|d| crate::jsonl_window::rows_from_plugin(d.messages));
         match parsed {
             Some((mut messages, record_indexes)) => {

@@ -5,7 +5,7 @@ import plugin from "../src/plugin";
 import type { ActivityMessage } from "../src/activity";
 
 interface Parser {
-  parseSessionDelta(chunk: string): { messages: ActivityMessage[] };
+  parseSessionDelta(chunk: string, context?: { session_key: string; from_offset: number }): { messages: ActivityMessage[] };
 }
 
 const context = { module: { exports: {} as { default: Parser } }, exports: {}, console };
@@ -124,7 +124,7 @@ function repeatedTranscript(callId: string, suffix: string): string[] {
 }
 
 for (const parser of parsers) {
-  const parse = (lines: string[]) => JSON.parse(JSON.stringify(parser.parseSessionDelta(lines.join("\n")))).messages as ActivityMessage[];
+  const parse = (lines: string[], context?: { session_key: string; from_offset: number }) => JSON.parse(JSON.stringify(parser.parseSessionDelta(lines.join("\n"), context))).messages as ActivityMessage[];
   const toolUses = (messages: ActivityMessage[]) => messages.flatMap((message) => message.blocks.filter((block) => block.kind === "tool_use"));
   const toolResults = (messages: ActivityMessage[]) => messages.flatMap((message) => message.blocks.filter((block) => block.kind === "tool_result"));
   const callId = String(transcriptEntries.find((entry) => entry.payload?.type === "custom_tool_call")?.payload?.call_id);
@@ -134,11 +134,15 @@ for (const parser of parsers) {
   assert.equal(toolResults(restored).length, 1, "the logical exec call keeps its result");
   assert.equal(toolUses(restored)[0].data.id, callId);
   assert.equal(toolUses(restored)[0].data.tool_summary, "codeterm agent startup-ack --help");
-  assert.ok(String(toolUses(restored)[0].data.tool_detail).includes("-Command"), "the shell wrapper remains in detail");
   assert.equal(toolResults(restored)[0].data.tool_use_id, callId);
+  assert.ok(String(toolResults(restored)[0].data.tool_wrapper_detail).includes("-Command"), "the shell wrapper remains in result detail");
 
   const live: ActivityMessage[] = [];
-  for (const line of transcriptFixture) live.push(...parse([line]));
+  let offset = 0;
+  for (const line of transcriptFixture) {
+    live.push(...parse([line], { session_key: "rich-results-live", from_offset: offset }));
+    offset += Buffer.byteLength(line + "\n", "utf8");
+  }
   assert.equal(toolUses(live).length, 1, "the live tail pairs events across parser chunks");
   assert.equal(toolResults(live).length, 1, "the live logical call receives its result");
 

@@ -168,18 +168,19 @@ for (const parser of parsers) {
   const wrapper = JSON.stringify({ type: "response_item", payload: {
     type: "custom_tool_call", name: "exec", call_id: "outer-opaque",
     input: `text(await tools.exec_command({cmd: ${JSON.stringify(command)}}));`,
+    internal_chat_message_metadata_passthrough: { turn_id: "turn-wrapper" },
   } });
   const result = JSON.stringify({ type: "response_item", payload: {
     type: "custom_tool_call_output", call_id: "outer-opaque", output: "opaque-running-handle",
   } });
   const wrappedExecution = { ...execution, id: "exec-wrapper-pair", command: ["C:\\Opaque Tools\\pwsh.exe", "-Command", command] };
-  const batch = parse([wrapper, completed(wrappedExecution), result]);
+  const batch = parse([wrapper, completed(wrappedExecution).replace('"item_completed",', '"item_completed","turn_id":"turn-wrapper",'), result]);
   assert.equal(batch.length, 2);
   assert.equal(batch[0].blocks[0].data.id, "outer-opaque");
   assert.equal(batch[0].blocks[0].data.tool_summary, command);
-  assert.ok(String(batch[0].blocks[0].data.tool_detail).includes("-Command"));
   assert.equal(batch[1].blocks[0].data.tool_use_id, "outer-opaque");
   assert.equal(batch[1].blocks[0].data.content, "opaque-running-handle");
+  assert.ok(String(batch[1].blocks[0].data.tool_wrapper_detail).includes("-Command"));
   assert.equal(messages[0].blocks[0].data.tool_flow_id, undefined, "activity without a source turn keeps its flow unknown");
 
   const turn = (type: "task_started" | "task_complete", turnId?: string) => JSON.stringify({
