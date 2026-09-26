@@ -247,8 +247,17 @@ pub fn restore_provider_integration(
     provider_id: String,
 ) -> Result<(), String> {
     svc.agent_registry
-        .with_provider(&provider_id, |p| p.restore_integration())
+        .with_provider(&provider_id, restore_integration_for_provider)
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+}
+
+fn restore_integration_for_provider(
+    provider: &dyn crate::agent::provider::AgentProvider,
+) -> Result<(), String> {
+    if provider.integration_kind() == crate::agent::provider::IntegrationKind::PluginFile {
+        return Err("plugin-file integrations have no backup to restore".into());
+    }
+    provider.restore_integration()
 }
 
 #[tauri::command]
