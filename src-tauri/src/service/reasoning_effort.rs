@@ -85,22 +85,93 @@ impl ServiceContext {
                     })
             })
             .flatten();
-        let mut mux = self.mux.write();
-        let Some(tab) = mux.get_tab_mut(tab_id) else {
-            return;
+        let (identity_changed, owned_actual) = {
+            let mut mux = self.mux.write();
+            let Some(tab) = mux.get_tab_mut(tab_id) else {
+                return;
+            };
+            let identity_changed =
+                apply_session_owned_actual(tab, agent_id, session_id, actual.clone());
+            let owned_actual = (tab.agent_type.as_deref() == Some(agent_id)
+                && tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.reasoning_effort_identity.actual_source.as_deref() == Some(SESSION_OWNED))
+                .then(|| tab.reasoning_effort_identity.actual.clone())
+                .flatten();
+            (identity_changed, owned_actual)
         };
-        if !apply_session_owned_actual(tab, agent_id, session_id, actual) {
-            return;
+        if identity_changed {
+            self.emit_state_changed();
+            if let Err(error) = super::session_persist::persist_session_after_mutation(
+                self,
+                super::session_persist::SessionPersistUrgency::Prompt,
+            ) {
+                log::warn!("[reasoning-effort] failed to persist session attestation: {error}");
+            }
         }
-        drop(mux);
-        self.emit_state_changed();
-        if let Err(error) = super::session_persist::persist_session_after_mutation(
-            self,
-            super::session_persist::SessionPersistUrgency::Prompt,
-        ) {
-            log::warn!("[reasoning-effort] failed to persist session attestation: {error}");
+        if let Some(actual) = owned_actual {
+            self.persist_attempt_actual_reasoning_effort(tab_id, agent_id, session_id, &actual);
         }
     }
+
+    fn persist_attempt_actual_reasoning_effort(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        actual: &str,
+    ) {
+        let binding = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return;
+            };
+            if tab.agent_type.as_deref() != Some(agent_id)
+                || tab.agent_session_id.as_deref() != Some(session_id)
+                || tab.reasoning_effort_identity.actual.as_deref() != Some(actual)
+                || tab.reasoning_effort_identity.actual_source.as_deref() != Some(SESSION_OWNED)
+            {
+                return;
+            }
+            super::task_assignment::authenticated_tab_binding(tab)
+        };
+        let Some(binding) = binding else { return };
+        if binding.session_id != session_id {
+            return;
+        }
+        let Some((plan_id, task_id, attempt_id)) = self
+            .plan_store
+            .open_attempt_task_for_effort_for_tab(
+                tab_id,
+                &binding.session_id,
+                &binding.session_binding_nonce,
+            )
+        else {
+            return;
+        };
+        match self.plan_store.update_dispatched_attempt_actual_reasoning_effort(
+            &plan_id,
+            &task_id,
+            tab_id,
+            &attempt_id,
+            &binding.session_id,
+            &binding.session_binding_nonce,
+            actual.to_string(),
+            session_effort_epoch_ms(),
+        ) {
+            Ok(true) => self.emit_plan_changed(&plan_id),
+            Ok(false) => {}
+            Err(error) => log::warn!(
+                "[reasoning-effort] failed to persist task attempt actual effort tab={tab_id}: {error}"
+            ),
+        }
+    }
+}
+
+fn session_effort_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -170,5 +241,115 @@ mod tests {
             tab.reasoning_effort_identity.resolved.as_deref(),
             Some("high")
         );
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn attempt_records_actual_effort_for_claude_and_codex() {
+        use crate::agent::test_provider::MockProvider;
+        use crate::plan::{OrchestratorRef, Plan};
+        use crate::service::plan::task_assignment::AssignmentRuntimeBinding;
+        use crate::service::plan::NewTask;
+
+        let (mut mux, claude_tab) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.find_workspace_for_tab(&claude_tab).unwrap();
+        let codex_tab = mux.create_tab(&workspace_id).unwrap();
+        let identities = [
+            ("claude", "claude-model", "claude-session", "high"),
+            ("codex", "codex-model", "codex-session", "xhigh"),
+        ];
+        for (tab_id, (provider, model, session, _)) in
+            [&claude_tab, &codex_tab].into_iter().zip(identities)
+        {
+            let tab = mux.get_tab_mut(tab_id).unwrap();
+            tab.agent_type = Some(provider.into());
+            tab.agent_session_id = Some(session.into());
+            tab.session_binding_nonce = Some(format!("nonce-{session}"));
+            tab.reported_session_binding_nonce = Some(format!("nonce-{session}"));
+            tab.agent_provider_resolved_model = Some(model.into());
+            tab.cwd = Some("/fixture/project".into());
+        }
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        for (provider, model, session, actual) in identities {
+            fixture.service.agent_registry.register_provider(Box::new(
+                MockProvider::with_model_reasoning_efforts(
+                    provider,
+                    model,
+                    &["low", "medium", "high", "xhigh"],
+                )
+                .with_session_reasoning_effort(session, actual)
+                .with_session_reasoning_effort("foreign-session", "medium"),
+            ));
+        }
+
+        let mut plan = Plan::new(
+            "Session effort identity".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab(&claude_tab),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        for (tab_id, (provider, model, session, actual)) in
+            [&claude_tab, &codex_tab].into_iter().zip(identities)
+        {
+            let task_id = fixture
+                .service
+                .plan_store
+                .add_task(
+                    &plan.id,
+                    NewTask {
+                        name: format!("{provider} task"),
+                        ..Default::default()
+                    },
+                    2,
+                )
+                .unwrap();
+            let nonce = format!("nonce-{session}");
+            fixture
+                .service
+                .plan_store
+                .assign_task_with_runtime_binding(
+                    &plan.id,
+                    &task_id,
+                    tab_id,
+                    None,
+                    None,
+                    Some(&AssignmentRuntimeBinding {
+                        session_id: session.into(),
+                        session_binding_nonce: nonce,
+                        provider: Some(provider.into()),
+                        model: Some(model.into()),
+                        session_model: Some(model.into()),
+                        reasoning_effort: Some("medium".into()),
+                    }),
+                    None,
+                    3,
+                )
+                .unwrap();
+            fixture.service.refresh_session_reasoning_effort_once(
+                tab_id,
+                provider,
+                "/fixture/project",
+                session,
+            );
+            let task = fixture
+                .service
+                .plan_store
+                .get(&plan.id)
+                .unwrap()
+                .tasks
+                .into_iter()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            assert_eq!(
+                task.execution_attempts[0]
+                    .actual_reasoning_effort
+                    .as_deref(),
+                Some(actual)
+            );
+            assert_eq!(
+                task.execution_attempts[0].reasoning_effort.as_deref(),
+                Some("medium")
+            );
+        }
     }
 }

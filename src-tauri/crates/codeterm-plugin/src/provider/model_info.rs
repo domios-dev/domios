@@ -44,6 +44,8 @@ pub struct ModelInfo {
     pub group: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_efforts: Option<Vec<ReasoningEffortInfo>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_reasoning_effort: Option<String>,
 }
 
 impl ModelInfo {

@@ -105,6 +105,7 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
                 .unwrap()
                 .execution_attempts
                 .push(TaskExecutionAttempt {
+                    actual_reasoning_effort: None,
                     id: "old-attempt".into(),
                     executor_tab_id: "old-tab".into(),
                     branch: Some(old.branch.clone()),
