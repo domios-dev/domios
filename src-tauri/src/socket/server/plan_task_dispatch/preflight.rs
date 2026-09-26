@@ -35,10 +35,10 @@ pub(super) fn preflight_dispatch_task_status(
                 "status_label": task.status_label.as_deref(),
             })),
         }),
-        status => super::plan_rpc_err(PlanError::TransitionDenied {
+        status => Err(super::plan_rpc_err(PlanError::TransitionDenied {
             from: status.clone(),
             to: crate::plan::TaskStatus::Pending,
-        }),
+        })),
     }
 }
 

@@ -3,6 +3,7 @@ use super::report_refusal::{
     report_refusal_json,
 };
 use super::*;
+use crate::cmd::report_guard::ReportRefusal;
 
 #[test]
 fn missing_report_binding_is_a_loud_orchestration_incident() {

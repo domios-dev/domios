@@ -23,6 +23,7 @@
 //! `<data_dir>/models/README.md` on first run.
 
 use std::collections::HashMap;
+#[cfg(test)]
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -833,10 +834,9 @@ pub fn try_override_default(provider_id: &str) -> Option<String> {
 
 mod storage;
 pub use storage::models_dir;
-use storage::{
-    cache_path, load_override, override_cache, override_path, persist_cache, read_cache,
-    CachedSnapshot, ProviderOverride,
-};
+use storage::{load_override, override_cache, persist_cache, read_cache};
+#[cfg(test)]
+use storage::{cache_path, override_path, CachedSnapshot, ProviderOverride};
 /// Merge built-in models with user overrides, by id. Built-in order is
 /// preserved; each user entry either replaces an entry with the same id
 /// (keeping its original position) or, if the id is new, gets appended at

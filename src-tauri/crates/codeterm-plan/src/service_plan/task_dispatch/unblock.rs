@@ -1,6 +1,6 @@
 use super::super::PlanError;
 
-pub(super) fn task_startup_status(
+pub(in crate::service_plan) fn task_startup_status(
     status: &crate::plan::TaskStatus,
 ) -> Result<crate::plan::TaskStatus, PlanError> {
     match status {
@@ -15,7 +15,7 @@ pub(super) fn task_startup_status(
     }
 }
 
-pub(super) fn task_respawn_status(
+pub(in crate::service_plan) fn task_respawn_status(
     status: &crate::plan::TaskStatus,
 ) -> Result<crate::plan::TaskStatus, PlanError> {
     match status {
@@ -32,7 +32,7 @@ pub(super) fn task_respawn_status(
     }
 }
 
-pub(super) fn record_blocked_task_unblock(
+pub(in crate::service_plan) fn record_blocked_task_unblock(
     plan: &mut crate::plan::Plan,
     task_index: usize,
     action: &str,
@@ -70,7 +70,7 @@ pub(super) fn record_blocked_task_unblock(
     task.status_changed_at = now_ms;
 }
 
-pub(super) fn restore_blocked_unblock(
+pub(in crate::service_plan) fn restore_blocked_unblock(
     plan: &mut crate::plan::Plan,
     task_id: &str,
     attempt_id: &str,
@@ -90,7 +90,7 @@ pub(super) fn restore_blocked_unblock(
     Some(reason)
 }
 
-pub(super) fn annotate_blocked_unblock_rollback(
+pub(in crate::service_plan) fn annotate_blocked_unblock_rollback(
     plan: &mut crate::plan::Plan,
     task_id: &str,
     attempt_id: &str,
