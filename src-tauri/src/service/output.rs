@@ -301,15 +301,13 @@ impl ServiceContext {
                 let update_candidate = changed_screen
                     .as_deref()
                     .is_some_and(manual_update_prompt_candidate);
-                let trust_prompt_candidate = changed_screen.as_deref().is_some_and(|screen| {
-                    trust_candidate::may_be_directory_trust_prompt(screen)
-                        && self
-                            .agent_registry
-                            .with_provider(at, |provider| {
-                                provider.supports_directory_trust_prompt_parsing()
-                            })
-                            .unwrap_or(false)
-                });
+                let trust_prompt_candidate = trust_candidate::pending_prompt_candidate(
+                    self,
+                    pty_id,
+                    at,
+                    has_active_prompt,
+                    changed_screen.as_deref(),
+                );
 
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
                 let trust_candidate_screen = trust_candidate.then(|| {

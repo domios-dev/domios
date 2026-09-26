@@ -243,11 +243,25 @@ impl ServiceContext {
             });
         }
 
-        if self.plan_store.get(plan_id).is_none() {
-            return Err(format!("Plan {plan_id} not found"));
+        let plan = self
+            .plan_store
+            .get(plan_id)
+            .ok_or_else(|| format!("Plan {plan_id} not found"))?;
+        if planner.is_none() {
+            if let Some(PlannerRef::Tab { tab_id, .. }) = plan.planner {
+                if self.mux.read().get_tab(&tab_id).is_some() {
+                    return self.transition_agent(AgentTransitionRequest {
+                        tab_id,
+                        destination: AgentPlacement::Roleless,
+                        plan_binding: None,
+                        require_verified_session: false,
+                        planner_replacement: Some((plan_id.to_string(), None)),
+                        plan_rebind: None,
+                    });
+                }
+            }
         }
         let mux = self.mux.write();
-        // The waiver changes plan metadata only; no tab owns this binding update.
         let change = AgentLifecyclePlanChange {
             tab_id: String::new(),
             preserve_owned_plans: true,
@@ -282,17 +296,15 @@ fn role_team_bindings(
         u8,
     ),
 > {
-    mux.snapshot()
-        .tabs
-        .into_iter()
-        .map(|(tab_id, tab)| {
+    mux.all_tabs()
+        .map(|tab| {
             (
-                tab_id,
+                tab.id.clone(),
                 (
                     tab.role,
-                    tab.role_profile,
-                    tab.team_id,
-                    tab.parent_tab_id,
+                    tab.role_profile.clone(),
+                    tab.team_id.clone(),
+                    tab.parent_tab_id.clone(),
                     tab.can_spawn,
                     tab.depth,
                 ),

@@ -304,3 +304,60 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
         "a user-directory trust dialog stays user controlled"
     );
 }
+
+#[test]
+fn pending_user_dir_trust_prompt_survives_a_no_change_chunk() {
+    let screen = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+    )
+    .expect("Codex user directory trust fixture");
+    let prompt = PendingPrompt {
+        question: "folder access choice".into(),
+        options: menu_options(&screen),
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::new("fixture").with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.link_pty(&tab_id, "pty-user-dir-no-change".into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("fixture".into());
+    tab.cwd = Some("C:\\Users\\dev\\workspace".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process("pty-user-dir-no-change", screen.as_bytes());
+
+    fixture
+        .service
+        .process_pty_output("pty-user-dir-no-change", b"\x1b[0m");
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.clone()),
+        Some(prompt.clone())
+    );
+
+    fixture
+        .service
+        .process_pty_output("pty-user-dir-no-change", b"\x1b[0m");
+
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.clone()),
+        Some(prompt)
+    );
+}
