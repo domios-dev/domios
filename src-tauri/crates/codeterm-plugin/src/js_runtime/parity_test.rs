@@ -768,6 +768,7 @@ fn launch_adapter_matrix_uses_each_installed_descriptor() {
         let descriptor = provider.describe();
         let command = provider.build_launch_command(&AgentLaunchParams {
             task: Some(task.into()),
+            instance_id: Some("instance-parity".into()),
             ..Default::default()
         });
 
@@ -1160,6 +1161,7 @@ fn permission_bypass_descriptor_matches_provider_capability() {
 // Hook event roster parity + fail-closed registration (DN-3 stage 1).
 
 mod hook_event_roster;
+mod launch_artifacts;
 
 /// #16 parity (discipline rule #2): a capability method a provider doesn't
 /// implement must SKIP-not-recurse and return the SAME sane default on BOTH the

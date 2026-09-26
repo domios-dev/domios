@@ -548,6 +548,14 @@ Show a provider's hook integration state
 
 - `--provider` — Provider id (e.g. claude, codex)
 
+#### `codeterm integration sweep-profiles`
+
+Preview or remove dead provider launch artifacts owned by this instance
+
+- `--confirm` — Remove the profiles listed by this instance's scan
+- `--include-legacy` — Include every unmarked legacy profile, regardless of tab liveness
+- `--provider` — Provider id (e.g. codex)
+
 #### `codeterm keepawake`
 
 Prevent the system from sleeping while an agent is running

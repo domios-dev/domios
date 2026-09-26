@@ -2530,6 +2530,44 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "sweep-profiles",
+          "about": "Preview or remove dead provider launch artifacts owned by this instance",
+          "aliases": [],
+          "args": [
+            {
+              "name": "confirm",
+              "positional": false,
+              "required": false,
+              "value_name": "CONFIRM",
+              "possible_values": [],
+              "default": null,
+              "help": "Remove the profiles listed by this instance's scan",
+              "aliases": []
+            },
+            {
+              "name": "include-legacy",
+              "positional": false,
+              "required": false,
+              "value_name": "INCLUDE_LEGACY",
+              "possible_values": [],
+              "default": null,
+              "help": "Include every unmarked legacy profile, regardless of tab liveness",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider id (e.g. codex)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
       ]
     },
