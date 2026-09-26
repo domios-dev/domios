@@ -37,40 +37,45 @@ impl RestoredFreshLaunchInput {
     /// A fresh launch carries a minted marker; a resume already names its session.
     fn command(
         &self,
-        registry: &crate::agent::registry::AgentRegistry,
+        service: &crate::service::ServiceContext,
         tab_id: &str,
     ) -> Option<String> {
         let provider_id = self.params.agent.as_deref()?;
-        registry
-            .with_provider(provider_id, |provider| {
-                let resumable = match self.params.resume_session_id.as_deref() {
-                    Some(session_id) => provider
-                        .build_resume_command(
-                            session_id,
-                            self.params.permission_bypass_requested(provider_id),
-                        )
-                        .is_some(),
-                    None => true,
-                };
-                resumable.then(|| match self.params.resume_session_id {
-                    Some(_) => crate::service::build_agent_command(
-                        provider_id,
-                        &self.params,
-                        self.launch_task.as_deref(),
-                        None,
-                        registry,
-                    ),
-                    None => crate::service::launch_session_detection::marked_agent_command(
-                        tab_id,
-                        provider_id,
-                        &self.params,
-                        self.launch_task.as_deref(),
-                        None,
-                        registry,
-                    ),
-                })
-            })
-            .flatten()
+        let registry = &service.agent_registry;
+        let resumable = registry.with_provider(provider_id, |provider| {
+            match self.params.resume_session_id.as_deref() {
+                Some(session_id) => provider
+                    .build_resume_command(
+                        session_id,
+                        self.params.permission_bypass_requested(provider_id),
+                    )
+                    .is_some(),
+                None => true,
+            }
+        })?;
+        if !resumable {
+            return None;
+        }
+        Some(match self.params.resume_session_id {
+            Some(_) => crate::service::orchestrator::build_agent_command_for_service(
+                service,
+                tab_id,
+                provider_id,
+                &self.params,
+                self.launch_task.as_deref(),
+                None,
+                registry,
+            ),
+            None => crate::service::launch_session_detection::marked_agent_command_for_service(
+                service,
+                tab_id,
+                provider_id,
+                &self.params,
+                self.launch_task.as_deref(),
+                None,
+                registry,
+            ),
+        })
     }
 }
 
@@ -301,7 +306,7 @@ pub async fn spawn_pty_core(
                         ..Default::default()
                     },
                 )
-                .command(&svc.agent_registry, pid);
+                .command(svc.as_ref(), pid);
 
                 if let Some(cmd) = resume_cmd {
                     if resume_enabled {
@@ -467,7 +472,7 @@ pub async fn spawn_pty_core(
                     ..Default::default()
                 },
             );
-            let launch_cmd = input.command(&svc.agent_registry, pid);
+            let launch_cmd = input.command(svc.as_ref(), pid);
             if let Some(cmd) = launch_cmd {
                 let prompt_delivery = svc
                     .agent_registry

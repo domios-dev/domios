@@ -64,15 +64,67 @@ pub(crate) fn marked_agent_command(
     injected_session_id: Option<&str>,
     registry: &crate::agent::registry::AgentRegistry,
 ) -> String {
-    let marker = mint_launch_marker(tab_id);
-    let command = super::orchestrator::build_agent_command_with_launch_marker(
+    marked_agent_command_inner(
+        None,
+        tab_id,
         agent_cmd,
         params,
         task,
         injected_session_id,
         registry,
-        Some(&marker),
-    );
+    )
+}
+
+pub(crate) fn marked_agent_command_for_service(
+    service: &ServiceContext,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &crate::agent::registry::AgentRegistry,
+) -> String {
+    marked_agent_command_inner(
+        Some(service),
+        tab_id,
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+    )
+}
+
+fn marked_agent_command_inner(
+    service: Option<&ServiceContext>,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &crate::agent::registry::AgentRegistry,
+) -> String {
+    let marker = mint_launch_marker(tab_id);
+    let command = match service {
+        Some(service) => super::orchestrator::build_agent_command_with_launch_marker_for_service(
+            service,
+            tab_id,
+            agent_cmd,
+            params,
+            task,
+            injected_session_id,
+            registry,
+            Some(&marker),
+        ),
+        None => super::orchestrator::build_agent_command_with_launch_marker(
+            agent_cmd,
+            params,
+            task,
+            injected_session_id,
+            registry,
+            Some(&marker),
+        ),
+    };
     if command.trim().is_empty() {
         clear_launch_marker(tab_id);
     }

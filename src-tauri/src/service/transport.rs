@@ -110,18 +110,12 @@ impl AgentTransport for PtyTransport {
             })
             .unwrap_or_default();
         let mut args = model_args;
-        if let Some(effort) = ctx.reasoning_effort.filter(|e| !e.trim().is_empty()) {
-            if let Some(effort_args) = svc
-                .agent_registry
-                .with_provider(ctx.provider_id, |p| {
-                    p.supports_reasoning_effort_for_model(model_resolution.model.as_deref(), effort)
-                        .then(|| p.reasoning_effort_launch_args(effort))
-                })
-                .flatten()
-            {
-                args.extend(effort_args);
-            }
-        }
+        args.extend(svc.reasoning_effort_launch_args_or_notice(
+            ctx.tab_id,
+            ctx.provider_id,
+            model_resolution.model.as_deref(),
+            ctx.reasoning_effort,
+        ));
         let cwd = svc
             .mux
             .read()
@@ -241,10 +235,12 @@ impl ServiceContext {
                         provider
                     ));
                 }
+                self.validate_atomic_reasoning_effort(&provider, &params)?;
                 self.spawn_tab_atomic_with(&provider, &params, &ChatTransport, true, None)
             }
             Some(ProviderTransport::Pty) => {
                 self.require_agent_provider_ready(&provider)?;
+                self.validate_atomic_reasoning_effort(&provider, &params)?;
                 let chat_view = self.default_agent_chat_view(&provider);
                 self.spawn_tab_atomic_with(
                     &provider,
@@ -257,6 +253,7 @@ impl ServiceContext {
             None => {
                 // Unknown id → honest readiness error (never a guess).
                 self.require_agent_provider_ready(&provider)?;
+                self.validate_atomic_reasoning_effort(&provider, &params)?;
                 let chat_view = self.default_agent_chat_view(&provider);
                 self.spawn_tab_atomic_with(
                     &provider,
@@ -267,6 +264,25 @@ impl ServiceContext {
                 )
             }
         }
+    }
+
+    fn validate_atomic_reasoning_effort(
+        &self,
+        provider: &str,
+        params: &AtomicSpawnParams,
+    ) -> Result<(), String> {
+        let launch_model = crate::service::spawn::resolve_fresh_agent_model(
+            &self.agent_registry,
+            provider,
+            params.model.clone(),
+            None,
+        );
+        crate::service::spawn::validate_agent_reasoning_effort(
+            &self.agent_registry,
+            provider,
+            launch_model.as_deref(),
+            params.reasoning_effort.as_deref(),
+        )
     }
 
     fn default_agent_chat_view(&self, provider: &str) -> bool {

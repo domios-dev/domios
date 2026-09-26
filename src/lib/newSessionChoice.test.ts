@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import {
   NEW_SESSION_CHOICE_STORAGE_KEY,
   defaultNewSessionChoice,
+  reasoningEffortsForModel,
   readPersistedNewSessionChoice,
   writePersistedNewSessionChoice,
 } from "./newSessionChoice";
@@ -174,6 +175,11 @@ test("per-model efforts narrow persisted choices and use the provider fallback w
     ],
     default_reasoning_effort: "high",
   } as ProviderDescriptor;
+
+  assert(
+    reasoningEffortsForModel(withEfforts, "NARROW-MODEL").map((effort) => effort.id).join(",") === "low,high",
+    "model effort lookup follows backend case-insensitive model resolution",
+  );
 
   writePersistedNewSessionChoice({
     mode: "single",

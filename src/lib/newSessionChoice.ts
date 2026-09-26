@@ -69,7 +69,10 @@ export function reasoningEffortsForModel(
   provider: ProviderDescriptor | undefined,
   modelId?: string,
 ): NonNullable<ProviderDescriptor["reasoning_efforts"]> {
-  const model = provider?.available_models.find((candidate) => candidate.id === modelId);
+  const normalizedModelId = modelId?.toLowerCase();
+  const model = provider?.available_models.find(
+    (candidate) => candidate.id.toLowerCase() === normalizedModelId,
+  );
   return model?.reasoning_efforts ?? provider?.reasoning_efforts ?? [];
 }
 

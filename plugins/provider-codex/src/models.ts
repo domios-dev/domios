@@ -90,7 +90,7 @@ function reasoningEffortsFrom(levels: CodexReasoningLevel[] | undefined): ModelI
         : undefined,
     });
   }
-  return efforts;
+  return efforts.length ? efforts : undefined;
 }
 
 function priorityOf(m: CodexCachedModel): number {
