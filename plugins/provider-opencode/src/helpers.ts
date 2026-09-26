@@ -32,9 +32,6 @@ export interface ModelGroupUsage {
   spend_resets_at_ms?: number;
 }
 
-export interface OpencodeManifest {
-  models?: ModelInfo[];
-}
 export interface OpencodeConfig {
   $schema?: string;
   plugin?: unknown[];
@@ -405,15 +402,6 @@ export function fetchBalanceCents(group: string): number | null {
 // Utility functions
 export function finiteNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-export function manifestModels(): ModelInfo[] {
-  try {
-    const m = JSON.parse(host.manifestJson() || "null") as OpencodeManifest | null;
-    return Array.isArray(m && m.models) ? m!.models! : [];
-  } catch (_) {
-    return [];
-  }
 }
 
 export function safeJson(s: string | undefined): unknown {

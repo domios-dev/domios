@@ -319,14 +319,6 @@ function fetchBalanceCents(group) {
 function finiteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
-function manifestModels() {
-  try {
-    const m = JSON.parse(host.manifestJson() || "null");
-    return Array.isArray(m && m.models) ? m.models : [];
-  } catch (_) {
-    return [];
-  }
-}
 function safeJson(s) {
   try {
     return JSON.parse(String(s || "null"));
@@ -718,9 +710,9 @@ var plugin = {
     }
     return events;
   },
-  // off hot reads. If the CLI is absent/offline, use the manifest seed.
+  // off hot reads. `null` when the CLI cannot answer: the host keeps its seed.
   discoverModels() {
-    return discoverOpencodeModels() || manifestModels();
+    return discoverOpencodeModels();
   },
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.

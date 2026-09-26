@@ -5,6 +5,8 @@ use crate::service::pty_io::SendBatchItem;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+mod startup_binding;
+
 fn lifecycle_fixture(
     parent_agent: bool,
 ) -> (crate::service::test_fixture::ServiceFixture, String, String) {
