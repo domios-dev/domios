@@ -55,6 +55,21 @@ pub(crate) fn release_closed_tabs(
     }
 }
 
+pub(crate) fn release_tab(
+    registry: &AgentRegistry,
+    tab_id: &str,
+    provider_id: &str,
+) -> Result<bool, String> {
+    registry
+        .with_provider(provider_id, |provider| {
+            provider.release_tab_launch_artifacts(
+                tab_id,
+                crate::paths::codeterm_instance_id(),
+            )
+        })
+        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
+}
+
 pub(crate) fn sweep_for_owner(
     service: &ServiceContext,
     provider_id: &str,

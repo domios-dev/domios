@@ -143,7 +143,7 @@ console.log("\n--- task instructions launch ---\n");
   );
   assert(!cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows launch line never deletes the task file, so a relaunch can still read it");
   assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
-  assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
+  assert(cmd.includes("finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit after trust carry-over succeeds");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
   const idle = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "idle_wakeup" });
@@ -722,13 +722,12 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "session_start hook command carries its ownership marker", cmd);
   assert(
-    writtenScript.includes("codeterm-profile-cleanup-v1") &&
-      writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
-      writtenScript.includes("del /F /Q") &&
+    !writtenScript.includes("codeterm-profile-cleanup-v1") &&
+      !writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
       writtenScript.includes("curl.exe") &&
       writtenScript.includes("--max-time 30") &&
       writtenScript.includes("X-CodeTerm-Hook: "),
-    "Windows session_start removes the tab-scoped profile after Codex loads it",
+    "Windows SessionStart leaves the active profile for Codex to finish writing",
     writtenScript,
   );
   const windowsCommand = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");

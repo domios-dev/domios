@@ -413,12 +413,12 @@ const plugin: PluginModule = {
   sessionExists(_cwd: string, sessionId: string): boolean {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return false;
-    const rows = host.fs.sqliteQuery(
+    const rows = host.fs.sqliteQuery<{ id: string }>(
       db,
-      "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
+      "SELECT id FROM session WHERE id = ?1 LIMIT 1",
       [sessionId]
     );
-    return rows.length > 0;
+    return rows.some((row) => row.id === sessionId);
   },
 
   // opencode keeps every session in one sqlite log, so the source carries the
