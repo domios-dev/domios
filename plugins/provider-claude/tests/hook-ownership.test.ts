@@ -102,7 +102,8 @@ function loadClaude(files: Map<string, string>) {
       readFile: (p: string) => files.get(p) ?? null,
       readJson: (p: string) => {
         const raw = files.get(p);
-        return raw === undefined ? null : JSON.parse(raw);
+        if (raw === undefined) return null;
+        try { return JSON.parse(raw); } catch { return null; }
       },
       writeFile: (p: string, v: string) => { files.set(p, v); return true; },
       writeJson: (p: string, v: unknown) => { files.set(p, JSON.stringify(v, null, 2)); return true; },
