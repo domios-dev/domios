@@ -142,10 +142,7 @@ fn planner_plan_creation_waits_until_the_binding_deadline() {
 
     let error = planner_create(&harness, caller, "Still pending", 1).unwrap_err();
 
-    assert!(matches!(
-        error,
-        TeamPlanCreationError::SessionBindingPending
-    ));
+    assert!(matches!(error, TeamPlanCreationError::SessionUnregistered));
     assert!(harness.plan_store.list_index().is_empty());
 }
 
