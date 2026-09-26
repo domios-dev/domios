@@ -64,7 +64,6 @@ impl ServiceContext {
                 .mark_live_task_attempt_runtime_ready_for_tab(tab_id, session_id, epoch_ms())
             {
                 Ok(Some(ready)) => {
-                    self.persist_current_attempt_session_model(tab_id);
                     if let Err(error) = self.arm_bound_worker_ack_deadline_for_tab(
                         tab_id,
                         format!(

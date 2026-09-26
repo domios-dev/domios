@@ -420,9 +420,7 @@ pub async fn hook_stop(
         &tab_id,
         crate::service::WorkerTurnSignal::ProviderStop,
     );
-    state
-        .svc
-        .schedule_session_model_refresh_for_current_tab(&tab_id);
+    state.svc.schedule_session_model_refresh_after_stop(&tab_id);
 
     Ok(Json(serde_json::json!({"ok": true})))
 }

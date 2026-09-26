@@ -74,6 +74,47 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn schedule_session_model_refresh_after_stop(&self, tab_id: &str) -> bool {
+        let (model_known, binding) = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return false;
+            };
+            if tab.agent_type.is_none()
+                || tab.cwd.is_none()
+                || tab.agent_session_id.is_none()
+            {
+                return false;
+            }
+            let binding = super::task_assignment::authenticated_tab_binding(tab);
+            let model_known = tab.agent_session_model.is_some()
+                && binding.as_ref().is_some_and(|binding| {
+                    tab.agent_session_model_identity.as_ref().is_some_and(|identity| {
+                        identity.session_id == binding.session_id
+                            && identity.session_binding_nonce == binding.session_binding_nonce
+                    })
+                });
+            (model_known, binding)
+        };
+        if !model_known {
+            self.schedule_session_model_refresh_for_current_tab(tab_id);
+            return true;
+        }
+        let attempt_model_unknown = binding.is_some_and(|binding| {
+            self.plan_store
+                .open_attempt_task_for_tab(
+                    tab_id,
+                    &binding.session_id,
+                    &binding.session_binding_nonce,
+                )
+                .is_some()
+        });
+        if attempt_model_unknown {
+            self.persist_current_attempt_session_model(tab_id);
+        }
+        false
+    }
+
     /// The model this tab's own claimed session is running. Runtime evidence first,
     /// else the provider re-reads its own record for that exact session id — the same
     /// authority the poller writes from, never a provider or launch-time guess.
@@ -383,7 +424,7 @@ impl ServiceContext {
             })
         };
         if let Some((agent_id, session_id, model)) = identity {
-            let _ = self.write_attempt_session_model(tab_id, &agent_id, &session_id, &model);
+            self.persist_attempt_session_model(tab_id, &agent_id, &session_id, &model);
         }
     }
 }

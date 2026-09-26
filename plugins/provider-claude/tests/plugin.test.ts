@@ -102,6 +102,34 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
+console.log("\n--- session model detection ---\n");
+{
+  const transcript = '{"type":"assistant","message":{"model":"claude-opus-5","content":[]}}';
+  let fullReads = 0;
+  let tailBytes = 0;
+  const p = loadClaudeWithHost(baseHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => { fullReads += 1; return transcript; },
+      readFileTail: (_path: string, maxBytes: number) => {
+        tailBytes = maxBytes;
+        return transcript;
+      },
+      readJson: () => null,
+      writeTempFile: () => "/tmp/ct-task",
+      writeJson: () => true,
+    },
+  }));
+
+  eq(
+    p.detectSessionModel("/fixture/project", "session-model"),
+    "opus",
+    "session model uses the exact session transcript",
+  );
+  eq(fullReads, 0, "session model avoids loading the full transcript");
+  eq(tailBytes, 4 * 1024 * 1024, "session model reads a bounded 4 MiB transcript tail");
+}
+
 console.log("\n--- meta ---\n");
 
 eq(plugin.meta.id, "claude", "meta.id is 'claude'");

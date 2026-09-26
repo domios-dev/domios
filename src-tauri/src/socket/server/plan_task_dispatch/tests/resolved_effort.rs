@@ -1,9 +1,22 @@
 use super::*;
+use crate::service::test_fixture::ServiceFixture;
 
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn attempt_records_resolved_reasoning_effort() {
     let root = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(root.path());
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id)
+        .unwrap()
+        .reasoning_effort_identity = crate::multiplexer::types::ReasoningEffortIdentity {
+        planned: None,
+        requested: Some("medium".into()),
+        resolved: Some("xhigh".into()),
+        actual: None,
+        actual_source: None,
+    };
+    let fixture = ServiceFixture::new(mux);
+    let store = &fixture.service.plan_store;
     let mut plan = Plan::new(
         "resolved effort".into(),
         root.path().display().to_string(),
@@ -24,7 +37,7 @@ fn attempt_records_resolved_reasoning_effort() {
         .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
             &plan.id,
             &task_id,
-            "worker-tab",
+            &tab_id,
             "Worker",
             TaskLaneMetadata::default(),
             crate::plan::ExecutionIntent::ReadOnly,
@@ -41,21 +54,11 @@ fn attempt_records_resolved_reasoning_effort() {
             3,
         )
         .unwrap();
-    let identity = crate::multiplexer::types::ReasoningEffortIdentity {
-        planned: None,
-        requested: Some("medium".into()),
-        resolved: Some("xhigh".into()),
-        actual: None,
-        actual_source: None,
-    };
-
-    crate::service::spawn_plan_task::persist_dispatched_attempt_reasoning_effort(
-        &store,
+    fixture.service.persist_dispatched_attempt_reasoning_effort(
         &plan.id,
         &task_id,
-        "worker-tab",
+        &tab_id,
         &attempt_id,
-        Some(&identity),
         4,
     )
     .unwrap();
