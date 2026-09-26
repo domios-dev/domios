@@ -1,8 +1,46 @@
 use super::{LaunchFailure, LaunchGeneration, LAUNCH_REGISTRY};
 use crate::service::boot_stage::BootStage;
-use crate::service::launch_readiness::LaunchSettlement;
+use crate::service::launch_readiness::{
+    attempt_owns_tab, launch_input_evidence, LaunchAttempt, LaunchInputEvidence,
+    LaunchInputRefusal, LaunchSettlement,
+};
 use crate::service::ServiceContext;
 use std::time::Duration;
+
+pub(super) fn await_launch_input_readiness(
+    launch: &LaunchGeneration,
+    svc: &ServiceContext,
+    attempt: &LaunchAttempt,
+    timeout: Duration,
+    resumes_on_first_turn: bool,
+) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
+    if let Some(evidence) = current_launch_input_evidence(svc, attempt, resumes_on_first_turn)? {
+        return Ok(evidence);
+    }
+    if !launch.await_provider_ack(timeout) {
+        return Err(LaunchInputRefusal::Deadline);
+    }
+    current_launch_input_evidence(svc, attempt, resumes_on_first_turn)?
+        .ok_or(LaunchInputRefusal::SessionBindingNotAuthenticated)
+}
+
+fn current_launch_input_evidence(
+    svc: &ServiceContext,
+    attempt: &LaunchAttempt,
+    resumes_on_first_turn: bool,
+) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
+    let mux = svc.mux.read();
+    let Some(tab) = mux.get_tab(&attempt.tab_id) else {
+        return Err(LaunchInputRefusal::AttemptSuperseded);
+    };
+    if !attempt_owns_tab(tab, attempt) {
+        return Err(LaunchInputRefusal::AttemptSuperseded);
+    }
+    Ok(launch_input_evidence(
+        tab.launch_session_authenticated(),
+        resumes_on_first_turn,
+    ))
+}
 
 pub(super) fn resume_waits_for_first_turn(
     svc: &ServiceContext,
