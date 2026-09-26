@@ -427,6 +427,7 @@ pub fn new_assignment_attempt_with_id(
 ) -> TaskExecutionAttempt {
     let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: attempt_id
             .map(str::to_string)
             .unwrap_or_else(gen_attempt_id),
@@ -713,6 +714,40 @@ impl PlanStore {
             Ok(Some(()))
         })?;
         Ok(())
+    }
+
+    pub fn update_dispatched_attempt_actual_reasoning_effort(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        actual_reasoning_effort: String,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+                    && attempt.session_id.as_deref() == Some(session_id)
+                    && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+            }) else {
+                return Ok(None);
+            };
+            if attempt.actual_reasoning_effort.as_deref() == Some(actual_reasoning_effort.as_str()) {
+                return Ok(None);
+            }
+            attempt.actual_reasoning_effort = Some(actual_reasoning_effort);
+            task.updated_at = now_ms;
+            Ok(Some(true))
+        })
+        .map(|changed| changed.unwrap_or(false))
     }
 
     pub fn build_task_compete_drafts(

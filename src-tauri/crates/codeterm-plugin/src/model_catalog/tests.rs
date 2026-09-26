@@ -15,6 +15,7 @@ fn register_and_read_back() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "m1".into(),
                 display_name: "Model One".into(),
                 description: None,
@@ -63,6 +64,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
     // Built-ins: opus, sonnet, haiku in that order. User override: re-titles sonnet, adds custom finetune. Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
     let builtin = vec![
         ModelInfo {
+            default_reasoning_effort: None,
             id: "opus".into(),
             display_name: "Opus 4.7".into(),
             description: None,
@@ -74,6 +76,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             reasoning_efforts: None,
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sonnet".into(),
             display_name: "Sonnet 4.6".into(),
             description: None,
@@ -89,6 +92,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             }]),
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "haiku".into(),
             display_name: "Haiku 4.5".into(),
             description: None,
@@ -102,6 +106,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
     ];
     let overrides = vec![
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sonnet".into(),
             display_name: "My Sonnet".into(),
             description: None,
@@ -113,6 +118,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             reasoning_efforts: None,
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "my-finetune".into(),
             display_name: "Mine".into(),
             description: None,
@@ -141,6 +147,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
 #[test]
 fn merge_with_empty_override_is_builtin_verbatim() {
     let builtin = vec![ModelInfo {
+        default_reasoning_effort: None,
         id: "a".into(),
         display_name: "A".into(),
         description: None,
@@ -159,6 +166,7 @@ fn merge_with_empty_override_is_builtin_verbatim() {
 #[test]
 fn merge_with_empty_builtin_is_override_verbatim() {
     let overrides = vec![ModelInfo {
+        default_reasoning_effort: None,
         id: "x".into(),
         display_name: "X".into(),
         description: None,
@@ -237,6 +245,7 @@ fn register_twice_replaces() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "a".into(),
                 display_name: "A".into(),
                 description: None,
@@ -254,6 +263,7 @@ fn register_twice_replaces() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "b".into(),
                 display_name: "B".into(),
                 description: None,
@@ -370,6 +380,31 @@ fn uncatalogued_live_model_is_offered_and_spawnable() {
     cleanup(id);
 }
 
+#[test]
+fn live_model_default_effort_survives_seed_merge() {
+    let id = "test-live-model-default-effort";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("gpt-5.6-sol", "GPT-5.6 Sol")],
+            default: Some("gpt-5.6-sol".into()),
+        },
+    );
+    let mut live_model = model("gpt-5.6-sol", "GPT-5.6 Sol");
+    live_model.default_reasoning_effort = Some("low".into());
+    live_model.reasoning_efforts = Some(vec![ReasoningEffortInfo {
+        id: "low".into(),
+        display_name: "Low".into(),
+        description: None,
+    }]);
+    put_live(id, vec![live_model], Some("gpt-5.6-sol".into()));
+
+    let models = resolve_models(id);
+    assert_eq!(models[0].default_reasoning_effort.as_deref(), Some("low"));
+    cleanup(id);
+}
+
 /// An override is an overlay on a live catalog, never an allowlist: a live model
 /// it omits stays offered, and it cannot add an id the provider did not report.
 #[test]
@@ -435,6 +470,7 @@ fn is_stale_uses_injected_now() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "seed".into(),
                 display_name: "Seed".into(),
                 description: None,
@@ -452,6 +488,7 @@ fn is_stale_uses_injected_now() {
     put_live(
         id,
         vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "live".into(),
             display_name: "Live".into(),
             description: None,
@@ -741,6 +778,7 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
     put_live(
         id,
         vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "opus".into(),
             display_name: "Live".into(),
             description: None,
@@ -833,6 +871,7 @@ fn availability_flag_is_carried_through_resolve() {
             models: vec![
                 model("opus", "Opus"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "fable".into(),
                     display_name: "Fable".into(),
                     description: None,
@@ -865,11 +904,13 @@ fn featured_models_lead_preserving_catalog_order_within_each_group() {
             models: vec![
                 model("a", "A"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     featured: Some(true),
                     ..model("b", "B")
                 },
                 model("c", "C"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     featured: Some(true),
                     ..model("d", "D")
                 },
@@ -911,6 +952,7 @@ group = "deepseek"
 fn example_renderer_emits_featured_badge_and_group() {
     let defaults = RegisteredDefaults {
         models: vec![ModelInfo {
+            default_reasoning_effort: None,
             featured: Some(true),
             badge: Some("own".into()),
             group: Some("deepseek".into()),
@@ -944,6 +986,7 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
             models: vec![
                 model("stable", "Stable"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "future".into(),
                     display_name: "Future".into(),
                     description: None,
@@ -994,6 +1037,7 @@ fn resolve_live_default_recovers_when_default_vanished() {
 
 fn unknown_model(id: &str, display: &str) -> ModelInfo {
     ModelInfo {
+        default_reasoning_effort: None,
         id: id.into(),
         display_name: display.into(),
         description: None,
@@ -1017,6 +1061,7 @@ fn unknown_verdict_never_persists_as_a_negative() {
         vec![
             unknown_model("fable", "Fable"),
             ModelInfo {
+                default_reasoning_effort: None,
                 id: "sonnet".into(),
                 display_name: "Sonnet".into(),
                 description: None,
@@ -1077,6 +1122,7 @@ async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
         id: id.to_string(),
         default: Some("fable".into()),
         discovery: Some(vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "fable".into(),
             display_name: "Fable".into(),
             description: None,
@@ -1115,6 +1161,7 @@ async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
     put_live(
         id,
         vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "fable".into(),
             display_name: "Fable".into(),
             description: None,

@@ -50,6 +50,7 @@ fn plan_with_attempt(
         .unwrap()
         .execution_attempts
         .push(TaskExecutionAttempt {
+            actual_reasoning_effort: None,
             id: "attempt_live".into(),
             executor_tab_id: "tab-live".into(),
             worktree_path,
@@ -345,6 +346,7 @@ fn closed_attempt_history_does_not_occupy_checkout() {
         .unwrap();
     for index in 1..100 {
         task.execution_attempts.push(TaskExecutionAttempt {
+            actual_reasoning_effort: None,
             id: format!("attempt_closed_{index}"),
             executor_tab_id: format!("tab-closed-{index}"),
             closed_at: Some(index),

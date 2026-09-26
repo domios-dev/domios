@@ -466,6 +466,7 @@ fn validate_reasoning_effort_is_per_model() {
     );
     let provider = provider.with_models(vec![
         crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "gpt-5.5".into(),
             display_name: "GPT-5.5".into(),
             reasoning_efforts: Some(
@@ -481,6 +482,7 @@ fn validate_reasoning_effort_is_per_model() {
             ..Default::default()
         },
         crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "legacy-model".into(),
             display_name: "Legacy Model".into(),
             reasoning_efforts: None,
@@ -642,6 +644,7 @@ fn build_agent_command_canonicalizes_display_model_before_launch_args() {
         "display-canon",
         crate::agent::model_catalog::RegisteredDefaults {
             models: vec![crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: "gpt-5.5".into(),
                 display_name: "GPT-5.5".into(),
                 description: None,

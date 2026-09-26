@@ -371,6 +371,34 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
 }
 
 #[test]
+fn codex_trust_prompt_is_respondable_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("trust-folder-access-0.157.1.txt"),
+    )
+    .expect("Codex 0.157.1 trust fixture");
+    let provider = codex();
+    let prompt = provider
+        .parse_directory_trust_prompt(&screen)
+        .expect("structured trust options are available to the host");
+    assert_eq!(
+        prompt.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        ["1", "2"]
+    );
+    assert_eq!(
+        provider.build_prompt_response(1, &screen),
+        vec![b"\x1b[B".to_vec(), b"\r".to_vec()]
+    );
+}
+
+#[test]
 fn parse_session_delta_maps_response_items() {
     if require_plugins().is_none() {
         return;
@@ -590,6 +618,52 @@ fn session_fs_capabilities_over_current_stores() {
         .detect_session_model(&work_proj, CODEX_UUID)
         .expect("detectSessionModel must resolve a model");
     assert_eq!(model, "gpt-5.6-sol");
+}
+
+#[test]
+fn codex_session_reasoning_effort_reads_exact_rollout() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let state_db = dir.path().join("state_1.sqlite");
+    let rollout = dir.path().join("rollout-owned.jsonl");
+    std::fs::write(
+        &rollout,
+        concat!(
+            "{\"type\":\"turn_context\",\"payload\":{\"effort\":\"high\"}}\n",
+            "{\"type\":\"turn_context\",\"payload\":{\"effort\":\"xhigh\"}}\n",
+        ),
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(&state_db).unwrap();
+    db.execute_batch(
+        "CREATE TABLE threads (id TEXT PRIMARY KEY, model TEXT, rollout_path TEXT, cwd TEXT);",
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO threads (id, model, rollout_path, cwd) VALUES (?1, 'gpt-5.6-sol', ?2, ?3)",
+        rusqlite::params![
+            CODEX_UUID,
+            rollout.to_string_lossy().to_string(),
+            dir.path().to_string_lossy().to_string()
+        ],
+    )
+    .unwrap();
+
+    let _env = EnvGuard::new(&[("CODETERM_CODEX_STATE_DB_PATH", state_db.to_str().unwrap())]);
+    let provider = codex();
+    assert_eq!(
+        provider.detect_session_reasoning_effort("/ignored", CODEX_UUID).as_deref(),
+        Some("xhigh")
+    );
+    assert_eq!(
+        provider
+            .detect_session_reasoning_effort("/ignored", "22222222-2222-2222-2222-222222222222")
+            .as_deref(),
+        None,
+        "a neighboring thread never supplies this session's actual effort"
+    );
 }
 
 #[test]

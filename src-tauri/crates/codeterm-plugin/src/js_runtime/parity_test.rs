@@ -117,8 +117,10 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
                     description: None,
                 },
             ]),
+            default_reasoning_effort: Some("max".into()),
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "live-b".into(),
             display_name: "Live B".into(),
             description: Some("second".into()),
@@ -132,6 +134,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
         // A probe that could not run is a capability answer of its own, so the
         // native and JS paths must agree it is unknown, not unavailable.
         ModelInfo {
+            default_reasoning_effort: None,
             id: "live-c".into(),
             display_name: "Live C".into(),
             description: None,
@@ -322,6 +325,7 @@ impl ChatBackendProvider for ModelCapabilityNativeStub {
 fn model_capability_fixture() -> Vec<ModelInfo> {
     vec![
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sentinel-a".into(),
             display_name: "Sentinel A".into(),
             description: Some("ready".into()),
@@ -333,6 +337,7 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             reasoning_efforts: None,
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sentinel-b".into(),
             display_name: "Sentinel B".into(),
             description: Some("offline".into()),
@@ -462,7 +467,7 @@ async fn discover_models_native_js_parity() {
             module.exports.default = {
                 discoverModels() {
                     return [
-                        { id: 'live-a', displayName: 'Live A', group: 'alpha', reasoningEfforts: [
+                        { id: 'live-a', displayName: 'Live A', group: 'alpha', defaultReasoningEffort: 'max', reasoningEfforts: [
                             { id: 'max', displayName: 'Max', description: 'Maximum reasoning' },
                             { id: 'ultra', displayName: 'Ultra' }
                         ] },

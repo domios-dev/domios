@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import {
   NEW_SESSION_CHOICE_STORAGE_KEY,
   defaultNewSessionChoice,
+  resolveEffort,
   reasoningEffortsForModel,
   readPersistedNewSessionChoice,
   writePersistedNewSessionChoice,
@@ -162,6 +163,7 @@ test("per-model efforts narrow persisted choices and use the provider fallback w
       {
         id: "narrow-model",
         display_name: "Narrow Model",
+        default_reasoning_effort: "low",
         reasoning_efforts: [
           { id: "low", display_name: "Low" },
           { id: "high", display_name: "High" },
@@ -180,6 +182,10 @@ test("per-model efforts narrow persisted choices and use the provider fallback w
     reasoningEffortsForModel(withEfforts, "NARROW-MODEL").map((effort) => effort.id).join(",") === "low,high",
     "model effort lookup follows backend case-insensitive model resolution",
   );
+  assert(
+    resolveEffort(withEfforts, "narrow-model") === "low",
+    "the model's live default takes precedence over the provider-wide default",
+  );
 
   writePersistedNewSessionChoice({
     mode: "single",
@@ -188,7 +194,7 @@ test("per-model efforts narrow persisted choices and use the provider fallback w
     effortId: "ultra",
   });
   const narrowed = readPersistedNewSessionChoice([withEfforts]);
-  assert(narrowed.mode === "single" && narrowed.effortId === "high", "unsupported effort resets to the model's valid default");
+  assert(narrowed.mode === "single" && narrowed.effortId === "low", "unsupported effort resets to the model's live default");
 
   writePersistedNewSessionChoice({
     mode: "single",

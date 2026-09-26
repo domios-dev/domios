@@ -64,6 +64,16 @@ console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\
     false,
     "historical update text stays below the blocking confidence threshold",
   );
+
+  const userDir = fs.readFileSync(path.join(dir, "trust-folder-access-0.157.1.txt"), "utf8");
+  const trustPrompt = plugin.parseDirectoryTrustPrompt!(userDir);
+  const trustOptions = userDir
+    .split(/\r?\n/)
+    .map((line) => /^[ \t]*[>❯▶➤›]?[ \t]*\d+[.)][ \t]+(.+?)[ \t]*$/.exec(line)?.[1] ?? null)
+    .filter((label): label is string => label !== null);
+  eq(trustPrompt?.options?.map(([label]) => label), trustOptions, "folder trust prompt preserves option labels and order");
+  eq(trustPrompt?.options?.map(([, value]) => value), ["1", "2"], "folder trust prompt retains both visible option values");
+  eq(plugin.buildPromptResponse!(1, userDir), ["G1tC", "DQ=="], "tab respond can select the second trust option");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

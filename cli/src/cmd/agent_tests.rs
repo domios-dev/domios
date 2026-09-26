@@ -64,6 +64,14 @@ fn agent_models_formats_per_model_efforts_and_provider_fallback() {
                     { "id": "low" }, { "id": "medium" }, { "id": "high" }, { "id": "xhigh" }
                 ]
             },
+            {
+                "id": "gpt-5.6-sol",
+                "display_name": "GPT-5.6 Sol",
+                "default_reasoning_effort": "low",
+                "reasoning_efforts": [
+                    { "id": "low" }, { "id": "medium" }, { "id": "high" }, { "id": "xhigh" }
+                ]
+            },
             { "id": "fallback-model", "display_name": "Fallback Model" }
         ]
     });
@@ -76,6 +84,9 @@ fn agent_models_formats_per_model_efforts_and_provider_fallback() {
     assert!(
         out.contains("GPT-5.5\n             Reasoning effort: low, medium (default), high, xhigh")
     );
+    assert!(out.contains(
+        "GPT-5.6 Sol\n             Reasoning effort: low (default), medium, high, xhigh"
+    ));
     assert!(out.contains("Fallback Model\n"));
     assert!(out.contains("Provider fallback reasoning effort:"));
     assert!(out.contains(&format!("{:<10} {}", "xhigh", "Extra high")));
