@@ -100,7 +100,11 @@ fn build_agent_command_inner(
             .unwrap_or_else(|| vec!["--model".into(), model.to_string()]);
         args.extend(model_args);
     }
-    if let Some(effort) = params.reasoning_effort.as_deref().filter(|effort| !effort.is_empty()) {
+    if let Some(effort) = params
+        .reasoning_effort
+        .as_deref()
+        .filter(|effort| !effort.is_empty())
+    {
         let effort_args = if let Some((service, tab_id)) = notice_context {
             service.reasoning_effort_launch_args_or_notice(
                 tab_id,
@@ -147,7 +151,9 @@ fn build_agent_command_inner(
             args: args.clone(),
         };
         if let Some(command) = registry
-            .with_provider(agent_cmd, |provider| provider.build_resume_command_with_context(&resume))
+            .with_provider(agent_cmd, |provider| {
+                provider.build_resume_command_with_context(&resume)
+            })
             .flatten()
         {
             return command;
@@ -170,14 +176,20 @@ fn build_agent_command_inner(
         agent_name: params.agent_name.clone(),
         task: launch_task,
         starter_prompt: params.starter_prompt,
-        args: if args.is_empty() { None } else { Some(args.clone()) },
+        args: if args.is_empty() {
+            None
+        } else {
+            Some(args.clone())
+        },
         skip_permissions: params.permission_bypass_requested(agent_cmd),
         session_id: injected_session_id.map(str::to_string),
         structured_prompt_server: params.structured_prompt_server.clone(),
         launch_marker: launch_marker.map(str::to_string),
         instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
-    match registry.with_provider(agent_cmd, |provider| provider.build_launch_command(&launch_params)) {
+    match registry.with_provider(agent_cmd, |provider| {
+        provider.build_launch_command(&launch_params)
+    }) {
         Some(command) if command.trim().is_empty() => String::new(),
         Some(command) => crate::agent::stub_launch::apply(agent_cmd, command),
         None => {
