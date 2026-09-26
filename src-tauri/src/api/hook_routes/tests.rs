@@ -243,7 +243,7 @@ fn repeated_verified_hook_reports_skip_side_effects_until_the_session_changes() 
         assert!(can_short_circuit_session_start(&repeated, true, false));
         let mut unverified_duplicate = repeated.clone();
         unverified_duplicate.nonce_verified = false;
-        assert!(can_short_circuit_session_start(&unverified_duplicate, true, true));
+        assert!(!can_short_circuit_session_start(&unverified_duplicate, true, true));
         if !can_short_circuit_session_start(&repeated, false, false) {
             binding_side_effects += 1;
         }

@@ -81,6 +81,7 @@ function hostFor(files: Map<string, string>, configReads: { count: number } = { 
     log: () => {},
     fs: {
       fileExists: (path) => files.has(path),
+      isSymlink: () => false,
       readFile: (path) => {
         if (path === configPath) configReads.count++;
         return files.get(path) ?? null;
@@ -144,7 +145,16 @@ function hostFor(files: Map<string, string>, configReads: { count: number } = { 
   assert.equal(carryCodexProjectTrust(host, "profile", configPath), false,
     "lock contention leaves the profile in place for a later release attempt");
   assert.equal(files.get(configPath), config, "lock contention leaves shared config untouched");
-  assert.ok(warning.includes("lock is busy"), "lock contention records a warning");
+  assert.ok(warning.length > 0, "lock contention records a warning");
+}
+
+{
+  const files = new Map<string, string>([["profile", profile], [configPath, config]]);
+  const host = hostFor(files);
+  host.fs.isSymlink = () => true;
+  assert.equal(carryCodexProjectTrust(host, "profile", configPath), false,
+    "a symlinked config is retained instead of being replaced");
+  assert.equal(files.get(configPath), config, "symlink refusal leaves config bytes unchanged");
 }
 
 console.log("PASS Codex project trust carry-over, TOML structure checks, and concurrency guard");

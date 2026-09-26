@@ -75,16 +75,17 @@ fn session_start_fallback_retry_is_available_once_per_pending_fallback() {
         BindingSource::LaunchMarker,
         false,
     );
-    assert!(take_hook_binding_fallback_retry_from(
+    assert!(reserve_hook_binding_fallback_retry_from(
         &mut fallbacks,
         "provider-alpha",
         "session-a",
     ));
-    assert!(!take_hook_binding_fallback_retry_from(
+    assert!(!reserve_hook_binding_fallback_retry_from(
         &mut fallbacks,
         "provider-alpha",
         "session-a",
     ));
+    settle_hook_binding_fallback_retry(&mut fallbacks, "provider-alpha", "session-a", true);
     update_hook_binding_fallback(
         &mut fallbacks,
         "provider-alpha",
@@ -92,7 +93,7 @@ fn session_start_fallback_retry_is_available_once_per_pending_fallback() {
         BindingSource::LaunchMarker,
         false,
     );
-    assert!(!take_hook_binding_fallback_retry_from(
+    assert!(!reserve_hook_binding_fallback_retry_from(
         &mut fallbacks,
         "provider-alpha",
         "session-a",

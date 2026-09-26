@@ -6,6 +6,7 @@ export interface ProfileSweepHost {
   log?(level: "warn", message: string): void;
   fs: {
     fileExists(path: string): boolean;
+    isSymlink(path: string): boolean | null;
     readDir(path: string): { name: string; isFile: boolean }[];
     readFile(path: string): string | null;
     removeFile(path: string): boolean;

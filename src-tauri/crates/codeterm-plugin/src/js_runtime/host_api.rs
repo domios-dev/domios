@@ -26,9 +26,20 @@ use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
 
-fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, File>> {
-    static LOCKS: OnceLock<parking_lot::Mutex<HashMap<String, File>>> = OnceLock::new();
+struct HeldFileLock {
+    plugin_id: String,
+    file: File,
+}
+
+fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, HeldFileLock>> {
+    static LOCKS: OnceLock<parking_lot::Mutex<HashMap<String, HeldFileLock>>> = OnceLock::new();
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
+
+pub(super) fn release_plugin_file_locks(plugin_id: &str) {
+    held_file_locks()
+        .lock()
+        .retain(|_, lock| lock.plugin_id != plugin_id);
 }
 
 /// A write-once, weakly-held ref populated after construction — the VM is built
@@ -458,6 +469,18 @@ pub(super) fn install(
         sb.can_read(&path) && Path::new(&path).exists()
     });
     let sb = sandbox.clone();
+    bind!("isSymlink", move |path: String| -> Option<bool> {
+        if !sb.can_read(&path) {
+            log::warn!("[plugin] denied isSymlink outside sandbox: {path}");
+            return None;
+        }
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => Some(metadata.file_type().is_symlink()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
+        }
+    });
+    let sb = sandbox.clone();
     bind!("readFile", move |path: String| -> Option<String> {
         if !sb.can_read(&path) {
             log::warn!("[plugin] denied readFile outside sandbox: {path}");
@@ -500,7 +523,9 @@ pub(super) fn install(
         std::fs::write(p, contents).is_ok()
     });
     let sb = sandbox.clone();
-    bind!("writeFileAtomic", move |path: String, contents: String| -> bool {
+    bind!("writeFileAtomic", move |path: String,
+                                   contents: String|
+          -> bool {
         if !sb.can_write(&path) {
             log::warn!("[plugin] denied writeFileAtomic outside sandbox: {path}");
             return false;
@@ -522,14 +547,20 @@ pub(super) fn install(
             .ok()?;
         file.try_lock().ok()?;
         let id = uuid::Uuid::new_v4().to_string();
-        held_file_locks().lock().insert(id.clone(), file);
+        held_file_locks().lock().insert(
+            id.clone(),
+            HeldFileLock {
+                plugin_id: sb.plugin_id().to_string(),
+                file,
+            },
+        );
         Some(id)
     });
     bind!("unlockFile", move |id: String| -> bool {
         let Some(file) = held_file_locks().lock().remove(&id) else {
             return false;
         };
-        file.unlock().is_ok()
+        file.file.unlock().is_ok()
     });
     let sb = sandbox.clone();
     bind!("removeFile", move |path: String| -> bool {

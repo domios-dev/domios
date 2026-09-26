@@ -71,6 +71,7 @@ function profileSweepHost(): ProfileSweepHost {
     log: (level, message) => host.log(level, message),
     fs: {
       fileExists: (path) => host.fs.fileExists(path),
+      isSymlink: (path) => host.fs.isSymlink(path),
       readDir: (path) => host.fs.readDir(path),
       readFile: (path) => host.fs.readFile(path),
       removeFile: (path) => host.fs.removeFile(path),
@@ -264,10 +265,14 @@ const plugin: PluginModule = {
           + "$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; "
           + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
           + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
-          + "if (Test-Path -LiteralPath $ctProfilePath) { if (-not $env:CODETERM_API_URL -or -not $env:CODETERM_API_TOKEN) { throw 'Existing Codex profile trust could not be persisted'; }; "
+          + "if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { "
           + "$ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
           + "$ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
-          + "if ($ctPriorRelease.released -ne $true) { throw 'Existing Codex profile trust could not be persisted'; } }; "
+          + "$ctPriorReleased = $ctPriorRelease.released -eq $true } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; "
+          + "if (-not $ctPriorReleased) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved-' + [guid]::NewGuid().ToString('N') + '.config.toml'); "
+          + "try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch { "
+          + "$ctProfileName = $ctProfileName + '-retry-' + [guid]::NewGuid().ToString('N'); $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
+          + "Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; "
           + `$ctInstanceId = ${quotedInstanceId}; `
           + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); "
           + "try { ";

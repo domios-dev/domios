@@ -109,6 +109,7 @@ export interface HostFs {
   removeFile(path: string): boolean;
   makeDirs(path: string): boolean;
   fileExists(path: string): boolean;
+  isSymlink(path: string): boolean | null;
   expandHome(path: string): string | null;
   writeTempFile(contents: string, suffix?: string): string | null;
   readDir(path: string): DirEntry[];
@@ -377,6 +378,7 @@ export interface Host {
   unlockFile(id: string): boolean;
   removeFile(path: string): boolean;
   makeDirs(path: string): boolean;
+  isSymlink(path: string): boolean | null;
   readDirJson(path: string): string | null;
   walkDirJson(path: string, maxDepth: number): string | null;
   writeTempFile(contents: string, suffix?: string): string | null;

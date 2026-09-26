@@ -1,6 +1,7 @@
 export interface ProjectTrustCarryHost {
   fs: {
     fileExists(path: string): boolean;
+    isSymlink(path: string): boolean | null;
     readFile(path: string): string | null;
     writeFileAtomic(path: string, contents: string): boolean;
     lockFile(path: string): string | null;
@@ -330,6 +331,10 @@ export function carryCodexProjectTrust(
     return false;
   }
   try {
+    if (host.fs.isSymlink(configPath) !== false) {
+      host.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
+      return false;
+    }
     const profile = host.fs.readFile(profilePath);
     if (profile === null) return false;
     const configExists = host.fs.fileExists(configPath);
@@ -345,6 +350,10 @@ export function carryCodexProjectTrust(
     const current = currentExists ? host.fs.readFile(configPath) : "";
     if (current === null || currentExists !== configExists || current !== config) {
       host.log?.("warn", "Codex project trust carry-over skipped after a concurrent config change");
+      return false;
+    }
+    if (host.fs.isSymlink(configPath) !== false) {
+      host.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
       return false;
     }
     if (!host.fs.writeFileAtomic(configPath, merged)) {
