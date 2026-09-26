@@ -10,7 +10,7 @@ use codeterm_types::agent::ReportStatus;
 
 #[test]
 fn attempt_model_fields_round_trip() {
-    let (dir, store, plan_id, task_id) = super::super::bound_report_store();
+    let (dir, store, plan_id, task_id) = super::bound_report_store();
     let attempt_id = store.list_task_attempts(&plan_id, &task_id).unwrap()[0]
         .attempt_id
         .clone();
