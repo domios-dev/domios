@@ -123,6 +123,16 @@ pub(super) fn dispatch(
                                 message,
                                 data: None,
                             },
+                            TeamPlanCreationError::SessionBindingPending => JsonRpcError {
+                                code: -32003,
+                                message: "session binding is pending for this Team Planner launch; retry after the binding event".into(),
+                                data: Some(json!({ "type": "session_binding_pending", "retryable": true })),
+                            },
+                            TeamPlanCreationError::SessionUnregistered => JsonRpcError {
+                                code: -32003,
+                                message: "the Team Planner has no registered agent session; repair the provider integration".into(),
+                                data: Some(json!({ "type": "plan_binding_session_unregistered", "retryable": false })),
+                            },
                         })?;
                     let plan = outcome.plan.clone();
                     created_team = Some(outcome);

@@ -884,11 +884,13 @@ pub(super) fn dispatch(
                 .parent_tab_id
                 .clone()
                 .or_else(|| plan.owner.tab_id.clone())
+                .filter(|parent| !parent.trim().is_empty())
                 .ok_or(JsonRpcError {
                     code: -32602,
                     message: "respawn requires a parent Orchestrator tab".into(),
                     data: None,
                 })?;
+            draft.parent_tab_id = Some(parent_tab_id.clone());
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),

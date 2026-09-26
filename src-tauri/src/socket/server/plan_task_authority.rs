@@ -28,10 +28,16 @@ pub(super) fn authorize_draft_mutation(
         },
     )
     .map(|_| ())
-    .map_err(|error| JsonRpcError {
-        code: -32003,
-        message: error.to_string(),
-        data: Some(serde_json::json!({ "type": error.diagnostic_type() })),
+    .map_err(|error| {
+        let mut data = serde_json::json!({ "type": error.diagnostic_type() });
+        if error.is_retryable() {
+            data["retryable"] = serde_json::Value::Bool(true);
+        }
+        JsonRpcError {
+            code: -32003,
+            message: error.to_string(),
+            data: Some(data),
+        }
     })
 }
 

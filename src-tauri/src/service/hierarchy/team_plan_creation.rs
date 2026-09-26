@@ -11,6 +11,8 @@ use crate::service::ServiceContext;
 pub(crate) enum TeamPlanCreationError {
     Team(String),
     Plan(PlanError),
+    SessionBindingPending,
+    SessionUnregistered,
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +113,7 @@ pub(crate) fn create_team_plan_for_caller(
     from_spec: Option<String>,
     now_ms: u64,
 ) -> Result<TeamPlanCreationOutcome, TeamPlanCreationError> {
+    wait_for_team_planner_binding(mux, &caller)?;
     let Some(caller_tab_id) = caller.tab_id.as_deref().filter(|value| !value.is_empty()) else {
         return create_team_plan_for_orchestrator(
             mux,
@@ -209,6 +212,78 @@ pub(crate) fn create_team_plan_for_caller(
         team_id,
         team_minted: false,
     })
+}
+
+fn wait_for_team_planner_binding(
+    mux: &MuxState,
+    caller: &TeamPlanCaller,
+) -> Result<(), TeamPlanCreationError> {
+    let Some(tab_id) = caller.tab_id.as_deref().filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let Some(nonce) = caller
+        .binding_nonce
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let deadline = {
+        let state = mux.read();
+        let Some(tab) = state.get_tab(tab_id) else {
+            return Ok(());
+        };
+        let planner = !tab.anchors_team()
+            && codeterm_types::agent::role_kind::plan_edit(tab.role, tab.role_profile.as_deref());
+        if !planner || tab.session_binding_nonce.as_deref() != Some(nonce) {
+            return Ok(());
+        }
+        if !crate::service::launch_binding_is_pending(tab) {
+            return if tab.agent_session_id.is_none()
+                || tab.reported_session_binding_nonce.as_deref() != Some(nonce)
+            {
+                Err(TeamPlanCreationError::SessionUnregistered)
+            } else {
+                Ok(())
+            };
+        }
+        tab.agent_set_at
+            .map(|started_at| started_at + crate::service::worker_ack::STARTUP_BINDING_DEADLINE)
+            .unwrap_or_else(std::time::Instant::now)
+    };
+    crate::service::general_agent::binding_wait::wait_for_session_binding(deadline, || {
+        let state = mux.read();
+        let Some(tab) = state.get_tab(tab_id) else {
+            return Some(Err(TeamPlanCreationError::Team(
+                "the claimed Planner tab is no longer live".into(),
+            )));
+        };
+        if tab.session_binding_nonce.as_deref() != Some(nonce) {
+            return Some(Err(TeamPlanCreationError::Team(
+                "the live Team Planner session is required".into(),
+            )));
+        }
+        if caller.session_id.as_deref().is_some_and(|requested| {
+            tab.agent_session_id
+                .as_deref()
+                .is_some_and(|current| current != requested)
+        }) {
+            return Some(Err(TeamPlanCreationError::Team(
+                "the live Team Planner session is required".into(),
+            )));
+        }
+        if tab.agent_session_id.is_some()
+            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        {
+            return Some(Ok(()));
+        }
+        if crate::service::launch_binding_is_pending(tab) {
+            None
+        } else {
+            Some(Err(TeamPlanCreationError::SessionUnregistered))
+        }
+    })
+    .unwrap_or(Err(TeamPlanCreationError::SessionBindingPending))
 }
 
 pub(crate) fn create_team_plan_for_orchestrator(

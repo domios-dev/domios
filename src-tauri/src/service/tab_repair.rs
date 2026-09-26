@@ -18,6 +18,7 @@ pub(crate) const TAB_REPAIR_EVIDENCE_CHANGED: &str = "tab_repair_evidence_change
 pub(crate) const TAB_REPAIR_LIVE_PTY_REQUIRED: &str = "tab_repair_live_pty_required";
 pub(crate) const TAB_REPAIR_JOURNAL_UNAVAILABLE: &str = "tab_repair_journal_unavailable";
 pub(crate) const TAB_REPAIR_JOURNAL_SOURCE_MISSING: &str = "tab_repair_journal_source_missing";
+pub(crate) const TAB_REPAIR_SESSION_BINDING_PENDING: &str = "session_binding_pending";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TabRepairErrorKind {
@@ -28,6 +29,7 @@ pub(crate) enum TabRepairErrorKind {
     LivePtyRequired,
     JournalUnavailable,
     JournalSourceMissing,
+    SessionBindingPending,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +55,7 @@ impl TabRepairError {
             TabRepairErrorKind::LivePtyRequired => TAB_REPAIR_LIVE_PTY_REQUIRED,
             TabRepairErrorKind::JournalUnavailable => TAB_REPAIR_JOURNAL_UNAVAILABLE,
             TabRepairErrorKind::JournalSourceMissing => TAB_REPAIR_JOURNAL_SOURCE_MISSING,
+            TabRepairErrorKind::SessionBindingPending => TAB_REPAIR_SESSION_BINDING_PENDING,
         }
     }
 }
@@ -250,6 +253,47 @@ impl ServiceContext {
         })
     }
 
+    pub(crate) async fn authorize_tab_repair_async(
+        &self,
+        tab_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<AuthorizedRepairTarget, TabRepairError> {
+        let tab = self.mux.read().get_tab(tab_id).cloned().ok_or_else(|| {
+            TabRepairError::new(
+                TabRepairErrorKind::NotFound,
+                format!("Tab {tab_id} was not found"),
+            )
+        })?;
+        if !matches!(&tab.backing, TabBacking::Pty) || tab.pty_id.is_none() {
+            return Err(TabRepairError::new(
+                TabRepairErrorKind::LivePtyRequired,
+                format!("Tab {tab_id} is not a live PTY tab"),
+            ));
+        }
+        if caller_matches_tab(&tab, caller) {
+            return Ok(AuthorizedRepairTarget {
+                identity: ProviderIdentityEvidence::capture(&tab),
+                tab_id: tab.id,
+            });
+        }
+        let Some(plan_id) = live_task_plan(self, &tab) else {
+            return Err(not_authorized(tab_id));
+        };
+        self.authorize_plan_orchestrator_async(&plan_id, caller)
+            .await
+            .map_err(|error| match error {
+                super::PlanAuthorityError::SessionBindingPending => TabRepairError::new(
+                    TabRepairErrorKind::SessionBindingPending,
+                    error.to_string(),
+                ),
+                _ => not_authorized(tab_id),
+            })?;
+        Ok(AuthorizedRepairTarget {
+            identity: ProviderIdentityEvidence::capture(&tab),
+            tab_id: tab.id,
+        })
+    }
+
     pub(crate) async fn repair_tab_from_live_evidence(
         &self,
         target: AuthorizedRepairTarget,
@@ -271,7 +315,9 @@ impl ServiceContext {
                 ),
             ));
         }
-        let fresh = self.authorize_tab_repair(&target.tab_id, caller)?;
+        let fresh = self
+            .authorize_tab_repair_async(&target.tab_id, caller)
+            .await?;
         if fresh.identity != target.identity {
             return Err(TabRepairError::new(
                 TabRepairErrorKind::EvidenceChanged,
@@ -331,7 +377,9 @@ impl ServiceContext {
                 format!("lifecycle journal inspection failed: {error}"),
             )
         })??;
-        let fresh = self.authorize_tab_repair(&target.tab_id, caller)?;
+        let fresh = self
+            .authorize_tab_repair_async(&target.tab_id, caller)
+            .await?;
         if fresh.identity != target.identity {
             return Err(TabRepairError::new(
                 TabRepairErrorKind::EvidenceChanged,

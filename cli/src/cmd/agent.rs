@@ -1,9 +1,7 @@
 use crate::args::agent::ReportArgs;
-use crate::client::SocketClient;
 use crate::cmd::plan::caller_context::CallerContext;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::handle_result;
-use crate::cmd::report_guard::ReportRefusal;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
@@ -163,96 +161,8 @@ pub(crate) fn join_cli_words(value: Option<Vec<String>>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn refusal_next_commands() -> Vec<&'static str> {
-    crate::cmd::report_guard::REPORT_NEXT_COMMANDS.to_vec()
-}
-
-fn refusal_report_message(refusal: &ReportRefusal, original: &str) -> String {
-    format!(
-        "REPORT NOT SENT\n{}\n\nOriginal readiness report that was refused locally:\n{}",
-        refusal.message(),
-        original
-    )
-}
-
-fn format_report_refusal_text(
-    refusal: &ReportRefusal,
-    sent: bool,
-    report_id: Option<&str>,
-    error: Option<&str>,
-) -> String {
-    let mut lines = vec!["REPORT NOT SENT".to_string(), refusal.message()];
-    match (sent, report_id, error) {
-        (true, Some(id), _) => lines.push(format!("Diagnostic report sent to parent: {id}")),
-        (true, None, _) => lines.push("Diagnostic report sent to parent.".to_string()),
-        (false, _, Some(err)) => lines.push(format!("Diagnostic report could not be sent: {err}")),
-        (false, _, None) => lines.push("Diagnostic report could not be sent.".to_string()),
-    }
-    lines.push("REPORT NOT SENT".to_string());
-    format!("{}\n", lines.join("\n"))
-}
-
-fn handle_report_refusal(
-    client: &mut SocketClient,
-    json: bool,
-    mut body: serde_json::Value,
-    refusal: ReportRefusal,
-) -> ! {
-    let original = body
-        .get("message")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    body["message"] = serde_json::json!(refusal_report_message(&refusal, &original));
-    body["kind"] = serde_json::json!("report_refused");
-    body["status"] = serde_json::json!("partial");
-    if let Some(outcome) = refusal.report_outcome() {
-        body["report_outcome"] = serde_json::json!(outcome);
-    }
-
-    let diagnostic = client.call_detailed("agent.report", Some(body.clone()));
-    let (sent, report_id, error) = match diagnostic {
-        Ok(value) => (
-            true,
-            value
-                .get("report_id")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
-            None,
-        ),
-        Err(err) => {
-            let rendered = if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
-                render_plan_call_error(err, &body)
-            } else {
-                err.to_string()
-            };
-            (false, None, Some(rendered))
-        }
-    };
-
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "verdict": "REPORT NOT SENT",
-                "reason": refusal.reason,
-                "dirty_files": refusal.dirty_files,
-                "next_commands": refusal_next_commands(),
-                "diagnostic_report_sent": sent,
-                "diagnostic_report_id": report_id,
-                "diagnostic_error": error,
-                "report_outcome": refusal.report_outcome(),
-            }))
-            .unwrap()
-        );
-    } else {
-        eprint!(
-            "{}",
-            format_report_refusal_text(&refusal, sent, report_id.as_deref(), error.as_deref())
-        );
-    }
-    std::process::exit(1);
-}
+mod report_refusal;
+use report_refusal::handle_report_refusal;
 
 pub(crate) fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
     let trimmed = value.trim();

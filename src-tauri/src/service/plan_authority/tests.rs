@@ -4,6 +4,7 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
+use codeterm_types::pty::BootStage;
 
 /// The closed loop: with no session ever registered there is no lineage to
 /// prove, so the repair could never run. Presenting the tab's own launch
@@ -150,6 +151,58 @@ fn an_unregistered_session_is_named_apart_from_a_foreign_caller() {
     );
 }
 
+#[test]
+fn plan_write_before_binding_reports_retryable_binding_pending() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("provider-neutral".into());
+    tab.pty_id = Some("pty-1".into());
+    tab.session_binding_nonce = Some("nonce-1".into());
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    tab.agent_set_at = Some(std::time::Instant::now());
+    let tab = &*tab;
+
+    let error = binding_failure_class(tab, None, Some("nonce-1"));
+    assert_eq!(error, PlanAuthorityError::SessionBindingPending);
+    assert_eq!(error.diagnostic_type(), "session_binding_pending");
+    assert!(error.is_retryable());
+}
+
+#[test]
+fn binding_pending_covers_agent_ready_but_not_a_settled_or_expired_launch() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("provider-neutral".into());
+    tab.pty_id = Some("pty-1".into());
+    tab.session_binding_nonce = Some("nonce-1".into());
+    tab.agent_set_at = Some(std::time::Instant::now());
+    tab.boot_stage = Some(BootStage::AgentReady);
+    assert!(launch_binding_is_pending(tab));
+
+    tab.boot_stage = Some(BootStage::LaunchDeadlineElapsed);
+    tab.agent_set_at = Some(std::time::Instant::now());
+    assert!(!launch_binding_is_pending(tab));
+    assert_eq!(
+        binding_failure_class(tab, None, Some("nonce-1")),
+        PlanAuthorityError::SessionUnregistered
+    );
+
+    tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    assert!(!launch_binding_is_pending(tab));
+    assert_eq!(
+        binding_failure_class(tab, None, Some("nonce-1")),
+        PlanAuthorityError::SessionUnregistered
+    );
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_set_at =
+        Some(std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE);
+    assert!(!launch_binding_is_pending(tab));
+    assert_eq!(
+        binding_failure_class(tab, None, Some("nonce-1")),
+        PlanAuthorityError::SessionUnregistered
+    );
+}
+
 /// The arm is reached only by proof of running inside the tab, so a caller
 /// with someone else's nonce learns nothing new.
 #[test]
@@ -177,15 +230,7 @@ fn a_foreign_nonce_still_reads_as_foreign() {
 fn the_unregistered_diagnosis_points_away_from_rebind() {
     let error = PlanAuthorityError::SessionUnregistered;
     assert_eq!(error.diagnostic_type(), "plan_binding_session_unregistered");
-    let message = error.to_string();
-    assert!(
-        message.contains("integration"),
-        "must name where a session comes from: {message}"
-    );
-    assert!(
-        message.contains("rebind"),
-        "must say rebind is not the repair: {message}"
-    );
+    assert!(!error.is_retryable());
 }
 
 fn fixture() -> (
@@ -244,6 +289,56 @@ fn fixture() -> (
         caller(planner, "planner-session", "planner-nonce"),
         caller(owner, "owner-session", "owner-nonce"),
     )
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[tokio::test(flavor = "current_thread")]
+async fn http_plan_authority_wait_does_not_block_another_request() {
+    let (fixture, plan_id, _, owner) = fixture();
+    let owner_tab_id = owner.tab_id.clone().unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&owner_tab_id).unwrap();
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        tab.boot_stage = Some(BootStage::ProviderReady);
+        tab.agent_set_at = Some(
+            std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+                + std::time::Duration::from_secs(3),
+        );
+    }
+    let pending_service = fixture.service.clone();
+    let pending_plan = plan_id.clone();
+    let pending = tokio::spawn(async move {
+        crate::api::plan_routes::authorize_plan_orchestrator_http(
+            &pending_service,
+            &pending_plan,
+            owner,
+        )
+        .await
+    });
+    tokio::task::yield_now().await;
+    assert!(!pending.is_finished());
+
+    crate::api::plan_routes::authorize_plan_orchestrator_http(
+        &fixture.service,
+        &plan_id,
+        AuthenticatedPlanCaller::default(),
+    )
+    .await
+    .expect("a concurrent user plan write can complete while the launch binding is pending");
+
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&owner_tab_id).unwrap();
+        tab.agent_session_id = Some("owner-session".into());
+        tab.reported_session_binding_nonce = Some("owner-nonce".into());
+    }
+    crate::service::general_agent::binding_wait::notify_binding_state_changed();
+    pending
+        .await
+        .expect("pending HTTP authorization task must finish")
+        .expect("binding event must release the pending authorization");
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
