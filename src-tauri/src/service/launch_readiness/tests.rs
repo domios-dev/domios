@@ -1,4 +1,6 @@
 use super::*;
+use crate::agent::provider::AgentProvider;
+use crate::agent::test_provider::MockProvider;
 use crate::service::boot_stage::{
     apply_boot_stage, honest_boot_stage, late_readiness_retires_provisional_launch,
     provisional_launch_for,
@@ -69,6 +71,7 @@ fn launch_gate_allows_unknown_provider_state_with_readiness_evidence() {
             session_bound: true,
             composer_ready: false,
             directory_trust_prompt: false,
+            active_interactive_prompt: false,
             classification: launch_classification(codeterm_plugin::tab_state::TabState::Unknown),
         }),
         Ok(Some(LaunchInputEvidence::SessionBinding)),
@@ -78,6 +81,7 @@ fn launch_gate_allows_unknown_provider_state_with_readiness_evidence() {
             session_bound: false,
             composer_ready: true,
             directory_trust_prompt: false,
+            active_interactive_prompt: false,
             classification: None,
         }),
         Ok(Some(LaunchInputEvidence::ProviderComposer)),
@@ -95,6 +99,7 @@ fn launch_gate_refuses_provider_update_and_directory_trust_dialogs() {
         session_bound: true,
         composer_ready: true,
         directory_trust_prompt: false,
+        active_interactive_prompt: false,
         classification: launch_classification(codeterm_plugin::tab_state::TabState::UpdatePrompt),
     })
     .expect_err("update modal blocks launch input");
@@ -107,6 +112,7 @@ fn launch_gate_refuses_provider_update_and_directory_trust_dialogs() {
         session_bound: true,
         composer_ready: true,
         directory_trust_prompt: true,
+        active_interactive_prompt: false,
         classification: launch_classification(
             codeterm_plugin::tab_state::TabState::ClarifyingQuestion,
         ),
@@ -115,6 +121,67 @@ fn launch_gate_refuses_provider_update_and_directory_trust_dialogs() {
     assert_eq!(
         trust_refusal.reason(),
         "active provider directory-trust prompt"
+    );
+}
+
+#[test]
+fn resumed_transcript_question_does_not_block_without_an_active_structured_prompt() {
+    use codeterm_plugin::tab_state::TabState;
+    use codeterm_types::pty::{PendingPrompt, PromptOption};
+
+    let transcript = "Earlier response text.\nassistant: What would you like me to do next?\n";
+    let classification = launch_classification(TabState::ClarifyingQuestion);
+    let transcript_provider = MockProvider::new("fixture")
+        .with_tab_state(classification.clone().expect("classification"));
+    let active_interactive_prompt = transcript_provider.parse_prompt(transcript).is_some();
+
+    assert!(!active_interactive_prompt);
+    assert_eq!(
+        decide_launch_input(LaunchInputObservation {
+            session_bound: true,
+            composer_ready: false,
+            directory_trust_prompt: false,
+            active_interactive_prompt,
+            classification,
+        }),
+        Ok(Some(LaunchInputEvidence::SessionBinding)),
+    );
+
+    let active_prompt = PendingPrompt {
+        question: "Active structured choice".into(),
+        options: vec![
+            PromptOption {
+                label: "Option one".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Option two".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let structured_provider = MockProvider::new("fixture")
+        .with_tab_state(launch_classification(TabState::ClarifyingQuestion).unwrap())
+        .with_parsed_prompt(active_prompt);
+    let active_interactive_prompt = structured_provider
+        .parse_prompt("active input region")
+        .is_some();
+    assert!(active_interactive_prompt);
+    assert_eq!(
+        decide_launch_input(LaunchInputObservation {
+            session_bound: true,
+            composer_ready: true,
+            directory_trust_prompt: false,
+            active_interactive_prompt,
+            classification: launch_classification(TabState::ClarifyingQuestion),
+        }),
+        Err(LaunchInputRefusal::ProviderDialog(
+            TabState::ClarifyingQuestion
+        )),
     );
 }
 

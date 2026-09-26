@@ -13,6 +13,12 @@ use crate::agent::classify_input::{ClassifyParts, StatusBarRows};
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
+#[path = "output/prompt_steps.rs"]
+mod prompt_steps;
+use prompt_steps::write_prompt_steps;
+pub(super) use prompt_steps::write_bound_prompt_steps;
+#[cfg(test)]
+pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 
 fn parse_manual_update_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
@@ -81,10 +87,6 @@ static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
 
 static AGENT_STOP_SUPPRESS_UNTIL: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
-
-#[cfg(test)]
-static BOUND_PROMPT_STEP_DISPATCHES: LazyLock<parking_lot::Mutex<HashMap<String, usize>>> =
-    LazyLock::new(Default::default);
 
 const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
 
@@ -857,10 +859,18 @@ impl ServiceContext {
                 }
                 if auto_approve && !directory_trust_prompt && !manual_update_prompt {
                     if is_general_tab {
+                        let provider_classified_safety_dialog = agent_type
+                            .as_deref()
+                            .zip(screen_text)
+                            .is_some_and(|(agent_type, screen)| {
+                                trust_candidate::provider_classifies_non_auto_ack_dialog(
+                                    self, tab_id, agent_type, screen,
+                                )
+                            });
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
                             screen_text.unwrap_or(""),
-                            directory_trust_prompt,
+                            directory_trust_prompt || provider_classified_safety_dialog,
                         ) {
                             log::info!(
                                 "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
@@ -1064,46 +1074,6 @@ fn default_prompt_response(option_index: usize) -> Vec<Vec<u8>> {
     }
     steps.push(b"\r".to_vec());
     steps
-}
-
-fn write_prompt_steps(pty: crate::PtyState, pty_id: String, steps: Vec<Vec<u8>>) {
-    write_bound_prompt_steps(pty, pty_id, steps, || true);
-}
-
-/// The prompt responder with a binding check run immediately before the first
-/// key; a refused binding writes nothing.
-pub(super) fn write_bound_prompt_steps<F>(
-    pty: crate::PtyState,
-    pty_id: String,
-    steps: Vec<Vec<u8>>,
-    still_bound: F,
-) where
-    F: FnOnce() -> bool + Send + 'static,
-{
-    #[cfg(test)]
-    *BOUND_PROMPT_STEP_DISPATCHES
-        .lock()
-        .entry(pty_id.clone())
-        .or_default() += 1;
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        if !still_bound() {
-            return;
-        }
-        for step in steps {
-            let _ = pty.lock().write(&pty_id, &step);
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-    });
-}
-
-#[cfg(test)]
-pub(super) fn bound_prompt_step_dispatch_count_for_test(pty_id: &str) -> usize {
-    BOUND_PROMPT_STEP_DISPATCHES
-        .lock()
-        .get(pty_id)
-        .copied()
-        .unwrap_or_default()
 }
 
 /// Does the screen's last non-empty line look like a bare shell prompt? Combined

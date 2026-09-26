@@ -10,6 +10,7 @@ use crate::multiplexer::types::{
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::inject_verify::{InjectionError, InjectionResult};
+use crate::service::launch_readiness::LaunchInputEvidence;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
@@ -149,7 +150,7 @@ impl LaunchDeliveryGate {
         mux: &MuxState,
         tab_id: &str,
         sink: &impl BootStageSink,
-        readiness: Option<crate::service::launch_readiness::LaunchInputEvidence>,
+        readiness: Option<LaunchInputEvidence>,
         transaction: F,
     ) -> Result<LaunchConsumptionReceipt, LaunchConsumptionError>
     where
