@@ -10,6 +10,8 @@ use crate::plan::{
     Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
 
+mod plan_writer;
+
 pub(super) fn gen_id(prefix: &str) -> String {
     crate::plan::ids::short_id(prefix)
 }

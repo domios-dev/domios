@@ -20,7 +20,14 @@ pub(crate) fn authenticated_tab_binding(tab: &Tab) -> Option<AssignmentRuntimeBi
         session_binding_nonce: nonce.clone(),
         provider: tab.agent_type.clone(),
         model: tab.agent_provider_resolved_model.clone(),
-        session_model: tab.agent_session_model.clone(),
+        session_model: tab
+            .agent_session_model_identity
+            .as_ref()
+            .filter(|identity| {
+                identity.session_id.as_str() == session_id.as_str()
+                    && identity.session_binding_nonce.as_str() == nonce.as_str()
+            })
+            .and_then(|_| tab.agent_session_model.clone()),
     })
 }
 

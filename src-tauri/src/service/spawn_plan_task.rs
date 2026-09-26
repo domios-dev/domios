@@ -6,6 +6,12 @@ use crate::plan::Task;
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
+fn resolved_worker_launch_effort(
+    identity: &crate::multiplexer::types::ReasoningEffortIdentity,
+) -> Option<String> {
+    identity.resolved.clone()
+}
+
 pub(crate) fn planned_task_title(task: &Task) -> Option<String> {
     crate::service::plan::worker_identity::task_executor_name(task)
         .ok()
@@ -296,13 +302,7 @@ impl ServiceContext {
             return Ok(());
         };
         let now_ms = epoch_ms();
-        let (
-            title,
-            session_id,
-            session_binding_nonce,
-            provider,
-            model,
-        ) = {
+        let (title, session_id, session_binding_nonce, provider, model, reasoning_effort) = {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
             let binding = mux.get_tab(tab_id).map(|tab| {
@@ -311,15 +311,18 @@ impl ServiceContext {
                     tab.session_binding_nonce.clone(),
                     tab.agent_type.clone(),
                     tab.agent_provider_resolved_model.clone(),
+                    resolved_worker_launch_effort(&tab.reasoning_effort_identity),
                 )
             });
-            let (session_id, session_binding_nonce, provider, model) = binding.unwrap_or_default();
+            let (session_id, session_binding_nonce, provider, model, reasoning_effort) =
+                binding.unwrap_or_default();
             (
                 title,
                 session_id,
                 session_binding_nonce,
                 provider,
                 model,
+                reasoning_effort,
             )
         };
         let binding = self.create_worker_task_binding(
@@ -331,7 +334,7 @@ impl ServiceContext {
             session_binding_nonce.as_deref(),
             provider.as_deref(),
             model,
-            params.reasoning_effort.clone(),
+            reasoning_effort,
             now_ms,
         );
         let binding = match binding {
@@ -447,6 +450,11 @@ mod tests {
     fn plan_task_binding_records_dispatched_model_and_effort() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
+        let effort_identity = crate::multiplexer::types::ReasoningEffortIdentity {
+            requested: Some("xhigh".into()),
+            resolved: Some("high".into()),
+            ..Default::default()
+        };
         let binding = bind_worker_task_to_tab(
             &store,
             Some(&plan_id),
@@ -459,7 +467,7 @@ mod tests {
             None,
             Some("codex"),
             Some("gpt-6-luna".into()),
-            Some("xhigh".into()),
+            resolved_worker_launch_effort(&effort_identity),
             "attempt-prepared",
             vec![crate::plan::PlanSkillManifestEntry {
                 slug: "prepared".into(),
@@ -482,7 +490,7 @@ mod tests {
         let attempt = task.execution_attempts.last().unwrap();
         assert_eq!(attempt.provider.as_deref(), Some("codex"));
         assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
-        assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
+        assert_eq!(attempt.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(
             task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug,
             "prepared"

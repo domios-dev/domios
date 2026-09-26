@@ -166,6 +166,10 @@ fn assignment_captures_model_already_detected_on_its_bound_tab() {
     target.agent_type = Some("codex".into());
     target.agent_provider_resolved_model = Some("gpt-6-luna".into());
     target.agent_session_model = Some("opus".into());
+    target.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
+        session_id: "verified-session".into(),
+        session_binding_nonce: "test-nonce".into(),
+    });
 
     assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
 
@@ -177,6 +181,36 @@ fn assignment_captures_model_already_detected_on_its_bound_tab() {
     assert_eq!(attempt.session_model.as_deref(), Some("opus"));
     assert_eq!(attempt.session_id.as_deref(), Some("verified-session"));
     assert_eq!(attempt.session_binding_nonce.as_deref(), Some("test-nonce"));
+}
+
+#[test]
+fn assignment_ignores_restored_model_evidence_from_a_foreign_session_or_nonce() {
+    for (session_id, nonce) in [
+        ("foreign-newer-session", "test-nonce"),
+        ("verified-session", "foreign-nonce"),
+    ] {
+        let (_dir, store, mut mux, plan, task, tab) = fixture();
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.agent_type = Some("codex".into());
+        target.agent_session_model = Some("stale-restored-model".into());
+        target.agent_session_model_identity =
+            Some(crate::multiplexer::types::SessionModelIdentity {
+                session_id: session_id.into(),
+                session_binding_nonce: nonce.into(),
+            });
+
+        assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
+
+        let attempt = store
+            .show_task(&task)
+            .unwrap()
+            .task
+            .execution_attempts
+            .into_iter()
+            .next()
+            .unwrap();
+        assert!(attempt.session_model.is_none());
+    }
 }
 
 #[test]
