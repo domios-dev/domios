@@ -2,6 +2,7 @@ import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 
 // Constants and regexes
 export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
+export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
 export const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -602,8 +603,10 @@ export function opencodePluginEntryMatches(entry: unknown, target: string | null
 }
 
 export function isCurrentOpencodeBindingPluginSource(text: string): boolean {
+  const currentHeader = "// " + CODETERM_OPENCODE_PLUGIN_MARKER;
+  const hasCurrentHeader = text.startsWith(currentHeader + "\n")
+    || text.startsWith(currentHeader + "\r\n");
   const required = [
-    CODETERM_OPENCODE_PLUGIN_MARKER,
     "CODETERM_API_URL",
     "CODETERM_API_TOKEN",
     "CODETERM_SESSION_BINDING_NONCE",
@@ -611,16 +614,23 @@ export function isCurrentOpencodeBindingPluginSource(text: string): boolean {
     "/api/tabs/",
     "x-codeterm-binding-nonce",
     "authorization",
-    "function isSessionBindingEvent(event)",
+    "sessionID === lastReported",
   ];
-  return required.every((value) => text.includes(value))
+  return hasCurrentHeader
+    && required.every((value) => text.includes(value))
     && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+}
+
+export function ownsOpencodeBindingPluginSource(text: string): boolean {
+  const header = "// " + CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX;
+  return text.startsWith(header) && /^\d+(?:\r?\n|$)/.test(text.slice(header.length));
 }
 
 export function opencodeBindingPluginSource(): string {
   return [
     "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
     "const PROVIDER_ID = \"opencode\";",
+    "let lastReported = null;",
     "",
     "function endpoint() {",
     "  const tab = process.env.CODETERM_TAB_ID;",
@@ -646,9 +656,10 @@ export function opencodeBindingPluginSource(): string {
     "",
     "async function report(sessionID, source, directory) {",
     "  sessionID = normalizeSessionID(sessionID);",
-    "  if (!sessionID) return;",
+    "  if (!sessionID || sessionID === lastReported) return;",
     "  const url = endpoint();",
     "  if (!url) return;",
+    "  lastReported = sessionID;",
     "  const headers = {",
     "    \"content-type\": \"application/json\",",
     "    \"x-codeterm-agent-provider\": PROVIDER_ID,",
@@ -694,16 +705,28 @@ export function opencodeBindingPluginSource(): string {
     "  );",
     "}",
     "",
-    "function isSessionBindingEvent(event) {",
-    '  return event?.type === "session.created" || event?.type === "tui.session.select";',
-    "}",
-    "",
     "export default async function CodeTermSessionBindingPlugin({ directory }) {",
     "  return {",
     "    async event({ event }) {",
-    "      if (isSessionBindingEvent(event)) {",
+    "      if (",
+    "        event?.type === \"session.created\" ||",
+    "        event?.type === \"session.updated\" ||",
+    "        event?.type === \"tui.session.select\" ||",
+    "        event?.type === \"message.updated\" ||",
+    "        event?.type === \"message.part.updated\"",
+    "      ) {",
     "        await report(eventSessionID(event), event.type, eventDirectory(event, directory));",
     "      }",
+    "    },",
+    "    async \"chat.message\"(input) {",
+    "      await report(input?.sessionID, \"chat.message\", directory);",
+    "    },",
+    "    async \"tool.execute.before\"(input) {",
+    "      await report(input?.sessionID, \"tool.execute.before\", directory);",
+    "    },",
+    "    async \"shell.env\"(input, output) {",
+    "      await report(input?.sessionID, \"shell.env\", input?.cwd || directory);",
+    "      return output;",
     "    },",
     "  };",
     "}",
