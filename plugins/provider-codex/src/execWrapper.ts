@@ -105,7 +105,7 @@ export function unwrapCommandExecution(value: unknown): CommandExecutionWrapper 
   const argv = value as string[];
   for (let i = 1; i < argv.length - 1; i++) {
     const option = argv[i].toLowerCase();
-    if (option !== "-command" && option !== "-c" && !/^-[a-z]*c$/.test(option)) continue;
+    if (option !== "-command" && option !== "-c" && option !== "-lc" && option !== "/c") continue;
     if (!argv[i + 1].trim()) return null;
     return { command: argv[i + 1], detail: commandText(argv) };
   }

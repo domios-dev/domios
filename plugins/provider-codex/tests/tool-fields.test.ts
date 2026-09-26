@@ -31,6 +31,13 @@ eq(
   { command: "git status --short", detail: '"C:\\\\Opaque Tools\\\\shell.exe" -Command "git status --short"' },
   "unwraps a command from shell argv structure",
 );
+eq(unwrapCommandExecution(["/bin/sh", "-c", "git status --short"]),
+  { command: "git status --short", detail: "/bin/sh -c \"git status --short\"" }, "unwraps a shell -c command");
+eq(unwrapCommandExecution(["/bin/sh", "-lc", "git status --short"]),
+  { command: "git status --short", detail: "/bin/sh -lc \"git status --short\"" }, "unwraps a shell -lc command");
+eq(unwrapCommandExecution(["cmd.exe", "/c", "git status --short"]),
+  { command: "git status --short", detail: "cmd.exe /c \"git status --short\"" }, "unwraps a cmd /c command");
+eq(unwrapCommandExecution(["pwsh.exe", "-exec", "git status --short"]), null, "does not treat an unrelated -exec option as a command switch");
 eq(unwrapCommandExecution(["C:\\Opaque Tools\\shell.exe", "-NoProfile"]), null, "rejects an argv without a command switch");
 eq(
   patchEdits("*** Begin Patch\n*** Update File: src/demo.ts\n@@\n-old\n+new\n*** End Patch"),

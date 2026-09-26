@@ -5,6 +5,7 @@ import type {
   ModelInfo,
   ParsedPrompt,
   PluginModule,
+  SessionDeltaContext,
 } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
@@ -251,8 +252,9 @@ const plugin: PluginModule = {
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
-  parseSessionDelta(chunk: string): unknown {
+  parseSessionDelta(chunk: string, context?: SessionDeltaContext): unknown {
     const out: unknown[] = [];
+    const commandPairing = commandPairingState(context);
     const activityIds = new Set<string>();
     // One source record can be reported twice (completion event and response item) under one id.
     const pushOnce = (row: { uuid?: string } | null) => {
@@ -318,6 +320,7 @@ const plugin: PluginModule = {
       if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
+        clearTurnPairings(commandPairing, turnId);
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
@@ -327,7 +330,7 @@ const plugin: PluginModule = {
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        if (pairCommandExecution(v.payload.item, v.payload.turn_id, ts, tsIso)) continue;
+        if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
         pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
         continue;
       }
@@ -402,24 +405,14 @@ const plugin: PluginModule = {
         });
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const deferred = p.type === "custom_tool_call_output" ? deferredCommandCalls.get(callId) : undefined;
-        if (deferred) {
-          const data = deferred.message.blocks[0].data;
-          if (deferred.wrapperDetails.length > 0) data.tool_detail = deferred.wrapperDetails.join("\n\n");
-          Object.assign(data, deferred.completionFields);
-          out.push(deferred.message);
-          out.push({
-            role: "assistant",
-            blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
-            ts: ts,
-            timestamp: tsIso,
-          });
-          deferredCommandCalls.delete(callId);
-          continue;
-        }
+        const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : undefined;
+        if (pending) commandPairing.pending.delete(callId);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
+          blocks: [{ kind: "tool_result", data: {
+            content: codexToolOutputText(p.output), tool_use_id: callId,
+            ...(pending ? commandPairingResult(pending) : {}),
+          } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -448,7 +441,7 @@ const plugin: PluginModule = {
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const canonical = canonicalToolFields(name, input);
-        const message: DeferredCommandCall["message"] = {
+        const message = {
           role: "assistant",
           blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input, ...canonical } }],
           ts: ts,
@@ -457,18 +450,24 @@ const plugin: PluginModule = {
         const commands = name === "exec" && callId && typeof input.raw === "string"
           ? execScriptCommands(input.raw)
           : [];
+        out.push(message);
         if (commands.length > 0) {
-          deferredCommandCalls.set(callId, {
-            message,
-            remainingCommands: commands,
-            wrapperDetails: [],
-            completionFields: {},
-            turnId: callTurnId(p),
+          const turnId = callTurnId(p);
+          if (!turnId) continue;
+          commandPairing.pending.delete(callId);
+          commandPairing.pending.set(callId, {
+            commandCount: commands.length,
+            commands,
+            completedCommands: new Set(),
+            commandResults: [],
+            turnId,
           });
-        } else {
-          out.push(message);
+          trimPendingCalls(commandPairing);
         }
       }
+    }
+    if (commandPairing.sessionKey && commandPairing.pending.size === 0) {
+      commandPairingSessions.delete(commandPairing.sessionKey);
     }
     stampRows(lines.length - 1);
     return { messages: out };
@@ -641,53 +640,114 @@ interface CodexPayload {
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 
-interface DeferredCommandCall {
-  message: {
-    role: "assistant";
-    blocks: { kind: string; data: Record<string, unknown> }[];
-    ts: number | null;
-    timestamp: string | null;
-  };
-  remainingCommands: string[];
-  wrapperDetails: string[];
-  completionFields: Record<string, unknown>;
-  turnId?: string;
+interface PendingCommandPairing {
+  commandCount: number;
+  commands: string[];
+  completedCommands: Set<number>;
+  commandResults: Record<string, unknown>[];
+  turnId: string;
 }
 
-const deferredCommandCalls = new Map<string, DeferredCommandCall>();
+interface CommandPairingState {
+  pending: Map<string, PendingCommandPairing>;
+  sessionKey?: string;
+  lastOffset?: number;
+}
+
+const commandPairingSessions = new Map<string, CommandPairingState>();
+const MAX_PAIRING_SESSIONS = 32;
+const MAX_PENDING_CALLS_PER_SESSION = 64;
+
+function commandPairingState(context?: SessionDeltaContext): CommandPairingState {
+  const sessionKey = typeof context?.session_key === "string" ? context.session_key : "";
+  const offset = context?.from_offset;
+  if (!sessionKey || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
+    return { pending: new Map() };
+  }
+  let state = commandPairingSessions.get(sessionKey);
+  if (state && state.lastOffset !== undefined && offset <= state.lastOffset) {
+    commandPairingSessions.delete(sessionKey);
+    state = undefined;
+  }
+  if (!state) state = { pending: new Map(), sessionKey };
+  state.lastOffset = offset;
+  commandPairingSessions.delete(sessionKey);
+  commandPairingSessions.set(sessionKey, state);
+  while (commandPairingSessions.size > MAX_PAIRING_SESSIONS) {
+    const oldest = commandPairingSessions.keys().next().value;
+    if (typeof oldest !== "string") break;
+    commandPairingSessions.delete(oldest);
+  }
+  return state;
+}
+
+function trimPendingCalls(state: CommandPairingState): void {
+  while (state.pending.size > MAX_PENDING_CALLS_PER_SESSION) {
+    const oldest = state.pending.keys().next().value;
+    if (typeof oldest !== "string") break;
+    state.pending.delete(oldest);
+  }
+}
+
+function clearTurnPairings(state: CommandPairingState, turnId: string): void {
+  for (const [callId, call] of state.pending) {
+    if (call.turnId === turnId) state.pending.delete(callId);
+  }
+}
+
+function commandPairingResult(call: PendingCommandPairing): Record<string, unknown> {
+  if (call.commandResults.length === 0) return {};
+  const results = [...call.commandResults].sort((left, right) => Number(left.command_index) - Number(right.command_index));
+  const failed = results.find((result) => result.tool_status === "error");
+  const complete = results.length === call.commandCount;
+  const durations = results.map((result) => result.tool_duration_ms);
+  const completeDurations = complete && durations.every((duration) => typeof duration === "number");
+  const failureCode = failed && typeof failed.tool_exit_code === "number" && failed.tool_exit_code !== 0
+    ? failed.tool_exit_code
+    : undefined;
+  return {
+    tool_wrapper_detail: results.map((result) => result.wrapper_detail).join("\n\n"),
+    tool_command_results: results,
+    ...(failed ? { tool_status: "error", is_error: true } : complete ? { tool_status: "success", is_error: false } : {}),
+    ...(failureCode !== undefined ? { tool_exit_code: failureCode } : complete ? { tool_exit_code: 0 } : {}),
+    ...(completeDurations ? { tool_duration_ms: durations.reduce((sum, duration) => sum + Number(duration), 0) } : {}),
+  };
+}
 
 function callTurnId(payload: CodexPayload): string | undefined {
   if (typeof payload.turn_id === "string") return payload.turn_id;
   const metadata = payload.internal_chat_message_metadata_passthrough;
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
   const turnId = (metadata as Record<string, unknown>).turn_id;
-  return typeof turnId === "string" ? turnId : undefined;
+  return typeof turnId === "string" && turnId ? turnId : undefined;
 }
 
-function pairCommandExecution(item: unknown, turnId: unknown, ts: number | null, timestamp: string | null): boolean {
+function pairCommandExecution(item: unknown, turnId: unknown, state: CommandPairingState): boolean {
   if (!item || typeof item !== "object" || Array.isArray(item)) return false;
   const execution = item as Record<string, unknown>;
   if (execution.type !== "CommandExecution") return false;
   const wrapper = unwrapCommandExecution(execution.command);
-  if (!wrapper) return false;
-  let candidates = Array.from(deferredCommandCalls.values()).filter((call) => call.remainingCommands.indexOf(wrapper.command) !== -1);
-  const currentTurn = typeof turnId === "string" ? turnId : undefined;
-  if (currentTurn) {
-    const sameTurn = candidates.filter((call) => call.turnId === currentTurn);
-    candidates = sameTurn.length > 0 ? sameTurn : candidates.filter((call) => !call.turnId);
-  }
+  const currentTurn = typeof turnId === "string" ? turnId : "";
+  if (!wrapper || !currentTurn) return false;
+  const candidates = Array.from(state.pending.values()).filter((call) =>
+    call.turnId === currentTurn && call.commands.some((command, index) =>
+      command === wrapper.command && !call.completedCommands.has(index)));
   if (candidates.length !== 1) return false;
   const call = candidates[0];
-  const commandIndex = call.remainingCommands.indexOf(wrapper.command);
-  call.remainingCommands.splice(commandIndex, 1);
-  call.wrapperDetails.push(wrapper.detail);
-  const activity = completedActivity(item, ts, timestamp, turnId);
+  const commandIndex = call.commands.findIndex((command, index) =>
+    command === wrapper.command && !call.completedCommands.has(index));
+  const activity = completedActivity(item, null, null, turnId);
   const toolData = activity?.blocks.find((block) => block.kind === "tool_use")?.data;
-  if (toolData) {
-    for (const key of ["tool_status", "tool_exit_code", "tool_duration_ms", "tool_flow_id"]) {
-      if (toolData[key] !== undefined) call.completionFields[key] = toolData[key];
-    }
-  }
+  if (!toolData) return false;
+  call.completedCommands.add(commandIndex);
+  call.commandResults.push({
+    command_index: commandIndex,
+    command: wrapper.command,
+    wrapper_detail: wrapper.detail,
+    ...(toolData.tool_status !== undefined ? { tool_status: toolData.tool_status } : {}),
+    ...(toolData.tool_exit_code !== undefined ? { tool_exit_code: toolData.tool_exit_code } : {}),
+    ...(toolData.tool_duration_ms !== undefined ? { tool_duration_ms: toolData.tool_duration_ms } : {}),
+  });
   return true;
 }
 

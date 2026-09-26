@@ -91,7 +91,7 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
     message.blocks = [
       { kind: "tool_use", data: {
         id, name: "command_execution", input: { command, ...(Array.isArray(item.command) ? { argv: item.command } : {}) },
-        ...fields, tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields), ...outcome, ...flow,
+        ...fields, tool_echo: true, tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields), ...outcome, ...flow,
         tool_status: failed ? "error" : "success",
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome } },
