@@ -170,13 +170,22 @@ fn resume_with_context_keeps_the_conservative_default() {
         session_id: CODEX_UUID.into(),
         skip_permissions: false,
         system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
-        args: vec!["--model".into(), "parity-model".into()],
+        args: vec![
+            "-m".into(),
+            "gpt-6-sol".into(),
+            "-c".into(),
+            r#"model_reasoning_effort="high""#.into(),
+        ],
     };
     let command = j
         .build_resume_command_with_context(&params)
         .expect("codex resume command");
 
     assert!(!command.contains("parity-sentinel-91c3"));
+    assert_eq!(
+        command,
+        format!("codex resume '{CODEX_UUID}' -m gpt-6-sol -c model_reasoning_effort=\"high\"")
+    );
     assert_eq!(
         command,
         crate::provider::append_launch_args(

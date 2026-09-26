@@ -39,6 +39,17 @@ pub(super) fn input_ready_stage_after_provider_ready(resumes_on_first_turn: bool
     }
 }
 
+pub(super) fn provider_readiness_with_timeout(
+    strategy: &crate::agent::provider::ProviderReadinessStrategy,
+    timeout: std::time::Duration,
+) -> crate::agent::provider::ProviderReadinessStrategy {
+    if strategy.requires_composer() {
+        crate::agent::provider::ProviderReadinessStrategy::StructuralComposer { timeout }
+    } else {
+        crate::agent::provider::ProviderReadinessStrategy::TuiFrame { timeout }
+    }
+}
+
 pub(super) fn finish_waiting_for_first_turn(
     launch: &mut LaunchGeneration,
     settlement: &LaunchSettlement,
