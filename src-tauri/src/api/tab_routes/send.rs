@@ -833,25 +833,25 @@ mod action_delivery_tests {
 
     #[test]
     fn send_actions_enter_and_ctrl_c_to_shell_write_their_bytes() {
-        let mut written = Vec::new();
+        let written = std::cell::RefCell::new(Vec::new());
         let result = execute_ordered_actions(
             "",
             &[OrderedPtyAction::Submit, OrderedPtyAction::Raw(vec![0x03])],
             |text, enter| {
                 assert!(text.is_empty());
                 assert!(enter);
-                written.extend_from_slice(b"\r");
+                written.borrow_mut().extend_from_slice(b"\r");
                 Ok::<_, DeliveryError>(())
             },
             |bytes| {
-                written.extend_from_slice(bytes);
+                written.borrow_mut().extend_from_slice(bytes);
                 Ok(())
             },
             |_| {},
         );
 
         result.unwrap();
-        assert_eq!(written, b"\r\x03");
+        assert_eq!(written.into_inner(), b"\r\x03");
     }
 
     #[test]
