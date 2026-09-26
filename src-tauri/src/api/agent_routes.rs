@@ -13,6 +13,8 @@ use crate::api::{
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 
+mod model_error;
+
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
@@ -324,6 +326,13 @@ pub async fn spawn_agent(
         manager_bootstrap: None,
         structured_prompt_server: None,
     };
+    let default_provider = crate::config::default_agent_provider();
+    let provider_id = params.agent.as_deref().unwrap_or(&default_provider);
+    model_error::validate_agent_model(
+        &state.svc.agent_registry,
+        provider_id,
+        params.model.as_deref(),
+    )?;
     let plan_task = params.plan_task.clone();
     let (ready_tx, ready_rx) = if require_delivery_ack {
         let (tx, rx) = tokio::sync::oneshot::channel();
