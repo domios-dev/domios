@@ -2481,6 +2481,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "no-precompact-memory-export",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_PRECOMPACT_MEMORY_EXPORT",
+              "possible_values": [],
+              "default": null,
+              "help": "Disable conversation export before compaction",
+              "aliases": []
+            },
+            {
               "name": "precompact-memory-export",
               "positional": false,
               "required": false,

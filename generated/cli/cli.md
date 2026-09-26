@@ -538,6 +538,7 @@ Provider hook integration: install it with recorded consent and trust, or read i
 
 Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
 
+- `--no-precompact-memory-export` — Disable conversation export before compaction
 - `--precompact-memory-export` — Also export conversation content to memory before compaction
 - `--provider` — Provider id (e.g. claude, codex)
 
