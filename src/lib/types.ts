@@ -802,6 +802,8 @@ export interface ModelInfo {
   badge?: string | null;
   /** Provider-declared picker section; models sharing it render together. */
   group?: string | null;
+  /** Omitted uses provider reasoning_efforts; [] means no selector. */
+  reasoning_efforts?: ReasoningEffortInfo[] | null;
 }
 
 /** Provider-owned grouping of its models, e.g. the upstream company a routed
