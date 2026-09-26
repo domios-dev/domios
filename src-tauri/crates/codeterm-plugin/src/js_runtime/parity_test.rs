@@ -14,7 +14,10 @@ use std::path::PathBuf;
 
 use crate::{
     chatbackend_provider::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry},
-    provider::{AgentLaunchParams, AgentProvider, ModelInfo},
+    provider::{
+        AgentLaunchParams, AgentProvider, LaunchArtifactSweepReport,
+        LaunchArtifactSweepRequest, ModelInfo,
+    },
 };
 
 use super::{load_one, JsProvider};
@@ -63,6 +66,44 @@ fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
     let vm = super::PluginVm::from_source_with(id, plugin_js.to_string(), Some(manifest_json))
         .expect("fixture vm");
     JsProvider::new(manifest, Arc::new(vm))
+}
+
+#[test]
+fn launch_artifact_release_native_js_parity() {
+    let native = DiscoverModelsNativeStub;
+    let js = load_inline_js(
+        "discover-fixture",
+        r#"
+        module.exports.default = {
+            releaseTabLaunchArtifacts(tabId, instanceId) {
+                return tabId === "closed-tab" && instanceId === "instance-fixture";
+            },
+            sweepLaunchArtifacts(request) {
+                const dead = request.liveTabIds.includes("dead-tab") ? [] : ["dead-tab"];
+                const legacy = ["legacy-tab"];
+                const removed = request.confirm
+                    ? dead.concat(request.includeLegacy ? legacy : [])
+                    : [];
+                return { dead, legacy, removed };
+            }
+        };
+        "#,
+    );
+    let request = LaunchArtifactSweepRequest {
+        instance_id: "instance-fixture".into(),
+        live_tab_ids: vec!["live-tab".into()],
+        confirm: true,
+        include_legacy: true,
+    };
+
+    assert_eq!(
+        native.release_tab_launch_artifacts("closed-tab", &request.instance_id),
+        js.release_tab_launch_artifacts("closed-tab", &request.instance_id),
+    );
+    assert_eq!(
+        native.sweep_launch_artifacts(&request),
+        js.sweep_launch_artifacts(&request),
+    );
 }
 
 #[test]
@@ -142,6 +183,34 @@ impl AgentProvider for DiscoverModelsNativeStub {
 
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
         String::new()
+    }
+
+    fn release_tab_launch_artifacts(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+        Ok(tab_id == "closed-tab" && instance_id == "instance-fixture")
+    }
+
+    fn sweep_launch_artifacts(
+        &self,
+        request: &LaunchArtifactSweepRequest,
+    ) -> Result<Option<LaunchArtifactSweepReport>, String> {
+        let dead = (!request.live_tab_ids.iter().any(|id| id == "dead-tab"))
+            .then(|| "dead-tab".to_string())
+            .into_iter()
+            .collect::<Vec<_>>();
+        let legacy = vec!["legacy-tab".to_string()];
+        let removed = if request.confirm {
+            dead.iter()
+                .cloned()
+                .chain(request.include_legacy.then(|| legacy.clone()).into_iter().flatten())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(Some(LaunchArtifactSweepReport {
+            dead,
+            legacy,
+            removed,
+        }))
     }
 
     fn readiness_strategy(&self) -> crate::provider::ReadinessStrategy {

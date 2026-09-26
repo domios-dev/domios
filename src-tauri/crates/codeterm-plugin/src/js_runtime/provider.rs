@@ -18,10 +18,11 @@ use wire::{
 };
 
 use crate::provider::{
-    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelGroup, ModelGroupUsage,
-    ModelInfo, ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
-    TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
+    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, LaunchArtifactSweepReport,
+    LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo, ProviderReadinessStrategy,
+    ProviderTrust, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SessionMessage,
+    SessionMetadata, SettingField, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
+    VerifySubmitStrategy,
 };
 
 use super::{
@@ -238,6 +239,32 @@ impl AgentProvider for JsProvider {
         }
         self.try_call::<String>("buildLaunchCommand", &[launch_params_to_json(params)])
             .unwrap_or_default()
+    }
+
+    fn release_tab_launch_artifacts(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+        if self.has_js("releaseTabLaunchArtifacts") {
+            return Ok(self
+                .try_call::<bool>("releaseTabLaunchArtifacts", &[json!(tab_id), json!(instance_id)])
+                .unwrap_or(false));
+        }
+        self.native()
+            .map(|native| native.release_tab_launch_artifacts(tab_id, instance_id))
+            .unwrap_or(Ok(false))
+    }
+
+    fn sweep_launch_artifacts(
+        &self,
+        request: &LaunchArtifactSweepRequest,
+    ) -> Result<Option<LaunchArtifactSweepReport>, String> {
+        if self.has_js("sweepLaunchArtifacts") {
+            return Ok(self.try_call::<LaunchArtifactSweepReport>(
+                "sweepLaunchArtifacts",
+                &[json!(request)],
+            ));
+        }
+        self.native()
+            .map(|native| native.sweep_launch_artifacts(request))
+            .unwrap_or(Ok(None))
     }
 
     fn starter_prompt_text(&self, prompt: crate::provider::StarterPrompt) -> Option<String> {

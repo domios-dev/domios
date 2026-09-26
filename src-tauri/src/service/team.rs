@@ -314,6 +314,9 @@ impl ServiceContext {
         // Persist the authorized reduction before any fallible cleanup can
         // early-return and leave last.json still holding the member tabs.
         crate::service::session_persist::persist_session_after_close(self);
+        for (tab_id, provider_id) in &cleanup.agent_providers {
+            self.release_tab_launch_artifacts(tab_id, provider_id);
+        }
         for tab_id in &cleanup.member_tab_ids {
             self.chat_registry.shutdown_tab(tab_id);
         }

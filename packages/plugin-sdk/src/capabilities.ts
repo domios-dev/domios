@@ -71,7 +71,22 @@ export interface LaunchParams {
   structuredPromptServer?: { hostname: string; port: number };
   /** Host-minted inert token a provider may carry into its own session record. */
   launchMarker?: string;
+  /** Stable identity for the CodeTerm data directory writing this launch. */
+  instanceId?: string;
   [key: string]: unknown;
+}
+
+export interface LaunchArtifactSweepRequest {
+  instanceId: string;
+  liveTabIds: string[];
+  confirm: boolean;
+  includeLegacy: boolean;
+}
+
+export interface LaunchArtifactSweepReport {
+  dead: string[];
+  legacy: string[];
+  removed: string[];
 }
 
 /** One process in the tab's own PTY tree; `startToken` is its OS process start time. */
@@ -187,6 +202,8 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
+  releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
+  sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
   /** Implement only when a resumed session drops the launch-time system prompt. */
   buildResumeCommandWithContext?(params: ResumeParams): string;

@@ -4,11 +4,15 @@
 #![cfg(test)]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use parking_lot::Mutex;
+
 use super::provider::{
-    usage_sources_from_session_file, AgentLaunchParams, AgentProvider, ReadinessStrategy,
-    ReasoningEffortInfo, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
+    usage_sources_from_session_file, AgentLaunchParams, AgentProvider, LaunchArtifactSweepReport,
+    LaunchArtifactSweepRequest, ReadinessStrategy, ReasoningEffortInfo, SystemPromptDelivery,
+    TaskDelivery, UsageSourceSpec,
 };
 
 pub struct MockProvider {
@@ -26,6 +30,8 @@ pub struct MockProvider {
     empty_launch_command: bool,
     empty_launch_command_when_task_present: bool,
     task_delivery: TaskDelivery,
+    launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
+    launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
 }
 
 impl MockProvider {
@@ -45,7 +51,19 @@ impl MockProvider {
             empty_launch_command: false,
             empty_launch_command_when_task_present: false,
             task_delivery: TaskDelivery::PtyInput,
+            launch_artifact_sweep_log: None,
+            launch_artifact_release_log: None,
         }
+    }
+
+    pub fn with_launch_artifact_logs(
+        mut self,
+        sweep_log: Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>,
+        release_log: Arc<Mutex<Vec<(String, String)>>>,
+    ) -> Self {
+        self.launch_artifact_sweep_log = Some(sweep_log);
+        self.launch_artifact_release_log = Some(release_log);
+        self
     }
 
     /// Declares a usage log the provider owns for one session, so a test can drive
@@ -180,6 +198,23 @@ impl AgentProvider for MockProvider {
             cmd.push_str(marker);
         }
         cmd
+    }
+    fn release_tab_launch_artifacts(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+        if let Some(log) = &self.launch_artifact_release_log {
+            log.lock().push((tab_id.to_string(), instance_id.to_string()));
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    fn sweep_launch_artifacts(
+        &self,
+        request: &LaunchArtifactSweepRequest,
+    ) -> Result<Option<LaunchArtifactSweepReport>, String> {
+        let Some(log) = &self.launch_artifact_sweep_log else {
+            return Ok(None);
+        };
+        log.lock().push(request.clone());
+        Ok(Some(LaunchArtifactSweepReport::default()))
     }
     fn readiness_strategy(&self) -> ReadinessStrategy {
         ReadinessStrategy::FixedDelay {

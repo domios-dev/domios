@@ -707,6 +707,7 @@ fn build_relaunch_command_with_registry(
                     session_id: Some(sid.to_string()),
                     structured_prompt_server: structured_prompt_server.clone(),
                     launch_marker: None,
+                    instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
                 })
             });
         }
@@ -745,6 +746,7 @@ fn build_relaunch_command_with_registry(
         session_id: None,
         structured_prompt_server,
         launch_marker: None,
+        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
     crate::service::launch_session_detection::mark_fresh_launch(tab_id, &mut params);
     registry.with_provider(provider, |p| p.build_launch_command(&params))

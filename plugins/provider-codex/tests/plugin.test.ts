@@ -136,15 +136,20 @@ console.log("\n--- task instructions launch ---\n");
     shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
     fs: { ...baseHost({}).fs, writeTempFile: () => "C:\\Temp\\codeterm task.md" },
   }));
+  const launch = { instanceId: "instance-test" };
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
-  const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
+  const cmd = p.buildLaunchCommand({ ...launch, task: hostileTask, args: ["--model", "gpt-5.5"] });
   assert(!cmd.includes("System.Web"), "Windows launch never references System.Web (PowerShell 7 has no .NET Framework assembly to load)");
   assert(!cmd.includes("JavaScriptSerializer"), "Windows launch never references JavaScriptSerializer (Framework-only type)");
   assert(cmd.includes("ConvertTo-Json -Compress"), "Windows serializes instructions with the built-in cmdlet available on both PowerShell editions");
   assert(cmd.includes("$ctTaskInstructions = [System.IO.File]::ReadAllText('C:\\Temp\\codeterm task.md', [System.Text.Encoding]::UTF8)"), "Windows loads a plain UTF-8 string without PowerShell file metadata");
-  assert(cmd.includes("$env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
+  assert(cmd.includes("$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId)"), "Windows requires a tab identity before writing a per-tab profile");
+  assert(cmd.includes("$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
+  assert(!cmd.includes("[guid]::NewGuid()"), "Windows never writes a profile without a matching tab id");
+  assert(cmd.includes("$ctInstanceId = 'instance-test';"), "Windows carries the writing instance into the profile");
   assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
-  const profileValueAssignment = /-Value \('developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
+  assert(cmd.includes("'# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine"), "the owner marker starts the TOML profile");
+  const profileValueAssignment = /'developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
   assert(!!profileValueAssignment, "the profile content assigns developer_instructions from a variable expression, not a bare literal");
   const jsonVarName = profileValueAssignment?.[1] ?? "";
   assert(
@@ -156,32 +161,37 @@ console.log("\n--- task instructions launch ---\n");
   assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
-  const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
+  const idle = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "idle_wakeup" });
   assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "idle launch uses the non-actionable wake-up starter");
   assert(!idle.includes("Execute the assigned task."), "idle launch never uses the task starter");
-  const silent = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "no_starter" });
+  const silent = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "no_starter" });
   assert(silent.includes("--profile $ctProfileName"), "silent launch keeps developer instructions");
   assert(!silent.includes(" -- '"), "silent launch has no positional starter turn");
   const empty = p.buildLaunchCommand({ task: "   " });
   assert(!empty.includes("Execute the assigned task."), "empty instructions never create a starter message");
+  assert.throws(
+    () => p.buildLaunchCommand({ task: hostileTask }),
+    /CodeTerm instance identity is required/,
+    "Windows refuses to write an unmarked profile without an instance identity",
+  );
   const teamText = "host-owned team bootstrap";
-  const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
+  const team = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "team launch uses the host-owned starter text");
   const handshakeText = "opaque-startup-handshake";
-  const handshake = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
+  const handshake = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
   assert(handshake.includes(handshakeText), "startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "team starter text is not duplicated in the plugin");
 
   // The profile path is computed only from $env:CODETERM_TAB_ID, never a
   // per-call random value, so a relaunch overwrites instead of accumulating.
   const profileComputation = (cmd: string): string => {
-    const start = cmd.indexOf("$ctProfileSuffix = if");
+    const start = cmd.indexOf("$ctTabId = $env:CODETERM_TAB_ID;");
     const end = cmd.indexOf("Set-Content -LiteralPath $ctProfilePath");
     assert(start !== -1 && end !== -1 && end > start, "profile-path computation fragment is present");
     return cmd.slice(start, end);
   };
-  const firstLaunch = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
-  const secondLaunch = p.buildLaunchCommand({ task: "a completely different task body", starterPrompt: "team_bootstrap", starterPromptText: "unrelated" });
+  const firstLaunch = p.buildLaunchCommand({ ...launch, task: hostileTask, args: ["--model", "gpt-5.5"] });
+  const secondLaunch = p.buildLaunchCommand({ ...launch, task: "a completely different task body", starterPrompt: "team_bootstrap", starterPromptText: "unrelated" });
   eq(
     profileComputation(firstLaunch),
     profileComputation(secondLaunch),

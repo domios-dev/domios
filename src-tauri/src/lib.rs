@@ -1027,6 +1027,7 @@ pub fn run() {
             startup::install_bundled_cli(app);
             startup::start_servers(app, &states, &service_state);
             commands::ensure_integrations_for_all(&service_state.agent_registry, &states.config);
+            startup::restore_complete(&service_state);
             if states.config.lock().api.enabled {
                 crate::liveness::start_api_liveness_watchdog(
                     app_handle.clone(),
