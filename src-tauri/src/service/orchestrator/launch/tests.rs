@@ -65,6 +65,7 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("resume-first-turn-fixture".into());
         tab.agent_session_id = Some("saved-session".into());
+        tab.session_binding_nonce = Some("resume-first-turn-nonce".into());
         tab.pty_id = Some(pty_id.into());
         tab.restored_from_snapshot = true;
     }
@@ -90,6 +91,21 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     let input_ready_stage = input_ready_stage_after_provider_ready(true);
     assert_eq!(input_ready_stage, BootStage::AgentReady);
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
+    let attempt = crate::service::launch_readiness::LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: pty_id.into(),
+        binding_nonce: "resume-first-turn-nonce".into(),
+    };
+    assert_eq!(
+        super::startup_readiness::await_launch_input_readiness(
+            &launch,
+            &harness.service,
+            &attempt,
+            std::time::Duration::ZERO,
+            true,
+        ),
+        Ok(crate::service::launch_readiness::LaunchInputEvidence::ResumeFirstTurn),
+    );
     assert!(launch.emit_resume_first_turn_input_ready(&harness.service));
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("restored tab remains present");
