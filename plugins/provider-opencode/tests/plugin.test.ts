@@ -220,6 +220,36 @@ console.log("\n--- platform-safe session directory normalization ---\n");
   eq(windows.detectSessionId("C:\\", [], 300000), "ses_drive_root", "Windows drive root is not aliased to drive-relative cwd");
 }
 
+console.log("\n--- restored session lookup follows the configured session store ---\n");
+{
+  const dbPath = "C:\\Users\\tester\\opencode-profile\\restored.db";
+  const savedSession = "ses_restore_owner";
+  const sessions = new Set([savedSession]);
+  const queries: Array<{ db: string; sql: string; params: unknown[] }> = [];
+  const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    envGet: (name: string) => name === "OPENCODE_DB" ? dbPath : null,
+    fs: {
+      fileExists: (candidate: string) => candidate === dbPath,
+      sqliteQuery: (db: string, sql: string, params: unknown[]) => {
+        queries.push({ db, sql, params });
+        const sessionId = params[0];
+        return sessions.has(String(sessionId)) ? [{ id: sessionId }] : [];
+      },
+    },
+  }));
+  eq(p.sessionExists("/work/proj", savedSession), true, "saved session exists in OPENCODE_DB");
+  eq(p.sessionExists("/work/proj", "ses_sibling"), false, "another session cannot prove the saved id");
+  eq(
+    queries.map(({ db, sql, params }) => ({ db, sql, params })),
+    [
+      { db: dbPath, sql: "SELECT id FROM session WHERE id = ?1 LIMIT 1", params: [savedSession] },
+      { db: dbPath, sql: "SELECT id FROM session WHERE id = ?1 LIMIT 1", params: ["ses_sibling"] },
+    ],
+    "lookup queries the configured database by the exact tab session id",
+  );
+}
+
 console.log("\n--- exclusive structured cursor ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
