@@ -156,6 +156,7 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
             prev: None,
             changed: true,
             nonce_verified: false,
+            nonce_already_acknowledged: false,
             identity_evidence: unverified_evidence("sid-a"),
         }
     );
@@ -174,6 +175,7 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
             prev: Some("sid-a".into()),
             changed: true,
             nonce_verified: false,
+            nonce_already_acknowledged: false,
             identity_evidence: unverified_evidence("sid-b"),
         }
     );
@@ -202,9 +204,55 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
             prev: Some("sid-b".into()),
             changed: false,
             nonce_verified: false,
+            nonce_already_acknowledged: false,
             identity_evidence: unverified_evidence("sid-b"),
         }
     );
+}
+
+#[test]
+fn repeated_verified_hook_reports_skip_side_effects_until_the_session_changes() {
+    let (mux, tab_id) = shared_mux();
+    {
+        let mut mux = mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.cwd = Some("/tmp/project".into());
+        tab.agent_session_id = Some("sid-a".into());
+        tab.session_binding_nonce = Some("nonce-1".into());
+    }
+    let registry = registry(&["codex"]);
+    let mut binding_side_effects = 0;
+
+    let first = bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-a", Some("nonce-1"))
+        .unwrap();
+    assert!(!first.changed);
+    assert!(first.nonce_verified);
+    assert!(!first.nonce_already_acknowledged);
+    assert!(!first.is_unchanged_acknowledged_report());
+    binding_side_effects += 1;
+
+    for _ in 0..8 {
+        let repeated =
+            bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-a", Some("nonce-1"))
+                .unwrap();
+        assert!(!repeated.changed);
+        assert!(repeated.nonce_verified);
+        assert!(repeated.nonce_already_acknowledged);
+        if !repeated.is_unchanged_acknowledged_report() {
+            binding_side_effects += 1;
+        }
+    }
+    assert_eq!(binding_side_effects, 1);
+
+    let changed =
+        bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-b", Some("nonce-1"))
+            .unwrap();
+    assert!(changed.changed);
+    assert!(changed.nonce_verified);
+    assert!(changed.nonce_already_acknowledged);
+    assert!(!changed.is_unchanged_acknowledged_report());
+    binding_side_effects += 1;
+    assert_eq!(binding_side_effects, 2);
 }
 
 #[test]
