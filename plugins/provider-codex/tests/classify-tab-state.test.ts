@@ -3,10 +3,9 @@
  * Run: npx tsx plugins/provider-codex/tests/classify-tab-state.test.ts
  *
  * Loads the built QuickJS bundle (plugin.js) and exercises classifyTabState
- * against golden fixtures: the codex update prompt must classify as
- * `update_prompt` with separate install and decline actions above the reactor's
- * confidence threshold; an auth/login screen must classify as `waiting_on_auth`
- * with NO auto-press; a negative corpus of normal output must never fire.
+ * against golden fixtures: the Codex update prompt must classify as a manual
+ * prompt without an automatic action; auth/login stays surfaced, and normal
+ * output never classifies as actionable.
  */
 
 import fs from "node:fs";
@@ -86,17 +85,17 @@ console.log("\n--- positive: update prompt, Skip is option 2 ---\n");
   const r = classify(plugin, fixture("update-prompt-skip-option2.txt"));
   eq(r?.state, "update_prompt", "state is update_prompt");
   assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "confidence >= threshold", `conf=${r?.confidence}`);
-  eq(r?.action?.providerUpdate?.installKeys, ["enter"], "install selects the highlighted update action");
-  eq(r?.action?.providerUpdate?.declineKeys, ["down", "enter"], "decline navigates one down to Skip, then enter");
-  // highlight "Update now". The action must move OFF option 1 before enter.
-  assert(
-    Array.isArray(r?.action?.providerUpdate?.declineKeys) && r.action.providerUpdate.declineKeys.indexOf("down") !== -1,
-    "decline moves off the default 'Update now' highlight",
+  eq(r?.action ?? null, null, "update classification carries no automatic key action");
+}
+
+{
+  const updateDialog = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/directory-trust/codex-update-available.txt"),
+    "utf8",
   );
-  assert(
-    Array.isArray(r?.action?.providerUpdate?.declineKeys) && r.action.providerUpdate.declineKeys[r.action.providerUpdate.declineKeys.length - 1] === "enter",
-    "decline ends with enter",
-  );
+  const r = classify(plugin, updateDialog);
+  eq(r?.state, "update_prompt", "captured update dialog is classified as a prompt");
+  eq(r?.action ?? null, null, "captured update dialog has no automatic key action");
 }
 
 console.log("\n--- positive: update prompt, Skip is option 3 (dynamic navigation) ---\n");
@@ -104,8 +103,7 @@ console.log("\n--- positive: update prompt, Skip is option 3 (dynamic navigation
   const r = classify(plugin, fixture("update-prompt-skip-option3.txt"));
   eq(r?.state, "update_prompt", "state is update_prompt");
   assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "confidence >= threshold", `conf=${r?.confidence}`);
-  eq(r?.action?.providerUpdate?.installKeys, ["enter"], "install selects the highlighted update action");
-  eq(r?.action?.providerUpdate?.declineKeys, ["down", "down", "enter"], "decline navigates two downs to Skip (option 3), then enter");
+  eq(r?.action ?? null, null, "alternate update layout also has no automatic key action");
 }
 
 console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acted ---\n");

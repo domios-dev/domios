@@ -225,8 +225,6 @@ pub struct ProviderDescriptor {
     /// provider-id literal. Absent means no compact capability (mode-B fallback).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_command: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub self_update: Option<ProviderSelfUpdateCapability>,
     /// Optional `integration.trust_grant` capability. Absent ⇒ integration
     /// install needs no provider-owned trust grant step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -796,10 +794,6 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    fn provider_self_update_capability(&self) -> Option<ProviderSelfUpdateCapability> {
-        None
-    }
-
     /// In-agent command that starts a fresh context in the same tab, if supported.
     fn fresh_context_command(&self) -> Option<&str> {
         None
@@ -1081,7 +1075,6 @@ pub trait AgentProvider: Send + Sync {
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
-            self_update: self.provider_self_update_capability(),
             integration_trust_grant: self.integration_trust_grant_capability(),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),

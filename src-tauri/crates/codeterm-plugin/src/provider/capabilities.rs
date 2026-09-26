@@ -92,21 +92,6 @@ impl ContextOwner {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderSelfUpdateCapability {
-    pub in_session: bool,
-    pub restart_required: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub completion_signal: Option<ProviderUpdateCompletionSignal>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderUpdateCompletionSignal {
-    ProviderClassification,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderTrust {
