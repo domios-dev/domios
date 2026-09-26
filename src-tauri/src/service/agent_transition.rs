@@ -293,10 +293,20 @@ pub(crate) fn transition_plan_to_orchestrator_core(
     team_id: &str,
     reason: &str,
     activate: bool,
+    planner: Option<PlannerRef>,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
     transition_plan_owner(
-        mux, plan_store, plan_id, owner, team_id, reason, activate, true, now_ms,
+        mux,
+        plan_store,
+        plan_id,
+        owner,
+        team_id,
+        reason,
+        activate,
+        true,
+        Some((plan_id.to_string(), planner)),
+        now_ms,
     )
 }
 
@@ -312,7 +322,7 @@ pub(crate) fn recover_plan_ownership_for_new_orchestrator(
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
     transition_plan_owner(
-        mux, plan_store, plan_id, owner, team_id, reason, true, false, now_ms,
+        mux, plan_store, plan_id, owner, team_id, reason, true, false, None, now_ms,
     )
 }
 
@@ -326,6 +336,7 @@ fn transition_plan_owner(
     reason: &str,
     activate: bool,
     clear_planner: bool,
+    planner_replacement: Option<(String, Option<PlannerRef>)>,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
     let tab_id = owner
@@ -350,7 +361,7 @@ fn transition_plan_owner(
             destination: AgentPlacement::orchestrator(Some(true)),
             plan_binding: None,
             require_verified_session: false,
-            planner_replacement: None,
+            planner_replacement,
             plan_rebind: Some(rebind.clone()),
         },
         TransitionFailurePoint::None,
@@ -439,6 +450,13 @@ fn prepare_transition(
         request.plan_binding.as_ref(),
         plan_rebind.as_ref(),
         &request.tab_id,
+        request
+            .planner_replacement
+            .as_ref()
+            .and_then(|(_, planner)| match planner {
+                Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id.as_str()),
+                _ => None,
+            }),
     );
     if let Some(incumbent_id) = incumbent.as_deref() {
         if staged.get_tab(incumbent_id).is_some() {
@@ -878,6 +896,7 @@ fn planner_incumbent(
     plan_binding: Option<&String>,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
     target_tab_id: &str,
+    replacement_tab_id: Option<&str>,
 ) -> Option<String> {
     let plan_id = match plan_binding {
         Some(plan_id) if destination.is_planner() => plan_id,
@@ -890,7 +909,7 @@ fn planner_incumbent(
     let Some(PlannerRef::Tab { tab_id, .. }) = plan_store.get(plan_id)?.planner else {
         return None;
     };
-    (tab_id != target_tab_id).then_some(tab_id)
+    (tab_id != target_tab_id && Some(tab_id.as_str()) != replacement_tab_id).then_some(tab_id)
 }
 
 fn verify_destination(

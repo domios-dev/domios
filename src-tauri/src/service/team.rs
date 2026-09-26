@@ -586,6 +586,7 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
         ))
     })?;
     let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller)?;
+    let planner = live_team_planner_ref(mux, team_id);
     crate::service::agent_transition::transition_plan_to_orchestrator_core(
         mux,
         plan_store,
@@ -594,9 +595,30 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
         team_id,
         &format!("adopted by Team {team_id}"),
         true,
+        planner,
         now_ms,
     )
     .map_err(TeamPlanError::Team)
+}
+
+fn live_team_planner_ref(mux: &MultiplexerState, team_id: &str) -> Option<crate::plan::PlannerRef> {
+    let tabs = mux.snapshot().tabs;
+    let mut planners = tabs.values().filter(|tab| {
+        tab.team_id.as_deref() == Some(team_id)
+            && tab.role == Some(AgentRole::Manager)
+            && tab.role_profile.as_deref()
+                == Some(codeterm_types::agent::role_kind::builtins::PLANNER)
+            && crate::service::plan_reconcile::tab_has_live_agent(tab)
+    });
+    let planner = planners.next()?;
+    if planners.next().is_some() {
+        return None;
+    }
+    Some(crate::plan::PlannerRef::Tab {
+        tab_id: planner.id.clone(),
+        session_id: planner.agent_session_id.clone(),
+        title: Some(planner.title.clone()),
+    })
 }
 
 fn transfer_team_plan_core(
@@ -656,6 +678,7 @@ fn transfer_team_plan_core(
         &destination_team_id,
         reason,
         false,
+        None,
         now_ms,
     )
     .map_err(TeamPlanError::Team)

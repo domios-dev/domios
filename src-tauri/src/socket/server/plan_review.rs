@@ -30,6 +30,22 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
+fn continuation_binding_nonce(
+    svc: &ServiceContext,
+    executor_tab_id: &str,
+    session_id: &str,
+) -> Option<String> {
+    let mux = svc.mux.read();
+    mux.get_tab(executor_tab_id).and_then(|tab| {
+        (tab.agent_session_id.as_deref() == Some(session_id)
+            && crate::service::plan_reconcile::tab_has_live_agent(tab)
+            && tab.session_binding_nonce.is_some()
+            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
+            .then(|| tab.session_binding_nonce.clone())
+            .flatten()
+    })
+}
+
 fn actor(params: Option<&Value>) -> AgentRef {
     params
         .and_then(|x| x.get("from"))
@@ -298,90 +314,118 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
-            if let Some(continuation) = result.continuation.as_mut() {
+            svc.record_kpi_review_verdict(
+                from.tab_id.as_deref().unwrap_or("unknown"),
+                &plan_id,
+                &task_id,
+                crate::agent::kpi_ledger::KpiEventKind::Bounce,
+                result.review_round,
+                note(p).len(),
+            );
+            let Some(mut continuation) = result.continuation.clone() else {
+                emit_plan_changed(app, &plan_id);
+                return serde_json::to_value(result).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e.to_string(),
+                    data: None,
+                });
+            };
+            let Some(binding_nonce) = continuation_binding_nonce(
+                svc,
+                &continuation.executor_tab_id,
+                &continuation.session_id,
+            ) else {
                 store
-                    .claim_review_continuation_delivery(
+                    .reopen_review_continuation(
                         &plan_id,
                         &task_id,
                         &continuation.attempt_id,
                         continuation.epoch,
-                        now,
-                    )
-                    .map_err(plan_rpc_err)?;
-                svc.record_kpi_review_verdict(
-                    from.tab_id.as_deref().unwrap_or("unknown"),
-                    &plan_id,
-                    &task_id,
-                    crate::agent::kpi_ledger::KpiEventKind::Bounce,
-                    result.review_round,
-                    note(p).len(),
-                );
-                let binding_nonce = {
-                    let mux = svc.mux.read();
-                    mux.get_tab(&continuation.executor_tab_id).and_then(|tab| {
-                        (tab.agent_session_id.as_deref() == Some(continuation.session_id.as_str())
-                            && tab.session_binding_nonce.is_some()
-                            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
-                            .then(|| tab.session_binding_nonce.clone())
-                            .flatten()
-                    })
-                };
-                let delivery = binding_nonce
-                    .as_deref()
-                    .ok_or_else(|| {
-                        "authenticated Worker continuation binding is unavailable".to_string()
-                    })
-                    .and_then(|nonce| {
-                        let envelope =
-                            crate::service::messenger::MessageEnvelope::codeterm_reminder(
-                                "review-bounce",
-                            )
-                            .id(Some(format!(
-                                "{}:{}:{}",
-                                continuation.attempt_id,
-                                continuation.review_round,
-                                continuation.epoch
-                            )));
-                        crate::service::messenger::Messenger::deliver_planner_session(
-                            svc,
-                            &continuation.executor_tab_id,
-                            &continuation.session_id,
-                            nonce,
-                            envelope,
-                            note(p),
-                            format!(
-                                "review-bounce:{}:{}:{}:{}",
-                                plan_id,
-                                task_id,
-                                continuation.attempt_id,
-                                continuation.review_round
-                            ),
-                        )
-                        .map(|_| ())
-                    });
-                let delivered = delivery.is_ok();
-                let finished = store
-                    .finish_review_continuation(
-                        &plan_id,
-                        &task_id,
-                        &continuation.attempt_id,
-                        continuation.epoch,
-                        delivered,
                         epoch_ms(),
                     )
                     .map_err(plan_rpc_err)?;
+                result.continuation = None;
                 emit_plan_changed(app, &plan_id);
-                finish_continuation_result(
-                    finished,
-                    delivery,
+                return serde_json::to_value(result).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e.to_string(),
+                    data: None,
+                });
+            };
+            store
+                .claim_review_continuation_delivery(
                     &plan_id,
                     &task_id,
                     &continuation.attempt_id,
-                    continuation.review_round,
-                )?;
-                continuation.state = "continued".into();
+                    continuation.epoch,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            let delivery = crate::service::messenger::Messenger::deliver_planner_session(
+                svc,
+                &continuation.executor_tab_id,
+                &continuation.session_id,
+                &binding_nonce,
+                crate::service::messenger::MessageEnvelope::codeterm_reminder("review-bounce").id(
+                    Some(format!(
+                        "{}:{}:{}",
+                        continuation.attempt_id, continuation.review_round, continuation.epoch
+                    )),
+                ),
+                note(p),
+                format!(
+                    "review-bounce:{}:{}:{}:{}",
+                    plan_id, task_id, continuation.attempt_id, continuation.review_round
+                ),
+            )
+            .map(|_| ());
+            let delivered = delivery.is_ok();
+            let finished = store
+                .finish_review_continuation(
+                    &plan_id,
+                    &task_id,
+                    &continuation.attempt_id,
+                    continuation.epoch,
+                    delivered,
+                    epoch_ms(),
+                )
+                .map_err(plan_rpc_err)?;
+            if !delivered
+                && continuation_binding_nonce(
+                    svc,
+                    &continuation.executor_tab_id,
+                    &continuation.session_id,
+                )
+                .is_none()
+            {
+                store
+                    .reopen_review_continuation(
+                        &plan_id,
+                        &task_id,
+                        &continuation.attempt_id,
+                        continuation.epoch,
+                        epoch_ms(),
+                    )
+                    .map_err(plan_rpc_err)?;
+                result.continuation = None;
+                emit_plan_changed(app, &plan_id);
+                return serde_json::to_value(result).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e.to_string(),
+                    data: None,
+                });
             }
+            emit_plan_changed(app, &plan_id);
+            finish_continuation_result(
+                finished,
+                delivery,
+                &plan_id,
+                &task_id,
+                &continuation.attempt_id,
+                continuation.review_round,
+            )?;
+            continuation.state = "continued".into();
+            result.continuation = Some(continuation);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
