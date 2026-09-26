@@ -379,6 +379,35 @@ pub(super) fn dispatch(
                     data: None,
                 });
             };
+            let binding_nonce = continuation_binding_nonce(
+                svc,
+                &continuation.executor_tab_id,
+                &continuation.session_id,
+            );
+            if binding_nonce.is_none()
+                && executor_tab_is_absent_local(
+                    svc,
+                    &continuation.executor_tab_id,
+                    continuation.mesh_peer.as_deref(),
+                )
+            {
+                store
+                    .reopen_review_continuation(
+                        &plan_id,
+                        &task_id,
+                        &continuation.attempt_id,
+                        continuation.epoch,
+                        epoch_ms(),
+                    )
+                    .map_err(plan_rpc_err)?;
+                result.continuation = None;
+                emit_plan_changed(app, &plan_id);
+                return serde_json::to_value(result).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e.to_string(),
+                    data: None,
+                });
+            }
             store
                 .claim_review_continuation_delivery(
                     &plan_id,
@@ -388,11 +417,6 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            let binding_nonce = continuation_binding_nonce(
-                svc,
-                &continuation.executor_tab_id,
-                &continuation.session_id,
-            );
             let delivery = match binding_nonce.as_deref() {
                 Some(binding_nonce) => {
                     crate::service::messenger::Messenger::deliver_planner_session(
@@ -848,14 +872,15 @@ mod tests {
         );
         assert_eq!(task.execution_attempts[0].closed_at, None);
         assert_eq!(task.lane.worktree_path.as_deref(), Some(lane_path.as_str()));
-        let occupancy = super::super::plan_task_dispatch::lane_safety::preflight_checkout_occupancy(
-            &stored_plan,
-            "retry-task",
-            &lane_path,
-            crate::service::LaneProtection::Enforced,
-            &std::collections::HashMap::new(),
-        )
-        .expect_err("the unclosed Worker attempt continues to occupy its lane");
+        let occupancy =
+            super::super::plan_task_dispatch::lane_safety::preflight_checkout_occupancy(
+                &stored_plan,
+                "retry-task",
+                &lane_path,
+                crate::service::LaneProtection::Enforced,
+                &std::collections::HashMap::new(),
+            )
+            .expect_err("the unclosed Worker attempt continues to occupy its lane");
         assert_eq!(
             occupancy
                 .data
