@@ -50,7 +50,7 @@ mod orchestrator;
 mod process_tree;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
-pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
+pub(crate) use orchestrator::{build_agent_command_for_service, provider_launch_task};
 pub(crate) mod directory_trust;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
@@ -67,7 +67,6 @@ mod plan_pause;
 mod plan_reconcile;
 pub mod plugin_host;
 pub(crate) mod provider_identity;
-pub mod provider_update;
 pub(crate) mod pty_activation;
 pub mod pty_io;
 pub mod pty_lifecycle;
@@ -265,7 +264,6 @@ pub struct ServiceContext {
     pub bridge_threads: Arc<codeterm_bridge::bridge::threads::ThreadService>,
     /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
-    pub provider_updates: provider_update::ProviderUpdateRegistry,
     /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
     pub chat_registry: Arc<crate::service::tab_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,

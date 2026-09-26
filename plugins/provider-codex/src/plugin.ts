@@ -202,6 +202,9 @@ const plugin: PluginModule = {
     const prompt = classifyCodexFolderTrustPrompt(view);
     if (!prompt || prompt.kind !== "active") return null;
     if (prompt.affirmativeIndex !== 0) return [];
+    if (!prompt.affirmativeSelected && responseKeysForIndex(prompt.affirmativeIndex, view)[0] === "DQ==") {
+      return [];
+    }
     return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
 
@@ -666,17 +669,6 @@ const plugin: PluginModule = {
     return classifyCodexTabState(snapshot, host.unixNowMs());
   },
 
-  providerSelfUpdateCapability(): {
-    inSession: boolean;
-    restartRequired: boolean;
-    completionSignal: "provider_classification";
-  } {
-    return {
-      inSession: true,
-      restartRequired: true,
-      completionSignal: "provider_classification",
-    };
-  },
 };
 
 // types shared by the parsers above

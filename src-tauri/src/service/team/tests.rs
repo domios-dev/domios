@@ -471,10 +471,18 @@ fn binding_sweep_archives_active_teamless_plan_without_fabricating_a_team() {
 }
 
 #[test]
-fn team_adopt_plan_is_bounded_atomic_and_visible_as_active() {
+fn adopt_plan_pairs_the_teams_live_planner() {
     let dir = tempfile::tempdir().unwrap();
     let store = std::sync::Arc::new(crate::service::plan::PlanStore::new_for_test(dir.path()));
     let (mut mux, team_id, orchestrator, planner, _) = team_members();
+    let planner_tab = mux.get_tab_mut(&planner).unwrap();
+    planner_tab.pty_id = Some("pty-planner".into());
+    planner_tab.chat_view = true;
+    planner_tab.agent_type = Some("codex".into());
+    planner_tab.agent_session_id = Some("planner-session".into());
+    planner_tab.session_binding_nonce = Some("planner-nonce".into());
+    planner_tab.reported_session_binding_nonce = Some("planner-nonce".into());
+    let planner_title = mux.get_tab(&planner).unwrap().title.clone();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
     let retired_owner = mux.create_tab(&workspace_id).unwrap();
     mux.set_orchestrator_role(&retired_owner).unwrap();
@@ -486,11 +494,6 @@ fn team_adopt_plan_is_bounded_atomic_and_visible_as_active() {
         dir.path().display().to_string(),
         crate::plan::OrchestratorRef::from_tab(&retired_owner),
     );
-    plan.planner = Some(crate::plan::PlannerRef::Tab {
-        tab_id: planner,
-        session_id: None,
-        title: None,
-    });
     store.save(&mut plan, 1).unwrap();
     let task_id = store
         .add_task(
@@ -543,7 +546,14 @@ fn team_adopt_plan_is_bounded_atomic_and_visible_as_active() {
         adopted.owner.tab_id.as_deref(),
         Some(expected_owner.as_str())
     );
-    assert_eq!(adopted.planner, None);
+    assert_eq!(
+        adopted.planner,
+        Some(crate::plan::PlannerRef::Tab {
+            tab_id: planner.clone(),
+            session_id: Some("planner-session".into()),
+            title: Some(planner_title),
+        })
+    );
     let transfer = adopted.owner_history.last().unwrap();
     assert_eq!(
         transfer.from.tab_id.as_deref(),

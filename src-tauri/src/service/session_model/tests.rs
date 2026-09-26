@@ -155,6 +155,7 @@ mod model_refresh_tests {
     use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const AGENT: &str = "fixture-agent";
     const CWD: &str = "/fixture/project";
@@ -162,21 +163,49 @@ mod model_refresh_tests {
     /// Detector oracle: answers only for the session it is asked about, and can
     /// mutate the tab mid-detection to reproduce the real read/write race.
     struct SessionModelProvider {
-        models: HashMap<String, String>,
+        provider_id: String,
+        models: Arc<std::sync::Mutex<HashMap<String, String>>>,
         sessions: HashSet<String>,
         during_detect: Option<Box<dyn Fn() + Send + Sync>>,
+        session_detection_calls: Option<Arc<AtomicUsize>>,
     }
 
     impl SessionModelProvider {
         fn new(models: &[(&str, &str)]) -> Self {
             Self {
-                models: models
-                    .iter()
-                    .map(|(sid, model)| ((*sid).to_string(), (*model).to_string()))
-                    .collect(),
+                provider_id: AGENT.into(),
+                models: Arc::new(std::sync::Mutex::new(
+                    models
+                        .iter()
+                        .map(|(sid, model)| ((*sid).to_string(), (*model).to_string()))
+                        .collect(),
+                )),
                 sessions: models.iter().map(|(sid, _)| (*sid).to_string()).collect(),
                 during_detect: None,
+                session_detection_calls: None,
             }
+        }
+
+        fn counting(models: &[(&str, &str)]) -> (Self, Arc<AtomicUsize>) {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let mut provider = Self::new(models);
+            provider.session_detection_calls = Some(calls.clone());
+            (provider, calls)
+        }
+
+        fn with_provider(
+            provider_id: &str,
+            session_ids: &[&str],
+        ) -> (Self, Arc<std::sync::Mutex<HashMap<String, String>>>) {
+            let models = Arc::new(std::sync::Mutex::new(HashMap::new()));
+            let provider = Self {
+                provider_id: provider_id.into(),
+                models: models.clone(),
+                sessions: session_ids.iter().map(|sid| (*sid).into()).collect(),
+                during_detect: None,
+                session_detection_calls: None,
+            };
+            (provider, models)
         }
 
         fn racing(
@@ -192,13 +221,13 @@ mod model_refresh_tests {
 
     impl AgentProvider for SessionModelProvider {
         fn id(&self) -> &str {
-            AGENT
+            &self.provider_id
         }
         fn display_name(&self) -> &str {
-            AGENT
+            &self.provider_id
         }
         fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
-            AGENT.to_string()
+            self.provider_id.clone()
         }
         fn readiness_strategy(&self) -> ReadinessStrategy {
             ReadinessStrategy::FixedDelay {
@@ -226,13 +255,26 @@ mod model_refresh_tests {
             None
         }
         fn build_resume_command(&self, session_id: &str, _: bool) -> Option<String> {
-            Some(format!("{AGENT} --resume {session_id}"))
+            Some(format!("{} --resume {session_id}", self.provider_id))
         }
         fn detect_session_model(&self, _: &str, session_id: &str) -> Option<String> {
+            self.record_session_detection();
             if let Some(during_detect) = self.during_detect.as_ref() {
                 during_detect();
             }
-            self.models.get(session_id).cloned()
+            self.models.lock().unwrap().get(session_id).cloned()
+        }
+        fn detect_session_reasoning_effort(&self, _: &str, _: &str) -> Option<String> {
+            self.record_session_detection();
+            None
+        }
+    }
+
+    impl SessionModelProvider {
+        fn record_session_detection(&self) {
+            if let Some(calls) = self.session_detection_calls.as_ref() {
+                calls.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 
@@ -270,7 +312,7 @@ mod model_refresh_tests {
                 "claude-opus-5",
             )])));
 
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id).as_deref(),
@@ -286,6 +328,147 @@ mod model_refresh_tests {
                 session_binding_nonce: "binding-live".into(),
             })
         );
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn claude_worker_tab_detects_its_own_session_model() {
+        let (mut mux, tab_id) = seeded_tab(Some("claude-worker-own"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+        tab.session_binding_nonce = Some("worker-nonce".into());
+        tab.reported_session_binding_nonce = Some("worker-nonce".into());
+        let (provider, models) = SessionModelProvider::with_provider(
+            "claude",
+            &["claude-worker-own", "claude-foreign-newest"],
+        );
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+        assert_eq!(session_model(&fixture.service.mux, &tab_id), None);
+
+        models.lock().unwrap().insert(
+            "claude-worker-own".into(),
+            "claude-opus-5".into(),
+        );
+        models.lock().unwrap().insert(
+            "claude-foreign-newest".into(),
+            "claude-sonnet-5".into(),
+        );
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+
+        assert_eq!(
+            session_model(&fixture.service.mux, &tab_id).as_deref(),
+            Some("opus")
+        );
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .agent_session_model_identity
+                .as_ref()
+                .map(|identity| identity.session_id.as_str()),
+            Some("claude-worker-own")
+        );
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn stop_skips_session_model_detection_when_tab_model_is_known() {
+        use crate::plan::{OrchestratorRef, Plan};
+        use crate::service::plan::NewTask;
+
+        let (mut mux, tab_id) = seeded_tab(Some("session-known"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("nonce-known".into());
+        tab.reported_session_binding_nonce = Some("nonce-known".into());
+        tab.agent_session_model = Some("opus".into());
+        tab.agent_session_model_identity = Some(
+            crate::multiplexer::types::SessionModelIdentity {
+                session_id: "session-known".into(),
+                session_binding_nonce: "nonce-known".into(),
+            },
+        );
+        let (provider, detection_calls) =
+            SessionModelProvider::counting(&[("session-known", "claude-opus-5")]);
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+        let mut plan = Plan::new(
+            "Known session model".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orchestrator"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "replay cached session model".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .assign_task(&plan.id, &task_id, &tab_id, None, 3)
+            .unwrap();
+        let attempt_id = fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .id
+            .clone();
+        fixture
+            .service
+            .plan_store
+            .update_attempt_executor_identity(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                None,
+                Some("session-known"),
+                Some("nonce-known"),
+                4,
+            )
+            .unwrap();
+
+        assert!(!fixture
+            .service
+            .schedule_session_model_refresh_after_stop(&tab_id));
+        assert_eq!(detection_calls.load(Ordering::Relaxed), 0);
+        let attempt = fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts
+            .into_iter()
+            .find(|attempt| attempt.id == attempt_id)
+            .unwrap();
+        assert_eq!(attempt.session_model.as_deref(), Some("opus"));
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -407,11 +590,11 @@ mod model_refresh_tests {
 
         fixture
             .service
-            .refresh_session_model_after_binding(&foreign_tab);
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+            .refresh_session_model_for_current_tab(&foreign_tab);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
         fixture
             .service
-            .refresh_session_model_after_binding(&unknown_tab);
+            .refresh_session_model_for_current_tab(&unknown_tab);
 
         let own_attempt = fixture
             .service
@@ -459,6 +642,95 @@ mod model_refresh_tests {
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
+    fn session_model_detected_before_binding_is_replayed_when_attempt_becomes_eligible() {
+        use crate::plan::{OrchestratorRef, Plan};
+        use crate::service::plan::NewTask;
+
+        let (mut mux, tab_id) = seeded_tab(Some("session-replay"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("nonce-replay".into());
+        tab.reported_session_binding_nonce = Some("nonce-replay".into());
+        tab.agent_session_model = Some("gpt-6-luna".into());
+        tab.agent_session_model_identity = Some(
+            crate::multiplexer::types::SessionModelIdentity {
+                session_id: "session-replay".into(),
+                session_binding_nonce: "nonce-replay".into(),
+            },
+        );
+        let fixture = ServiceFixture::new(mux);
+        let mut plan = Plan::new(
+            "model replay".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orchestrator"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "replay model".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .assign_task(&plan.id, &task_id, &tab_id, None, 3)
+            .unwrap();
+        let attempt_id = fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .id
+            .clone();
+
+        fixture
+            .service
+            .persist_current_attempt_session_model(&tab_id);
+        assert_eq!(
+            fixture
+                .service
+                .plan_store
+                .show_task(&task_id)
+                .unwrap()
+                .task
+                .execution_attempts[0]
+                .session_model,
+            None
+        );
+        crate::service::worker_identity::persist_attempt_executor_identity(
+            &fixture.service.plan_store,
+            &Arc::new(fixture.service.clone()),
+            &plan.id,
+            &task_id,
+            &tab_id,
+            "Worker",
+            4,
+        )
+        .unwrap();
+
+        let attempt = fixture
+            .service
+            .plan_store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts
+            .into_iter()
+            .find(|attempt| attempt.id == attempt_id)
+            .unwrap();
+        assert_eq!(attempt.session_model.as_deref(), Some("gpt-6-luna"));
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
     fn unbound_attempt_model_refresh_does_not_rewrite_its_plan() {
         use crate::plan::{OrchestratorRef, Plan};
         use crate::service::plan::NewTask;
@@ -500,7 +772,7 @@ mod model_refresh_tests {
             .unwrap();
         let before = fixture.service.plan_store.get(&plan.id).unwrap();
 
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
 
         let after = fixture.service.plan_store.get(&plan.id).unwrap();
         assert_eq!(after.updated_at, before.updated_at);
@@ -528,7 +800,7 @@ mod model_refresh_tests {
                 },
             )));
 
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id),
@@ -568,7 +840,7 @@ mod model_refresh_tests {
                 },
             )));
 
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id),
@@ -593,7 +865,7 @@ mod model_refresh_tests {
                 "claude-opus-5",
             )])));
 
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id),
             None,
@@ -615,7 +887,7 @@ mod model_refresh_tests {
             "the binding commit itself carries no model evidence"
         );
 
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id).as_deref(),
@@ -642,7 +914,7 @@ mod model_refresh_tests {
                 "claude-opus-5",
             )])));
 
-        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture.service.refresh_session_model_for_current_tab(&tab_id);
 
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();

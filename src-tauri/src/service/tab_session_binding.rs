@@ -48,7 +48,7 @@ impl ServiceContext {
         drop(mux);
         if changed {
             self.deferred_session_bindings.clear(tab_id);
-            self.schedule_session_model_refresh_after_binding(tab_id);
+            self.schedule_session_model_refresh_for_current_tab(tab_id);
             self.emit_session_binding_state(tab_id);
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.

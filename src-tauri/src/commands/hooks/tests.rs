@@ -1,11 +1,13 @@
 use super::{
     infer_consent_for_owned_install, install_and_record_integration,
-    install_provider_integration_body, repair_integration_on_startup, resolve_precompact_choice,
-    run_install_off_runtime, update_precompact_choice, IntegrationRepairOutcome,
+    install_provider_integration_body, reconciliation_log_line, repair_integration_on_startup,
+    resolve_precompact_choice, restore_integration_for_provider, run_install_off_runtime,
+    update_precompact_choice, IntegrationRepairOutcome,
 };
 use crate::agent::provider::{
     install_integration_with_trust_grant, AgentLaunchParams, AgentProvider,
-    IntegrationInstallOptions, IntegrationTrustGrantCapability, ReadinessStrategy, TaskDelivery,
+    IntegrationInstallOptions, IntegrationKind, IntegrationTrustGrantCapability,
+    ReadinessStrategy, TaskDelivery,
 };
 use crate::agent::registry::AgentRegistry;
 use std::cell::Cell;
@@ -18,6 +20,7 @@ type ThreadProbe = Arc<StdMutex<Option<ThreadId>>>;
 
 struct InstallProbeProvider {
     id: String,
+    integration_kind: IntegrationKind,
     status: serde_json::Value,
     install_result: Result<(), String>,
     install_thread: ThreadProbe,
@@ -38,12 +41,25 @@ impl InstallProbeProvider {
     ) -> Self {
         Self {
             id: id.to_string(),
+            integration_kind: IntegrationKind::None,
             status,
             install_result,
             install_thread: Arc::new(StdMutex::new(None)),
             precompact_choices: Arc::new(StdMutex::new(Vec::new())),
             grant_outcome: None,
             grant_thread: Arc::new(StdMutex::new(None)),
+        }
+    }
+
+    fn with_kind(
+        id: &str,
+        integration_kind: IntegrationKind,
+        install_result: Result<(), String>,
+        status: serde_json::Value,
+    ) -> Self {
+        Self {
+            integration_kind,
+            ..Self::with_status(id, install_result, status)
         }
     }
 
@@ -107,6 +123,9 @@ impl AgentProvider for InstallProbeProvider {
     }
     fn check_integration(&self) -> serde_json::Value {
         self.status.clone()
+    }
+    fn integration_kind(&self) -> IntegrationKind {
+        self.integration_kind
     }
     fn install_integration(
         &self,
@@ -355,6 +374,7 @@ fn integration_transaction_rolls_back_when_audit_persistence_fails() {
 
 struct RepairProbeProvider {
     id: String,
+    integration_kind: IntegrationKind,
     status: StdMutex<serde_json::Value>,
     writes: std::sync::atomic::AtomicUsize,
     consents: StdMutex<Vec<bool>>,
@@ -371,8 +391,17 @@ impl RepairProbeProvider {
     }
 
     fn with_id(id: &str, status: serde_json::Value) -> Self {
+        Self::with_kind(id, IntegrationKind::ProviderManaged, status)
+    }
+
+    fn with_kind(
+        id: &str,
+        integration_kind: IntegrationKind,
+        status: serde_json::Value,
+    ) -> Self {
         Self {
             id: id.into(),
+            integration_kind,
             status: StdMutex::new(status),
             writes: std::sync::atomic::AtomicUsize::new(0),
             consents: StdMutex::new(Vec::new()),
@@ -445,8 +474,8 @@ impl AgentProvider for RepairProbeProvider {
     ) -> Option<String> {
         None
     }
-    fn has_installable_integration(&self) -> bool {
-        true
+    fn integration_kind(&self) -> IntegrationKind {
+        self.integration_kind
     }
     fn check_integration(&self) -> serde_json::Value {
         self.status.lock().unwrap().clone()
@@ -467,7 +496,18 @@ impl AgentProvider for RepairProbeProvider {
         }
         self.writes
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        *self.status.lock().unwrap() = serde_json::json!({ "hooks_installed": true, "session_start_route": "tab-session-start" });
+        *self.status.lock().unwrap() = match self.integration_kind {
+            IntegrationKind::PluginFile => serde_json::json!({
+                "plugin_installed": true,
+                "plugin_file_exists": true,
+                "plugin_file_owned": true,
+                "plugin_file_current": true
+            }),
+            _ => serde_json::json!({
+                "hooks_installed": true,
+                "session_start_route": "tab-session-start"
+            }),
+        };
         Ok(())
     }
     fn integration_trust_grant_capability(&self) -> Option<IntegrationTrustGrantCapability> {
@@ -538,10 +578,12 @@ fn startup_reconciles_stale_claude_and_opencode_with_recorded_consent() {
             "precompact_hook": true
         }),
     );
-    let opencode = RepairProbeProvider::with_id(
+    let opencode = RepairProbeProvider::with_kind(
         "opencode",
+        IntegrationKind::PluginFile,
         serde_json::json!({
             "plugin_installed": true,
+            "plugin_file_exists": true,
             "plugin_file_owned": true,
             "plugin_file_current": false
         }),
@@ -622,6 +664,119 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
         repaired_with_grant()
     );
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn opencode_plugin_file_integration_is_reconciled_at_startup() {
+    let status = serde_json::json!({
+        "plugin_installed": true,
+        "plugin_file_exists": true,
+        "plugin_file_owned": true,
+        "plugin_file_current": false
+    });
+    let mut config = crate::config::schema::AppConfig::default();
+
+    assert!(infer_consent_for_owned_install(
+        &mut config,
+        "opencode",
+        &status,
+        1_790_403_600,
+        None,
+    ));
+    assert!(!infer_consent_for_owned_install(
+        &mut config,
+        "opencode",
+        &status,
+        1_790_403_700,
+        None,
+    ));
+    assert_eq!(
+        config.agents["opencode"].extra["integration_consent_recorded_at"]
+            .as_integer(),
+        Some(1_790_403_600)
+    );
+
+    let provider = RepairProbeProvider::with_kind(
+        "opencode",
+        IntegrationKind::PluginFile,
+        status,
+    );
+    assert!(provider.has_installable_integration());
+    let outcome = reconcile_probe(&provider, true, false);
+    assert_eq!(outcome, repaired_with_grant());
+    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        provider.check_integration()["plugin_file_current"].as_bool(),
+        Some(true)
+    );
+}
+
+#[test]
+fn unmarked_opencode_plugin_file_is_never_rewritten() {
+    let status = serde_json::json!({
+        "plugin_installed": true,
+        "plugin_file_exists": true,
+        "plugin_file_owned": false,
+        "plugin_file_current": false
+    });
+    let provider = RepairProbeProvider::with_kind(
+        "opencode",
+        IntegrationKind::PluginFile,
+        status.clone(),
+    );
+    let mut config = crate::config::schema::AppConfig::default();
+
+    assert!(!infer_consent_for_owned_install(
+        &mut config,
+        "opencode",
+        &status,
+        1_790_403_600,
+        None,
+    ));
+    assert_eq!(
+        reconcile_probe(&provider, false, false),
+        IntegrationRepairOutcome::ConsentMissing
+    );
+    assert_eq!(
+        reconcile_probe(&provider, true, false),
+        IntegrationRepairOutcome::ForeignPluginFilePreserved
+    );
+    assert_eq!(
+        restore_integration_for_provider(&provider),
+        Err("plugin-file integrations have no backup to restore".into())
+    );
+    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(provider.check_integration(), status);
+    assert_eq!(
+        reconciliation_log_line(
+            &IntegrationRepairOutcome::ConsentMissing,
+            false
+        ),
+        "integration reconciliation: consent missing"
+    );
+
+    let install_probe = InstallProbeProvider::with_kind(
+        "opencode-install-probe",
+        IntegrationKind::PluginFile,
+        Ok(()),
+        status,
+    );
+    let registry = Arc::new(AgentRegistry::new());
+    let install_thread = install_probe.install_thread.clone();
+    registry.register_provider(Box::new(install_probe));
+    let result = install_provider_integration_body(
+        &registry,
+        &empty_config(),
+        "opencode-install-probe".into(),
+        Some(7686),
+        true,
+        None,
+    );
+    assert_eq!(
+        result,
+        Err("CodeTerm will not change an unmarked provider plugin file".into())
+    );
+    assert!(install_thread.lock().unwrap().is_none());
 }
 
 #[test]

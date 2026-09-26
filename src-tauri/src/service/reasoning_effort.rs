@@ -70,12 +70,19 @@ impl ServiceContext {
         cwd: &str,
         session_id: &str,
     ) {
+        let model = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_provider_resolved_model.clone());
         let actual = self
             .agent_registry
             .with_provider(agent_id, |provider| {
                 provider
                     .detect_session_reasoning_effort(cwd, session_id)
-                    .filter(|effort| provider.supports_reasoning_effort(effort))
+                    .filter(|effort| {
+                        provider.supports_reasoning_effort_for_model(model.as_deref(), effort)
+                    })
             })
             .flatten();
         let mut mux = self.mux.write();

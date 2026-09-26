@@ -1,12 +1,118 @@
+use super::spawn_model_catalogue::{
+    catalogue_lookup_model, model_catalogue_capability, normalize_requested_model,
+    preserve_context_suffix,
+};
+use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
-
 pub use crate::multiplexer::types::ModelFallbackNotice;
+
+impl ServiceContext {
+    pub(crate) fn reasoning_effort_launch_args_or_notice(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Vec<String> {
+        let Some(effort) = effort.map(str::trim).filter(|effort| !effort.is_empty()) else {
+            return Vec::new();
+        };
+        let result = self.agent_registry.with_provider(provider_id, |provider| {
+            let supported = provider.reasoning_efforts_for_model(model);
+            if supported.iter().any(|level| level.id == effort) {
+                Ok(provider.reasoning_effort_launch_args(effort))
+            } else {
+                Err(supported
+                    .into_iter()
+                    .map(|level| level.id)
+                    .collect::<Vec<_>>())
+            }
+        });
+        match result {
+            Some(Ok(args)) => args,
+            Some(Err(supported)) => {
+                self.notify_reasoning_effort_omitted(
+                    tab_id,
+                    provider_id,
+                    model,
+                    effort,
+                    &supported,
+                );
+                Vec::new()
+            }
+            None => {
+                self.notify_reasoning_effort_omitted(tab_id, provider_id, model, effort, &[]);
+                Vec::new()
+            }
+        }
+    }
+
+    fn notify_reasoning_effort_omitted(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        model: Option<&str>,
+        effort: &str,
+        supported: &[String],
+    ) {
+        let model = model.unwrap_or("provider default");
+        let supported = if supported.is_empty() {
+            "none".to_string()
+        } else {
+            supported.join(", ")
+        };
+        let title = format!("reasoning effort {effort} unavailable for model {model}");
+        let body = format!(
+            "The saved effort was omitted from the launch. Supported efforts: {supported}."
+        );
+        log::warn!(
+            "[reasoning-effort] tab={tab_id} provider={provider_id} model={model} requested={effort} supported={supported}; omitted from launch"
+        );
+        self.publish_model_reconciliation_warning(
+            title,
+            Some(body),
+            Some(tab_id),
+        );
+    }
+
+    pub(crate) fn notify_model_fallback(&self, notice: &ModelFallbackNotice) {
+        self.publish_model_reconciliation_warning(
+            model_fallback_notice_title(notice),
+            None,
+            None,
+        );
+    }
+
+    fn publish_model_reconciliation_warning(
+        &self,
+        title: String,
+        body: Option<String>,
+        tab_id: Option<&str>,
+    ) {
+        let origin = tab_id
+            .map(|tab_id| {
+                crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string())
+            })
+            .unwrap_or_default();
+        self.create_notification_ext(
+            title,
+            body,
+            Some("warning"),
+            None,
+            None,
+            origin,
+            crate::service::notification::PushIntent::default(),
+            None,
+        );
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FreshAgentModelResolution {
     pub requested_model: Option<String>,
     pub model: Option<String>,
     pub fallback_notice: Option<ModelFallbackNotice>,
+    pub warning: Option<String>,
 }
 
 pub(crate) fn attach_planned_model(
@@ -85,37 +191,47 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
     if resume_session_id.is_some() {
         let requested_model = requested
             .and_then(non_empty_model)
+            .map(|model| normalize_requested_model(provider_id, &model))
             .map(|model| normalize_session_model(&model));
+        let warning = requested_model
+            .as_deref()
+            .filter(|_| live_catalogue_missing(registry, provider_id))
+            .map(|model| unavailable_live_catalogue_warning(provider_id, model));
         return FreshAgentModelResolution {
             model: requested_model.clone(),
             requested_model,
             fallback_notice: None,
+            warning,
         };
     }
-    if let Some(model) = requested.and_then(non_empty_model) {
-        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
-        let fallback_notice = if resolved.fell_back {
-            log::warn!(
-                "[spawn] requested model '{}' unavailable for provider '{}'; using '{}'",
-                model,
-                provider_id,
-                resolved.id
-            );
-            Some(ModelFallbackNotice {
-                planned_model: None,
-                requested_model: model.clone(),
-                provider_resolved_model: resolved.id.clone(),
-                actual_model: None,
-                reason: "requested_model_unavailable".into(),
-            })
-        } else {
+    if let Some(model) = requested
+        .and_then(non_empty_model)
+        .map(|model| normalize_requested_model(provider_id, &model))
+    {
+        let catalogue_missing = live_catalogue_missing(registry, provider_id);
+        let capability = model_catalogue_capability(registry, provider_id);
+        let lookup = catalogue_lookup_model(&model);
+        let matched = if catalogue_missing {
             None
+        } else if capability.live_discovery_required {
+            crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
+        } else {
+            crate::agent::model_catalog::resolve_catalog_model(provider_id, &lookup)
         };
+        let resolved_model = matched
+            .map(|entry| preserve_context_suffix(entry.id, &model))
+            .unwrap_or_else(|| model.clone());
+        let warning =
+            catalogue_missing.then(|| unavailable_live_catalogue_warning(provider_id, &model));
         return FreshAgentModelResolution {
-            model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
+            model: non_empty_model(resolved_model).map(|id| normalize_session_model(&id)),
             requested_model: Some(normalize_session_model(&model)),
-            fallback_notice,
+            fallback_notice: None,
+            warning,
         };
+    }
+    if let Some(resolution) = resolve_authoritative_live_default(registry, provider_id) {
+        return resolution;
     }
     if let Some(model) = crate::config::provider_config(provider_id)
         .default_model
@@ -127,6 +243,7 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
                 model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
                 requested_model: None,
                 fallback_notice: None,
+                warning: None,
             };
         }
         log::warn!(
@@ -145,7 +262,120 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
         requested_model: None,
         fallback_notice: None,
+        warning: None,
     }
+}
+
+fn live_catalogue_missing(registry: &AgentRegistry, provider_id: &str) -> bool {
+    let capability = model_catalogue_capability(registry, provider_id);
+    capability.authority == crate::agent::provider::ModelCatalogueAuthority::Authoritative
+        && capability.live_discovery_required
+        && !crate::agent::model_catalog::has_live_snapshot(provider_id)
+}
+
+fn resolve_live_provider_model(
+    provider_id: &str,
+    requested: &str,
+) -> Option<crate::agent::provider::ModelInfo> {
+    crate::agent::model_catalog::resolve_live_catalog_model(
+        provider_id,
+        &catalogue_lookup_model(requested),
+    )
+}
+
+fn resolve_authoritative_live_default(
+    registry: &AgentRegistry,
+    provider_id: &str,
+) -> Option<FreshAgentModelResolution> {
+    let capability = model_catalogue_capability(registry, provider_id);
+    if capability.authority != crate::agent::provider::ModelCatalogueAuthority::Authoritative
+        || !capability.live_discovery_required
+    {
+        return None;
+    }
+    let configured_default = crate::config::provider_config(provider_id)
+        .default_model
+        .and_then(non_empty_model);
+    let provider_default = registry
+        .with_provider(provider_id, |provider| provider.default_model())
+        .flatten()
+        .and_then(non_empty_model);
+    let Some(_models) = crate::agent::model_catalog::resolve_live_models(provider_id) else {
+        let selected = configured_default.or(provider_default);
+        let warning = match selected.as_deref() {
+            Some(model) => format!(
+                "provider '{provider_id}' requires a live model catalogue, but none is available; launching default model '{model}' unchanged. Run codeterm agent models {provider_id} to refresh and inspect the catalogue."
+            ),
+            None => format!(
+                "provider '{provider_id}' requires a live model catalogue, but none is available and it declares no default model. Run codeterm agent models {provider_id} to refresh and inspect the catalogue."
+            ),
+        };
+        return Some(FreshAgentModelResolution {
+            model: selected.map(|model| normalize_session_model(&model)),
+            requested_model: None,
+            fallback_notice: None,
+            warning: Some(warning),
+        });
+    };
+    let configured_match = configured_default
+        .as_deref()
+        .and_then(|model| resolve_live_provider_model(provider_id, model));
+    let fallback = provider_default
+        .as_deref()
+        .and_then(|requested| {
+            resolve_live_provider_model(provider_id, requested)
+                .map(|model| preserve_context_suffix(model.id, requested))
+        })
+        .or_else(|| crate::agent::model_catalog::resolve_live_default_model(provider_id));
+    let selected = configured_match
+        .map(|model| {
+            preserve_context_suffix(model.id, configured_default.as_deref().unwrap_or_default())
+        })
+        .or_else(|| fallback.clone());
+    let warning = if configured_default
+        .as_deref()
+        .is_some_and(|model| resolve_live_provider_model(provider_id, model).is_none())
+    {
+        Some(match fallback.as_deref() {
+            Some(model) => format!(
+                "configured default model '{}' is not in provider '{provider_id}' live catalogue; using live provider default '{model}'.",
+                configured_default.as_deref().unwrap_or_default()
+            ),
+            None => format!(
+                "configured default model '{}' is not in provider '{provider_id}' live catalogue, and no live default is available.",
+                configured_default.as_deref().unwrap_or_default()
+            ),
+        })
+    } else if configured_default.is_none()
+        && provider_default
+            .as_deref()
+            .is_some_and(|model| resolve_live_provider_model(provider_id, model).is_none())
+    {
+        Some(match fallback.as_deref() {
+            Some(model) => format!(
+                "provider default model '{}' is not in provider '{provider_id}' live catalogue; using live provider default '{model}'.",
+                provider_default.as_deref().unwrap_or_default()
+            ),
+            None => format!(
+                "provider default model '{}' is not in provider '{provider_id}' live catalogue, and no live default is available.",
+                provider_default.as_deref().unwrap_or_default()
+            ),
+        })
+    } else {
+        None
+    };
+    Some(FreshAgentModelResolution {
+        model: selected.map(|model| normalize_session_model(&model)),
+        requested_model: None,
+        fallback_notice: None,
+        warning,
+    })
+}
+
+fn unavailable_live_catalogue_warning(provider_id: &str, model: &str) -> String {
+    format!(
+        "provider '{provider_id}' requires a live model catalogue, but none is available; launching requested model '{model}' unchanged. Run `codeterm agent models {provider_id}` to refresh and inspect the catalogue."
+    )
 }
 
 /// The four short labels the catalog canonicalizes to. A model id outside this
@@ -158,10 +388,22 @@ const CANONICAL_SHORT_LABELS: [&str; 4] = ["opus", "sonnet", "haiku", "fable"];
 /// disagree on the same tab and every label reader inherits the disagreement.
 pub(crate) fn normalize_session_model(model: &str) -> String {
     let trimmed = model.trim();
-    let lowered = trimmed.to_ascii_lowercase();
+    let context_suffix = trimmed.to_ascii_lowercase().ends_with("[1m]");
+    let base = if context_suffix {
+        trimmed
+            .get(..trimmed.len().saturating_sub(4))
+            .unwrap_or(trimmed)
+    } else {
+        trimmed
+    };
+    let lowered = base.to_ascii_lowercase();
     let canonical = codeterm_types::agent::models::canonicalize_short(&lowered);
     if CANONICAL_SHORT_LABELS.contains(&canonical) {
-        canonical.to_string()
+        if context_suffix {
+            format!("{canonical}[1m]")
+        } else {
+            canonical.to_string()
+        }
     } else {
         trimmed.to_string()
     }

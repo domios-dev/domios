@@ -154,7 +154,6 @@ impl ServiceFixture {
                 codeterm_bridge::bridge::threads::ThreadRegistry::in_memory(),
             )),
             restart_tracker: crate::service::agent_restart::new_restart_tracker(),
-            provider_updates: Default::default(),
             chat_registry: crate::service::tab_chat::ChatRegistry::new(),
             delayed_send: crate::delayed_send::DelayedSendQueue::open(
                 temp.path().join("delayed-send.json"),
@@ -209,20 +208,11 @@ impl ServiceFixture {
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         };
         let owner = Arc::new(service.clone());
-        service.provider_updates.bind_execution_owner(&owner);
         Self {
             service,
             _owner: owner,
             _app: app,
             temp,
         }
-    }
-}
-
-impl Drop for ServiceFixture {
-    /// Fixture teardown owns the waiter lifecycle: cancel and join before the
-    /// service, mock app and temp dir go away underneath a live thread.
-    fn drop(&mut self) {
-        self.service.shutdown_provider_update_waiters();
     }
 }

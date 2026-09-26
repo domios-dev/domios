@@ -68,16 +68,13 @@ fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
     );
 }
 
-fn apply_startup_handshake(
-    params: &mut SpawnAgentParams,
-    supervised: bool,
-    prepared_starter_prompt: crate::agent::provider::StarterPrompt,
-) {
-    params.starter_prompt = crate::service::launch_delivery::startup_starter_prompt(
+fn apply_startup_handshake(params: &mut SpawnAgentParams, supervised: bool) {
+    if let Some(prompt) = crate::service::launch_delivery::startup_starter_prompt(
         supervised,
         params.task_launch_authority.is_some(),
-    )
-    .unwrap_or(prepared_starter_prompt);
+    ) {
+        params.starter_prompt = prompt;
+    }
 }
 
 fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
@@ -98,7 +95,8 @@ fn build_or_refuse_orchestrated_launch_command(
     bg_task: Option<&str>,
     launch_session_id: Option<&str>,
 ) -> Result<String, String> {
-    let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+    let launch_cmd = crate::service::launch_session_detection::marked_agent_command_for_service(
+        service,
         tab_id,
         agent_cmd,
         params,
@@ -453,6 +451,12 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &agent_cmd,
+            params.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
@@ -464,14 +468,10 @@ impl ServiceContext {
             params.planned_model.as_deref(),
         );
         params.model = model_resolution.model.clone();
-        crate::service::spawn::validate_agent_model(
-            &self.agent_registry,
-            &agent_cmd,
-            params.model.as_deref(),
-        )?;
         crate::service::spawn::validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
+            params.model.as_deref(),
             params.reasoning_effort.as_deref(),
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
@@ -492,12 +492,10 @@ impl ServiceContext {
         };
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
-        let warning = match (cwd_warning, cli_warning) {
-            (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
-            (None, None) => None,
-        };
+        let warning = crate::service::spawn::merge_spawn_warnings(
+            crate::service::spawn::merge_spawn_warnings(cwd_warning, cli_warning),
+            model_resolution.warning.clone(),
+        );
         params.cwd = resolved_cwd;
 
         let default_chat_view = crate::service::spawn::should_default_agent_tab_to_chat(
@@ -746,8 +744,7 @@ impl ServiceContext {
             prepare_standard_starter_prompt(&mut params);
             None
         };
-        let prepared_starter_prompt = params.starter_prompt;
-        apply_startup_handshake(&mut params, startup_supervised, prepared_starter_prompt);
+        apply_startup_handshake(&mut params, startup_supervised);
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {

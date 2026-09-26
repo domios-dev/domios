@@ -46,34 +46,12 @@ function run() {
   );
 
   // A command outside the daemon set is the same case, whatever field names it.
-  for (const outside of ["clear_notifications", "", "RespondProviderUpdatePrompt"]) {
+  for (const outside of ["clear_notifications", "", "RetiredAgentAction"]) {
     check(
       JSON.stringify(adoptStoredActions([{ type: "invoke", label: "Go", command: outside }])) === "[]",
       `an invoke naming ${outside} is outside the daemon set and must be dropped`,
     );
   }
-
-  // A daemon-written row is adopted whole, and gains no free-form target.
-  const daemon = adoptStoredActions([
-    {
-      type: "invoke",
-      label: "Update",
-      command: "respond_provider_update_prompt",
-      args: { promptId: "prompt-1", accept: true },
-      value: "clear_notifications",
-    },
-  ]);
-  check(daemon?.length === 1, "a daemon-written invoke is adopted");
-  check(
-    JSON.stringify(daemon?.[0]) ===
-      JSON.stringify({
-        type: "invoke",
-        label: "Update",
-        command: "respond_provider_update_prompt",
-        args: { promptId: "prompt-1", accept: true },
-      }),
-    "an adopted invoke is rebuilt field by field, so a stray value field cannot ride along",
-  );
 
   check(adoptStoredActions(undefined) === undefined, "a row with no actions adopts to none");
   check(adoptStoredActions("nope") === undefined, "a non-array action set adopts to none");

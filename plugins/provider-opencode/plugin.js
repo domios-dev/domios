@@ -660,6 +660,10 @@ var OUTPUT_SIGNALS = [
 var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function existingBindingPluginIsUnowned(pluginPath) {
+  if (!host.fs.fileExists(pluginPath)) return false;
+  return !ownsOpencodeBindingPluginSource(String(host.fs.readFile(pluginPath) || ""));
+}
 function starterPrompt(params) {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return void 0;
@@ -908,6 +912,9 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
     if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
+    if (existingBindingPluginIsUnowned(pluginPath)) {
+      return { ok: false, error: "refusing to overwrite an unmarked OpenCode plugin file" };
+    }
     const json = host.fs.fileExists(cfg) ? host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" } : { "$schema": "https://opencode.ai/config.json" };
     if (!json || typeof json !== "object" || Array.isArray(json)) {
       return { ok: false, error: "opencode.json root must be an object" };
@@ -928,6 +935,9 @@ var plugin = {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
+    if (pluginPath && existingBindingPluginIsUnowned(pluginPath)) {
+      return { ok: false, error: "refusing to remove an unmarked OpenCode plugin file" };
+    }
     if (cfg && host.fs.fileExists(cfg)) {
       const json = host.fs.readJson(cfg);
       if (json && typeof json === "object" && Array.isArray(json.plugin)) {

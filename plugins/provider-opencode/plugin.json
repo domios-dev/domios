@@ -26,6 +26,7 @@
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
+    "resumeBindsOnFirstUserTurn": true,
     "hookEventRoster": [
       {
         "event": "SessionStart",
@@ -54,6 +55,10 @@
       }
     }
   ],
+  "integration": {
+    "kind": "plugin_file",
+    "settingsPath": "~/.config/opencode/codeterm-session-binding.js"
+  },
   "modelGroups": [
     {
       "id": "opencode",
@@ -107,6 +112,9 @@
     }
   ],
   "defaultModel": "anthropic/claude-opus-4-8",
+  "modelCatalogue": {
+    "authority": "free_form"
+  },
   "reasoningEfforts": [
     {
       "id": "minimal",

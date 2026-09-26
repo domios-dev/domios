@@ -29,6 +29,18 @@ pub(super) fn dispatch(
                     message: format!("invalid params: {e}"),
                     data: None,
                 })?;
+            crate::service::spawn::validate_agent_model(
+                &svc.agent_registry,
+                &req.orchestrator_agent,
+                req.orchestrator_model.as_deref(),
+            )
+            .map_err(super::model_errors::invalid_model_rpc_error)?;
+            crate::service::spawn::validate_agent_model(
+                &svc.agent_registry,
+                &req.planner_agent,
+                req.planner_model.as_deref(),
+            )
+            .map_err(super::model_errors::invalid_model_rpc_error)?;
 
             let svc_ref = &**svc;
             let result = tauri::async_runtime::block_on(svc_ref.create_orchestration_pair(req))

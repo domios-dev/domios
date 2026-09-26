@@ -1,0 +1,6 @@
+Earlier message from the session:
+✨ Update available! 0.155.1 -> 0.157.0
+1. Update now
+2. Skip
+
+Type a message to continue.

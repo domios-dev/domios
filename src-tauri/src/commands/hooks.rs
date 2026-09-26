@@ -99,13 +99,18 @@ fn install_provider_integration_body(
             "Review and consent are required before changing global provider configuration".into(),
         );
     }
+    let (kind, status) = registry
+        .with_provider(&provider_id, |provider| {
+            (provider.integration_kind(), provider.check_integration())
+        })
+        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?;
+    if has_unowned_plugin_file(kind, &status) {
+        return Err("CodeTerm will not change an unmarked provider plugin file".into());
+    }
     let port = match api_port {
         Some(port) => port,
         None => runtime_api_port()?,
     };
-    let status = registry
-        .with_provider(&provider_id, |provider| provider.check_integration())
-        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?;
     let target = status
         .get("target")
         .and_then(|value| value.as_str())
@@ -225,7 +230,13 @@ pub fn uninstall_provider_integration(
     provider_id: String,
 ) -> Result<(), String> {
     svc.agent_registry
-        .with_provider(&provider_id, |p| p.uninstall_integration())
+        .with_provider(&provider_id, |provider| {
+            let status = provider.check_integration();
+            if has_unowned_plugin_file(provider.integration_kind(), &status) {
+                return Err("CodeTerm will not remove an unmarked provider plugin file".into());
+            }
+            provider.uninstall_integration()
+        })
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
 }
 
@@ -235,8 +246,17 @@ pub fn restore_provider_integration(
     provider_id: String,
 ) -> Result<(), String> {
     svc.agent_registry
-        .with_provider(&provider_id, |p| p.restore_integration())
+        .with_provider(&provider_id, restore_integration_for_provider)
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+}
+
+fn restore_integration_for_provider(
+    provider: &dyn crate::agent::provider::AgentProvider,
+) -> Result<(), String> {
+    if provider.integration_kind() == crate::agent::provider::IntegrationKind::PluginFile {
+        return Err("plugin-file integrations have no backup to restore".into());
+    }
+    provider.restore_integration()
 }
 
 #[tauri::command]
@@ -293,6 +313,15 @@ fn recorded_flag(consented: &ProviderConfigs, id: &str, key: &str) -> Option<boo
         .get(id)
         .and_then(|provider| provider.extra.get(key))
         .and_then(toml::Value::as_bool)
+}
+
+fn has_unowned_plugin_file(
+    kind: crate::agent::provider::IntegrationKind,
+    status: &Json,
+) -> bool {
+    kind == crate::agent::provider::IntegrationKind::PluginFile
+        && status.get("plugin_file_exists").and_then(Json::as_bool) == Some(true)
+        && status.get("plugin_file_owned").and_then(Json::as_bool) != Some(true)
 }
 
 fn resolve_precompact_choice(
@@ -534,6 +563,7 @@ fn update_precompact_choice(
 enum IntegrationRepairOutcome {
     Current,
     ConsentMissing,
+    ForeignPluginFilePreserved,
     Repaired(Option<Json>),
     Unreadable,
     TrustGrantRequired,
@@ -545,6 +575,9 @@ fn reconciliation_log_line(outcome: &IntegrationRepairOutcome, consent_inferred:
     let outcome = match outcome {
         IntegrationRepairOutcome::Current => "current".into(),
         IntegrationRepairOutcome::ConsentMissing => "consent missing".into(),
+        IntegrationRepairOutcome::ForeignPluginFilePreserved => {
+            "unmarked plugin file preserved".into()
+        }
         IntegrationRepairOutcome::Repaired(Some(grant)) => {
             format!("repaired; trust grant: {grant}")
         }
@@ -604,6 +637,9 @@ fn repair_integration_on_startup(
             return IntegrationRepairOutcome::ConsentMissing;
         }
         ReconcileAuthorization::Reconcile => {}
+    }
+    if has_unowned_plugin_file(provider.integration_kind(), status) {
+        return IntegrationRepairOutcome::ForeignPluginFilePreserved;
     }
     let options = crate::agent::provider::IntegrationInstallOptions {
         consent: true,

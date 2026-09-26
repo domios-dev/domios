@@ -11,8 +11,8 @@ use parking_lot::Mutex;
 
 use super::provider::{
     usage_sources_from_session_file, AgentLaunchParams, AgentProvider, LaunchArtifactSweepReport,
-    LaunchArtifactSweepRequest, ReadinessStrategy, ReasoningEffortInfo, SystemPromptDelivery,
-    TaskDelivery, UsageSourceSpec,
+    LaunchArtifactSweepRequest, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
+    SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
 pub struct MockProvider {
@@ -20,9 +20,13 @@ pub struct MockProvider {
     launch_binary: Option<String>,
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
+    models: Vec<ModelInfo>,
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
     update_command: Option<String>,
+    directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
+    tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
+    parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
@@ -30,6 +34,7 @@ pub struct MockProvider {
     empty_launch_command: bool,
     empty_launch_command_when_task_present: bool,
     task_delivery: TaskDelivery,
+    resume_binds_on_first_user_turn: bool,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
 }
@@ -41,9 +46,13 @@ impl MockProvider {
             launch_binary: None,
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
+            models: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
             update_command: None,
+            directory_trust_response: None,
+            tab_state_classification: None,
+            parsed_prompt: None,
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
@@ -51,6 +60,7 @@ impl MockProvider {
             empty_launch_command: false,
             empty_launch_command_when_task_present: false,
             task_delivery: TaskDelivery::PtyInput,
+            resume_binds_on_first_user_turn: false,
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
         }
@@ -134,11 +144,66 @@ impl MockProvider {
         }
     }
 
+    pub fn with_model_reasoning_efforts(
+        id: &str,
+        model: &str,
+        levels: &[&str],
+    ) -> Self {
+        let mut provider = Self::with_reasoning_efforts(id, &["low", "medium", "high", "xhigh"]);
+        provider.models = vec![ModelInfo {
+            id: model.to_string(),
+            display_name: model.to_string(),
+            reasoning_efforts: Some(
+                levels
+                    .iter()
+                    .map(|level| ReasoningEffortInfo {
+                        id: (*level).to_string(),
+                        display_name: (*level).to_string(),
+                        description: None,
+                    })
+                    .collect(),
+            ),
+            ..ModelInfo::default()
+        }];
+        provider
+    }
+
+    pub fn with_models(mut self, models: Vec<ModelInfo>) -> Self {
+        self.models.extend(models);
+        self
+    }
+
     pub fn with_update_command(id: &str, command: &str) -> Self {
         Self {
             update_command: Some(command.to_string()),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_directory_trust_response(
+        id: &str,
+        response: codeterm_plugin::provider::DirectoryTrustPromptResponse,
+    ) -> Self {
+        Self {
+            directory_trust_response: Some(response),
+            ..Self::new(id)
+        }
+    }
+
+    pub fn with_tab_state(
+        mut self,
+        classification: codeterm_plugin::tab_state::TabStateClassification,
+    ) -> Self {
+        self.tab_state_classification = Some(classification);
+        self
+    }
+
+    pub fn with_parsed_prompt(
+        mut self,
+        prompt: codeterm_types::pty::PendingPrompt,
+    ) -> Self {
+        self.parsed_prompt = Some(prompt);
+        self
     }
 
     pub fn with_empty_launch_command(id: &str) -> Self {
@@ -167,6 +232,11 @@ impl MockProvider {
             sessions: [session_id.to_string()].into_iter().collect(),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_resume_binds_on_first_user_turn(mut self) -> Self {
+        self.resume_binds_on_first_user_turn = true;
+        self
     }
 }
 
@@ -230,6 +300,9 @@ impl AgentProvider for MockProvider {
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
         self.reasoning_efforts.clone()
     }
+    fn available_models(&self) -> Vec<ModelInfo> {
+        self.models.clone()
+    }
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
         if effort.is_empty() {
             return Vec::new();
@@ -238,6 +311,9 @@ impl AgentProvider for MockProvider {
     }
     fn task_delivery(&self) -> TaskDelivery {
         self.task_delivery.clone()
+    }
+    fn resume_binds_on_first_user_turn(&self) -> bool {
+        self.resume_binds_on_first_user_turn
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()
@@ -276,5 +352,20 @@ impl AgentProvider for MockProvider {
         _max_age: Option<Duration>,
     ) -> Option<String> {
         None
+    }
+    fn directory_trust_prompt_response(
+        &self,
+        _screen: &str,
+    ) -> Option<codeterm_plugin::provider::DirectoryTrustPromptResponse> {
+        self.directory_trust_response.clone()
+    }
+    fn classify_tab_state(
+        &self,
+        _snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+    ) -> Option<codeterm_plugin::tab_state::TabStateClassification> {
+        self.tab_state_classification.clone()
+    }
+    fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
+        self.parsed_prompt.clone()
     }
 }

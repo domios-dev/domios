@@ -1,5 +1,10 @@
 use super::*;
 use super::wire::encode_cwd_dashed;
+use crate::provider::{
+    AgentLaunchParams, BusySubmitStrategy, ReadinessStrategy, VerifySubmitStrategy,
+};
+use std::path::PathBuf;
+use std::time::Duration;
 use serde_json::json;
 
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
@@ -424,6 +429,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );
@@ -469,6 +475,7 @@ fn settings_model_options_follow_catalog_changes() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );

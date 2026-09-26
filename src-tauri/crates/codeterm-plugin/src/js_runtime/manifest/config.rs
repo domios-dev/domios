@@ -1,3 +1,4 @@
+pub use crate::provider::IntegrationKind;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
@@ -44,6 +45,8 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
+    #[serde(default)]
+    pub resume_binds_on_first_user_turn: bool,
     /// Declared hook event roster (event name → core ingestion route).
     /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
     #[serde(default)]
@@ -359,10 +362,9 @@ pub enum CwdEncoding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct IntegrationConfig {
-    /// What kind of integration to install. The kind declares whether native
-    /// or provider-managed review/backup/restore semantics apply.
+    /// The owned integration surface and its reconciliation semantics.
     pub kind: IntegrationKind,
-    /// Where the integration is stored (e.g. `~/.claude/settings.json`).
+    /// The integration's primary target path.
     pub settings_path: String,
     /// Optional `integration.trust_grant` capability declaration: managed hook
     /// key(s) core passes to the plugin's `grantIntegrationTrust` per install.
@@ -375,18 +377,6 @@ pub struct IntegrationConfig {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TrustGrantConfig {
     pub managed_keys: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IntegrationKind {
-    /// Claude-style: edit a JSON file's `hooks` object with curl-back
-    /// commands.
-    ClaudeSettingsJson,
-    /// Provider JS owns a reviewable global-config merge and backup/restore flow.
-    ProviderManaged,
-    /// No installable integration. PTY parser does it all.
-    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -520,6 +510,8 @@ pub struct SerdeModelInfo {
     /// See `ModelInfo::group`. Provider-declared picker section label.
     #[serde(default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub reasoning_efforts: Option<Vec<SerdeReasoningEffortInfo>>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -533,6 +525,12 @@ impl From<&SerdeModelInfo> for ModelInfo {
             featured: s.featured,
             badge: s.badge.clone(),
             group: s.group.clone(),
+            reasoning_efforts: s.reasoning_efforts.as_ref().map(|efforts| {
+                efforts
+                    .iter()
+                    .map(ReasoningEffortInfo::from)
+                    .collect()
+            }),
         }
     }
 }
@@ -620,5 +618,42 @@ mod tests {
         assert_eq!(model.badge, None);
         assert_eq!(model.group, None);
         assert!(!model.is_featured());
+    }
+
+    #[test]
+    fn serde_model_info_carries_per_model_reasoning_efforts() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "gpt-6-sol",
+            "displayName": "GPT-6 Sol",
+            "reasoningEfforts": [
+                { "id": "max", "displayName": "Max", "description": "Maximum reasoning" },
+                { "id": "ultra", "displayName": "Ultra" }
+            ]
+        }))
+        .expect("per-model reasoning efforts parse");
+
+        let model: ModelInfo = (&parsed).into();
+        let wire = serde_json::to_value(&model).expect("model serializes");
+        assert_eq!(wire["reasoning_efforts"][0]["id"], "max");
+        assert_eq!(wire["reasoning_efforts"][0]["display_name"], "Max");
+        let efforts = model.reasoning_efforts.expect("per-model effort list");
+        assert_eq!(
+            efforts.iter().map(|effort| effort.id.as_str()).collect::<Vec<_>>(),
+            vec!["max", "ultra"]
+        );
+        assert_eq!(efforts[0].description.as_deref(), Some("Maximum reasoning"));
+    }
+
+    #[test]
+    fn serde_model_info_preserves_an_explicit_empty_effort_list() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "model-without-selector",
+            "displayName": "Model Without Selector",
+            "reasoningEfforts": []
+        }))
+        .expect("empty effort list parses");
+
+        let model: ModelInfo = (&parsed).into();
+        assert_eq!(model.reasoning_efforts, Some(Vec::new()));
     }
 }

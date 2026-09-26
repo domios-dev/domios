@@ -324,6 +324,7 @@ impl ChatBackendProvider for JsChatBackend {
                 featured: None,
                 badge: None,
                 group: m.group,
+                reasoning_efforts: None,
             })
             .collect())
     }

@@ -18,6 +18,15 @@ entity id, and `data` contains the raw daemon payload with typed fields such as
 `plan create --json` returns `kind == "plan"` and `id == plan_id`, and
 `plan task add --json` returns `kind == "task"` and `id == task_id`.
 
+### CLI JSON Errors
+
+`agent spawn`, `plan task dispatch`, and `team pair` write failures to stdout as
+one `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":...,"code":...}`
+JSON envelope when passed `--json`; stderr stays empty and the command exits
+non-zero. Structured daemon error data stays under `data`, including
+`invalid_model` fields such as the provider, requested id, closest catalogue
+ids, and refresh command.
+
 ### Internal Tauri Commands
 
 These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST endpoints.
@@ -67,6 +76,13 @@ CodeTerm automatically detects Claude Code and other agents:
 - **Pinned tab names** — manual rename blocks OSC auto-rename
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
+
+Choose a model with `codeterm agent models <provider>` and pass its id with
+`codeterm agent spawn <provider> --model <id>`. Providers with an authoritative
+catalogue refuse unknown ids before creating a tab and list close catalogue ids
+in the error. Free-form providers accept provider-owned ids. If a live catalogue
+is unavailable, the requested id is launched unchanged and the response includes
+a warning; CodeTerm does not substitute a default model.
 
 ### Open agent shells (`chatBackend`)
 
@@ -149,4 +165,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 8 -->
+<!-- revision: 10 -->

@@ -551,6 +551,46 @@ console.log("\n--- discoverModels ---\n");
 }
 
 {
+  const pluginBody = "// foreign-opencode-plugin\nconst value = true;";
+  let fileWrites = 0;
+  let configWrites = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => pluginBody,
+      readJson: () => ({ plugin: [] }),
+      writeFile: () => { fileWrites += 1; return true; },
+      writeJson: () => { configWrites += 1; return true; },
+    },
+  }));
+  const result = p.installIntegration(7686, { consent: true });
+  assert(
+    !!result && result.ok === false && fileWrites === 0 && configWrites === 0,
+    "install refuses an existing unmarked plugin file before changing either file",
+  );
+}
+
+{
+  const pluginBody = "// foreign-opencode-plugin\nconst value = true;";
+  let configWrites = 0;
+  let fileRemovals = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => pluginBody,
+      readJson: () => ({ plugin: [] }),
+      writeJson: () => { configWrites += 1; return true; },
+      removeFile: () => { fileRemovals += 1; return true; },
+    },
+  }));
+  const result = p.uninstallIntegration();
+  assert(
+    !!result && result.ok === false && configWrites === 0 && fileRemovals === 0,
+    "uninstall refuses an existing unmarked plugin file before changing either file",
+  );
+}
+
+{
   let writes = 0;
   const p = loadOpencodeWithHost(ocHost({
     fs: {

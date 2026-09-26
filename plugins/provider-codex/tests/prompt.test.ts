@@ -3,6 +3,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/plugin";
+import { parseActiveTerminalChoice } from "../src/prompt";
 
 let passed = 0;
 let failed = 0;
@@ -70,6 +71,23 @@ console.log("\n--- numbered prompts remain available to tab respond ---\n");
   eq(bundled.buildPromptResponse(0, modelScreen), ["G1tB", "DQ=="], "tab respond moves from the active model to option one");
   eq(bundled.buildPromptResponse(3, modelScreen), ["G1tC", "G1tC", "DQ=="], "tab respond moves down to the final model");
 
+  const activeModelMenu = parseActiveTerminalChoice(modelScreen);
+  eq(
+    activeModelMenu?.options.map((option) => option.value),
+    ["1", "2", "3", "4"],
+    "model picker keeps its active footer classification",
+  );
+  assert(activeModelMenu?.options.some((option) => option.highlighted), "model picker retains the focused option");
+
+  const approval = fixtureText("directory-trust/approval-paragraph.txt");
+  const activeApproval = parseActiveTerminalChoice(approval);
+  eq(
+    activeApproval?.options.map((option) => option.value),
+    ["1", "2"],
+    "approval prompt keeps its active footer classification",
+  );
+  assert(activeApproval?.options.some((option) => option.highlighted), "approval prompt retains the focused option");
+
   const lettered = [
     "• Which release strategy should we use?",
     "  A) Fast patch release now",
@@ -109,6 +127,49 @@ console.log("\n--- Codex folder trust prompt classification ---\n");
     assert(Boolean(trust?.question.trim().endsWith("?")), `${label} trust question comes from the active dialog`);
   }
   eq(bundled.buildPromptResponse(0, screen), ["G1tB", "DQ=="], "tab respond moves to the affirmative trust option");
+
+  const currentTrustScreen = fixtureText("directory-trust/trust-folder-access-0.157.1.txt");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    eq(
+      provider.parsePrompt?.(currentTrustScreen)?.options?.map(([, value]: [string, string]) => value),
+      ["1", "2"],
+      `${label} general parser exposes current trust choices in order`,
+    );
+    eq(
+      provider.parseDirectoryTrustPrompt?.(currentTrustScreen)?.options?.map(([, value]: [string, string]) => value),
+      ["1", "2"],
+      `${label} trust parser exposes current choices in order`,
+    );
+    eq(
+      provider.directoryTrustPromptResponse?.(currentTrustScreen),
+      ["DQ=="],
+      `${label} trust responder confirms only the focused affirmative choice`,
+    );
+  }
+
+  const displacedRows = currentTrustScreen.split(/\r?\n/);
+  const pathIndex = displacedRows.findIndex((line) =>
+    /^(?:[a-z]:[\\/]|\\\\|\/)/i.test(line.trim()),
+  );
+  assert(pathIndex >= 0, "trust fixture contains a directory context row");
+  if (pathIndex >= 0) {
+    const [pathRow] = displacedRows.splice(pathIndex, 1);
+    const questionIndex = displacedRows.findIndex((line) => line.includes("?"));
+    if (pathRow && questionIndex >= 0) {
+      displacedRows.splice(questionIndex + 1, 0, pathRow);
+      const displacedPath = displacedRows.join("\n");
+      eq(
+        plugin.parseDirectoryTrustPrompt?.(displacedPath),
+        null,
+        "source trust parser requires nearby directory context before the question",
+      );
+      eq(
+        bundled.parseDirectoryTrustPrompt(displacedPath),
+        null,
+        "bundle trust parser requires nearby directory context before the question",
+      );
+    }
+  }
 
   const ordinaryApproval = fixtureText("directory-trust/approval-paragraph.txt");
   assert(Boolean(plugin.parsePrompt?.(ordinaryApproval)?.options?.length), "generic yes/no approval remains available to parsePrompt");
