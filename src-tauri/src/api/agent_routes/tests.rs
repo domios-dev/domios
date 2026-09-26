@@ -89,6 +89,45 @@ fn spawn_rejection_serializes_a_structured_error_not_bare_text() {
     );
 }
 
+#[tokio::test]
+async fn unknown_authoritative_model_returns_structured_422_without_retry_hint() {
+    let provider = BinaryProvider::new("rest-catalogue", "rest-catalogue", None)
+        .with_authoritative_models(&["model-a", "model-b"]);
+    crate::agent::model_catalog::register(
+        provider.id,
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: provider.models.clone(),
+            default: provider.models.first().map(|model| model.id.clone()),
+        },
+    );
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(provider));
+    let rejection =
+        super::model_error::validate_agent_model(&registry, "rest-catalogue", Some("model-z"))
+            .expect_err("unknown authoritative ids are a REST refusal");
+    let response = rejection.into_response();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("REST error body is readable");
+    let body: serde_json::Value = serde_json::from_slice(&body).expect("REST error body is JSON");
+    let error = &body["error"];
+    assert_eq!(body["ok"], false);
+    assert_eq!(error["code"], "invalid_model");
+    assert_eq!(error["type"], "invalid_model");
+    assert_eq!(error["provider"], "rest-catalogue");
+    assert_eq!(error["requested_model"], "model-z");
+    assert_eq!(
+        error["refresh_command"],
+        "codeterm agent models rest-catalogue"
+    );
+    assert!(error["closest_model_ids"]
+        .as_array()
+        .is_some_and(|ids| !ids.is_empty()));
+    assert!(error.get("retry_hint").is_none());
+}
+
 struct ListingShell;
 
 impl crate::chatbackend::ChatBackendProvider for ListingShell {
@@ -241,6 +280,39 @@ struct BinaryProvider {
     id: &'static str,
     binary_name: &'static str,
     cli_binary: Option<&'static str>,
+    models: Vec<crate::agent::provider::ModelInfo>,
+    model_catalogue: crate::agent::provider::ModelCatalogueCapability,
+}
+
+impl BinaryProvider {
+    fn new(id: &'static str, binary_name: &'static str, cli_binary: Option<&'static str>) -> Self {
+        Self {
+            id,
+            binary_name,
+            cli_binary,
+            models: Vec::new(),
+            model_catalogue: Default::default(),
+        }
+    }
+
+    fn with_authoritative_models(mut self, ids: &[&str]) -> Self {
+        self.model_catalogue = crate::agent::provider::ModelCatalogueCapability::authoritative();
+        self.models = ids
+            .iter()
+            .map(|id| crate::agent::provider::ModelInfo {
+                id: (*id).into(),
+                display_name: (*id).into(),
+                description: None,
+                available: None,
+                availability: None,
+                featured: None,
+                badge: None,
+                group: None,
+                reasoning_efforts: None,
+            })
+            .collect();
+        self
+    }
 }
 
 impl crate::agent::provider::AgentProvider for BinaryProvider {
@@ -298,9 +370,26 @@ impl crate::agent::provider::AgentProvider for BinaryProvider {
     fn cli_binary(&self) -> Option<&str> {
         self.cli_binary
     }
+
+    fn available_models(&self) -> Vec<crate::agent::provider::ModelInfo> {
+        self.models.clone()
+    }
+
+    fn model_catalogue_capability(&self) -> crate::agent::provider::ModelCatalogueCapability {
+        self.model_catalogue.clone()
+    }
 }
 
 fn facade_with_agent(provider: BinaryProvider) -> crate::provider::ProviderRegistry {
+    if !provider.models.is_empty() {
+        crate::agent::model_catalog::register(
+            provider.id,
+            crate::agent::model_catalog::RegisteredDefaults {
+                models: provider.models.clone(),
+                default: provider.models.first().map(|model| model.id.clone()),
+            },
+        );
+    }
     let agents = std::sync::Arc::new(crate::agent::registry::AgentRegistry::new());
     agents.register_provider(Box::new(provider));
     let backends = std::sync::Arc::new(crate::chatbackend::ChatBackendRegistry::new());
@@ -319,11 +408,11 @@ fn listed(listing: &[serde_json::Value], id: &str) -> serde_json::Value {
 /// row must carry what was observed, not what was registered.
 #[test]
 fn provider_listing_states_what_it_observed_about_the_launch_binary() {
-    let registry = facade_with_agent(BinaryProvider {
-        id: "listing-missing-cli",
-        binary_name: "codeterm-definitely-missing-provider-cli",
-        cli_binary: Some("codeterm-definitely-missing-provider-cli"),
-    });
+    let registry = facade_with_agent(BinaryProvider::new(
+        "listing-missing-cli",
+        "codeterm-definitely-missing-provider-cli",
+        Some("codeterm-definitely-missing-provider-cli"),
+    ));
     let listing = super::list_agent_provider_values(&registry);
 
     assert_eq!(
@@ -335,11 +424,11 @@ fn provider_listing_states_what_it_observed_about_the_launch_binary() {
 /// Enumeration observes the launch hook even when install metadata is absent.
 #[test]
 fn provider_listing_uses_binary_name_not_optional_install_metadata() {
-    let registry = facade_with_agent(BinaryProvider {
-        id: "listing-without-install-metadata",
-        binary_name: "codeterm-definitely-missing-provider-hook",
-        cli_binary: None,
-    });
+    let registry = facade_with_agent(BinaryProvider::new(
+        "listing-without-install-metadata",
+        "codeterm-definitely-missing-provider-hook",
+        None,
+    ));
     let listing = super::list_agent_provider_values(&registry);
 
     assert_eq!(
@@ -352,12 +441,13 @@ fn provider_listing_uses_binary_name_not_optional_install_metadata() {
 /// have to invent one, which is the collapse this slice removes.
 #[test]
 fn unknown_is_a_wire_state_of_its_own_not_a_synonym_for_unavailable() {
-    let mut descriptor = super::list_agent_provider_values(&facade_with_agent(BinaryProvider {
-        id: "listing-unknown",
-        binary_name: "codeterm-definitely-missing-provider-cli",
-        cli_binary: Some("codeterm-definitely-missing-provider-cli"),
-    }))
-    .remove(0);
+    let mut descriptor =
+        super::list_agent_provider_values(&facade_with_agent(BinaryProvider::new(
+            "listing-unknown",
+            "codeterm-definitely-missing-provider-cli",
+            Some("codeterm-definitely-missing-provider-cli"),
+        )))
+        .remove(0);
     descriptor["availability"] = serde_json::json!("unknown");
 
     let parsed: crate::agent::provider::ProviderDescriptor =
@@ -377,11 +467,11 @@ fn unknown_is_a_wire_state_of_its_own_not_a_synonym_for_unavailable() {
 #[test]
 fn enumeration_agrees_with_the_shared_resolver() {
     const BINARY: &str = "codeterm-definitely-missing-provider-cli";
-    let registry = facade_with_agent(BinaryProvider {
-        id: "listing-shared-resolver",
-        binary_name: BINARY,
-        cli_binary: Some(BINARY),
-    });
+    let registry = facade_with_agent(BinaryProvider::new(
+        "listing-shared-resolver",
+        BINARY,
+        Some(BINARY),
+    ));
 
     let listed = registry.describe_all().remove(0).availability;
     let shared = crate::agent::provider::ProviderAvailability::from_resolution(

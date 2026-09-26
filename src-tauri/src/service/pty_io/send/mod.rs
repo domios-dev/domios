@@ -399,7 +399,7 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    fn send_text_input_delivery(
+    pub(crate) fn send_text_input_delivery(
         &self,
         tab_id: &str,
         text: &str,
@@ -509,7 +509,15 @@ impl ServiceContext {
             claim,
         )
         .map(|_| ())
-        .map_err(|error| DeliveryError::from_injection(delivery_target, error))
+        .map_err(|error| match error {
+            crate::service::inject_verify::InjectionError::AgentTuiPresent { .. } => {
+                DeliveryError::TabBusyRefused {
+                    tab: delivery_target.to_string(),
+                    detail: "provider-classified modal dialog is visible".to_string(),
+                }
+            }
+            error => DeliveryError::from_injection(delivery_target, error),
+        })
     }
 
     fn resolve_tab_and_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
@@ -542,19 +550,23 @@ impl ServiceContext {
         self.pty.lock().write(pty_id, &payload)
     }
 
-    /// Queue text without making the caller wait for PTY or TUI evidence.
-    /// The delivery outcome `send_text` already computes, returned instead of
-    /// discarded. The detached form reports `Ok` before the write is attempted,
-    /// so an API caller was told "delivered" for a tab that never received.
-    /// `submit_unconfirmed` stays distinct from a hard failure: the payload may
-    /// have landed, and a caller must never read it as "nothing happened".
-    pub async fn send_text_when_ready(&self, tab_id: &str, text: &str) -> Result<(), String> {
+    /// Queue text without losing its typed delivery outcome.
+    /// An unconfirmed submit may have landed, so callers must not retry it.
+    pub async fn send_text_when_ready(
+        &self,
+        tab_id: &str,
+        text: &str,
+    ) -> Result<(), DeliveryError> {
         let svc = self.clone();
         let tab = tab_id.to_string();
         let text = text.to_string();
-        tokio::task::spawn_blocking(move || svc.send_text(&tab, &text))
+        let failure_tab = tab.clone();
+        tokio::task::spawn_blocking(move || svc.send_text_input_delivery(&tab, &text, true, None))
             .await
-            .map_err(|error| format!("send task failed: {error}"))?
+            .map_err(|error| DeliveryError::SubmitUnconfirmed {
+                tab: failure_tab,
+                detail: format!("send task failed: {error}"),
+            })?
     }
 
     pub(crate) async fn stage_text_when_ready(

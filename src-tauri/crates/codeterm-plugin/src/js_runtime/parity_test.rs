@@ -1036,5 +1036,6 @@ mod model_groups;
 mod reasoning_efforts;
 mod opencode;
 mod record_identity;
+mod resume_first_turn;
 mod trust_grant;
 mod usage_sources;

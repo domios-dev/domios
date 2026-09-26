@@ -95,6 +95,59 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     assert_eq!(tab.agent_session_model, None);
 }
 
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn absent_restart_target_retires_spawn_failed_identity_with_live_shell() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "spawn-failed-live-shell";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("codex".into());
+        tab.agent_session_id = Some("retired-session".into());
+        tab.session_binding_nonce = Some("retired-nonce".into());
+        tab.pty_id = Some(pty_id.into());
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn live shell PTY");
+
+    assert_eq!(
+        fixture
+            .service
+            .absent_restart_target(&tab_id)
+            .expect("observe absent agent")
+            .as_deref(),
+        Some(tab_id.as_str())
+    );
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .cloned()
+        .expect("tab remains present");
+    assert_eq!(tab.agent_type, None);
+    assert_eq!(tab.agent_session_id, None);
+    assert_eq!(
+        tab.prior_session_binding_nonces
+            .last()
+            .and_then(|entry| entry.session_id.as_deref()),
+        Some("retired-session")
+    );
+
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(pty_id)
+        .expect("stop live shell PTY");
+}
+
 fn guard_snapshot(session_id: Option<&str>) -> TabRestartSnapshot {
     TabRestartSnapshot {
         tab_id: "tab-guard".into(),

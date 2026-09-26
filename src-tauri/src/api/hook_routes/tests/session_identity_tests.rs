@@ -200,6 +200,71 @@ fn a_nonce_verified_binding_retires_a_latched_spawn_failure() {
     assert_eq!(tab.boot_failure_reason, None);
 }
 
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn unchanged_acknowledged_hook_report_still_marks_relaunch_live() {
+    let (fixture, tab_id) = service_fixture_with_sessions(vec![("claude", vec!["sid-a"])]);
+    let pty_id = "pty-relaunch";
+    let nonce = "relaunch-nonce";
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.cwd = Some("/tmp/project".into());
+        tab.agent_type = Some("claude".into());
+        tab.agent_session_id = Some("sid-a".into());
+        tab.pty_id = Some(pty_id.into());
+        tab.session_binding_nonce = Some(nonce.into());
+        tab.reported_session_binding_nonce = Some(nonce.into());
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
+        tab.boot_failure_reason = Some("launch deadline elapsed".into());
+    }
+    let attempt = crate::service::launch_readiness::LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: pty_id.into(),
+        binding_nonce: nonce.into(),
+    };
+    crate::service::launch_readiness::arm(attempt.clone());
+
+    let claim = bind_reported_session(
+        &fixture.service.mux,
+        fixture.service.agent_registry.as_ref(),
+        &tab_id,
+        "claude",
+        "sid-a",
+        Some(nonce),
+    )
+    .expect("duplicate verified report should be accepted");
+    assert!(claim.is_unchanged_acknowledged_report());
+
+    let response = unchanged_acknowledged_hook_report(
+        &fixture.service,
+        &tab_id,
+        "claude",
+        "sid-a",
+        "resume",
+        &claim,
+        Some(nonce),
+    );
+
+    assert_eq!(response.0["changed"], false);
+    assert_eq!(
+        crate::service::launch_readiness::observe(&attempt, std::time::Instant::now()),
+        crate::service::launch_readiness::LaunchObservation::Evidence(
+            crate::service::launch_readiness::LaunchEvidence::Acknowledged,
+        ),
+    );
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentReady),
+    );
+    assert_eq!(tab.boot_failure_reason, None);
+}
+
 /// The over-correction guard: a report that cannot prove the launch leaves the
 /// failure exactly where it was.
 #[test]

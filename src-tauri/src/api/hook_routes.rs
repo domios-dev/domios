@@ -512,7 +512,15 @@ pub async fn hook_session_start(
         report_nonce.as_deref(),
     ) {
         Ok(claim) if claim.is_unchanged_acknowledged_report() => {
-            return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
+            return Ok(unchanged_acknowledged_hook_report(
+                &state.svc,
+                &tab_id,
+                &provider_id,
+                &sid,
+                &source,
+                &claim,
+                report_nonce.as_deref(),
+            ));
         }
         Ok(claim) => claim,
         Err((status, message, Some(premise))) => {
@@ -856,12 +864,8 @@ pub(crate) async fn finish_session_binding(
         );
     }
     crate::service::general_agent::binding_wait::notify_session_bound();
-    let launch_identity = authenticated_launch_identity(&svc.mux, tab_id, &claim, report_nonce);
-    acknowledge_authenticated_launch(&svc.mux, tab_id, &claim, report_nonce);
-    if claim.nonce_verified {
-        svc.rearm_authenticated_agent_input(&tab_id);
-        svc.reconcile_boot_stage_with_session_binding(&tab_id);
-    }
+    let launch_identity =
+        acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);
     // Ordering: the identity above is read from state the nonce check already
     // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {
@@ -1013,6 +1017,43 @@ fn acknowledge_authenticated_launch(
         );
         launch_acknowledged || readiness_acknowledged
     })
+}
+
+fn acknowledge_and_reconcile_session_binding(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    claim: &SessionStartClaim,
+    report_nonce: Option<&str>,
+) -> Option<crate::service::ProviderSessionBinding> {
+    let launch_identity = authenticated_launch_identity(&svc.mux, tab_id, claim, report_nonce);
+    acknowledge_authenticated_launch(&svc.mux, tab_id, claim, report_nonce);
+    if claim.nonce_verified {
+        svc.rearm_authenticated_agent_input(tab_id);
+        svc.reconcile_boot_stage_with_session_binding(tab_id);
+    }
+    launch_identity
+}
+
+fn unchanged_acknowledged_hook_report(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    source: &str,
+    claim: &SessionStartClaim,
+    report_nonce: Option<&str>,
+) -> Json<serde_json::Value> {
+    log::info!(
+        "[hook-duplicate] tab={} provider={} source={} session={} nonce_verified={} nonce_already_acknowledged={}",
+        escaped_hook_log_field(tab_id),
+        escaped_hook_log_field(provider_id),
+        escaped_hook_log_field(source),
+        escaped_hook_log_field(session_id),
+        claim.nonce_verified,
+        claim.nonce_already_acknowledged,
+    );
+    acknowledge_and_reconcile_session_binding(svc, tab_id, claim, report_nonce);
+    Json(serde_json::json!({"ok": true, "changed": false}))
 }
 
 /// A report carrying a binding nonce that disagrees with the tab's own launch

@@ -138,11 +138,14 @@ pub async fn clean_restart(
         ));
     }
     let app = state.svc.app_handle.clone();
+    log::info!("[shutdown] clean-restart request accepted");
     tokio::task::spawn_blocking(move || {
         crate::crash::shutdown::mark_shutting_down_for(
             crate::crash::lifecycle::ShutdownReason::Restart,
         );
+        log::info!("[shutdown] requesting Tauri app exit");
         app.exit(0);
+        log::info!("[shutdown] Tauri app exit request returned");
     });
     Ok(Json(serde_json::json!({"accepted": true})))
 }
