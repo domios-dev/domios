@@ -347,6 +347,7 @@ fn spawn_reconciliation(
     }
     let port = runtime_api_port();
     let done = id.clone();
+    let failed_id = id.clone();
     if let Err(error) = std::thread::Builder::new()
         .name(format!("integration-repair-{id}"))
         .spawn(move || {
@@ -420,9 +421,9 @@ fn spawn_reconciliation(
             reconciling().lock().remove(&done);
         })
     {
-        reconciling().lock().remove(&id);
+        reconciling().lock().remove(&failed_id);
         log_reconciliation(
-            &id,
+            &failed_id,
             &IntegrationRepairOutcome::Skipped(format!("repair thread failed: {error}")),
             false,
         );
