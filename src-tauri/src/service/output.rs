@@ -864,7 +864,12 @@ impl ServiceContext {
                             .zip(screen_text)
                             .is_some_and(|(agent_type, screen)| {
                                 trust_candidate::provider_classifies_non_auto_ack_dialog(
-                                    self, tab_id, agent_type, screen,
+                                    self,
+                                    trust_candidate::ProviderDialogIdentity {
+                                        agent_type,
+                                        tab_id,
+                                    },
+                                    screen,
                                 )
                             });
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
