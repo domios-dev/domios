@@ -24,6 +24,71 @@ pub(crate) const GENERAL_AGENT_OUTPUT_DEADLINE: &str = "agent output deadline el
 /// An ordinary spawn's readiness deadline: this observer gave up, nothing more.
 pub(crate) const SPAWN_READINESS_DEADLINE: &str = "launch readiness deadline elapsed";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaunchInputEvidence {
+    SessionBinding,
+    ProviderComposer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaunchInputRefusal {
+    DirectoryTrustPrompt,
+    ProviderDialog(codeterm_plugin::tab_state::TabState),
+    Deadline,
+    AttemptSuperseded,
+}
+
+impl LaunchInputRefusal {
+    pub(crate) fn reason(self) -> String {
+        match self {
+            Self::DirectoryTrustPrompt => "active provider directory-trust prompt".into(),
+            Self::ProviderDialog(state) => format!("provider classified {state:?} dialog"),
+            Self::Deadline => {
+                "provider composer or session binding was not observed before the readiness deadline"
+                    .into()
+            }
+            Self::AttemptSuperseded => "launch attempt changed before input readiness".into(),
+        }
+    }
+}
+
+struct LaunchInputObservation {
+    session_bound: bool,
+    composer_ready: bool,
+    directory_trust_prompt: bool,
+    classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
+}
+
+fn decide_launch_input(
+    observation: LaunchInputObservation,
+) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
+    use codeterm_plugin::tab_state::TabState;
+
+    if observation.directory_trust_prompt {
+        return Err(LaunchInputRefusal::DirectoryTrustPrompt);
+    }
+    if let Some(classification) = observation.classification {
+        if classification.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+            && matches!(
+                classification.state,
+                TabState::WaitingOnAuth
+                    | TabState::UpdatePrompt
+                    | TabState::RateLimited
+                    | TabState::ClarifyingQuestion
+            )
+        {
+            return Err(LaunchInputRefusal::ProviderDialog(classification.state));
+        }
+    }
+    if observation.session_bound {
+        Ok(Some(LaunchInputEvidence::SessionBinding))
+    } else {
+        Ok(observation
+            .composer_ready
+            .then_some(LaunchInputEvidence::ProviderComposer))
+    }
+}
+
 /// The one launch an observation speaks for: the tab, the PTY it launched on,
 /// and that launch's binding nonce. A prior PTY or a rotated nonce is a
 /// different attempt and can never settle this one.
@@ -305,7 +370,7 @@ impl ServiceContext {
         attempt: &LaunchAttempt,
         agent_id: &str,
         timeout: std::time::Duration,
-    ) -> Option<crate::service::launch_delivery::LaunchInputEvidence> {
+    ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
         let signal = self
             .screen_state
             .lock()
@@ -316,17 +381,19 @@ impl ServiceContext {
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
             else {
-                return None;
+                return Err(LaunchInputRefusal::AttemptSuperseded);
             };
             if &current != attempt {
-                return None;
+                return Err(LaunchInputRefusal::AttemptSuperseded);
             }
 
             let (session_bound, session_id, cwd) = {
                 let mux = self.mux.read();
-                let tab = mux.get_tab(&attempt.tab_id)?;
+                let Some(tab) = mux.get_tab(&attempt.tab_id) else {
+                    return Err(LaunchInputRefusal::AttemptSuperseded);
+                };
                 if !attempt_owns_tab(tab, attempt) {
-                    return None;
+                    return Err(LaunchInputRefusal::AttemptSuperseded);
                 }
                 (
                     tab.launch_session_authenticated(),
@@ -343,51 +410,42 @@ impl ServiceContext {
                     screen_state.composer_input_state(&attempt.pty_id),
                 )
             };
-            let structural_composer = input.is_some_and(launch_composer_input_ready);
-            let structured_choice = structured_choice_candidate(&screen);
-            let provider_observation = if session_bound || structural_composer {
-                let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-                    tab_id: attempt.tab_id.clone(),
-                    agent_type: agent_id.to_string(),
-                    session_id,
-                    cwd,
-                    screen_text: screen.clone(),
-                };
-                self.agent_registry.with_provider(agent_id, |provider| {
-                    let provider_tui = provider.screen_has_tui(&screen);
-                    let composer_ready = input.is_some_and(|state| {
-                        launch_composer_input_ready(state)
-                            && (provider_tui || state.alternate_screen)
-                    });
-                    let prompt = provider.parse_prompt(&screen).is_some()
-                        || provider
-                            .directory_trust_prompt_response(&screen)
-                            .is_some();
-                    let state = provider
-                        .classify_tab_state(&snapshot)
-                        .map(|classification| classification.state);
-                    (composer_ready, prompt, state)
-                })
-            } else {
-                None
+            let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                tab_id: attempt.tab_id.clone(),
+                agent_type: agent_id.to_string(),
+                session_id,
+                cwd,
+                screen_text: screen.clone(),
             };
-            let (composer_ready, provider_prompt, provider_state) =
+            let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
+                let provider_tui = provider.screen_has_tui(&screen);
+                let composer_ready = input.is_some_and(|state| {
+                    launch_composer_input_ready(state)
+                        && (provider_tui || state.alternate_screen)
+                });
+                let directory_trust_prompt =
+                    provider.directory_trust_prompt_response(&screen).is_some();
+                let classification = provider.classify_tab_state(&snapshot);
+                (composer_ready, directory_trust_prompt, classification)
+            });
+            let (composer_ready, directory_trust_prompt, classification) =
                 provider_observation.unwrap_or((false, false, None));
-            if let Some(readiness) = crate::service::launch_delivery::launch_input_evidence(
-                crate::service::launch_delivery::LaunchInputObservation {
-                    session_bound,
-                    composer_ready,
-                    provider_prompt,
-                    structured_choice,
-                    provider_state,
-                },
-            ) {
-                return Some(readiness);
+            match decide_launch_input(LaunchInputObservation {
+                session_bound,
+                composer_ready,
+                directory_trust_prompt,
+                classification,
+            }) {
+                Err(refusal) => return Err(refusal),
+                Ok(Some(readiness)) => return Ok(readiness),
+                Ok(None) => {}
             }
 
-            let remaining = deadline.checked_duration_since(Instant::now())?;
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or(LaunchInputRefusal::Deadline)?;
             if remaining.is_zero() || !signal.wait_after(generation, remaining) {
-                return None;
+                return Err(LaunchInputRefusal::Deadline);
             }
             generation = signal.generation();
         }
@@ -562,30 +620,4 @@ fn launch_composer_input_ready(
                 bottom.saturating_add(1),
             )
         })
-}
-
-pub(crate) fn structured_choice_candidate(screen: &str) -> bool {
-    let mut option_lines = Vec::new();
-    for (index, line) in screen.lines().enumerate() {
-        let mut row = line.trim_start();
-        row = row.strip_prefix('│').unwrap_or(row).trim_start();
-        row = row
-            .strip_prefix('›')
-            .or_else(|| row.strip_prefix('❯'))
-            .or_else(|| row.strip_prefix('>'))
-            .unwrap_or(row)
-            .trim_start();
-        let digits = row.chars().take_while(char::is_ascii_digit).count();
-        if digits == 0 {
-            continue;
-        }
-        let Some(separator) = row[digits..].chars().next() else {
-            continue;
-        };
-        let remainder = row[digits + separator.len_utf8()..].trim();
-        if matches!(separator, '.' | ')') && !remainder.is_empty() {
-            option_lines.push(index);
-        }
-    }
-    option_lines.windows(2).any(|pair| pair[1] - pair[0] <= 2)
 }

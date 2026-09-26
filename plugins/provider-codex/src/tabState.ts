@@ -1,7 +1,4 @@
-import {
-  parseActiveTerminalChoice,
-  parseMenuOptions,
-} from "./prompt";
+import { parseActiveTerminalChoice } from "./prompt";
 
 export interface TabStateSnapshot {
   tabId: string;
@@ -113,7 +110,7 @@ interface UpdateScore {
 }
 
 function scoreUpdatePrompt(screen: string): UpdateScore {
-  const options = parseMenuOptions(screen);
+  const options = parseActiveTerminalChoice(screen)?.options ?? [];
   let hasUpdateOption = false;
   let hasSkipOption = false;
   for (let i = 0; i < options.length; i++) {

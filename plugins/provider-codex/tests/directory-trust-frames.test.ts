@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/plugin";
+import { classifyCodexTabState } from "../src/tabState";
 
 let passed = 0;
 let failed = 0;
@@ -46,6 +47,23 @@ console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\
   eq(parsedOptions.map(([label]) => label), visibleOptions, "update prompt retains the visible option labels and order");
   eq(parsedOptions.map(([, value]) => value), ["1", "2", "3"], "update prompt keeps screen option values in order");
   eq(plugin.buildPromptResponse!(1, update), ["G1tC", "DQ=="], "tab respond option two navigates to the next visible option");
+
+  const transcript = fs.readFileSync(path.join(dir, "codex-update-in-transcript.txt"), "utf8");
+  const transcriptState = classifyCodexTabState({
+    tabId: "history-tab",
+    agentType: "codex",
+    screenText: transcript,
+  }, 0);
+  eq(
+    transcriptState?.state,
+    "unknown",
+    "historical numbered update text is not classified as an active update modal",
+  );
+  eq(
+    transcriptState ? transcriptState.confidence >= 0.8 : false,
+    false,
+    "historical update text stays below the blocking confidence threshold",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -142,3 +142,71 @@ fn non_update_dialog_does_not_use_the_manual_update_prompt_path() {
 
     assert!(parse_manual_update_prompt(&provider(TabState::Working, prompt), &snapshot).is_none());
 }
+
+#[test]
+fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
+    let screen = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/provider-codex/tests/fixtures/directory-trust")
+            .join("trust-folder-access-0.157.1.txt"),
+    )
+    .expect("Codex trust fixture");
+    let pending = PendingPrompt {
+        question: "folder trust".into(),
+        options: menu_options(&screen),
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::with_directory_trust_response(
+        "fixture",
+        codeterm_plugin::provider::DirectoryTrustPromptResponse::Answer {
+            step: b"\r".to_vec(),
+        },
+    )
+    .with_tab_state(TabStateClassification {
+        state: TabState::ClarifyingQuestion,
+        confidence: 1.0,
+        data: None,
+        action: None,
+    })
+    .with_parsed_prompt(pending.clone());
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("fixture".into());
+    tab.cwd = Some("/srv/lanes/current".into());
+    tab.provisioned_cwd = Some("/srv/lanes/provisioned".into());
+    tab.pty_id = Some("pty-trust-unprovisioned".into());
+    tab.auto_approve = true;
+    tab.permission_auto_confirm = true;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+
+    let classified = super::trust_candidate::candidate_for_output(
+        &fixture.service,
+        &tab_id,
+        "fixture",
+        Some(&screen),
+        false,
+        true,
+        Some("cwd differs from provenance"),
+    );
+    assert!(classified, "provider trust classification remains independent of provenance");
+    assert!(!crate::service::directory_trust::directory_trust_check_applies(
+        fixture.service.mux.read().get_tab(&tab_id).expect("tab")
+    ));
+
+    fixture.service.apply_prompt_decision_with_screen(
+        &PromptDecision::NewPrompt { tab_id: tab_id.clone(), prompt: pending },
+        Some(&screen),
+        classified,
+        false,
+    );
+
+    assert_eq!(
+        super::bound_prompt_step_dispatch_count_for_test("pty-trust-unprovisioned"),
+        0,
+        "provider-classified trust dialog must not reach the General Agent auto-ack writer"
+    );
+}

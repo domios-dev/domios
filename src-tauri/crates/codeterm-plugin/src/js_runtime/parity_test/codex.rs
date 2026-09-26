@@ -267,6 +267,36 @@ fn codex_update_dialog_is_never_a_trust_dialog_native_js_parity() {
 }
 
 #[test]
+fn codex_update_copy_in_transcript_is_not_a_blocking_modal() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("codex-update-in-transcript.txt"),
+    )
+    .expect("historical-update fixture");
+    let provider = codex();
+    let snapshot = crate::tab_state::TabStateSnapshot {
+        tab_id: "history-tab".into(),
+        agent_type: "codex".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: screen,
+    };
+
+    let classification = provider
+        .classify_tab_state(&snapshot)
+        .expect("partial historical update evidence");
+    assert_eq!(classification.state, crate::tab_state::TabState::Unknown);
+    assert!(classification.confidence < 0.8);
+}
+
+#[test]
 fn codex_folder_trust_prompt_parses_as_numbered_choices() {
     if require_plugins().is_none() {
         return;

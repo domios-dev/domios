@@ -34,12 +34,15 @@ pub(crate) struct LaunchRegistry {
 #[cfg(test)]
 #[path = "launch/exit_recovery_shell_tests.rs"]
 mod exit_recovery_shell_tests;
+#[path = "launch/failure.rs"]
+mod failure;
 #[path = "launch/generation.rs"]
 mod generation;
 mod startup_readiness;
 #[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
+use failure::LaunchFailure;
 #[derive(Clone, Debug)]
 struct RegisteredLaunch {
     pty_id: String,
@@ -143,57 +146,6 @@ impl LaunchRegistry {
 
 static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
     std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum LaunchFailure {
-    PtySpawn(String),
-    ReaderSetup(String),
-    ReaderRuntime(String),
-    ReaderReadyTimeout,
-    ShellReadyTimeout,
-    PtyEof,
-    TabClosed,
-    LaunchWrite(String),
-    TaskDelivery(String),
-    ProviderInputNotReady,
-    SessionBindingNotObserved(String),
-    StartupSupervision(String),
-}
-impl LaunchFailure {
-    fn reason(&self) -> String {
-        match self {
-            Self::PtySpawn(error) => format!("PtySpawnFailed: {error}"),
-            Self::ReaderSetup(error) => format!("ReaderSetupFailed: {error}"),
-            Self::ReaderRuntime(error) => format!("ReaderRuntimeFailed: {error}"),
-            Self::ReaderReadyTimeout => "ReaderReadyTimeout".into(),
-            Self::ShellReadyTimeout => "ShellReadyTimeout".into(),
-            Self::PtyEof => "PtyEof".into(),
-            Self::TabClosed => "TabClosedBeforePtyLink".into(),
-            Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
-            Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
-            Self::ProviderInputNotReady => {
-                "ProviderInputNotReady: provider composer or session binding was not observed".into()
-            }
-            Self::SessionBindingNotObserved(reason) => {
-                format!("SessionBindingNotObserved: {reason}")
-            }
-            Self::StartupSupervision(error) => format!("StartupSupervisionFailed: {error}"),
-        }
-    }
-
-    /// Structural faults of the process or its stream, as opposed to an
-    /// observer's deadline. A live agent's own binding proof cannot survive one.
-    fn proves_process_gone(&self) -> bool {
-        matches!(
-            self,
-            Self::PtySpawn(_)
-                | Self::PtyEof
-                | Self::TabClosed
-                | Self::ReaderSetup(_)
-                | Self::ReaderRuntime(_)
-        )
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct LaunchGeneration {
     tab_id: String,
@@ -940,11 +892,22 @@ pub(crate) fn launch_agent_in_background_with_env(
             provider_readiness.requires_composer(),
         );
         let launch_input_readiness = if fallback_spec.is_some() {
-            svc.await_launch_input_readiness(
+            match svc.await_launch_input_readiness(
                 &readiness_attempt,
                 &agent_cmd,
                 input_readiness_timeout,
-            )
+            ) {
+                Ok(readiness) => Some(readiness),
+                Err(refusal) => {
+                    let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
+                    launch.fail(&svc, failure.clone());
+                    set_booting(false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(failure.reason()));
+                    }
+                    return;
+                }
+            }
         } else {
             None
         };
@@ -955,15 +918,6 @@ pub(crate) fn launch_agent_in_background_with_env(
                 pty_id,
                 readiness,
             );
-        }
-        if fallback_spec.is_some() && launch_input_readiness.is_none() {
-            let failure = LaunchFailure::ProviderInputNotReady;
-            launch.fail(&svc, failure.clone());
-            set_booting(false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(failure.reason()));
-            }
-            return;
         }
         if !launch.emit(&svc, BootStage::ProviderReady) {
             return;
@@ -983,25 +937,27 @@ pub(crate) fn launch_agent_in_background_with_env(
             let submit_strategy = registry
                 .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                 .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-            let launch_input_readiness = svc.await_launch_input_readiness(
+            let launch_input_readiness = match svc.await_launch_input_readiness(
                 &readiness_attempt,
                 &agent_cmd,
                 std::time::Duration::ZERO,
-            );
-            if launch_input_readiness.is_none() {
-                let failure = LaunchFailure::ProviderInputNotReady;
-                launch.fail(&svc, failure.clone());
-                set_booting(false);
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(failure.reason()));
+            ) {
+                Ok(readiness) => readiness,
+                Err(refusal) => {
+                    let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
+                    launch.fail(&svc, failure.clone());
+                    set_booting(false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(failure.reason()));
+                    }
+                    return;
                 }
-                return;
-            }
+            };
             let consumption = delivery_gate.consume_injection_with_readiness(
                 &svc.mux,
                 &tab_id,
                 &svc,
-                launch_input_readiness,
+                Some(launch_input_readiness),
                 || {
                     crate::service::pty_io::submit_transaction::submit_text_with_key(
                         &svc,

@@ -53,7 +53,7 @@ export function classifyCodexFolderTrustPrompt(
 ): CodexFolderTrustPrompt | null {
   const options = activeMenuOptions(screen);
   if (options.length !== 2) return null;
-  if (!hasDirectoryContextLine(screen)) return null;
+  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
   const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
   const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
   if (affirmativeIndex < 0 || negativeIndex < 0) return null;
@@ -98,8 +98,16 @@ function hasConfirmFooter(screen: string, lastOptionLine: number): boolean {
   return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
 }
 
-function hasDirectoryContextLine(screen: string): boolean {
-  return normalizeLines(screen).some((line) => {
+function hasDirectoryContextLine(screen: string, firstOptionLine: number): boolean {
+  const lines = normalizeLines(screen);
+  const start = Math.max(0, firstOptionLine - 12);
+  const questionLine = lines.findIndex((line, index) => {
+    if (index < start || index >= firstOptionLine || !line.includes("?")) return false;
+    return /\b(folder|directory|workspace)\b/i.test(line)
+      && /\b(trust|load(?:ed|ing)?)\b/i.test(line);
+  });
+  if (questionLine <= start) return false;
+  return lines.slice(start, questionLine).some((line) => {
     const text = line.trim();
     const context = /^[>❯›][ \t]+(.+)$/.exec(text)?.[1] || text;
     return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
