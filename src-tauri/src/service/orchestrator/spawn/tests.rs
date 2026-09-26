@@ -644,59 +644,16 @@ fn assigned_manager_bootstrap_keeps_the_assigned_task_starter_in_both_modes() {
 }
 
 #[test]
-fn supervised_spawn_replaces_the_existing_first_turn_with_startup_handshake() {
+fn supervised_spawn_uses_startup_handshake() {
     let mut params = SpawnAgentParams {
         starter_prompt: crate::agent::provider::StarterPrompt::AssignedTask,
         ..Default::default()
     };
-    let prepared_starter_prompt = params.starter_prompt;
-    apply_startup_handshake(&mut params, true, prepared_starter_prompt);
+    apply_startup_handshake(&mut params, true);
     assert_eq!(
         params.starter_prompt,
         crate::agent::provider::StarterPrompt::StartupHandshake
     );
-
-    apply_startup_handshake(&mut params, false, prepared_starter_prompt);
-    assert_eq!(
-        params.starter_prompt,
-        crate::agent::provider::StarterPrompt::AssignedTask
-    );
-}
-
-#[test]
-fn unsupervised_spawn_launch_carries_no_startup_ack_instruction() {
-    for provider in ["codex", "claude"] {
-        let mut params = SpawnAgentParams {
-            agent: Some(provider.into()),
-            starter_prompt: crate::agent::provider::StarterPrompt::StartupHandshake,
-            ..Default::default()
-        };
-        let prepared_starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
-
-        apply_startup_handshake(&mut params, false, prepared_starter_prompt);
-
-        assert_ne!(
-            params.starter_prompt,
-            crate::agent::provider::StarterPrompt::StartupHandshake,
-            "{} launch must not receive a startup instruction without an armed waiter",
-            params.agent.as_deref().unwrap()
-        );
-        assert!(params.starter_prompt.host_text().is_none());
-
-        let mut supervised = SpawnAgentParams {
-            agent: Some(provider.into()),
-            starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
-            ..Default::default()
-        };
-        apply_startup_handshake(&mut supervised, true, prepared_starter_prompt);
-
-        assert_eq!(
-            supervised.starter_prompt,
-            crate::agent::provider::StarterPrompt::StartupHandshake,
-            "{} supervised launch carries one startup starter",
-            supervised.agent.as_deref().unwrap()
-        );
-    }
 }
 
 #[test]
@@ -795,8 +752,7 @@ fn supervised_task_spawn_keeps_the_assigned_task_starter() {
         ..Default::default()
     };
 
-    let prepared_starter_prompt = params.starter_prompt;
-    apply_startup_handshake(&mut params, true, prepared_starter_prompt);
+    apply_startup_handshake(&mut params, true);
 
     assert_eq!(
         params.starter_prompt,

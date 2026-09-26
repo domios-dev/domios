@@ -94,17 +94,13 @@ impl ServiceContext {
         if !self.startup_attempt_is_current(authority) {
             return None;
         }
-        let failure_reason =
-            self.startup_prompt_failure_reason(&authority.child_tab_id, &authority.attempt_id);
+        let failure_reason = self
+            .startup_prompt_failure_reason(&authority.child_tab_id, &authority.attempt_id)
+            .filter(|reason| self.record_startup_failure_reason(authority, reason));
         if let Some(reason) = failure_reason.as_deref() {
             log::warn!(
                 "[startup-supervision] Tab {} startup deadline failed: {reason}",
                 authority.child_tab_id
-            );
-            self.emit_boot_stage(
-                &authority.child_tab_id,
-                crate::service::boot_stage::BootStage::SpawnFailed,
-                Some(reason),
             );
         }
         let provider_output = self.startup_provider_output(&authority.attempt_id);
@@ -417,39 +413,12 @@ impl ServiceContext {
                 "startup acknowledgement does not own attempt {attempt_id} for Tab {caller_tab_id}"
             ));
         };
-        if let Some(acknowledgement) = self.worker_ack.acknowledge_startup_for_binding(
-            caller_tab_id,
-            attempt_id,
-            session_id.as_deref(),
-            Some(binding_nonce),
-        ) {
-            return Ok(acknowledgement);
-        }
-        if let Some(refusal) = self.worker_ack.startup_ack_refusal(
+        self.worker_ack.resolve_startup_ack_for_binding(
             caller_tab_id,
             attempt_id,
             session_id.as_deref(),
             binding_nonce,
-        ) {
-            return Err(refusal);
-        }
-        if let Some(acknowledgement) = self.worker_ack.acknowledge_startup_for_binding(
-            caller_tab_id,
-            attempt_id,
-            session_id.as_deref(),
-            Some(binding_nonce),
-        ) {
-            return Ok(acknowledgement);
-        }
-        if let Some(refusal) = self.worker_ack.startup_ack_refusal(
-            caller_tab_id,
-            attempt_id,
-            session_id.as_deref(),
-            binding_nonce,
-        ) {
-            return Err(refusal);
-        }
-        Ok(AgentStartupAcknowledgement::NotRequired)
+        )
     }
 
     pub(crate) fn observe_agent_startup_launch_command_finished(
