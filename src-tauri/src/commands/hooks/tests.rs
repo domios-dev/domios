@@ -1,8 +1,8 @@
 use super::{
     infer_consent_for_owned_install, install_and_record_integration,
     install_provider_integration_body, reconciliation_log_line, repair_integration_on_startup,
-    resolve_precompact_choice, run_install_off_runtime, update_precompact_choice,
-    IntegrationRepairOutcome,
+    resolve_precompact_choice, restore_integration_for_provider, run_install_off_runtime,
+    update_precompact_choice, IntegrationRepairOutcome,
 };
 use crate::agent::provider::{
     install_integration_with_trust_grant, AgentLaunchParams, AgentProvider,
@@ -744,6 +744,10 @@ fn unmarked_opencode_plugin_file_is_never_rewritten() {
     assert_eq!(
         reconcile_probe(&provider, true, false),
         IntegrationRepairOutcome::ForeignPluginFilePreserved
+    );
+    assert_eq!(
+        restore_integration_for_provider(&provider),
+        Err("plugin-file integrations have no backup to restore".into())
     );
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(provider.check_integration(), status);
