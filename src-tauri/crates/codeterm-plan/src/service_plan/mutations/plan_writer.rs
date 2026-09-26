@@ -7,8 +7,9 @@ impl PlanStore {
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
         let _writer_turn = self.mutation_writer.enter();
-        self.with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
-            .expect("unconditional plan mutation returns a value")
+        Ok(self
+            .with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
+            .expect("unconditional plan mutation returns a value"))
     }
 
     pub(in crate::service_plan) fn with_plan_in_writer<T, F>(
@@ -20,8 +21,9 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
-        self.with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
-            .expect("unconditional plan mutation returns a value")
+        Ok(self
+            .with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
+            .expect("unconditional plan mutation returns a value"))
     }
 
     pub(in crate::service_plan) fn with_plan_if_changed<T, F>(
