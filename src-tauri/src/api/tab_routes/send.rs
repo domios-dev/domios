@@ -457,89 +457,169 @@ pub async fn send_text(
             let action_tab = tab_id.clone();
             let bytes_written = std::cell::Cell::new(false);
             let action_result = tokio::task::spawn_blocking(move || {
+                let provider_action_refusal = || {
+                    let target = {
+                        let mux = svc.mux.read();
+                        mux.get_tab(&action_tab).and_then(|tab| {
+                            let pty_id = tab.pty_id.as_deref()?;
+                            if mux.tab_id_for_pty(pty_id)? != action_tab.as_str() {
+                                return None;
+                            }
+                            Some((
+                                pty_id.to_string(),
+                                tab.agent_type.clone()?,
+                                tab.agent_session_id.clone(),
+                                tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                                tab.launch_session_authenticated(),
+                            ))
+                        })
+                    };
+                    target.and_then(|(pty_id, agent_type, session_id, cwd, session_bound)| {
+                        let (screen, input) = {
+                            let screen_state = svc.screen_state.lock();
+                            (
+                                screen_state.get_screen_text(&pty_id),
+                                screen_state.composer_input_state(&pty_id),
+                            )
+                        };
+                        let Some(screen) = screen else {
+                            return Some("provider screen state is unavailable".to_string());
+                        };
+                        let shell_prompt =
+                            crate::pty::screen_state::screen_has_bare_shell_prompt(&screen);
+                        let provider_result =
+                            svc.agent_registry.with_provider(&agent_type, |provider| {
+                                use codeterm_plugin::tab_state::TabState;
+
+                                let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                                    tab_id: action_tab.clone(),
+                                    agent_type: agent_type.clone(),
+                                    session_id,
+                                    cwd,
+                                    screen_text: screen.clone(),
+                                };
+                                let classification = provider.classify_tab_state(&snapshot);
+                                let high_confidence =
+                                    classification.as_ref().is_some_and(|value| {
+                                        value.confidence
+                                            >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                                    });
+                                let structured_choice = high_confidence
+                                    && classification.as_ref().is_some_and(|value| {
+                                        value.state == TabState::ClarifyingQuestion
+                                    })
+                                    && provider.parse_prompt(&screen).is_some();
+                                let update_dialog = high_confidence
+                                    && classification
+                                        .as_ref()
+                                        .is_some_and(|value| value.state == TabState::UpdatePrompt);
+                                if provider.directory_trust_prompt_response(&screen).is_some() {
+                                    return Err("provider trust dialog is visible".to_string());
+                                }
+                                if update_dialog {
+                                    return Err("provider update dialog is visible".to_string());
+                                }
+                                if structured_choice {
+                                    return Err("provider structured-choice dialog is visible".to_string());
+                                }
+                                let composer_ready = !shell_prompt
+                                    && input.as_ref().is_some_and(|state| {
+                                        let cursor_ready =
+                                            crate::agent::offline_state_classifier::composer_cursor_ready(
+                                                state.cursor_visible,
+                                                state.cursor_row,
+                                                state.rows,
+                                            ) || state
+                                                .inverse_caret_row
+                                                .zip(state.last_nonblank_row)
+                                                .is_some_and(|(row, bottom)| {
+                                                    crate::agent::offline_state_classifier::composer_cursor_ready(
+                                                        true,
+                                                        row,
+                                                        bottom.saturating_add(1),
+                                                    )
+                                                });
+                                        cursor_ready
+                                            && (provider.screen_has_tui(&screen)
+                                                || state.alternate_screen)
+                                    });
+                                if shell_prompt
+                                    || (!shell_prompt && session_bound)
+                                    || composer_ready
+                                {
+                                    Ok(())
+                                } else {
+                                    Err("provider input readiness is not proven".to_string())
+                                }
+                            });
+                        match provider_result {
+                            Some(Ok(())) => None,
+                            Some(Err(detail)) => Some(detail),
+                            None if shell_prompt => None,
+                            None => Some("provider input readiness is not proven".to_string()),
+                        }
+                    })
+                };
+                let action_refusal = || {
+                    let detail = provider_action_refusal()?;
+                    log::info!(
+                        "[send-actions] refused tab={} detail={}",
+                        action_tab,
+                        detail
+                    );
+                    Some(if bytes_written.get() {
+                        DeliveryError::SubmitUnconfirmed {
+                            tab: action_tab.clone(),
+                            detail,
+                        }
+                    } else {
+                        DeliveryError::TabBusyRefused {
+                            tab: action_tab.clone(),
+                            detail,
+                        }
+                    })
+                };
+                if let Some(error) = action_refusal() {
+                    return Err(error);
+                }
                 crate::service::pty_io::execute_ordered_actions(
                     &text,
                     &ordered,
-                    |body, enter| match svc.send_text_input_delivery(&action_tab, body, enter, None)
-                    {
-                        Ok(()) => {
-                            bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
-                            Ok(())
+                    |body, enter| {
+                        if enter {
+                            if let Some(error) = action_refusal() {
+                                return Err(error);
+                            }
                         }
-                        Err(error) if bytes_written.get() && !error.bytes_written() => {
-                            Err(DeliveryError::SubmitUnconfirmed {
-                                tab: action_tab.clone(),
-                                detail: error.to_string(),
-                            })
+                        match svc.send_text_input_delivery(&action_tab, body, enter, None) {
+                            Ok(()) => {
+                                bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
+                                Ok(())
+                            }
+                            Err(error) if enter && !error.bytes_written() => {
+                                if let Some(action_error) = action_refusal() {
+                                    Err(action_error)
+                                } else if bytes_written.get() {
+                                    Err(DeliveryError::SubmitUnconfirmed {
+                                        tab: action_tab.clone(),
+                                        detail: error.to_string(),
+                                    })
+                                } else {
+                                    Err(error)
+                                }
+                            }
+                            Err(error) if bytes_written.get() && !error.bytes_written() => {
+                                Err(DeliveryError::SubmitUnconfirmed {
+                                    tab: action_tab.clone(),
+                                    detail: error.to_string(),
+                                })
+                            }
+                            Err(error) => Err(error),
                         }
-                        Err(error) => Err(error),
                     },
                     |bytes| {
-                        let modal_visible = {
-                            let target = {
-                                let mux = svc.mux.read();
-                                mux.get_tab(&action_tab).and_then(|tab| {
-                                    let pty_id = tab.pty_id.as_deref()?;
-                                    if mux.tab_id_for_pty(pty_id)? != action_tab.as_str() {
-                                        return None;
-                                    }
-                                    Some((
-                                        pty_id.to_string(),
-                                        tab.agent_type.clone()?,
-                                        tab.agent_session_id.clone(),
-                                        tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
-                                    ))
-                                })
-                            };
-                            target
-                                .and_then(|(pty_id, agent_type, session_id, cwd)| {
-                                    let screen =
-                                        svc.screen_state.lock().get_screen_text(&pty_id)?;
-                                    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-                                        tab_id: action_tab.clone(),
-                                        agent_type: agent_type.clone(),
-                                        session_id,
-                                        cwd,
-                                        screen_text: screen.clone(),
-                                    };
-                                    svc.agent_registry.with_provider(&agent_type, |provider| {
-                                        use codeterm_plugin::tab_state::TabState;
-
-                                        let classification = provider.classify_tab_state(&snapshot);
-                                        let high_confidence =
-                                            classification.as_ref().is_some_and(|value| {
-                                                value.confidence
-                                                    >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-                                            });
-                                        let structured_choice = high_confidence
-                                            && classification.as_ref().is_some_and(|value| {
-                                                value.state == TabState::ClarifyingQuestion
-                                            })
-                                            && provider.parse_prompt(&screen).is_some();
-                                        let update_dialog = high_confidence
-                                            && classification.as_ref().is_some_and(|value| {
-                                                value.state == TabState::UpdatePrompt
-                                            });
-                                        provider.directory_trust_prompt_response(&screen).is_some()
-                                            || structured_choice
-                                            || update_dialog
-                                    })
-                                })
-                                .unwrap_or(false)
-                        };
-                        if modal_visible {
-                            let detail = "provider-classified modal dialog is visible".to_string();
-                            return Err(if bytes_written.get() {
-                                DeliveryError::SubmitUnconfirmed {
-                                    tab: action_tab.clone(),
-                                    detail,
-                                }
-                            } else {
-                                DeliveryError::TabBusyRefused {
-                                    tab: action_tab.clone(),
-                                    detail,
-                                }
-                            });
+                        if let Some(error) = action_refusal() {
+                            return Err(error);
                         }
                         svc.write_raw(&action_tab, bytes)
                             .map_err(|error| {
@@ -729,7 +809,7 @@ mod action_delivery_tests {
                 assert!(enter);
                 Err::<(), _>(DeliveryError::TabBusyRefused {
                     tab: "53854ac8".into(),
-                    detail: "provider-classified update dialog is visible".into(),
+                    detail: "provider update dialog is visible".into(),
                 })
             },
             |bytes| {
@@ -744,6 +824,10 @@ mod action_delivery_tests {
         assert_eq!(rejection.status, StatusCode::CONFLICT);
         assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
         assert_eq!(rejection.body["error"]["bytes_written"], false);
+        assert_eq!(
+            rejection.body["error"]["detail"],
+            "provider update dialog is visible"
+        );
     }
 
     #[test]
@@ -757,7 +841,7 @@ mod action_delivery_tests {
                 if bytes == b"up" {
                     Err(DeliveryError::TabBusyRefused {
                         tab: "53854ac8".into(),
-                        detail: "provider-classified trust dialog is visible".into(),
+                        detail: "provider trust dialog is visible".into(),
                     })
                 } else {
                     raw_writes.push(bytes.to_vec());
@@ -772,6 +856,10 @@ mod action_delivery_tests {
         assert_eq!(rejection.status, StatusCode::CONFLICT);
         assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
         assert_eq!(rejection.body["error"]["bytes_written"], false);
+        assert_eq!(
+            rejection.body["error"]["detail"],
+            "provider trust dialog is visible"
+        );
     }
 
     #[test]

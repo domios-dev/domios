@@ -655,7 +655,8 @@ fn run_with_submit_key<T: SubmitTransport>(
                 break;
             }
         }
-        if let Err(error) = key_guard(submit_key_writes == 0) {
+        let allow_initial_key = submit_key_writes == 0 && initial_key_delay.is_zero();
+        if let Err(error) = key_guard(allow_initial_key) {
             if submit_key_writes > 0 {
                 break;
             }
@@ -842,27 +843,31 @@ pub(crate) fn submit_text_with_key_claimed(
             cwd,
             screen_text: screen.clone(),
         };
+        let shell_prompt = crate::pty::screen_state::screen_has_bare_shell_prompt(&screen);
         let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
             use codeterm_plugin::tab_state::TabState;
 
             let provider_tui = provider.screen_has_tui(&screen);
-            let composer_ready = input.as_ref().is_some_and(|state| {
-                let cursor_ready = crate::agent::offline_state_classifier::composer_cursor_ready(
-                    state.cursor_visible,
-                    state.cursor_row,
-                    state.rows,
-                ) || state
-                    .inverse_caret_row
-                    .zip(state.last_nonblank_row)
-                    .is_some_and(|(row, bottom)| {
-                        crate::agent::offline_state_classifier::composer_cursor_ready(
-                            true,
-                            row,
-                            bottom.saturating_add(1),
-                        )
+            let composer_ready =
+                !shell_prompt
+                    && input.as_ref().is_some_and(|state| {
+                        let cursor_ready =
+                            crate::agent::offline_state_classifier::composer_cursor_ready(
+                                state.cursor_visible,
+                                state.cursor_row,
+                                state.rows,
+                            ) || state
+                                .inverse_caret_row
+                                .zip(state.last_nonblank_row)
+                                .is_some_and(|(row, bottom)| {
+                                    crate::agent::offline_state_classifier::composer_cursor_ready(
+                                        true,
+                                        row,
+                                        bottom.saturating_add(1),
+                                    )
+                                });
+                        cursor_ready && (provider_tui || state.alternate_screen)
                     });
-                cursor_ready && (provider_tui || state.alternate_screen)
-            });
             let classification = provider.classify_tab_state(&snapshot);
             let high_confidence = classification.as_ref().is_some_and(|value| {
                 value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
@@ -896,7 +901,7 @@ pub(crate) fn submit_text_with_key_claimed(
                 pty_id: pty_id.to_string(),
             });
         }
-        if allow_initial_key || session_bound || composer_ready {
+        if allow_initial_key || (!shell_prompt && session_bound) || composer_ready {
             Ok(())
         } else {
             Err(InjectionError::AgentInputUnavailable {
