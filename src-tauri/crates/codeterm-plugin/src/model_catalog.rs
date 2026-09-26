@@ -657,6 +657,51 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     models
 }
 
+pub fn has_live_snapshot(provider_id: &str) -> bool {
+    registry()
+        .read()
+        .get(provider_id)
+        .is_some_and(|snapshot| snapshot.source == Source::Live)
+}
+
+pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
+    registry()
+        .read()
+        .get(provider_id)
+        .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()))
+}
+
+pub fn resolve_live_default_model(provider_id: &str) -> Option<String> {
+    let registry = registry();
+    let guard = registry.read();
+    let snapshot = guard.get(provider_id)?;
+    if snapshot.source != Source::Live {
+        return None;
+    }
+    snapshot
+        .default
+        .as_deref()
+        .and_then(|default| find_model(&snapshot.models, default))
+        .map(|model| model.id.clone())
+        .or_else(|| {
+            snapshot
+                .models
+                .iter()
+                .find(|model| model.available != Some(false))
+                .map(|model| model.id.clone())
+        })
+}
+
+pub fn resolve_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {
+    let models = resolve_models(provider_id);
+    find_model(&models, requested).cloned()
+}
+
+pub fn resolve_live_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {
+    let models = resolve_live_models(provider_id)?;
+    find_model(&models, requested).cloned()
+}
+
 fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
     let snapshot = registry().read().get(provider_id).cloned();
     let Some(snapshot) = snapshot else {

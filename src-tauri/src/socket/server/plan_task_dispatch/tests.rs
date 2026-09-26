@@ -37,6 +37,7 @@ mod checkout_occupancy;
 mod concurrent_dispatch;
 mod dispatch_placement;
 mod dispatch_recovery;
+mod invalid_model;
 mod lane_persist;
 mod lane_provisioning;
 mod lane_resolution_multirepo;

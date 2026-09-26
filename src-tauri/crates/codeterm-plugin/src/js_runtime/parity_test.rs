@@ -19,6 +19,9 @@ use crate::{
 
 use super::{load_one, JsProvider};
 
+#[path = "parity_test/model_catalogue.rs"]
+mod model_catalogue;
+
 type PluginsDir = PathBuf;
 
 fn workspace_plugins_root() -> PathBuf {
@@ -191,6 +194,10 @@ impl AgentProvider for DiscoverModelsNativeStub {
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
         Some(discover_models_fixture())
+    }
+
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability::authoritative_live()
     }
 }
 

@@ -18,6 +18,7 @@ pub mod manifest;
 pub mod mem;
 pub mod mem_secret;
 pub mod mem_secret_autounlock;
+pub mod model_error;
 pub mod mesh;
 pub mod notify;
 pub mod orchestrator;

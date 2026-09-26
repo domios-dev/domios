@@ -450,6 +450,12 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &agent_cmd,
+            params.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
@@ -461,11 +467,6 @@ impl ServiceContext {
             params.planned_model.as_deref(),
         );
         params.model = model_resolution.model.clone();
-        crate::service::spawn::validate_agent_model(
-            &self.agent_registry,
-            &agent_cmd,
-            params.model.as_deref(),
-        )?;
         crate::service::spawn::validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
@@ -489,12 +490,10 @@ impl ServiceContext {
         };
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
-        let warning = match (cwd_warning, cli_warning) {
-            (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
-            (None, None) => None,
-        };
+        let warning = crate::service::spawn::merge_spawn_warnings(
+            crate::service::spawn::merge_spawn_warnings(cwd_warning, cli_warning),
+            model_resolution.warning.clone(),
+        );
         params.cwd = resolved_cwd;
 
         let default_chat_view = crate::service::spawn::should_default_agent_tab_to_chat(
