@@ -93,6 +93,7 @@ impl Redispatch {
             worktree_path: Some(self.lane.clone()),
             base: base.map(str::to_string),
             requires_repository: true,
+            ..TaskReadinessScope::default()
         }
     }
 

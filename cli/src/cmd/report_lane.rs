@@ -7,6 +7,8 @@ use crate::client::SocketClient;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskReadinessScope {
     pub worktree_path: Option<PathBuf>,
+    pub canonical_writer: bool,
+    pub canonical_checkout_path: Option<PathBuf>,
     pub base: Option<String>,
     pub requires_repository: bool,
 }
@@ -25,8 +27,25 @@ pub fn task_readiness_scope(
         serde_json::json!({ "plan_id": plan_id }),
     )
     .ok()?;
-    let task = find_task(&plan, task_id)?;
-    Some(task_readiness_scope_from_task(task, tab_id))
+    task_readiness_scope_from_plan(&plan, task_id, tab_id)
+}
+
+fn task_readiness_scope_from_plan(
+    plan: &Value,
+    task_id: &str,
+    tab_id: &str,
+) -> Option<TaskReadinessScope> {
+    let task = find_task(plan, task_id)?;
+    let canonical_project_path = plan
+        .get("canonical_project_path")
+        .and_then(Value::as_str)
+        .filter(|path| !path.trim().is_empty())
+        .or_else(|| plan.get("project_path").and_then(Value::as_str));
+    Some(task_readiness_scope_from_task_with_canonical_path(
+        task,
+        tab_id,
+        canonical_project_path,
+    ))
 }
 
 fn find_task<'a>(plan: &'a Value, task_id: &str) -> Option<&'a Value> {
@@ -40,13 +59,36 @@ fn matches(value: Option<&Value>, expected: &str) -> bool {
     value.and_then(Value::as_str) == Some(expected)
 }
 
+#[cfg(test)]
 fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessScope {
+    task_readiness_scope_from_task_with_canonical_path(task, tab_id, None)
+}
+
+fn task_readiness_scope_from_task_with_canonical_path(
+    task: &Value,
+    tab_id: &str,
+    canonical_project_path: Option<&str>,
+) -> TaskReadinessScope {
     let attempt = open_attempt(task, tab_id);
+    let canonical_writer = attempt
+        .and_then(|attempt| attempt.get("placement"))
+        .and_then(Value::as_str)
+        == Some("canonical_writer");
     let lane = task.get("lane");
     // Use one attempt record for worktree and base so a live attempt cannot borrow a stale base from the lane.
     let record = match attempt {
         Some(attempt) if nonempty(attempt.get("worktree_path")).is_some() => Some(attempt),
         _ => lane.or(attempt),
+    };
+    let canonical_checkout_path = if canonical_writer {
+        canonical_project_path
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+            .or_else(|| attempt.and_then(|attempt| nonempty(attempt.get("worktree_path"))))
+            .map(|path| PathBuf::from(codeterm_paths::strip_verbatim_prefix(&path)))
+    } else {
+        None
     };
     TaskReadinessScope {
         // Lane records written before the provisioning fix carry a Windows
@@ -54,6 +96,8 @@ fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessSc
         worktree_path: record
             .and_then(|record| nonempty(record.get("worktree_path")))
             .map(|path| PathBuf::from(codeterm_paths::strip_verbatim_prefix(&path))),
+        canonical_writer,
+        canonical_checkout_path,
         base: record.and_then(|record| nonempty(record.get("base"))),
         requires_repository: task.get("execution_intent").and_then(Value::as_str)
             != Some("non_repository"),
@@ -64,6 +108,8 @@ impl Default for TaskReadinessScope {
     fn default() -> Self {
         Self {
             worktree_path: None,
+            canonical_writer: false,
+            canonical_checkout_path: None,
             base: None,
             requires_repository: true,
         }
@@ -288,6 +334,117 @@ mod tests {
     }
 
     #[test]
+    fn canonical_writer_in_review_report_with_sha_is_validated_against_canonical() {
+        let dir = repo();
+        fs::write(dir.path().join("owned.txt"), "canonical work\n").unwrap();
+        run(dir.path(), &["add", "owned.txt"]);
+        run(dir.path(), &["commit", "-m", "canonical work"]);
+        let committed = head(dir.path());
+        let task = json!({
+            "id": "task_a",
+            "lane": {},
+            "execution_attempts": [{
+                "executor_tab_id": "tab-a",
+                "placement": "canonical_writer"
+            }],
+        });
+        let plan = json!({
+            "canonical_project_path": dir.path().to_string_lossy(),
+            "tasks": [task],
+        });
+        let scope = task_readiness_scope_from_plan(&plan, "task_a", "tab-a")
+            .expect("the canonical writer attempt belongs to the plan");
+
+        assert!(scope.canonical_writer);
+        assert_eq!(scope.worktree_path, None);
+        assert_eq!(scope.canonical_checkout_path.as_deref(), Some(dir.path()));
+
+        let (branch, reported, _) = crate::cmd::report_guard::enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(committed.clone()),
+            ReportBase::default(),
+            None,
+            false,
+        )
+        .expect("the attempt placement must bind the report to the plan's canonical checkout");
+
+        assert_eq!(branch.as_deref(), Some("main"));
+        assert_eq!(reported.as_deref(), Some(committed.as_str()));
+    }
+
+    #[test]
+    fn canonical_writer_report_with_dirty_canonical_is_refused() {
+        let dir = repo();
+        let committed = head(dir.path());
+        let task = json!({
+            "id": "task_a",
+            "lane": {},
+            "execution_attempts": [{
+                "executor_tab_id": "tab-a",
+                "placement": "canonical_writer"
+            }],
+        });
+        let plan = json!({
+            "canonical_project_path": dir.path().to_string_lossy(),
+            "tasks": [task],
+        });
+        let scope = task_readiness_scope_from_plan(&plan, "task_a", "tab-a")
+            .expect("the canonical writer attempt belongs to the plan");
+        fs::write(dir.path().join("VISION.md"), "uncommitted\n").unwrap();
+
+        let error = crate::cmd::report_guard::enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(committed.clone()),
+            ReportBase::typed(&committed),
+            None,
+            true,
+        )
+        .expect_err("canonical dirt must refuse despite explicit base and dirt acknowledgement");
+
+        assert_eq!(error.dirty_files, vec!["VISION.md"]);
+    }
+
+    #[test]
+    fn lane_bound_report_without_worktree_still_refuses() {
+        let dir = repo();
+        let task = json!({
+            "id": "task_a",
+            "lane": {},
+            "execution_attempts": [{
+                "executor_tab_id": "tab-a"
+            }],
+        });
+        let plan = json!({
+            "canonical_project_path": dir.path().to_string_lossy(),
+            "tasks": [task],
+        });
+        let scope = task_readiness_scope_from_plan(&plan, "task_a", "tab-a")
+            .expect("the lane-bound attempt belongs to the plan");
+
+        let error = crate::cmd::report_guard::enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(head(dir.path())),
+            ReportBase::default(),
+            None,
+            false,
+        )
+        .expect_err("canonical path availability must not resolve an isolated lane");
+
+        assert!(!scope.canonical_writer);
+        assert!(error.reason.contains("cannot locate your lane worktree"));
+        assert_eq!(
+            error.report_outcome(),
+            Some(codeterm_types::agent::ReportOutcomeClass::DeliveredUnattached)
+        );
+    }
+
+    #[test]
     fn task_is_found_by_handle() {
         let plan = json!({ "tasks": [{ "id": "task_a", "handle": "alpha" }] });
 
@@ -420,6 +577,7 @@ mod tests {
             worktree_path: Some(lane),
             base: Some("stale-task-base".into()),
             requires_repository: true,
+            ..TaskReadinessScope::default()
         };
 
         let (_, reported, _) = crate::cmd::report_guard::enrich_ready_report(
