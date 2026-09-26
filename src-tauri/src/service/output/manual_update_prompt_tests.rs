@@ -87,6 +87,12 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
     tab.permission_auto_confirm = true;
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(provider));
+    assert!(super::trust_candidate::provider_classifies_non_auto_ack_dialog(
+        &fixture.service,
+        "fixture",
+        &tab_id,
+        &snapshot.screen_text,
+    ));
     fixture.service.apply_prompt_decision_with_screen(
         &PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
@@ -115,7 +121,7 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
         ["1", "2", "3"]
     );
     assert_eq!(
-        super::bound_prompt_step_dispatch_count_for_test("pty-update"),
+        super::prompt_step_dispatch_count_for_test("pty-update"),
         0,
         "manual update prompts must never dispatch PTY keys automatically"
     );
@@ -147,13 +153,22 @@ fn non_update_dialog_does_not_use_the_manual_update_prompt_path() {
 fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../plugins/provider-codex/tests/fixtures/directory-trust")
-            .join("trust-folder-access-0.157.1.txt"),
+            .join("../plugins/provider-claude/tests/fixtures/folder-trust")
+            .join("quick-safety-yes-focused.txt"),
     )
-    .expect("Codex trust fixture");
+    .expect("Claude trust fixture");
     let pending = PendingPrompt {
         question: "folder trust".into(),
-        options: menu_options(&screen),
+        options: vec![
+            PromptOption {
+                label: "Yes, I trust this folder".into(),
+                value: "yes".into(),
+            },
+            PromptOption {
+                label: "No, exit".into(),
+                value: "no".into(),
+            },
+        ],
         sections: None,
         multi_select: Some(false),
         submit_available: Some(false),
@@ -180,10 +195,21 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
     tab.pty_id = Some("pty-trust-unprovisioned".into());
     tab.auto_approve = true;
     tab.permission_auto_confirm = true;
+    mux.register_alias(crate::service::general_agent::GENERAL_ALIAS, &tab_id);
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(provider));
 
-    let classified = super::trust_candidate::candidate_for_output(
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+            .as_deref(),
+        Some(tab_id.as_str())
+    );
+
+    let provider_classifies_trust = super::trust_candidate::candidate_for_output(
         &fixture.service,
         &tab_id,
         "fixture",
@@ -192,20 +218,33 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
         true,
         Some("cwd differs from provenance"),
     );
-    assert!(classified, "provider trust classification remains independent of provenance");
+    assert!(
+        provider_classifies_trust,
+        "provider trust classification remains independent of provenance"
+    );
     assert!(!crate::service::directory_trust::directory_trust_check_applies(
         fixture.service.mux.read().get_tab(&tab_id).expect("tab")
     ));
 
+    assert_eq!(
+        crate::service::general_agent::blocker::classify(&pending, &screen, false)
+            .map(|ack| ack.kind),
+        Some(crate::service::general_agent::blocker::AutoAckKind::FirstAffirmative),
+        "the fixture reaches the General Agent affirmative classifier"
+    );
+
     fixture.service.apply_prompt_decision_with_screen(
-        &PromptDecision::NewPrompt { tab_id: tab_id.clone(), prompt: pending },
+        &PromptDecision::NewPrompt {
+            tab_id: tab_id.clone(),
+            prompt: pending,
+        },
         Some(&screen),
-        classified,
+        false,
         false,
     );
 
     assert_eq!(
-        super::bound_prompt_step_dispatch_count_for_test("pty-trust-unprovisioned"),
+        super::prompt_step_dispatch_count_for_test("pty-trust-unprovisioned"),
         0,
         "provider-classified trust dialog must not reach the General Agent auto-ack writer"
     );

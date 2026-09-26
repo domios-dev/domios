@@ -56,6 +56,7 @@ struct LaunchInputObservation {
     session_bound: bool,
     composer_ready: bool,
     directory_trust_prompt: bool,
+    active_interactive_prompt: bool,
     classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
 }
 
@@ -68,14 +69,13 @@ fn decide_launch_input(
         return Err(LaunchInputRefusal::DirectoryTrustPrompt);
     }
     if let Some(classification) = observation.classification {
+        let active_dialog = match classification.state {
+            TabState::WaitingOnAuth | TabState::UpdatePrompt | TabState::RateLimited => true,
+            TabState::ClarifyingQuestion => observation.active_interactive_prompt,
+            _ => false,
+        };
         if classification.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-            && matches!(
-                classification.state,
-                TabState::WaitingOnAuth
-                    | TabState::UpdatePrompt
-                    | TabState::RateLimited
-                    | TabState::ClarifyingQuestion
-            )
+            && active_dialog
         {
             return Err(LaunchInputRefusal::ProviderDialog(classification.state));
         }
@@ -426,14 +426,29 @@ impl ServiceContext {
                 let directory_trust_prompt =
                     provider.directory_trust_prompt_response(&screen).is_some();
                 let classification = provider.classify_tab_state(&snapshot);
-                (composer_ready, directory_trust_prompt, classification)
+                let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
+                    value.state == codeterm_plugin::tab_state::TabState::ClarifyingQuestion
+                        && value.confidence
+                            >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                }) && provider.parse_prompt(&screen).is_some();
+                (
+                    composer_ready,
+                    directory_trust_prompt,
+                    active_interactive_prompt,
+                    classification,
+                )
             });
-            let (composer_ready, directory_trust_prompt, classification) =
-                provider_observation.unwrap_or((false, false, None));
+            let (
+                composer_ready,
+                directory_trust_prompt,
+                active_interactive_prompt,
+                classification,
+            ) = provider_observation.unwrap_or((false, false, false, None));
             match decide_launch_input(LaunchInputObservation {
                 session_bound,
                 composer_ready,
                 directory_trust_prompt,
+                active_interactive_prompt,
                 classification,
             }) {
                 Err(refusal) => return Err(refusal),

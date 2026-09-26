@@ -36,6 +36,42 @@ pub(super) fn provider_classifies_directory_trust_prompt(
             .unwrap_or(false)
 }
 
+pub(super) fn provider_classifies_non_auto_ack_dialog(
+    service: &crate::service::ServiceContext,
+    agent_type: &str,
+    tab_id: &str,
+    screen: &str,
+) -> bool {
+    let (session_id, cwd) = {
+        let mux = service.mux.read();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return false;
+        };
+        (
+            tab.agent_session_id.clone(),
+            tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+        )
+    };
+    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+        tab_id: tab_id.to_string(),
+        agent_type: agent_type.to_string(),
+        session_id,
+        cwd,
+        screen_text: screen.to_string(),
+    };
+    service
+        .agent_registry
+        .with_provider(agent_type, |provider| {
+            (may_be_directory_trust_prompt(screen)
+                && provider.directory_trust_prompt_response(screen).is_some())
+                || (super::manual_update_prompt_candidate(screen)
+                    && crate::agent::state_reactor::is_manual_update_prompt(
+                        provider.classify_tab_state(&snapshot).as_ref(),
+                    ))
+        })
+        .unwrap_or(false)
+}
+
 pub(super) fn candidate_for_output(
     service: &crate::service::ServiceContext,
     tab_id: &str,

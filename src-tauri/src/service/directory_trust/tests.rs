@@ -104,7 +104,7 @@ fn trust_responder_never_writes_on_a_non_trust_dialog() {
         .get(&tab_id)
         .is_none_or(|trust| trust.answered_frame.is_none()));
     assert_eq!(
-        crate::service::output::bound_prompt_step_dispatch_count_for_test("pty-update-trust"),
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-update-trust"),
         0,
         "a non-trust dialog must not dispatch any PTY key"
     );
