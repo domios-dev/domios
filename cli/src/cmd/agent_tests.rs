@@ -94,6 +94,86 @@ fn agent_models_formats_per_model_efforts_and_provider_fallback() {
 }
 
 #[test]
+fn agent_models_cli_preserves_codex_live_default_from_models_cache() {
+    use codeterm_plugin::js_runtime::{
+        call_json, JsProvider, PluginManifest, PluginVm, SerdeModelInfo,
+    };
+    use codeterm_plugin::model_catalog;
+    use codeterm_plugin::provider::ModelInfo;
+
+    let mut manifest: PluginManifest = serde_json::from_str(include_str!(
+        "../../../plugins/provider-codex/plugin.json"
+    ))
+    .expect("Codex manifest fixture");
+    let catalog_provider_id = "test-codex-cache-cli-default";
+    manifest.id = catalog_provider_id.into();
+    let cache: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../plugins/provider-codex/tests/fixtures/models_cache.json"
+    ))
+    .expect("Codex model cache fixture");
+    let cache_json = serde_json::to_string(&cache).expect("cache JSON");
+    let host_setup = format!(
+        r#"host.homeDir = function () {{ return "/fixture-home"; }};
+host.platform = function () {{ return "linux"; }};
+host.fs.fileExists = function (path) {{ return path.endsWith("/.codex/models_cache.json"); }};
+host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache.json") ? JSON.parse({cache_json}) : null; }};"#
+    );
+    let bundle = format!(
+        "{host_setup}\n{}",
+        include_str!("../../../plugins/provider-codex/plugin.js")
+    );
+    let vm = PluginVm::from_source_with(
+        &manifest.id,
+        bundle,
+        Some(serde_json::to_string(&manifest).expect("manifest JSON")),
+    )
+    .expect("Codex provider VM");
+    let discovered: Option<Vec<SerdeModelInfo>> =
+        call_json(&vm, "discoverModels", &[]).expect("Codex live model discovery");
+    let discovered = discovered.expect("cache fixture produces live models");
+    let models: Vec<ModelInfo> = discovered
+        .iter()
+        .map(ModelInfo::from)
+        .collect();
+    assert_eq!(
+        models
+            .iter()
+            .find(|model| model.id == "gpt-5.6-sol")
+            .and_then(|model| model.default_reasoning_effort.as_deref()),
+        Some("low")
+    );
+
+    let provider = JsProvider::new(manifest.clone(), std::sync::Arc::new(vm));
+    let catalog_cache_path =
+        model_catalog::models_dir().join(format!("{catalog_provider_id}.cache.json"));
+    let _ = std::fs::remove_file(&catalog_cache_path);
+    model_catalog::put_live(catalog_provider_id, models, manifest.default_model.clone());
+    let available_models =
+        codeterm_plugin::provider::AgentProvider::available_models(&provider);
+    let descriptor = serde_json::json!({
+        "default_reasoning_effort": manifest.default_reasoning_effort,
+        "available_models": available_models,
+    });
+
+    let rendered = format_agent_models(&descriptor, &manifest.id);
+    assert!(rendered.contains(
+        "GPT-5.6 Sol\n             Reasoning effort: low (default), medium, high, xhigh"
+    ));
+    let output_json = format_agent_models_json(&descriptor);
+    let json_models: serde_json::Value =
+        serde_json::from_str(&output_json).expect("CLI model JSON output");
+    let json_models = json_models
+        .as_array()
+        .expect("CLI model JSON array");
+    let model = json_models
+        .iter()
+        .find(|model| model["id"] == "gpt-5.6-sol")
+        .expect("live Codex model");
+    assert_eq!(model["default_reasoning_effort"], "low");
+    let _ = std::fs::remove_file(catalog_cache_path);
+}
+
+#[test]
 fn env_default_uses_explicit_value_before_worker_env() {
     std::env::set_var("CODETERM_TEST_REPORT_DEFAULT", "from-env");
     assert_eq!(
