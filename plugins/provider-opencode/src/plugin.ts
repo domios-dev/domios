@@ -20,6 +20,7 @@ import {
   opencodePluginEntry,
   opencodePluginEntryMatches,
   isCurrentOpencodeBindingPluginSource,
+  ownsOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
   opencodeSessionRecord,
   partToChatMsg,
@@ -307,11 +308,13 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath!) || "") : "";
+    const pluginOwned = pluginExists && ownsOpencodeBindingPluginSource(pluginBody);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
+        hooks_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false,
       };
@@ -321,6 +324,7 @@ const plugin: PluginModule = {
       return {
         config_file_exists: true,
         plugin_file_exists: pluginExists,
+        hooks_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false,
       };
@@ -333,6 +337,7 @@ const plugin: PluginModule = {
     return {
       config_file_exists: true,
       plugin_file_exists: pluginExists,
+      hooks_owned: pluginOwned,
       plugin_file_current: pluginCurrent,
       plugin_installed: installed,
     };

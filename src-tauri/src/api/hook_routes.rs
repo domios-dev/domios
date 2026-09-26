@@ -27,6 +27,7 @@ pub(crate) struct SessionStartClaim {
     prev: Option<String>,
     changed: bool,
     nonce_verified: bool,
+    nonce_already_acknowledged: bool,
     identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
 
@@ -70,6 +71,10 @@ enum SessionBindingSource {
 }
 
 impl SessionStartClaim {
+    fn is_unchanged_acknowledged_report(&self) -> bool {
+        !self.changed && self.nonce_verified && self.nonce_already_acknowledged
+    }
+
     pub(crate) fn identity_evidence(
         &self,
     ) -> &crate::agent::provider_identity::ProviderIdentityEvidence {
@@ -505,6 +510,9 @@ pub async fn hook_session_start(
         &sid,
         report_nonce.as_deref(),
     ) {
+        Ok(claim) if claim.is_unchanged_acknowledged_report() => {
+            return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
+        }
         Ok(claim) => claim,
         Err((status, message, Some(premise))) => {
             let transcript_path = reported_transcript_path(&body)
