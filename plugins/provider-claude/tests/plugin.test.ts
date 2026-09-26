@@ -265,6 +265,13 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   const titleless = fs.readFileSync(path.join(dir, "trust-without-title.txt"), "utf8");
   eq(claudeFolderTrustPrompt(titleless), null, "an untitled folder trust prompt is refused");
   eq(claudeFolderTrustHighlightedOptionIndex(titleless), null, "an untitled prompt has no trusted focus");
+  const updateDialogPath = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+  );
+  const updateDialog = fs.readFileSync(updateDialogPath, "utf8");
+  eq(hostPlugin.directoryTrustPromptResponse(updateDialog), null, "Claude trust responder refuses the unrelated update menu");
+  eq(claudeFolderTrustPrompt(updateDialog), null, "Claude folder-trust parser refuses the unrelated update menu");
   const underscoreTrust = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8")
     .replace(/^([ \t]*Yes\b[^\r\n]*)\btrust\b/im, "$1_trust");
   eq(claudeFolderTrustPrompt(underscoreTrust), null, "underscore is part of the trust token");

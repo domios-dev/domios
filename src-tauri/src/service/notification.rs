@@ -1,8 +1,6 @@
 //! Notification creation with OS toast support.
 
-use codeterm_types::notification::{
-    adopt_caller_actions, CallerAction, DaemonCommand, NotificationAction,
-};
+use codeterm_types::notification::{adopt_caller_actions, CallerAction};
 
 use super::ServiceContext;
 use crate::notification::{
@@ -17,7 +15,7 @@ use crate::notification::{
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
     reach::{self, Unseen},
-    store::{Ask, DedupAdmission, NotificationProvenance, NotificationSeverity, PushRequest},
+    store::{Ask, NotificationProvenance, NotificationSeverity, PushRequest},
     NotifState,
 };
 
@@ -162,10 +160,6 @@ pub(crate) enum NotificationAdmission {
     Diagnostic,
     /// Explicitly requested (CLI/REST/frontend): stored, emitted, native best-effort.
     Explicit,
-    ProviderUpdate {
-        provider_id: String,
-        prompt_id: String,
-    },
 }
 
 fn notification_severity(severity: Option<&str>) -> NotificationSeverity {
@@ -266,28 +260,6 @@ pub(crate) fn create_notification_with_delivery(
                 admitted.id().to_string()
             }
         },
-        NotificationAdmission::ProviderUpdate {
-            provider_id,
-            prompt_id,
-        } => {
-            // The prompt's only action targets its tab; a tab that no longer
-            // resolves leaves nothing to navigate to or answer.
-            if provenance.tab_id.is_none() {
-                return uuid::Uuid::new_v4().to_string();
-            }
-            let mut store = store.lock();
-            match store.add_provider_update(
-                provider_id,
-                prompt_id,
-                title.clone(),
-                body.clone().unwrap_or_default(),
-                actions.clone().unwrap_or_default(),
-                provenance.clone(),
-            ) {
-                DedupAdmission::Added(id) | DedupAdmission::Coalesced(id) => id,
-                DedupAdmission::Duplicate(id) => return id,
-            }
-        }
     };
 
     if explicit {
@@ -368,61 +340,6 @@ impl ServiceContext {
             workspace_id: mux.find_workspace_for_tab(tab_id),
             peer_name: None,
         })
-    }
-
-    pub(crate) fn create_provider_update_notification(
-        &self,
-        prompt_id: String,
-        provider_id: &str,
-        provider_name: &str,
-        message: String,
-        tab_id: String,
-    ) -> String {
-        let respond = |label: &str, accept: bool| NotificationAction::Invoke {
-            label: label.to_string(),
-            command: DaemonCommand::RespondProviderUpdatePrompt,
-            args: Some(serde_json::json!({ "promptId": prompt_id, "accept": accept })),
-        };
-        let actions = vec![
-            respond(&format!("Update {provider_name}"), true),
-            respond(&format!("Not now — {provider_name}"), false),
-        ];
-        create_notification_with_delivery(
-            NotificationAdmission::ProviderUpdate {
-                provider_id: provider_id.to_string(),
-                prompt_id: prompt_id.clone(),
-            },
-            &self.notif,
-            |_, _| {},
-            format!("{provider_name} update available"),
-            Some(message),
-            Some("info"),
-            Ask::offering(Some(actions)),
-            Some(true),
-            NotificationOrigin::local_tab(tab_id),
-            |candidate| self.resolve_tab_provenance(candidate),
-            PushDispatch::inert(),
-            SurfaceDispatch::silent(),
-            |payload| self.notify_created(payload),
-        )
-    }
-
-    pub(crate) fn resolve_provider_update_notification(&self, prompt_id: &str) {
-        let resolved = {
-            let mut store = self.notif.lock();
-            store.resolve_provider_update(prompt_id).map(|id| {
-                let remaining = store.notification(&id).cloned();
-                (id, remaining)
-            })
-        };
-        if let Some((id, remaining)) = resolved {
-            match remaining {
-                Some(notification) => {
-                    self.notify_created(serde_json::to_value(notification).unwrap_or_default())
-                }
-                None => self.notify_event("notification-cleared", serde_json::json!({ "id": id })),
-            }
-        }
     }
 
     /// Internal diagnostic sink: fire-and-forget, never enters the user inbox.

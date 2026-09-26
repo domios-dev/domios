@@ -10,6 +10,7 @@ use crate::multiplexer::types::{
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::inject_verify::{InjectionError, InjectionResult};
+use crate::service::launch_readiness::LaunchInputEvidence;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
@@ -142,6 +143,26 @@ impl LaunchDeliveryGate {
                 outcome,
                 attempt_id: Some(attempt.attempt_id),
             })
+    }
+
+    pub(crate) fn consume_injection_with_readiness<F>(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+        sink: &impl BootStageSink,
+        readiness: Option<LaunchInputEvidence>,
+        transaction: F,
+    ) -> Result<LaunchConsumptionReceipt, LaunchConsumptionError>
+    where
+        F: FnOnce() -> Result<InjectionResult, InjectionError>,
+    {
+        if readiness.is_none() {
+            return Ok(LaunchConsumptionReceipt {
+                outcome: LaunchConsumptionOutcome::NotReady,
+                attempt_id: None,
+            });
+        }
+        self.consume_injection(mux, tab_id, sink, transaction)
     }
 
     #[cfg(test)]
@@ -542,6 +563,25 @@ mod tests {
         fn record_transaction(&self) {
             self.0.lock().push("transaction");
         }
+    }
+
+    #[test]
+    fn launch_delivery_rejects_missing_readiness_before_transaction() {
+        let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let sink = RecordingSink::default();
+        let mut gate = LaunchDeliveryGate::new();
+        gate.mark_provider_ready();
+        let mut transactions = 0;
+        let receipt = gate
+            .consume_injection_with_readiness(&mux, &tab_id, &sink, None, || {
+                transactions += 1;
+                panic!("the launch transaction must not run without readiness evidence");
+            })
+            .expect("readiness refusal is not a write error");
+
+        assert_eq!(receipt.outcome, LaunchConsumptionOutcome::NotReady);
+        assert_eq!(transactions, 0);
+        assert!(sink.0.lock().is_empty());
     }
 
     #[test]
