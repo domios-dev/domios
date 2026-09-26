@@ -7,5 +7,7 @@
   { "file": "approval-paragraph.txt", "expect": "none" },
   { "file": "bypass-warning.txt", "expect": "none" },
   { "file": "model-picker.txt", "expect": "none" },
-  { "file": "numbered-answer-list.txt", "expect": "none" }
+  { "file": "numbered-answer-list.txt", "expect": "none" },
+  { "file": "codex-update-available.txt", "expect": "none" },
+  { "file": "codex-update-available-after-skip.txt", "expect": "none" }
 ]

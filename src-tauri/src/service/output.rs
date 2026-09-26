@@ -14,6 +14,16 @@ use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
 
+fn parse_manual_update_prompt(
+    provider: &dyn codeterm_plugin::provider::AgentProvider,
+    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+) -> Option<crate::multiplexer::types::PendingPrompt> {
+    let classification = provider.classify_tab_state(snapshot);
+    crate::agent::state_reactor::is_manual_update_prompt(classification.as_ref())
+        .then(|| provider.parse_prompt(&snapshot.screen_text))
+        .flatten()
+}
+
 /// Per-tab notification cooldown: (tab_id, event_kind) → last fire time.
 /// Prevents notification spam from TUI redraws (same event every chunk).
 static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
@@ -266,18 +276,41 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                let provider_prompt = if structured.is_none() && trust_candidate {
-                    clean_text.as_deref().and_then(|screen| {
-                        crate::agent::prompt::parse_prompt_safely(|| {
-                            self.agent_registry
-                                .with_provider(at, |provider| {
-                                    provider.parse_directory_trust_prompt(screen)
-                                })
-                                .flatten()
+                let (provider_prompt, manual_update_prompt) = if structured.is_none() {
+                    clean_text
+                        .as_deref()
+                        .map(|screen| {
+                            if trust_candidate {
+                                let prompt = crate::agent::prompt::parse_prompt_safely(|| {
+                                    self.agent_registry
+                                        .with_provider(at, |provider| {
+                                            provider.parse_directory_trust_prompt(screen)
+                                        })
+                                        .flatten()
+                                });
+                                (prompt, false)
+                            } else {
+                                let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                                    tab_id: pid.to_string(),
+                                    agent_type: at.to_string(),
+                                    session_id: agent_session_id.clone(),
+                                    cwd: tab_cwd.clone(),
+                                    screen_text: screen.to_string(),
+                                };
+                                let prompt = crate::agent::prompt::parse_prompt_safely(|| {
+                                    self.agent_registry
+                                        .with_provider(at, |provider| {
+                                            parse_manual_update_prompt(provider, &snapshot)
+                                        })
+                                        .flatten()
+                                });
+                                let manual = prompt.is_some();
+                                (prompt, manual)
+                            }
                         })
-                    })
+                        .unwrap_or((None, false))
                 } else {
-                    None
+                    (None, false)
                 };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     if let Some(prompt) = structured {
@@ -307,6 +340,7 @@ impl ServiceContext {
                     &decision,
                     clean_text.as_deref(),
                     trust_candidate,
+                    manual_update_prompt,
                 );
 
                 if has_markers {
@@ -663,7 +697,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
-        self.apply_prompt_decision_with_screen(decision, None, false);
+        self.apply_prompt_decision_with_screen(decision, None, false, false);
     }
 
     /// Set (or clear) a tab's pending prompt from a PUSH structured handle
@@ -698,6 +732,7 @@ impl ServiceContext {
         decision: &PromptDecision,
         screen_text: Option<&str>,
         directory_trust_prompt: bool,
+        manual_update_prompt: bool,
     ) {
         match decision {
             PromptDecision::None => {}
@@ -719,11 +754,15 @@ impl ServiceContext {
                     )
                 };
 
-                let trust = self.respond_to_directory_trust(tab_id, screen_text);
+                let trust = if manual_update_prompt {
+                    super::directory_trust::TrustDecision::NotApplicable
+                } else {
+                    self.respond_to_directory_trust(tab_id, screen_text)
+                };
                 if trust.owns_prompt() {
                     return;
                 }
-                if auto_approve && !directory_trust_prompt {
+                if auto_approve && !directory_trust_prompt && !manual_update_prompt {
                     if is_general_tab {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
@@ -793,6 +832,7 @@ impl ServiceContext {
                     );
                 }
                 if !directory_trust_prompt
+                    && !manual_update_prompt
                     && self
                         .try_permission_auto_confirm(tab_id, screen_text)
                         .owns_prompt()
@@ -1039,3 +1079,7 @@ mod exit_detection_tests {
 #[cfg(test)]
 #[path = "output/agent_lifecycle_tests.rs"]
 mod agent_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "output/manual_update_prompt_tests.rs"]
+mod manual_update_prompt_tests;

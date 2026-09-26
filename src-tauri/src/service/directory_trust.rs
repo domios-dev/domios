@@ -29,6 +29,10 @@ impl DirectoryTrustRefusal {
 const NOTE_BUDGET: usize = 16;
 
 pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
+    directory_trust_prompt_selected(screen).is_some()
+}
+
+fn directory_trust_prompt_selected(screen: &str) -> Option<bool> {
     let rows = screen.lines().collect::<Vec<_>>();
     let options = rows
         .iter()
@@ -36,7 +40,7 @@ pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
         .filter_map(|(index, row)| numbered_menu_option(row).map(|option| (index, option)))
         .collect::<Vec<_>>();
     let Some(last_option) = options.last().cloned() else {
-        return false;
+        return None;
     };
     let mut active_options = vec![last_option];
     for option in options.iter().rev().skip(1) {
@@ -46,7 +50,7 @@ pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
         active_options.insert(0, option.clone());
     }
     if active_options.len() != 2 {
-        return false;
+        return None;
     }
     let first_choice = active_options[0].0;
     let last_choice = active_options[1].0;
@@ -68,25 +72,26 @@ pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
             .to_ascii_lowercase()
             .starts_with("no")
     {
-        return false;
+        return None;
     }
     let footer = (last_choice + 1..rows.len().min(last_choice + 5)).find(|index| {
         let row = rows[*index].to_ascii_lowercase();
-        row.contains("enter") && (row.contains("continue") || row.contains("select"))
+        row.contains("enter")
+            && (row.contains("confirm") || row.contains("continue") || row.contains("select"))
     });
     let Some(footer) = footer else {
-        return false;
+        return None;
     };
     let last_meaningful = rows.iter().rposition(|row| {
         let row = row.trim();
         !row.is_empty() && !row.chars().all(|ch| matches!(ch, '─' | '━' | '═' | '-'))
     });
     if last_meaningful != Some(footer) {
-        return false;
+        return None;
     }
     let context_rows = &rows[first_choice.saturating_sub(12)..first_choice];
     if !context_rows.iter().any(|row| directory_context_row(row)) {
-        return false;
+        return None;
     }
     let mut preamble_start = first_choice;
     while preamble_start > 0 && rows[preamble_start - 1].trim().is_empty() {
@@ -101,7 +106,7 @@ pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
         .copied()
         .collect::<Vec<_>>()
         .join(" ");
-    directory_trust_content(&preamble)
+    directory_trust_content(&preamble).then_some(active_options[0].1.highlighted)
 }
 
 #[derive(Clone)]
@@ -395,11 +400,18 @@ impl ServiceContext {
         agent_type: &str,
         screen: &str,
     ) -> Option<DirectoryTrustPromptResponse> {
+        let affirmative_selected = directory_trust_prompt_selected(screen)?;
         self.agent_registry
             .with_provider(agent_type, |provider| {
                 provider.directory_trust_prompt_response(screen)
             })
             .flatten()
+            .filter(|response| match response {
+                DirectoryTrustPromptResponse::Answer { step } if step == b"\r" => {
+                    affirmative_selected
+                }
+                _ => true,
+            })
     }
 
     pub(crate) fn respond_to_directory_trust(
@@ -425,7 +437,9 @@ impl ServiceContext {
                 .unwrap_or_default(),
         };
         let decision = decide(true, tab_id, &screen, &LEDGER, |screen| {
-            self.directory_trust_response(&agent_type, screen)
+            directory_trust_prompt_candidate(screen)
+                .then(|| self.directory_trust_response(&agent_type, screen))
+                .flatten()
         });
         match &decision {
             TrustDecision::NoDialog
@@ -481,10 +495,13 @@ impl ServiceContext {
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            matches!(
-                self.directory_trust_response(agent_type, &screen),
-                Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected
-            )
+            directory_trust_prompt_candidate(&screen)
+                && (expected != b"\r"
+                    || directory_trust_prompt_selected(&screen) == Some(true))
+                && matches!(
+                    self.directory_trust_response(agent_type, &screen),
+                    Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected
+                )
         };
         LEDGER.lock().settle(tab_id);
         if !owed {

@@ -68,6 +68,13 @@ pub(crate) enum Verdict {
     Refused(Refusal),
 }
 
+fn manual_update_prompt_verdict(
+    classification: Option<&codeterm_plugin::tab_state::TabStateClassification>,
+) -> Option<Verdict> {
+    crate::agent::state_reactor::is_manual_update_prompt(classification)
+        .then_some(Verdict::Refused(Refusal::NotRecognized))
+}
+
 impl Verdict {
     pub(crate) fn owns_prompt(self) -> bool {
         matches!(self, Self::Confirmed | Self::Settling)
@@ -394,6 +401,24 @@ impl ServiceContext {
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
+        let snapshot = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id);
+            codeterm_plugin::tab_state::TabStateSnapshot {
+                tab_id: tab_id.to_string(),
+                agent_type: agent_type.clone(),
+                session_id: facts.session_id.clone(),
+                cwd: tab.and_then(|tab| tab.cwd.clone()),
+                screen_text: screen.clone(),
+            }
+        };
+        let state = self
+            .agent_registry
+            .with_provider(&agent_type, |provider| provider.classify_tab_state(&snapshot))
+            .flatten();
+        if let Some(verdict) = manual_update_prompt_verdict(state.as_ref()) {
+            return verdict;
+        }
         let Some(prompt) = crate::agent::prompt::parse_prompt_safely(|| {
             self.agent_registry.parse_prompt(&agent_type, &screen)
         }) else {

@@ -1,7 +1,6 @@
 import {
   parseActiveTerminalChoice,
   parseMenuOptions,
-  type MenuOption,
 } from "./prompt";
 
 export interface TabStateSnapshot {
@@ -26,7 +25,6 @@ interface TabStateAction {
   keys?: string[];
   delayedResume?: { at: string; text: string; thenKeys?: string[] };
   surface?: { kind: string; payload: unknown };
-  providerUpdate?: { installKeys: string[]; declineKeys: string[] };
 }
 
 export interface TabStateClassification {
@@ -61,20 +59,10 @@ export function classifyCodexTabState(
   if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
 
   const update = scoreUpdatePrompt(screen);
-  if (
-    update.confidence >= CLASSIFY_THRESHOLD
-    && update.installKeys && update.installKeys.length > 0
-    && update.skipKeys && update.skipKeys.length > 0
-  ) {
+  if (update.confidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "update_prompt",
       confidence: update.confidence,
-      action: {
-        providerUpdate: {
-          installKeys: update.installKeys,
-          declineKeys: update.skipKeys,
-        },
-      },
     };
   }
 
@@ -121,49 +109,8 @@ export function classifyCodexTabState(
   return { state: "working", confidence: 0 };
 }
 
-function navigationKeys(
-  options: MenuOption[],
-  matches: (label: string) => boolean,
-): string[] | null {
-  if (options.length === 0) return null;
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  let targetIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (matches(options[i].label)) {
-      targetIdx = i;
-      break;
-    }
-  }
-  if (targetIdx === -1) return null;
-  const keys: string[] = [];
-  const delta = targetIdx - highlightIdx;
-  if (delta > 0) {
-    for (let i = 0; i < delta; i++) keys.push("down");
-  } else if (delta < 0) {
-    for (let i = 0; i < -delta; i++) keys.push("up");
-  }
-  keys.push("enter");
-  return keys;
-}
-
-function skipNavigationKeys(options: MenuOption[]): string[] | null {
-  return navigationKeys(
-    options,
-    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label),
-  );
-}
-
 interface UpdateScore {
   confidence: number;
-  installKeys: string[] | null;
-  skipKeys: string[] | null;
 }
 
 function scoreUpdatePrompt(screen: string): UpdateScore {
@@ -184,13 +131,7 @@ function scoreUpdatePrompt(screen: string): UpdateScore {
   if (/press\s+enter\s+to\s+continue/i.test(screen)) confidence += 0.1;
   if (/release\s+notes/i.test(screen)) confidence += 0.1;
   if (confidence > 1) confidence = 1;
-  return {
-    confidence,
-    skipKeys: actionableMenu ? skipNavigationKeys(options) : null,
-    installKeys: actionableMenu
-      ? navigationKeys(options, (label) => /\bupdate\b/i.test(label))
-      : null,
-  };
+  return { confidence };
 }
 
 function looksBusy(screen: string): boolean {

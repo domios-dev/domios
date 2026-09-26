@@ -117,6 +117,49 @@ fn directory_trust_prompt_candidate_matches_real_fixture_frames() {
 }
 
 #[test]
+fn directory_trust_write_requires_the_trust_option_to_be_selected() {
+    let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/tests/fixtures/directory-trust");
+    let yes_selected = std::fs::read_to_string(fixture_dir.join("trust-80col-git-note.txt"))
+        .expect("trust fixture");
+    let no_selected = std::fs::read_to_string(fixture_dir.join("trust-windows-focus-no.txt"))
+        .expect("refusal-focused trust fixture");
+
+    assert_eq!(super::directory_trust_prompt_selected(&yes_selected), Some(true));
+    assert_eq!(super::directory_trust_prompt_selected(&no_selected), Some(false));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn trust_responder_never_writes_on_a_non_trust_dialog() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt");
+    let screen = std::fs::read_to_string(fixture_path).unwrap();
+    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-update".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "claude",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        ),
+    ));
+
+    let decision = fixture
+        .service
+        .respond_to_directory_trust(&tab_id, Some(&screen));
+
+    assert_eq!(decision, TrustDecision::NoDialog);
+    assert!(super::LEDGER
+        .lock()
+        .tabs
+        .get(&tab_id)
+        .is_none_or(|trust| trust.answered_frame.is_none()));
+}
+
+#[test]
 fn directory_trust_refuses_tab_without_cwd() {
     let (state, tab_id) = state_with_tab(None, Some("/srv/lanes/a"));
     assert_eq!(

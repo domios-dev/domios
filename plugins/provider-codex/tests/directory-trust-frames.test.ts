@@ -35,6 +35,17 @@ console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\
     const screen = fs.readFileSync(path.join(dir, c.file), "utf8");
     eq(plugin.directoryTrustPromptResponse!(screen), keys[c.expect], `codex directory trust ${c.file} -> ${c.expect}`);
   }
+
+  const update = fs.readFileSync(path.join(dir, "codex-update-available.txt"), "utf8");
+  const prompt = plugin.parsePrompt!(update);
+  const visibleOptions = update
+    .split(/\r?\n/)
+    .map((line) => /^[ \t]*[>❯▶➤›]?[ \t]*\d+[.)][ \t]+(.+?)[ \t]*$/.exec(line)?.[1] ?? null)
+    .filter((label): label is string => label !== null);
+  const parsedOptions = prompt?.options ?? [];
+  eq(parsedOptions.map(([label]) => label), visibleOptions, "update prompt retains the visible option labels and order");
+  eq(parsedOptions.map(([, value]) => value), ["1", "2", "3"], "update prompt keeps screen option values in order");
+  eq(plugin.buildPromptResponse!(1, update), ["G1tC", "DQ=="], "tab respond option two navigates to the next visible option");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

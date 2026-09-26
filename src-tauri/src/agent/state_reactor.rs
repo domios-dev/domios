@@ -17,6 +17,14 @@ use crate::service::ServiceState;
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
 
+pub(crate) fn is_manual_update_prompt(
+    classification: Option<&TabStateClassification>,
+) -> bool {
+    classification.is_some_and(|value| {
+        value.state == TabState::UpdatePrompt && value.confidence >= GLOBAL_THRESHOLD
+    })
+}
+
 /// How often the reactor sweeps tracked tabs for the parked edge.
 const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 
@@ -63,7 +71,7 @@ pub fn decide(
             .and_then(|action| action.provider_update.clone())
         {
             Some(action) => ReactorDecision::ProviderUpdate(action),
-            None => ReactorDecision::Surface(c.action.as_ref().and_then(|a| a.surface.clone())),
+            None => ReactorDecision::Ignore,
         };
     }
     if c.state == TabState::ProviderUpdateCompleted {
