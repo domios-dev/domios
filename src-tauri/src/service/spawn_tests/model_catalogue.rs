@@ -199,7 +199,7 @@ fn authoritative_ids_accept_matching_provider_prefix() {
         Some("gpt-6-sol")
     );
     assert_eq!(
-        crate::service::spawn::normalize_requested_model("codex", "codex:gpt-6-sol"),
+        crate::service::spawn::spawn_model_catalogue::normalize_requested_model("codex", "codex:gpt-6-sol"),
         "gpt-6-sol"
     );
     crate::agent::model_catalog::unregister(provider_id);

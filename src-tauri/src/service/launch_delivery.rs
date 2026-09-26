@@ -567,7 +567,10 @@ mod tests {
 
     #[test]
     fn launch_delivery_rejects_missing_readiness_before_transaction() {
-        let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let (state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let mux: MuxState = std::sync::Arc::new(codeterm_util::lock_hold::TimedRwLock::new(
+            "mux-test", state,
+        ));
         let sink = RecordingSink::default();
         let mut gate = LaunchDeliveryGate::new();
         gate.mark_provider_ready();
