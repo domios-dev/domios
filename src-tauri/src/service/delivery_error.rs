@@ -184,14 +184,24 @@ impl DeliveryError {
         format!("{}: {self}", self.code())
     }
 
-    /// Classify a delivery failure whose typed cause was already flattened to a
-    /// string. Zero-byte claims are never inferred here — an unrecognised
-    /// failure is reported as `submit_unconfirmed` so the caller is warned the
-    /// payload may have landed.
+    /// Classify a flattened delivery failure. Explicit pre-write messages keep
+    /// their zero-byte type; unknown failures remain submit uncertainty.
     pub fn from_opaque(tab: &str, detail: impl Into<String>) -> Self {
         let detail = detail.into();
-        if detail.contains("still booting") {
+        if detail.starts_with("submit_unconfirmed:") {
+            return Self::SubmitUnconfirmed {
+                tab: tab.to_string(),
+                detail,
+            };
+        }
+        if detail.starts_with("tab_busy_refused:") {
             return Self::TabBusyRefused {
+                tab: tab.to_string(),
+                detail,
+            };
+        }
+        if detail.starts_with("pty_unavailable:") {
+            return Self::PtyUnavailable {
                 tab: tab.to_string(),
                 detail,
             };
