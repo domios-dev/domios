@@ -480,6 +480,9 @@ pub(super) fn compete(
                 ))
             }
         };
+        draft.provider = spawn.agent.clone();
+        draft.model = spawn.provider_resolved_model.clone();
+        draft.reasoning_effort = spawn.reasoning_effort.clone();
         let created = match record_spawned_attempt_reporting_close(svc, &spawn.tab_id, || {
             store.record_task_compete_attempt(
                 &id,
@@ -511,6 +514,7 @@ pub(super) fn compete(
                 ));
             }
         };
+        svc.persist_current_attempt_session_model(&spawn.tab_id);
         live.push(SpawnedCompetitor {
             tab_id: spawn.tab_id.clone(),
             attempt_id: created.attempt.id.clone(),

@@ -555,6 +555,7 @@ fn install_leaf(
             agent_session_id: restored_session_id,
             agent_session_name: None,
             agent_session_model: agent_session_model.clone(),
+            agent_session_model_identity: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
             agent_provider_resolved_model: agent_provider_resolved_model.clone(),

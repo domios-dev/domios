@@ -78,6 +78,98 @@ fn dispatch_effort_becomes_host_owned_plan_intent() {
 }
 
 #[test]
+fn dispatched_attempt_records_routed_model_and_effort() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let mut plan = Plan::new(
+        "attempt routing".into(),
+        root.path().display().to_string(),
+        OrchestratorRef::from_tab("orchestrator"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "unplanned model".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    assert!(task.model.is_none());
+    let routing = super::resolve_dispatch_routing(
+        None,
+        Some("codex:gpt-6-luna".into()),
+        task.model,
+        &["claude".into(), "codex".into()],
+    );
+    let attempt_id = store
+        .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            routing.agent.as_deref(),
+            "attempt-routed-model",
+            Some(vec![]),
+            crate::plan::WorkerPlacement::IsolatedLane,
+            routing.model,
+            Some("xhigh".into()),
+            None,
+            false,
+            true,
+            3,
+        )
+        .unwrap();
+
+    let task = store.show_task(&task_id).unwrap().task;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
+
+    store
+        .update_dispatched_attempt_reasoning_effort(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            &attempt_id,
+            Some("high".into()),
+            4,
+        )
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.reasoning_effort.as_deref(), Some("high"));
+
+    let updated_at = store.get(&plan.id).unwrap().updated_at;
+    store
+        .update_dispatched_attempt_reasoning_effort(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            &attempt_id,
+            Some("high".into()),
+            5,
+        )
+        .unwrap();
+    assert_eq!(store.get(&plan.id).unwrap().updated_at, updated_at);
+}
+
+#[test]
 fn dispatch_gate_tokens_are_preserved_as_opaque_values() {
     let params = json!({
         "authorized_gates": ["gate-token-alpha", "gate-token-beta"]
