@@ -562,6 +562,56 @@ fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
     assert!(reason.contains("launch_nonce=nonce-live"));
 }
 
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "resume-live-pty-deadline";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("resume-fixture".into());
+        tab.agent_session_id = Some("saved-session".into());
+        tab.session_binding_nonce = Some("resume-nonce".into());
+        tab.pty_id = Some(pty_id.into());
+        tab.boot_stage = Some(BootStage::PtyReattached);
+    }
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn live backing PTY");
+    let attempt = LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: pty_id.into(),
+        binding_nonce: "resume-nonce".into(),
+    };
+    arm(attempt.clone());
+
+    let settlement = harness
+        .service
+        .observe_launch_readiness(attempt, Duration::ZERO, true)
+        .recv()
+        .expect("deadline produces a waiting settlement");
+    assert_eq!(settlement, LaunchSettlement::AwaitingFirstTurn);
+    let mux = harness.service.mux.read();
+    let tab = mux.get_tab(&tab_id).expect("restored tab stays present");
+    assert_eq!(tab.boot_stage, Some(BootStage::PtyReattached));
+    assert_eq!(tab.boot_failure_reason, None);
+    assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
+    drop(mux);
+    harness
+        .service
+        .pty
+        .lock()
+        .kill(pty_id)
+        .expect("stop live backing PTY");
+}
+
 /// The launch thread must not claim ready over a verdict already published, so
 /// a published failure stays readable until that thread takes it.
 #[test]

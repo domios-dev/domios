@@ -30,6 +30,7 @@ pub struct MockProvider {
     empty_launch_command: bool,
     empty_launch_command_when_task_present: bool,
     task_delivery: TaskDelivery,
+    resume_binds_on_first_user_turn: bool,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
 }
@@ -51,6 +52,7 @@ impl MockProvider {
             empty_launch_command: false,
             empty_launch_command_when_task_present: false,
             task_delivery: TaskDelivery::PtyInput,
+            resume_binds_on_first_user_turn: false,
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
         }
@@ -168,6 +170,11 @@ impl MockProvider {
             ..Self::new(id)
         }
     }
+
+    pub fn with_resume_binds_on_first_user_turn(mut self) -> Self {
+        self.resume_binds_on_first_user_turn = true;
+        self
+    }
 }
 
 impl AgentProvider for MockProvider {
@@ -238,6 +245,9 @@ impl AgentProvider for MockProvider {
     }
     fn task_delivery(&self) -> TaskDelivery {
         self.task_delivery.clone()
+    }
+    fn resume_binds_on_first_user_turn(&self) -> bool {
+        self.resume_binds_on_first_user_turn
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()

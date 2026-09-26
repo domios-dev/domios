@@ -1181,5 +1181,6 @@ mod manifest_launch_template;
 mod model_groups;
 mod opencode;
 mod record_identity;
+mod resume_first_turn;
 mod trust_grant;
 mod usage_sources;
