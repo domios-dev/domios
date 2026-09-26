@@ -33,12 +33,13 @@ export const CODEX_INTEGRATION_STATE_STALE_VERSION = "stale_version";
 export const CODEX_INTEGRATION_STATE_UNTRUSTED_HASH = "untrusted_hash";
 export const CODEX_INTEGRATION_STATE_INSTALLED = "installed";
 
-type CodexHookTrustVerdict = "trusted" | "stale";
+type CodexHookTrustVerdict = "trusted" | "stale" | "unknown";
 interface CodexHookTrustCacheEntry {
   fingerprint: string;
   hookFingerprint: string;
   trustFingerprint: string;
   verdict: CodexHookTrustVerdict;
+  reason?: string;
 }
 const codexHookTrustCache = new Map<string, CodexHookTrustCacheEntry>();
 
@@ -92,24 +93,28 @@ export function checkIntegration(): unknown {
       }));
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
   const trustState = codexHookTrustState(path);
-  const trustOk = trustState === "enabled" || trustState === "trusted";
+  const trustReason = trustState === "unknown" ? codexHookTrustReason(path) : undefined;
+  const trustOk = trustState === "trusted";
   const integrationState = !installed
     ? CODEX_INTEGRATION_STATE_ABSENT
-    : (trustState === "unknown"
-      ? "unknown"
-      : (!trustOk
-        ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH
-        : (!current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED)));
+    : (trustState === "disabled" || trustState === "stale"
+      ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH
+      : (!current || !stopInstalled
+        ? CODEX_INTEGRATION_STATE_STALE_VERSION
+        : (trustState === "unknown" || trustState === "enabled"
+          ? "unknown"
+          : (!trustOk ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : CODEX_INTEGRATION_STATE_INSTALLED))));
   return {
     hooks_file_exists: true,
     hook_content_hash: ownedContentHash(arr, stopArr, winScriptText),
-    hooks_installed: current && stopInstalled && trustOk,
-    session_start_hook: current && trustState !== "disabled" && trustState !== "stale",
-    stop_hook: stopInstalled && trustOk,
+    hooks_installed: current && stopInstalled,
+    session_start_hook: current,
+    stop_hook: stopInstalled,
     hook_trust_state: trustState,
+    hook_trust_reason: trustReason,
     hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
     integration_state: integrationState,
-    repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED && integrationState !== "unknown",
+    repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED,
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
@@ -189,6 +194,7 @@ export function installIntegration(
   if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) {
     return { ok: false, error: "existing hooks JSON must contain an object at " + path };
   }
+  const originalHooksJson = JSON.stringify(parsedHooks);
   const json = parsedHooks as CodexHooks;
   if (json.hooks !== undefined && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
     return { ok: false, error: "hooks is not an object" };
@@ -240,18 +246,19 @@ export function installIntegration(
   ];
   const fail = (error: string) => {
     const restored = restoreIntegrationFiles(rollbackSnapshots);
+    invalidateCodexHookTrust(path);
     return { ok: false, error: restored ? error : error + "; exact rollback failed" };
   };
-  if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks)
-    || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
+  if (!writeFileIfChanged(path + ".codeterm-backup", originalHooks)
+    || !writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
     return fail("could not write recoverable backup for " + path);
   }
   if (configPath && configExisted
-    && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) {
+    && !writeFileIfChanged(configPath + ".codeterm-backup", originalConfig)) {
     return fail("could not write recoverable backup for " + configPath);
   }
-  if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript)
-    || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
+  if (scriptPath && (!writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript)
+    || !writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
     return fail("could not write recoverable backup for " + scriptPath);
   }
   if (!json.hooks) json.hooks = {};
@@ -285,7 +292,9 @@ export function installIntegration(
       ].join(" ")
     : hookCmd(route);
 
-  if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
+  const scriptContents = codexWindowsHookScript();
+  const scriptChanged = !!scriptPath && (!scriptExisted || originalScript !== scriptContents);
+  if (scriptChanged && scriptPath && !host.fs.writeFile(scriptPath, scriptContents)) {
     return fail("writeFile failed for " + scriptPath);
   }
 
@@ -309,15 +318,17 @@ export function installIntegration(
     }],
   });
 
-  const ok = host.fs.writeJson(path, json);
+  const hooksChanged = !hooksExisted || JSON.stringify(json) !== originalHooksJson;
+  const ok = hooksChanged ? host.fs.writeJson(path, json) : true;
   if (ok) {
     const trust = enableExistingCodexHookTrust(path);
     if (trust.write_failed) return fail("could not enable existing Codex hook trust");
     if (trust.changed) {
-      if (!ownershipPath || !host.fs.writeFile(ownershipPath, path)) {
+      if (!ownershipPath || !writeFileIfChanged(ownershipPath, path)) {
         return fail("could not record owned Codex hook trust expansion");
       }
     }
+    if (scriptChanged || hooksChanged || trust.changed) invalidateCodexHookTrust(path);
     host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
     return { ok: true, hook_trust_state: trust.state };
   }
@@ -332,6 +343,7 @@ export function grantIntegrationTrust(
   if (!hooksPath) {
     return then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" });
   }
+  invalidateCodexHookTrust(hooksPath);
   return grantCodexHookTrust({
     hooksPath,
     configPath: codexConfigPath(),
@@ -339,6 +351,7 @@ export function grantIntegrationTrust(
     listCwd: host.homeDir() || ".",
   }, (result) => {
     if (result.granted) cacheCodexHookTrust(hooksPath, "trusted");
+    else cacheCodexHookTrust(hooksPath, "unknown", result.reason);
     return then(result);
   });
 }
@@ -352,13 +365,14 @@ export function uninstallIntegration(): unknown {
     if (!json || !json.hooks || typeof json.hooks !== "object") {
       return { ok: false, error: "could not safely read hooks JSON at " + path };
     }
+    const before = JSON.stringify(json);
     if (Array.isArray(json.hooks.SessionStart)) {
       json.hooks.SessionStart = removeOwnedCodexHooks(json.hooks.SessionStart);
     }
     if (Array.isArray(json.hooks.Stop)) {
       json.hooks.Stop = removeOwnedCodexHooks(json.hooks.Stop);
     }
-    hooksOk = host.fs.writeJson(path, json);
+    hooksOk = before === JSON.stringify(json) || host.fs.writeJson(path, json);
   }
   const ownershipPath = codexHookTrustOwnershipPath();
   if (ownershipPath && host.fs.fileExists(ownershipPath)) {
@@ -371,6 +385,7 @@ export function uninstallIntegration(): unknown {
   if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
     host.fs.removeFile(scriptPath);
   }
+  invalidateCodexHookTrust(path);
   return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
 }
 
@@ -384,13 +399,13 @@ export function restoreIntegration(): unknown {
   const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
   if (hooksState === "absent" || (typeof hooksState !== "string" && hooks === "")) {
     if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
-  } else if (!host.fs.writeFile(path, hooks)) {
+  } else if (!writeFileIfChanged(path, hooks)) {
     return { ok: false, error: "restore failed for " + path };
   }
   const config = codexConfigPath();
   if (config && host.fs.fileExists(config + ".codeterm-backup")) {
     const original = host.fs.readFile(config + ".codeterm-backup");
-    if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
+    if (typeof original !== "string" || !writeFileIfChanged(config, original)) return { ok: false, error: "restore failed for " + config };
     const ownershipPath = codexHookTrustOwnershipPath();
     if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
   }
@@ -401,10 +416,11 @@ export function restoreIntegration(): unknown {
     const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
     if (scriptState === "absent" || (typeof scriptState !== "string" && original === "")) {
       if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
-    } else if (!host.fs.writeFile(script, original)) {
+    } else if (!writeFileIfChanged(script, original)) {
       return { ok: false, error: "restore failed for " + script };
     }
   }
+  invalidateCodexHookTrust(path);
   return { ok: true };
 }
 
@@ -424,6 +440,14 @@ export function ensureIntegrationOnStartup(
   return refreshCodexHookTrustState(path, (trustState) => {
     if (trustState === "disabled") {
       return then({ ok: true, changed: false, reason: "Codex hook trust is disabled" });
+    }
+    if (trustState === "unknown") {
+      return then({
+        ok: false,
+        changed: false,
+        actionable: true,
+        error: "Codex could not confirm hook trust: " + codexHookTrustReason(path),
+      });
     }
 
     const scriptPath = codexWindowsHookScriptPath();
@@ -513,12 +537,16 @@ function captureIntegrationFile(path: string): IntegrationFileSnapshot | null {
   return typeof bytes === "string" ? { path, existed, bytes } : null;
 }
 
+function writeFileIfChanged(path: string, contents: string): boolean {
+  return host.fs.readFile(path) === contents || host.fs.writeFile(path, contents);
+}
+
 function restoreIntegrationFiles(snapshots: IntegrationFileSnapshot[]): boolean {
   let restored = true;
   for (let i = snapshots.length - 1; i >= 0; i--) {
     const snapshot = snapshots[i];
     const ok = snapshot.existed
-      ? host.fs.writeFile(snapshot.path, snapshot.bytes)
+      ? writeFileIfChanged(snapshot.path, snapshot.bytes)
       : (!host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path));
     restored = ok && restored;
   }
@@ -572,13 +600,14 @@ function hookTrustConfigSections(config: string): string {
   return sections.join(String.fromCharCode(0));
 }
 
-function cacheCodexHookTrust(hooksPath: string, verdict: CodexHookTrustVerdict): void {
+function cacheCodexHookTrust(hooksPath: string, verdict: CodexHookTrustVerdict, reason?: string): void {
   const context = codexHookTrustContext(hooksPath);
   if (context) codexHookTrustCache.set(hooksPath, {
     fingerprint: context.fingerprint,
     hookFingerprint: context.hookFingerprint,
     trustFingerprint: context.trustFingerprint,
     verdict,
+    reason,
   });
 }
 
@@ -591,14 +620,22 @@ function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missi
   if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) {
     if (!context.labels.includes("session_start")) return "unknown";
     const cached = codexHookTrustCache.get(hooksPath);
-    if (cached?.fingerprint === fingerprint) return cached.verdict;
-    if (cached?.verdict === "stale") return "stale";
-    if (cached?.trustFingerprint === context.trustFingerprint
-      && cached.hookFingerprint !== context.hookFingerprint) return "stale";
-    return cached?.verdict || "trusted";
+    return cached?.fingerprint === fingerprint ? cached.verdict : "unknown";
   }
-  if (m) return "enabled";
+  if (m) return "unknown";
   return "missing";
+}
+
+function codexHookTrustReason(hooksPath: string): string {
+  const context = codexHookTrustContext(hooksPath);
+  if (!context) return "Codex hook trust configuration is unavailable";
+  const cached = codexHookTrustCache.get(hooksPath);
+  if (cached?.fingerprint === context.fingerprint && cached.reason) return cached.reason;
+  return "Codex has not confirmed the current hook hash";
+}
+
+function invalidateCodexHookTrust(hooksPath: string): void {
+  codexHookTrustCache.delete(hooksPath);
 }
 
 function refreshCodexHookTrustState(
@@ -611,24 +648,21 @@ function refreshCodexHookTrustState(
   if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return then(codexHookTrustState(hooksPath));
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint === context.fingerprint) return then(cached.verdict);
-  const fallback = codexHookTrustState(hooksPath) === "stale" ? "stale" : "trusted";
-  if (!context.labels.includes("session_start")) return then(fallback);
+  if (!context.labels.includes("session_start")) return then("unknown");
   return inspectCodexHookTrust({
     hooksPath,
     config: context.config,
     managedLabels: context.labels,
     listCwd: host.homeDir() || ".",
   }, (inspected) => {
-    if (inspected !== "unknown") {
-      codexHookTrustCache.set(hooksPath, {
-        fingerprint: context.fingerprint,
-        hookFingerprint: context.hookFingerprint,
-        trustFingerprint: context.trustFingerprint,
-        verdict: inspected,
-      });
-      return then(inspected);
-    }
-    return then(fallback);
+    codexHookTrustCache.set(hooksPath, {
+      fingerprint: context.fingerprint,
+      hookFingerprint: context.hookFingerprint,
+      trustFingerprint: context.trustFingerprint,
+      verdict: inspected.verdict,
+      reason: inspected.reason,
+    });
+    return then(inspected.verdict);
   });
 }
 

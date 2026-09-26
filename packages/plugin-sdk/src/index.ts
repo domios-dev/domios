@@ -5,6 +5,7 @@ export type {
   HostShell,
   HostPath,
   DirEntry,
+  ExecConversationStep,
   ExecOpts,
   ExecResult,
   FetchOpts,

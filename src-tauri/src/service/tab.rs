@@ -358,11 +358,11 @@ impl ServiceContext {
                 session_id,
             );
         }
+        let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
+        self.kill_ptys(&pty_ids);
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
-        let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
-        self.kill_ptys(&pty_ids);
         self.finish_tab_close(tab_id)?;
         self.reap_orphaned_startup_teams();
         {

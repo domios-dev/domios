@@ -23,6 +23,14 @@ function normalizedPath(value: string): string {
   return isWindowsPath ? value.replace(/\//g, "\\").toLowerCase() : value;
 }
 
+function isCodeTermProvisionedWorkspacePath(value: string): boolean {
+  const parts = normalizedPath(value).split(/[\\/]+/).filter(Boolean);
+  return parts.some((part, index) =>
+    /^\.codeterm(?:-dev(?:-[a-z0-9-]+)?)?$/.test(part)
+    && parts[index + 1] === "provisioned-workspaces",
+  );
+}
+
 function parseString(value: string): { value: string; next: number } | null {
   const quote = value[0];
   if (quote !== "'" && quote !== '"') return null;
@@ -137,7 +145,9 @@ function collectProfileEntries(profile: string): TrustEntry[] | null {
     if (activePath === null || !trust) return true;
     const key = normalizedPath(activePath);
     if (entries.has(key)) return false;
-    entries.set(key, { path: activePath, header: activeHeader, assignment: trust.line });
+    if (!isCodeTermProvisionedWorkspacePath(activePath)) {
+      entries.set(key, { path: activePath, header: activeHeader, assignment: trust.line });
+    }
     return true;
   };
   for (const line of lines) {
