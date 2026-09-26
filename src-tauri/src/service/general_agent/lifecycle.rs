@@ -527,6 +527,7 @@ pub fn start_general_agent(
                 &ga_cwd,
             ),
             launch_marker: None,
+            instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         };
         let command = match crate::service::launch_session_detection::marked_provider_launch_command(
             &svc.agent_registry,

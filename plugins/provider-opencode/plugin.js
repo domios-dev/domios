@@ -25,7 +25,8 @@ __export(plugin_exports, {
 module.exports = __toCommonJS(plugin_exports);
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
+var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -502,22 +503,29 @@ function opencodePluginEntryMatches(entry, target) {
   return value.replace(/\\/g, "/") === target;
 }
 function isCurrentOpencodeBindingPluginSource(text) {
+  const currentHeader = "// " + CODETERM_OPENCODE_PLUGIN_MARKER;
+  const hasCurrentHeader = text.startsWith(currentHeader + "\n") || text.startsWith(currentHeader + "\r\n");
   const required = [
-    CODETERM_OPENCODE_PLUGIN_MARKER,
     "CODETERM_API_URL",
     "CODETERM_API_TOKEN",
     "CODETERM_SESSION_BINDING_NONCE",
     "CODETERM_TAB_ID",
     "/api/tabs/",
     "x-codeterm-binding-nonce",
-    "authorization"
+    "authorization",
+    "sessionID === lastReported"
   ];
-  return required.every((value) => text.includes(value)) && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+  return hasCurrentHeader && required.every((value) => text.includes(value)) && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+}
+function ownsOpencodeBindingPluginSource(text) {
+  const header = "// " + CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX;
+  return text.startsWith(header) && /^\d+(?:\r?\n|$)/.test(text.slice(header.length));
 }
 function opencodeBindingPluginSource() {
   return [
     "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
     'const PROVIDER_ID = "opencode";',
+    "let lastReported = null;",
     "",
     "function endpoint() {",
     "  const tab = process.env.CODETERM_TAB_ID;",
@@ -543,16 +551,17 @@ function opencodeBindingPluginSource() {
     "",
     "async function report(sessionID, source, directory) {",
     "  sessionID = normalizeSessionID(sessionID);",
-    "  if (!sessionID) return;",
+    "  if (!sessionID || sessionID === lastReported) return;",
     "  const url = endpoint();",
     "  if (!url) return;",
+    "  lastReported = sessionID;",
     "  const headers = {",
     '    "content-type": "application/json",',
     '    "x-codeterm-agent-provider": PROVIDER_ID,',
     '    "x-codeterm-binding-nonce": process.env.CODETERM_SESSION_BINDING_NONCE,',
     "    authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
     "  };",
-    "  await fetch(url, {",
+    "  const delivered = await fetch(url, {",
     '    method: "POST",',
     "    headers,",
     "    body: JSON.stringify({",
@@ -561,7 +570,8 @@ function opencodeBindingPluginSource() {
     "      source,",
     "      cwd: directory || process.cwd(),",
     "    }),",
-    "  }).catch(() => {});",
+    "  }).then((response) => response.ok, () => false);",
+    "  if (!delivered && lastReported === sessionID) lastReported = null;",
     "}",
     "",
     "function eventSessionID(event) {",
@@ -855,11 +865,13 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
+    const pluginOwned = pluginExists && ownsOpencodeBindingPluginSource(pluginBody);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false
       };
@@ -869,8 +881,10 @@ var plugin = {
       return {
         config_file_exists: true,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
-        plugin_installed: false
+        plugin_installed: false,
+        integration_state: "unreadable"
       };
     }
     const target = opencodePluginEntry();
@@ -881,6 +895,7 @@ var plugin = {
     return {
       config_file_exists: true,
       plugin_file_exists: pluginExists,
+      plugin_file_owned: pluginOwned,
       plugin_file_current: pluginCurrent,
       plugin_installed: installed
     };

@@ -19,6 +19,105 @@ impl ServiceContext {
             .filter(|output| !output.trim().is_empty())
     }
 
+    pub(super) fn startup_prompt_failure_reason(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> Option<String> {
+        let (agent_type, cwd, trust_provenance) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id)?;
+            if tab.pty_id.as_deref() != Some(attempt_id) || tab.launch_session_authenticated() {
+                return None;
+            }
+            let agent_type = tab.agent_type.clone()?;
+            let trust_provenance =
+                match crate::service::directory_trust::directory_trust_provenance(tab) {
+                    Ok(()) => "directory-trust provenance is available",
+                    Err(crate::service::directory_trust::DirectoryTrustRefusal::NoProvenance) => {
+                        "no provenance to auto-answer"
+                    }
+                    Err(reason) => reason.reason(),
+                };
+            (agent_type, tab.cwd.clone(), trust_provenance)
+        };
+        let screen_text = self.screen_state.lock().get_screen_text(attempt_id)?;
+        let snapshot = crate::agent::tab_state::TabStateSnapshot {
+            tab_id: tab_id.to_string(),
+            agent_type: agent_type.clone(),
+            session_id: None,
+            cwd,
+            screen_text: screen_text.clone(),
+        };
+        self.agent_registry
+            .with_provider(&agent_type, |provider| {
+                if provider.parse_directory_trust_prompt(&screen_text).is_some() {
+                    return Some(format!(
+                        "blocked on provider directory-trust prompt; {trust_provenance}; no session binding"
+                    ));
+                }
+                if let Some(classification) = provider.classify_tab_state(&snapshot) {
+                    if classification.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD {
+                        let prompt = match classification.state {
+                            crate::agent::tab_state::TabState::WaitingOnAuth => {
+                                Some("provider authentication prompt")
+                            }
+                            crate::agent::tab_state::TabState::UpdatePrompt => {
+                                Some("provider update prompt")
+                            }
+                            crate::agent::tab_state::TabState::RateLimited => {
+                                Some("provider rate-limit prompt")
+                            }
+                            crate::agent::tab_state::TabState::ClarifyingQuestion => {
+                                Some("provider question prompt")
+                            }
+                            _ => None,
+                        };
+                        if let Some(prompt) = prompt {
+                            return Some(format!("blocked on {prompt}; no session binding"));
+                        }
+                    }
+                }
+                provider
+                    .parse_prompt(&screen_text)
+                    .map(|_| "blocked on provider permission prompt; no session binding".into())
+            })
+            .flatten()
+    }
+
+    pub(super) fn agent_startup_failure_payload(
+        &self,
+        authority: &StartupAuthority,
+        agent_title: &str,
+        exit_code: Option<i32>,
+    ) -> Option<Value> {
+        if !self.startup_attempt_is_current(authority) {
+            return None;
+        }
+        let failure_reason =
+            self.startup_prompt_failure_reason(&authority.child_tab_id, &authority.attempt_id);
+        if let Some(reason) = failure_reason.as_deref() {
+            log::warn!(
+                "[startup-supervision] Tab {} startup deadline failed: {reason}",
+                authority.child_tab_id
+            );
+            self.emit_boot_stage(
+                &authority.child_tab_id,
+                crate::service::boot_stage::BootStage::SpawnFailed,
+                Some(reason),
+            );
+        }
+        let provider_output = self.startup_provider_output(&authority.attempt_id);
+        Some(agent_startup_failed_event(
+            &authority.child_tab_id,
+            agent_title,
+            &authority.attempt_id,
+            exit_code,
+            provider_output.as_deref(),
+            failure_reason.as_deref(),
+        ))
+    }
+
     pub(crate) fn register_agent_startup_supervision(
         &self,
         supervisor_tab_id: &str,
@@ -318,18 +417,39 @@ impl ServiceContext {
                 "startup acknowledgement does not own attempt {attempt_id} for Tab {caller_tab_id}"
             ));
         };
-        self.worker_ack
-            .acknowledge_startup_for_binding(
-                caller_tab_id,
-                attempt_id,
-                session_id.as_deref(),
-                Some(binding_nonce),
-            )
-            .ok_or_else(|| {
-                format!(
-                    "startup attempt {attempt_id} for Tab {caller_tab_id} is not awaiting acknowledgement"
-                )
-            })
+        if let Some(acknowledgement) = self.worker_ack.acknowledge_startup_for_binding(
+            caller_tab_id,
+            attempt_id,
+            session_id.as_deref(),
+            Some(binding_nonce),
+        ) {
+            return Ok(acknowledgement);
+        }
+        if let Some(refusal) = self.worker_ack.startup_ack_refusal(
+            caller_tab_id,
+            attempt_id,
+            session_id.as_deref(),
+            binding_nonce,
+        ) {
+            return Err(refusal);
+        }
+        if let Some(acknowledgement) = self.worker_ack.acknowledge_startup_for_binding(
+            caller_tab_id,
+            attempt_id,
+            session_id.as_deref(),
+            Some(binding_nonce),
+        ) {
+            return Ok(acknowledgement);
+        }
+        if let Some(refusal) = self.worker_ack.startup_ack_refusal(
+            caller_tab_id,
+            attempt_id,
+            session_id.as_deref(),
+            binding_nonce,
+        ) {
+            return Err(refusal);
+        }
+        Ok(AgentStartupAcknowledgement::NotRequired)
     }
 
     pub(crate) fn observe_agent_startup_launch_command_finished(
@@ -448,22 +568,16 @@ impl ServiceContext {
                     WaiterExpiry::NoLongerCurrent => return,
                 }
             }
-            if !service.startup_attempt_is_current(&authority) {
-                return;
-            }
-            let provider_output = service.startup_provider_output(&attempt_id);
-            service.publish_agent_startup_report(
-                &supervisor_tab_id,
-                &agent_tab_id,
-                &agent_title,
-                agent_startup_failed_event(
+            if let Some(payload) =
+                service.agent_startup_failure_payload(&authority, &agent_title, exit_code)
+            {
+                service.publish_agent_startup_report(
+                    &supervisor_tab_id,
                     &agent_tab_id,
                     &agent_title,
-                    &attempt_id,
-                    exit_code,
-                    provider_output.as_deref(),
-                ),
-            );
+                    payload,
+                );
+            }
         });
     }
 

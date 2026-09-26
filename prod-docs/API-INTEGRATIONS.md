@@ -146,10 +146,11 @@ The host owns one binding per receiver plugin id, persisted in the data director
 | GET | `/api/setup/rules` | — | Check if project rules are installed |
 | POST | `/api/setup/rules/install` | — | Install project rules |
 | GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status (`codeterm integration status --provider <id>`). Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete. |
-| POST | `/api/setup/hooks/install` | `?provider=<id>&precompact_memory_export=<bool>` | Authenticated install is consent: records `integration_consent_granted`, `integration_consent_recorded_at`, `integration_target` exactly like the Settings install, installs CodeTerm's own marked entries and grants their provider trust in the same step (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
+| POST | `/api/setup/hooks/install` | `?provider=<id>[&precompact_memory_export=<bool>]` | Authenticated install is consent. Omit `precompact_memory_export` to preserve the current CodeTerm PreCompact hook or recorded choice; pass `true` or `false` to change it. The install records consent and its timestamp like Settings, installs CodeTerm's marked entries and grants their provider trust (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
 | POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
+| POST | `/api/integration/sweep-profiles` | `?provider=<id>&confirm=<bool>&include_legacy=<bool>` | Preview this instance's dead provider launch artifacts and unmarked legacy files. Both flags default false; deletion requires `confirm=true`. `include_legacy=true` with confirmation deletes every unmarked file regardless of tab liveness. CLI: `codeterm integration sweep-profiles --provider <id>`. |
 
-With consent recorded, daemon start and provider plugin reload reconcile a missing, stale, or untrusted (`untrusted_hash`) integration by reinstalling with the trust grant. Without recorded consent nothing is rewritten or trusted.
+With consent recorded, daemon start and provider plugin reload reconcile a missing, stale, or untrusted (`untrusted_hash`) integration by reinstalling with the trust grant. An existing CodeTerm-owned install with no consent record is treated as consent, recorded once with its timestamp, and reconciled. When neither recorded consent nor a CodeTerm ownership marker exists, nothing is rewritten or trusted.
 
 #### Cron Jobs
 | Method | Path | Body / Query | Description |
@@ -201,4 +202,4 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 19 -->
+<!-- revision: 22 -->

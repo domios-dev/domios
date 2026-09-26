@@ -215,12 +215,20 @@ impl ServiceContext {
         Prepare: FnMut(&Self, &str) -> Result<(), String>,
         Finish: FnMut(&Self, &str) -> Result<(), String>,
     {
-        let (pre_focus, prepared) = {
+        let (pre_focus, prepared, provider_ids) = {
             let mut mux = self.mux.write();
-            (
-                mux.get_focused_tab_id().map(str::to_string),
-                mux.reserve_workspace_close(id)?,
-            )
+            let pre_focus = mux.get_focused_tab_id().map(str::to_string);
+            let prepared = mux.reserve_workspace_close(id)?;
+            let provider_ids = prepared
+                .tab_ids()
+                .iter()
+                .filter_map(|tab_id| {
+                    mux.get_tab(tab_id)
+                        .and_then(|tab| tab.agent_type.clone())
+                        .map(|provider_id| (tab_id.clone(), provider_id))
+                })
+                .collect::<Vec<_>>();
+            (pre_focus, prepared, provider_ids)
         };
         let tab_ids = prepared.tab_ids().to_vec();
         let mut cleanup_errors = Vec::new();
@@ -231,6 +239,9 @@ impl ServiceContext {
         }
         let pty_ids = self.mux.write().close_prepared_workspace(prepared)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
+        for (tab_id, provider_id) in provider_ids {
+            self.release_tab_launch_artifacts(&tab_id, &provider_id);
+        }
         self.kill_ptys(&pty_ids);
         for tab_id in &tab_ids {
             if let Err(error) = finish(self, tab_id) {

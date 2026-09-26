@@ -13,6 +13,7 @@ mod logging;
 mod plan_restore;
 mod progress;
 mod rest_api;
+mod restore_complete;
 mod servers;
 #[cfg(test)]
 mod stall_tests;
@@ -35,6 +36,7 @@ pub(crate) use progress::StartupStep;
 pub(crate) use rest_api::{
     RestApiControl, RestApiControlState, RestApiRecovery, RestApiRuntimePolicy, RestApiStatus,
 };
+pub(crate) use restore_complete::notify as restore_complete;
 pub(crate) use servers::start_servers;
 #[cfg(test)]
 pub(crate) use servers::FRONTEND_READINESS_DEADLINE_ELAPSED;

@@ -7,6 +7,9 @@ use crate::plan::TaskStatus;
 pub struct AssignmentRuntimeBinding {
     pub session_id: String,
     pub session_binding_nonce: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub session_model: Option<String>,
 }
 
 impl PlanStore {
@@ -70,6 +73,14 @@ impl PlanStore {
             if let Some(binding) = binding {
                 attempt.session_id = Some(binding.session_id.clone());
                 attempt.session_binding_nonce = Some(binding.session_binding_nonce.clone());
+                if let Some(provider) = binding.provider.as_ref() {
+                    attempt.provider = Some(provider.clone());
+                    attempt.agent_type = Some(provider.clone());
+                }
+                if let Some(model) = binding.model.as_ref() {
+                    attempt.model = Some(model.clone());
+                }
+                attempt.session_model = binding.session_model.clone();
                 task.interruption.owner_epoch += 1;
                 task.interruption.owner_tab_id = Some(tab.into());
                 task.interruption.owner_session_id = Some(binding.session_id.clone());

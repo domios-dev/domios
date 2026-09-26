@@ -498,7 +498,8 @@ impl super::ServiceContext {
         checkpoint: InterruptionCheckpoint,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        self.plan_store
+        let adopted = self
+            .plan_store
             .adopt_interrupted_task(
                 plan_id,
                 task_id,
@@ -508,7 +509,9 @@ impl super::ServiceContext {
                 new_session_id,
                 now_ms,
             )
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.persist_current_attempt_session_model(new_tab_id);
+        Ok(adopted)
     }
 }
 
