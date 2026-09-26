@@ -61,6 +61,49 @@ assert(
   "the generated binding plugin source satisfies its currentness contract",
 );
 
+console.log("\n--- session lifecycle binding events ---\n");
+{
+  const requests: Array<{ session_id: string; source: string }> = [];
+  const source = opencodeBindingPluginSource().replace(
+    "export default async function CodeTermSessionBindingPlugin",
+    "async function CodeTermSessionBindingPlugin",
+  );
+  const context = {
+    process: {
+      env: {
+        CODETERM_TAB_ID: "tab-1",
+        CODETERM_API_TOKEN: "token",
+        CODETERM_SESSION_BINDING_NONCE: "nonce",
+        CODETERM_API_URL: "http://dev",
+      },
+    },
+    fetch: async (_url: string, options: { body: string }) => {
+      requests.push(JSON.parse(options.body));
+      return { ok: true };
+    },
+    module: { exports: undefined as unknown },
+  };
+  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(context);
+  const makePlugin = context.module.exports as (input: { directory: string }) => Promise<{
+    event: (input: { event: unknown }) => Promise<void>;
+  }>;
+  const hooks = await makePlugin({ directory: "/work" });
+  await hooks.event({ event: { type: "session.created", properties: { sessionID: "ses_created" } } });
+  await hooks.event({ event: { type: "session.updated", properties: { sessionID: "ses_created" } } });
+  await hooks.event({ event: { type: "message.updated", properties: { sessionID: "ses_created" } } });
+  await hooks.event({ event: { type: "message.part.updated", properties: { sessionID: "ses_created" } } });
+  await hooks.event({ event: { type: "tui.session.select", properties: { sessionID: "ses_selected" } } });
+  eq(
+    requests.map(({ session_id, source: event }) => ({ session_id, source: event })),
+    [
+      { session_id: "ses_created", source: "session.created" },
+      { session_id: "ses_selected", source: "tui.session.select" },
+    ],
+    "only session creation and selection report a binding",
+  );
+  eq(Object.keys(hooks), ["event"], "message, tool, and shell hooks do not rebind the active session");
+}
+
 function loadOpencodeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
@@ -497,12 +540,13 @@ console.log("\n--- discoverModels ---\n");
   );
   const cur = loadOpencodeWithHost(
     withBody(
-      "// codeterm-opencode-session-binding-v2\n" +
+      "// codeterm-opencode-session-binding-v3\n" +
       "const base = process.env.CODETERM_API_URL;\n" +
       "const token = process.env.CODETERM_API_TOKEN;\n" +
       "const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
       "process.env.CODETERM_TAB_ID;\n" +
       'const endpoint = "/api/tabs/";\n' +
+      "function isSessionBindingEvent(event) {}\n" +
       '"x-codeterm-binding-nonce";\n' +
       "authorization;",
     ),
