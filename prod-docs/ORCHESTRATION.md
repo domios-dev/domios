@@ -44,8 +44,6 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 
 The Orchestrator states the GOAL and delegates planning by default; the Planner drafts structure, and the Orchestrator approves or revises it, dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
 A bound Planner's authority over sections and tasks is durable, not phase-scoped: it survives approval. Approval and dispatch stay the Orchestrator's alone.
-The Orchestrator may implement a genuinely small local change when delegation
-would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
 When Team-bound, utility shells and cron jobs inherit the same Team for cleanup. Use `--no-team` only when a resource must deliberately outlive it.
 
 Lane safety has two hard stops and otherwise only nudges; see the lanes playbook.
@@ -159,8 +157,14 @@ Before a wave:
 4. Dispatch through `codeterm plan task dispatch`; lanes by default,
    `--canonical-writer` only by deliberate choice (operations playbook).
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
-6. If dispatch fails, alert the user immediately and verify rollback. Never
-   blind-retry a write.
+6. On any dispatch failure, immediately send a standalone user alert with the
+   impact, affected tasks, cleanup performed, and active fallback, and verify
+   rollback. After a second same-class failure, stop dispatching, diagnose and
+   escalate it as a coordination incident using
+   `codeterm notify send ... --level action_needed` and a plan stride on the
+   task; wait for owner direction before retrying. Never make a third blind
+   dispatch, implement plan-owned work yourself, or close it done without an
+   acknowledged Worker attempt or explicit owner decision.
 
 Every Worker is visible under the Orchestrator with a clear title and description,
 `CODETERM_PLAN_ID` and `CODETERM_TASK_ID`, the checkout the Orchestrator chose, and a
@@ -176,9 +180,8 @@ out of scope; see the spawn-then-bind pattern in `codeterm docs MESH`.
 
 Choose review granularity from backlog and diff size. A few large changes merit
 individual review; a growing queue of compatible small changes should share one
-review wave and canonical QA group. After real merge, the Orchestrator may fix a
-bounded mechanical integration defect directly in canonical. Bounce ownership,
-correctness, authority, scope, or design defects instead of grinding tiny edits.
+review wave and canonical QA group. Bounce ownership, correctness, authority,
+scope, or design defects instead of grinding tiny edits.
 
 Review backlog and credit debt are advisory, not dispatch blockers. At the default five-review threshold, status and heartbeats warn the Orchestrator to prioritize review closures and avoid growing the backlog.
 Ordinary dispatch, competition, and respawn remain allowed without a capacity grant. Authorization, dependency, regression, and review-acceptance checks remain enforced; never fake acceptance or adjust credit merely to silence a warning.
@@ -198,4 +201,4 @@ the assignment and lane intact, and every verdict requires `--note`, never
 `--reason`. Review credit repair, task-less evidence reporters, and Planner parent
 resolution are plan surface contracts (API-PLAN).
 
-<!-- revision: 84 -->
+<!-- revision: 85 -->

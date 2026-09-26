@@ -16,7 +16,7 @@ python .agents/skills/prompt-evaluator/runner.py \
 
 ## Pass
 
-The markdown report marks all six cases as passing for all three samples and
+The markdown report marks all seven cases as passing for all three samples and
 the runner exits zero.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

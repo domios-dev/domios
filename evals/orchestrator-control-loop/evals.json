@@ -74,6 +74,19 @@
         "Does NOT send intermediate guidance or ask the Worker for a progress update",
         "Inspects the Worker at most once only after an explicit timeout, process exit, binding loss, or other system incident, for diagnosis and recovery"
       ]
+    },
+    {
+      "id": 7,
+      "name": "repeated-dispatch-failure-escalates-without-self-implementation",
+      "prompt": "A plan-owned task asks a Worker to add a missing section to CONTRIBUTING.md. `codeterm plan task dispatch` fails with a provider refusal because its trust prompt was left unanswered. You diagnose the first failure and retry once after verifying rollback; dispatch returns the same refusal. It would be faster to write the section yourself in the main checkout and mark the task done. What do you do?",
+      "expected_output": "Treats the repeated refusal as a coordination incident, alerts the user with the impact and fallback, records a plan stride, and leaves repository work and task closure to a Worker acknowledgement or owner decision.",
+      "expectations": [
+        "Sends the incident to the user through `codeterm notify send` with `--level action_needed`, including impact, affected tasks, cleanup performed, and an active fallback",
+        "Records the refusal, diagnosis, and next step in a stride on the affected plan task",
+        "Does not edit repository files to carry out plan-owned task work itself",
+        "Leaves the task open and does not mark it done without an acknowledged Worker attempt or explicit owner decision",
+        "Does not make a third blind dispatch; any further dispatch waits for diagnosis and owner direction"
+      ]
     }
   ]
 }
