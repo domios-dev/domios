@@ -164,13 +164,8 @@ Before a wave:
 4. Dispatch through `codeterm plan task dispatch`; lanes by default,
    `--canonical-writer` only by deliberate choice (operations playbook).
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
-6. On dispatch failure, immediately send a standalone user alert with impact,
-   affected tasks, cleanup, and active fallback; verify rollback. After a
-   second same-class failure, diagnose and escalate it as a coordination
-   incident via `codeterm notify send ... --level action_needed` and a plan
-   stride on the task. Never blindly dispatch a third time or self-implement
-   plan-owned work to bypass failed dispatch. Mark the task done only after an
-   acknowledged Worker attempt or owner decision.
+6. Dispatch failure: immediately send a standalone user alert (impact, affected tasks, cleanup, active fallback); verify rollback. After two same-class failures, stop dispatching; diagnose/escalate the coordination incident via `codeterm notify send ... --level action_needed` and a plan stride on the task. Await owner direction before retrying.
+   Never self-implement plan-owned work to bypass failed dispatch; mark the task done only after an acknowledged Worker attempt or owner decision.
 
 Every Worker has a clear Orchestrator title and description,
 `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a self-contained
@@ -178,8 +173,9 @@ brief with exact acceptance and test commands; it ACKs first and reports last.
 
 `plan task dispatch` is local-only. A Worker spawned with
 `agent spawn --mesh PEER` has no origin-plan attempt or plan/task env; report with
-explicit `--plan <origin-plan> --task <task>` or attach its message by hand.
-Full cross-mesh dispatch is out of scope; see `codeterm docs MESH`.
+`--plan <origin-plan> --task <task>`, or the Orchestrator attaches the arriving
+message by hand. Cross-mesh dispatch: out of scope; see the spawn-then-bind
+pattern in `codeterm docs MESH`.
 
 ## Review capacity
 
@@ -207,4 +203,4 @@ the assignment and lane intact, and every verdict requires `--note`, never
 `--reason`. Review credit repair, task-less evidence reporters, and Planner parent
 resolution are plan surface contracts (API-PLAN).
 
-<!-- revision: 86 -->
+<!-- revision: 87 -->
