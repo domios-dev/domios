@@ -7,6 +7,11 @@ export interface TabContext {
   cwd?: string | null;
 }
 
+export interface SessionDeltaContext {
+  session_key: string;
+  from_offset: number;
+}
+
 // ── statusBubble ──
 
 export type BubbleTone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
@@ -228,7 +233,7 @@ export interface AgentProvider {
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
-  parseSessionDelta?(chunk: string): unknown;
+  parseSessionDelta?(chunk: string, context?: SessionDeltaContext): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
