@@ -19,6 +19,9 @@ pub struct MockProvider {
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
     update_command: Option<String>,
+    directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
+    tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
+    parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
@@ -38,6 +41,9 @@ impl MockProvider {
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
             update_command: None,
+            directory_trust_response: None,
+            tab_state_classification: None,
+            parsed_prompt: None,
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
@@ -121,6 +127,32 @@ impl MockProvider {
             update_command: Some(command.to_string()),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_directory_trust_response(
+        id: &str,
+        response: codeterm_plugin::provider::DirectoryTrustPromptResponse,
+    ) -> Self {
+        Self {
+            directory_trust_response: Some(response),
+            ..Self::new(id)
+        }
+    }
+
+    pub fn with_tab_state(
+        mut self,
+        classification: codeterm_plugin::tab_state::TabStateClassification,
+    ) -> Self {
+        self.tab_state_classification = Some(classification);
+        self
+    }
+
+    pub fn with_parsed_prompt(
+        mut self,
+        prompt: codeterm_types::pty::PendingPrompt,
+    ) -> Self {
+        self.parsed_prompt = Some(prompt);
+        self
     }
 
     pub fn with_empty_launch_command(id: &str) -> Self {
@@ -241,5 +273,20 @@ impl AgentProvider for MockProvider {
         _max_age: Option<Duration>,
     ) -> Option<String> {
         None
+    }
+    fn directory_trust_prompt_response(
+        &self,
+        _screen: &str,
+    ) -> Option<codeterm_plugin::provider::DirectoryTrustPromptResponse> {
+        self.directory_trust_response.clone()
+    }
+    fn classify_tab_state(
+        &self,
+        _snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+    ) -> Option<codeterm_plugin::tab_state::TabStateClassification> {
+        self.tab_state_classification.clone()
+    }
+    fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
+        self.parsed_prompt.clone()
     }
 }

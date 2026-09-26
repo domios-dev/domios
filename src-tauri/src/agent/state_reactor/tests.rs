@@ -148,6 +148,23 @@ fn provider_update_completion_is_a_structural_event() {
 }
 
 #[test]
+fn update_prompt_classification_is_a_manual_prompt_guard() {
+    let prompt = classification(TabState::UpdatePrompt, GLOBAL_THRESHOLD, None);
+    let weak = classification(TabState::UpdatePrompt, GLOBAL_THRESHOLD - 0.01, None);
+    let working = classification(TabState::Working, 1.0, None);
+    assert!(is_manual_update_prompt(Some(&prompt)));
+    assert!(!is_manual_update_prompt(Some(&weak)));
+    assert!(!is_manual_update_prompt(Some(&working)));
+    assert!(!is_manual_update_prompt(None));
+}
+
+#[test]
+fn update_prompt_without_an_explicit_update_action_is_never_acted() {
+    let prompt = classification(TabState::UpdatePrompt, 1.0, None);
+    assert_eq!(decide(TabStatus::Idle, Some(&prompt)), ReactorDecision::Ignore);
+}
+
+#[test]
 fn hidden_update_runner_completes_only_after_install_leaves_the_prompt() {
     let prompt = classification(TabState::UpdatePrompt, 1.0, None);
     let shell = classification(TabState::Working, 0.0, None);

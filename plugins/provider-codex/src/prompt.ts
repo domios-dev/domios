@@ -17,7 +17,12 @@ export interface ActiveTerminalChoice {
 }
 
 export type CodexFolderTrustPrompt =
-  | { kind: "active"; prompt: ParsedPrompt; affirmativeIndex: number }
+  | {
+      kind: "active";
+      prompt: ParsedPrompt;
+      affirmativeIndex: number;
+      affirmativeSelected: boolean;
+    }
   | { kind: "not_on_screen" };
 
 interface ParsedOptionState {
@@ -58,6 +63,7 @@ export function classifyCodexFolderTrustPrompt(
   const questionEnd = preamble.indexOf("?");
   const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
   if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
   const choice = parseActiveTerminalChoice(screen);
   if (
     !choice ||
@@ -70,6 +76,7 @@ export function classifyCodexFolderTrustPrompt(
   return {
     kind: "active",
     affirmativeIndex,
+    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
     prompt: {
       question: preamble.slice(0, questionEnd + 1).trim(),
       options: choice.options.map((option) => [option.label, option.value] as [string, string]),
@@ -77,6 +84,18 @@ export function classifyCodexFolderTrustPrompt(
       submitAvailable: false,
     },
   };
+}
+
+function hasConfirmFooter(screen: string, lastOptionLine: number): boolean {
+  const lines = normalizeLines(screen);
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\benter\s+to\s+(?:confirm|continue|select)\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
 }
 
 function hasDirectoryContextLine(screen: string): boolean {

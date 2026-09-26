@@ -224,6 +224,45 @@ fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
 }
 
 #[test]
+fn codex_update_dialog_is_never_a_trust_dialog_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let fixture = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust")
+        .join("codex-update-available.txt");
+    let screen = std::fs::read_to_string(fixture).expect("Codex update fixture");
+    let provider = codex();
+    assert_eq!(provider.directory_trust_prompt_response(&screen), None);
+    let snapshot = crate::tab_state::TabStateSnapshot {
+        tab_id: "update-tab".into(),
+        agent_type: "codex".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: screen.clone(),
+    };
+    let classification = provider.classify_tab_state(&snapshot).expect("update state");
+    assert_eq!(classification.state, crate::tab_state::TabState::UpdatePrompt);
+    assert!(classification.action.is_none());
+    let prompt = provider.parse_prompt(&screen).expect("structured prompt");
+    assert_eq!(
+        prompt.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        ["1", "2", "3"]
+    );
+    assert_eq!(
+        provider.build_prompt_response(1, &screen),
+        vec![b"\x1b[B".to_vec(), b"\r".to_vec()]
+    );
+    assert_eq!(
+        provider.permission_prompt_response("Bash", &prompt, &screen),
+        None
+    );
+}
+
+#[test]
 fn codex_folder_trust_prompt_parses_as_numbered_choices() {
     if require_plugins().is_none() {
         return;
