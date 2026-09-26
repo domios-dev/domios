@@ -574,7 +574,12 @@ fn notify_dedupe_an_acknowledged_message_may_arrive_again() {
     assert_eq!(store.lock().unread_count(), 1);
 }
 
-#[test]
+/// `level` and `severity` are independent axes on the wire; these
+/// exercise the payload, which is what the surfaces actually read.
+mod notification_level_field {
+    use super::*;
+
+    #[test]
     fn notification_level_field_reaches_stored_record_and_emitted_payload() {
         let store = Arc::new(Mutex::new(NotificationStore::new(10)));
         let emitted = Mutex::new(Vec::new());

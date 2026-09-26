@@ -105,10 +105,8 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
         true,
     );
 
-    let pending = fixture
-        .service
-        .mux
-        .read()
+    let mux = fixture.service.mux.read();
+    let pending = mux
         .get_tab(&tab_id)
         .and_then(|tab| tab.pending_prompt.as_ref())
         .expect("update options remain pending for tab respond");
