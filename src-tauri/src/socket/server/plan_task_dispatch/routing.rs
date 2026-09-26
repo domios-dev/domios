@@ -8,7 +8,6 @@ use super::JsonRpcError;
 pub(super) struct DispatchRouting {
     pub agent: Option<String>,
     pub model: Option<String>,
-    pub(super) qualified_model: bool,
     pub(super) qualified_provider_mismatch: Option<(String, String)>,
 }
 
@@ -25,44 +24,6 @@ pub(super) fn qualified_provider_model(
         return Some((provider.to_string(), model.to_string()));
     }
     None
-}
-
-pub(super) fn unqualified_model_error(
-    routing: &DispatchRouting,
-    provider: &str,
-    notice: &crate::service::spawn::ModelFallbackNotice,
-) -> Option<JsonRpcError> {
-    if let Some(error) = provider_mismatch_error(routing) {
-        return Some(error);
-    }
-    if routing.qualified_model {
-        return Some(JsonRpcError {
-            code: -32602,
-            message: format!(
-                "model '{}' is unavailable for provider '{}'; refusing to substitute '{}'.",
-                notice.requested_model, provider, notice.provider_resolved_model
-            ),
-            data: Some(json!({
-                "type": "qualified_model_unavailable",
-                "requested_model": notice.requested_model,
-                "provider": provider,
-                "suggestion": "use a model id listed by the selected provider",
-            })),
-        });
-    }
-    Some(JsonRpcError {
-        code: -32602,
-        message: format!(
-            "model '{}' is unavailable for provider '{}'. Specify <provider>:<model> instead of silently substituting '{}'.",
-            notice.requested_model, provider, notice.provider_resolved_model
-        ),
-        data: Some(json!({
-            "type": "unqualified_model_unavailable",
-            "requested_model": notice.requested_model,
-            "default_provider": provider,
-            "suggestion": "use <provider>:<model> or pass --agent <provider>",
-        })),
-    })
 }
 
 pub(super) fn provider_mismatch_error(routing: &DispatchRouting) -> Option<JsonRpcError> {
@@ -115,14 +76,12 @@ pub(super) fn resolve_dispatch_routing(
                     return DispatchRouting {
                         agent: Some(agent),
                         model: Some(normalized_model),
-                        qualified_model: true,
                         qualified_provider_mismatch: None,
                     };
                 }
                 return DispatchRouting {
                     agent: Some(agent.clone()),
                     model: requested_model,
-                    qualified_model: false,
                     qualified_provider_mismatch: Some((requested_provider, agent)),
                 };
             }
@@ -130,7 +89,6 @@ pub(super) fn resolve_dispatch_routing(
         return DispatchRouting {
             agent: Some(agent),
             model: requested_model,
-            qualified_model: false,
             qualified_provider_mismatch: None,
         };
     }
@@ -139,7 +97,6 @@ pub(super) fn resolve_dispatch_routing(
             return DispatchRouting {
                 agent: Some(agent),
                 model: Some(model),
-                qualified_model: true,
                 qualified_provider_mismatch: None,
             };
         }
@@ -147,21 +104,18 @@ pub(super) fn resolve_dispatch_routing(
             return DispatchRouting {
                 agent: Some(model),
                 model: None,
-                qualified_model: true,
                 qualified_provider_mismatch: None,
             };
         }
         return DispatchRouting {
             agent: None,
             model: Some(model),
-            qualified_model: false,
             qualified_provider_mismatch: None,
         };
     }
     DispatchRouting {
         agent: None,
         model: None,
-        qualified_model: false,
         qualified_provider_mismatch: None,
     }
 }

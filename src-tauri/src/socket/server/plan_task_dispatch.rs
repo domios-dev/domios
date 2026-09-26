@@ -56,10 +56,7 @@ use lane_safety::{
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 pub(super) use recovery::publish_action_needed_event;
 use recovery::startup_recovery_event;
-use routing::{
-    dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing,
-    unqualified_model_error,
-};
+use routing::{dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing};
 pub(super) use tab_reservation::dispatch_startup_owner_is_live;
 use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
@@ -535,6 +532,12 @@ where
         now,
     )
     .map_err(plan_rpc_err)?;
+    crate::service::spawn::validate_agent_model(
+        &svc.agent_registry,
+        &resolved_provider,
+        routing.model.as_deref(),
+    )
+    .map_err(super::model_errors::invalid_model_rpc_error)?;
     let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
         &resolved_provider,
@@ -542,16 +545,9 @@ where
         None,
     );
     let dispatched_model = model_resolution.model.clone();
-    if let Some(notice) = model_resolution.fallback_notice {
-        if let Some(error) = unqualified_model_error(&routing, &resolved_provider, &notice) {
-            return Err(error);
-        }
-        warnings.push(format!(
-            "requested model '{}' is not available for provider '{}'; spawning with '{}' instead",
-            notice.requested_model, resolved_provider, notice.provider_resolved_model
-        ));
+    if let Some(warning) = model_resolution.warning.clone() {
+        warnings.push(warning);
     }
-
     // A personality is the executor persona: it names the tab and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)

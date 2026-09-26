@@ -4,6 +4,42 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCatalogueAuthority {
+    FreeForm,
+    Authoritative,
+}
+
+impl Default for ModelCatalogueAuthority {
+    fn default() -> Self {
+        Self::FreeForm
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct ModelCatalogueCapability {
+    pub authority: ModelCatalogueAuthority,
+    pub live_discovery_required: bool,
+}
+
+impl ModelCatalogueCapability {
+    pub const fn authoritative() -> Self {
+        Self {
+            authority: ModelCatalogueAuthority::Authoritative,
+            live_discovery_required: false,
+        }
+    }
+
+    pub const fn authoritative_live() -> Self {
+        Self {
+            authority: ModelCatalogueAuthority::Authoritative,
+            live_discovery_required: true,
+        }
+    }
+}
+
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
 /// Replaces the old injected `kind` string and is the spawn discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

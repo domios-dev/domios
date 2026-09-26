@@ -166,6 +166,8 @@ pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_color: Option<String>,
     pub available_models: Vec<ModelInfo>,
+    #[serde(default)]
+    pub model_catalogue: ModelCatalogueCapability,
     /// Provider-owned groupings of `available_models` (for example the upstream
     /// company a routed model belongs to). Empty ⇒ one flat list. Core never
     /// maps a vendor id to a label; the provider declares both.
@@ -284,7 +286,7 @@ pub struct ProviderDescriptor {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 16;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 17;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file
@@ -938,6 +940,10 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    fn model_catalogue_capability(&self) -> ModelCatalogueCapability {
+        ModelCatalogueCapability::default()
+    }
+
     /// Query the models this provider currently offers, live.
     /// None means "can't probe; use the manifest seed."
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
@@ -1058,6 +1064,7 @@ pub trait AgentProvider: Send + Sync {
             // Keep unavailable entries: `available` greys a model out in the
             // picker, it must not vanish it. Matches chatbackend describe().
             available_models: self.available_models(),
+            model_catalogue: self.model_catalogue_capability(),
             model_groups: self.model_groups(),
             default_model: self.default_model(),
             reasoning_efforts: self.reasoning_efforts(),

@@ -24,12 +24,17 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
+#[path = "spawn_model_catalogue.rs"]
+mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
     attach_planned_model, model_fallback_notice_title, normalize_session_model,
     persist_model_launch_identity, resolve_fresh_agent_model,
     resolve_fresh_agent_model_with_notice, unrequested_substitution_severity,
     CatalogBackgroundModelPort,
+};
+pub(crate) use spawn_model_catalogue::{
+    normalize_requested_model, validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -154,7 +159,7 @@ pub struct AgentSpawnSpec {
     pub activate: Option<bool>,
 }
 
-fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
+pub(crate) fn merge_spawn_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
     match (a, b) {
         (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
         (Some(a), None) => Some(a),
@@ -248,18 +253,6 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn validate_agent_model(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    model: Option<&str>,
-) -> Result<(), String> {
-    let _ = registry;
-    if model.map(str::trim).is_some_and(|m| !m.is_empty()) {
-        let _ = crate::agent::model_catalog::resolve_model(provider_id, model);
-    }
-    Ok(())
-}
-
 /// Structurally validate a requested reasoning effort against the provider's
 /// declared capability. Empty/absent is always valid (no selection). An
 /// unsupported value returns the provider's structured rejection message and the
@@ -316,6 +309,8 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
+        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())
+            .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
@@ -324,7 +319,6 @@ impl ServiceContext {
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
         let launch_model = model_resolution.model.clone();
-        validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
@@ -360,7 +354,10 @@ impl ServiceContext {
         )?;
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
-        let warning = merge_warnings(cwd_warning, cli_warning);
+        let warning = merge_spawn_warnings(
+            merge_spawn_warnings(cwd_warning, cli_warning),
+            model_resolution.warning.clone(),
+        );
 
         let default_chat_view = should_default_agent_tab_to_chat(
             spec.visibility,
@@ -742,6 +739,12 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
+        validate_agent_model(
+            &self.agent_registry,
+            &agent.provider,
+            agent.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent.provider,
@@ -750,11 +753,6 @@ impl ServiceContext {
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
         let launch_model = model_resolution.model.clone();
-        validate_agent_model(
-            &self.agent_registry,
-            &agent.provider,
-            launch_model.as_deref(),
-        )?;
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent.provider,
@@ -1120,7 +1118,7 @@ impl ServiceContext {
             workspace_id: ws_id,
             description: spec.description,
             worker_id: agent.worker_id.clone(),
-            warning: cli_warning,
+            warning: merge_spawn_warnings(cli_warning, model_resolution.warning.clone()),
             model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
