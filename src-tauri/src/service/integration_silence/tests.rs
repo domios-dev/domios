@@ -483,6 +483,7 @@ fn facts_with_hash(state: IntegrationState, hash: Option<&str>) -> IntegrationFa
         registers_sessions_via_hooks: true,
         installed: Some(false),
         consent_recorded: true,
+        integration_owned: false,
         target: Some(FIXTURE_TARGET.to_string()),
         state: Some(state),
         content_hash: hash.map(str::to_string),
@@ -653,6 +654,13 @@ fn reconciliation_is_authorized_only_by_consent_and_the_install_report() {
         )),
         ReconcileAuthorization::AlreadyCurrent
     );
+    assert_eq!(
+        authorize_reconciliation(&facts(
+            json!({ "hooks_installed": true, "hook_contract_current": true }),
+            false
+        )),
+        ReconcileAuthorization::ConsentMissing
+    );
     // A provider that publishes no contract field is current when installed.
     assert_eq!(
         authorize_reconciliation(&facts(json!({ "hooks_installed": true }), true)),
@@ -691,4 +699,16 @@ fn reconciliation_is_authorized_only_by_consent_and_the_install_report() {
         authorize_reconciliation(&facts(json!({ "something_else": 1 }), true)),
         ReconcileAuthorization::Unreadable
     );
+}
+
+#[test]
+fn integration_ownership_is_read_from_provider_report_fields() {
+    assert!(read_integration_owned(
+        &json!({ "integration_owned": true })
+    ));
+    assert!(read_integration_owned(&json!({ "hooks_owned": true })));
+    assert!(read_integration_owned(
+        &json!({ "plugin_file_owned": true })
+    ));
+    assert!(!read_integration_owned(&json!({ "hooks_installed": true })));
 }
