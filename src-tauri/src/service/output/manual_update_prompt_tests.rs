@@ -249,3 +249,159 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
         "provider-classified trust dialog must not reach the General Agent auto-ack writer"
     );
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() {
+    let screen = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+    )
+    .expect("Codex user directory trust fixture");
+    let visible = menu_options(&screen);
+    let parsed = PendingPrompt {
+        question: "folder access choice".into(),
+        options: visible.clone(),
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::new("fixture").with_parsed_prompt(parsed);
+    let pending = super::parse_directory_trust_prompt(&provider, &screen)
+        .expect("supported folder trust dialog is parsed without provenance");
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("fixture".into());
+    tab.cwd = Some("C:\\Users\\User\\workspace".into());
+    tab.pty_id = Some("pty-user-dir-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture.service.apply_prompt_decision_with_screen(
+        &PromptDecision::NewPrompt {
+            tab_id: tab_id.clone(),
+            prompt: pending,
+        },
+        Some(&screen),
+        true,
+        false,
+    );
+
+    let mux = fixture.service.mux.read();
+    let pending = mux
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .expect("folder trust options remain available to tab respond");
+    assert_eq!(pending.options, visible);
+    assert_eq!(
+        pending.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        ["1", "2"]
+    );
+    assert_eq!(
+        super::prompt_step_dispatch_count_for_test("pty-user-dir-trust"),
+        0,
+        "a user-directory trust dialog stays user controlled"
+    );
+}
+
+#[test]
+fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_unchanged_screen() {
+    let screen = std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+    )
+    .expect("Codex user directory trust fixture");
+    let prompt = PendingPrompt {
+        question: "folder access choice".into(),
+        options: menu_options(&screen),
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::new("codex").with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.link_pty(&tab_id, "pty-user-dir-no-change".into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("codex".into());
+    tab.cwd = Some("C:\\Users\\User\\workspace".into());
+    tab.boot_stage = Some(crate::service::boot_stage::BootStage::ProviderReady);
+    tab.agent_state = Some(
+        crate::agent::offline_state_classifier::TabVerdict {
+            state: crate::agent::offline_state_classifier::TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+    {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).expect("Codex tab");
+        assert_eq!(
+            tab.boot_stage,
+            Some(crate::service::boot_stage::BootStage::ProviderReady)
+        );
+        assert_eq!(
+            tab.agent_state.as_ref().map(|state| state.state),
+            Some(crate::agent::offline_state_classifier::TimelineState::Idle)
+        );
+        assert!(tab.provisioned_cwd.is_none());
+        assert!(tab.agent_session_id.is_none());
+        assert!(!crate::service::directory_trust::directory_trust_check_applies(tab));
+    }
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process("pty-user-dir-no-change", screen.as_bytes());
+    let status_rows = crate::agent::classify_input::StatusBarRows::resolve(
+        &*fixture.service.agent_registry,
+        "codex",
+    )
+    .expect("Codex status rows");
+    let screen_hash = fixture
+        .service
+        .screen_state
+        .lock()
+        .get_content_hash("pty-user-dir-no-change", status_rows.get())
+        .expect("trust frame hash");
+    assert!(!fixture
+        .service
+        .agent_tracker
+        .lock()
+        .update_output("pty-user-dir-no-change", screen_hash));
+
+    fixture
+        .service
+        .process_pty_output("pty-user-dir-no-change", b"\x1b[0m");
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.clone()),
+        Some(prompt.clone())
+    );
+    assert_eq!(
+        super::prompt_step_dispatch_count_for_test("pty-user-dir-no-change"),
+        0,
+        "an unprovenanced user-directory trust prompt is never answered automatically"
+    );
+
+    fixture
+        .service
+        .process_pty_output("pty-user-dir-no-change", b"\x1b[0m");
+
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.clone()),
+        Some(prompt)
+    );
+}

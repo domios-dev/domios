@@ -227,6 +227,7 @@ fn reopened_task_redispatches_onto_its_lane() {
             task.assigned_tab_id = Some("tab_gone".into());
             task.lane = lane.clone();
             task.execution_attempts.push(TaskExecutionAttempt {
+                actual_reasoning_effort: None,
                 id: "attempt_gone".into(),
                 executor_tab_id: "tab_gone".into(),
                 session_id: Some("session_gone".into()),

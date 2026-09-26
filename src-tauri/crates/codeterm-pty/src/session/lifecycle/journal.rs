@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -51,10 +52,11 @@ impl JournalLoad {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 struct WriteCursor {
     last_seq: JournalSeq,
     records: usize,
+    last_epoch_by_tab: HashMap<String, LifecycleEpoch>,
 }
 
 /// Append-only tab lifecycle journal. One file, one monotonic sequence.
@@ -75,17 +77,37 @@ impl TabLifecycleJournal {
         let _ = fs::create_dir_all(&dir);
         let path = dir.join(JOURNAL_FILE_NAME);
         let load = read_journal(&path);
+        let mut last_epoch_by_tab = HashMap::new();
+        for record in &load.records {
+            let epoch = record_epoch(record);
+            last_epoch_by_tab
+                .entry(record.tab_id().to_string())
+                .and_modify(|last: &mut LifecycleEpoch| *last = (*last).max(epoch))
+                .or_insert(epoch);
+        }
         Self {
             path,
             cursor: Mutex::new(WriteCursor {
                 last_seq: load.last_seq(),
                 records: load.records.len(),
+                last_epoch_by_tab,
             }),
         }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn next_epoch_for_tab(&self, tab_id: &str) -> LifecycleEpoch {
+        self.cursor
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .last_epoch_by_tab
+            .get(tab_id)
+            .copied()
+            .map(LifecycleEpoch::next)
+            .unwrap_or_else(LifecycleEpoch::first)
     }
 
     /// Append one committed transition. The caller owns the mutation; the
@@ -100,6 +122,8 @@ impl TabLifecycleJournal {
             .lock()
             .map_err(|_| "lifecycle journal lock poisoned".to_string())?;
         let seq = cursor.last_seq.saturating_add(1);
+        let tab_id = key.tab_id.clone();
+        let epoch = key.epoch;
         let record = JournalRecord::Transition {
             entry: LifecycleEntry {
                 seq,
@@ -111,6 +135,11 @@ impl TabLifecycleJournal {
         append_line(&self.path, &record)?;
         cursor.last_seq = seq;
         cursor.records += 1;
+        cursor
+            .last_epoch_by_tab
+            .entry(tab_id)
+            .and_modify(|last| *last = (*last).max(epoch))
+            .or_insert(epoch);
         let unbounded = cursor.records >= COMPACT_AT_RECORDS;
         drop(cursor);
         if unbounded {
@@ -223,6 +252,13 @@ pub fn next_epoch_for(load: &JournalLoad, tab_id: &str) -> LifecycleEpoch {
         .max()
         .map(LifecycleEpoch::next)
         .unwrap_or_else(LifecycleEpoch::first)
+}
+
+fn record_epoch(record: &JournalRecord) -> LifecycleEpoch {
+    match record {
+        JournalRecord::Transition { entry } => entry.key.epoch,
+        JournalRecord::Checkpoint { checkpoint } => checkpoint.key.epoch,
+    }
 }
 
 /// Checkpoints carried by an already-loaded journal, newest sealed operation

@@ -154,6 +154,7 @@ fn authoritative_live_catalogue_rejects_seed_only_models() {
     crate::agent::model_catalog::put_live(
         provider_id,
         vec![crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "gpt-6-astra".into(),
             display_name: "GPT-6-Astra".into(),
             ..Default::default()
@@ -216,6 +217,7 @@ fn authoritative_live_default_warns_when_provider_default_is_stale() {
     crate::agent::model_catalog::put_live(
         provider_id,
         vec![crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "live-default".into(),
             display_name: "Live Default".into(),
             ..Default::default()

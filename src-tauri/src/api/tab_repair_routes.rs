@@ -10,7 +10,7 @@ use super::routes::{resolve_tab, AppState};
 use super::session_binding_routes::VerifiedRebindOutcome;
 use crate::service::tab_repair::{
     TabRepairError, TabRepairErrorKind, TabRepairResponse, TabRepairSource,
-    TAB_REPAIR_VERIFIED_SESSION_REQUIRED,
+    TAB_REPAIR_SESSION_BINDING_PENDING, TAB_REPAIR_VERIFIED_SESSION_REQUIRED,
 };
 use crate::session::lifecycle::AgentTypeWriteOrigin;
 
@@ -100,6 +100,11 @@ impl ApiRepairError {
     }
 
     fn response(self) -> (StatusCode, Json<serde_json::Value>) {
+        let retryable = self.code == TAB_REPAIR_SESSION_BINDING_PENDING;
+        let mut error = serde_json::json!({"code": self.code, "message": self.message});
+        if retryable {
+            error["retryable"] = serde_json::json!(true);
+        }
         let could_not_verify = serde_json::json!({
             "status": "could_not_verify",
             "previous": null,
@@ -109,7 +114,7 @@ impl ApiRepairError {
             self.status,
             Json(serde_json::json!({
                 "ok": false,
-                "error": {"code": self.code, "message": self.message},
+                "error": error,
                 "provider": could_not_verify.clone(),
                 "session": could_not_verify.clone(),
                 "parser_lock": could_not_verify,
@@ -123,6 +128,7 @@ impl From<TabRepairError> for ApiRepairError {
         let status = match error.kind {
             TabRepairErrorKind::NotFound => StatusCode::NOT_FOUND,
             TabRepairErrorKind::NotAuthorized => StatusCode::FORBIDDEN,
+            TabRepairErrorKind::SessionBindingPending => StatusCode::SERVICE_UNAVAILABLE,
             TabRepairErrorKind::LivePtyRequired => StatusCode::BAD_REQUEST,
             TabRepairErrorKind::VerifiedSessionRequired
             | TabRepairErrorKind::EvidenceChanged
@@ -158,7 +164,8 @@ async fn repair_tab_inner(
     let caller = crate::api::tab_routes::authenticated_plan_caller(&headers);
     let target = state
         .svc
-        .authorize_tab_repair(&tab_id, &caller)
+        .authorize_tab_repair_async(&tab_id, &caller)
+        .await
         .map_err(ApiRepairError::from)?;
     match mode {
         TabRepairMode::Provider(provider) => state

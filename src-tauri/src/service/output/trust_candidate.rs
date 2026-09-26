@@ -23,6 +23,34 @@ pub(super) fn may_be_directory_trust_prompt(screen: &str) -> bool {
     has_directory_question && has_confirm_footer && choices >= 2
 }
 
+pub(super) fn pending_prompt_candidate(
+    service: &crate::service::ServiceContext,
+    pty_id: &str,
+    agent_type: &str,
+    has_active_prompt: bool,
+    changed_screen: Option<&str>,
+) -> bool {
+    let current_screen = (has_active_prompt || changed_screen.is_none()).then(|| {
+        service
+            .screen_state
+            .lock()
+            .get_screen_text(pty_id)
+            .unwrap_or_default()
+    });
+    current_screen
+        .as_deref()
+        .or(changed_screen)
+        .is_some_and(|screen| {
+            may_be_directory_trust_prompt(screen)
+                && service
+                    .agent_registry
+                    .with_provider(agent_type, |provider| {
+                        provider.supports_directory_trust_prompt_parsing()
+                    })
+                    .unwrap_or(false)
+        })
+}
+
 pub(super) fn provider_classifies_directory_trust_prompt(
     registry: &crate::agent::registry::AgentRegistry,
     agent_type: &str,

@@ -58,7 +58,13 @@ export function resolveEffort(
 ): string | undefined {
   const efforts = reasoningEffortsForModel(provider, modelId);
   if (efforts.length === 0) return undefined;
+  const model = provider?.available_models.find(
+    (candidate) => candidate.id.toLowerCase() === modelId?.toLowerCase(),
+  );
   if (efforts.some((effort) => effort.id === selectedEffortId)) return selectedEffortId;
+  if (efforts.some((effort) => effort.id === model?.default_reasoning_effort)) {
+    return model?.default_reasoning_effort;
+  }
   if (efforts.some((effort) => effort.id === provider?.default_reasoning_effort)) {
     return provider?.default_reasoning_effort;
   }

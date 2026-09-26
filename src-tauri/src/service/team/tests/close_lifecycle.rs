@@ -186,6 +186,40 @@ fn close_team_detaches_cartographer_manager_with_every_member_tab() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn team_close_collects_members_even_after_role_change() {
+    let (mux, team_id, orchestrator, planner, worker) = team_members();
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.clear_tab_role(&planner).unwrap();
+    let mut mux = fixture.service.mux.write();
+    assert_eq!(mux.get_tab(&planner).unwrap().team_id, None);
+    let remaining_members = mux.team_member_tab_ids(&team_id);
+    assert_eq!(remaining_members.len(), 2);
+    assert!(remaining_members.contains(&orchestrator));
+    assert!(remaining_members.contains(&worker));
+
+    let events = crate::api::events::EventBroadcaster::new();
+    let (_, cleanup, _) = close_team_with_state_change(
+        &mut mux,
+        &events,
+        fixture.service.plan_store.as_ref(),
+        &team_id,
+        &TeamMutationCaller::AgentTab(orchestrator),
+        1,
+    )
+    .expect("Team close collects every remaining member after an explicit role clear");
+
+    assert!(!cleanup.member_tab_ids.contains(&planner));
+    assert!(cleanup.member_tab_ids.contains(&worker));
+    assert!(mux.get_tab(&planner).is_some());
+    assert!(mux.get_tab(&worker).is_none());
+    assert!(mux.get_team(&team_id).is_none());
+    assert!(mux
+        .all_tabs()
+        .all(|tab| tab.team_id.as_deref() != Some(team_id.as_str())));
+}
+
+#[test]
 fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
     let dir = tempfile::tempdir().unwrap();
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
@@ -703,6 +737,7 @@ fn add_team_lane_task(
     };
     task.execution_attempts
         .push(crate::plan::TaskExecutionAttempt {
+            actual_reasoning_effort: None,
             id: format!("attempt_{task_id}"),
             executor_tab_id: tab_id.into(),
             worktree_path: Some(worktree_path.display().to_string()),

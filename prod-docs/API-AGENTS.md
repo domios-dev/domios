@@ -17,19 +17,10 @@ Restart an agent whose process is currently observed live in a tab. The body is 
 **Ready response** (`202 Accepted`):
 ```json
 {
-  "restart_accepted": true,
-  "old_pty_torn_down": true,
-  "agent_ready": true,
-  "recovered_in_place": false,
-  "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e",
-  "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
-  "tab_id": "a3f1b2c7",
-  "provider": "claude",
-  "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
-  "session_was_stale": false,
-  "session_action": "resume",
-  "full_access": true,
-  "force": false
+  "restart_accepted": true, "old_pty_torn_down": true, "agent_ready": true, "recovered_in_place": false,
+  "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e", "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
+  "tab_id": "a3f1b2c7", "provider": "claude", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+  "session_was_stale": false, "session_action": "resume", "full_access": true, "force": false
 }
 ```
 
@@ -90,14 +81,10 @@ Prevents the machine from sleeping (and optionally from dimming the display) whi
 
 **Status shape (`KeepAwakeStatus`):**
 ```json
-{
-  "active": true,
-  "display": false,
-  "expires_at": 1744387200000
-}
+{"active": true, "display": false, "expires_at": 1744387200000}
 ```
 - `active` — whether a keep-awake session is currently running.
-- `display` — whether the display is also being kept on (not just the system).
+- `display` — whether the display is also kept on.
 - `expires_at` — unix milliseconds when the session auto-expires, or `null` for an indefinite session.
 
 **GET /api/keepawake** — returns the current `KeepAwakeStatus`. When no session is active, `active=false`, `display=false`, `expires_at=null`.
@@ -176,6 +163,8 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
 
 The selected model's advertised reasoning levels constrain `reasoning_effort`. The provider's flat list applies when the model has no per-model data; `codeterm agent models <provider>` shows the available sets.
 
+Provider listings may include `default_reasoning_effort` on the provider descriptor as a fallback and on each `available_models` entry for that model's live default. `codeterm agent models <provider>` marks the model-specific default beside that model's reasoning levels, falling back to the provider value only when the model has none.
+
 All fields are optional. `agent` defaults to `"claude"`. Tab titles are one word; put activity summaries in `description`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. For providers with an authoritative model catalogue, an unknown `model` id is rejected before tab creation; run `codeterm agent models <provider>` to refresh and inspect valid ids. Free-form providers pass the requested model id through to the launch command. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` spawn needs no task binding when `execution_intent` is `read_only` — the canonical verification Worker: it owns no task, so it can report against none and transition none, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced). A task-bound spawn with `execution_intent: "mutating"` is also refused before tab creation unless its effective `cwd` verifies as an isolated lane this task may write in: naming no checkout, naming a directory that is not a worktree on a branch, naming the plan's canonical checkout, or naming another task's recorded lane all fail closed, and the refusal names `codeterm plan task dispatch`, which provisions the lane. Read-only verification keeps its existing contract and still runs in the canonical checkout. A `Worker` may also carry a `role_profile` naming a leaf kind, such as the builtin `cartographer`, which layers that kind's contract onto the Worker base; a managing kind id (`planner`, `watcher`, `orchestrator`, `general_agent`) is refused rather than downgraded. `codeterm plan task dispatch` sets it from the task's `executor_role` when that role names a builtin leaf.
 
 An unknown id on an authoritative catalogue is refused before spawn or task
@@ -245,4 +234,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 30 -->
+<!-- revision: 32 -->

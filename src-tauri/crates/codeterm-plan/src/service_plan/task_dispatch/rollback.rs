@@ -75,6 +75,9 @@ impl PlanStore {
             }
             restored_task = Some(restored.clone());
             *task = restored;
+            if snapshot.status == crate::plan::TaskStatus::Blocked {
+                super::unblock::annotate_blocked_unblock_rollback(plan, &task_id, attempt_id);
+            }
             plan.mode = plan_mode.clone();
             outcome = Some(DispatchRollback::Restored);
             Ok(())

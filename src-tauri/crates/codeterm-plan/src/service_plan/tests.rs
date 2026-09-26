@@ -618,6 +618,7 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
             let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
             task.execution_attempts
                 .push(crate::plan::TaskExecutionAttempt {
+                    actual_reasoning_effort: None,
                     id: "attempt-vanished".into(),
                     executor_tab_id: "tab-vanished".into(),
                     assigned_at: Some(10),
