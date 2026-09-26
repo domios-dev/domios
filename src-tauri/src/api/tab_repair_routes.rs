@@ -226,6 +226,7 @@ async fn repair_tab_from_session(
         &serde_json::Value::Null,
         commit.claim,
         crate::session::lifecycle::BindingSource::Hook,
+        false,
     )
     .await
     .map_err(|(status, message)| {

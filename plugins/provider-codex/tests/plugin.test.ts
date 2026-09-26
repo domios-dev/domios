@@ -732,6 +732,8 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     writtenScript,
   );
   const windowsCommand = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
+  assert(windowsCommand.startsWith('cmd.exe /d /s /c call "'),
+    "commandWindows wraps the quoted helper path in cmd for PowerShell and cmd parsing", windowsCommand);
   assert(windowsCommand.indexOf("powershell") === -1, "Windows hook command avoids a PowerShell spawn", windowsCommand);
   assert(windowsCommand.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "Windows hook command carries the in-command ownership marker", windowsCommand);

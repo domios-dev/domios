@@ -105,6 +105,7 @@ pub(crate) async fn rebind_session(
         &serde_json::Value::Null,
         commit.claim,
         crate::session::lifecycle::BindingSource::Hook,
+        false,
     )
     .await?;
     Ok(Json(serde_json::json!({

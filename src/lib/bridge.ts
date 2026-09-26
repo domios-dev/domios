@@ -43,6 +43,7 @@ export interface ProviderIntegrationHealth {
   precompact_hook?: boolean;
   stop_hook?: boolean;
   session_start_hook?: boolean;
+  codeterm_binding_fallback_source?: string;
   plugin_installed?: boolean;
   plugin_file_current?: boolean;
   status?: string;

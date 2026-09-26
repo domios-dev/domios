@@ -127,6 +127,20 @@ async function testHealthyHookHasNoRepairAction() {
   });
 }
 
+async function testFallbackBindingIsVisibleInIntegrationStatus() {
+  await withInvoke(async () => ({
+    integration_state: "installed",
+    codeterm_binding_fallback_source: "launch_marker",
+  }), async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(host.querySelector('[data-provider-integration-state="healthy"]'), "installed hook health remains distinct from launch binding evidence");
+    const fallback = host.querySelector('[data-provider-integration-binding-fallback="launch_marker"]');
+    assert(fallback?.textContent?.trim(), "integration status surfaces the observed fallback binding source");
+    await cleanup(root);
+  });
+}
+
 async function testMissingStopHookIsDegraded() {
   await withInvoke(async () => (
     {
@@ -251,6 +265,7 @@ async function main() {
   await testStaleHookIsActionable();
   await testCodexIntegrationStatesStayDistinguishable();
   await testHealthyHookHasNoRepairAction();
+  await testFallbackBindingIsVisibleInIntegrationStatus();
   await testMissingStopHookIsDegraded();
   await testStopHookHealthyWithSessionStart();
   await testAbsentStopHookFieldIsNotDegraded();

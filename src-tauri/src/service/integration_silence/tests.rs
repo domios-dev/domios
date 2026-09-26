@@ -21,6 +21,45 @@ use crate::service::notification::{
 use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
 use codeterm_types::notification::NotifyDestination;
 
+#[test]
+fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {
+    let mut fallbacks = std::collections::HashMap::new();
+    assert!(update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    ));
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    ));
+    assert_eq!(
+        fallbacks.get("provider-alpha").map(|fallback| fallback.source),
+        Some(BindingSource::LaunchMarker),
+    );
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        false,
+    ));
+    assert!(fallbacks.contains_key("provider-alpha"));
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        true,
+    ));
+    assert!(!fallbacks.contains_key("provider-alpha"));
+}
+
 /// A provider that is neither claude nor codex, so nothing the mechanism does
 /// can be keyed on a shipped provider id.
 struct FixtureProvider {
