@@ -1,6 +1,12 @@
 use super::*;
 
 fn review_attempt_matches_task(task: &Task, attempt: &crate::plan::TaskExecutionAttempt) -> bool {
+    let assigned_executor =
+        task.assigned_tab_id.as_deref() == Some(attempt.executor_tab_id.as_str());
+    let executor_retired_on_tab_close = task.status == TaskStatus::InReview
+        && task.status_label.as_deref() == Some(crate::plan::reconcile::TAB_GONE_LABEL)
+        && task.assigned_tab_id.is_none()
+        && attempt.retired_at.is_some();
     attempt.acknowledged_at.is_some()
         && attempt.reported_at.is_some()
         && attempt
@@ -10,7 +16,7 @@ fn review_attempt_matches_task(task: &Task, attempt: &crate::plan::TaskExecution
         && if attempt.competition_group_id.is_some() {
             attempt.winner
         } else {
-            task.assigned_tab_id.as_deref() == Some(attempt.executor_tab_id.as_str())
+            assigned_executor || executor_retired_on_tab_close
         }
 }
 
