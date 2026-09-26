@@ -668,7 +668,7 @@
               "value_name": "REASONING_EFFORT",
               "possible_values": [],
               "default": null,
-              "help": "Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels",
+              "help": "Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded",
               "aliases": []
             },
             {
@@ -10794,7 +10794,7 @@
                   "value_name": "REASONING_EFFORT",
                   "possible_values": [],
                   "default": null,
-                  "help": "Provider-supported reasoning effort (rejected if unsupported)",
+                  "help": "Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)",
                   "aliases": []
                 },
                 {
