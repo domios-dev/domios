@@ -15,7 +15,8 @@ codeterm task show <task>
 
 Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a specific discrepancy that compact status cannot explain.
 
-Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs` or `codeterm docs --help` to discover available names. Read a related playbook when its responsibility becomes active:
+Use `codeterm docs <NAME>` for the full document; bare `codeterm docs` or
+`codeterm docs --help` lists names. Read related playbooks when needed:
 
 | Need | Read |
 |---|---|
@@ -42,9 +43,16 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 - Strides record evidence, decisions, reports, and working points.
 - Do not replace planner state with a standalone markdown implementation plan.
 
-The Orchestrator states the GOAL and delegates planning by default; the Planner drafts structure, and the Orchestrator approves or revises it, dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
-A bound Planner's authority over sections and tasks is durable, not phase-scoped: it survives approval. Approval and dispatch stay the Orchestrator's alone.
-When Team-bound, utility shells and cron jobs inherit the same Team for cleanup. Use `--no-team` only when a resource must deliberately outlive it.
+The Orchestrator states the GOAL and delegates structure to the Planner, then
+approves or revises it, dispatches, judges reports, integrates accepted lanes,
+and owns cleanup. A bound Planner keeps section/task authority after approval;
+approval and dispatch remain the Orchestrator's.
+Directly implement a genuinely small, local, low-risk change already authorized
+in canonical when delegation costs more. Worker dispatch remains default for
+plan-owned source work; never self-assign normal implementation work merely
+because canonical is writable.
+Team utility shells and cron jobs inherit that Team for cleanup. Use `--no-team`
+only when a resource must outlive it deliberately.
 
 Lane safety has two hard stops and otherwise only nudges; see the lanes playbook.
 
@@ -83,9 +91,8 @@ Run this loop after every report, reminder, task close, tab death, or gate:
 9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
    worktree and branch, stop its dev process, and record cleanup.
 
-Discovery is an intermediate wave. It must produce decisions and follow-up
-implementation/review/verification tasks; research alone does not complete the
-goal.
+Discovery must produce decisions and follow-up implementation, review, or
+verification tasks; research alone does not complete the goal.
 
 ## Planning ownership
 
@@ -105,8 +112,8 @@ When a Planner is present:
 - draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
 
-Judge structure before dispatch against the plan-shape contract in your role
-brief. If the Planner is intentionally waived, record that explicitly on the plan.
+Judge structure against your role brief's plan-shape contract before dispatch.
+If the Planner is waived, record that on the plan.
 
 ## Task lifecycle
 
@@ -157,31 +164,30 @@ Before a wave:
 4. Dispatch through `codeterm plan task dispatch`; lanes by default,
    `--canonical-writer` only by deliberate choice (operations playbook).
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
-6. On any dispatch failure, immediately send a standalone user alert with the
-   impact, affected tasks, cleanup performed, and active fallback, and verify
-   rollback. After a second same-class failure, stop dispatching, diagnose and
-   escalate it as a coordination incident using
-   `codeterm notify send ... --level action_needed` and a plan stride on the
-   task; wait for owner direction before retrying. Never make a third blind
-   dispatch, implement plan-owned work yourself, or close it done without an
-   acknowledged Worker attempt or explicit owner decision.
+6. On dispatch failure, immediately send a standalone user alert with impact,
+   affected tasks, cleanup, and active fallback; verify rollback. After a
+   second same-class failure, diagnose and escalate it as a coordination
+   incident via `codeterm notify send ... --level action_needed` and a plan
+   stride on the task. Never blindly dispatch a third time or self-implement
+   plan-owned work to bypass failed dispatch. Mark the task done only after an
+   acknowledged Worker attempt or owner decision.
 
-Every Worker is visible under the Orchestrator with a clear title and description,
-`CODETERM_PLAN_ID` and `CODETERM_TASK_ID`, the checkout the Orchestrator chose, and a
-self-contained brief with exact acceptance and test commands; it acks first and reports last.
+Every Worker has a clear Orchestrator title and description,
+`CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a self-contained
+brief with exact acceptance and test commands; it ACKs first and reports last.
 
-`plan task dispatch` is local-only. A Worker spawned with `agent spawn --mesh PEER`
-has no attempt on the origin plan store and no plan/task env, so it reports with
-explicit `--plan <origin-plan> --task <task>` to home the report back, or the
-Orchestrator attaches the arriving tab message by hand. Full cross-mesh dispatch is
-out of scope; see the spawn-then-bind pattern in `codeterm docs MESH`.
+`plan task dispatch` is local-only. A Worker spawned with
+`agent spawn --mesh PEER` has no origin-plan attempt or plan/task env; report with
+explicit `--plan <origin-plan> --task <task>` or attach its message by hand.
+Full cross-mesh dispatch is out of scope; see `codeterm docs MESH`.
 
 ## Review capacity
 
-Choose review granularity from backlog and diff size. A few large changes merit
-individual review; a growing queue of compatible small changes should share one
-review wave and canonical QA group. Bounce ownership, correctness, authority,
-scope, or design defects instead of grinding tiny edits.
+Choose review granularity by backlog and diff: review a few large changes
+individually; batch compatible small ones in one wave and canonical QA. After
+real merge, directly fix bounded mechanical integration defects in canonical;
+bounce ownership, correctness, authority, scope, or design defects rather than
+grinding tiny edits.
 
 Review backlog and credit debt are advisory, not dispatch blockers. At the default five-review threshold, status and heartbeats warn the Orchestrator to prioritize review closures and avoid growing the backlog.
 Ordinary dispatch, competition, and respawn remain allowed without a capacity grant. Authorization, dependency, regression, and review-acceptance checks remain enforced; never fake acceptance or adjust credit merely to silence a warning.
@@ -201,4 +207,4 @@ the assignment and lane intact, and every verdict requires `--note`, never
 `--reason`. Review credit repair, task-less evidence reporters, and Planner parent
 resolution are plan surface contracts (API-PLAN).
 
-<!-- revision: 85 -->
+<!-- revision: 86 -->
