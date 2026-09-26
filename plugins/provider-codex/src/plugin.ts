@@ -173,7 +173,7 @@ const plugin: PluginModule = {
   },
 
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
-  discoverModels(): ModelInfo[] {
+  discoverModels(): ModelInfo[] | null {
     return discoverCodexModels();
   },
 

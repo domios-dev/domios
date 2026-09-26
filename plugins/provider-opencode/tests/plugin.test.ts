@@ -298,8 +298,8 @@ console.log("\n--- discoverModels ---\n");
   const p = loadOpencodeWithHost(ocHost({}));
   eq(
     p.discoverModels(),
-    [{ id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" }],
-    "discoverModels falls back to manifest seed when opencode models probe is unavailable",
+    null,
+    "discoverModels returns null when the opencode models probe is unavailable, so the host keeps its seed",
   );
 }
 
