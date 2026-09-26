@@ -367,6 +367,11 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
         .lock()
         .get_content_hash("pty-user-dir-no-change", status_rows.get())
         .expect("trust frame hash");
+    fixture
+        .service
+        .agent_tracker
+        .lock()
+        .update_output("pty-user-dir-no-change", screen_hash);
     assert!(!fixture
         .service
         .agent_tracker
