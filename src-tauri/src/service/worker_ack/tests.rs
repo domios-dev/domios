@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 mod startup_binding;
+mod startup_supervision_honesty;
 
 fn lifecycle_fixture(
     parent_agent: bool,
@@ -1000,6 +1001,7 @@ fn expired_startup_reports_a_surviving_tab_without_cleanup_schema() {
         "launch-a",
         Some(17),
         Some("synthetic provider rejection"),
+        None,
     );
     assert_eq!(event["kind"], "agent_startup_failed");
     assert_eq!(
