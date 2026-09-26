@@ -47,6 +47,7 @@ mod qa_pass;
 mod recovery_race;
 mod resolved_effort;
 mod routing;
+mod status_preflight;
 mod worker_ack;
 
 #[test]
@@ -213,54 +214,6 @@ fn repository_lane_guards_remain_required_for_code_mutation() {
         "status": "pending"
     }));
     assert!(task.execution_intent.requires_repository());
-}
-
-#[test]
-fn paused_task_dispatch_refuses_before_spawn_without_agent_resume_instruction() {
-    let paused = task(json!({
-        "id": "task_paused",
-        "name": "waiting for user",
-        "type": "task",
-        "status": "paused"
-    }));
-
-    let error = preflight_dispatch_task_status("plan_1", &paused).unwrap_err();
-    let data = error.data.expect("structured paused-task refusal");
-
-    assert_eq!(error.code, -32602);
-    assert_eq!(data["stage"], "task_status");
-    assert_eq!(data["hold_kind"], "unclassified");
-    assert!(data.get("fix").is_none());
-}
-
-#[test]
-fn task_dispatch_preflight_rejects_unstartable_statuses() {
-    for status in ["paused", "done", "cancelled", "in_review"] {
-        let candidate = task(json!({
-            "id": format!("task_{status}"),
-            "name": "status preflight",
-            "type": "task",
-            "status": status,
-        }));
-        let error = preflight_dispatch_task_status("plan_1", &candidate).unwrap_err();
-        assert!(
-            error.message.contains("cannot be dispatched")
-                || error.message.contains("not allowed")
-        );
-        if status == "in_review" {
-            assert!(error.message.contains("bounce"));
-        }
-    }
-
-    for status in ["pending", "in_progress", "blocked"] {
-        let task = task(json!({
-            "id": format!("task_{status}"),
-            "name": "status preflight",
-            "type": "task",
-            "status": status,
-        }));
-        preflight_dispatch_task_status("plan_1", &task).unwrap();
-    }
 }
 
 #[test]

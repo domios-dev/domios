@@ -1,4 +1,8 @@
 use super::*;
+use super::report_refusal::{
+    format_report_refusal_text, refusal_diagnostic_request, refusal_next_commands,
+    report_refusal_json,
+};
 
 #[test]
 fn missing_report_binding_is_a_loud_orchestration_incident() {
@@ -155,6 +159,23 @@ fn refused_readiness_report_sends_a_diagnostic_not_a_report() {
     for report_field in ["status", "plan_id", "task_id", "report_outcome"] {
         assert!(body.get(report_field).is_none());
     }
+}
+
+#[test]
+fn refused_report_json_names_the_diagnostic_without_report_outcome() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused".into(),
+        dirty_files: vec!["src/main.rs".into()],
+    };
+    let value = report_refusal_json(&refusal, true, Some("parent-tab".into()), None);
+
+    assert_eq!(value["verdict"], "REPORT NOT SENT");
+    assert_eq!(value["refused_report_diagnostic_sent"], true);
+    assert_eq!(value["diagnostic_target_tab_id"], "parent-tab");
+    assert!(value.get("diagnostic_error").is_some());
+    assert!(value.get("diagnostic_report_sent").is_none());
+    assert!(value.get("diagnostic_report_id").is_none());
+    assert!(value.get("report_outcome").is_none());
 }
 
 #[test]

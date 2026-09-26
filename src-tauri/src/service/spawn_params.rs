@@ -153,7 +153,6 @@ impl SpawnTabSpec {
             plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
-            task_prompt_override: None,
             starter_prompt,
             task_id: None,
             task_launch_authority: None,

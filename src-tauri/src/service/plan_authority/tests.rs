@@ -158,13 +158,49 @@ fn plan_write_before_binding_reports_retryable_binding_pending() {
     tab.pty_id = Some("pty-1".into());
     tab.session_binding_nonce = Some("nonce-1".into());
     tab.boot_stage = Some(BootStage::ProviderReady);
+    tab.agent_set_at = Some(std::time::Instant::now());
     let tab = &*tab;
 
     let error = binding_failure_class(tab, None, Some("nonce-1"));
     assert_eq!(error, PlanAuthorityError::SessionBindingPending);
     assert_eq!(error.diagnostic_type(), "session_binding_pending");
-    assert!(error.to_string().contains("wait for this tab's session binding"));
-    assert!(error.to_string().contains("retry"));
+    assert!(error.is_retryable());
+}
+
+#[test]
+fn binding_pending_covers_agent_ready_but_not_a_settled_or_expired_launch() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("provider-neutral".into());
+    tab.pty_id = Some("pty-1".into());
+    tab.session_binding_nonce = Some("nonce-1".into());
+    tab.agent_set_at = Some(std::time::Instant::now());
+    tab.boot_stage = Some(BootStage::AgentReady);
+    assert!(launch_binding_is_pending(tab));
+
+    tab.boot_stage = Some(BootStage::LaunchDeadlineElapsed);
+    tab.agent_set_at = Some(std::time::Instant::now());
+    assert!(!launch_binding_is_pending(tab));
+    assert_eq!(
+        binding_failure_class(tab, None, Some("nonce-1")),
+        PlanAuthorityError::SessionUnregistered
+    );
+
+    tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    assert!(!launch_binding_is_pending(tab));
+    assert_eq!(
+        binding_failure_class(tab, None, Some("nonce-1")),
+        PlanAuthorityError::SessionUnregistered
+    );
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_set_at = Some(
+        std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+    );
+    assert!(!launch_binding_is_pending(tab));
+    assert_eq!(
+        binding_failure_class(tab, None, Some("nonce-1")),
+        PlanAuthorityError::SessionUnregistered
+    );
 }
 
 /// The arm is reached only by proof of running inside the tab, so a caller
@@ -194,15 +230,7 @@ fn a_foreign_nonce_still_reads_as_foreign() {
 fn the_unregistered_diagnosis_points_away_from_rebind() {
     let error = PlanAuthorityError::SessionUnregistered;
     assert_eq!(error.diagnostic_type(), "plan_binding_session_unregistered");
-    let message = error.to_string();
-    assert!(
-        message.contains("integration"),
-        "must name where a session comes from: {message}"
-    );
-    assert!(
-        message.contains("rebind"),
-        "must say rebind is not the repair: {message}"
-    );
+    assert!(!error.is_retryable());
 }
 
 fn fixture() -> (

@@ -5,7 +5,9 @@ use super::plan_fields::{
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
-use super::plan_role_helpers::assign_task_with_profile;
+use super::plan_role_helpers::{
+    assign_task_with_profile, record_spawned_attempt, RespawnAttemptRoleExt,
+};
 pub(super) use super::plan_task_authority::authorize_draft_mutation;
 use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
 #[cfg(test)]
@@ -14,7 +16,9 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::{respawn_title_provenance, verify_worker_lane, ServiceState};
+use crate::service::{
+    persist_attempt_executor_identity, respawn_title_provenance, verify_worker_lane, ServiceState,
+};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
@@ -848,6 +852,8 @@ pub(super) fn dispatch(
             let mut draft = store
                 .build_task_respawn_draft(&id, &tid, request)
                 .map_err(plan_rpc_err)?;
+            let original_task = task.clone();
+            let original_plan_mode = plan.mode.clone();
             let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
                 plan.project_path.clone()
             } else {
@@ -878,11 +884,13 @@ pub(super) fn dispatch(
                 .parent_tab_id
                 .clone()
                 .or_else(|| plan.owner.tab_id.clone())
+                .filter(|parent| !parent.trim().is_empty())
                 .ok_or(JsonRpcError {
                     code: -32602,
                     message: "respawn requires a parent Orchestrator tab".into(),
                     data: None,
                 })?;
+            draft.parent_tab_id = Some(parent_tab_id.clone());
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
@@ -890,12 +898,7 @@ pub(super) fn dispatch(
                 title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
                 parent_tab_id: Some(parent_tab_id.clone()),
-                plan_id: Some(id.clone()),
-                plan_task: Some(tid.clone()),
-                execution_intent: Some(task.interruption.execution_intent.clone()),
-                task_prompt_override: Some(draft.task_prompt.clone()),
-                plan_skill_manifest: Some(draft.plan_skill_manifest.clone()),
-                authorized_gates: draft.authorized_gates.clone().unwrap_or_default(),
+                task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
@@ -904,8 +907,9 @@ pub(super) fn dispatch(
                 spawned_by_tab_id: Some(parent_tab_id.clone()),
                 ..Default::default()
             };
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let spawn = svc
-                .spawn_agent_sync(spawn_params)
+                .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -914,58 +918,63 @@ pub(super) fn dispatch(
             draft.provider = spawn.agent.clone();
             draft.model = spawn.provider_resolved_model.clone();
             draft.reasoning_effort = svc.resolved_worker_launch_effort_for_tab(&spawn.tab_id);
-            let attempt = store
-                .show_task(&tid)
-                .and_then(|detail| {
-                    detail
-                        .task
-                        .execution_attempts
-                        .into_iter()
-                        .rev()
-                        .find(|attempt| {
-                            attempt.executor_tab_id == spawn.tab_id
-                                && attempt.closed_at.is_none()
-                                && attempt.retired_at.is_none()
-                        })
-                })
-                .ok_or(JsonRpcError {
-                    code: -32603,
-                    message: "respawn launch returned without reserving its task attempt".into(),
-                    data: None,
-                })?;
-            if let Some(parent_tab_id) = attempt
-                .orchestrator_tab_id
-                .as_deref()
-                .or(attempt.parent_tab_id.as_deref())
-                .or(Some(parent_tab_id.as_str()))
-            {
-                svc.arm_worker_ack_deadline(
-                    parent_tab_id,
-                    &spawn.tab_id,
-                    &spawn.title,
+            let created = record_spawned_attempt(svc, &spawn.tab_id, || {
+                store.record_task_respawn_attempt_with_profile(
                     &id,
                     &tid,
-                    &attempt.id,
-                    format!(
-                        "codeterm plan task respawn {id} {tid} --attempt {}",
-                        draft.source_attempt.id
-                    ),
-                );
-            }
+                    &spawn.tab_id,
+                    &draft,
+                    svc,
+                    now,
+                )
+            })?;
+            persist_attempt_executor_identity(
+                store,
+                svc,
+                &id,
+                &tid,
+                &spawn.tab_id,
+                &spawn.title,
+                now,
+            )
+            .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
+            let startup = super::plan_task_dispatch::DispatchStartup {
+                app: app.clone(),
+                svc: svc.clone(),
+                plan_id: id.clone(),
+                task_id: tid.clone(),
+                tab_id: spawn.tab_id.clone(),
+                startup_attempt_id: spawn.pty_id.clone(),
+                attempt_id: created.attempt.id.clone(),
+                parent_tab_id,
+                worker_title: spawn.title.clone(),
+                original_task,
+                original_plan_mode,
+                lane_for_commit: task.lane.clone(),
+                canonical_project_path: canonical_cwd.clone(),
+                provenance: Some(provenance),
+                provisioned_lane: None,
+                lane_protection,
+                spawn_command: format!(
+                    "codeterm plan task respawn {id} {tid} --attempt {}",
+                    draft.source_attempt.id
+                ),
+            };
+            std::thread::spawn(move || startup.run(ready_rx));
             Ok(json!({
                 "ok": true,
                 "accepted": true,
-                "state": "awaiting_worker_ack",
+                "state": "awaiting_dispatch_ready",
                 "readiness": {
                     "ready": false,
-                    "awaiting_event": "worker_ack",
+                    "awaiting_event": "dispatch_ready",
                 },
                 "plan_id": id,
                 "task_id": tid,
                 "tab_id": spawn.tab_id,
                 "spawn": spawn,
-                "attempt": attempt,
+                "attempt": created.attempt,
                 "draft": draft
             }))
         }

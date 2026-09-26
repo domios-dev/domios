@@ -5,6 +5,7 @@ use crate::service::plan_reconcile::tab_has_live_agent;
 use crate::service::ServiceContext;
 use codeterm_types::pty::BootStage;
 use serde_json::Value;
+use std::time::Instant;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AuthenticatedPlanCaller {
@@ -48,6 +49,10 @@ impl PlanAuthorityError {
         }
     }
 
+    pub(crate) fn is_retryable(self) -> bool {
+        matches!(self, Self::SessionBindingPending)
+    }
+
     fn message(self) -> &'static str {
         match self {
             Self::PlanNotFound => "plan not found",
@@ -59,7 +64,7 @@ impl PlanAuthorityError {
                 "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `codeterm plan rebind <plan>`, then repair the integration so the next session registers itself."
             }
             Self::SessionBindingPending => {
-                "this plan write is waiting for the tab's session binding; wait for this tab's session binding, then retry"
+                "the plan write waited for this launch's session-binding event until its deadline; retry after this tab's session binding is registered"
             }
             Self::RoleUnauthorized => {
                 "the live bound Plan owner or draft Planner session is required"
@@ -124,7 +129,11 @@ fn binding_failure_class(
 }
 
 fn launch_binding_is_pending(tab: &Tab) -> bool {
-    tab.exit_suspected_at.is_none()
+    tab.pty_id.is_some()
+        && tab.exit_suspected_at.is_none()
+        && tab.agent_set_at.is_some_and(|set_at| {
+            set_at.elapsed() < crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+        })
         && matches!(
             tab.boot_stage,
             Some(
@@ -137,8 +146,7 @@ fn launch_binding_is_pending(tab: &Tab) -> bool {
                     | BootStage::ProviderReady
                     | BootStage::PreparingRoleInstructions
                     | BootStage::DeliveringInstructions
-                    | BootStage::LaunchDeadlineElapsed
-                    | BootStage::LaunchBindingUnconfirmed
+                    | BootStage::AgentReady
             )
         )
 }
@@ -269,6 +277,31 @@ impl ServiceContext {
     /// socket layer can attach a distinct diagnostic and the rebind path can
     /// tell a recoverable stale binding from a foreign caller.
     pub(crate) fn classify_planning_caller(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<PlanningAuthor, PlanAuthorityError> {
+        let immediate = self.classify_planning_caller_now(plan_id, caller);
+        if immediate != Err(PlanAuthorityError::SessionBindingPending) {
+            return immediate;
+        }
+        let deadline = self
+            .mux
+            .read()
+            .get_tab(caller.tab_id.as_deref().unwrap_or_default())
+            .and_then(|tab| tab.agent_set_at)
+            .map(|started_at| started_at + crate::service::worker_ack::STARTUP_BINDING_DEADLINE)
+            .unwrap_or_else(|| Instant::now());
+        crate::service::general_agent::binding_wait::wait_for_session_binding(deadline, || {
+            match self.classify_planning_caller_now(plan_id, caller) {
+                Err(PlanAuthorityError::SessionBindingPending) => None,
+                result => Some(result),
+            }
+        })
+        .unwrap_or(Err(PlanAuthorityError::SessionBindingPending))
+    }
+
+    fn classify_planning_caller_now(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,

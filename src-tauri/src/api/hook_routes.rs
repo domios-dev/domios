@@ -863,7 +863,7 @@ pub(crate) async fn finish_session_binding(
             },
         );
     }
-    crate::service::general_agent::binding_wait::notify_session_bound();
+    crate::service::general_agent::binding_wait::notify_binding_state_changed();
     let launch_identity =
         acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);
     // Ordering: the identity above is read from state the nonce check already

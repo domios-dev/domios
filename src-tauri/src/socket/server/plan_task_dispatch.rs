@@ -328,7 +328,7 @@ fn worker_ack_timeout_event(
 
 #[cfg(test)]
 use startup::complete_dispatch_transaction;
-pub(super) use startup::DispatchStartup;
+pub(crate) use startup::DispatchStartup;
 
 fn gate_keys(gates: &[RegressionGate]) -> String {
     gates
