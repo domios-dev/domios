@@ -101,17 +101,19 @@ function hasConfirmFooter(screen: string, lastOptionLine: number): boolean {
 function hasDirectoryContextLine(screen: string, firstOptionLine: number): boolean {
   const lines = normalizeLines(screen);
   const start = Math.max(0, firstOptionLine - 12);
-  const questionLine = lines.findIndex((line, index) => {
-    if (index < start || index >= firstOptionLine || !line.includes("?")) return false;
-    return /\b(folder|directory|workspace)\b/i.test(line)
-      && /\b(trust|load(?:ed|ing)?)\b/i.test(line);
-  });
-  if (questionLine <= start) return false;
-  return lines.slice(start, questionLine).some((line) => {
-    const text = line.trim();
-    const context = /^[>❯›][ \t]+(.+)$/.exec(text)?.[1] || text;
-    return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
-  });
+  const context = lines.slice(start, firstOptionLine).map((line) => line.trim()).filter(Boolean).join(" ");
+  const questionEnds: number[] = [];
+  const questionPattern = /\?/g;
+  let questionMatch: RegExpExecArray | null;
+  while ((questionMatch = questionPattern.exec(context)) !== null) questionEnds.push(questionMatch.index);
+  for (let i = questionEnds.length - 1; i >= 0; i--) {
+    const questionEnd = questionEnds[i];
+    const prefix = context.slice(0, questionEnd + 1);
+    if (!/\b(folder|directory|workspace)\b/i.test(prefix)) continue;
+    if (!/\b(trust|load(?:ed|ing)?)\b/i.test(prefix)) continue;
+    if (prefix.split(/\s+/).some((token) => isAbsolutePathToken(token))) return true;
+  }
+  return false;
 }
 
 function hasDirectoryTrustContent(preamble: string): boolean {
@@ -175,7 +177,7 @@ export function parseActiveTerminalChoice(screen: string): ActiveTerminalChoice 
   const lastOptionLine = options[options.length - 1].line;
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
+    if (isActiveChoiceEnterFooter(lines[i])) {
       footerLine = i;
       break;
     }
@@ -236,6 +238,7 @@ function activeMenuOptions(screen: string): MenuOption[] {
 function promptFooterNear(lines: string[], lastLine: number): boolean {
   for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
     const t = lines[i].toLowerCase();
+    if (isActiveChoiceEnterFooter(t)) return true;
     if (
       (t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) &&
       (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 ||
@@ -243,6 +246,11 @@ function promptFooterNear(lines: string[], lastLine: number): boolean {
     ) return true;
   }
   return false;
+}
+
+function isActiveChoiceEnterFooter(line: string): boolean {
+  return /\benter\b.{0,40}\b(?:confirm|continue|select|authenticate)\b/i.test(line)
+    || /\benter\b.{0,32}\bopen\b.{0,24}\bbrowser\b/i.test(line);
 }
 
 function questionForMenu(lines: string[], firstLine: number): string {
