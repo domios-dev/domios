@@ -97,7 +97,7 @@ export function checkIntegration(): unknown {
     ? CODEX_INTEGRATION_STATE_ABSENT
     : (trustState === "unknown"
       ? "unknown"
-      : (!trustOk || trustState === "stale" || trustState === "missing"
+      : (!trustOk
         ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH
         : (!current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED)));
   return {
@@ -447,7 +447,7 @@ export function ensureIntegrationOnStartup(
         },
       );
     });
-    const stopEntries = json.hooks.Stop || [];
+    const stopEntries = json.hooks?.Stop || [];
     const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
     const stopOwned = ownedStopEntries.length > 0;
     const stopCommandStale = host.platform() === "windows"
