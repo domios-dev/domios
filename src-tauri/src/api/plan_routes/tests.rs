@@ -80,3 +80,20 @@ fn optional_string_field_preserves_missing_vs_null() {
     assert_eq!(optional_string_field(&body, "why"), Some(None));
     assert_eq!(optional_string_field(&body, "model"), Some(Some("opus")));
 }
+
+#[test]
+fn http_binding_pending_error_preserves_type_and_retryability() {
+    let (status, axum::Json(body)) =
+        plan_authority_err(crate::service::PlanAuthorityError::SessionBindingPending);
+
+    assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["type"], "session_binding_pending");
+    assert_eq!(body["retryable"], true);
+
+    let (status, axum::Json(body)) =
+        plan_authority_err(crate::service::PlanAuthorityError::SessionUnregistered);
+
+    assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+    assert_eq!(body["type"], "plan_binding_session_unregistered");
+    assert_eq!(body["retryable"], false);
+}

@@ -199,8 +199,9 @@ pub use orchestrator::{
     SpawnIdentityProvenance, SpawnResult,
 };
 pub(crate) use plan_authority::{
-    ensure_planner_task_fields_are_structural, planner_forbidden_task_field,
-    AuthenticatedPlanCaller, OrchestratorLearningError,
+    ensure_planner_task_fields_are_structural, launch_binding_is_pending,
+    planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
+    PlanAuthorityError,
 };
 pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;

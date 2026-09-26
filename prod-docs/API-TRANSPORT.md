@@ -238,11 +238,14 @@ A `team pair` mints its Team together with the two launch attempts it reserves, 
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-Plan writes require the live bound session of the Plan owner or Planner. A write
-from a live launch presenting its own nonce waits on the binding event through
-the startup deadline; if that wait expires, the socket error carries
-`data.type: "session_binding_pending"` and `data.retryable: true`. A settled
+Plan writes require the live bound session of the Plan owner or Planner. Plan
+writes and a Planner-authored `plan.create` from a live launch presenting its
+own nonce wait on the binding event through the startup deadline without
+blocking the HTTP runtime. If that wait expires,
+HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`;
+the socket error carries the same type and retryability in `data`. A settled
 launch without a registered session remains the distinct
-`plan_binding_session_unregistered` error.
+`plan_binding_session_unregistered` error on both transports. Plan writes still
+require the live bound session; pending status does not authorize the mutation.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
