@@ -1,7 +1,6 @@
 //! OpenCode provider parity — JS-only, driving the real `provider-opencode/plugin.js`
-//! through `JsProvider`. OpenCode keeps everything in a sqlite db under
-//! `$XDG_DATA_HOME/opencode`; the sqlite cases build a controlled db in a tempdir
-//! and point the plugin at it via `XDG_DATA_HOME` (serialized through `EnvGuard`).
+//! through `JsProvider`. OpenCode keeps sessions in SQLite under its XDG data
+//! directory or `OPENCODE_DB`; fixture stores are isolated through `EnvGuard`.
 
 use super::*;
 use crate::provider::SystemPromptDelivery;
@@ -48,6 +47,31 @@ fn build_resume_command_shape() {
     assert!(cmd.contains(SES_ID), "{cmd}");
 }
 
+#[test]
+fn restored_resume_command_preserves_exact_session_model_and_effort() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let command = opencode()
+        .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            session_id: SES_ID.into(),
+            skip_permissions: false,
+            system_prompt: None,
+            args: vec![
+                "-m".into(),
+                "big-pickle".into(),
+                "--variant".into(),
+                "high".into(),
+            ],
+        })
+        .expect("opencode restored resume command");
+
+    assert_eq!(
+        command,
+        format!("opencode --session '{SES_ID}' -m big-pickle --variant high")
+    );
+}
+
 /// OpenCode's `session_config` channel is a shell prologue that stages the
 /// prompt file and exports `OPENCODE_CONFIG_CONTENT`. A resume drops it, so it
 /// declares re-application and rebuilds the same channel around the resume.
@@ -63,7 +87,12 @@ fn resume_with_context_restages_the_session_config() {
             session_id: SES_ID.into(),
             skip_permissions: false,
             system_prompt: Some(prompt.into()),
-            args: vec!["--model".into(), "parity-model".into()],
+            args: vec![
+                "-m".into(),
+                "big-pickle".into(),
+                "--variant".into(),
+                "high".into(),
+            ],
         })
         .expect("opencode resume command");
 
@@ -73,7 +102,10 @@ fn resume_with_context_restages_the_session_config() {
         1,
         "{command}"
     );
-    assert!(command.contains("--model parity-model"), "{command}");
+    assert!(
+        command.contains("opencode --session 'ses_abc' -m big-pickle --variant high"),
+        "{command}"
+    );
     assert!(
         !command.contains(prompt),
         "prompt travels in the staged file, not the command: {command}"

@@ -64,14 +64,15 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
         AgentLiveness::Unobserved,
         "an in-flight launch outranks a stale failure stage"
     );
-    assert!(fixture
+    let in_flight = fixture
         .service
         .mux
         .read()
         .get_tab(&launching_tab_id)
-        .unwrap()
-        .agent_type
-        .is_some());
+        .cloned()
+        .expect("launching restored tab remains present");
+    assert!(in_flight.agent_type.is_some());
+    assert_eq!(in_flight.agent_session_id.as_deref(), Some("saved-session"));
 
     {
         let mut mux = fixture.service.mux.write();
@@ -85,14 +86,22 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
         AgentLiveness::Absent,
         "the failed launch becomes absent only after it stops being in flight"
     );
+    let failed = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&launching_tab_id)
+        .cloned()
+        .expect("failed restored tab remains present");
+    assert_eq!(failed.agent_type, None);
+    assert_eq!(failed.agent_session_id, None);
     assert_eq!(
-        fixture
-            .service
-            .mux
-            .read()
-            .get_tab(&launching_tab_id)
-            .and_then(|tab| tab.agent_session_id.as_deref()),
-        Some("saved-session")
+        failed
+            .prior_session_binding_nonces
+            .last()
+            .and_then(|entry| entry.session_id.as_deref()),
+        Some("saved-session"),
+        "failed identity is retired to session lineage even while another pane keeps the wave pending"
     );
 
     crate::crash::restore_report::settle(

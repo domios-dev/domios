@@ -10,7 +10,7 @@ use crate::multiplexer::types::{
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::inject_verify::{InjectionError, InjectionResult};
-use crate::service::launch_readiness::LaunchInputEvidence;
+use crate::service::launch_input_gate::LaunchInputEvidence;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
