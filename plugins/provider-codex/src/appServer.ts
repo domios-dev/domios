@@ -360,12 +360,15 @@ function grantCodexHookTrustFromCodex(opts: {
       }));
     }
 
+    if (!opts.configPath) return then(outcome({ reason: "Codex config path is unknown; trust was not granted" }));
     const snapshot = snapshotConfig(opts.configPath);
     if (!snapshot) return then(outcome({ reason: "could not snapshot Codex config before granting trust" }));
 
     const value: Record<string, { trusted_hash: string }> = {};
     for (let i = 0; i < needingTrust.length; i++) {
-      value[needingTrust[i].key] = { trusted_hash: needingTrust[i].currentHash };
+      const currentHash = needingTrust[i].currentHash;
+      if (!currentHash) return then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" }));
+      value[needingTrust[i].key] = { trusted_hash: currentHash };
     }
     return runAppServerSession([
       {
