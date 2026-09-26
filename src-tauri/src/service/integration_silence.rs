@@ -29,6 +29,7 @@ mod tests;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct HookBindingFallback {
     source: BindingSource,
+    session_start_retry_used: bool,
 }
 
 type HookBindingFallbacks = HashMap<String, HashMap<String, HookBindingFallback>>;
@@ -68,14 +69,44 @@ fn update_hook_binding_fallback(
     if source == BindingSource::Hook {
         return false;
     }
-    let fallback = HookBindingFallback {
-        source,
+    let sessions = fallbacks.entry(provider_id.to_string()).or_default();
+    if sessions
+        .get(session_id)
+        .is_some_and(|fallback| fallback.source == source)
+    {
+        return false;
+    }
+    sessions.insert(
+        session_id.to_string(),
+        HookBindingFallback {
+            source,
+            session_start_retry_used: false,
+        },
+    );
+    true
+}
+
+pub(crate) fn take_hook_binding_fallback_retry(provider_id: &str, session_id: &str) -> bool {
+    let mut fallbacks = hook_binding_fallbacks().lock();
+    take_hook_binding_fallback_retry_from(&mut fallbacks, provider_id, session_id)
+}
+
+fn take_hook_binding_fallback_retry_from(
+    fallbacks: &mut HookBindingFallbacks,
+    provider_id: &str,
+    session_id: &str,
+) -> bool {
+    let Some(fallback) = fallbacks
+        .get_mut(provider_id)
+        .and_then(|sessions| sessions.get_mut(session_id))
+    else {
+        return false;
     };
-    fallbacks
-        .entry(provider_id.to_string())
-        .or_default()
-        .insert(session_id.to_string(), fallback.clone())
-        != Some(fallback)
+    if fallback.session_start_retry_used {
+        return false;
+    }
+    fallback.session_start_retry_used = true;
+    true
 }
 
 pub(crate) fn record_hook_binding_source(

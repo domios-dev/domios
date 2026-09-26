@@ -3,7 +3,6 @@
 import type { CodexHookEntry } from "./plugin";
 
 export const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
-export const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 const LEGACY_CODEX_HOOK_COMMANDS = new Set([
   'curl -s -X POST http://localhost:${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H \'Content-Type: application/json\' -H \'X-CodeTerm-Agent-Provider: codex\' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true',
   'curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H \'Content-Type: application/json\' -H \'X-CodeTerm-Agent-Provider: codex\' --data-binary @- > /dev/null 2>&1 || true',
@@ -30,7 +29,6 @@ export function codexWindowsHookScript(): string {
     "@echo off",
     "setlocal DisableDelayedExpansion",
     "rem " + CODETERM_CODEX_HOOK_MARKER,
-    "rem " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     "if not defined CODETERM_TAB_ID exit /b 0",
     "if not defined CODETERM_API_URL exit /b 0",
     "if not defined CODETERM_API_TOKEN exit /b 0",
@@ -47,7 +45,6 @@ export function codexWindowsHookScript(): string {
     'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
     'curl.exe --silent --show-error --max-time ' + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
     'if exist "%responseFile%" del /F /Q "%responseFile%"',
-    'if /I "%hookEvent%"=="session_start" if defined USERPROFILE if exist "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml" del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"',
     "exit /b 0",
     "",
   ].join("\r\n");
@@ -93,7 +90,6 @@ function isOwnedCodexHook(hook: NonNullable<CodexHookEntry["hooks"]>[number] | u
 /// so dev and prod satisfy it identically.
 export const CODEX_HOOK_SCRIPT_CONTRACT = [
   "rem " + CODETERM_CODEX_HOOK_MARKER,
-  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
   "hookEvent",
   "CODETERM_TAB_ID",
   "CODETERM_API_URL",
@@ -144,6 +140,8 @@ export function isOwnedCodexHookScriptContent(text: string): boolean {
 /// file stale, which is what used to cost the user a re-trust on every switch.
 export function isCurrentCodexHookScriptContent(text: string): boolean {
   if (!isOwnedCodexHookScriptContent(text)) return false;
+  if (text.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
+  if (text.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
   if (/:\d{2,5}/.test(text)) return false;
   // An instance fallback (a port variable or a loopback host) routes prod agents to dev.
   if (text.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text)) return false;

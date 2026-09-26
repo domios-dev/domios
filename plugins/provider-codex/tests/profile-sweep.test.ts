@@ -134,4 +134,23 @@ console.log("\n--- profile release carries project trust before removal ---\n");
   assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'));
 }
 
+console.log("\n--- profile remains when the shared config lock is busy ---\n");
+{
+  const { host, files, removed } = makeHost({
+    "codeterm-tab.config.toml": [
+      "# codeterm-instance: instance-dev",
+      "",
+      "[projects.'C:\\Project']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\r\n"),
+    "config.toml": "",
+  });
+  host.fs.lockFile = () => null;
+  assert.equal(releaseCodexProfile(host, "tab", "instance-dev"), false,
+    "a busy lock refuses profile release so a later close or sweep can retry");
+  assert.ok(files["codeterm-tab.config.toml"], "the trust answer remains in the active profile");
+  eq(removed, [], "lock contention does not delete the profile");
+}
+
 console.log("\nPASS instance-scoped Codex profile cleanup\n");

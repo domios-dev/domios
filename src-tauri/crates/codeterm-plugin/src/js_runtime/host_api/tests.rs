@@ -456,6 +456,9 @@ fn host_atomic_write_and_exclusive_file_lock_round_trip() {
     let lock_id: Option<String> =
         crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
     let lock_id = lock_id.expect("lock acquisition returns an opaque handle");
+    let contended: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
+    assert!(contended.is_none(), "a held config lock fails without waiting");
     let ok: bool = crate::js_runtime::vm::call_json(
         &vm,
         "write",
@@ -466,6 +469,15 @@ fn host_atomic_write_and_exclusive_file_lock_round_trip() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "model = \"gpt-5.6\"\n");
     let unlocked: bool = crate::js_runtime::vm::call_json(&vm, "unlock", &[json!(lock_id)]).unwrap();
     assert!(unlocked);
+    let reacquired: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
+    assert!(reacquired.is_some(), "the lock can be acquired after release");
+    let _: bool = crate::js_runtime::vm::call_json(
+        &vm,
+        "unlock",
+        &[json!(reacquired.unwrap())],
+    )
+    .unwrap();
 }
 
 #[test]

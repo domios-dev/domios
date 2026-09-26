@@ -100,6 +100,10 @@ for (const token of CODEX_HOOK_SCRIPT_CONTRACT) {
   const generated = codexWindowsHookScript();
   eq(isCurrentCodexHookScriptContent(generated), true, "the generated script satisfies its own contract");
   eq(generated.indexOf("CODETERM_API_PORT"), -1, "the generated script reads no port variable");
+  const oldCleanup = generated + "\r\nrem codeterm-profile-cleanup-v1\r\n"
+    + 'del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"';
+  eq(isCurrentCodexHookScriptContent(oldCleanup), false,
+    "a helper that deletes the active profile is stale and reaches consented repair");
 }
 
 {

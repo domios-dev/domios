@@ -99,7 +99,7 @@ enum SessionBindingSource {
 
 impl SessionStartClaim {
     fn is_unchanged_acknowledged_report(&self) -> bool {
-        !self.changed && self.nonce_verified && self.nonce_already_acknowledged
+        !self.changed && self.nonce_already_acknowledged
     }
 
     pub(crate) fn identity_evidence(
@@ -109,8 +109,13 @@ impl SessionStartClaim {
     }
 }
 
-fn can_short_circuit_session_start(claim: &SessionStartClaim, fallback_pending: bool) -> bool {
-    claim.is_unchanged_acknowledged_report() && !fallback_pending
+fn can_short_circuit_session_start(
+    claim: &SessionStartClaim,
+    fallback_pending: bool,
+    fallback_retry_available: bool,
+) -> bool {
+    claim.is_unchanged_acknowledged_report()
+        && !(fallback_pending && claim.nonce_verified && fallback_retry_available)
 }
 
 fn epoch_ms() -> u64 {
@@ -548,24 +553,33 @@ pub async fn hook_session_start(
         &sid,
         report_nonce.as_deref(),
     ) {
-        Ok(claim)
-            if can_short_circuit_session_start(
-                &claim,
-                crate::service::integration_silence::has_hook_binding_fallback(
+        Ok(claim) => {
+            let fallback_pending = crate::service::integration_silence::has_hook_binding_fallback(
+                &provider_id,
+                &sid,
+            );
+            let fallback_retry_available = claim.is_unchanged_acknowledged_report()
+                && claim.nonce_verified
+                && fallback_pending
+                && crate::service::integration_silence::take_hook_binding_fallback_retry(
                     &provider_id,
                     &sid,
-                ),
-            ) =>
-        {
-            log::info!(
-                "[hook_session_start] acknowledged duplicate tab={} provider={} source={}",
-                tab_id,
-                provider_id,
-                source,
-            );
-            return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
+                );
+            if can_short_circuit_session_start(
+                &claim,
+                fallback_pending,
+                fallback_retry_available,
+            ) {
+                log::info!(
+                    "[hook_session_start] acknowledged duplicate tab={} provider={} source={}",
+                    tab_id,
+                    provider_id,
+                    source,
+                );
+                return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
+            }
+            claim
         }
-        Ok(claim) => claim,
         Err((status, message, Some(premise))) => {
             let transcript_path = reported_transcript_path(&body)
                 .map(std::path::PathBuf::from)
@@ -918,15 +932,6 @@ pub(crate) async fn finish_session_binding(
     if let Some(evidence) = launch_identity.as_ref() {
         svc.retire_provisional_launch(tab_id, evidence);
     }
-    if claim.nonce_verified && (claim.changed || session_binding_hook_succeeded) {
-        crate::service::launch_artifacts::release_after_session_binding(
-            svc.agent_registry.clone(),
-            tab_id.to_string(),
-            provider_id.to_string(),
-        )
-        .await;
-    }
-
     // while it runs — not only after completion.
     run_session::propagate(svc, tab_id, sid);
     if let Some(reported_transcript) = reported_transcript_path(body) {

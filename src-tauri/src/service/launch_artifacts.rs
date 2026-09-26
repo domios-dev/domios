@@ -55,31 +55,6 @@ pub(crate) fn release_closed_tabs(
     }
 }
 
-pub(crate) async fn release_after_session_binding(
-    registry: std::sync::Arc<AgentRegistry>,
-    tab_id: String,
-    provider_id: String,
-) {
-    let Some(provider) = registry.provider_arc(&provider_id) else {
-        return;
-    };
-    let instance_id = crate::paths::codeterm_instance_id().to_string();
-    let log_tab_id = tab_id.clone();
-    match tokio::task::spawn_blocking(move || {
-        provider.release_tab_launch_artifacts(&tab_id, &instance_id)
-    })
-    .await
-    {
-        Ok(Ok(_)) => {}
-        Ok(Err(error)) => {
-            log::warn!("[session-binding] launch artifact release failed for {log_tab_id}: {error}");
-        }
-        Err(error) => {
-            log::warn!("[session-binding] launch artifact release failed for {log_tab_id}: {error}");
-        }
-    }
-}
-
 pub(crate) fn release_tab(
     registry: &AgentRegistry,
     tab_id: &str,
