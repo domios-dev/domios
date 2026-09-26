@@ -911,6 +911,79 @@ fn paste_accepted_then_enter_swallowed_recovers_without_duplicate_payload() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the ServiceContext harness requires an interactive desktop runtime"
+)]
+fn provider_update_and_trust_frames_refuse_initial_submit() {
+    use crate::agent::test_provider::MockProvider;
+    use crate::service::test_fixture::ServiceFixture;
+    use codeterm_plugin::tab_state::{TabState, TabStateClassification};
+
+    const PROVIDER_ID: &str = "fixture-provider";
+    let update = TabStateClassification {
+        state: TabState::UpdatePrompt,
+        confidence: 1.0,
+        data: None,
+        action: None,
+    };
+    let cases = [
+        (
+            include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt"),
+            MockProvider::new(PROVIDER_ID).with_tab_state(update.clone()),
+        ),
+        (
+            include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available-after-skip.txt"),
+            MockProvider::new(PROVIDER_ID).with_tab_state(update),
+        ),
+        (
+            include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+            MockProvider::with_directory_trust_response(
+                PROVIDER_ID,
+                codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
+            ),
+        ),
+    ];
+
+    for (index, (frame, provider)) in cases.into_iter().enumerate() {
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let pty_id = format!("modal-submit-{index}");
+        mux.link_pty(&tab_id, pty_id.clone());
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some(PROVIDER_ID.into());
+        tab.session_binding_nonce = Some("launch-nonce".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+        fixture
+            .service
+            .screen_state
+            .lock()
+            .process(&pty_id, frame.as_bytes());
+
+        let error = submit_text_with_key_claimed(
+            &fixture.service,
+            &pty_id,
+            "payload",
+            true,
+            b"\r",
+            VerifySubmitStrategy::None,
+            opts(),
+            None,
+            claim_submit_cycle(&pty_id),
+        )
+        .unwrap_err();
+        let delivery =
+            crate::service::delivery_error::DeliveryError::from_injection(&tab_id, error);
+
+        assert_eq!(delivery.code(), "tab_busy_refused");
+        assert!(!delivery.bytes_written());
+    }
+}
+
+#[test]
 #[ignore = "synthetic TUI model is not a real PTY delivery oracle"]
 fn enter_that_inserts_newline_retries_until_the_turn_starts() {
     let io = TuiModel::first_enter_inserts_newline();
