@@ -31,6 +31,7 @@ fn real_ingest_fixture() -> (
         provider: None,
         model: None,
         session_model: None,
+        reasoning_effort: None,
     };
     store
         .assign_task_with_runtime_binding(

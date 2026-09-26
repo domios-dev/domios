@@ -65,6 +65,7 @@ fn registry() -> (
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }]));
     backends.register_and_wait(
         "shell",
@@ -130,6 +131,7 @@ fn describe_all_reads_registration_snapshot_until_provider_refresh() {
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }];
 
     assert_eq!(

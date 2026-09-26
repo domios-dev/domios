@@ -420,6 +420,7 @@ pub async fn hook_stop(
         &tab_id,
         crate::service::WorkerTurnSignal::ProviderStop,
     );
+    state.svc.schedule_session_model_refresh_after_stop(&tab_id);
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -931,7 +932,7 @@ pub(crate) async fn finish_session_binding(
     if let Ok(Err(error)) = tokio::task::spawn_blocking(move || {
         // The commit cleared this tab's runtime model and effort evidence for
         // the retired session; the binding is the event that re-reads it.
-        persist_svc.refresh_session_model_after_binding(&bound_tab_id);
+        persist_svc.refresh_session_model_for_current_tab(&bound_tab_id);
         crate::service::session_persist::persist_session_after_mutation(
             &persist_svc,
             crate::service::session_persist::SessionPersistUrgency::Prompt,

@@ -104,6 +104,10 @@ fn pair_retry_command(
     )
 }
 
+fn explicit_pair_model(model: Option<String>) -> Option<String> {
+    model.filter(|model| !model.trim().is_empty())
+}
+
 fn derive_planner_name<'a>(
     existing_titles: impl IntoIterator<Item = &'a str>,
     orch_title: &str,
@@ -448,16 +452,20 @@ impl ServiceContext {
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| workspace_id.clone());
 
-        let orchestrator_model = params
-            .orchestrator_model
-            .clone()
-            .filter(|m| !m.trim().is_empty())
-            .or_else(|| crate::agent::model_catalog::resolve_default(&params.orchestrator_agent));
-        let planner_model = params
-            .planner_model
-            .clone()
-            .filter(|m| !m.trim().is_empty())
-            .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
+        let orchestrator_model = explicit_pair_model(params.orchestrator_model.clone());
+        let planner_model = explicit_pair_model(params.planner_model.clone());
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &params.orchestrator_agent,
+            orchestrator_model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &params.planner_agent,
+            planner_model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let pair_fix_command = pair_retry_command(
             &workspace_id,
             &params.orchestrator_agent,
@@ -642,7 +650,10 @@ impl ServiceContext {
                     orchestrator_model,
                     planner_tab_id,
                     planner_model,
-                    warning: orch_result.warning.or(planner_result.warning),
+                    warning: crate::service::spawn::merge_spawn_warnings(
+                        orch_result.warning,
+                        planner_result.warning,
+                    ),
                     budget_notice,
                 })
             }

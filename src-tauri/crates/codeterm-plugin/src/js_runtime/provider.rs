@@ -925,15 +925,6 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.compact.as_deref()
     }
 
-    fn provider_self_update_capability(&self) -> Option<provider::ProviderSelfUpdateCapability> {
-        if !self.has_js("providerSelfUpdateCapability") {
-            return self
-                .native()
-                .and_then(|native| native.provider_self_update_capability());
-        }
-        self.try_call("providerSelfUpdateCapability", &[])
-    }
-
     fn fresh_context_command(&self) -> Option<&str> {
         self.manifest.commands.fresh_context.as_deref()
     }
@@ -1035,6 +1026,10 @@ impl AgentProvider for JsProvider {
         crate::model_catalog::resolve_models(&self.manifest.id)
     }
 
+    fn model_catalogue_capability(&self) -> provider::ModelCatalogueCapability {
+        self.manifest.model_catalogue
+    }
+
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
         // `null` is the plugin's honest "no genuine discovery" signal — it must
         // not deserialize-fail into warn noise, and never falls back to a seed.
@@ -1128,11 +1123,11 @@ impl AgentProvider for JsProvider {
             .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
     }
 
-    fn has_installable_integration(&self) -> bool {
+    fn integration_kind(&self) -> IntegrationKind {
         self.manifest
             .integration
             .as_ref()
-            .is_some_and(|integration| !matches!(integration.kind, IntegrationKind::None))
+            .map_or(IntegrationKind::None, |integration| integration.kind)
     }
 
     fn install_integration(

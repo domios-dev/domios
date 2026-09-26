@@ -196,6 +196,7 @@ pub trait ChatBackendProvider: Send + Sync {
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: catalog.models,
+            model_catalogue: crate::provider::ModelCatalogueCapability::default(),
             model_groups: Vec::new(),
             default_model: catalog.default,
             reasoning_efforts: Vec::new(),
@@ -212,7 +213,6 @@ pub trait ChatBackendProvider: Send + Sync {
             model_switch_format: None,
             fresh_context_command: None,
             compact_command: None,
-            self_update: None,
             integration_trust_grant: None,
             supports_stop: false,
             supports_chat_ui: true,
@@ -534,6 +534,7 @@ mod tests {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }
     }
 

@@ -3,6 +3,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
 import { PairAffordance } from "../shared/PairAffordance";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
+import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 
 /** A 70+ model catalog scrolls inside this bound instead of spilling down the
  *  viewport; the section headers keep it navigable. */
@@ -26,7 +27,7 @@ interface RoleRowProps {
   disabledProviderIds?: ReadonlySet<string>;
   onProviderChange: (id: string) => void;
   onModelChange: (id: string) => void;
-  /** Called only when the selected provider declares reasoning efforts. */
+  /** Called only when the selected model has reasoning efforts. */
   onEffortChange?: (id: string) => void;
   /** Distinct testids for the picker's two role rows (task_234c14f0) — the
    *  shared per-label testid on the row wrapper isn't specific enough for
@@ -56,7 +57,7 @@ export function OrchestrationRoleRow({
 }: RoleRowProps) {
   const provider = providers.find((p) => p.id === providerId);
   const models = provider?.available_models ?? [];
-  const efforts = provider?.reasoning_efforts ?? [];
+  const efforts = reasoningEffortsForModel(provider, modelId);
   const providerDisabled = disabledProviderIds?.has(providerId) === true;
   const providerOptions: DropdownSelectOption[] = providers.map((p) => {
     const disabled = disabledProviderIds?.has(p.id) === true;
@@ -165,26 +166,26 @@ export function OrchestrationPairForm({
   };
   onInstallProvider?: (providerId: string) => void;
 }) {
-  const defaultEffortFor = (providerId: string): string | undefined => {
+  const defaultEffortFor = (providerId: string, modelId: string): string | undefined => {
     const provider = providers.find((p) => p.id === providerId);
-    const efforts = provider?.reasoning_efforts ?? [];
-    if (efforts.length === 0) return undefined;
-    return efforts.find((e) => e.id === provider?.default_reasoning_effort)?.id ?? efforts[0]?.id;
+    return resolveEffort(provider, modelId);
   };
   const handleOrchestratorProviderChange = (id: string) => {
+    const modelId = providers.find((p) => p.id === id)?.default_model ?? "";
     onChange({
       ...values,
       orchestratorProviderId: id,
-      orchestratorModelId: providers.find((p) => p.id === id)?.default_model ?? "",
-      orchestratorEffortId: defaultEffortFor(id),
+      orchestratorModelId: modelId,
+      orchestratorEffortId: defaultEffortFor(id, modelId),
     });
   };
   const handlePlannerProviderChange = (id: string) => {
+    const modelId = providers.find((p) => p.id === id)?.default_model ?? "";
     onChange({
       ...values,
       plannerProviderId: id,
-      plannerModelId: providers.find((p) => p.id === id)?.default_model ?? "",
-      plannerEffortId: defaultEffortFor(id),
+      plannerModelId: modelId,
+      plannerEffortId: defaultEffortFor(id, modelId),
     });
   };
 
@@ -197,7 +198,15 @@ export function OrchestrationPairForm({
       effortId={values.orchestratorEffortId}
       disabledProviderIds={disabledProviderIds}
       onProviderChange={handleOrchestratorProviderChange}
-      onModelChange={(modelId) => onChange({ ...values, orchestratorModelId: modelId })}
+      onModelChange={(modelId) => onChange({
+        ...values,
+        orchestratorModelId: modelId,
+        orchestratorEffortId: resolveEffort(
+          providers.find((provider) => provider.id === values.orchestratorProviderId),
+          modelId,
+          values.orchestratorEffortId,
+        ),
+      })}
       onEffortChange={(effortId) => onChange({ ...values, orchestratorEffortId: effortId })}
       providerTestId={roleTestIds?.orchestratorProvider}
       modelTestId={roleTestIds?.orchestratorModel}
@@ -214,7 +223,15 @@ export function OrchestrationPairForm({
       effortId={values.plannerEffortId}
       disabledProviderIds={disabledProviderIds}
       onProviderChange={handlePlannerProviderChange}
-      onModelChange={(modelId) => onChange({ ...values, plannerModelId: modelId })}
+      onModelChange={(modelId) => onChange({
+        ...values,
+        plannerModelId: modelId,
+        plannerEffortId: resolveEffort(
+          providers.find((provider) => provider.id === values.plannerProviderId),
+          modelId,
+          values.plannerEffortId,
+        ),
+      })}
       onEffortChange={(effortId) => onChange({ ...values, plannerEffortId: effortId })}
       providerTestId={roleTestIds?.plannerProvider}
       modelTestId={roleTestIds?.plannerModel}

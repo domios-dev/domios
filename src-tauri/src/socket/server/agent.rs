@@ -26,6 +26,12 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+            crate::service::spawn::validate_agent_model(
+                &svc.agent_registry,
+                spawn_params.agent.as_deref().unwrap_or_default(),
+                spawn_params.model.as_deref(),
+            )
+            .map_err(super::model_errors::invalid_model_rpc_error)?;
             let plan_task = spawn_params.plan_task.clone();
 
             let svc_ref = &**svc;

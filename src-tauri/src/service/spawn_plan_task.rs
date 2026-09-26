@@ -261,6 +261,35 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
+    pub(crate) fn persist_dispatched_attempt_reasoning_effort(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        now_ms: u64,
+    ) -> Result<(), crate::service::plan::PlanError> {
+        let reasoning_effort = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.reasoning_effort_identity.resolved.clone())
+        };
+        self.plan_store.update_dispatched_attempt_reasoning_effort(
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id,
+            reasoning_effort,
+            now_ms,
+        )
+    }
+
+    pub(crate) fn resolved_worker_launch_effort_for_tab(&self, tab_id: &str) -> Option<String> {
+        let mux = self.mux.read();
+        mux.get_tab(tab_id)
+            .and_then(|tab| resolved_worker_launch_effort(&tab.reasoning_effort_identity))
+    }
+
     /// Preflight the review WIP gate before any tab gets provisioned.
     pub(crate) fn preflight_worker_plan_task_spawn(
         &self,

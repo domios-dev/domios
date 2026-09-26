@@ -63,10 +63,27 @@ function discoverCodexModelsFromCache() {
     models.push({
       id,
       displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
-      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0
+      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
+      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels)
     });
   }
   return models.length ? models : null;
+}
+function reasoningEffortsFrom(levels) {
+  if (!Array.isArray(levels)) return void 0;
+  const efforts = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const level of levels) {
+    const id = typeof level.effort === "string" ? level.effort.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    efforts.push({
+      id,
+      displayName: id,
+      description: typeof level.description === "string" && level.description.trim() ? level.description.trim() : void 0
+    });
+  }
+  return efforts.length ? efforts : void 0;
 }
 function priorityOf(m) {
   return typeof m.priority === "number" ? m.priority : 1e9;
@@ -382,15 +399,16 @@ function parseCodexFolderTrustPrompt(screen) {
 function classifyCodexFolderTrustPrompt(screen) {
   const options = activeMenuOptions(screen);
   if (options.length !== 2) return null;
-  if (!hasDirectoryContextLine(screen)) return null;
-  const affirmativeIndex = options.findIndex((option) => /^yes\b/i.test(option.label));
-  const negativeIndex = options.findIndex((option) => /^no\b/i.test(option.label));
+  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
+  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
   if (affirmativeIndex < 0 || negativeIndex < 0) return null;
   const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
   if (!hasDirectoryTrustContent(preamble)) return null;
   const questionEnd = preamble.indexOf("?");
   const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
   if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
   const choice = parseActiveTerminalChoice(screen);
   if (!choice || choice.options.length !== 2 || choice.options.filter((option) => option.highlighted).length !== 1) {
     return { kind: "not_on_screen" };
@@ -398,6 +416,7 @@ function classifyCodexFolderTrustPrompt(screen) {
   return {
     kind: "active",
     affirmativeIndex,
+    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
     prompt: {
       question: preamble.slice(0, questionEnd + 1).trim(),
       options: choice.options.map((option) => [option.label, option.value]),
@@ -406,11 +425,28 @@ function classifyCodexFolderTrustPrompt(screen) {
     }
   };
 }
-function hasDirectoryContextLine(screen) {
-  return normalizeLines(screen).some((line) => {
+function hasConfirmFooter(screen, lastOptionLine) {
+  const lines = normalizeLines(screen);
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
+}
+function hasDirectoryContextLine(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  const start = Math.max(0, firstOptionLine - 12);
+  const questionLine = lines.findIndex((line, index) => {
+    if (index < start || index >= firstOptionLine || !line.includes("?")) return false;
+    return /\b(folder|directory|workspace)\b/i.test(line) && /\b(trust|load(?:ed|ing)?)\b/i.test(line);
+  });
+  if (questionLine <= start) return false;
+  return lines.slice(start, questionLine).some((line) => {
     const text5 = line.trim();
-    const context = /^[>❯›][ \t]+(.+)$/.exec(text5)?.[1];
-    if (!context) return false;
+    const context = /^[>❯›][ \t]+(.+)$/.exec(text5)?.[1] || text5;
     return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
   });
 }
@@ -468,7 +504,7 @@ function parseActiveTerminalChoice(screen) {
   const lastOptionLine = options[options.length - 1].line;
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\b(?:press\s+)?enter\s+to\b/i.test(lines[i])) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
       footerLine = i;
       break;
     }
@@ -1609,16 +1645,10 @@ function classifyCodexTabState(snapshot, nowMs) {
   }
   if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
   const update = scoreUpdatePrompt(screen);
-  if (update.confidence >= CLASSIFY_THRESHOLD && update.installKeys && update.installKeys.length > 0 && update.skipKeys && update.skipKeys.length > 0) {
+  if (update.confidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "update_prompt",
-      confidence: update.confidence,
-      action: {
-        providerUpdate: {
-          installKeys: update.installKeys,
-          declineKeys: update.skipKeys
-        }
-      }
+      confidence: update.confidence
     };
   }
   const rateLimit = scoreRateLimit(screen, nowMs);
@@ -1659,42 +1689,8 @@ function classifyCodexTabState(snapshot, nowMs) {
   if (partial > 0) return { state: "unknown", confidence: partial };
   return { state: "working", confidence: 0 };
 }
-function navigationKeys(options, matches) {
-  if (options.length === 0) return null;
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  let targetIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (matches(options[i].label)) {
-      targetIdx = i;
-      break;
-    }
-  }
-  if (targetIdx === -1) return null;
-  const keys = [];
-  const delta = targetIdx - highlightIdx;
-  if (delta > 0) {
-    for (let i = 0; i < delta; i++) keys.push("down");
-  } else if (delta < 0) {
-    for (let i = 0; i < -delta; i++) keys.push("up");
-  }
-  keys.push("enter");
-  return keys;
-}
-function skipNavigationKeys(options) {
-  return navigationKeys(
-    options,
-    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)
-  );
-}
 function scoreUpdatePrompt(screen) {
-  const options = parseMenuOptions(screen);
+  const options = parseActiveTerminalChoice(screen)?.options ?? [];
   let hasUpdateOption = false;
   let hasSkipOption = false;
   for (let i = 0; i < options.length; i++) {
@@ -1711,11 +1707,7 @@ function scoreUpdatePrompt(screen) {
   if (/press\s+enter\s+to\s+continue/i.test(screen)) confidence += 0.1;
   if (/release\s+notes/i.test(screen)) confidence += 0.1;
   if (confidence > 1) confidence = 1;
-  return {
-    confidence,
-    skipKeys: actionableMenu ? skipNavigationKeys(options) : null,
-    installKeys: actionableMenu ? navigationKeys(options, (label) => /\bupdate\b/i.test(label)) : null
-  };
+  return { confidence };
 }
 function looksBusy(screen) {
   return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(screen) || /\bWorking[….]/.test(screen) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(screen);
@@ -2690,6 +2682,9 @@ var plugin = {
     const prompt = classifyCodexFolderTrustPrompt(view);
     if (!prompt || prompt.kind !== "active") return null;
     if (prompt.affirmativeIndex !== 0) return [];
+    if (!prompt.affirmativeSelected && responseKeysForIndex(prompt.affirmativeIndex, view)[0] === "DQ==") {
+      return [];
+    }
     return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
@@ -3097,13 +3092,6 @@ var plugin = {
   },
   classifyTabState(snapshot) {
     return classifyCodexTabState(snapshot, host.unixNowMs());
-  },
-  providerSelfUpdateCapability() {
-    return {
-      inSession: true,
-      restartRequired: true,
-      completionSignal: "provider_classification"
-    };
   }
 };
 var commandPairingSessions = /* @__PURE__ */ new Map();

@@ -1819,7 +1819,7 @@ var plugin = {
   detectSessionModel(cwd, sessionId) {
     const path = claudeSessionFilePath(cwd, sessionId);
     if (!path || !host.fs.fileExists(path)) return null;
-    const contents = host.fs.readFile(path);
+    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const lines = contents.split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {

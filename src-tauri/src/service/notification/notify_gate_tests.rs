@@ -67,17 +67,6 @@ fn notify(sinks: &Sinks, title: &str, desktop: SurfaceDispatch) -> String {
     )
 }
 
-/// Stand-in for the live multiplexer; the provider-update prompt needs a tab
-/// that still resolves or it never opens a record at all.
-fn live_update_tab(candidate: &str) -> Option<NotificationProvenance> {
-    (candidate == "tab_update").then(|| NotificationProvenance {
-        tab_id: Some("tab_update".into()),
-        tab_title: Some("Codex".into()),
-        workspace_id: Some("ws_main".into()),
-        peer_name: None,
-    })
-}
-
 /// The shipped grid routes nothing to the desktop, so the gate is asked of a
 /// user who switched the surface on and opened every level's column.
 fn opted_in_config() -> NotificationConfig {
@@ -183,10 +172,9 @@ fn notify_gate_master_desktop_toggle_off_silences_every_level() {
     assert_eq!(sinks.records(), NotifyLevel::ALL.len());
 }
 
-/// Negative control: the two routes that never toast today still never toast,
-/// and their store behaviour is untouched by the gate.
+/// Diagnostic routes bypass the inbox and every user-facing surface.
 #[test]
-fn notify_gate_leaves_non_agent_routes_unchanged() {
+fn notify_gate_leaves_diagnostics_out_of_the_inbox() {
     let sinks = Sinks::new();
 
     for source in ["service/spawn.rs", "cron/scheduler.rs"] {
@@ -209,33 +197,6 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
     assert_eq!(sinks.records(), 0, "diagnostics still bypass the inbox");
     assert!(sinks.native.lock().is_empty());
     assert!(sinks.emitted.lock().is_empty());
-
-    let id = create_notification_with_delivery(
-        NotificationAdmission::ProviderUpdate {
-            provider_id: "codex".into(),
-            prompt_id: "prompt_1".into(),
-        },
-        &sinks.store,
-        |title, _| sinks.native.lock().push(title.to_string()),
-        "Codex update available".into(),
-        Some("1.2.3".into()),
-        Some("info"),
-        crate::notification::store::Ask::offering(Some(Vec::new())),
-        Some(true),
-        NotificationOrigin::local_tab("tab_update".into()),
-        live_update_tab,
-        PushDispatch::inert(),
-        SurfaceDispatch::silent(),
-        |payload| sinks.emitted.lock().push(payload),
-    );
-
-    assert_eq!(sinks.records(), 1, "the in-app prompt is still stored");
-    assert_eq!(sinks.emitted.lock().len(), 1, "and still emitted");
-    assert_eq!(sinks.emitted.lock()[0]["id"], id);
-    assert!(
-        sinks.native.lock().is_empty(),
-        "the prompt never raised a toast before the gate and still does not"
-    );
 }
 
 /// Dedupe answers "is this new?", the gate answers "is this allowed?".

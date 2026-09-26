@@ -379,6 +379,10 @@ impl AgentProvider for ClaudeProvider {
         schemas::available_models()
     }
 
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability::authoritative()
+    }
+
     fn default_model(&self) -> Option<String> {
         crate::model_catalog::resolve_default("claude")
     }
@@ -403,8 +407,8 @@ impl AgentProvider for ClaudeProvider {
         integration::check_integration()
     }
 
-    fn has_installable_integration(&self) -> bool {
-        true
+    fn integration_kind(&self) -> crate::provider::IntegrationKind {
+        crate::provider::IntegrationKind::ClaudeSettingsJson
     }
 
     fn install_integration(
