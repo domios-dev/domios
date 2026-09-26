@@ -66,6 +66,14 @@ pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> 
 pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab: &mut crate::multiplexer::types::Tab,
 ) -> bool {
+    if let (Some(provider_id), Some(session_id)) =
+        (tab.agent_type.as_deref(), tab.agent_session_id.as_deref())
+    {
+        crate::service::integration_silence::clear_hook_binding_fallback_session(
+            provider_id,
+            session_id,
+        );
+    }
     let has_identity = tab.agent_type.is_some()
         || tab.agent_type_locked
         || tab.agent_session_id.is_some()
@@ -318,19 +326,20 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
-        let (pre_focus, reservation, provider_id, canonical_tab_id) = {
+        let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
             let canonical_tab_id = mux
                 .resolve_tab_id(tab_id)
                 .unwrap_or_else(|| tab_id.to_string());
-            let provider_id = mux
-                .get_tab(&canonical_tab_id)
-                .and_then(|tab| tab.agent_type.clone());
+            let tab = mux.get_tab(&canonical_tab_id);
+            let provider_id = tab.and_then(|tab| tab.agent_type.clone());
+            let session_id = tab.and_then(|tab| tab.agent_session_id.clone());
             (
                 mux.get_focused_tab_id().map(str::to_string),
                 mux.reserve_tab_close(tab_id)?,
                 provider_id,
                 canonical_tab_id,
+                session_id,
             )
         };
         if let Err(error) = self.prepare_tab_close(tab_id, reason) {
@@ -341,6 +350,14 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
+        if let (Some(provider_id), Some(session_id)) =
+            (provider_id.as_deref(), session_id.as_deref())
+        {
+            crate::service::integration_silence::clear_hook_binding_fallback_session(
+                provider_id,
+                session_id,
+            );
+        }
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }

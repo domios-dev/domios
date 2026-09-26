@@ -23,7 +23,7 @@ use codeterm_types::notification::NotifyDestination;
 
 #[test]
 fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {
-    let mut fallbacks = std::collections::HashMap::new();
+    let mut fallbacks = HookBindingFallbacks::new();
     assert!(update_hook_binding_fallback(
         &mut fallbacks,
         "provider-alpha",
@@ -39,7 +39,10 @@ fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {
         false,
     ));
     assert_eq!(
-        fallbacks.get("provider-alpha").map(|fallback| fallback.source),
+        fallbacks
+            .get("provider-alpha")
+            .and_then(|sessions| sessions.get("session-a"))
+            .map(|fallback| fallback.source),
         Some(BindingSource::LaunchMarker),
     );
     assert!(!update_hook_binding_fallback(
@@ -49,7 +52,9 @@ fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {
         BindingSource::Hook,
         false,
     ));
-    assert!(fallbacks.contains_key("provider-alpha"));
+    assert!(fallbacks
+        .get("provider-alpha")
+        .is_some_and(|sessions| sessions.contains_key("session-a")));
     assert!(!update_hook_binding_fallback(
         &mut fallbacks,
         "provider-alpha",
@@ -58,6 +63,89 @@ fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {
         true,
     ));
     assert!(!fallbacks.contains_key("provider-alpha"));
+}
+
+#[test]
+fn session_start_fallback_retry_is_available_once_per_pending_fallback() {
+    let mut fallbacks = HookBindingFallbacks::new();
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    assert!(reserve_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+    assert!(!reserve_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+    settle_hook_binding_fallback_retry(&mut fallbacks, "provider-alpha", "session-a", true);
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    assert!(!reserve_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+}
+
+#[test]
+fn binding_fallback_field_survives_non_binding_hooks() {
+    let mut fallbacks = HookBindingFallbacks::new();
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    let live_session_ids = vec!["session-a".to_string()];
+    let status_for = |fallbacks: &HookBindingFallbacks, session_ids: &[String]| {
+        integration_status_with_fallback_source(
+            json!({ "session_start_hook": true }),
+            true,
+            hook_binding_fallback_source_from(fallbacks, "provider-alpha", session_ids),
+        )
+    };
+    assert_eq!(
+        status_for(&fallbacks, &live_session_ids)["codeterm_binding_fallback_source"],
+        "launch_marker"
+    );
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        false,
+    ));
+    assert_eq!(
+        status_for(&fallbacks, &live_session_ids)["codeterm_binding_fallback_source"],
+        "launch_marker"
+    );
+    assert!(status_for(&fallbacks, &["session-b".to_string()])
+        .get("codeterm_binding_fallback_source")
+        .is_none());
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        true,
+    ));
+    assert!(status_for(&fallbacks, &live_session_ids)
+        .get("codeterm_binding_fallback_source")
+        .is_none());
 }
 
 /// A provider that is neither claude nor codex, so nothing the mechanism does

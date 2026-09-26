@@ -141,12 +141,29 @@ pub async fn check_hooks_api(
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = state
+    let (status, has_hooks) = state
         .svc
         .agent_registry
-        .with_provider(&q.provider, |p| p.check_integration())
+        .with_provider(&q.provider, |provider| {
+            (provider.check_integration(), provider.has_hooks())
+        })
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
-    Ok(Json(status))
+    let live_session_ids = state
+        .svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(q.provider.as_str()))
+        .filter_map(|tab| tab.agent_session_id.clone())
+        .collect::<Vec<_>>();
+    Ok(Json(
+        crate::service::integration_silence::integration_status_with_binding_fallback(
+            status,
+            &q.provider,
+            has_hooks,
+            &live_session_ids,
+        ),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -218,11 +235,27 @@ pub async fn install_hooks_api(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    let status = state
+    let (status, has_hooks) = state
         .svc
         .agent_registry
-        .with_provider(&q.provider, |p| p.check_integration())
-        .unwrap_or(serde_json::Value::Null);
+        .with_provider(&q.provider, |provider| {
+            (provider.check_integration(), provider.has_hooks())
+        })
+        .unwrap_or((serde_json::Value::Null, false));
+    let live_session_ids = state
+        .svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(q.provider.as_str()))
+        .filter_map(|tab| tab.agent_session_id.clone())
+        .collect::<Vec<_>>();
+    let status = crate::service::integration_silence::integration_status_with_binding_fallback(
+        status,
+        &q.provider,
+        has_hooks,
+        &live_session_ids,
+    );
     Ok(Json(serde_json::json!({
         "ok": true,
         "provider": q.provider,

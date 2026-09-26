@@ -1544,6 +1544,335 @@ function completedActivity(value, ts, timestamp, turnId) {
   return null;
 }
 
+// plugins/provider-codex/src/trust-carryover.ts
+function normalizedPath(value) {
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("//");
+  return isWindowsPath ? value.replace(/\//g, "\\").toLowerCase() : value;
+}
+function parseString(value) {
+  const quote = value[0];
+  if (quote !== "'" && quote !== '"') return null;
+  for (let i = 1; i < value.length; i++) {
+    if (quote === '"' && value[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (value[i] !== quote) continue;
+    const raw = value.slice(0, i + 1);
+    try {
+      return { value: quote === '"' ? JSON.parse(raw) : raw.slice(1, -1), next: i + 1 };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+function parseDottedKey(value) {
+  const parts = [];
+  let index = 0;
+  while (index < value.length) {
+    while (/\s/.test(value[index] || "")) index++;
+    if (index >= value.length) break;
+    let part;
+    if (value[index] === "'" || value[index] === '"') {
+      const parsed = parseString(value.slice(index));
+      if (!parsed) return null;
+      part = parsed.value;
+      index += parsed.next;
+    } else {
+      const match = /^[A-Za-z0-9_-]+/.exec(value.slice(index));
+      if (!match) return null;
+      part = match[0];
+      index += part.length;
+    }
+    parts.push(part);
+    while (/\s/.test(value[index] || "")) index++;
+    if (index === value.length) return parts;
+    if (value[index] !== ".") return null;
+    index++;
+  }
+  return parts.length ? parts : null;
+}
+function withoutComment(value) {
+  let quote = "";
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (quote === '"' && char === "\\") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "#") return value.slice(0, i);
+  }
+  return value;
+}
+function headerParts(line) {
+  const value = withoutComment(line).trim();
+  if (!value.startsWith("[") || !value.endsWith("]") || value.startsWith("[[")) return null;
+  return parseDottedKey(value.slice(1, -1));
+}
+function assignmentParts(line) {
+  const value = withoutComment(line);
+  let quote = "";
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (quote === '"' && char === "\\") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "=") {
+      const key = parseDottedKey(value.slice(0, i));
+      return key ? { key, value: value.slice(i + 1).trim() } : null;
+    }
+  }
+  return null;
+}
+function parseTrustValue(value) {
+  const parsed = parseString(value.trim());
+  if (!parsed || parsed.next !== value.trim().length) return null;
+  return parsed.value === "trusted" || parsed.value === "untrusted" ? parsed.value : null;
+}
+function projectTablePath(parts) {
+  return parts?.length === 2 && parts[0] === "projects" ? parts[1] : null;
+}
+function collectProfileEntries(profile) {
+  const lines = profile.split(/\r?\n/);
+  const entries = /* @__PURE__ */ new Map();
+  const seenProjectPaths = /* @__PURE__ */ new Set();
+  let activePath = null;
+  let activeHeader = "";
+  let trust = null;
+  let trustSeen = false;
+  const flush = () => {
+    if (activePath === null || !trust) return true;
+    const key = normalizedPath(activePath);
+    if (entries.has(key)) return false;
+    entries.set(key, { path: activePath, header: activeHeader, assignment: trust.line });
+    return true;
+  };
+  for (const line of lines) {
+    const parts = headerParts(line);
+    if (parts) {
+      if (!flush()) return null;
+      activePath = projectTablePath(parts);
+      activeHeader = activePath === null ? "" : withoutComment(line).trim();
+      if (activePath !== null) {
+        const key = normalizedPath(activePath);
+        if (seenProjectPaths.has(key)) return null;
+        seenProjectPaths.add(key);
+      }
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    const malformedHeader = withoutComment(line).trim();
+    if (malformedHeader.startsWith("[")) {
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(malformedHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(malformedHeader)) return null;
+      if (!flush()) return null;
+      activePath = null;
+      activeHeader = "";
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    if (activePath === null) continue;
+    const assignment = assignmentParts(line);
+    if (!assignment || assignment.key.length !== 1 || assignment.key[0] !== "trust_level") continue;
+    if (trustSeen) return null;
+    trustSeen = true;
+    const parsed = parseTrustValue(assignment.value);
+    if (parsed) trust = { line: line.replace(/\r$/, "") };
+  }
+  return flush() ? [...entries.values()] : null;
+}
+function inlineTableKeys(value) {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  const body = trimmed.slice(1, -1);
+  const keys = [];
+  let start = 0;
+  let quote = "";
+  let depth = 0;
+  const add = (segment) => {
+    if (!segment.trim()) return true;
+    const assignment = assignmentParts(segment);
+    if (!assignment || !assignment.key.length) return false;
+    keys.push(assignment.key[0]);
+    return true;
+  };
+  for (let i = 0; i < body.length; i++) {
+    const char = body[i];
+    if (quote === '"' && char === "\\") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "{" || char === "[") depth++;
+    else if (char === "}" || char === "]") depth--;
+    else if (char === "," && depth === 0) {
+      if (!add(body.slice(start, i))) return null;
+      start = i + 1;
+    }
+  }
+  if (!add(body.slice(start))) return null;
+  return keys;
+}
+function collectExistingPaths(config) {
+  const lines = config.split(/\r?\n/);
+  const paths = /* @__PURE__ */ new Set();
+  const directTables = /* @__PURE__ */ new Set();
+  const nestedTables = /* @__PURE__ */ new Set();
+  const projectHeaders = /* @__PURE__ */ new Set();
+  const parentKeys = /* @__PURE__ */ new Set();
+  let currentTable = [];
+  let rootInline = null;
+  let projectsTableSeen = false;
+  let invalid = false;
+  for (const line of lines) {
+    const parts = headerParts(line);
+    if (parts) {
+      currentTable = parts;
+      if (parts[0] === "projects") {
+        if (rootInline) invalid = true;
+        if (parts.length === 1) {
+          if (projectsTableSeen) invalid = true;
+          projectsTableSeen = true;
+        } else {
+          const key = normalizedPath(parts[1]);
+          const headerKey = JSON.stringify([key, ...parts.slice(2)]);
+          if (projectHeaders.has(headerKey)) invalid = true;
+          projectHeaders.add(headerKey);
+          paths.add(key);
+          if (parts.length === 2) {
+            if (directTables.has(key) || parentKeys.has(key)) invalid = true;
+            directTables.add(key);
+          } else {
+            nestedTables.add(key);
+          }
+        }
+      }
+      continue;
+    }
+    const relevantHeader = withoutComment(line).trim();
+    if (relevantHeader.startsWith("[")) {
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid = true;
+      currentTable = [];
+      continue;
+    }
+    const assignment = assignmentParts(line);
+    if (!assignment) {
+      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid = true;
+      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid = true;
+      continue;
+    }
+    if (currentTable.length === 0 && assignment.key[0] === "projects") {
+      if (assignment.key.length === 1) {
+        const keys = inlineTableKeys(assignment.value);
+        if (!keys || rootInline) {
+          invalid = true;
+          continue;
+        }
+        rootInline = /* @__PURE__ */ new Set();
+        for (const key of keys) {
+          const normalized = normalizedPath(key);
+          if (rootInline.has(normalized)) invalid = true;
+          rootInline.add(normalized);
+          paths.add(normalized);
+        }
+      } else {
+        const key = normalizedPath(assignment.key[1]);
+        if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+        parentKeys.add(key);
+        paths.add(key);
+      }
+      continue;
+    }
+    if (currentTable.length === 1 && currentTable[0] === "projects") {
+      const key = normalizedPath(assignment.key[0]);
+      if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+      parentKeys.add(key);
+      paths.add(key);
+    }
+  }
+  for (const key of parentKeys) {
+    if (nestedTables.has(key)) invalid = true;
+  }
+  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid = true;
+  return { paths, rootInline, invalid };
+}
+function mergeTrustedProjectEntries(profile, config) {
+  const entries = collectProfileEntries(profile);
+  if (!entries) return null;
+  if (entries.length === 0) return config;
+  const existing = collectExistingPaths(config);
+  if (existing.invalid) return null;
+  const missing = entries.filter((entry) => {
+    const key = normalizedPath(entry.path);
+    return !existing.paths.has(key) && !existing.rootInline?.has(key);
+  });
+  if (existing.rootInline && missing.length) return null;
+  if (missing.length === 0) return config;
+  const newlineSource = config || profile;
+  const newline = newlineSource.includes("\r\n") ? "\r\n" : "\n";
+  const separator = !config ? "" : config.endsWith(newline + newline) ? "" : config.endsWith(newline) ? newline : newline + newline;
+  const appended = missing.flatMap((entry) => [entry.header, entry.assignment]).join(newline) + newline;
+  return config + separator + appended;
+}
+function carryCodexProjectTrust(host2, profilePath2, configPath) {
+  const lockId = host2.fs.lockFile(configPath + ".project-trust.lock");
+  if (lockId === null) {
+    host2.log?.("warn", "Codex project trust carry-over skipped because the shared config lock is busy");
+    return false;
+  }
+  try {
+    if (host2.fs.isSymlink(configPath) !== false) {
+      host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
+      return false;
+    }
+    const profile = host2.fs.readFile(profilePath2);
+    if (profile === null) return false;
+    const configExists = host2.fs.fileExists(configPath);
+    const config = configExists ? host2.fs.readFile(configPath) : "";
+    if (config === null) return false;
+    const merged = mergeTrustedProjectEntries(profile, config);
+    if (merged === null) {
+      host2.log?.("warn", "Codex project trust carry-over skipped because the TOML structure is ambiguous");
+      return false;
+    }
+    if (merged === config) return true;
+    const currentExists = host2.fs.fileExists(configPath);
+    const current = currentExists ? host2.fs.readFile(configPath) : "";
+    if (current === null || currentExists !== configExists || current !== config) {
+      host2.log?.("warn", "Codex project trust carry-over skipped after a concurrent config change");
+      return false;
+    }
+    if (host2.fs.isSymlink(configPath) !== false) {
+      host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
+      return false;
+    }
+    if (!host2.fs.writeFileAtomic(configPath, merged)) {
+      host2.log?.("warn", "Codex project trust carry-over could not atomically update the shared config");
+      return false;
+    }
+    return true;
+  } finally {
+    host2.fs.unlockFile(lockId);
+  }
+}
+
 // plugins/provider-codex/src/profile-sweep.ts
 var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
 var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
@@ -1586,6 +1915,12 @@ function removeProfile(host2, path) {
     return false;
   }
 }
+function removeProfileAfterTrustCarry(host2, path) {
+  const home = host2.homeDir();
+  if (!home) return false;
+  const configPath = `${home}\\.codex\\config.toml`;
+  return carryCodexProjectTrust(host2, path, configPath) && removeProfile(host2, path);
+}
 function inspectCodexProfiles(host2, liveTabIds, instanceId) {
   const listing = profiles(host2);
   if (!listing) return { dead: [], legacy: [] };
@@ -1620,7 +1955,7 @@ function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLega
     const owner = codexProfileInstanceId(contents);
     const stillOwned = owner === instanceId;
     const stillLegacy = includeLegacy && owner === null;
-    if ((stillOwned || stillLegacy) && removeProfile(host2, path)) removed.push(name);
+    if ((stillOwned || stillLegacy) && removeProfileAfterTrustCarry(host2, path)) removed.push(name);
   }
   return { ...candidates, removed };
 }
@@ -1631,7 +1966,7 @@ function releaseCodexProfile(host2, tabId, instanceId) {
   if (!path || codexProfileTabId(name) === null) return false;
   const contents = readProfile(host2, path);
   if (contents === null || codexProfileInstanceId(contents) !== instanceId) return false;
-  return removeProfile(host2, path);
+  return removeProfileAfterTrustCarry(host2, path);
 }
 
 // plugins/provider-codex/src/tabState.ts
@@ -1776,35 +2111,14 @@ function stderrIndicatesMissingAppServer(stderr) {
 function isMethodNotFound(error) {
   return error.code === JSON_RPC_METHOD_NOT_FOUND || /method not found/i.test(String(error.message || ""));
 }
-function runAppServerSession(requests) {
-  const lines = [
-    JSON.stringify({
-      method: "initialize",
-      id: 1,
-      params: { clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" } }
-    }),
-    JSON.stringify({ method: "initialized" })
-  ];
-  for (let i = 0; i < requests.length; i++) {
-    const req = { method: requests[i].method, id: requests[i].id };
-    if (requests[i].params !== void 0) req.params = requests[i].params;
-    lines.push(JSON.stringify(req));
-  }
-  let raw;
-  try {
-    raw = host.exec(JSON.stringify({
-      bin: "codex",
-      args: ["app-server"],
-      stdin: lines.join("\n") + "\n",
-      timeoutMs: APP_SERVER_EXIT_DEADLINE_MS
-    }));
-  } catch (e) {
-    return { kind: "failed", reason: "host.exec threw: " + String(e) };
-  }
+function parseAppServerSession(raw) {
   let result;
   try {
-    result = JSON.parse(raw);
-  } catch (_) {
+    result = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    return { kind: "failed", reason: "host.exec returned invalid JSON" };
+  }
+  if (!result || typeof result !== "object") {
     return { kind: "failed", reason: "host.exec returned invalid JSON" };
   }
   const stderr = String(result.stderr || "");
@@ -1822,12 +2136,10 @@ function runAppServerSession(requests) {
     let message;
     try {
       message = JSON.parse(line);
-    } catch (_) {
+    } catch {
       continue;
     }
-    if (typeof message.id === "number") {
-      responses[message.id] = { result: message.result, error: message.error };
-    }
+    if (typeof message.id === "number") responses[message.id] = { result: message.result, error: message.error };
   }
   const init = responses[1];
   if (!init) {
@@ -1837,12 +2149,37 @@ function runAppServerSession(requests) {
     return { kind: "failed", reason: "codex app-server exited before responding" + (stderr ? ": " + stderr.slice(0, 400) : "") };
   }
   if (init.error) {
-    if (isMethodNotFound(init.error)) {
-      return { kind: "unavailable", reason: "codex app-server does not support initialize" };
-    }
+    if (isMethodNotFound(init.error)) return { kind: "unavailable", reason: "codex app-server does not support initialize" };
     return { kind: "failed", reason: "initialize failed: " + String(init.error.message || "unknown error") };
   }
   return { kind: "ok", responses };
+}
+function runAppServerSession(requests, then) {
+  const lines = [
+    JSON.stringify({
+      method: "initialize",
+      id: 1,
+      params: { clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" } }
+    }),
+    JSON.stringify({ method: "initialized" })
+  ];
+  for (let i = 0; i < requests.length; i++) {
+    const req = { method: requests[i].method, id: requests[i].id };
+    if (requests[i].params !== void 0) req.params = requests[i].params;
+    lines.push(JSON.stringify(req));
+  }
+  const opts = {
+    bin: "codex",
+    args: ["app-server"],
+    stdin: lines.join("\n") + "\n",
+    timeoutMs: APP_SERVER_EXIT_DEADLINE_MS
+  };
+  try {
+    const asyncExec = host.exec.async;
+    return typeof asyncExec === "function" ? asyncExec(opts, (raw) => then(parseAppServerSession(raw))) : then(parseAppServerSession(host.exec(JSON.stringify(opts))));
+  } catch (e) {
+    return then({ kind: "failed", reason: "host.exec threw: " + String(e) });
+  }
 }
 function requestOutcome(session, id, method) {
   if (session.kind !== "ok") return session;
@@ -1903,6 +2240,59 @@ function managedListings(listings, hooksPath, labels) {
   }
   return out;
 }
+function trustTableKey(line) {
+  const value = line.trim();
+  const prefix = "[hooks.state.";
+  if (!value.startsWith(prefix) || !value.endsWith("]")) return null;
+  const raw = value.slice(prefix.length, -1);
+  if (raw.length >= 2 && raw[0] === "'" && raw[raw.length - 1] === "'") {
+    return raw.slice(1, -1);
+  }
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+function recordedTrustedHash(config, key) {
+  const lines = config.split("\n");
+  const normalizedKey = slashNormalize(key);
+  for (let i = 0; i < lines.length; i++) {
+    const tableKey = trustTableKey(lines[i]);
+    const normalizedTableKey = tableKey === null ? null : slashNormalize(tableKey);
+    const sameKey = host.platform() === "windows" ? normalizedTableKey?.toLowerCase() === normalizedKey.toLowerCase() : normalizedTableKey === normalizedKey;
+    if (!sameKey) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const trimmed = lines[j].trim();
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) break;
+      const match = /^trusted_hash\s*=\s*(['"])([^'"\r\n]+)\1\s*(?:#.*)?\r?$/.exec(lines[j]);
+      if (match) return match[2];
+    }
+    return null;
+  }
+  return null;
+}
+function inspectCodexHookTrust(opts, then = (verdict) => verdict) {
+  return runAppServerSession([
+    { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
+  ], (session) => {
+    const result = requestOutcome(session, 2, "hooks/list");
+    if (result.kind !== "ok") return then("unknown");
+    const managed = managedListings(collectHookListings(result.result), opts.hooksPath, opts.managedLabels);
+    if (managed.length !== opts.managedLabels.length) return then("unknown");
+    for (let i = 0; i < managed.length; i++) {
+      const listing = managed[i];
+      const recorded = recordedTrustedHash(opts.config, listing.key);
+      if (recorded === null) return then("unknown");
+      if (recorded !== listing.currentHash) return then("stale");
+      if (listing.trustStatus !== "trusted") return then("unknown");
+    }
+    return then("trusted");
+  });
+}
 function snapshotConfig(path) {
   const existed = host.fs.fileExists(path);
   const bytes = existed ? host.fs.readFile(path) : "";
@@ -1921,87 +2311,93 @@ function outcome(partial) {
     ...partial
   };
 }
-function grantCodexHookTrust(opts) {
+function grantCodexHookTrust(opts, then = (result) => result) {
+  if (!opts.configPath) {
+    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+  }
+  return grantCodexHookTrustFromCodex(opts, then);
+}
+function grantCodexHookTrustFromCodex(opts, then) {
   if (!opts.managedLabels.length) {
-    return outcome({ degraded: true, reason: "no managed hook keys declared" });
+    return then(outcome({ degraded: true, reason: "no managed hook keys declared" }));
   }
   if (!opts.configPath) {
-    return outcome({ degraded: true, reason: "could not resolve Codex config path" });
+    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
   }
-  const listSession = runAppServerSession([
+  return runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
-  ]);
-  const listResult = requestOutcome(listSession, 2, "hooks/list");
-  if (listResult.kind === "unavailable") return outcome({ degraded: true, reason: listResult.reason });
-  if (listResult.kind === "failed") return outcome({ reason: listResult.reason });
-  const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
-  if (managed.length !== opts.managedLabels.length) {
-    return outcome({
-      verify_failed: true,
-      reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length
-    });
-  }
-  const needingTrust = [];
-  for (let i = 0; i < managed.length; i++) {
-    if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
-  }
-  if (!needingTrust.length) {
-    return outcome({
-      granted: true,
-      entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
-    });
-  }
-  const snapshot = snapshotConfig(opts.configPath);
-  if (!snapshot) {
-    return outcome({ reason: "could not snapshot Codex config before granting trust" });
-  }
-  const value = {};
-  for (let i = 0; i < needingTrust.length; i++) {
-    value[needingTrust[i].key] = { trusted_hash: needingTrust[i].currentHash };
-  }
-  const writeSession = runAppServerSession([
-    {
-      method: "config/batchWrite",
-      id: 2,
-      params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true }
-    },
-    { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } }
-  ]);
-  const failedWrite = (reason, verifyFailed) => {
-    const restored = restoreConfig(snapshot);
-    return outcome({ wrote: true, verify_failed: verifyFailed, restored, reason });
-  };
-  const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
-  if (writeResult.kind !== "ok") return outcome({ reason: writeResult.reason });
-  const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
-  if (verifyResult.kind !== "ok") return failedWrite(verifyResult.reason, true);
-  const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
-  if (verified.length !== opts.managedLabels.length) {
-    return failedWrite("post-grant verify reported " + verified.length + " managed entries", true);
-  }
-  const expectedHashes = {};
-  for (let i = 0; i < managed.length; i++) {
-    expectedHashes[managed[i].key] = managed[i].currentHash;
-  }
-  for (let i = 0; i < verified.length; i++) {
-    const listing = verified[i];
-    if (listing.trustStatus !== "trusted") {
-      return failedWrite("post-grant verify left " + listing.key + " " + listing.trustStatus, true);
+  ], (listSession) => {
+    const listResult = requestOutcome(listSession, 2, "hooks/list");
+    if (listResult.kind === "unavailable") return then(outcome({ degraded: true, reason: listResult.reason }));
+    if (listResult.kind === "failed") return then(outcome({ reason: listResult.reason }));
+    const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
+    if (managed.length !== opts.managedLabels.length) {
+      return then(outcome({
+        verify_failed: true,
+        reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length
+      }));
     }
-    if (expectedHashes[listing.key] !== listing.currentHash) {
-      return failedWrite("post-grant verify reported a different hash for " + listing.key, true);
+    const needingTrust = [];
+    for (let i = 0; i < managed.length; i++) {
+      if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
     }
-  }
-  return outcome({
-    granted: true,
-    wrote: true,
-    entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
+    if (!needingTrust.length) {
+      return then(outcome({
+        granted: true,
+        entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
+      }));
+    }
+    if (!opts.configPath) return then(outcome({ reason: "Codex config path is unknown; trust was not granted" }));
+    const snapshot = snapshotConfig(opts.configPath);
+    if (!snapshot) return then(outcome({ reason: "could not snapshot Codex config before granting trust" }));
+    const value = {};
+    for (let i = 0; i < needingTrust.length; i++) {
+      const currentHash = needingTrust[i].currentHash;
+      if (!currentHash) return then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" }));
+      value[needingTrust[i].key] = { trusted_hash: currentHash };
+    }
+    return runAppServerSession([
+      {
+        method: "config/batchWrite",
+        id: 2,
+        params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true }
+      },
+      { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } }
+    ], (writeSession) => {
+      const failedWrite = (reason, verifyFailed) => {
+        const restored = restoreConfig(snapshot);
+        return then(outcome({ wrote: true, verify_failed: verifyFailed, restored, reason }));
+      };
+      const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
+      if (writeResult.kind !== "ok") return then(outcome({ reason: writeResult.reason }));
+      const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
+      if (verifyResult.kind !== "ok") return failedWrite(verifyResult.reason, true);
+      const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
+      if (verified.length !== opts.managedLabels.length) {
+        return failedWrite("post-grant verify reported " + verified.length + " managed entries", true);
+      }
+      const expectedHashes = {};
+      for (let i = 0; i < managed.length; i++) expectedHashes[managed[i].key] = managed[i].currentHash;
+      for (let i = 0; i < verified.length; i++) {
+        const listing = verified[i];
+        if (listing.trustStatus !== "trusted") {
+          return failedWrite("post-grant verify left " + listing.key + " " + listing.trustStatus, true);
+        }
+        if (expectedHashes[listing.key] !== listing.currentHash) {
+          return failedWrite("post-grant verify reported a different hash for " + listing.key, true);
+        }
+      }
+      return then(outcome({
+        granted: true,
+        wrote: true,
+        entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
+      }));
+    });
   });
 }
 
 // plugins/provider-codex/src/hooks.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
-var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 var LEGACY_CODEX_HOOK_COMMANDS = /* @__PURE__ */ new Set([
   `curl -s -X POST http://localhost:\${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true`,
   "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' --data-binary @- > /dev/null 2>&1 || true"
@@ -2018,7 +2414,6 @@ function codexWindowsHookScript() {
     "@echo off",
     "setlocal DisableDelayedExpansion",
     "rem " + CODETERM_CODEX_HOOK_MARKER,
-    "rem " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     "if not defined CODETERM_TAB_ID exit /b 0",
     "if not defined CODETERM_API_URL exit /b 0",
     "if not defined CODETERM_API_TOKEN exit /b 0",
@@ -2035,7 +2430,6 @@ function codexWindowsHookScript() {
     'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
     "curl.exe --silent --show-error --max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
     'if exist "%responseFile%" del /F /Q "%responseFile%"',
-    'if /I "%hookEvent%"=="session_start" if defined USERPROFILE if exist "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml" del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"',
     "exit /b 0",
     ""
   ].join("\r\n");
@@ -2073,7 +2467,6 @@ function isOwnedCodexHook(hook) {
 }
 var CODEX_HOOK_SCRIPT_CONTRACT = [
   "rem " + CODETERM_CODEX_HOOK_MARKER,
-  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
   "hookEvent",
   "CODETERM_TAB_ID",
   "CODETERM_API_URL",
@@ -2107,6 +2500,8 @@ function isOwnedCodexHookScriptContent(text5) {
 }
 function isCurrentCodexHookScriptContent(text5) {
   if (!isOwnedCodexHookScriptContent(text5)) return false;
+  if (text5.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
+  if (text5.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
   if (/:\d{2,5}/.test(text5)) return false;
   if (text5.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text5)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
@@ -2124,6 +2519,7 @@ var CODEX_INTEGRATION_STATE_ABSENT = "absent";
 var CODEX_INTEGRATION_STATE_STALE_VERSION = "stale_version";
 var CODEX_INTEGRATION_STATE_UNTRUSTED_HASH = "untrusted_hash";
 var CODEX_INTEGRATION_STATE_INSTALLED = "installed";
+var codexHookTrustCache = /* @__PURE__ */ new Map();
 function checkIntegration() {
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) {
@@ -2149,18 +2545,18 @@ function checkIntegration() {
   });
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
   const trustState = codexHookTrustState(path);
-  const trustOk = trustState !== "disabled";
-  const integrationState = !installed ? CODEX_INTEGRATION_STATE_ABSENT : !trustOk || trustState === "missing" || trustState === "unknown" ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : !current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED;
+  const trustOk = trustState === "enabled" || trustState === "trusted";
+  const integrationState = !installed ? CODEX_INTEGRATION_STATE_ABSENT : trustState === "unknown" ? "unknown" : !trustOk ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : !current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED;
   return {
     hooks_file_exists: true,
     hook_content_hash: ownedContentHash(arr, stopArr, winScriptText),
     hooks_installed: current && stopInstalled && trustOk,
-    session_start_hook: current && trustOk,
+    session_start_hook: current && trustState !== "disabled" && trustState !== "stale",
     stop_hook: stopInstalled && trustOk,
     hook_trust_state: trustState,
     hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null,
     integration_state: integrationState,
-    repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED,
+    repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED && integrationState !== "unknown",
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
@@ -2344,16 +2740,19 @@ function installIntegration(apiPort, options) {
   }
   return fail("writeJson failed for " + path);
 }
-function grantIntegrationTrust(managedKeys) {
+function grantIntegrationTrust(managedKeys, then = (result) => result) {
   const hooksPath = codexHooksPath();
   if (!hooksPath) {
-    return { granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" };
+    return then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" });
   }
   return grantCodexHookTrust({
     hooksPath,
     configPath: codexConfigPath(),
     managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
     listCwd: host.homeDir() || "."
+  }, (result) => {
+    if (result.granted) cacheCodexHookTrust(hooksPath, "trusted");
+    return then(result);
   });
 }
 function uninstallIntegration() {
@@ -2419,43 +2818,46 @@ function restoreIntegration() {
   }
   return { ok: true };
 }
-function ensureIntegrationOnStartup(apiPort, install) {
+function ensureIntegrationOnStartup(apiPort, install, then = (result) => result) {
   void apiPort;
   void install;
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
+  if (!path || !host.fs.fileExists(path)) return then({ ok: true, changed: false });
   const json = host.fs.readJson(path);
-  if (!json || !json.hooks) return { ok: true, changed: false };
+  if (!json || !json.hooks) return then({ ok: true, changed: false });
   const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
-  if (owned.length === 0) return { ok: true, changed: false };
-  if (codexHookTrustState(path) === "disabled") {
-    return { ok: true, changed: false, reason: "Codex hook trust is disabled" };
-  }
-  const scriptPath = codexWindowsHookScriptPath();
-  const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
-  const commandStale = owned.some((entry) => {
-    const hooks = entry && entry.hooks || [];
-    return hooks.some(
-      (hook) => {
-        const command = String(hook && hook.command || "");
-        return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command) || host.platform() === "windows" && !hasCodetermCodexWindowsCommand(entry);
-      }
-    );
+  if (owned.length === 0) return then({ ok: true, changed: false });
+  return refreshCodexHookTrustState(path, (trustState) => {
+    if (trustState === "disabled") {
+      return then({ ok: true, changed: false, reason: "Codex hook trust is disabled" });
+    }
+    const scriptPath = codexWindowsHookScriptPath();
+    const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
+    const commandStale = owned.some((entry) => {
+      const hooks = entry && entry.hooks || [];
+      return hooks.some(
+        (hook) => {
+          const command = String(hook && hook.command || "");
+          return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command) || host.platform() === "windows" && !hasCodetermCodexWindowsCommand(entry);
+        }
+      );
+    });
+    const stopEntries = json.hooks?.Stop || [];
+    const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
+    const stopOwned = ownedStopEntries.length > 0;
+    const stopCommandStale = host.platform() === "windows" && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
+    const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
+    const trustStale = trustState === "stale";
+    if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned && !trustStale) {
+      return then({ ok: true, changed: false });
+    }
+    return then({
+      ok: false,
+      changed: false,
+      actionable: true,
+      error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
+    });
   });
-  const stopEntries = json.hooks.Stop || [];
-  const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
-  const stopOwned = ownedStopEntries.length > 0;
-  const stopCommandStale = host.platform() === "windows" && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
-  const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
-  if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned) {
-    return { ok: true, changed: false };
-  }
-  return {
-    ok: false,
-    changed: false,
-    actionable: true,
-    error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
-  };
 }
 function codexHooksPath() {
   const home = host.homeDir();
@@ -2500,17 +2902,96 @@ function restoreIntegrationFiles(snapshots) {
   }
   return restored;
 }
-function codexHookTrustState(hooksPath) {
+function codexHookTrustContext(hooksPath) {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+  if (!cfg || !host.fs.fileExists(cfg)) return null;
   const text5 = String(host.fs.readFile(cfg) || "");
-  if (!text5) return "missing";
   const block = findCodexHookTrustBlock(text5, hooksPath);
-  if (block == null) return "missing";
+  if (block == null) return null;
+  const hooks = host.fs.readJson(hooksPath)?.hooks;
+  const labels = [];
+  if ((hooks?.SessionStart || []).some(isCodetermCodexHook)) labels.push("session_start");
+  if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
+  const script = codexWindowsHookScriptPath();
+  const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
+  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text5));
+  const hookFingerprint = codexHookContentHash([
+    ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
+    labels.join(",")
+  ].join(String.fromCharCode(0)));
+  const fingerprint = codexHookContentHash([trustFingerprint, hookFingerprint].join(String.fromCharCode(0)));
+  return { config: text5, block, labels, fingerprint, hookFingerprint, trustFingerprint };
+}
+function hookTrustConfigSections(config) {
+  const sections = [];
+  let active = false;
+  let lines = [];
+  for (const line of config.split(/\r?\n/)) {
+    const value = line.trim();
+    const header = value.startsWith("[") && value.endsWith("]");
+    if (header) {
+      if (active) sections.push(lines.join("\n"));
+      active = /^\[hooks\.state(?:\.|\])/.test(value);
+      lines = active ? [line] : [];
+    } else if (active) {
+      lines.push(line);
+    }
+  }
+  if (active) sections.push(lines.join("\n"));
+  return sections.join(String.fromCharCode(0));
+}
+function cacheCodexHookTrust(hooksPath, verdict) {
+  const context = codexHookTrustContext(hooksPath);
+  if (context) codexHookTrustCache.set(hooksPath, {
+    fingerprint: context.fingerprint,
+    hookFingerprint: context.hookFingerprint,
+    trustFingerprint: context.trustFingerprint,
+    verdict
+  });
+}
+function codexHookTrustState(hooksPath) {
+  const context = codexHookTrustContext(hooksPath);
+  if (!context) return "missing";
+  const { block, fingerprint } = context;
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
-  if (m) return m[1] === "true" ? "enabled" : "disabled";
-  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) return "trusted";
-  return "unknown";
+  if (m && m[1] === "false") return "disabled";
+  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) {
+    if (!context.labels.includes("session_start")) return "unknown";
+    const cached = codexHookTrustCache.get(hooksPath);
+    if (cached?.fingerprint === fingerprint) return cached.verdict;
+    if (cached?.verdict === "stale") return "stale";
+    if (cached?.trustFingerprint === context.trustFingerprint && cached.hookFingerprint !== context.hookFingerprint) return "stale";
+    return cached?.verdict || "trusted";
+  }
+  if (m) return "enabled";
+  return "missing";
+}
+function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
+  const context = codexHookTrustContext(hooksPath);
+  if (!context) return then("missing");
+  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return then("disabled");
+  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return then(codexHookTrustState(hooksPath));
+  const cached = codexHookTrustCache.get(hooksPath);
+  if (cached?.fingerprint === context.fingerprint) return then(cached.verdict);
+  const fallback = codexHookTrustState(hooksPath) === "stale" ? "stale" : "trusted";
+  if (!context.labels.includes("session_start")) return then(fallback);
+  return inspectCodexHookTrust({
+    hooksPath,
+    config: context.config,
+    managedLabels: context.labels,
+    listCwd: host.homeDir() || "."
+  }, (inspected) => {
+    if (inspected !== "unknown") {
+      codexHookTrustCache.set(hooksPath, {
+        fingerprint: context.fingerprint,
+        hookFingerprint: context.hookFingerprint,
+        trustFingerprint: context.trustFingerprint,
+        verdict: inspected
+      });
+      return then(inspected);
+    }
+    return then(fallback);
+  });
 }
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
@@ -2547,14 +3028,14 @@ function findCodexHookTrustBlock(text5, hooksPath) {
   return span ? text5.substring(span.start, span.end) : null;
 }
 function findCodexHookTrustBlockSpan(text5, hooksPath) {
-  const marker = hooksPath + ":session_start:";
   const lines = text5.split("\n");
+  const marker = normalizeCodexHookKey(hooksPath + ":session_start:");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-    const isHeader = trimmed.charAt(0) === "[" && trimmed.charAt(trimmed.length - 1) === "]";
-    if (isHeader && trimmed.indexOf("hooks.state.") !== -1 && trimmed.indexOf(marker) !== -1) {
+    const rawKey = hookTrustKeyFromHeader(trimmed);
+    if (rawKey !== null && normalizeCodexHookKey(rawKey).startsWith(marker)) {
       const start = offset;
       let end = text5.length;
       let scanOffset = offset + line.length + 1;
@@ -2571,6 +3052,24 @@ function findCodexHookTrustBlockSpan(text5, hooksPath) {
     offset += line.length + 1;
   }
   return null;
+}
+function hookTrustKeyFromHeader(header) {
+  const prefix = "[hooks.state.";
+  if (!header.startsWith(prefix) || !header.endsWith("]")) return null;
+  const raw = header.slice(prefix.length, -1).trim();
+  if (raw.startsWith("'") && raw.endsWith("'")) return raw.slice(1, -1);
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw.slice(1, -1).replace(/\\\\/g, "\\").replace(/\\\"/g, '"');
+    }
+  }
+  return null;
+}
+function normalizeCodexHookKey(value) {
+  const normalized = value.replace(/\\/g, "/");
+  return host.platform() === "windows" ? normalized.toLowerCase() : normalized;
 }
 function hasCodetermCodexWindowsCommand(entry) {
   const hooks = entry && entry.hooks;
@@ -2593,10 +3092,16 @@ function profileSweepHost() {
   return {
     platform: () => host.platform(),
     homeDir: () => host.homeDir(),
+    log: (level, message) => host.log(level, message),
     fs: {
+      fileExists: (path) => host.fs.fileExists(path),
+      isSymlink: (path) => host.fs.isSymlink(path),
       readDir: (path) => host.fs.readDir(path),
       readFile: (path) => host.fs.readFile(path),
-      removeFile: (path) => host.fs.removeFile(path)
+      removeFile: (path) => host.fs.removeFile(path),
+      writeFileAtomic: (path, contents) => host.fs.writeFileAtomic(path, contents),
+      lockFile: (path) => host.fs.lockFile(path),
+      unlockFile: (id) => host.fs.unlockFile(id)
     }
   };
 }
@@ -2733,7 +3238,7 @@ var plugin = {
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
         const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
-        prefix = `$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; $ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); $ctInstanceId = ${quotedInstanceId}; Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); try { `;
+        prefix = `$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; $ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; if (-not $ctPriorReleased) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved-' + $PID + '-' + [DateTime]::UtcNow.Ticks + '.config.toml'); try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; $ctInstanceId = ${quotedInstanceId}; Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); $ctProfileReleased = $false; try { try { `;
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -2746,7 +3251,7 @@ var plugin = {
         parts.push(host.shell.quoteFor(prompt, host.platform()));
       }
       if (host.platform() === "windows") {
-        return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
+        return prefix + parts.join(" ") + " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; } } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
       }
     }
     return prefix + parts.join(" ");
