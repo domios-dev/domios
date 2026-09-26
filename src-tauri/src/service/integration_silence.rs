@@ -28,13 +28,13 @@ mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct HookBindingFallback {
-    session_id: String,
     source: BindingSource,
 }
 
-fn hook_binding_fallbacks() -> &'static parking_lot::Mutex<HashMap<String, HookBindingFallback>> {
-    static FALLBACKS: OnceLock<parking_lot::Mutex<HashMap<String, HookBindingFallback>>> =
-        OnceLock::new();
+type HookBindingFallbacks = HashMap<String, HashMap<String, HookBindingFallback>>;
+
+fn hook_binding_fallbacks() -> &'static parking_lot::Mutex<HookBindingFallbacks> {
+    static FALLBACKS: OnceLock<parking_lot::Mutex<HookBindingFallbacks>> = OnceLock::new();
     FALLBACKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
@@ -51,24 +51,31 @@ fn update_hook_binding_fallback(
     provider_id: &str,
     session_id: &str,
     source: BindingSource,
-    hook_execution_observed: bool,
+    session_binding_hook_succeeded: bool,
 ) -> bool {
-    if hook_execution_observed {
-        fallbacks.remove(provider_id);
+    if session_binding_hook_succeeded && source == BindingSource::Hook {
+        let remove_provider = fallbacks
+            .get_mut(provider_id)
+            .is_some_and(|sessions| {
+                sessions.remove(session_id);
+                sessions.is_empty()
+            });
+        if remove_provider {
+            fallbacks.remove(provider_id);
+        }
         return false;
     }
     if source == BindingSource::Hook {
         return false;
     }
     let fallback = HookBindingFallback {
-        session_id: session_id.to_string(),
         source,
     };
-    if fallbacks.get(provider_id) == Some(&fallback) {
-        return false;
-    }
-    fallbacks.insert(provider_id.to_string(), fallback);
-    true
+    fallbacks
+        .entry(provider_id.to_string())
+        .or_default()
+        .insert(session_id.to_string(), fallback.clone())
+        != Some(fallback)
 }
 
 pub(crate) fn record_hook_binding_source(
@@ -76,7 +83,7 @@ pub(crate) fn record_hook_binding_source(
     provider_id: &str,
     session_id: &str,
     source: BindingSource,
-    hook_execution_observed: bool,
+    session_binding_hook_succeeded: bool,
 ) {
     let has_hooks = registry
         .with_provider(provider_id, |provider| provider.has_hooks())
@@ -91,7 +98,7 @@ pub(crate) fn record_hook_binding_source(
             provider_id,
             session_id,
             source,
-            hook_execution_observed,
+            session_binding_hook_succeeded,
         )
     };
     if changed {
@@ -103,11 +110,69 @@ pub(crate) fn record_hook_binding_source(
     }
 }
 
-pub(crate) fn hook_binding_fallback_source(provider_id: &str) -> Option<String> {
+pub(crate) fn hook_binding_fallback_source(
+    provider_id: &str,
+    live_session_ids: &[String],
+) -> Option<String> {
+    hook_binding_fallback_source_from(
+        &hook_binding_fallbacks().lock(),
+        provider_id,
+        live_session_ids,
+    )
+}
+
+fn hook_binding_fallback_source_from(
+    fallbacks: &HookBindingFallbacks,
+    provider_id: &str,
+    live_session_ids: &[String],
+) -> Option<String> {
+    let sessions = fallbacks.get(provider_id)?;
+    let mut active_fallbacks = live_session_ids
+        .iter()
+        .filter_map(|session_id| sessions.get(session_id).map(|fallback| (session_id, fallback)))
+        .collect::<Vec<_>>();
+    active_fallbacks.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    active_fallbacks
+        .first()
+        .map(|(_, fallback)| binding_source_label(fallback.source).to_string())
+}
+
+pub(crate) fn has_hook_binding_fallback(provider_id: &str, session_id: &str) -> bool {
     hook_binding_fallbacks()
         .lock()
         .get(provider_id)
-        .map(|fallback| binding_source_label(fallback.source).to_string())
+        .is_some_and(|sessions| sessions.contains_key(session_id))
+}
+
+pub(crate) fn integration_status_with_binding_fallback(
+    status: Json,
+    provider_id: &str,
+    has_hooks: bool,
+    live_session_ids: &[String],
+) -> Json {
+    let source = if has_hooks {
+        hook_binding_fallback_source(provider_id, live_session_ids)
+    } else {
+        None
+    };
+    integration_status_with_fallback_source(status, has_hooks, source)
+}
+
+fn integration_status_with_fallback_source(
+    mut status: Json,
+    has_hooks: bool,
+    source: Option<String>,
+) -> Json {
+    if let Some(fields) = status.as_object_mut() {
+        fields.remove("codeterm_binding_fallback_source");
+        if let (true, Some(source)) = (has_hooks, source) {
+            fields.insert(
+                "codeterm_binding_fallback_source".into(),
+                Json::String(source),
+            );
+        }
+    }
+    status
 }
 
 /// What the daemon knows outright about one provider's session-registering

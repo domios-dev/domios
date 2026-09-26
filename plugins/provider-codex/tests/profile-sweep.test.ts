@@ -18,6 +18,7 @@ function makeHost(files: Record<string, string>, unreadableDirectory = false) {
     platform: () => "windows",
     homeDir: () => "C:\\Users\\test",
     fs: {
+      fileExists: (path) => files[path.slice(path.lastIndexOf("\\") + 1)] !== undefined,
       readDir: () => {
         if (unreadableDirectory) throw new Error("denied");
         return Object.keys(files).map((name) => ({ name, isFile: true }));
@@ -29,6 +30,12 @@ function makeHost(files: Record<string, string>, unreadableDirectory = false) {
         delete files[name];
         return true;
       },
+      writeFileAtomic: (path, contents) => {
+        files[path.slice(path.lastIndexOf("\\") + 1)] = contents;
+        return true;
+      },
+      lockFile: () => "lock",
+      unlockFile: () => true,
     },
   };
   return { host, files, removed };
@@ -101,6 +108,30 @@ console.log("\n--- close releases only the profile marked by this instance ---\n
   eq(releaseCodexProfile(host, "tab", "instance-dev"), true, "removes the tab's own profile");
   eq(releaseCodexProfile(host, "foreign", "instance-dev"), false, "keeps a profile marked by another instance");
   eq(removed, ["codeterm-tab.config.toml"], "only the same-instance file was removed");
+}
+
+console.log("\n--- profile release carries project trust before removal ---\n");
+{
+  const config = [
+    "[hooks.state.'C:\\Users\\test\\.codex\\hooks.json:session_start:0:0']",
+    'trusted_hash = "sha256:unchanged"',
+    "",
+  ].join("\r\n");
+  const { host, files } = makeHost({
+    "codeterm-tab.config.toml": [
+      "# codeterm-instance: instance-dev",
+      'developer_instructions = "brief"',
+      "",
+      "[projects.'d:\\developer\\trust-probe']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\r\n"),
+    "config.toml": config,
+  });
+  assert.equal(releaseCodexProfile(host, "tab", "instance-dev"), true);
+  assert.equal(files["codeterm-tab.config.toml"], undefined, "profile is removed after trust carry-over");
+  assert.ok(files["config.toml"].includes("[projects.'d:\\developer\\trust-probe']"));
+  assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'));
 }
 
 console.log("\nPASS instance-scoped Codex profile cleanup\n");

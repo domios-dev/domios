@@ -1,10 +1,16 @@
+import { carryCodexProjectTrust } from "./trust-carryover";
+
 export interface ProfileSweepHost {
   platform(): string;
   homeDir(): string | null;
   fs: {
+    fileExists(path: string): boolean;
     readDir(path: string): { name: string; isFile: boolean }[];
     readFile(path: string): string | null;
     removeFile(path: string): boolean;
+    writeFileAtomic(path: string, contents: string): boolean;
+    lockFile(path: string): string | null;
+    unlockFile(id: string): boolean;
   };
 }
 
@@ -62,6 +68,13 @@ function removeProfile(host: ProfileSweepHost, path: string): boolean {
   }
 }
 
+function removeProfileAfterTrustCarry(host: ProfileSweepHost, path: string): boolean {
+  const home = host.homeDir();
+  if (!home) return false;
+  const configPath = `${home}\\.codex\\config.toml`;
+  return carryCodexProjectTrust(host, path, configPath) && removeProfile(host, path);
+}
+
 export function inspectCodexProfiles(
   host: ProfileSweepHost,
   liveTabIds: readonly string[],
@@ -112,7 +125,7 @@ export function manageCodexProfiles(
     const owner = codexProfileInstanceId(contents);
     const stillOwned = owner === instanceId;
     const stillLegacy = includeLegacy && owner === null;
-    if ((stillOwned || stillLegacy) && removeProfile(host, path)) removed.push(name);
+    if ((stillOwned || stillLegacy) && removeProfileAfterTrustCarry(host, path)) removed.push(name);
   }
   return { ...candidates, removed };
 }
@@ -128,5 +141,5 @@ export function releaseCodexProfile(
   if (!path || codexProfileTabId(name) === null) return false;
   const contents = readProfile(host, path);
   if (contents === null || codexProfileInstanceId(contents) !== instanceId) return false;
-  return removeProfile(host, path);
+  return removeProfileAfterTrustCarry(host, path);
 }

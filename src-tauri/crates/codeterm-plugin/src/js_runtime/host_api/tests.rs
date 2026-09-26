@@ -441,6 +441,34 @@ fn host_write_then_read_file_round_trip() {
 }
 
 #[test]
+fn host_atomic_write_and_exclusive_file_lock_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml").to_string_lossy().into_owned();
+    let vm = vm_with(
+        r#"
+            module.exports.default = {
+                lock(p) { return host.lockFile(p); },
+                unlock(id) { return host.unlockFile(id); },
+                write(p, c) { return host.writeFileAtomic(p, c); }
+            };
+        "#,
+    );
+    let lock_id: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
+    let lock_id = lock_id.expect("lock acquisition returns an opaque handle");
+    let ok: bool = crate::js_runtime::vm::call_json(
+        &vm,
+        "write",
+        &[json!(path.clone()), json!("model = \"gpt-5.6\"\n")],
+    )
+    .unwrap();
+    assert!(ok);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "model = \"gpt-5.6\"\n");
+    let unlocked: bool = crate::js_runtime::vm::call_json(&vm, "unlock", &[json!(lock_id)]).unwrap();
+    assert!(unlocked);
+}
+
+#[test]
 fn read_file_bounded_head_and_tail_windows() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("big.jsonl");

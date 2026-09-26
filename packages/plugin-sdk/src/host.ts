@@ -103,6 +103,9 @@ export interface HostFs {
   readFileHead(path: string, maxBytes: number): string | null;
   readFileTail(path: string, maxBytes: number): string | null;
   writeFile(path: string, contents: string): boolean;
+  writeFileAtomic(path: string, contents: string): boolean;
+  lockFile(path: string): string | null;
+  unlockFile(id: string): boolean;
   removeFile(path: string): boolean;
   makeDirs(path: string): boolean;
   fileExists(path: string): boolean;
@@ -369,6 +372,9 @@ export interface Host {
   readFileHead(path: string, maxBytes: number): string | null;
   readFileTail(path: string, maxBytes: number): string | null;
   writeFile(path: string, contents: string): boolean;
+  writeFileAtomic(path: string, contents: string): boolean;
+  lockFile(path: string): string | null;
+  unlockFile(id: string): boolean;
   removeFile(path: string): boolean;
   makeDirs(path: string): boolean;
   readDirJson(path: string): string | null;

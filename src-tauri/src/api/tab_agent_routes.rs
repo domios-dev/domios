@@ -127,6 +127,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(hook_routes::hook_session_start),
         )
         .route(
+            "/api/tabs/{id}/launch-artifacts/release",
+            post(hook_routes::release_launch_artifacts_api),
+        )
+        .route(
             "/api/tabs/{id}/session/rebind",
             post(super::session_binding_routes::rebind_session),
         )
