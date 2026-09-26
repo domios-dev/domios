@@ -797,6 +797,7 @@ mod tests {
         task.lane = crate::plan::TaskLaneMetadata {
             tab_id: Some(worker_tab_id),
             worktree_path: Some(lane_path.clone()),
+            branch: Some("lane/socket-bounce".into()),
             ..Default::default()
         };
         let attempt = task.execution_attempts.last_mut().unwrap();
@@ -843,6 +844,61 @@ mod tests {
             task.execution_attempts[0].continuation.state.as_deref(),
             Some("executor_gone")
         );
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_review_reopens_after_tab_close_retires_executor_attempt() {
+        let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(true);
+        let task_before_close = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let worker_tab_id = task_before_close.assigned_tab_id.unwrap();
+
+        fixture.service.close_tab(&worker_tab_id).unwrap();
+
+        let task_after_close = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(task_after_close.status, crate::plan::TaskStatus::InReview);
+        assert_eq!(task_after_close.assigned_tab_id, None);
+        assert_eq!(task_after_close.lane.tab_id, None);
+        assert_eq!(
+            task_after_close.lane.worktree_path.as_deref(),
+            Some(lane_path.as_str())
+        );
+        assert_eq!(
+            task_after_close.lane.branch.as_deref(),
+            Some("lane/socket-bounce")
+        );
+        assert!(task_after_close.execution_attempts[0].retired_at.is_some());
+        assert!(task_after_close.execution_attempts[0].closed_at.is_some());
+        assert_eq!(task_after_close.execution_attempts[0].closure_reason, None);
+
+        dispatch_bounce(&fixture, &plan_id, &task_id).unwrap();
+
+        let reopened = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(reopened.status, crate::plan::TaskStatus::Pending);
+        assert_eq!(
+            reopened.lane.worktree_path.as_deref(),
+            Some(lane_path.as_str())
+        );
+        assert_eq!(reopened.lane.branch.as_deref(), Some("lane/socket-bounce"));
+        assert_eq!(reopened.execution_attempts.len(), 1);
+        assert!(reopened.execution_attempts[0].retired_at.is_some());
+        assert!(reopened.execution_attempts[0].closed_at.is_some());
+        assert_eq!(
+            reopened.execution_attempts[0].closure_reason.as_deref(),
+            Some("review_bounce_executor_gone")
+        );
+        assert!(reopened
+            .review_evidence
+            .last()
+            .unwrap()
+            .note
+            .contains("retry the same lane"));
+        assert!(reopened
+            .milestones
+            .last()
+            .unwrap()
+            .text
+            .contains("retry the same lane"));
     }
 
     #[test]
