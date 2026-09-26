@@ -3,6 +3,7 @@ use crate::plan::{AgentRef, PlanEvidenceClass, PlanMode, PlanningAuthor, Plannin
 use crate::service::plan::PlanError;
 use crate::service::plan_reconcile::tab_has_live_agent;
 use crate::service::ServiceContext;
+use codeterm_types::pty::BootStage;
 use serde_json::Value;
 
 #[derive(Clone, Debug, Default)]
@@ -29,6 +30,7 @@ pub(crate) enum PlanAuthorityError {
     /// is identical while the remedy is not: this one is repaired by fixing the
     /// provider integration, not by rebinding.
     SessionUnregistered,
+    SessionBindingPending,
     /// Binding is live but the caller is neither the Plan owner nor a draft
     /// Planner for this plan.
     RoleUnauthorized,
@@ -41,6 +43,7 @@ impl PlanAuthorityError {
             Self::BindingStaleAfterRelaunch => "plan_binding_stale_after_relaunch",
             Self::BindingForeign => "plan_binding_authorization_required",
             Self::SessionUnregistered => "plan_binding_session_unregistered",
+            Self::SessionBindingPending => "session_binding_pending",
             Self::RoleUnauthorized => "plan_role_authorization_required",
         }
     }
@@ -54,6 +57,9 @@ impl PlanAuthorityError {
             Self::BindingForeign => "the live bound planning session is required",
             Self::SessionUnregistered => {
                 "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `codeterm plan rebind <plan>`, then repair the integration so the next session registers itself."
+            }
+            Self::SessionBindingPending => {
+                "this plan write is waiting for the tab's session binding; wait for this tab's session binding, then retry"
             }
             Self::RoleUnauthorized => {
                 "the live bound Plan owner or draft Planner session is required"
@@ -108,9 +114,33 @@ fn binding_failure_class(
     }
     // The daemon-injected launch nonce proves the caller is inside the tab, so a foreign caller cannot reach this arm.
     if tab.agent_session_id.is_none() && tab.session_binding_nonce.as_deref() == Some(nonce) {
-        return PlanAuthorityError::SessionUnregistered;
+        return if launch_binding_is_pending(tab) {
+            PlanAuthorityError::SessionBindingPending
+        } else {
+            PlanAuthorityError::SessionUnregistered
+        };
     }
     PlanAuthorityError::BindingForeign
+}
+
+fn launch_binding_is_pending(tab: &Tab) -> bool {
+    tab.exit_suspected_at.is_none()
+        && matches!(
+            tab.boot_stage,
+            Some(
+                BootStage::PtyStarting
+                    | BootStage::PtySpawned
+                    | BootStage::ReaderReady
+                    | BootStage::ShellReady
+                    | BootStage::AgentLaunching
+                    | BootStage::LaunchWritten
+                    | BootStage::ProviderReady
+                    | BootStage::PreparingRoleInstructions
+                    | BootStage::DeliveringInstructions
+                    | BootStage::LaunchDeadlineElapsed
+                    | BootStage::LaunchBindingUnconfirmed
+            )
+        )
 }
 
 impl ServiceContext {

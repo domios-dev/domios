@@ -1,19 +1,10 @@
 use serde_json::Value;
 
-use crate::service::plan::task_attempts::{TaskAttemptCreated, TaskRespawnDraft};
 use crate::service::plan::{PlanError, PlanStore};
 use crate::service::ServiceState;
 
 use super::plan_fields::optional_string_field;
 use super::{get_string_param, JsonRpcError};
-
-pub(super) fn planner_role_for_tab(svc: &ServiceState, tab_id: &str) -> Option<&'static str> {
-    svc.mux.read().get_tab(tab_id).and_then(|tab| {
-        (tab.role == Some(crate::multiplexer::types::AgentRole::Manager)
-            && tab.role_profile.as_deref() == Some("planner"))
-        .then_some("planner")
-    })
-}
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     JsonRpcError {
@@ -170,39 +161,6 @@ pub(super) fn assign_task_with_profile(
     )
     .map_err(plan_rpc_err)?;
     Ok(id)
-}
-
-pub(super) trait RespawnAttemptRoleExt {
-    fn record_task_respawn_attempt_with_profile(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab_id: &str,
-        draft: &TaskRespawnDraft,
-        svc: &ServiceState,
-        now: u64,
-    ) -> Result<TaskAttemptCreated, PlanError>;
-}
-
-impl RespawnAttemptRoleExt for PlanStore {
-    fn record_task_respawn_attempt_with_profile(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab_id: &str,
-        draft: &TaskRespawnDraft,
-        svc: &ServiceState,
-        now: u64,
-    ) -> Result<TaskAttemptCreated, PlanError> {
-        self.record_task_respawn_attempt(
-            plan_id,
-            task_id,
-            tab_id,
-            draft,
-            planner_role_for_tab(svc, tab_id).or(Some("worker")),
-            now,
-        )
-    }
 }
 
 #[cfg(test)]

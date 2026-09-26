@@ -234,6 +234,36 @@ fn paused_task_dispatch_refuses_before_spawn_without_agent_resume_instruction() 
 }
 
 #[test]
+fn task_dispatch_preflight_rejects_unstartable_statuses() {
+    for status in ["paused", "done", "cancelled", "in_review"] {
+        let candidate = task(json!({
+            "id": format!("task_{status}"),
+            "name": "status preflight",
+            "type": "task",
+            "status": status,
+        }));
+        let error = preflight_dispatch_task_status("plan_1", &candidate).unwrap_err();
+        assert!(
+            error.message.contains("cannot be dispatched")
+                || error.message.contains("not allowed")
+        );
+        if status == "in_review" {
+            assert!(error.message.contains("bounce"));
+        }
+    }
+
+    for status in ["pending", "in_progress", "blocked"] {
+        let task = task(json!({
+            "id": format!("task_{status}"),
+            "name": "status preflight",
+            "type": "task",
+            "status": status,
+        }));
+        preflight_dispatch_task_status("plan_1", &task).unwrap();
+    }
+}
+
+#[test]
 fn regression_block_error_names_every_gate_in_message_and_data() {
     let gates = vec![
         RegressionGate {

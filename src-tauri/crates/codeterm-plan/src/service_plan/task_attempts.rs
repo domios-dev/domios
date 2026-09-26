@@ -863,6 +863,7 @@ impl PlanStore {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
+        super::task_dispatch::task_startup_status(&task.status)?;
         let source = find_attempt(task, &request.attempt_id)
             .cloned()
             .ok_or(PlanError::TaskNotFound)?;
@@ -928,12 +929,16 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[task_index].status == TaskStatus::Pending {
+            let startup_status = super::task_dispatch::task_startup_status(
+                &plan.tasks[task_index].status,
+            )?;
+            if startup_status == TaskStatus::Pending {
                 super::review_gate::validate_dispatch_review_capacity(
                     plan,
                     &plan.tasks[task_index],
                 )?;
             }
+            super::task_dispatch::record_blocked_task_unblock(plan, task_index, "respawn", now_ms);
             let task = &mut plan.tasks[task_index];
             task.assigned_tab_id = Some(tab_id.into());
             task.lane.tab_id = Some(tab_id.into());

@@ -14,6 +14,31 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "agent.diagnostic" => {
+            let tab_id = get_string_param(params, "tab_id")?;
+            let kind = get_string_param(params, "kind")?;
+            if kind != "report_refused" {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "unsupported agent diagnostic kind".into(),
+                    data: None,
+                });
+            }
+            let message = get_string_param(params, "message")?;
+            let target_tab_id = svc
+                .send_refused_report_diagnostic(&tab_id, &message)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "delivered": true,
+                "kind": kind,
+                "target_tab_id": target_tab_id,
+            }))
+        }
         "agent.spawn" => {
             let p = params.as_ref().ok_or(JsonRpcError {
                 code: -32602,

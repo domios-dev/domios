@@ -150,6 +150,23 @@ fn an_unregistered_session_is_named_apart_from_a_foreign_caller() {
     );
 }
 
+#[test]
+fn plan_write_before_binding_reports_retryable_binding_pending() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("provider-neutral".into());
+    tab.pty_id = Some("pty-1".into());
+    tab.session_binding_nonce = Some("nonce-1".into());
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    let tab = &*tab;
+
+    let error = binding_failure_class(tab, None, Some("nonce-1"));
+    assert_eq!(error, PlanAuthorityError::SessionBindingPending);
+    assert_eq!(error.diagnostic_type(), "session_binding_pending");
+    assert!(error.to_string().contains("wait for this tab's session binding"));
+    assert!(error.to_string().contains("retry"));
+}
+
 /// The arm is reached only by proof of running inside the tab, so a caller
 /// with someone else's nonce learns nothing new.
 #[test]
