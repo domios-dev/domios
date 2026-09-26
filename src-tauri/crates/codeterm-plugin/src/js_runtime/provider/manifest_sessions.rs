@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::super::PluginManifest;
-use super::wire::session_description_head;
+use super::wire::{encode_cwd_dashed, session_description_head};
 use super::JsProvider;
 use crate::provider::{self, SessionMetadata};
 
@@ -98,5 +98,32 @@ impl JsProvider {
                 .as_ref()
                 .and_then(|m| provider::fs_time_to_unix(m.modified().ok())),
         }
+    }
+}
+
+impl JsProvider {
+    pub(super) fn sessions_dir(&self, cwd: &str) -> Option<PathBuf> {
+        let cfg = self.manifest.sessions.as_ref()?;
+        let root = PluginManifest::expand_home(&cfg.root_dir)?;
+        let leaf = match cfg.cwd_encoding {
+            super::super::CwdEncoding::DashEncoded => {
+                encode_cwd_dashed(&codeterm_paths::canonical_cwd(cwd))
+            }
+            super::super::CwdEncoding::None => cwd.to_string(),
+        };
+        Some(root.join(leaf))
+    }
+
+    pub(super) fn owned_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        if let Some(path) =
+            self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
+        {
+            return path.map(PathBuf::from);
+        }
+        let cfg = self.manifest.sessions.as_ref()?;
+        Some(
+            self.sessions_dir(cwd)?
+                .join(format!("{}.{}", session_id, cfg.file_extension)),
+        )
     }
 }

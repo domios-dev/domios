@@ -228,6 +228,7 @@ fn commit_reported_session(
 
     let launch_nonce = tab.session_binding_nonce.clone();
     let acknowledged_nonce = tab.reported_session_binding_nonce.clone();
+    let nonce_already_acknowledged = launch_nonce.is_some() && acknowledged_nonce == launch_nonce;
     let nonce_verified = if let Some(expected) = tab.session_binding_nonce.clone() {
         match report_nonce {
             Some(reported) if reported != expected => {
@@ -325,8 +326,6 @@ fn commit_reported_session(
     }
 
     if probe.previous_materialized {
-        let nonce_already_acknowledged =
-            launch_nonce.is_some() && acknowledged_nonce == launch_nonce;
         let fresh_authenticated_launch = nonce_verified && !nonce_already_acknowledged;
         if !fresh_authenticated_launch {
             log::warn!(
@@ -372,6 +371,7 @@ fn commit_reported_session(
         prev: previous,
         changed,
         nonce_verified,
+        nonce_already_acknowledged,
         identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence::capture(tab),
     }))
 }

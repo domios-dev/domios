@@ -2197,6 +2197,7 @@ var plugin = {
       return {
         settings_exists: false,
         hooks_installed: false,
+        integration_owned: false,
         notification_hook: false,
         permission_request_hook: false,
         stop_hook: false,
@@ -2209,7 +2210,12 @@ var plugin = {
     }
     const json = host.fs.readJson(path);
     if (!json) {
-      return { settings_exists: true, hooks_installed: false };
+      return {
+        settings_exists: true,
+        hooks_installed: false,
+        integration_owned: false,
+        integration_state: "unreadable"
+      };
     }
     function present(key) {
       const arr = json.hooks && json.hooks[key];
@@ -2224,6 +2230,10 @@ var plugin = {
         }
       }
       return false;
+    }
+    function markerOwnedPresent(key) {
+      const arr = json.hooks && json.hooks[key];
+      return Array.isArray(arr) && arr.some((entry) => entryCarriesMarker(entry));
     }
     function sessionStartCurrent() {
       const arr = json.hooks && json.hooks.SessionStart;
@@ -2241,9 +2251,10 @@ var plugin = {
     const n = present("Notification");
     const pr = present("PermissionRequest");
     const s = present("Stop");
-    const pc = present("PreCompact");
+    const pc = markerOwnedPresent("PreCompact");
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
+    const owned = INTEGRATION_HOOK_KEYS.some((key) => markerOwnedPresent(key));
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
       const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
@@ -2255,6 +2266,7 @@ var plugin = {
     return {
       settings_exists: true,
       hooks_installed: installed,
+      integration_owned: owned,
       hook_contract_current: installed && marked,
       notification_hook: n,
       permission_request_hook: pr,
@@ -2463,6 +2475,12 @@ var CODETERM_CURRENT_ROUTES = [
 ];
 function commandCarriesMarker(cmd) {
   return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+function entryCarriesMarker(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+  });
 }
 function commandIsCurrentUnmarked(cmd) {
   if (cmd.indexOf("$CODETERM_API_URL") === -1) return false;

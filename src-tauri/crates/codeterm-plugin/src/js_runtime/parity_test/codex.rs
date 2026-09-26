@@ -85,21 +85,25 @@ fn idle_starter_case() {
     let task = "manager identity arrives in the developer channel";
     let assigned = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let idle = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
         starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let team = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
         starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let startup = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
         starter_prompt: crate::provider::StarterPrompt::StartupHandshake,
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let assigned_prompt = provider

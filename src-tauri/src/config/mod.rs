@@ -796,7 +796,7 @@ enabled = true
         let path = tmp.path().join("config.toml");
         std::fs::write(
             &path,
-            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\n",
+            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\nintegration_consent_granted = true\nintegration_consent_recorded_at = 123\nprecompact_memory_export = true\n",
         )
         .unwrap();
 
@@ -810,6 +810,25 @@ enabled = true
                 .and_then(|v| v.as_str()),
             Some("kept"),
             "an unrecognized key must survive the initial load"
+        );
+        let extra = &config.agents["claude"].extra;
+        assert_eq!(
+            extra
+                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+                .and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            extra
+                .get("integration_consent_recorded_at")
+                .and_then(toml::Value::as_integer),
+            Some(123)
+        );
+        assert_eq!(
+            extra
+                .get("precompact_memory_export")
+                .and_then(toml::Value::as_bool),
+            Some(true)
         );
 
         config.font.size = 20; // unrelated modification the round trip must also keep
@@ -826,6 +845,25 @@ enabled = true
                 .and_then(|v| v.as_str()),
             Some("kept"),
             "the unrecognized key must still be present after save + reload"
+        );
+        let extra = &reloaded.agents["claude"].extra;
+        assert_eq!(
+            extra
+                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+                .and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            extra
+                .get("integration_consent_recorded_at")
+                .and_then(toml::Value::as_integer),
+            Some(123)
+        );
+        assert_eq!(
+            extra
+                .get("precompact_memory_export")
+                .and_then(toml::Value::as_bool),
+            Some(true)
         );
     }
 

@@ -47,6 +47,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Updates | `update check`, `update install --auto` | — |
 | Source-backed essence map | `essence-map generate`, `essence-map validate`, `essence-map record --summary .. --reason ..`, `essence-map release-summary [--since decision-N]`, `essence-map revert --to decision-N`; validates stable essence `map` anchors against the generated node ids | `docs ESSENCE-MAP` |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
+| Provider launch artifacts | `codeterm integration sweep-profiles --provider <id> [--confirm] [--include-legacy]` | Dry run lists this instance's dead artifacts and unmarked legacy files; deletion requires `--confirm`. `--include-legacy` also deletes every unmarked file regardless of tab liveness |
 | Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |
 | Keep system awake | `keepawake start/stop/status` | — |
 

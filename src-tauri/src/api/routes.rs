@@ -452,6 +452,10 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/setup/hooks", get(theme_routes::check_hooks_api))
         .route(
+            "/api/integration/sweep-profiles",
+            post(theme_routes::sweep_profiles_api),
+        )
+        .route(
             "/api/setup/hooks/install",
             post(theme_routes::install_hooks_api),
         )

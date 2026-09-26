@@ -538,6 +538,7 @@ Provider hook integration: install it with recorded consent and trust, or read i
 
 Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
 
+- `--no-precompact-memory-export` — Disable conversation export before compaction
 - `--precompact-memory-export` — Also export conversation content to memory before compaction
 - `--provider` — Provider id (e.g. claude, codex)
 
@@ -546,6 +547,14 @@ Install a provider's hook integration and trust CodeTerm's own hooks. Running it
 Show a provider's hook integration state
 
 - `--provider` — Provider id (e.g. claude, codex)
+
+#### `codeterm integration sweep-profiles`
+
+Preview or remove dead provider launch artifacts owned by this instance
+
+- `--confirm` — Remove the profiles listed by this instance's scan
+- `--include-legacy` — Include every unmarked legacy profile, regardless of tab liveness
+- `--provider` — Provider id (e.g. codex)
 
 #### `codeterm keepawake`
 

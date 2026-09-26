@@ -684,6 +684,7 @@ pub fn build_agent_launch_command(
         session_id: None,
         structured_prompt_server: None,
         launch_marker: None,
+        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| {

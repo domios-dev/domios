@@ -34,6 +34,7 @@ pub(crate) fn persist_model_launch_identity(
     tab.agent_requested_model = resolution.requested_model.clone();
     tab.agent_provider_resolved_model = resolution.model.clone();
     tab.agent_session_model = None;
+    tab.agent_session_model_identity = None;
     tab.model_fallback = resolution.fallback_notice.clone();
     tab.model_identity_mismatch = None;
 }

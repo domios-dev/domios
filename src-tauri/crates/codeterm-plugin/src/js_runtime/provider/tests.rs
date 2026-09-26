@@ -1,4 +1,5 @@
 use super::*;
+use super::wire::encode_cwd_dashed;
 use serde_json::json;
 
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {

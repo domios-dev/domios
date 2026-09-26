@@ -535,14 +535,14 @@ where
         now,
     )
     .map_err(plan_rpc_err)?;
-    if let Some(notice) = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+    let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
         &resolved_provider,
         routing.model.clone(),
         None,
-    )
-    .fallback_notice
-    {
+    );
+    let dispatched_model = model_resolution.model.clone();
+    if let Some(notice) = model_resolution.fallback_notice {
         if let Some(error) = unqualified_model_error(&routing, &resolved_provider, &notice) {
             return Err(error);
         }
@@ -682,6 +682,7 @@ where
         )?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
+    let dispatched_reasoning_effort = reasoning_effort.clone();
     let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: Some(spawn_cwd),
@@ -874,10 +875,13 @@ where
             allowance,
             Some(&resolved_provider),
             &reserved_attempt_id,
-            authorized_gates.clone(),
+            Some(authorized_gates.clone()),
             placement,
+            dispatched_model,
+            dispatched_reasoning_effort,
             begin_owner,
             begin_owner_is_live,
+            true,
             now,
         )
     };
@@ -970,6 +974,23 @@ where
     reservation_tab.mark_spawned();
     let tab_id = spawn.tab_id.clone();
     drop(dispatch_reservation);
+    // The resolved effort is attempt telemetry; failing to record it must not kill a live Worker.
+    if let Err(error) = store.update_dispatched_attempt_reasoning_effort(
+        &plan_id,
+        &task_id,
+        &tab_id,
+        &attempt_id,
+        spawn.reasoning_effort.clone(),
+        now,
+    ) {
+        log::warn!(
+            "[task-dispatch] attempt_reasoning_effort_not_recorded plan={} task={} tab={} attempt={} cause={error}",
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id
+        );
+    }
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now)
     {
@@ -1028,6 +1049,7 @@ where
             },
         ));
     }
+    svc.persist_current_attempt_session_model(&tab_id);
     emit_plan_changed(app, &plan_id);
     let startup = DispatchStartup {
         app: app.clone(),

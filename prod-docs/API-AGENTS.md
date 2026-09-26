@@ -48,7 +48,7 @@ This is the same flow `codeterm agent restart --tab TAB_ID [--force] [--grace-se
 
 ### Plan Task Attempts
 
-Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_tab_id` remains the executor identity and is not the primary key. Respawning creates a new Worker tab and a new live attempt; it never reactivates the selected historical attempt.
+Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_tab_id` remains the executor identity and is not the primary key. `provider`, `model`, and `reasoning_effort` describe the dispatch values; `session_model` is the first model detected from that attempt's bound session and is null until observed. Respawning creates a new Worker tab and a new live attempt; it never reactivates the selected historical attempt.
 
 ### Team-bound plan creation
 
@@ -237,4 +237,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

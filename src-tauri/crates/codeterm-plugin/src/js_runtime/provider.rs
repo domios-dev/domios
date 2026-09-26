@@ -7,26 +7,28 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod command_template;
+mod launch_artifacts;
 mod manifest_sessions;
 mod prompt_parse;
 mod wire;
 
 use command_template::{launch_command_from_template, resume_command_from_template};
 use wire::{
-    encode_cwd_dashed, launch_params_to_json, result_from_js, SerdeSessionMessage,
-    SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
+    launch_params_to_json, result_from_js, SerdeSessionMessage, SerdeSessionMetadata,
+    VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
 };
 
 use crate::provider::{
-    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelGroup, ModelGroupUsage,
-    ModelInfo, ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
-    TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
+    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, LaunchArtifactSweepReport,
+    LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo, ProviderReadinessStrategy,
+    ProviderTrust, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SessionMessage,
+    SessionMetadata, SettingField, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
+    VerifySubmitStrategy,
 };
 
 use super::{
-    call_json, manifest_settings_sections, IntegrationKind, PluginManifest, PluginVm,
-    SerdeModelInfo, VmError,
+    call_json, call_json_strict, manifest_settings_sections, IntegrationKind, PluginManifest,
+    PluginVm, SerdeModelInfo, VmError,
 };
 use codeterm_types::pty::PendingPrompt;
 
@@ -177,31 +179,6 @@ impl JsProvider {
         self.try_call::<serde_json::Value>(method, args)
             .map(|v| result_from_js(&v))
     }
-
-    fn sessions_dir(&self, cwd: &str) -> Option<PathBuf> {
-        let cfg = self.manifest.sessions.as_ref()?;
-        let root = PluginManifest::expand_home(&cfg.root_dir)?;
-        let leaf = match cfg.cwd_encoding {
-            super::CwdEncoding::DashEncoded => {
-                encode_cwd_dashed(&codeterm_paths::canonical_cwd(cwd))
-            }
-            super::CwdEncoding::None => cwd.to_string(),
-        };
-        Some(root.join(leaf))
-    }
-
-    fn owned_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
-        if let Some(path) =
-            self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
-        {
-            return path.map(PathBuf::from);
-        }
-        let cfg = self.manifest.sessions.as_ref()?;
-        Some(
-            self.sessions_dir(cwd)?
-                .join(format!("{}.{}", session_id, cfg.file_extension)),
-        )
-    }
 }
 
 /// `usageSources` wire row: a path plus the session that scopes a shared log.
@@ -238,6 +215,21 @@ impl AgentProvider for JsProvider {
         }
         self.try_call::<String>("buildLaunchCommand", &[launch_params_to_json(params)])
             .unwrap_or_default()
+    }
+
+    fn release_tab_launch_artifacts(
+        &self,
+        tab_id: &str,
+        instance_id: &str,
+    ) -> Result<bool, String> {
+        launch_artifacts::release(self, tab_id, instance_id)
+    }
+
+    fn sweep_launch_artifacts(
+        &self,
+        request: &LaunchArtifactSweepRequest,
+    ) -> Result<Option<LaunchArtifactSweepReport>, String> {
+        launch_artifacts::sweep(self, request)
     }
 
     fn starter_prompt_text(&self, prompt: crate::provider::StarterPrompt) -> Option<String> {
@@ -746,12 +738,16 @@ impl AgentProvider for JsProvider {
         let consumed_bytes = window.new_offset - from_offset;
         // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
         let chunk = String::from_utf8_lossy(&window.bytes).to_string();
+        let context = serde_json::json!({
+            "session_key": path.to_string_lossy(),
+            "from_offset": from_offset,
+        });
         #[derive(serde::Deserialize)]
         struct JsDelta {
             messages: Vec<serde_json::Value>,
         }
         let parsed = self
-            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk)])
+            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk), context])
             .and_then(|d| crate::jsonl_window::rows_from_plugin(d.messages));
         match parsed {
             Some((mut messages, record_indexes)) => {

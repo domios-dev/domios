@@ -63,13 +63,13 @@ assert(historicalExecutorForTask(activeTask, tabs, true) === null, "active prese
 const attempts = resolveTaskExecutionAttempts(doneTask, tabs);
 assert(attempts.length === 1, "legacy done task synthesizes one attempt");
 assert(attempts[0].tab_id === "tab-42", "attempt keeps Tab id");
-assert(attempts[0].model === "gpt-5.5", "attempt keeps model");
+assert(attempts[0].model === null, "legacy synthesis does not label the planned model as run");
 
 const historical = buildHistoricalExecutorView(doneTask, tabs);
 assert(historical?.label === "Puccini", `historical label=${historical?.label}`);
 assert(historical?.summary.includes("Puccini"), "summary includes Tab title");
 assert(historical?.summary.includes("backend-dev"), "summary includes role");
-assert(historical?.summary.includes("gpt-5.5"), "summary includes model");
+assert(!historical?.summary.includes("gpt-5.5"), "legacy summary omits an unobserved model");
 
 assert(historicalExecutorForTask(doneTask, tabs, false)?.summary === historical?.summary, "terminal task exposes historical");
 assert(historicalExecutorForTask(doneTask, tabs, true) === null, "historical hidden when active presence flag set");
