@@ -222,6 +222,7 @@ impl ServiceContext {
             apply_boot_stage(p, stage, reason);
         }
         super::boot_wait::notify_boot_changed();
+        crate::service::general_agent::binding_wait::notify_binding_state_changed();
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "tab-boot-stage",

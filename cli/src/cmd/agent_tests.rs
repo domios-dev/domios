@@ -1,4 +1,9 @@
+use super::report_refusal::{
+    format_report_refusal_text, refusal_diagnostic_request, refusal_next_commands,
+    report_refusal_json,
+};
 use super::*;
+use crate::cmd::report_guard::ReportRefusal;
 
 #[test]
 fn missing_report_binding_is_a_loud_orchestration_incident() {
@@ -74,9 +79,15 @@ fn agent_models_formats_per_model_efforts_and_provider_fallback() {
 
     let out = format_agent_models(&provider, "codex");
 
-    assert!(out.contains("GPT-6 Sol (default)\n             Reasoning effort: low, medium (default), max, ultra"));
-    assert!(out.contains("GPT-5.5\n             Reasoning effort: low, medium (default), high, xhigh"));
-    assert!(out.contains("GPT-5.6 Sol\n             Reasoning effort: low (default), medium, high, xhigh"));
+    assert!(out.contains(
+        "GPT-6 Sol (default)\n             Reasoning effort: low, medium (default), max, ultra"
+    ));
+    assert!(
+        out.contains("GPT-5.5\n             Reasoning effort: low, medium (default), high, xhigh")
+    );
+    assert!(out.contains(
+        "GPT-5.6 Sol\n             Reasoning effort: low (default), medium, high, xhigh"
+    ));
     assert!(out.contains("Fallback Model\n"));
     assert!(out.contains("Provider fallback reasoning effort:"));
     assert!(out.contains(&format!("{:<10} {}", "xhigh", "Extra high")));
@@ -125,21 +136,53 @@ fn print_report_notices_handles_empty_notices_array() {
 }
 
 #[test]
-fn report_refusal_text_starts_and_ends_with_not_sent() {
+fn report_refusal_text_preserves_supplied_diagnostic_data() {
     let refusal = ReportRefusal {
         reason: "readiness report refused: this git worktree has uncommitted lane changes."
             .to_string(),
         dirty_files: vec!["src/main.rs".to_string()],
     };
 
-    let out = format_report_refusal_text(&refusal, true, Some("rep-1"), None);
-    let lines = out.lines().collect::<Vec<_>>();
+    let out = format_report_refusal_text(&refusal, true, Some("parent-1"), None);
+    assert!(out.contains(&refusal.reason));
+    assert!(out.contains(&refusal.dirty_files[0]));
+}
 
-    assert_eq!(lines.first().copied(), Some("REPORT NOT SENT"));
-    assert_eq!(lines.last().copied(), Some("REPORT NOT SENT"));
-    assert!(out.contains("git status --short"));
-    assert!(out.contains("codeterm agent report --status partial"));
-    assert!(out.contains("Diagnostic report sent to parent: rep-1"));
+#[test]
+fn refused_readiness_report_sends_a_diagnostic_not_a_report() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused: canonical checkout is dirty".into(),
+        dirty_files: vec!["src/main.rs".into()],
+    };
+    let original = "STATUS: in_review\nCHANGES: finished";
+    let (method, body) = refusal_diagnostic_request("worker-tab", &refusal, original);
+
+    assert_eq!(method, "agent.diagnostic");
+    assert_eq!(body["tab_id"], "worker-tab");
+    assert_eq!(body["kind"], "report_refused");
+    let message = body["message"].as_str().unwrap();
+    assert!(message.contains(&refusal.message()));
+    assert!(message.contains(original));
+    for report_field in ["status", "plan_id", "task_id", "report_outcome"] {
+        assert!(body.get(report_field).is_none());
+    }
+}
+
+#[test]
+fn refused_report_json_names_the_diagnostic_without_report_outcome() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused".into(),
+        dirty_files: vec!["src/main.rs".into()],
+    };
+    let value = report_refusal_json(&refusal, true, Some("parent-tab".into()), None);
+
+    assert!(value.get("verdict").is_some());
+    assert_eq!(value["refused_report_diagnostic_sent"], true);
+    assert_eq!(value["diagnostic_target_tab_id"], "parent-tab");
+    assert!(value.get("diagnostic_error").is_some());
+    assert!(value.get("diagnostic_report_sent").is_none());
+    assert!(value.get("diagnostic_report_id").is_none());
+    assert!(value.get("report_outcome").is_none());
 }
 
 #[test]

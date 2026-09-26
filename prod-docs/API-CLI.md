@@ -69,6 +69,14 @@ Set automatically in every PTY spawned by CodeTerm:
 
 ## Agent Integration
 
+When a readiness report is refused locally, `codeterm agent report` prints
+`REPORT NOT SENT` and sends a diagnostic to the parent. In JSON output,
+`refused_report_diagnostic_sent`, `diagnostic_target_tab_id`, and
+`diagnostic_error` describe that diagnostic. The former
+`diagnostic_report_sent` and `diagnostic_report_id` keys and `report_outcome`
+field are not emitted. A refused report remains absent from task history and
+does not change task status.
+
 CodeTerm automatically detects Claude Code and other agents:
 - **Permission requests** → in-app toast + Windows notification + webhook
 - **Task completion** → in-app toast + Windows notification + webhook
@@ -165,4 +173,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
