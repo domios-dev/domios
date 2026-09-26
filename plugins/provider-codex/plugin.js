@@ -64,10 +64,15 @@ function discoverCodexModelsFromCache() {
       id,
       displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
       description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
-      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels)
+      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
+      defaultReasoningEffort: defaultEffortFrom(item)
     });
   }
   return models.length ? models : null;
+}
+function defaultEffortFrom(model) {
+  const effort = typeof model.default_reasoning_level === "string" ? model.default_reasoning_level.trim() : "";
+  return effort || void 0;
 }
 function reasoningEffortsFrom(levels) {
   if (!Array.isArray(levels)) return void 0;
@@ -200,6 +205,25 @@ function findSession(sessionId) {
 }
 function detectSessionModel(_cwd, sessionId) {
   return trimmedField(threadRow(sessionId), "model");
+}
+function detectSessionReasoningEffort(_cwd, sessionId) {
+  const path = sessionFilePath(_cwd, sessionId);
+  if (!path) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (typeof contents !== "string") return null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[index]);
+    } catch (_) {
+      continue;
+    }
+    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
+    const effort = entry.payload.effort.trim();
+    if (effort) return effort;
+  }
+  return null;
 }
 function threadRow(sessionId) {
   return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
@@ -3545,6 +3569,9 @@ var plugin = {
   // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd, sessionId) {
     return detectSessionModel(cwd, sessionId);
+  },
+  detectSessionReasoningEffort(cwd, sessionId) {
+    return detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
   parseSessionMessages(text5) {
