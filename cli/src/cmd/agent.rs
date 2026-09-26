@@ -724,13 +724,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             } else {
                 None
             };
-            let base_for_report = base
-                .clone()
-                .or_else(|| std::env::var("CODETERM_LANE_BASE").ok());
-            let report_base = crate::cmd::report_attribution::ReportBase::classify(
-                base,
-                std::env::var("CODETERM_LANE_BASE").ok(),
-            );
+            let canonical_writer = task_scope
+                .as_ref()
+                .is_some_and(|scope| scope.canonical_writer);
+            let base_for_report = if canonical_writer {
+                None
+            } else {
+                base.clone()
+                    .or_else(|| std::env::var("CODETERM_LANE_BASE").ok())
+            };
+            let report_base = if canonical_writer {
+                crate::cmd::report_attribution::ReportBase::default()
+            } else {
+                crate::cmd::report_attribution::ReportBase::classify(
+                    base,
+                    std::env::var("CODETERM_LANE_BASE").ok(),
+                )
+            };
             let (branch, sha, changed_files) = match crate::cmd::report_guard::enrich_ready_report(
                 task_scope.as_ref(),
                 status,
@@ -743,7 +753,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Ok(fields) => fields,
                 Err(refusal) => handle_report_refusal(client, json, body, refusal),
             };
-            if acknowledge_dirty {
+            if acknowledge_dirty && !canonical_writer {
                 if let Some(ref files) = changed_files {
                     if !files.is_empty() {
                         eprintln!(
