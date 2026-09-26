@@ -311,6 +311,7 @@ mod tests {
 
     fn attempt(id: &str, tab_id: &str) -> TaskExecutionAttempt {
         TaskExecutionAttempt {
+            actual_reasoning_effort: None,
             id: id.into(),
             executor_tab_id: tab_id.into(),
             ..Default::default()

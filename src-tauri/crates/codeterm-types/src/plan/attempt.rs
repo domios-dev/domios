@@ -107,6 +107,8 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub reasoning_effort: Option<String>,
     #[serde(default)]
+    pub actual_reasoning_effort: Option<String>,
+    #[serde(default)]
     pub session_model: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,

@@ -771,6 +771,20 @@ fn next_epoch_follows_the_tabs_own_history() {
 }
 
 #[test]
+fn next_epoch_for_tab_tracks_the_cached_journal_cursor() {
+    let (journal, dir) = new_journal();
+    assert_eq!(journal.next_epoch_for_tab("tab-a"), LifecycleEpoch::first());
+    journal
+        .append(key("tab-a", 7, "op-a"), LifecycleTransition::EpochOpened)
+        .unwrap();
+    assert_eq!(journal.next_epoch_for_tab("tab-a"), LifecycleEpoch(8));
+    assert_eq!(journal.next_epoch_for_tab("tab-b"), LifecycleEpoch::first());
+
+    let reopened = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    assert_eq!(reopened.next_epoch_for_tab("tab-a"), LifecycleEpoch(8));
+}
+
+#[test]
 fn a_close_reason_survives_the_journal_round_trip() {
     let (journal, _dir) = new_journal();
     let k = key("tab-a", 1, "op-a");

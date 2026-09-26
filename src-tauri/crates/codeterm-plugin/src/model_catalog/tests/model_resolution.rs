@@ -8,6 +8,7 @@ fn resolve_model_matches_exact_id() {
         RegisteredDefaults {
             models: vec![
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "gpt-5.5".into(),
                     display_name: "GPT-5.5".into(),
                     description: None,
@@ -19,6 +20,7 @@ fn resolve_model_matches_exact_id() {
                     reasoning_efforts: None,
                 },
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "gpt-5.5-mini".into(),
                     display_name: "GPT-5.5 Mini".into(),
                     description: None,
@@ -49,6 +51,7 @@ fn resolve_model_matches_display_case_insensitively() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "gpt-5.5".into(),
                 display_name: "GPT-5.5".into(),
                 description: None,
@@ -81,6 +84,7 @@ fn resolve_model_unknown_falls_back_to_default() {
         RegisteredDefaults {
             models: vec![
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "gpt-5.5".into(),
                     display_name: "GPT-5.5".into(),
                     description: None,
@@ -92,6 +96,7 @@ fn resolve_model_unknown_falls_back_to_default() {
                     reasoning_efforts: None,
                 },
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "gpt-5.5-mini".into(),
                     display_name: "GPT-5.5 Mini".into(),
                     description: None,

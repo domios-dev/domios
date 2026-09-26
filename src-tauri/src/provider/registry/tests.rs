@@ -57,6 +57,7 @@ fn registry() -> (
     let backends = Arc::new(ChatBackendRegistry::new());
     let model_list_calls = Arc::new(AtomicUsize::new(0));
     let models = Arc::new(RwLock::new(vec![ModelInfo {
+        default_reasoning_effort: None,
         id: "qwen".into(),
         display_name: "Qwen".into(),
         description: None,
@@ -123,6 +124,7 @@ fn describe_all_reads_registration_snapshot_until_provider_refresh() {
     assert_eq!(reg.describe_all()[0].available_models[0].id, "qwen");
 
     *models.write() = vec![ModelInfo {
+        default_reasoning_effort: None,
         id: "llama".into(),
         display_name: "Llama".into(),
         description: None,
