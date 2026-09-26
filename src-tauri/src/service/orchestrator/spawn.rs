@@ -457,7 +457,8 @@ impl ServiceContext {
             &self.agent_registry,
             &agent_cmd,
             params.model.as_deref(),
-        )?;
+        )
+        .map_err(|error| error.to_string())?;
         let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,

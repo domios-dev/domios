@@ -66,6 +66,8 @@ pub(crate) struct AddTeamMemberResult {
     pub role_profile: Option<String>,
     pub plan_takeover: Option<PlanTakeover>,
     pub reused: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug)]
@@ -115,6 +117,7 @@ pub(crate) fn existing_cartographer_attachment(
         role_profile: Some(CARTOGRAPHER.into()),
         plan_takeover: None,
         reused: true,
+        warning: None,
     })
 }
 
@@ -300,6 +303,7 @@ pub(crate) fn commit_team_member_spawn(
         role_profile: expected_kind,
         plan_takeover: None,
         reused: false,
+        warning: None,
     })
 }
 

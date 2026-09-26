@@ -24,12 +24,17 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
+#[path = "spawn_model_catalogue.rs"]
+mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
     attach_planned_model, model_fallback_notice_title, normalize_session_model,
     persist_model_launch_identity, resolve_fresh_agent_model,
     resolve_fresh_agent_model_with_notice, unrequested_substitution_severity,
     CatalogBackgroundModelPort,
+};
+pub(crate) use spawn_model_catalogue::{
+    normalize_requested_model, validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -248,81 +253,6 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn validate_agent_model(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    model: Option<&str>,
-) -> Result<(), String> {
-    let Some(requested) = model.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(());
-    };
-    let capability = registry
-        .with_provider(provider_id, |provider| provider.model_catalogue_capability())
-        .unwrap_or_default();
-    if capability.authority != crate::agent::provider::ModelCatalogueAuthority::Authoritative {
-        return Ok(());
-    }
-    let models = if capability.live_discovery_required {
-        let Some(models) = crate::agent::model_catalog::resolve_live_models(provider_id) else {
-            return Ok(());
-        };
-        models
-    } else {
-        crate::agent::model_catalog::resolve_models(provider_id)
-    };
-    let resolved = if capability.live_discovery_required {
-        crate::agent::model_catalog::resolve_live_catalog_model(provider_id, requested)
-    } else {
-        crate::agent::model_catalog::resolve_catalog_model(provider_id, requested)
-    };
-    if resolved.is_some() {
-        return Ok(());
-    }
-    let closest = closest_catalogue_ids(&models, requested);
-    let suggestions = if closest.is_empty() {
-        "no model ids are currently advertised".to_string()
-    } else {
-        closest.join(", ")
-    };
-    Err(format!(
-        "model id '{requested}' is not in provider '{provider_id}' authoritative catalogue; closest catalogue ids: {suggestions}"
-    ))
-}
-
-fn closest_catalogue_ids(
-    catalogue: &[crate::agent::provider::ModelInfo],
-    requested: &str,
-) -> Vec<String> {
-    let mut models: Vec<_> = catalogue
-        .iter()
-        .filter(|model| model.available != Some(false))
-        .cloned()
-        .collect();
-    models.sort_by_key(|model| edit_distance(requested, &model.id));
-    models
-        .into_iter()
-        .take(3)
-        .map(|model| model.id)
-        .collect()
-}
-
-fn edit_distance(left: &str, right: &str) -> usize {
-    let right: Vec<u8> = right.to_ascii_lowercase().into_bytes();
-    let mut row: Vec<usize> = (0..=right.len()).collect();
-    for (left_index, left_byte) in left.to_ascii_lowercase().bytes().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = left_index + 1;
-        for (right_index, right_byte) in right.iter().enumerate() {
-            let previous = row[right_index + 1];
-            row[right_index + 1] = (row[right_index] + 1)
-                .min(previous + 1)
-                .min(diagonal + usize::from(left_byte != *right_byte));
-            diagonal = previous;
-        }
-    }
-    row[right.len()]
-}
-
 /// Structurally validate a requested reasoning effort against the provider's
 /// declared capability. Empty/absent is always valid (no selection). An
 /// unsupported value returns the provider's structured rejection message and the
@@ -379,7 +309,8 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
-        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())?;
+        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())
+            .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
@@ -808,7 +739,12 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
-        validate_agent_model(&self.agent_registry, &agent.provider, agent.model.as_deref())?;
+        validate_agent_model(
+            &self.agent_registry,
+            &agent.provider,
+            agent.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent.provider,

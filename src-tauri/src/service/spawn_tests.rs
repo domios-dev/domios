@@ -6,6 +6,8 @@ use std::time::Duration;
 
 #[path = "spawn_tests/launch_command.rs"]
 mod launch_command;
+#[path = "spawn_tests/model_catalogue.rs"]
+mod model_catalogue;
 #[path = "spawn_tests/task_ack.rs"]
 mod task_ack;
 
@@ -338,9 +340,7 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
         self.models.clone()
     }
 
-    fn model_catalogue_capability(
-        &self,
-    ) -> crate::agent::provider::ModelCatalogueCapability {
+    fn model_catalogue_capability(&self) -> crate::agent::provider::ModelCatalogueCapability {
         self.model_catalogue
     }
 
@@ -380,152 +380,6 @@ fn default_visibility_is_visible() {
 fn default_command_is_shell() {
     let spec = SpawnTabSpec::default();
     assert!(matches!(spec.command, TabCommand::Shell));
-}
-
-#[test]
-fn validate_agent_model_accepts_advertised_id() {
-    let provider = ModelProvider::new(
-        "authoritative-catalogue",
-        &["anthropic/claude-sonnet-4-6", "opencode/big-pickle"],
-    )
-    .with_model_catalogue(crate::agent::provider::ModelCatalogueCapability::authoritative());
-    let registry = registry_with(provider);
-
-    assert!(validate_agent_model(
-        &registry,
-        "authoritative-catalogue",
-        Some("opencode/big-pickle")
-    )
-    .is_ok());
-    assert!(validate_agent_model(
-        &registry,
-        "authoritative-catalogue",
-        Some("anthropic/claude-sonnet-4-6")
-    )
-    .is_ok());
-}
-
-#[test]
-fn free_form_provider_keeps_unknown_model_ids() {
-    let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
-
-    assert!(validate_agent_model(&registry, "opencode", Some("does-not-exist")).is_ok());
-    let resolved = resolve_fresh_agent_model_with_notice(
-        &registry,
-        "opencode",
-        Some("does-not-exist".into()),
-        None,
-    );
-    assert_eq!(resolved.model.as_deref(), Some("does-not-exist"));
-    assert!(resolved.fallback_notice.is_none());
-}
-
-#[test]
-fn validate_agent_model_accepts_claude_alias() {
-    let registry = crate::agent::registry::AgentRegistry::new();
-    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-
-    assert!(validate_agent_model(&registry, "claude", Some("opus")).is_ok());
-}
-
-#[test]
-fn free_form_provider_allows_unique_prefixed_suffixes() {
-    let registry = registry_with(ModelProvider::new(
-        "opencode",
-        &["opencode/big-pickle", "opencode/ring-2.6-1t"],
-    ));
-
-    assert!(validate_agent_model(&registry, "opencode", Some("big-pickle")).is_ok());
-    assert_eq!(
-        resolve_fresh_agent_model(&registry, "opencode", Some("big-pickle".into()), None)
-            .as_deref(),
-        Some("big-pickle")
-    );
-}
-
-#[test]
-fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
-    let provider = ModelProvider::new("codex-like", &["gpt-6-astra", "gpt-6-sol"])
-        .with_model_catalogue(crate::agent::provider::ModelCatalogueCapability::authoritative());
-    let registry = registry_with(provider);
-    let (mut mux, _root) = crate::multiplexer::state::MultiplexerState::new();
-    let workspace_id = mux.list_workspaces()[0].id.clone();
-    let before = mux.snapshot().tabs.len();
-
-    let refused = validate_agent_model(&registry, "codex-like", Some("gpt-9-bogus"))
-        .and_then(|_| {
-            let clearance = provider_launch_preflight(&registry, "codex-like")
-                .map_err(|error| error.to_string())?;
-            create_cleared_agent_tab(&mut mux, &workspace_id, &clearance)
-                .map_err(|error| error.to_string())
-        });
-    let error = refused.expect_err("unknown authoritative ids must be refused");
-    assert!(error.contains("gpt-9-bogus"), "{error}");
-    assert!(error.contains("gpt-6-astra"), "{error}");
-    assert!(error.contains("gpt-6-sol"), "{error}");
-    assert_eq!(mux.snapshot().tabs.len(), before);
-}
-
-#[test]
-fn unavailable_authoritative_catalogue_warns_and_preserves_requested_model() {
-    let provider = ModelProvider::new("live-catalogue-fixture", &["gpt-6-sol"])
-        .with_model_catalogue(
-            crate::agent::provider::ModelCatalogueCapability::authoritative_live(),
-        );
-    let registry = registry_with(provider);
-    let requested = "gpt-9-bogus";
-
-    assert!(validate_agent_model(&registry, "live-catalogue-fixture", Some(requested)).is_ok());
-    let resolved = resolve_fresh_agent_model_with_notice(
-        &registry,
-        "live-catalogue-fixture",
-        Some(requested.into()),
-        None,
-    );
-    assert_eq!(resolved.model.as_deref(), Some(requested));
-    let warning = resolved.warning.expect("unavailable live catalog must be visible");
-    assert!(warning.contains("unchanged"), "{warning}");
-    assert!(warning.contains("codeterm agent models"), "{warning}");
-
-    let resumed = resolve_fresh_agent_model_with_notice(
-        &registry,
-        "live-catalogue-fixture",
-        Some(requested.into()),
-        Some("session-1"),
-    );
-    assert_eq!(resumed.model.as_deref(), Some(requested));
-    assert!(resumed.warning.is_some());
-}
-
-#[test]
-fn authoritative_live_catalogue_rejects_seed_only_models() {
-    let provider_id = "live-authoritative-fixture";
-    let provider = ModelProvider::new(provider_id, &["gpt-6-sol", "gpt-6-astra"])
-        .with_model_catalogue(
-            crate::agent::provider::ModelCatalogueCapability::authoritative_live(),
-        );
-    let registry = registry_with(provider);
-    crate::agent::model_catalog::put_live(
-        provider_id,
-        vec![crate::agent::provider::ModelInfo {
-            id: "gpt-6-astra".into(),
-            display_name: "GPT-6-Astra".into(),
-            ..Default::default()
-        }],
-        Some("gpt-6-astra".into()),
-    );
-
-    let error = validate_agent_model(&registry, provider_id, Some("gpt-6-sol"))
-        .expect_err("a static seed is not part of a live authoritative catalogue");
-    assert!(error.ends_with("closest catalogue ids: gpt-6-astra"), "{error}");
-    crate::agent::model_catalog::unregister(provider_id);
-}
-
-#[test]
-fn validate_agent_model_passes_through_non_enumerable_provider() {
-    let registry = registry_with(ModelProvider::new("dynamic", &[]));
-
-    assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
 }
 
 #[test]

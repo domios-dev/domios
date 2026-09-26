@@ -122,14 +122,16 @@ fix: codeterm plan task update {plan_id} {} --tag work:<frontend|backend|design|
         )),
         "not_found" => Some(render_not_found(plan_id, loop_id, params)),
         "invalid_model" => {
-            let message = data
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("invalid model selection");
-            Some(
-                crate::cmd::model_error::render_model_catalogue_error(message)
-                    .unwrap_or_else(|| format!("✗ {message}")),
-            )
+            let render = crate::cmd::model_error::render_model_catalogue_error(data)
+                .unwrap_or_else(|| {
+                    format!(
+                        "✗ {}",
+                        data["message"]
+                            .as_str()
+                            .unwrap_or("invalid model selection")
+                    )
+                });
+            Some(render)
         }
         "task_not_found" => Some(with_cross_daemon_hint(format!(
             "✗ no task '{}' was found in plan '{plan_id}'.\nfix: codeterm plan list --active",
@@ -679,6 +681,9 @@ mod tests {
         let message = render_plan_error(
             &json!({
                 "type": "invalid_model",
+                "provider": "codex",
+                "requested_model": "gpt-9-bogus",
+                "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
                 "message": "model id 'gpt-9-bogus' is not in provider 'codex' authoritative catalogue; closest catalogue ids: gpt-6-sol, gpt-6-astra",
             }),
             &json!({}),

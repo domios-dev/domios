@@ -76,6 +76,12 @@ impl ServiceContext {
         caller_tab_id: Option<&str>,
         params: AddTeamMemberParams,
     ) -> Result<AddTeamMemberResult, String> {
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &params.provider,
+            params.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
         let _cartographer_guard = if is_cartographer {
             Some(
@@ -114,8 +120,8 @@ impl ServiceContext {
         let spawn = self
             .spawn_agent_with_state_change(spawn_params, None, false)
             .await;
-        let tab_id = match spawn {
-            Ok(spawn) => spawn.tab_id,
+        let (tab_id, spawn_warning) = match spawn {
+            Ok(spawn) => (spawn.tab_id, spawn.warning),
             Err(error) => {
                 if let Some(lane) = lane.take() {
                     let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
@@ -141,7 +147,7 @@ impl ServiceContext {
                 |mux| take_over_team_plan(mux, &self.plan_store, team_id, &tab_id, now_ms()),
             )
         };
-        let result = match result {
+        let mut result = match result {
             Ok(result) => result,
             Err(error) => {
                 // Commit and takeover failures close the spawned member inside
@@ -153,6 +159,7 @@ impl ServiceContext {
                 return Err(error);
             }
         };
+        result.warning = spawn_warning;
         if let Some(takeover) = result
             .plan_takeover
             .as_ref()
