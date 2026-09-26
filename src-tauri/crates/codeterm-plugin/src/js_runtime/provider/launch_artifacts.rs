@@ -3,15 +3,17 @@ use serde_json::json;
 
 use super::JsProvider;
 
-pub(super) fn release(provider: &JsProvider, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+pub(super) fn release(
+    provider: &JsProvider,
+    tab_id: &str,
+    instance_id: &str,
+) -> Result<bool, String> {
     const METHOD: &str = "releaseTabLaunchArtifacts";
     if provider.has_js(METHOD) {
-        return super::call_json_strict(
-            &provider.vm,
-            METHOD,
-            &[json!(tab_id), json!(instance_id)],
-        )
-        .map_err(|error| format!("[plugin {}] {METHOD} failed: {error}", provider.manifest.id));
+        return super::call_json_strict(&provider.vm, METHOD, &[json!(tab_id), json!(instance_id)])
+            .map_err(|error| {
+                format!("[plugin {}] {METHOD} failed: {error}", provider.manifest.id)
+            });
     }
     provider
         .native()
@@ -25,8 +27,10 @@ pub(super) fn sweep(
 ) -> Result<Option<LaunchArtifactSweepReport>, String> {
     const METHOD: &str = "sweepLaunchArtifacts";
     if provider.has_js(METHOD) {
-        let report = super::call_json_strict(&provider.vm, METHOD, &[json!(request)])
-            .map_err(|error| format!("[plugin {}] {METHOD} failed: {error}", provider.manifest.id))?;
+        let report =
+            super::call_json_strict(&provider.vm, METHOD, &[json!(request)]).map_err(|error| {
+                format!("[plugin {}] {METHOD} failed: {error}", provider.manifest.id)
+            })?;
         return Ok(Some(report));
     }
     provider
