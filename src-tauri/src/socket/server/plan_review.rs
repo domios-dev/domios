@@ -30,6 +30,35 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
+fn continuation_binding_nonce(
+    svc: &ServiceContext,
+    executor_tab_id: &str,
+    session_id: &str,
+) -> Option<String> {
+    let mux = svc.mux.read();
+    mux.get_tab(executor_tab_id).and_then(|tab| {
+        (tab.agent_session_id.as_deref() == Some(session_id)
+            && tab.session_binding_nonce.is_some()
+            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
+            .then(|| tab.session_binding_nonce.clone())
+            .flatten()
+    })
+}
+
+fn executor_tab_is_absent_local(
+    svc: &ServiceContext,
+    executor_tab_id: &str,
+    mesh_peer: Option<&str>,
+) -> bool {
+    if mesh_peer.is_some_and(|peer| !peer.trim().is_empty()) {
+        return false;
+    }
+    !svc.mux
+        .read()
+        .all_tabs()
+        .any(|tab| tab.id == executor_tab_id)
+}
+
 fn actor(params: Option<&Value>) -> AgentRef {
     params
         .and_then(|x| x.get("from"))
@@ -137,22 +166,38 @@ fn finish_continuation_result(
         });
     }
     if let Err(error) = delivery {
-        return Err(JsonRpcError {
-            code: -32603,
-            message: format!(
-                "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation failed for {plan_id}/{task_id}/{attempt_id}: {error}"
-            ),
-            data: Some(json!({
-                "type": "bounce_continuation_failed",
-                "plan_id": plan_id,
-                "task_id": task_id,
-                "attempt_id": attempt_id,
-                "review_round": review_round,
-                "error": error,
-            })),
-        });
+        return Err(bounce_continuation_failure(
+            plan_id,
+            task_id,
+            attempt_id,
+            review_round,
+            error,
+        ));
     }
     Ok(())
+}
+
+fn bounce_continuation_failure(
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    review_round: u32,
+    error: String,
+) -> JsonRpcError {
+    JsonRpcError {
+        code: -32603,
+        message: format!(
+            "ORCHESTRATION PRODUCT INCIDENT: review bounce continuation failed for {plan_id}/{task_id}/{attempt_id}: {error}"
+        ),
+        data: Some(json!({
+            "type": "bounce_continuation_failed",
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "review_round": review_round,
+            "error": error,
+        })),
+    }
 }
 
 pub(super) fn dispatch(
@@ -286,9 +331,27 @@ pub(super) fn dispatch(
         }
         "plan.review.bounce" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
+            if note(p).trim().is_empty() {
+                return Err(plan_rpc_err(PlanError::QaNoteRequired));
+            }
+            if let Some(continuation) = store.closed_review_continuation(&plan_id, &task_id) {
+                if !executor_tab_is_absent_local(
+                    svc,
+                    &continuation.executor_tab_id,
+                    continuation.mesh_peer.as_deref(),
+                ) {
+                    return Err(bounce_continuation_failure(
+                        &plan_id,
+                        &task_id,
+                        &continuation.attempt_id,
+                        continuation.review_round,
+                        "executor may still own the task lane".into(),
+                    ));
+                }
+            }
             let from = actor(p);
-            let mut result = store
-                .bounce_review(
+            let (mut result, recorded) = store
+                .bounce_review_with_recorded_status(
                     &plan_id,
                     &task_id,
                     note(p),
@@ -298,17 +361,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
-            if let Some(continuation) = result.continuation.as_mut() {
-                store
-                    .claim_review_continuation_delivery(
-                        &plan_id,
-                        &task_id,
-                        &continuation.attempt_id,
-                        continuation.epoch,
-                        now,
-                    )
-                    .map_err(plan_rpc_err)?;
+            if recorded {
                 svc.record_kpi_review_verdict(
                     from.tab_id.as_deref().unwrap_or("unknown"),
                     &plan_id,
@@ -317,71 +370,99 @@ pub(super) fn dispatch(
                     result.review_round,
                     note(p).len(),
                 );
-                let binding_nonce = {
-                    let mux = svc.mux.read();
-                    mux.get_tab(&continuation.executor_tab_id).and_then(|tab| {
-                        (tab.agent_session_id.as_deref() == Some(continuation.session_id.as_str())
-                            && tab.session_binding_nonce.is_some()
-                            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
-                            .then(|| tab.session_binding_nonce.clone())
-                            .flatten()
-                    })
-                };
-                let delivery = binding_nonce
-                    .as_deref()
-                    .ok_or_else(|| {
-                        "authenticated Worker continuation binding is unavailable".to_string()
-                    })
-                    .and_then(|nonce| {
-                        let envelope =
-                            crate::service::messenger::MessageEnvelope::codeterm_reminder(
-                                "review-bounce",
-                            )
-                            .id(Some(format!(
-                                "{}:{}:{}",
-                                continuation.attempt_id,
-                                continuation.review_round,
-                                continuation.epoch
-                            )));
-                        crate::service::messenger::Messenger::deliver_planner_session(
-                            svc,
-                            &continuation.executor_tab_id,
-                            &continuation.session_id,
-                            nonce,
-                            envelope,
-                            note(p),
-                            format!(
-                                "review-bounce:{}:{}:{}:{}",
-                                plan_id,
-                                task_id,
-                                continuation.attempt_id,
-                                continuation.review_round
-                            ),
+            }
+            let Some(mut continuation) = result.continuation.clone() else {
+                emit_plan_changed(app, &plan_id);
+                return serde_json::to_value(result).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e.to_string(),
+                    data: None,
+                });
+            };
+            store
+                .claim_review_continuation_delivery(
+                    &plan_id,
+                    &task_id,
+                    &continuation.attempt_id,
+                    continuation.epoch,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            let binding_nonce = continuation_binding_nonce(
+                svc,
+                &continuation.executor_tab_id,
+                &continuation.session_id,
+            );
+            let delivery = match binding_nonce.as_deref() {
+                Some(binding_nonce) => {
+                    crate::service::messenger::Messenger::deliver_planner_session(
+                        svc,
+                        &continuation.executor_tab_id,
+                        &continuation.session_id,
+                        binding_nonce,
+                        crate::service::messenger::MessageEnvelope::codeterm_reminder(
+                            "review-bounce",
                         )
-                        .map(|_| ())
-                    });
-                let delivered = delivery.is_ok();
-                let finished = store
-                    .finish_review_continuation(
+                        .id(Some(format!(
+                            "{}:{}:{}",
+                            continuation.attempt_id, continuation.review_round, continuation.epoch
+                        ))),
+                        note(p),
+                        format!(
+                            "review-bounce:{}:{}:{}:{}",
+                            plan_id, task_id, continuation.attempt_id, continuation.review_round
+                        ),
+                    )
+                    .map(|_| ())
+                }
+                None => Err("authenticated Worker continuation binding is unavailable".into()),
+            };
+            let delivered = delivery.is_ok();
+            let finished = store
+                .finish_review_continuation(
+                    &plan_id,
+                    &task_id,
+                    &continuation.attempt_id,
+                    continuation.epoch,
+                    delivered,
+                    epoch_ms(),
+                )
+                .map_err(plan_rpc_err)?;
+            if !delivered
+                && executor_tab_is_absent_local(
+                    svc,
+                    &continuation.executor_tab_id,
+                    continuation.mesh_peer.as_deref(),
+                )
+            {
+                store
+                    .reopen_review_continuation(
                         &plan_id,
                         &task_id,
                         &continuation.attempt_id,
                         continuation.epoch,
-                        delivered,
                         epoch_ms(),
                     )
                     .map_err(plan_rpc_err)?;
+                result.continuation = None;
                 emit_plan_changed(app, &plan_id);
-                finish_continuation_result(
-                    finished,
-                    delivery,
-                    &plan_id,
-                    &task_id,
-                    &continuation.attempt_id,
-                    continuation.review_round,
-                )?;
-                continuation.state = "continued".into();
+                return serde_json::to_value(result).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e.to_string(),
+                    data: None,
+                });
             }
+            emit_plan_changed(app, &plan_id);
+            finish_continuation_result(
+                finished,
+                delivery,
+                &plan_id,
+                &task_id,
+                &continuation.attempt_id,
+                continuation.review_round,
+            )?;
+            continuation.state = "continued".into();
+            result.continuation = Some(continuation);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -600,8 +681,8 @@ mod tests {
     #[test]
     fn review_bounce_replay_is_idempotent_for_same_review_round() {
         let (_dir, store, plan_id, task_id, attempt_id) = continuation_store();
-        let first = store
-            .bounce_review(
+        let (first, first_recorded) = store
+            .bounce_review_with_recorded_status(
                 &plan_id,
                 &task_id,
                 "repair",
@@ -611,8 +692,9 @@ mod tests {
                 5,
             )
             .unwrap();
-        let replay = store
-            .bounce_review(
+        assert!(first_recorded);
+        let (replay, replay_recorded) = store
+            .bounce_review_with_recorded_status(
                 &plan_id,
                 &task_id,
                 "repair",
@@ -622,6 +704,7 @@ mod tests {
                 6,
             )
             .unwrap();
+        assert!(!replay_recorded);
         assert_eq!(first.milestone_id, replay.milestone_id);
         assert_eq!(first.continuation, replay.continuation);
         assert!(store
@@ -634,5 +717,208 @@ mod tests {
             refusal,
             crate::service::plan::PlanError::ReviewContinuationDeliveryRefused { .. }
         ));
+    }
+
+    fn socket_bounce_fixture(
+        worker_present: bool,
+    ) -> (
+        crate::service::test_fixture::ServiceFixture,
+        String,
+        String,
+        String,
+    ) {
+        let (mut mux, default_tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let worker_tab_id = if worker_present {
+            let tab = mux.get_tab_mut(&default_tab_id).unwrap();
+            tab.agent_type = Some("codex".into());
+            tab.agent_session_id = Some("worker-session-rotated".into());
+            tab.pty_id = Some("worker-pty".into());
+            tab.exit_suspected_at = Some(std::time::Instant::now());
+            default_tab_id
+        } else {
+            "worker-tab-absent".into()
+        };
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let store = &fixture.service.plan_store;
+        let mut plan = Plan::new(
+            "socket bounce".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "worker task".into(),
+                    acceptance_criteria: vec!["fixed".into()],
+                    test_plan: Some("verify the retry".into()),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        store
+            .assign_task(&plan.id, &task_id, &worker_tab_id, Some("Worker"), 3)
+            .unwrap();
+        let lane_path = fixture.temp.path().join("worker-lane");
+        let lane_path = lane_path.to_string_lossy().into_owned();
+        let mut stored = store.get(&plan.id).unwrap();
+        let task = stored
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        task.status = crate::plan::TaskStatus::InReview;
+        task.lane = crate::plan::TaskLaneMetadata {
+            tab_id: Some(worker_tab_id),
+            worktree_path: Some(lane_path.clone()),
+            ..Default::default()
+        };
+        let attempt = task.execution_attempts.last_mut().unwrap();
+        attempt.session_id = Some("worker-session".into());
+        attempt.acknowledged_at = Some(3);
+        attempt.reported_at = Some(4);
+        attempt.report = Some(Default::default());
+        attempt.worktree_path = Some(lane_path.clone());
+        store.save(&mut stored, 4).unwrap();
+        (fixture, plan.id, task_id, lane_path)
+    }
+
+    fn dispatch_bounce(
+        fixture: &crate::service::test_fixture::ServiceFixture,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Result<Value, JsonRpcError> {
+        let params = Some(json!({
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "note": "retry the same lane",
+            "from": AgentRef::from_tab("reviewer"),
+        }));
+        let app = fixture._app.handle().clone();
+        let svc = std::sync::Arc::new(fixture.service.clone());
+        dispatch("plan.review.bounce", &params, &app, &svc)
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_review_reopens_when_executor_tab_is_absent() {
+        let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(false);
+        dispatch_bounce(&fixture, &plan_id, &task_id).unwrap();
+
+        let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, crate::plan::TaskStatus::Pending);
+        assert_eq!(task.lane.worktree_path.as_deref(), Some(lane_path.as_str()));
+        assert!(task.execution_attempts[0].closed_at.is_some());
+        assert_eq!(
+            task.execution_attempts[0].closure_reason.as_deref(),
+            Some("review_bounce_executor_gone")
+        );
+        assert_eq!(
+            task.execution_attempts[0].continuation.state.as_deref(),
+            Some("executor_gone")
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_review_keeps_live_unbound_worker_in_review() {
+        let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(true);
+        let error = dispatch_bounce(&fixture, &plan_id, &task_id).unwrap_err();
+        assert_eq!(
+            error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("type"))
+                .and_then(Value::as_str),
+            Some("bounce_continuation_failed")
+        );
+
+        let stored_plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = stored_plan
+            .tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        assert_eq!(task.status, crate::plan::TaskStatus::InReview);
+        assert_eq!(
+            task.status_label.as_deref(),
+            Some("bounce_continuation_failed")
+        );
+        assert_eq!(task.execution_attempts[0].closed_at, None);
+        assert_eq!(task.lane.worktree_path.as_deref(), Some(lane_path.as_str()));
+        let occupancy = super::super::plan_task_dispatch::preflight_checkout_occupancy(
+            &stored_plan,
+            "retry-task",
+            &lane_path,
+            crate::service::LaneProtection::Enforced,
+            &std::collections::HashMap::new(),
+        )
+        .expect_err("the unclosed Worker attempt continues to occupy its lane");
+        assert_eq!(
+            occupancy
+                .data
+                .as_ref()
+                .and_then(|data| data.get("type"))
+                .and_then(Value::as_str),
+            Some("checkout_occupied")
+        );
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_review_does_not_reopen_closed_attempt_while_executor_tab_is_present() {
+        let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(true);
+        let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        task.execution_attempts[0].closed_at = Some(5);
+        fixture.service.plan_store.save(&mut plan, 5).unwrap();
+
+        let error = dispatch_bounce(&fixture, &plan_id, &task_id).unwrap_err();
+        assert_eq!(
+            error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("type"))
+                .and_then(Value::as_str),
+            Some("bounce_continuation_failed")
+        );
+        let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, crate::plan::TaskStatus::InReview);
+        assert_eq!(task.lane.worktree_path.as_deref(), Some(lane_path.as_str()));
+        assert_eq!(task.execution_attempts[0].closed_at, Some(5));
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_review_keeps_missing_remote_worker_attempt_open() {
+        let (fixture, plan_id, task_id, _) = socket_bounce_fixture(false);
+        let mut plan = fixture.service.plan_store.get(&plan_id).unwrap();
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        task.execution_attempts[0].mesh_peer = Some("mesh-peer".into());
+        fixture.service.plan_store.save(&mut plan, 5).unwrap();
+
+        let error = dispatch_bounce(&fixture, &plan_id, &task_id).unwrap_err();
+        assert_eq!(
+            error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("type"))
+                .and_then(Value::as_str),
+            Some("bounce_continuation_failed")
+        );
+        let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, crate::plan::TaskStatus::InReview);
+        assert_eq!(task.execution_attempts[0].closed_at, None);
+        assert_eq!(task.execution_attempts[0].closure_reason, None);
     }
 }

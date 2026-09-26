@@ -9,6 +9,8 @@ use crate::plan::{
     Task, TaskStatus, DEFAULT_MAX_REVIEW_ROUNDS,
 };
 
+mod bounce;
+
 pub const REVIEW_MILESTONE_KIND: &str = "review";
 pub const REVIEW_ESCALATION_MILESTONE_KIND: &str = "review_escalation";
 pub const REVIEW_CREDIT_RECONCILE_MILESTONE_KIND: &str = "review_credit_reconcile";
@@ -329,36 +331,11 @@ pub struct ReviewContinuation {
     pub attempt_id: String,
     pub executor_tab_id: String,
     pub session_id: String,
+    #[serde(skip)]
+    pub mesh_peer: Option<String>,
     pub epoch: u32,
     pub review_round: u32,
     pub state: String,
-}
-
-fn exact_review_continuation_attempt(task: &Task) -> Option<usize> {
-    let candidates = task
-        .execution_attempts
-        .iter()
-        .enumerate()
-        .filter(|(_, attempt)| {
-            attempt.closed_at.is_none()
-                && attempt.acknowledged_at.is_some()
-                && attempt.reported_at.is_some()
-                && attempt
-                    .session_id
-                    .as_deref()
-                    .is_some_and(|value| !value.trim().is_empty())
-                && if attempt.competition_group_id.is_some() {
-                    attempt.winner
-                } else {
-                    task.assigned_tab_id.as_deref() == Some(attempt.executor_tab_id.as_str())
-                }
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    let [index] = candidates.as_slice() else {
-        return None;
-    };
-    Some(*index)
 }
 
 pub(crate) fn reset_completed_review_continuation(
@@ -723,148 +700,51 @@ impl PlanStore {
         result.ok_or(PlanError::NotFound)
     }
 
-    /// BOUNCE records an exact-attempt continuation epoch before delivery.
-    /// The task remains in review until authenticated continuation succeeds.
-    pub fn bounce_review(
+    pub fn reopen_review_continuation(
         &self,
         plan_id: &str,
         task_id: &str,
-        note: &str,
-        changed_executable_surfaces: bool,
-        distinct_oracle: bool,
-        from: AgentRef,
+        attempt_id: &str,
+        epoch: u32,
         now_ms: u64,
-    ) -> Result<ReviewTransitionResult, PlanError> {
-        let note = note.trim();
-        if note.is_empty() {
-            return Err(PlanError::QaNoteRequired);
-        }
-        let mut result = None;
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if matches!(
-                p.tasks[idx].status,
-                TaskStatus::InReview | TaskStatus::InProgress
-            ) && matches!(
-                p.tasks[idx].status_label.as_deref(),
-                Some("awaiting_continuation" | "bounce_continuation_failed" | "review bounced")
-            ) {
-                let attempt_index =
-                    exact_review_continuation_attempt(&p.tasks[idx]).ok_or_else(|| {
-                        PlanError::ReviewContinuationAttemptNotFound {
-                            task_id: p.tasks[idx].id.clone(),
-                        }
-                    })?;
-                let attempt = &p.tasks[idx].execution_attempts[attempt_index];
-                if attempt.continuation.review_round != Some(p.tasks[idx].review_round) {
-                    return Err(PlanError::ReviewContinuationAttemptNotFound {
-                        task_id: p.tasks[idx].id.clone(),
-                    });
-                }
-                result = Some(ReviewTransitionResult {
-                    plan_id: p.id.clone(),
-                    task_id: p.tasks[idx].id.clone(),
-                    milestone_id: attempt.continuation.milestone_id.clone().ok_or_else(|| {
-                        PlanError::ReviewContinuationAttemptNotFound {
-                            task_id: p.tasks[idx].id.clone(),
-                        }
-                    })?,
-                    task_name: p.tasks[idx].name.clone(),
-                    verdict: ReviewVerdict::Bounce,
-                    review_round: p.tasks[idx].review_round,
-                    follow_up_task_id: None,
-                    strategy_warning: bounce_strategy_advice(&p.tasks[idx]),
-                    continuation: Some(ReviewContinuation {
-                        attempt_id: attempt.id.clone(),
-                        executor_tab_id: attempt.executor_tab_id.clone(),
-                        session_id: attempt.session_id.clone().ok_or_else(|| {
-                            PlanError::ReviewContinuationAttemptNotFound {
-                                task_id: p.tasks[idx].id.clone(),
-                            }
-                        })?,
-                        epoch: attempt.continuation.epoch,
-                        review_round: p.tasks[idx].review_round,
-                        state: attempt
-                            .continuation
-                            .state
-                            .clone()
-                            .unwrap_or_else(|| "awaiting_continuation".into()),
-                    }),
-                });
-                return Ok(());
-            }
-            require_in_review(&p.tasks[idx])?;
-            let attempt_index =
-                exact_review_continuation_attempt(&p.tasks[idx]).ok_or_else(|| {
-                    PlanError::ReviewContinuationAttemptNotFound {
-                        task_id: p.tasks[idx].id.clone(),
-                    }
-                })?;
-            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+            let task = &mut plan.tasks[task_index];
+            if !matches!(task.status, TaskStatus::InReview | TaskStatus::InProgress)
+                || !matches!(
+                    task.status_label.as_deref(),
+                    Some("awaiting_continuation" | "bounce_continuation_failed")
+                )
             {
-                let task = &mut p.tasks[idx];
-                task.review_evidence.push(ReviewEvidence {
-                    id: crate::plan::ids::short_id("rev"),
-                    from: from.clone(),
-                    verdict: ReviewVerdict::Bounce,
-                    note: note.into(),
-                    at: now_ms,
-                    changed_executable_surfaces,
-                    distinct_oracle,
+                return Err(PlanError::ReviewContinuationAttemptNotFound {
+                    task_id: task.id.clone(),
                 });
-                task.review_round = task
-                    .review_round
-                    .checked_add(1)
-                    .ok_or_else(|| PlanError::Io("review round exhausted".into()))?;
-                let attempt = &mut task.execution_attempts[attempt_index];
-                attempt.continuation.epoch =
-                    attempt.continuation.epoch.checked_add(1).ok_or_else(|| {
-                        PlanError::Io("review continuation epoch exhausted".into())
-                    })?;
-                attempt.continuation.review_round = Some(task.review_round);
-                attempt.continuation.state = Some("awaiting_continuation".into());
-                attempt.continuation.milestone_id = Some(mid.clone());
-                attempt.continuation.delivered_at = None;
-                task.status = TaskStatus::InReview;
-                task.review_stage = ReviewStage::Review;
-                task.qa_state = None;
-                task.status_label = Some("awaiting_continuation".into());
-                task.status_changed_at = now_ms;
-                task.updated_at = now_ms;
-                task.milestones.push(review_milestone(
-                    mid.clone(),
-                    from,
-                    &ReviewVerdict::Bounce,
-                    note,
-                    now_ms,
-                ));
             }
-            earn_review_credit(&mut p.review_policy);
-            result = Some(ReviewTransitionResult {
-                plan_id: p.id.clone(),
-                task_id: p.tasks[idx].id.clone(),
-                milestone_id: mid,
-                task_name: p.tasks[idx].name.clone(),
-                verdict: ReviewVerdict::Bounce,
-                review_round: p.tasks[idx].review_round,
-                follow_up_task_id: None,
-                strategy_warning: bounce_strategy_advice(&p.tasks[idx]),
-                continuation: p.tasks[idx]
-                    .execution_attempts
-                    .get(attempt_index)
-                    .map(|attempt| ReviewContinuation {
-                        attempt_id: attempt.id.clone(),
-                        executor_tab_id: attempt.executor_tab_id.clone(),
-                        session_id: attempt.session_id.clone().unwrap_or_default(),
-                        epoch: attempt.continuation.epoch,
-                        review_round: p.tasks[idx].review_round,
-                        state: "awaiting_continuation".into(),
-                    }),
-            });
+            let review_round = task.review_round;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+                .filter(|attempt| {
+                    attempt.continuation.epoch == epoch
+                        && attempt.continuation.review_round == Some(review_round)
+                })
+                .ok_or_else(|| PlanError::ReviewContinuationAttemptNotFound {
+                    task_id: task.id.clone(),
+                })?;
+            attempt.closed_at.get_or_insert(now_ms);
+            attempt
+                .closure_reason
+                .get_or_insert_with(|| "review_bounce_executor_gone".into());
+            attempt.continuation.state = Some("executor_gone".into());
+            task.status = TaskStatus::Pending;
+            task.status_label = Some("review bounced".into());
+            task.status_changed_at = now_ms;
+            task.updated_at = now_ms;
             Ok(())
-        })?;
-        result.ok_or(PlanError::TaskNotFound)
+        })
     }
 
     pub fn hold_review(
