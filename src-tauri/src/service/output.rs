@@ -273,14 +273,15 @@ impl ServiceContext {
         });
         let mut trust_candidate = false;
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
-            self.maybe_detect_agent_session(pid, at);
-            if directory_trust_eligible && screen_changed {
-                trust_candidate = self
-                    .respond_to_directory_trust(pid, changed_screen.as_deref())
-                    .owns_prompt();
-            } else if let Some(reason) = directory_trust_skip {
-                self.note_directory_trust(pid, reason, None);
-            }
+            trust_candidate = trust_candidate::candidate_for_output(
+                self,
+                pid,
+                at,
+                changed_screen.as_deref(),
+                directory_trust_eligible,
+                is_auto_approve,
+                directory_trust_skip,
+            );
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
@@ -1189,3 +1190,5 @@ mod agent_lifecycle_tests;
 #[cfg(test)]
 #[path = "output/manual_update_prompt_tests.rs"]
 mod manual_update_prompt_tests;
+#[path = "output/trust_candidate.rs"]
+mod trust_candidate;

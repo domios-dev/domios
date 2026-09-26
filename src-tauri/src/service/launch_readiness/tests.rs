@@ -42,6 +42,82 @@ fn report_own_launch(tab: &mut Tab) {
 /// time; nothing in these tests sleeps to reach its outcome.
 const BOUND: Duration = Duration::from_secs(30);
 
+fn launch_classification(
+    state: codeterm_plugin::tab_state::TabState,
+) -> Option<codeterm_plugin::tab_state::TabStateClassification> {
+    Some(codeterm_plugin::tab_state::TabStateClassification {
+        state,
+        confidence: 1.0,
+        data: None,
+        action: None,
+    })
+}
+
+fn provider_fixture(name: &str) -> String {
+    std::fs::read_to_string(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/provider-codex/tests/fixtures/directory-trust")
+            .join(name),
+    )
+    .expect("provider dialog fixture")
+}
+
+#[test]
+fn launch_gate_allows_unknown_provider_state_with_readiness_evidence() {
+    assert_eq!(
+        decide_launch_input(LaunchInputObservation {
+            session_bound: true,
+            composer_ready: false,
+            directory_trust_prompt: false,
+            classification: launch_classification(codeterm_plugin::tab_state::TabState::Unknown),
+        }),
+        Ok(Some(LaunchInputEvidence::SessionBinding)),
+    );
+    assert_eq!(
+        decide_launch_input(LaunchInputObservation {
+            session_bound: false,
+            composer_ready: true,
+            directory_trust_prompt: false,
+            classification: None,
+        }),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+    );
+}
+
+#[test]
+fn launch_gate_refuses_provider_update_and_directory_trust_dialogs() {
+    let update = provider_fixture("codex-update-available.txt");
+    let trust = provider_fixture("trust-folder-access-0.157.1.txt");
+    assert!(!update.is_empty());
+    assert!(!trust.is_empty());
+
+    let update_refusal = decide_launch_input(LaunchInputObservation {
+        session_bound: true,
+        composer_ready: true,
+        directory_trust_prompt: false,
+        classification: launch_classification(codeterm_plugin::tab_state::TabState::UpdatePrompt),
+    })
+    .expect_err("update modal blocks launch input");
+    assert_eq!(
+        update_refusal.reason(),
+        "provider classified UpdatePrompt dialog"
+    );
+
+    let trust_refusal = decide_launch_input(LaunchInputObservation {
+        session_bound: true,
+        composer_ready: true,
+        directory_trust_prompt: true,
+        classification: launch_classification(
+            codeterm_plugin::tab_state::TabState::ClarifyingQuestion,
+        ),
+    })
+    .expect_err("directory-trust modal blocks launch input");
+    assert_eq!(
+        trust_refusal.reason(),
+        "active provider directory-trust prompt"
+    );
+}
+
 /// Both exit sources claim before either publishes, so only the first claim
 /// may win; otherwise one dead launch is reported twice.
 #[test]

@@ -61,47 +61,6 @@ pub(crate) enum LaunchConsumptionOutcome {
     Confirmed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LaunchInputEvidence {
-    SessionBinding,
-    ProviderComposer,
-}
-
-pub(crate) struct LaunchInputObservation {
-    pub session_bound: bool,
-    pub composer_ready: bool,
-    pub provider_prompt: bool,
-    pub structured_choice: bool,
-    pub provider_state: Option<codeterm_plugin::tab_state::TabState>,
-}
-
-pub(crate) fn launch_input_evidence(
-    observation: LaunchInputObservation,
-) -> Option<LaunchInputEvidence> {
-    use codeterm_plugin::tab_state::TabState;
-
-    let classified_dialog = matches!(
-        observation.provider_state,
-        Some(
-            TabState::WaitingOnAuth
-                | TabState::UpdatePrompt
-                | TabState::RateLimited
-                | TabState::ClarifyingQuestion
-                | TabState::Unknown
-        )
-    );
-    if observation.provider_prompt || observation.structured_choice || classified_dialog {
-        return None;
-    }
-    if observation.session_bound {
-        Some(LaunchInputEvidence::SessionBinding)
-    } else {
-        observation
-            .composer_ready
-            .then_some(LaunchInputEvidence::ProviderComposer)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LaunchConsumptionReceipt {
     pub outcome: LaunchConsumptionOutcome,
@@ -190,7 +149,7 @@ impl LaunchDeliveryGate {
         mux: &MuxState,
         tab_id: &str,
         sink: &impl BootStageSink,
-        readiness: Option<LaunchInputEvidence>,
+        readiness: Option<crate::service::launch_readiness::LaunchInputEvidence>,
         transaction: F,
     ) -> Result<LaunchConsumptionReceipt, LaunchConsumptionError>
     where
@@ -606,66 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn launch_delivery_requires_safe_readiness_before_submit() {
-        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt");
-        let screen = std::fs::read_to_string(fixture).expect("Codex update fixture");
-        let structured_choice =
-            crate::service::launch_readiness::structured_choice_candidate(&screen);
-        assert!(structured_choice);
-        assert_eq!(
-            launch_input_evidence(
-                LaunchInputObservation {
-                    session_bound: true,
-                    composer_ready: true,
-                    provider_prompt: true,
-                    structured_choice,
-                    provider_state: Some(
-                        codeterm_plugin::tab_state::TabState::UpdatePrompt,
-                    ),
-                },
-            ),
-            None
-        );
-        let trust_frame = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt");
-        let trust_screen = std::fs::read_to_string(trust_frame).expect("Codex trust fixture");
-        assert!(crate::service::launch_readiness::structured_choice_candidate(
-            &trust_screen
-        ));
-        assert_eq!(
-            launch_input_evidence(
-                LaunchInputObservation {
-                    session_bound: true,
-                    composer_ready: true,
-                    provider_prompt: true,
-                    structured_choice: true,
-                    provider_state: Some(
-                        codeterm_plugin::tab_state::TabState::ClarifyingQuestion,
-                    ),
-                },
-            ),
-            None
-        );
-        let after_skip = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available-after-skip.txt");
-        let after_skip_screen = std::fs::read_to_string(after_skip).expect("post-skip fixture");
-        assert!(!crate::service::launch_readiness::structured_choice_candidate(
-            &after_skip_screen
-        ));
-        assert_eq!(
-            launch_input_evidence(
-                LaunchInputObservation {
-                    session_bound: false,
-                    composer_ready: true,
-                    provider_prompt: false,
-                    structured_choice: false,
-                    provider_state: Some(codeterm_plugin::tab_state::TabState::Working),
-                },
-            ),
-            Some(LaunchInputEvidence::ProviderComposer)
-        );
-
+    fn launch_delivery_rejects_missing_readiness_before_transaction() {
         let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let sink = RecordingSink::default();
         let mut gate = LaunchDeliveryGate::new();
