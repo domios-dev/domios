@@ -546,11 +546,20 @@ export function cleanToolText(value: string, fallback: string): string {
 
 // Config and path helpers
 export function opencodeDbPath(): string | null {
-  let base = host.envGet("XDG_DATA_HOME");
-  if (!base) base = host.expandHome("~/.local/share");
+  const windows = host.platform() === "windows";
+  const sep = windows ? "\\" : "/";
+  const configuredDb = host.envGet("OPENCODE_DB");
+  if (configuredDb === ":memory:") return null;
+  if (configuredDb) {
+    const absolute = windows
+      ? /^[A-Za-z]:[\\/]|^[\\/]{1,2}/.test(configuredDb)
+      : configuredDb.startsWith("/");
+    if (absolute) return configuredDb;
+  }
+  const base = host.envGet("XDG_DATA_HOME") || host.expandHome("~/.local/share");
   if (!base) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return base + sep + "opencode" + sep + "opencode.db";
+  const dataDir = base + sep + "opencode";
+  return configuredDb ? dataDir + sep + configuredDb : dataDir + sep + "opencode.db";
 }
 
 export function opencodeSessionRecord(row: OpencodeSessionRow, db: string): unknown {
