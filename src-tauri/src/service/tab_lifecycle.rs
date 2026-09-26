@@ -20,7 +20,7 @@ impl ServiceContext {
             return None;
         }
         let journal = TabLifecycleJournal::shared();
-        let epoch = crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id);
+        let epoch = journal.next_epoch_for_tab(tab_id);
         let key = LifecycleKey::new(tab_id, epoch, uuid::Uuid::new_v4().to_string());
         if !self
             .mux
@@ -97,7 +97,7 @@ impl ServiceContext {
         let key = lifecycle_key.unwrap_or_else(|| {
             LifecycleKey::new(
                 tab_id,
-                crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id),
+                journal.next_epoch_for_tab(tab_id),
                 format!("role-transition-{}", uuid::Uuid::new_v4()),
             )
         });
@@ -131,7 +131,7 @@ pub(crate) fn append_minted(
 ) {
     let key = LifecycleKey::new(
         tab_id,
-        crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id),
+        journal.next_epoch_for_tab(tab_id),
         format!("{operation_prefix}-{}", uuid::Uuid::new_v4()),
     );
     append(journal, key, transition);

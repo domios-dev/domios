@@ -97,7 +97,6 @@ impl EnvGuard {
 fn discover_models_fixture() -> Vec<ModelInfo> {
     vec![
         ModelInfo {
-            default_reasoning_effort: None,
             id: "live-a".into(),
             display_name: "Live A".into(),
             description: None,

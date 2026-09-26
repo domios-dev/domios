@@ -555,6 +555,23 @@ fn planner_waiver_keeps_tab_role_and_team() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn explicit_planner_clear_keeps_previous_role_removal_semantics() {
+    let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
+
+    fixture
+        .service
+        .transition_plan_planner(&plan_id, None)
+        .unwrap();
+
+    let mux = fixture.service.mux.read();
+    let planner = mux.get_tab(&planner_tab).expect("former Planner remains live");
+    assert_eq!(planner.role, None);
+    assert_eq!(planner.team_id, None);
+    assert_eq!(fixture.service.plan_store.get(&plan_id).unwrap().planner, None);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restore_keeps_persisted_role_and_team_after_plan_planner_change() {
     let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
     fixture

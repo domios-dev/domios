@@ -7,6 +7,12 @@ use crate::cmd::report_guard::ReportRefusal;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_models.rs"]
+mod agent_models;
+use agent_models::{format_agent_models, provider_availability_marker};
+#[cfg(test)]
+use agent_models::{AVAILABILITY_UNKNOWN, AVAILABILITY_UNAVAILABLE};
+
 fn absolute_spawn_base(
     spawn_cwd: Option<&str>,
     caller_cwd: &std::path::Path,
@@ -326,125 +332,6 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
             }
         }
     }
-}
-
-/// The same three-state answer the picker renders, so a reader of either
-/// surface gets the same verdict. `unknown` means the probe could not run; only
-/// `unavailable` means the CLI answered no.
-pub const AVAILABILITY_UNAVAILABLE: &str = " (unavailable)";
-pub const AVAILABILITY_UNKNOWN: &str = " (availability unknown)";
-
-/// The provider row's own three-state marker, read off the SAME descriptor
-/// field the API serves and the UI picker consumes.
-fn provider_availability_marker(provider: &serde_json::Value) -> &'static str {
-    match provider.get("availability").and_then(|v| v.as_str()) {
-        Some("available") => "",
-        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
-        _ => AVAILABILITY_UNKNOWN,
-    }
-}
-
-fn availability_marker(model: &serde_json::Value) -> &'static str {
-    match model.get("availability").and_then(|v| v.as_str()) {
-        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
-        Some("unknown") => AVAILABILITY_UNKNOWN,
-        Some(_) => "",
-        None if model.get("available").and_then(|v| v.as_bool()) == Some(false) => {
-            AVAILABILITY_UNAVAILABLE
-        }
-        None => "",
-    }
-}
-
-fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
-    let models = target.get("available_models").and_then(|v| v.as_array());
-    let Some(models) = models else {
-        return format!("No models advertised for provider '{}'.\n", provider);
-    };
-    let default_model = target.get("default_model").and_then(|v| v.as_str());
-    let mut out = String::new();
-    for m in models {
-        let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let name = m.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-        let marker = if default_model == Some(id) {
-            " (default)"
-        } else {
-            ""
-        };
-        let description = m.get("description").and_then(|v| v.as_str()).unwrap_or("");
-        let marker = format!("{marker}{}", availability_marker(m));
-        if description.is_empty() {
-            out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
-        } else {
-            out.push_str(&format!(
-                "{:<10} {}{}\n             {}\n",
-                id, name, marker, description
-            ));
-        }
-        if let Some(efforts) = format_model_reasoning_efforts(
-            m,
-            m.get("default_reasoning_effort")
-                .and_then(|value| value.as_str())
-                .or_else(|| default_reasoning_effort(target)),
-        ) {
-            out.push_str(&efforts);
-        }
-    }
-    out.push_str(&format_reasoning_efforts(target));
-    out
-}
-
-fn default_reasoning_effort(target: &serde_json::Value) -> Option<&str> {
-    target
-        .get("default_reasoning_effort")
-        .and_then(|value| value.as_str())
-}
-
-fn format_model_reasoning_efforts(
-    model: &serde_json::Value,
-    default: Option<&str>,
-) -> Option<String> {
-    let efforts = model.get("reasoning_efforts")?.as_array()?;
-    let levels = efforts
-        .iter()
-        .map(|effort| {
-            let id = effort.get("id").and_then(|value| value.as_str()).unwrap_or("?");
-            if default == Some(id) {
-                format!("{id} (default)")
-            } else {
-                id.to_string()
-            }
-        })
-        .collect::<Vec<_>>();
-    let levels = if levels.is_empty() {
-        "none".to_string()
-    } else {
-        levels.join(", ")
-    };
-    Some(format!("             Reasoning effort: {levels}\n"))
-}
-
-fn format_reasoning_efforts(target: &serde_json::Value) -> String {
-    let efforts = target
-        .get("reasoning_efforts")
-        .and_then(|v| v.as_array())
-        .filter(|a| !a.is_empty());
-    let Some(efforts) = efforts else {
-        return String::new();
-    };
-    let default = default_reasoning_effort(target);
-    let mut out = String::from("\nProvider fallback reasoning effort:\n");
-    for e in efforts {
-        let id = e.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let name = e.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-        let marker = if default == Some(id) {
-            " (default)"
-        } else {
-            ""
-        };
-        out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
-    }
-    out
 }
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
