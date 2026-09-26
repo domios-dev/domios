@@ -38,7 +38,9 @@ const HOME = "/tmp/home";
 const HOOKS_PATH = `${HOME}/.codex/hooks.json`;
 const CONFIG_PATH = `${HOME}/.codex/config.toml`;
 const MANAGED_KEY = `${HOOKS_PATH}:session_start:0:0`;
+const MANAGED_STOP_KEY = `${HOOKS_PATH}:stop:0:0`;
 const MANAGED_COMMAND = "curl ... /api/tabs/$CODETERM_TAB_ID/hook/session_start ...";
+const MANAGED_STOP_COMMAND = "curl ... /api/tabs/$CODETERM_TAB_ID/hook/stop ...";
 
 function fsHost(files: Map<string, string>) {
   return {
@@ -64,6 +66,8 @@ function fsHost(files: Map<string, string>) {
       writeFile: (p: string, value: string) => { files.set(p, value); return true; },
       writeJson: (p: string, value: unknown) => { files.set(p, JSON.stringify(value)); return true; },
       removeFile: (p: string) => files.delete(p),
+      lockFile: () => "fixture-lock",
+      unlockFile: () => true,
       writeTempFile: () => "/tmp/task.md",
       walkDir: () => [],
     },
@@ -116,13 +120,23 @@ function makeAppServerStubExec(opts: StubOptions): { exec: (optsJson: string) =>
         out.push(JSON.stringify({ id: req.id, result: {} }));
       } else if (req.method === "hooks/list") {
         const hash = wroteThisSession ? (opts.reListHash ?? opts.reportedHash) : opts.reportedHash;
-        const trustStatus = state.trusted[MANAGED_KEY] === hash ? "trusted" : "untrusted";
         out.push(JSON.stringify({
           id: req.id,
           result: {
             data: [{
               hooks: [
-                { key: MANAGED_KEY, command: MANAGED_COMMAND, currentHash: hash, trustStatus },
+                {
+                  key: MANAGED_KEY,
+                  command: MANAGED_COMMAND,
+                  currentHash: hash,
+                  trustStatus: state.trusted[MANAGED_KEY] === hash ? "trusted" : "untrusted",
+                },
+                {
+                  key: MANAGED_STOP_KEY,
+                  command: MANAGED_STOP_COMMAND,
+                  currentHash: hash,
+                  trustStatus: state.trusted[MANAGED_STOP_KEY] === hash ? "trusted" : "untrusted",
+                },
                 { key: `${HOOKS_PATH}:session_start:1:0`, command: "user-own-session-start.sh", currentHash: "sha256:user-hook-hash", trustStatus: "untrusted" },
               ],
             }],
@@ -283,7 +297,7 @@ console.log("\n--- trust_grant: trusted state reads back after a successful gran
 
   const install = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
   assert(install.ok === true, "trust_grant install before grant succeeds", JSON.stringify(install));
-  const result = p.grantIntegrationTrust(["session_start"]);
+  const result = p.grantIntegrationTrust(["session_start", "stop"]);
   assert(result.granted === true, "trust_grant grant after install succeeds", JSON.stringify(result));
   const check = p.checkIntegration();
   eq(check.hook_trust_state, "trusted", "trust_grant checkIntegration reports trusted after the grant");
