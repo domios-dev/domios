@@ -7,6 +7,7 @@ mod planner_delivery;
 #[cfg(test)]
 mod report_attribution;
 mod report_delivery;
+mod report_diagnostics;
 mod report_event;
 mod report_persistence;
 pub(crate) mod report_plan_ctx;
@@ -18,6 +19,7 @@ pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub(crate) use report_delivery::HierarchyReportDelivery;
+pub(crate) use report_diagnostics::deliver_refused_report_diagnostic;
 pub(crate) use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };

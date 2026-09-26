@@ -50,7 +50,7 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
         if !is_worker_spawn(params) {
             return Err("authorized gates are only valid with --role Worker".into());
         }
-        if worker_spawn_plan_task_ref(params).is_some() {
+        if worker_spawn_plan_task_ref(params).is_some() && params.task_prompt_override.is_none() {
             return Err(concat!(
                 "authorized gates are not carried by a task-bound spawn; declare them ",
                 "on the dispatch, where they are also enforced"
@@ -111,7 +111,13 @@ pub(crate) fn preflight_worker_plan_task_wip_gate(
         .iter()
         .find(|t| t.id == resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
-    if task.status != crate::plan::TaskStatus::Pending {
+    store
+        .validate_task_startup_status(&resolved.plan_id, &resolved.task_id)
+        .map_err(|error| error.to_string())?;
+    if !matches!(
+        &task.status,
+        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::Blocked
+    ) {
         return Ok(());
     }
     crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
@@ -132,9 +138,14 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let detail = store
         .show_task(&resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
-    if let Some(title) = planned_task_title(&detail.task) {
-        params.title = Some(title);
-        params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
+    store
+        .validate_task_startup_status(&resolved.plan_id, &resolved.task_id)
+        .map_err(|error| error.to_string())?;
+    if params.task_prompt_override.is_none() || params.title.is_none() {
+        if let Some(title) = planned_task_title(&detail.task) {
+            params.title = Some(title);
+            params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
+        }
     }
     if params.planned_reasoning_effort.is_none() {
         params.planned_reasoning_effort = params.reasoning_effort.clone();
@@ -146,17 +157,28 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         lane_base: detail.task.lane.base.clone(),
     });
     let instruction = params.task.take();
-    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
-        .map_err(|error| error.to_string())?;
-    let brief = crate::service::plan::task_brief::render_task_brief(
-        &detail.task,
-        &detail.sections,
-        detail.task.personality.as_deref(),
-        instruction.as_deref(),
-        Some(&resolved.plan_id),
-        &manifest,
-        &[],
-    );
+    let manifest = match params.task_prompt_override.as_ref() {
+        Some(_) => match params.plan_skill_manifest.take() {
+            Some(manifest) => manifest,
+            None => crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
+                .map_err(|error| error.to_string())?,
+        },
+        None => crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
+            .map_err(|error| error.to_string())?,
+    };
+    let brief = if let Some(prompt) = params.task_prompt_override.take() {
+        prompt
+    } else {
+        crate::service::plan::task_brief::render_task_brief(
+            &detail.task,
+            &detail.sections,
+            detail.task.personality.as_deref(),
+            instruction.as_deref(),
+            Some(&resolved.plan_id),
+            &manifest,
+            &[],
+        )
+    };
     params.plan_skill_manifest = Some(manifest);
     params.task = Some(brief);
     params.plan_id = Some(resolved.plan_id);
@@ -185,6 +207,7 @@ fn bind_worker_task_to_tab(
     model: Option<String>,
     reasoning_effort: Option<String>,
     attempt_id: &str,
+    authorized_gates: Option<Vec<String>>,
     manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
 ) -> Result<WorkerTaskBinding, String> {
@@ -209,7 +232,7 @@ fn bind_worker_task_to_tab(
             allowance,
             provider,
             attempt_id,
-            None,
+            authorized_gates,
             crate::plan::WorkerPlacement::IsolatedLane,
             model,
             reasoning_effort,
@@ -408,6 +431,8 @@ impl ServiceContext {
         let manifest = params.plan_skill_manifest.clone().ok_or_else(|| {
             "plan-task spawn is missing its prepared plan skill manifest".to_string()
         })?;
+        let authorized_gates = (!params.authorized_gates.is_empty())
+            .then(|| params.authorized_gates.clone());
         bind_worker_task_to_tab(
             &self.plan_store,
             params.plan_id.as_deref(),
@@ -422,6 +447,7 @@ impl ServiceContext {
             model,
             reasoning_effort,
             &authority.attempt_id,
+            authorized_gates,
             manifest,
             now_ms,
         )
@@ -498,6 +524,7 @@ mod tests {
             Some("gpt-6-luna".into()),
             resolved_worker_launch_effort(&effort_identity),
             "attempt-prepared",
+            None,
             vec![crate::plan::PlanSkillManifestEntry {
                 slug: "prepared".into(),
                 title: "Prepared".into(),
@@ -768,6 +795,36 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_refuses_statuses_that_cannot_reach_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+
+        for status in [
+            TaskStatus::Paused,
+            TaskStatus::Done,
+            TaskStatus::Cancelled,
+            TaskStatus::InReview,
+        ] {
+            store
+                .with_plan(&plan_id, 4, |plan| {
+                    let task = plan
+                        .tasks
+                        .iter_mut()
+                        .find(|task| task.id == task_id)
+                        .unwrap();
+                    task.status = status.clone();
+                    Ok(())
+                })
+                .unwrap();
+            assert!(preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind")
+                .is_err());
+            let task = store.show_task(&task_id).unwrap().task;
+            assert_eq!(task.status, status);
+            assert!(task.execution_attempts.is_empty());
+        }
+    }
+
+    #[test]
     fn spawn_preflight_allows_review_debt_without_capacity_grants() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
@@ -815,6 +872,7 @@ mod tests {
             None,
             None,
             "attempt-review",
+            None,
             vec![],
             10,
         )
@@ -846,6 +904,7 @@ mod tests {
             None,
             None,
             "attempt-ack",
+            None,
             vec![],
             10,
         )
@@ -873,6 +932,89 @@ mod tests {
     }
 
     #[test]
+    fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+        store
+            .assign_task(&plan_id, &task_id, "worker-old", None, 4)
+            .unwrap();
+        let block_reason = "waiting for a dependency";
+        store
+            .with_plan(&plan_id, 5, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
+                task.status = TaskStatus::Blocked;
+                task.status_label = Some(block_reason.into());
+                Ok(())
+            })
+            .unwrap();
+
+        let binding = bind_worker_task_to_tab(
+            &store,
+            Some(&plan_id),
+            "spawn-bind",
+            "worker-respawn",
+            "Ada",
+            Some("session-respawn"),
+            Some("nonce-respawn"),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
+            None,
+            None,
+            "attempt-respawn",
+            None,
+            vec![],
+            6,
+        )
+        .unwrap();
+        let pending = store.show_task(&task_id).unwrap().task;
+        assert_eq!(pending.status, TaskStatus::Pending);
+        assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
+            stride.text.contains("unblocked by dispatch") && stride.text.contains(block_reason)
+        }));
+        store
+            .acknowledge_task_attempt(
+                &plan_id,
+                &task_id,
+                "worker-respawn",
+                &binding.attempt_id,
+                7,
+            )
+            .unwrap();
+        let task = store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert_eq!(
+            task.execution_attempts.last().unwrap().acknowledged_at,
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn respawn_prompt_override_allows_declared_gates_without_changing_brief() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+        let prompt = "restored respawn brief";
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            plan_id: Some(plan_id),
+            plan_task: Some(task_id),
+            task_prompt_override: Some(prompt.into()),
+            plan_skill_manifest: Some(vec![]),
+            authorized_gates: vec!["gate-token".into()],
+            ..Default::default()
+        };
+
+        validate_worker_plan_task_spawn(&params).unwrap();
+        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
+        assert_eq!(params.task.as_deref(), Some(prompt));
+        assert!(params.task_prompt_override.is_none());
+    }
+
+    #[test]
     fn task_binding_failure_leaves_task_unassigned() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
@@ -892,6 +1034,7 @@ mod tests {
             None,
             None,
             "attempt-rollback",
+            None,
             vec![],
             10,
         )

@@ -37,6 +37,7 @@ impl SpawnAgentParams {
             plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
+            task_prompt_override: None,
             starter_prompt: Default::default(),
             task_id: json_str(params, "task_id"),
             task_launch_authority: None,

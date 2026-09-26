@@ -1,5 +1,6 @@
 mod reservation;
 mod rollback;
+mod unblock;
 mod worker_ack_subject;
 
 use super::lane_metadata::normalize_lane_metadata;
@@ -15,6 +16,7 @@ pub(super) struct DispatchedAttemptMetadata {
 pub(super) use reservation::DispatchReservationOwner;
 pub use reservation::TaskDispatchReservation;
 pub use rollback::DispatchRollback;
+pub(super) use unblock::{record_blocked_task_unblock, task_startup_status};
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
     ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
@@ -124,6 +126,17 @@ fn current_dispatch_startup_owner(task: &crate::plan::Task) -> Option<DispatchSt
 }
 
 impl PlanStore {
+    pub fn validate_task_startup_status(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Result<(), PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
+            .ok_or(PlanError::TaskNotFound)?;
+        task_startup_status(&task.status).map(|_| ())
+    }
+
     pub fn dispatch_startup_owner_candidate(
         &self,
         plan_id: &str,
@@ -495,6 +508,8 @@ impl PlanStore {
         let write = self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
+            let dispatch_status = task_startup_status(&plan.tasks[task_index].status)?;
+            record_blocked_task_unblock(plan, task_index, "dispatch", now_ms);
             lane.tab_id = Some(tab_id.to_string());
             let lane_update = super::TaskLaneUpdate {
                 tab_id: Some(Some(tab_id.to_string())),
@@ -503,12 +518,12 @@ impl PlanStore {
             super::mutations::validate_task_status_transition_with_lane(
                 plan,
                 &plan.tasks[task_index].id,
-                &plan.tasks[task_index].status,
+                &dispatch_status,
                 &crate::plan::TaskStatus::InProgress,
                 None,
                 Some(&lane_update),
             )?;
-            original_status = Some(plan.tasks[task_index].status.clone());
+            original_status = Some(dispatch_status);
             let task = &mut plan.tasks[task_index];
             let current_owner = current_dispatch_startup_owner(task);
             let dispatch_in_flight = startup_owner_observation_made

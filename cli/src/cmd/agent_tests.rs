@@ -123,14 +123,38 @@ fn report_refusal_text_starts_and_ends_with_not_sent() {
         dirty_files: vec!["src/main.rs".to_string()],
     };
 
-    let out = format_report_refusal_text(&refusal, true, Some("rep-1"), None);
+    let out = format_report_refusal_text(&refusal, true, Some("parent-1"), None);
     let lines = out.lines().collect::<Vec<_>>();
 
     assert_eq!(lines.first().copied(), Some("REPORT NOT SENT"));
     assert_eq!(lines.last().copied(), Some("REPORT NOT SENT"));
     assert!(out.contains("git status --short"));
     assert!(out.contains("codeterm agent report --status partial"));
-    assert!(out.contains("Diagnostic report sent to parent: rep-1"));
+    assert!(out.contains("Refused report diagnostic sent to parent: parent-1"));
+}
+
+#[test]
+fn refused_readiness_report_sends_a_diagnostic_not_a_report() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused: canonical checkout is dirty".into(),
+        dirty_files: vec!["src/main.rs".into()],
+    };
+    let original = "STATUS: in_review\nCHANGES: finished";
+    let (method, body) = refusal_diagnostic_request("worker-tab", &refusal, original);
+
+    assert_eq!(method, "agent.diagnostic");
+    assert_eq!(body["tab_id"], "worker-tab");
+    assert_eq!(body["kind"], "report_refused");
+    assert_eq!(
+        body["message"],
+        format!(
+            "REPORT NOT SENT\n{}\n\nOriginal readiness report that was refused:\n{}",
+            refusal.message(), original
+        )
+    );
+    for report_field in ["status", "plan_id", "task_id", "report_outcome"] {
+        assert!(body.get(report_field).is_none());
+    }
 }
 
 #[test]

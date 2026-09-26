@@ -337,6 +337,7 @@ fn orchestrator_infra_brief_with_plan(tab_id: &str, team_id: &str, plan_id: &str
 fn orchestrator_infra_brief_no_plan(tab_id: &str, team_id: &str) -> String {
     format!(
         "Your tab is {tab_id}. Your team is {team_id}. {ORCH_ONBOARD_NO_PLAN_MARKER}\n\n\
+         After this tab's own session binding is registered, proceed with these plan commands:\n\
          Step 1 — create the Team Plan:\n{ORCH_ONBOARD_CREATE_STEP} \"<your goal>\"\n\n\
          Step 2 — once step 1 prints the new plan id, bind it to this team:\n{ORCH_ONBOARD_ADOPT_STEP} {team_id} <the plan id printed in step 1>\n\n\
          Step 3 — spawn your Planner bound to that plan and to this tab (never through the General Agent):\ncodeterm agent spawn <provider> [--model <model>] --parent-tab {tab_id} --role Planner --plan <the plan id printed in step 1>\n\n\

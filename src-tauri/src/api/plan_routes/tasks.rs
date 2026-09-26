@@ -7,53 +7,22 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
+#[cfg(test)]
 use crate::multiplexer::commands::MuxState;
 use crate::plan::{
     AgentRef, IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
 };
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
-use crate::service::{
-    persist_attempt_executor_identity_for_mux, respawn_title_provenance, ServiceState,
-};
+#[cfg(test)]
+use crate::service::persist_attempt_executor_identity_for_mux;
+use crate::service::{respawn_title_provenance, ServiceState};
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
 };
 
-fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
-    state.svc.mux.read().get_tab(tab_id).and_then(|tab| {
-        (tab.role == Some(crate::multiplexer::types::AgentRole::Manager)
-            && tab.role_profile.as_deref() == Some("planner"))
-        .then_some("planner")
-    })
-}
-
-fn record_respawn_attempt_and_persist_identity(
-    state: &AppState,
-    plan_id: &str,
-    task_id: &str,
-    tab_id: &str,
-    draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
-    title: &str,
-    now_ms: u64,
-) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
-{
-    let created = record_respawn_attempt_and_persist_identity_for(
-        &state.svc.plan_store,
-        &state.svc.mux,
-        planner_role_for_tab(state, tab_id).or(Some("worker")),
-        plan_id,
-        task_id,
-        tab_id,
-        draft,
-        title,
-        now_ms,
-    )?;
-    state.svc.persist_current_attempt_session_model(tab_id);
-    Ok(created)
-}
-
+#[cfg(test)]
 fn record_respawn_attempt_and_persist_identity_for(
     store: &crate::service::plan::PlanStore,
     mux: &MuxState,
@@ -957,6 +926,12 @@ pub async fn task_respawn(
         .plan_store
         .build_task_respawn_draft(&id, &tid, body)
         .map_err(plan_err)?;
+    let execution_intent = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .map(|detail| detail.task.interruption.execution_intent)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
     let spawn = state
         .svc
         .spawn_agent(
@@ -967,7 +942,12 @@ pub async fn task_respawn(
                 title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
                 parent_tab_id: draft.parent_tab_id.clone(),
-                task: Some(draft.task_prompt.clone()),
+                plan_id: Some(id.clone()),
+                plan_task: Some(tid.clone()),
+                execution_intent: Some(execution_intent),
+                task_prompt_override: Some(draft.task_prompt.clone()),
+                plan_skill_manifest: Some(draft.plan_skill_manifest.clone()),
+                authorized_gates: draft.authorized_gates.clone().unwrap_or_default(),
                 workspace_id: draft.workspace_id.clone(),
                 spawned_by_tab_id: draft.parent_tab_id.clone(),
                 model: draft.model.clone(),
@@ -985,21 +965,33 @@ pub async fn task_respawn(
     draft.reasoning_effort = state
         .svc
         .resolved_worker_launch_effort_for_tab(&spawn.tab_id);
-    let created = record_respawn_attempt_and_persist_identity(
-        &state,
-        &id,
-        &tid,
-        &spawn.tab_id,
-        &draft,
-        &spawn.title,
-        epoch_ms(),
-    )
-    .map_err(plan_err)?;
-    let parent_tab_id = created
-        .attempt
+    let attempt = state
+        .svc
+        .plan_store
+        .show_task(&tid)
+        .and_then(|detail| {
+            detail
+                .task
+                .execution_attempts
+                .into_iter()
+                .rev()
+                .find(|attempt| {
+                    attempt.executor_tab_id == spawn.tab_id
+                        && attempt.closed_at.is_none()
+                        && attempt.retired_at.is_none()
+                })
+        })
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::CONFLICT,
+                "respawn launch returned without reserving its task attempt",
+            )
+        })?;
+    let parent_tab_id = attempt
         .orchestrator_tab_id
         .as_deref()
-        .or(created.attempt.parent_tab_id.as_deref());
+        .or(attempt.parent_tab_id.as_deref())
+        .or(draft.parent_tab_id.as_deref());
     if let Some(parent_tab_id) = parent_tab_id {
         state.svc.arm_worker_ack_deadline(
             parent_tab_id,
@@ -1007,7 +999,7 @@ pub async fn task_respawn(
             &spawn.title,
             &id,
             &tid,
-            &created.attempt.id,
+            &attempt.id,
             respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
         );
     }
@@ -1018,7 +1010,7 @@ pub async fn task_respawn(
         "task_id": tid,
         "tab_id": spawn.tab_id,
         "spawn": spawn,
-        "attempt": created.attempt,
+        "attempt": attempt,
         "draft": draft
     })))
 }
