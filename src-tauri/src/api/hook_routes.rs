@@ -593,6 +593,7 @@ pub async fn hook_session_start(
         &body,
         claim,
         crate::session::lifecycle::BindingSource::Hook,
+        true,
     )
     .await
 }
@@ -713,6 +714,7 @@ async fn complete_deferred_session_binding(
                 &body,
                 claim,
                 crate::session::lifecycle::BindingSource::Hook,
+                true,
             )
             .await;
         }
@@ -757,6 +759,7 @@ pub(crate) async fn finish_session_binding(
     body: &serde_json::Value,
     claim: SessionStartClaim,
     binding_source: crate::session::lifecycle::BindingSource,
+    hook_execution_observed: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if claim.changed {
         svc.deferred_session_bindings.clear(tab_id);
@@ -764,6 +767,15 @@ pub(crate) async fn finish_session_binding(
         svc.deferred_session_bindings.clear_session(tab_id, sid);
     }
     svc.emit_session_binding_state(tab_id);
+    if claim.nonce_verified && (claim.changed || hook_execution_observed) {
+        crate::service::integration_silence::record_hook_binding_source(
+            svc.agent_registry.as_ref(),
+            provider_id,
+            sid,
+            binding_source,
+            hook_execution_observed,
+        );
+    }
     let (current_nonce, reported_nonce) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(&tab_id);
@@ -773,11 +785,13 @@ pub(crate) async fn finish_session_binding(
         )
     };
     log::info!(
-        "[delivery-timeline] event=session-binding tab={} provider={} session={} \
+        "[delivery-timeline] event=session-binding tab={} provider={} session={} source={} binding_source={} \
          report_nonce={} current_nonce={} reported_nonce={} nonce_verified={} changed={}",
         tab_id,
         provider_id,
         sid,
+        source,
+        crate::service::integration_silence::binding_source_label(binding_source),
         report_nonce.unwrap_or("-"),
         current_nonce.as_deref().unwrap_or("-"),
         reported_nonce.as_deref().unwrap_or("-"),

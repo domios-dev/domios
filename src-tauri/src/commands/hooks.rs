@@ -30,7 +30,22 @@ pub fn check_provider_integration(
     provider_id: String,
 ) -> Result<Json, String> {
     svc.agent_registry
-        .with_provider(&provider_id, |p| p.check_integration())
+        .with_provider(&provider_id, |provider| {
+            let mut status = provider.check_integration();
+            if provider.has_hooks() {
+                if let Some(source) =
+                    crate::service::integration_silence::hook_binding_fallback_source(&provider_id)
+                {
+                    if let Some(fields) = status.as_object_mut() {
+                        fields.insert(
+                            "codeterm_binding_fallback_source".into(),
+                            Json::String(source),
+                        );
+                    }
+                }
+            }
+            status
+        })
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))
 }
 
