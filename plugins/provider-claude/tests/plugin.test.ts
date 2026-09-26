@@ -123,7 +123,7 @@ console.log("\n--- session model detection ---\n");
 
   eq(
     p.detectSessionModel("/fixture/project", "session-model"),
-    "opus",
+    "Opus",
     "session model uses the exact session transcript",
   );
   eq(fullReads, 0, "session model avoids loading the full transcript");
