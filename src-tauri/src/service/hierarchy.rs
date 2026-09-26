@@ -7,6 +7,7 @@ mod planner_delivery;
 #[cfg(test)]
 mod report_attribution;
 mod report_delivery;
+mod report_diagnostics;
 mod report_event;
 mod report_persistence;
 pub(crate) mod report_plan_ctx;

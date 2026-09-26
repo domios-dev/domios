@@ -47,6 +47,7 @@ mod qa_pass;
 mod recovery_race;
 mod resolved_effort;
 mod routing;
+mod status_preflight;
 mod worker_ack;
 
 #[test]
@@ -213,24 +214,6 @@ fn repository_lane_guards_remain_required_for_code_mutation() {
         "status": "pending"
     }));
     assert!(task.execution_intent.requires_repository());
-}
-
-#[test]
-fn paused_task_dispatch_refuses_before_spawn_without_agent_resume_instruction() {
-    let paused = task(json!({
-        "id": "task_paused",
-        "name": "waiting for user",
-        "type": "task",
-        "status": "paused"
-    }));
-
-    let error = preflight_dispatch_task_status("plan_1", &paused).unwrap_err();
-    let data = error.data.expect("structured paused-task refusal");
-
-    assert_eq!(error.code, -32602);
-    assert_eq!(data["stage"], "task_status");
-    assert_eq!(data["hold_kind"], "unclassified");
-    assert!(data.get("fix").is_none());
 }
 
 #[test]

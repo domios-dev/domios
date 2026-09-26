@@ -7,7 +7,10 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 
-use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
+use super::{
+    authorize_draft_structure_mutation_http, emit_plan_changed, epoch_ms, plan_err, text_err,
+    PlanRouteResult,
+};
 
 #[derive(Deserialize)]
 pub(crate) struct SectionAddBody {
@@ -32,13 +35,12 @@ pub async fn section_add(
     Json(body): Json<SectionAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    state
-        .svc
-        .authorize_draft_structure_mutation(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    authorize_draft_structure_mutation_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
     let sid = state
         .svc
         .plan_store
@@ -102,20 +104,12 @@ pub async fn section_update(
     Json(body): Json<SectionUpdateBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    state
-        .svc
-        .authorize_draft_structure_mutation(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    state
-        .svc
-        .authorize_draft_structure_mutation(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    authorize_draft_structure_mutation_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
     state
         .svc
         .plan_store
@@ -140,13 +134,12 @@ pub async fn section_rm(
     Path((id, sid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    state
-        .svc
-        .authorize_draft_structure_mutation(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    authorize_draft_structure_mutation_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
     state
         .svc
         .plan_store

@@ -54,6 +54,7 @@ pub(super) fn dispatch(
                 "agent.list",
                 "agent.hierarchy",
                 "agent.spawn",
+                "agent.diagnostic",
                 "agent.set_role",
                 "agent.clear_role",
                 "agent.status",

@@ -4,8 +4,10 @@ use axum::{http::StatusCode, Json};
 use serde_json::Value;
 
 use crate::api::routes::AppState;
+use crate::plan::PlanningAuthor;
 use crate::plan::{tag_facets_from_value, MilestoneKind, TaskGroup};
 use crate::service::plan::PlanError;
+use crate::service::{AuthenticatedPlanCaller, PlanAuthorityError, ServiceState};
 
 pub mod attachments;
 pub mod batch;
@@ -59,6 +61,62 @@ fn text_err(status: StatusCode, message: impl ToString) -> (StatusCode, Json<Val
         status,
         Json(serde_json::json!({ "error": message.to_string() })),
     )
+}
+
+pub(crate) fn plan_authority_err(error: PlanAuthorityError) -> (StatusCode, Json<Value>) {
+    let status = match error {
+        PlanAuthorityError::PlanNotFound => StatusCode::NOT_FOUND,
+        PlanAuthorityError::SessionBindingPending => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::FORBIDDEN,
+    };
+    (
+        status,
+        Json(serde_json::json!({
+            "error": error.to_string(),
+            "type": error.diagnostic_type(),
+            "retryable": error.is_retryable(),
+        })),
+    )
+}
+
+pub(crate) async fn authorize_draft_structure_mutation_http(
+    svc: &ServiceState,
+    plan_id: &str,
+    caller: AuthenticatedPlanCaller,
+) -> Result<PlanningAuthor, (StatusCode, Json<Value>)> {
+    svc.authorize_draft_structure_mutation_async(plan_id, &caller)
+        .await
+        .map_err(plan_authority_err)
+}
+
+pub(crate) async fn authorize_plan_orchestrator_http(
+    svc: &ServiceState,
+    plan_id: &str,
+    caller: AuthenticatedPlanCaller,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    svc.authorize_plan_orchestrator_async(plan_id, &caller)
+        .await
+        .map_err(plan_authority_err)
+}
+
+pub(crate) async fn authorize_execution_action_http(
+    svc: &ServiceState,
+    plan_id: &str,
+    caller: AuthenticatedPlanCaller,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    svc.authorize_execution_action_async(plan_id, &caller)
+        .await
+        .map_err(plan_authority_err)
+}
+
+pub(crate) async fn authorize_task_execution_action_http(
+    svc: &ServiceState,
+    task_id: &str,
+    caller: AuthenticatedPlanCaller,
+) -> Result<(String, String), (StatusCode, Json<Value>)> {
+    svc.authorize_task_execution_action_async(task_id, &caller)
+        .await
+        .map_err(plan_authority_err)
 }
 
 fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
