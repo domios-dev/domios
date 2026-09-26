@@ -17,8 +17,13 @@ impl InvalidModelError {
             "provider": self.provider_id.clone(),
             "requested_model": self.requested_model.clone(),
             "closest_model_ids": self.closest_model_ids.clone(),
+            "refresh_command": self.refresh_command(),
             "message": self.to_string(),
         })
+    }
+
+    pub(crate) fn refresh_command(&self) -> String {
+        format!("codeterm agent models {}", self.provider_id)
     }
 }
 

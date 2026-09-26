@@ -78,8 +78,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         ),
         Ok(value) => print_human(&value),
         Err(error) => {
-            eprintln!("{}", render_daemon_error(&error));
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json_output, error);
         }
     }
 }
@@ -107,8 +106,7 @@ fn handle_pair(
         ),
         Ok(value) => print_pair(&value),
         Err(error) => {
-            eprintln!("{}", render_daemon_error(&error));
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json_output, error);
         }
     }
 }

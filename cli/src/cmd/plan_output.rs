@@ -150,11 +150,19 @@ fn render_strategy_warning(val: &Value) -> Option<String> {
 /// The one error envelope the whole CLI emits under `--json`. `code` carries the
 /// JSON-RPC code programmatically so no human-facing line has to leak it.
 pub(crate) fn error_envelope(message: &str, code: Option<i32>) -> Value {
+    error_envelope_with_data(message, code, None)
+}
+
+pub(crate) fn error_envelope_with_data(
+    message: &str,
+    code: Option<i32>,
+    data: Option<&Value>,
+) -> Value {
     serde_json::json!({
         "ok": false,
         "kind": "error",
         "id": null,
-        "data": null,
+        "data": data.cloned(),
         "hints": [],
         "error": message,
         "code": code,
