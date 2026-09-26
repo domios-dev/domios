@@ -458,6 +458,16 @@ impl ServiceContext {
             .clone()
             .filter(|m| !m.trim().is_empty())
             .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &params.orchestrator_agent,
+            orchestrator_model.as_deref(),
+        )?;
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &params.planner_agent,
+            planner_model.as_deref(),
+        )?;
         let pair_fix_command = pair_retry_command(
             &workspace_id,
             &params.orchestrator_agent,
@@ -642,7 +652,10 @@ impl ServiceContext {
                     orchestrator_model,
                     planner_tab_id,
                     planner_model,
-                    warning: orch_result.warning.or(planner_result.warning),
+                    warning: crate::service::spawn::merge_spawn_warnings(
+                        orch_result.warning,
+                        planner_result.warning,
+                    ),
                     budget_notice,
                 })
             }

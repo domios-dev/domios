@@ -457,7 +457,11 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!(
+                "{}",
+                crate::cmd::model_error::render_model_catalogue_error(&e)
+                    .unwrap_or_else(|| format!("Error: {e}"))
+            );
             std::process::exit(1);
         }
     }

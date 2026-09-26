@@ -82,11 +82,11 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
     }
 }
 
-/// The daemon's refusal is forwarded byte-for-byte. A Team refusal carries a
-/// stable violation id and the command that fixes the situation; rewording or
-/// truncating it here would leave the operator a failure with no next step.
+/// Model catalogue refusals add the catalogue refresh command; other errors
+/// keep the daemon's message intact with the CLI's standard error prefix.
 pub(crate) fn render_daemon_error(error: &str) -> String {
-    format!("Error: {error}")
+    crate::cmd::model_error::render_model_catalogue_error(error)
+        .unwrap_or_else(|| format!("Error: {error}"))
 }
 
 fn handle_pair(

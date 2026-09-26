@@ -243,6 +243,7 @@ pub struct ModelProvider {
     id: &'static str,
     models: Vec<crate::agent::provider::ModelInfo>,
     default_model: Option<String>,
+    model_catalogue: crate::agent::provider::ModelCatalogueCapability,
     cli_binary: Option<&'static str>,
     install_command: Option<&'static str>,
 }
@@ -265,6 +266,7 @@ impl ModelProvider {
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
+            model_catalogue: Default::default(),
             cli_binary: None,
             install_command: None,
         }
@@ -273,6 +275,14 @@ impl ModelProvider {
     pub fn with_cli(mut self, binary: &'static str, install_command: &'static str) -> Self {
         self.cli_binary = Some(binary);
         self.install_command = Some(install_command);
+        self
+    }
+
+    pub fn with_model_catalogue(
+        mut self,
+        capability: crate::agent::provider::ModelCatalogueCapability,
+    ) -> Self {
+        self.model_catalogue = capability;
         self
     }
 }
@@ -328,6 +338,12 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
         self.models.clone()
     }
 
+    fn model_catalogue_capability(
+        &self,
+    ) -> crate::agent::provider::ModelCatalogueCapability {
+        self.model_catalogue
+    }
+
     fn default_model(&self) -> Option<String> {
         self.default_model.clone()
     }
@@ -368,22 +384,40 @@ fn default_command_is_shell() {
 
 #[test]
 fn validate_agent_model_accepts_advertised_id() {
-    let registry = registry_with(ModelProvider::new(
-        "opencode",
+    let provider = ModelProvider::new(
+        "authoritative-catalogue",
         &["anthropic/claude-sonnet-4-6", "opencode/big-pickle"],
-    ));
+    )
+    .with_model_catalogue(crate::agent::provider::ModelCatalogueCapability::authoritative());
+    let registry = registry_with(provider);
 
-    assert!(validate_agent_model(&registry, "opencode", Some("opencode/big-pickle")).is_ok());
-    assert!(
-        validate_agent_model(&registry, "opencode", Some("anthropic/claude-sonnet-4-6")).is_ok()
-    );
+    assert!(validate_agent_model(
+        &registry,
+        "authoritative-catalogue",
+        Some("opencode/big-pickle")
+    )
+    .is_ok());
+    assert!(validate_agent_model(
+        &registry,
+        "authoritative-catalogue",
+        Some("anthropic/claude-sonnet-4-6")
+    )
+    .is_ok());
 }
 
 #[test]
-fn validate_agent_model_allows_bogus_id_for_default_fallback() {
+fn free_form_provider_keeps_unknown_model_ids() {
     let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
 
     assert!(validate_agent_model(&registry, "opencode", Some("does-not-exist")).is_ok());
+    let resolved = resolve_fresh_agent_model_with_notice(
+        &registry,
+        "opencode",
+        Some("does-not-exist".into()),
+        None,
+    );
+    assert_eq!(resolved.model.as_deref(), Some("does-not-exist"));
+    assert!(resolved.fallback_notice.is_none());
 }
 
 #[test]
@@ -395,13 +429,96 @@ fn validate_agent_model_accepts_claude_alias() {
 }
 
 #[test]
-fn validate_agent_model_allows_unique_prefixed_suffix_for_default_fallback() {
+fn free_form_provider_allows_unique_prefixed_suffixes() {
     let registry = registry_with(ModelProvider::new(
         "opencode",
         &["opencode/big-pickle", "opencode/ring-2.6-1t"],
     ));
 
     assert!(validate_agent_model(&registry, "opencode", Some("big-pickle")).is_ok());
+    assert_eq!(
+        resolve_fresh_agent_model(&registry, "opencode", Some("big-pickle".into()), None)
+            .as_deref(),
+        Some("big-pickle")
+    );
+}
+
+#[test]
+fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
+    let provider = ModelProvider::new("codex-like", &["gpt-6-astra", "gpt-6-sol"])
+        .with_model_catalogue(crate::agent::provider::ModelCatalogueCapability::authoritative());
+    let registry = registry_with(provider);
+    let (mut mux, _root) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let before = mux.snapshot().tabs.len();
+
+    let refused = validate_agent_model(&registry, "codex-like", Some("gpt-9-bogus"))
+        .and_then(|_| {
+            let clearance = provider_launch_preflight(&registry, "codex-like")
+                .map_err(|error| error.to_string())?;
+            create_cleared_agent_tab(&mut mux, &workspace_id, &clearance)
+                .map_err(|error| error.to_string())
+        });
+    let error = refused.expect_err("unknown authoritative ids must be refused");
+    assert!(error.contains("gpt-9-bogus"), "{error}");
+    assert!(error.contains("gpt-6-astra"), "{error}");
+    assert!(error.contains("gpt-6-sol"), "{error}");
+    assert_eq!(mux.snapshot().tabs.len(), before);
+}
+
+#[test]
+fn unavailable_authoritative_catalogue_warns_and_preserves_requested_model() {
+    let provider = ModelProvider::new("live-catalogue-fixture", &["gpt-6-sol"])
+        .with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative_live(),
+        );
+    let registry = registry_with(provider);
+    let requested = "gpt-9-bogus";
+
+    assert!(validate_agent_model(&registry, "live-catalogue-fixture", Some(requested)).is_ok());
+    let resolved = resolve_fresh_agent_model_with_notice(
+        &registry,
+        "live-catalogue-fixture",
+        Some(requested.into()),
+        None,
+    );
+    assert_eq!(resolved.model.as_deref(), Some(requested));
+    let warning = resolved.warning.expect("unavailable live catalog must be visible");
+    assert!(warning.contains("unchanged"), "{warning}");
+    assert!(warning.contains("codeterm agent models"), "{warning}");
+
+    let resumed = resolve_fresh_agent_model_with_notice(
+        &registry,
+        "live-catalogue-fixture",
+        Some(requested.into()),
+        Some("session-1"),
+    );
+    assert_eq!(resumed.model.as_deref(), Some(requested));
+    assert!(resumed.warning.is_some());
+}
+
+#[test]
+fn authoritative_live_catalogue_rejects_seed_only_models() {
+    let provider_id = "live-authoritative-fixture";
+    let provider = ModelProvider::new(provider_id, &["gpt-6-sol", "gpt-6-astra"])
+        .with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative_live(),
+        );
+    let registry = registry_with(provider);
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![crate::agent::provider::ModelInfo {
+            id: "gpt-6-astra".into(),
+            display_name: "GPT-6-Astra".into(),
+            ..Default::default()
+        }],
+        Some("gpt-6-astra".into()),
+    );
+
+    let error = validate_agent_model(&registry, provider_id, Some("gpt-6-sol"))
+        .expect_err("a static seed is not part of a live authoritative catalogue");
+    assert!(error.ends_with("closest catalogue ids: gpt-6-astra"), "{error}");
+    crate::agent::model_catalog::unregister(provider_id);
 }
 
 #[test]
@@ -540,6 +657,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
             group: None,
         }],
         default_model: Some("gpt-5.5".into()),
+        model_catalogue: Default::default(),
         cli_binary: None,
         install_command: None,
     });
@@ -557,7 +675,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
 }
 
 #[test]
-fn fresh_agent_model_falls_back_to_default_for_unknown_request() {
+fn fresh_agent_model_preserves_free_form_unknown_request() {
     let registry = registry_with(ModelProvider::new(
         "model-test-stale",
         &["model-a", "model-b"],
@@ -566,12 +684,12 @@ fn fresh_agent_model_falls_back_to_default_for_unknown_request() {
     assert_eq!(
         resolve_fresh_agent_model(&registry, "model-test-stale", Some("stale".into()), None)
             .as_deref(),
-        Some("model-a")
+        Some("stale")
     );
 }
 
 #[test]
-fn fresh_agent_model_reports_fallback_notice() {
+fn fresh_agent_model_does_not_report_a_free_form_fallback() {
     let registry = registry_with(ModelProvider::new(
         "model-test-fallback-notice",
         &["model-a", "model-b"],
@@ -585,22 +703,10 @@ fn fresh_agent_model_reports_fallback_notice() {
     );
     attach_planned_model(&mut resolved, Some("codex/model-planned"));
 
-    assert_eq!(resolved.model.as_deref(), Some("model-a"));
+    assert_eq!(resolved.model.as_deref(), Some("stale"));
     assert_eq!(resolved.requested_model.as_deref(), Some("stale"));
-    assert_eq!(
-        resolved.fallback_notice,
-        Some(ModelFallbackNotice {
-            planned_model: Some("codex/model-planned".into()),
-            requested_model: "stale".into(),
-            provider_resolved_model: "model-a".into(),
-            actual_model: None,
-            reason: "requested_model_unavailable".into(),
-        })
-    );
-    assert_eq!(
-        model_fallback_notice_title(&resolved.fallback_notice.unwrap()),
-        "model stale unavailable -> using model-a"
-    );
+    assert!(resolved.fallback_notice.is_none());
+    assert!(resolved.warning.is_none());
 }
 
 #[test]

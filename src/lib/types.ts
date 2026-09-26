@@ -935,6 +935,11 @@ export type SettingField =
 
 export type ProviderAvailability = "available" | "unavailable" | "unknown";
 
+export interface ModelCatalogueCapability {
+  authority: "authoritative" | "free_form";
+  liveDiscoveryRequired: boolean;
+}
+
 export interface ProviderDescriptor {
   schema_version: number;
   id: string;
@@ -951,6 +956,7 @@ export interface ProviderDescriptor {
   icon_svg?: string;
   icon_color?: string;
   available_models: ModelInfo[];
+  model_catalogue?: ModelCatalogueCapability;
   /** Provider-owned groupings of `available_models`; empty ⇒ one flat list. */
   model_groups?: ModelGroup[];
   default_model?: string;
