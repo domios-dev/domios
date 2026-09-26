@@ -306,7 +306,7 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
 }
 
 #[test]
-fn pending_user_dir_trust_prompt_survives_a_no_change_chunk() {
+fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_unchanged_screen() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
@@ -320,19 +320,58 @@ fn pending_user_dir_trust_prompt_survives_a_no_change_chunk() {
         submit_available: Some(false),
         selected_values: Some(vec!["1".into()]),
     };
-    let provider = MockProvider::new("fixture").with_parsed_prompt(prompt.clone());
+    let provider = MockProvider::new("codex").with_parsed_prompt(prompt.clone());
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.link_pty(&tab_id, "pty-user-dir-no-change".into());
     let tab = mux.get_tab_mut(&tab_id).expect("tab");
-    tab.agent_type = Some("fixture".into());
+    tab.agent_type = Some("codex".into());
     tab.cwd = Some("C:\\Users\\User\\workspace".into());
+    tab.boot_stage = Some(crate::service::boot_stage::BootStage::ProviderReady);
+    tab.agent_state = Some(
+        crate::agent::offline_state_classifier::TabVerdict {
+            state: crate::agent::offline_state_classifier::TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(provider));
+    {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).expect("Codex tab");
+        assert_eq!(
+            tab.boot_stage,
+            Some(crate::service::boot_stage::BootStage::ProviderReady)
+        );
+        assert_eq!(
+            tab.agent_state.as_ref().map(|state| state.state),
+            Some(crate::agent::offline_state_classifier::TimelineState::Idle)
+        );
+        assert!(tab.provisioned_cwd.is_none());
+        assert!(tab.agent_session_id.is_none());
+        assert!(!crate::service::directory_trust::directory_trust_check_applies(tab));
+    }
     fixture
         .service
         .screen_state
         .lock()
         .process("pty-user-dir-no-change", screen.as_bytes());
+    let status_rows = crate::agent::classify_input::StatusBarRows::resolve(
+        &*fixture.service.agent_registry,
+        "codex",
+    )
+    .expect("Codex status rows");
+    let screen_hash = fixture
+        .service
+        .screen_state
+        .lock()
+        .get_content_hash("pty-user-dir-no-change", status_rows.get())
+        .expect("trust frame hash");
+    assert!(!fixture
+        .service
+        .agent_tracker
+        .lock()
+        .update_output("pty-user-dir-no-change", screen_hash));
 
     fixture
         .service
@@ -345,6 +384,11 @@ fn pending_user_dir_trust_prompt_survives_a_no_change_chunk() {
             .get_tab(&tab_id)
             .and_then(|tab| tab.pending_prompt.clone()),
         Some(prompt.clone())
+    );
+    assert_eq!(
+        super::prompt_step_dispatch_count_for_test("pty-user-dir-no-change"),
+        0,
+        "an unprovenanced user-directory trust prompt is never answered automatically"
     );
 
     fixture

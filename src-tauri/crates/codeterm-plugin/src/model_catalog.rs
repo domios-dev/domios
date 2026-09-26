@@ -35,6 +35,8 @@ use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffo
 
 mod grouping;
 
+pub(super) const CACHE_SCHEMA_VERSION: u32 = 1;
+
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
 #[derive(Debug, Deserialize)]
@@ -423,6 +425,14 @@ pub fn prime_from_cache(provider_id: &str) {
     let Some(fetched_at) = cached.fetched_at_system() else {
         return;
     };
+    if cached.schema_version != CACHE_SCHEMA_VERSION {
+        log::info!(
+            "[model_catalog] {provider_id} cache uses schema {}, expected {} — keeping the registered seed until a fresh probe",
+            cached.schema_version,
+            CACHE_SCHEMA_VERSION
+        );
+        return;
+    }
     let current = seed_fingerprint(provider_id);
     if cached.seed_fingerprint.as_deref() != Some(current.as_str()) {
         log::warn!(

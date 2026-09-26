@@ -8,7 +8,7 @@ use std::io::Read;
 
 #[path = "agent_models.rs"]
 mod agent_models;
-use agent_models::{format_agent_models, provider_availability_marker};
+use agent_models::{format_agent_models, format_agent_models_json, provider_availability_marker};
 #[cfg(test)]
 use agent_models::{AVAILABILITY_UNKNOWN, AVAILABILITY_UNAVAILABLE};
 
@@ -336,15 +336,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         std::process::exit(1);
                     };
                     if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(
-                                target
-                                    .get("available_models")
-                                    .unwrap_or(&serde_json::Value::Null)
-                            )
-                            .unwrap()
-                        );
+                        println!("{}", format_agent_models_json(target));
                         return;
                     }
                     print!("{}", format_agent_models(target, &provider));
