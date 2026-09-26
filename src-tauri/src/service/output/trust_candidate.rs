@@ -30,7 +30,7 @@ pub(super) fn pending_prompt_candidate(
     has_active_prompt: bool,
     changed_screen: Option<&str>,
 ) -> bool {
-    let current_screen = has_active_prompt.then(|| {
+    let current_screen = (has_active_prompt || changed_screen.is_none()).then(|| {
         service
             .screen_state
             .lock()

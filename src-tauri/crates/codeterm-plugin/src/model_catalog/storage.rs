@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     honest_verdicts, seed_fingerprint, BinaryFingerprint, CatalogFile, ModelInfo, ProviderModels,
-    ReasoningEffortInfo,
+    ReasoningEffortInfo, CACHE_SCHEMA_VERSION,
 };
 
 pub(super) struct ProviderOverride {
@@ -35,6 +35,8 @@ pub(super) fn cache_path(provider_id: &str) -> PathBuf {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct CachedSnapshot {
+    #[serde(default)]
+    pub(super) schema_version: u32,
     pub(super) fetched_at_unix: u64,
     #[serde(default)]
     pub(super) default: Option<String>,
@@ -61,6 +63,7 @@ pub(super) fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
         return;
     };
     let payload = CachedSnapshot {
+        schema_version: CACHE_SCHEMA_VERSION,
         fetched_at_unix: secs.as_secs(),
         default: snapshot.default.clone(),
         models: honest_verdicts(&snapshot.models),
