@@ -79,16 +79,17 @@ console.log("\n--- owner command dry run and legacy opt-in ---\n");
     "codeterm-legacy-tab.config.toml": "developer_instructions = \"legacy\"",
     "codeterm-foreign-tab.config.toml": "# codeterm-instance: instance-prod",
   });
-  const preview = manageCodexProfiles(host, [], "instance-dev", false, false);
+  const liveTabIds = ["legacy-tab"];
+  const preview = manageCodexProfiles(host, liveTabIds, "instance-dev", false, false);
   eq(preview.dead, ["codeterm-dead-tab.config.toml"], "lists owned dead profiles by default");
   eq(preview.legacy, ["codeterm-legacy-tab.config.toml"], "lists unmarked profiles for owner review");
   eq(preview.removed, [], "dry run does not delete files");
   eq(removed, [], "dry run leaves profiles intact");
-  const confirmed = manageCodexProfiles(host, [], "instance-dev", true, false);
+  const confirmed = manageCodexProfiles(host, liveTabIds, "instance-dev", true, false);
   eq(confirmed.removed, ["codeterm-dead-tab.config.toml"], "confirm removes owned dead profiles only");
   assert.ok(files["codeterm-legacy-tab.config.toml"], "legacy files require --include-legacy");
-  const legacyConfirmed = manageCodexProfiles(host, [], "instance-dev", true, true);
-  eq(legacyConfirmed.removed, ["codeterm-legacy-tab.config.toml"], "includeLegacy plus confirm deletes unmarked profiles");
+  const legacyConfirmed = manageCodexProfiles(host, liveTabIds, "instance-dev", true, true);
+  eq(legacyConfirmed.removed, ["codeterm-legacy-tab.config.toml"], "includeLegacy plus confirm deletes unmarked profiles regardless of tab liveness");
 }
 
 console.log("\n--- close releases only the profile marked by this instance ---\n");

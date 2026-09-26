@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod command_template;
+mod launch_artifacts;
 mod manifest_sessions;
 mod prompt_parse;
 mod wire;
@@ -19,15 +20,15 @@ use wire::{
 
 use crate::provider::{
     self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, LaunchArtifactSweepReport,
-    LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo, ProviderReadinessStrategy,
-    ProviderTrust, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SessionMessage,
-    SessionMetadata, SettingField, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
-    VerifySubmitStrategy,
+    LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo,
+    ProviderReadinessStrategy, ProviderTrust, ReadinessStrategy, ReasoningEffortInfo,
+    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
+    TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
 };
 
 use super::{
-    call_json, manifest_settings_sections, IntegrationKind, PluginManifest, PluginVm,
-    SerdeModelInfo, VmError,
+    call_json, call_json_strict, manifest_settings_sections, IntegrationKind, PluginManifest,
+    PluginVm, SerdeModelInfo, VmError,
 };
 use codeterm_types::pty::PendingPrompt;
 
@@ -242,29 +243,14 @@ impl AgentProvider for JsProvider {
     }
 
     fn release_tab_launch_artifacts(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
-        if self.has_js("releaseTabLaunchArtifacts") {
-            return Ok(self
-                .try_call::<bool>("releaseTabLaunchArtifacts", &[json!(tab_id), json!(instance_id)])
-                .unwrap_or(false));
-        }
-        self.native()
-            .map(|native| native.release_tab_launch_artifacts(tab_id, instance_id))
-            .unwrap_or(Ok(false))
+        launch_artifacts::release(self, tab_id, instance_id)
     }
 
     fn sweep_launch_artifacts(
         &self,
         request: &LaunchArtifactSweepRequest,
     ) -> Result<Option<LaunchArtifactSweepReport>, String> {
-        if self.has_js("sweepLaunchArtifacts") {
-            return Ok(self.try_call::<LaunchArtifactSweepReport>(
-                "sweepLaunchArtifacts",
-                &[json!(request)],
-            ));
-        }
-        self.native()
-            .map(|native| native.sweep_launch_artifacts(request))
-            .unwrap_or(Ok(None))
+        launch_artifacts::sweep(self, request)
     }
 
     fn starter_prompt_text(&self, prompt: crate::provider::StarterPrompt) -> Option<String> {

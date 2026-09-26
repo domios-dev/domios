@@ -168,7 +168,7 @@ codeterm integration sweep-profiles --provider codex --confirm  # delete this in
 codeterm integration sweep-profiles --provider codex --confirm --include-legacy  # also delete unmarked files
 ```
 Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted CodeTerm hook by themselves (reinstall plus trust grant). Foreign hooks are never rewritten or trusted.
-Profile cleanup is dry-run by default. `--confirm` deletes only files marked for this instance whose tab ids are not live here; unmarked legacy files also require `--include-legacy`.
+Profile cleanup is dry-run by default. `--confirm` deletes only files marked for this instance whose tab ids are not live here. `--include-legacy` with `--confirm` deletes every unmarked profile, regardless of tab liveness, so review the preview before opting in.
 
 ### Config Management
 Read/write CodeTerm config at runtime:
@@ -183,4 +183,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 63 -->
+<!-- revision: 64 -->

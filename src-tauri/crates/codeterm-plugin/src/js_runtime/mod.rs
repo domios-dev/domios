@@ -62,3 +62,4 @@ pub use manifest::{
     WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
 pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};
+use vm::call_json_strict;

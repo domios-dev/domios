@@ -111,12 +111,8 @@ fn epoch_ms() -> u64 {
 
 impl ServiceContext {
     pub(crate) fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
-        let instance_id = crate::paths::codeterm_instance_id();
-        if let Some(Err(error)) = self.agent_registry.with_provider(provider_id, |provider| {
-            provider.release_tab_launch_artifacts(tab_id, instance_id)
-        }) {
-            log::warn!("[tab-close] launch artifact release failed for {tab_id}: {error}");
-        }
+        let closed_tab = [(tab_id.to_string(), provider_id.to_string())];
+        super::launch_artifacts::release_closed_tabs(&self.agent_registry, &closed_tab);
     }
 
     pub(crate) fn tab_launch_artifact_provider(&self, tab_id: &str) -> Option<String> {
