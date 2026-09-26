@@ -219,7 +219,7 @@ async function testRepairRefetchesIntoHealthyState() {
       "repair must invoke install once and then re-check once",
     );
     assert(installArgs?.consent === true, "repair must send explicit user consent to the existing installer");
-    assert(installArgs?.precompactMemoryExport === true, "repair must preserve the checked pre-compact hook state");
+    assert(installArgs?.precompactMemoryExport === undefined, "repair delegates PreCompact preservation to the daemon");
     assert(host.querySelector('[data-provider-integration-state="healthy"]'), "refetched health must update the UI without remounting");
     assert(!host.querySelector('[data-provider-integration-action="repair"]'), "reactive healthy state must remove the repair control");
     await cleanup(root);
@@ -234,16 +234,18 @@ async function testBridgeWrappersUseRegisteredCommands() {
   }, async () => {
     await checkProviderIntegration("provider-beta");
     await installProviderIntegration("provider-beta", true);
+    await installProviderIntegration("provider-beta");
     await uninstallProviderIntegration("provider-beta");
   });
   assert(
     calls.map((call) => call.command).join(",") ===
-      "check_provider_integration,install_provider_integration,uninstall_provider_integration",
+      "check_provider_integration,install_provider_integration,install_provider_integration,uninstall_provider_integration",
     "bridge wrappers must call the registered provider integration commands",
   );
   assert(calls.every((call) => call.args?.providerId === "provider-beta"), "wrappers must forward the selected provider id");
   assert(calls[1]?.args?.consent === true, "the user-triggered install wrapper must record explicit consent");
   assert(calls[1]?.args?.precompactMemoryExport === true, "repair must preserve the checked pre-compact hook state");
+  assert(calls[2]?.args?.precompactMemoryExport === undefined, "an omitted choice stays omitted through the bridge");
 }
 
 async function main() {

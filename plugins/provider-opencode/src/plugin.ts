@@ -2,6 +2,7 @@
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
+  CODETERM_OPENCODE_PLUGIN_MARKER,
   lastPromptShape,
   parsePermissionPrompt,
   parseQuestionMenuPrompt,
@@ -307,11 +308,14 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath!) || "") : "";
+    const pluginOwned = pluginExists
+      && pluginBody.startsWith("// " + CODETERM_OPENCODE_PLUGIN_MARKER);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false,
       };
@@ -321,8 +325,10 @@ const plugin: PluginModule = {
       return {
         config_file_exists: true,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false,
+        integration_state: "unreadable",
       };
     }
     const target = opencodePluginEntry();
@@ -333,6 +339,7 @@ const plugin: PluginModule = {
     return {
       config_file_exists: true,
       plugin_file_exists: pluginExists,
+      plugin_file_owned: pluginOwned,
       plugin_file_current: pluginCurrent,
       plugin_installed: installed,
     };

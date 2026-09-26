@@ -98,14 +98,14 @@ export function ProviderIntegrationHealthCard({
     setAction("repair");
     setError(null);
     try {
-      await installProviderIntegration(provider.id, health?.precompact_hook);
+      await installProviderIntegration(provider.id);
       applyHealth(await checkProviderIntegration(provider.id));
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
       setAction(null);
     }
-  }, [applyHealth, health?.precompact_hook, provider.id]);
+  }, [applyHealth, provider.id]);
 
   const uninstall = useCallback(async () => {
     setAction("uninstall");
