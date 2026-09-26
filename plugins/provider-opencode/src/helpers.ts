@@ -1,7 +1,7 @@
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
 export const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -611,6 +611,7 @@ export function isCurrentOpencodeBindingPluginSource(text: string): boolean {
     "/api/tabs/",
     "x-codeterm-binding-nonce",
     "authorization",
+    "function isSessionBindingEvent(event)",
   ];
   return required.every((value) => text.includes(value))
     && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
@@ -693,28 +694,16 @@ export function opencodeBindingPluginSource(): string {
     "  );",
     "}",
     "",
+    "function isSessionBindingEvent(event) {",
+    '  return event?.type === "session.created" || event?.type === "tui.session.select";',
+    "}",
+    "",
     "export default async function CodeTermSessionBindingPlugin({ directory }) {",
     "  return {",
     "    async event({ event }) {",
-    "      if (",
-    "        event?.type === \"session.created\" ||",
-    "        event?.type === \"session.updated\" ||",
-    "        event?.type === \"tui.session.select\" ||",
-    "        event?.type === \"message.updated\" ||",
-    "        event?.type === \"message.part.updated\"",
-    "      ) {",
+    "      if (isSessionBindingEvent(event)) {",
     "        await report(eventSessionID(event), event.type, eventDirectory(event, directory));",
     "      }",
-    "    },",
-    "    async \"chat.message\"(input) {",
-    "      await report(input?.sessionID, \"chat.message\", directory);",
-    "    },",
-    "    async \"tool.execute.before\"(input) {",
-    "      await report(input?.sessionID, \"tool.execute.before\", directory);",
-    "    },",
-    "    async \"shell.env\"(input, output) {",
-    "      await report(input?.sessionID, \"shell.env\", input?.cwd || directory);",
-    "      return output;",
     "    },",
     "  };",
     "}",
