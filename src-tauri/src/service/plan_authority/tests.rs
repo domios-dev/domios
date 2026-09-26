@@ -307,7 +307,7 @@ async fn http_plan_authority_wait_does_not_block_another_request() {
                 + std::time::Duration::from_secs(3),
         );
     }
-    let pending_service = fixture.service.clone();
+    let pending_service = std::sync::Arc::new(fixture.service.clone());
     let pending_plan = plan_id.clone();
     let pending = tokio::spawn(async move {
         crate::api::plan_routes::authorize_plan_orchestrator_http(
@@ -321,7 +321,7 @@ async fn http_plan_authority_wait_does_not_block_another_request() {
     assert!(!pending.is_finished());
 
     crate::api::plan_routes::authorize_plan_orchestrator_http(
-        &fixture.service,
+        &std::sync::Arc::new(fixture.service.clone()),
         &plan_id,
         AuthenticatedPlanCaller::default(),
     )

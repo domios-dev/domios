@@ -31,7 +31,7 @@ impl PlanStore {
                 .is_some()
                 && plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress
             {
-                super::mutations::validate_task_status_transition(
+                super::super::mutations::validate_task_status_transition(
                     plan,
                     &plan.tasks[task_index].id,
                     &plan.tasks[task_index].status,
@@ -206,7 +206,7 @@ impl PlanStore {
                 .ok_or_else(|| Self::task_readback_error("task_dispatch_ack", "attempt missing"))?;
             let executor_persisted = if competitive {
                 task.status_label.as_deref() == Some("competitive")
-                    && super::mutations::live_competitive_executor(&task, attempt_id)
+                    && super::super::mutations::live_competitive_executor(&task, attempt_id)
             } else {
                 task.status_label.as_deref() == Some("acknowledged")
                     && task.assigned_tab_id.as_deref() == Some(tab_id)
@@ -429,7 +429,7 @@ impl PlanStore {
             let executor_persisted = persisted.acknowledged_at.is_none()
                 || (task.status == crate::plan::TaskStatus::InProgress
                     && (persisted.competition_group_id.is_none()
-                        || super::mutations::live_competitive_executor(&task, attempt_id)));
+                        || super::super::mutations::live_competitive_executor(&task, attempt_id)));
             if persisted.executor_tab_id != tab_id
                 || persisted.session_id.as_deref() != Some(session_id)
                 || !executor_persisted
@@ -511,11 +511,11 @@ impl PlanStore {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             lane.tab_id = Some(tab_id.to_string());
-            let lane_update = super::TaskLaneUpdate {
+            let lane_update = super::super::TaskLaneUpdate {
                 tab_id: Some(Some(tab_id.to_string())),
                 ..Default::default()
             };
-            super::mutations::validate_task_status_transition_with_lane(
+            super::super::mutations::validate_task_status_transition_with_lane(
                 plan,
                 &plan.tasks[task_index].id,
                 &plan.tasks[task_index].status,
