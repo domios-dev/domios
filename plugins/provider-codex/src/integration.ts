@@ -104,7 +104,7 @@ export function checkIntegration(): unknown {
     hooks_file_exists: true,
     hook_content_hash: ownedContentHash(arr, stopArr, winScriptText),
     hooks_installed: current && stopInstalled && trustOk,
-    session_start_hook: current && trustOk,
+    session_start_hook: current && trustState !== "disabled" && trustState !== "stale",
     stop_hook: stopInstalled && trustOk,
     hook_trust_state: trustState,
     hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
@@ -706,7 +706,9 @@ function hookTrustKeyFromHeader(header: string): string | null {
   const raw = header.slice(prefix.length, -1).trim();
   if (raw.startsWith("'") && raw.endsWith("'")) return raw.slice(1, -1);
   if (raw.startsWith('"') && raw.endsWith('"')) {
-    try { return JSON.parse(raw); } catch { return null; }
+    try { return JSON.parse(raw); } catch {
+      return raw.slice(1, -1).replace(/\\\\/g, "\\").replace(/\\\"/g, '"');
+    }
   }
   return null;
 }

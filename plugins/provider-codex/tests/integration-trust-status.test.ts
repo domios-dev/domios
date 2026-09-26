@@ -130,12 +130,18 @@ function appServerResult(sessionHash: string, stopHash: string, trustStatus = "u
 
 {
   const files = fixtureFiles();
-  const { plugin, calls } = load(files, () => appServerResult("sha256:recorded-session", "sha256:recorded-stop", "trusted"));
+  let hookContentChanged = false;
+  const { plugin, calls } = load(files, () => appServerResult(
+    hookContentChanged ? "sha256:changed-session" : "sha256:recorded-session",
+    "sha256:recorded-stop",
+    "trusted",
+  ));
   plugin.ensureIntegrationOnStartup(7686);
   assert.equal(plugin.checkIntegration().hook_trust_state, "trusted", "a successful refresh caches its verdict");
   const hooks = JSON.parse(files.get(hooksPath)!);
   hooks.hooks.SessionStart[0].hooks[0].command += " --data-binary @-";
   files.set(hooksPath, JSON.stringify(hooks));
+  hookContentChanged = true;
   assert.equal(plugin.checkIntegration().hook_trust_state, "stale",
     "changed hook content with unchanged recorded trust invalidates the old verdict as stale");
   plugin.ensureIntegrationOnStartup(7686);

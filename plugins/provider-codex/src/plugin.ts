@@ -268,14 +268,14 @@ const plugin: PluginModule = {
           + "if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { "
           + "$ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
           + "$ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
-          + "$ctPriorReleased = $ctPriorRelease.released -eq $true } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; "
-          + "if (-not $ctPriorReleased) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved-' + [guid]::NewGuid().ToString('N') + '.config.toml'); "
+          + "$ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; "
+          + "if (-not $ctPriorReleased) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved-' + $PID + '-' + [DateTime]::UtcNow.Ticks + '.config.toml'); "
           + "try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch { "
-          + "$ctProfileName = $ctProfileName + '-retry-' + [guid]::NewGuid().ToString('N'); $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
+          + "$ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
           + "Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; "
           + `$ctInstanceId = ${quotedInstanceId}; `
           + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); "
-          + "try { ";
+          + "$ctProfileReleased = $false; try { try { ";
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -293,8 +293,8 @@ const plugin: PluginModule = {
           + "try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { "
           + "$ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
           + "$ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
-          + "$ctProfileReleased = $ctRelease.released -eq $true } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; "
-          + "if ($ctProfileReleased) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } } }";
+          + "$ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; "
+          + "} } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
       }
     }
     return prefix + parts.join(" ");
