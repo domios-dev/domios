@@ -115,6 +115,26 @@ async function testCodexIntegrationStatesStayDistinguishable() {
   }
 }
 
+async function testUnknownIntegrationStateStaysUnverified() {
+  await withInvoke(async () => ({
+    integration_state: "unknown",
+    session_start_hook: true,
+    stop_hook: true,
+  }), async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(
+      host.querySelector('[data-provider-integration-state="unknown"]'),
+      "an unknown integration verdict must stay unverified even when hook content appears current",
+    );
+    assert(
+      !host.querySelector('[data-provider-integration-action="uninstall"]'),
+      "an unknown integration verdict must not expose healthy-only actions",
+    );
+    await cleanup(root);
+  });
+}
+
 async function testHealthyHookHasNoRepairAction() {
   await withInvoke(async () => ({ hooks_installed: true, session_start_hook: true }), async () => {
     const { host, root } = await renderCard();
@@ -266,6 +286,7 @@ async function main() {
   await testCapabilitySelectsIntegrationProviders();
   await testStaleHookIsActionable();
   await testCodexIntegrationStatesStayDistinguishable();
+  await testUnknownIntegrationStateStaysUnverified();
   await testHealthyHookHasNoRepairAction();
   await testFallbackBindingIsVisibleInIntegrationStatus();
   await testMissingStopHookIsDegraded();

@@ -88,15 +88,14 @@ interface StubOptions {
 
 interface StubState {
   execCalls: number;
+  protocolStages: { awaitResponseIds: number[]; methods: string[] }[];
   batchWriteValues: Record<string, { trusted_hash: string }>[];
   trusted: Record<string, string>;
 }
 
-/** Models `codex app-server` over pre-composed stdin JSONL: answers each
- *  request in order and "exits". config/batchWrite mimics Codex's writer —
- *  appends exactly one [hooks.state."<key>"] table per upserted key. */
+/** Models the initialize response followed by a response-driven RPC stage. */
 function makeAppServerStubExec(opts: StubOptions): { exec: (optsJson: string) => string; state: StubState } {
-  const state: StubState = { execCalls: 0, batchWriteValues: [], trusted: {} };
+  const state: StubState = { execCalls: 0, protocolStages: [], batchWriteValues: [], trusted: {} };
   const exec = (optsJson: string): string => {
     state.execCalls++;
     const parsed = JSON.parse(optsJson);
@@ -111,7 +110,15 @@ function makeAppServerStubExec(opts: StubOptions): { exec: (optsJson: string) =>
     }
     let wroteThisSession = false;
     const out: string[] = [];
-    const lines = String(parsed.stdin || "").split("\n");
+    const stages = Array.isArray(parsed.conversation) ? parsed.conversation : [];
+    if (stages.length !== 2 || JSON.stringify(stages[0].awaitResponseIds) !== "[1]") {
+      return JSON.stringify({ code: 1, stdout: "", stderr: "invalid response-driven app-server stages" });
+    }
+    state.protocolStages = stages.map((stage: { awaitResponseIds: number[]; stdin: string }) => ({
+      awaitResponseIds: stage.awaitResponseIds,
+      methods: String(stage.stdin || "").split("\n").filter(Boolean).map((line) => JSON.parse(line).method),
+    }));
+    const lines = stages.flatMap((stage: { stdin: string }) => String(stage.stdin || "").split("\n"));
     for (const line of lines) {
       if (!line.trim()) continue;
       const req = JSON.parse(line);
@@ -152,7 +159,7 @@ function makeAppServerStubExec(opts: StubOptions): { exec: (optsJson: string) =>
         }
         opts.files.set(CONFIG_PATH, config);
         wroteThisSession = true;
-        out.push(JSON.stringify({ id: req.id, result: {} }));
+        out.push(JSON.stringify({ id: req.id, result: { status: "ok", version: "sha256:fixture" } }));
       } else {
         out.push(JSON.stringify({ id: req.id, error: { code: -32601, message: "method not found" } }));
       }
@@ -234,7 +241,7 @@ console.log("\n--- trust_grant: degradation negative control (RPCs absent => ena
   eq(check.hook_trust_state, "missing", "trust_grant degradation keeps hook_trust_state missing (honest)");
 }
 
-console.log("\n--- trust_grant: re-verify failure restores config from snapshot ---\n");
+console.log("\n--- trust_grant: re-verify failure never writes config directly ---\n");
 
 {
   const foreignBlock = '[hooks.state."/home/user/.codex/hooks.json:stop:3:1"]\nenabled = false\ntrusted_hash = "sha256:user-owned-hash"\n';
@@ -248,15 +255,23 @@ console.log("\n--- trust_grant: re-verify failure restores config from snapshot 
     reportedHash,
     reListHash: reportedHash + "-drifted",
   });
-  const p = loadCodexWithHost({ ...fsHost(files), exec: stub.exec });
-  const snapshotBytes = files.get(CONFIG_PATH);
-
+  let directWrites = 0;
+  const base = fsHost(files);
+  const host = {
+    ...base,
+    fs: {
+      ...base.fs,
+      writeFile: (file: string, value: string) => { directWrites++; files.set(file, value); return true; },
+    },
+    exec: stub.exec,
+  };
+  const p = loadCodexWithHost(host);
   const result = p.grantIntegrationTrust(["session_start"]);
   assert(result.granted === false, "trust_grant re-verify drift reports the grant failed", JSON.stringify(result));
   assert(result.verify_failed === true, "trust_grant re-verify drift is classified verify_failed");
-  assert(result.restored === true, "trust_grant re-verify drift restored the snapshot");
+  assert(result.restored === undefined, "trust_grant does not restore config by writing a snapshot");
   eq(stub.state.batchWriteValues.length, 1, "trust_grant re-verify drift wrote before failing (mutating failure)");
-  eq(files.get(CONFIG_PATH), snapshotBytes, "trust_grant re-verify failure restores exact pre-grant config bytes");
+  eq(directWrites, 0, "trust_grant config changes stay inside Codex app-server");
   const check = p.checkIntegration();
   assert(check.hook_trust_state !== "trusted", "trust_grant re-verify failure never fabricates trusted state");
 }
@@ -272,7 +287,7 @@ console.log("\n--- trust_grant: unconfirmed batchWrite negative control (no rest
   const stub = makeAppServerStubExec({ files, reportedHash, batchWriteAbsent: true });
   const userEdit = "# user edit landed between snapshot and the write session\n";
   const exec = (optsJson: string): string => {
-    if (String(JSON.parse(optsJson).stdin || "").includes("config/batchWrite")) {
+    if (JSON.stringify(JSON.parse(optsJson).conversation).includes("config/batchWrite")) {
       files.set(CONFIG_PATH, userEdit);
     }
     return stub.exec(optsJson);

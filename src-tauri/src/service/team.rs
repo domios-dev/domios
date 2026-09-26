@@ -321,15 +321,6 @@ impl ServiceContext {
         // Persist the authorized reduction before any fallible cleanup can
         // early-return and leave last.json still holding the member tabs.
         crate::service::session_persist::persist_session_after_close(self);
-        let registry = std::sync::Arc::clone(&self.agent_registry);
-        let closed_tabs = cleanup.agent_providers;
-        if let Err(error) = tokio::task::spawn_blocking(move || {
-            crate::service::launch_artifacts::release_closed_tabs(&registry, &closed_tabs)
-        })
-        .await
-        {
-            log::warn!("[team-close] launch artifact release task failed: {error}");
-        }
         for tab_id in &cleanup.member_tab_ids {
             self.chat_registry.shutdown_tab(tab_id);
         }
@@ -343,6 +334,15 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        let registry = std::sync::Arc::clone(&self.agent_registry);
+        let closed_tabs = cleanup.agent_providers;
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            crate::service::launch_artifacts::release_closed_tabs(&registry, &closed_tabs)
+        })
+        .await
+        {
+            log::warn!("[team-close] launch artifact release task failed: {error}");
+        }
         let plan_store = std::sync::Arc::clone(&self.plan_store);
         let lane_cleanup = tokio::task::spawn_blocking(move || {
             finish_team_lane_cleanup(&plan_store, &lanes, close_at)
