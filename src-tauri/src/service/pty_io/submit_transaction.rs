@@ -562,7 +562,7 @@ fn run<T: SubmitTransport>(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
-    run_with_submit_key(transport, text, enter, b"\r", strategy, opts)
+    run_with_submit_key(transport, text, enter, b"\r", strategy, opts, |_| Ok(()))
 }
 
 fn run_with_submit_key<T: SubmitTransport>(
@@ -572,6 +572,7 @@ fn run_with_submit_key<T: SubmitTransport>(
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
+    mut key_guard: impl FnMut(bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
     let turn_deadline = started + opts.submit_timeout;
@@ -585,9 +586,12 @@ fn run_with_submit_key<T: SubmitTransport>(
     let baseline_evidence = transport.draft_evidence_count(text);
     let turn_was_started = enter.then(|| transport.turn_started());
     let initial_enter_armed = transport.generation();
-    let initial_submit = (enter && initial_key_delay.is_zero())
-        .then(|| transport.write_initial_submit(text, submit_key, turn_deadline))
-        .flatten();
+    let initial_submit = if enter && initial_key_delay.is_zero() {
+        key_guard(true)?;
+        transport.write_initial_submit(text, submit_key, turn_deadline)
+    } else {
+        None
+    };
     let (bytes_written, mut submit_key_writes) = match initial_submit {
         Some(result) => (result?, 1),
         None => (transport.write_paste(text, turn_deadline)?, 0),
@@ -651,11 +655,26 @@ fn run_with_submit_key<T: SubmitTransport>(
                 break;
             }
         }
+        if let Err(error) = key_guard(submit_key_writes == 0) {
+            if submit_key_writes > 0 {
+                break;
+            }
+            if bytes_written == 0 {
+                return Err(error);
+            }
+            let screen_tail = transport
+                .observe()
+                .map(|state| state.tail)
+                .unwrap_or_default();
+            return Err(InjectionError::SubmitNeverConfirmed {
+                waited: started.elapsed(),
+                screen_tail,
+            });
+        }
         let enter_armed = transport.generation();
-        // The paste already reached the PTY: a submit-key write failure can
-        // only mean unconfirmed submission, never a zero-write terminal error.
+        // A prior payload or submit key makes this failure submission uncertainty.
         if let Err(error) = transport.write_submit_key(submit_key, turn_deadline) {
-            if text.is_empty() {
+            if text.is_empty() && submit_key_writes == 0 {
                 return Err(error);
             }
             log::warn!(
@@ -764,8 +783,137 @@ pub(crate) fn submit_text_with_key_claimed(
         paste_capability,
         turn_signaled: std::cell::Cell::new(false),
     };
-    let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).inspect(
-        |result| {
+    let mut key_guard = |allow_initial_key: bool| {
+        let (tab_id, agent_id, session_bound, session_id, cwd, owns_pty) = {
+            let mux = svc.mux.read();
+            let Some(tab_id) = mux.tab_id_for_pty(pty_id).map(str::to_string) else {
+                return Err(InjectionError::AgentInputUnavailable {
+                    pty_id: pty_id.to_string(),
+                });
+            };
+            let Some(tab) = mux.get_tab(&tab_id) else {
+                return Err(InjectionError::AgentInputUnavailable {
+                    pty_id: pty_id.to_string(),
+                });
+            };
+            (
+                tab_id,
+                tab.agent_type.clone(),
+                tab.launch_session_authenticated(),
+                tab.agent_session_id.clone(),
+                tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                tab.pty_id.as_deref() == Some(pty_id),
+            )
+        };
+        if !owns_pty {
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
+        }
+        let (screen, input) = {
+            let screen_state = svc.screen_state.lock();
+            (
+                screen_state.get_screen_text(pty_id),
+                screen_state.composer_input_state(pty_id),
+            )
+        };
+        let Some(agent_id) = agent_id else {
+            return if allow_initial_key {
+                Ok(())
+            } else {
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: pty_id.to_string(),
+                })
+            };
+        };
+        let Some(screen) = screen else {
+            return if allow_initial_key {
+                Ok(())
+            } else {
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: pty_id.to_string(),
+                })
+            };
+        };
+        let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+            tab_id,
+            agent_type: agent_id.clone(),
+            session_id,
+            cwd,
+            screen_text: screen.clone(),
+        };
+        let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
+            use codeterm_plugin::tab_state::TabState;
+
+            let provider_tui = provider.screen_has_tui(&screen);
+            let composer_ready = input.as_ref().is_some_and(|state| {
+                let cursor_ready = crate::agent::offline_state_classifier::composer_cursor_ready(
+                    state.cursor_visible,
+                    state.cursor_row,
+                    state.rows,
+                ) || state
+                    .inverse_caret_row
+                    .zip(state.last_nonblank_row)
+                    .is_some_and(|(row, bottom)| {
+                        crate::agent::offline_state_classifier::composer_cursor_ready(
+                            true,
+                            row,
+                            bottom.saturating_add(1),
+                        )
+                    });
+                cursor_ready && (provider_tui || state.alternate_screen)
+            });
+            let classification = provider.classify_tab_state(&snapshot);
+            let high_confidence = classification.as_ref().is_some_and(|value| {
+                value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+            });
+            let structured_choice = high_confidence
+                && classification
+                    .as_ref()
+                    .is_some_and(|value| value.state == TabState::ClarifyingQuestion)
+                && provider.parse_prompt(&screen).is_some();
+            let classified_dialog = high_confidence
+                && classification
+                    .as_ref()
+                    .is_some_and(|value| value.state == TabState::UpdatePrompt);
+            let trust_dialog = provider.directory_trust_prompt_response(&screen).is_some();
+            (
+                composer_ready,
+                trust_dialog || structured_choice || classified_dialog,
+            )
+        });
+        let Some((composer_ready, modal_visible)) = readiness else {
+            return if allow_initial_key {
+                Ok(())
+            } else {
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: pty_id.to_string(),
+                })
+            };
+        };
+        if modal_visible {
+            return Err(InjectionError::AgentTuiPresent {
+                pty_id: pty_id.to_string(),
+            });
+        }
+        if allow_initial_key || session_bound || composer_ready {
+            Ok(())
+        } else {
+            Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            })
+        }
+    };
+    let result = run_with_submit_key(
+        &transport,
+        text,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        &mut key_guard,
+    )
+    .inspect(|result| {
             if recovery_attempted(result) {
                 // `recovered=false` is not a lost message: a TUI strategy proves submit
                 // only by a turn transition, which a busy tab cannot produce.
@@ -784,8 +932,7 @@ pub(crate) fn submit_text_with_key_claimed(
                     result.elapsed.as_millis()
                 );
             }
-        },
-    );
+        });
     if let Err(ref error) = result {
         let tab_current_pty = {
             let mux = svc.mux.read();

@@ -5,7 +5,7 @@
 //! ORACLE: recorded writes, ledger state, and the exact error variant.
 use super::tests::{opts, tui};
 use super::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
@@ -130,6 +130,248 @@ fn short_opts() -> VerifyOpts {
         submit_timeout: Duration::from_millis(250),
         ..opts()
     }
+}
+
+struct GuardTransport {
+    writes: RefCell<Vec<String>>,
+}
+
+impl GuardTransport {
+    fn new() -> Self {
+        Self {
+            writes: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl SubmitTransport for GuardTransport {
+    fn observe(&self) -> Option<Observation> {
+        None
+    }
+
+    fn draft_evidence_count(&self, _text: &str) -> usize {
+        0
+    }
+
+    fn generation(&self) -> u64 {
+        0
+    }
+
+    fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
+        false
+    }
+
+    fn turn_started(&self) -> bool {
+        false
+    }
+
+    fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
+        self.writes.borrow_mut().push(format!("paste:{text}"));
+        Ok(text.len())
+    }
+
+    fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
+        self.writes.borrow_mut().push("enter".into());
+        Ok(())
+    }
+}
+
+#[test]
+fn recovery_burst_stops_when_update_dialog_appears_after_initial_submit() {
+    let io = GuardTransport::new();
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(
+        &io,
+        "payload",
+        true,
+        b"\r",
+        VerifySubmitStrategy::None,
+        opts(),
+        |shell_submit| {
+            guard_checks += 1;
+            match guard_checks {
+                1 | 2 => {
+                    assert!(shell_submit);
+                    Ok(())
+                }
+                _ => {
+                    assert!(!shell_submit);
+                    Err(InjectionError::AgentInputUnavailable {
+                        pty_id: "same-pty".into(),
+                    })
+                }
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(guard_checks, 3);
+    assert_eq!(&*io.writes.borrow(), &["paste:payload", "enter"]);
+    assert_eq!(result.bytes_written, 7);
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(!result.submit_observed);
+    assert!(result.submit_anomaly);
+    let unconfirmed = result
+        .clone()
+        .require_submission(true, result.elapsed, "provider update dialog".into())
+        .unwrap_err();
+    let delivery =
+        crate::service::delivery_error::DeliveryError::from_injection("same-pty", unconfirmed);
+    assert_eq!(delivery.code(), "submit_unconfirmed");
+    assert!(delivery.bytes_written());
+}
+
+#[test]
+fn recovery_burst_stops_on_trust_dialog_after_shell_started_tui() {
+    let io = GuardTransport::new();
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(
+        &io,
+        "codex",
+        true,
+        b"\r",
+        VerifySubmitStrategy::None,
+        opts(),
+        |shell_submit| {
+            guard_checks += 1;
+            match guard_checks {
+                1 | 2 => {
+                    assert!(shell_submit);
+                    Ok(())
+                }
+                _ => {
+                    assert!(!shell_submit);
+                    Err(InjectionError::AgentInputUnavailable {
+                        pty_id: "same-pty".into(),
+                    })
+                }
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(guard_checks, 3);
+    assert_eq!(&*io.writes.borrow(), &["paste:codex", "enter"]);
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(result.submit_anomaly);
+}
+
+#[test]
+fn plain_shell_send_succeeds_when_recovery_proof_is_absent() {
+    let io = GuardTransport::new();
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(
+        &io,
+        "ls",
+        true,
+        b"\r",
+        VerifySubmitStrategy::None,
+        opts(),
+        |initial_key| {
+            guard_checks += 1;
+            if guard_checks < 3 {
+                assert!(initial_key);
+                Ok(())
+            } else {
+                assert!(!initial_key);
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: "shell-pty".into(),
+                })
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(guard_checks, 3);
+    assert_eq!(&*io.writes.borrow(), &["paste:ls", "enter"]);
+    assert_eq!(result.submit_key_writes, 1);
+}
+
+#[test]
+fn observed_initial_enter_remains_confirmed_when_recovery_guard_refuses() {
+    let io = ParkedDraft::dropping(0);
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(&io, "codex", true, b"\r", tui(), opts(), |initial_key| {
+        guard_checks += 1;
+        if guard_checks < 3 {
+            assert!(initial_key);
+            Ok(())
+        } else {
+            assert!(!initial_key);
+            Err(InjectionError::AgentInputUnavailable {
+                pty_id: "launch-pty".into(),
+            })
+        }
+    })
+    .unwrap();
+
+    assert_eq!(guard_checks, 3);
+    assert_eq!(io.payload_writes.get(), 1);
+    assert_eq!(io.submit_key_writes.get(), 1);
+    assert!(result.submit_observed);
+    let elapsed = result.elapsed;
+    assert!(result
+        .require_submission(true, elapsed, String::new())
+        .is_ok());
+}
+
+#[test]
+fn empty_enter_guard_refusal_after_initial_key_is_not_a_new_error() {
+    let io = GuardTransport::new();
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(
+        &io,
+        "",
+        true,
+        b"\r",
+        VerifySubmitStrategy::None,
+        opts(),
+        |initial_key| {
+            guard_checks += 1;
+            if guard_checks < 3 {
+                assert!(initial_key);
+                Ok(())
+            } else {
+                assert!(!initial_key);
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: "shell-pty".into(),
+                })
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(guard_checks, 3);
+    assert_eq!(&*io.writes.borrow(), &["paste:", "enter"]);
+    assert_eq!(result.bytes_written, 0);
+    assert_eq!(result.submit_key_writes, 1);
+}
+
+#[test]
+fn recovery_keys_require_same_pty_proof() {
+    let io = GuardTransport::new();
+    let error = run_with_submit_key(
+        &io,
+        "payload",
+        true,
+        b"\r",
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay: Duration::from_millis(1),
+        },
+        opts(),
+        |_| {
+            Err(InjectionError::AgentInputUnavailable {
+                pty_id: "same-pty".into(),
+            })
+        },
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
+    assert_eq!(&*io.writes.borrow(), &["paste:payload"]);
+    let delivery = crate::service::delivery_error::DeliveryError::from_injection("same-pty", error);
+    assert_eq!(delivery.code(), "submit_unconfirmed");
+    assert!(delivery.bytes_written());
 }
 
 #[test]
