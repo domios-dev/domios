@@ -354,7 +354,7 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 .or(task_id)
                 .unwrap_or("<task_id>");
             Some(format!(
-                "✗ task '{task}' was found, but no single execution attempt on it resolves to bounce.\nfix: inspect its attempts, then retry:\n  codeterm plan task show {plan_id} {task}"
+                "✗ task '{task}' was found, but its review attempt is missing or ambiguous.\nfix: inspect its attempts, then use the reopen path when one attempt resolves:\n  codeterm plan task show {plan_id} {task}\n  codeterm plan review bounce {plan_id} {task} --note \"<required changes>\""
             ))
         }
         "review_continuation_delivery_refused" => {

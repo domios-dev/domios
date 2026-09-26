@@ -53,6 +53,7 @@ plan-owned source work; never self-assign normal implementation work merely
 because canonical is writable.
 Team utility shells and cron jobs inherit that Team for cleanup. Use `--no-team`
 only when a resource must outlive it deliberately.
+Adopting a plan into a Team binds that Team's unique live Planner to the plan.
 
 Lane safety has two hard stops and otherwise only nudges; see the lanes playbook.
 
@@ -133,7 +134,9 @@ any open state → cancelled
   Orchestrator tab. Workers never poll or separately update task status.
 - The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
   records a reason while preserving its assignment and lane; `bounce` returns it
-  to the assigned Worker for another pass.
+  to the assigned Worker when its continuation is available. If the Worker is
+  gone, bounce reopens the task as pending and preserves the note, attempt history,
+  and lane for redispatch.
 - `paused` is a system hold, never an agent verb: a decision gate (`gate:<id>:`
   reason) or provider exhaustion with a resumable checkpoint. It is excluded
   from open work and resumes when the gate is answered or the provider recovers.
@@ -198,9 +201,10 @@ codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 
 Generic task updates, decision gates, and removals cannot move a task out
 of `in_review`. Use `codeterm plan review accept|bounce|hold <plan> <task> --note
-"…"`: `bounce` returns the work to the Worker, `hold` keeps the review open with
-the assignment and lane intact, and every verdict requires `--note`, never
-`--reason`. Review credit repair, task-less evidence reporters, and Planner parent
-resolution are plan surface contracts (API-PLAN).
+"…"`: `bounce` returns work to a live Worker or reopens it as pending when the
+Worker is gone, `hold` keeps the review open with the assignment and lane intact,
+and every verdict requires `--note`, never `--reason`. Review credit repair,
+task-less evidence reporters, and Planner parent resolution are plan surface
+contracts (API-PLAN).
 
-<!-- revision: 87 -->
+<!-- revision: 88 -->
