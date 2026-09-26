@@ -411,14 +411,31 @@ impl ServiceContext {
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
-        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail,
-            })?;
-        let pty_id = match self.resolve_pty_id(tab_id) {
-            Ok(pty_id) => pty_id,
-            Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
+        let shell_ready_agent_pty = self.resolve_pty_id(tab_id).ok().filter(|pty_id| {
+            let agent_pty = {
+                let mux = self.mux.read();
+                mux.get_tab(tab_id).is_some_and(|tab| {
+                    tab.agent_type.is_some()
+                        && tab.pty_id.as_deref() == Some(pty_id.as_str())
+                        && mux.tab_id_for_pty(pty_id).as_deref() == Some(tab_id)
+                })
+            };
+            agent_pty
+                && await_bare_shell_prompt(&self.screen_state, pty_id, std::time::Duration::ZERO)
+        });
+        if shell_ready_agent_pty.is_none() {
+            self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
+                .map_err(|detail| DeliveryError::TabBusyRefused {
+                    tab: tab_id.to_string(),
+                    detail,
+                })?;
+        }
+        let pty_id = match shell_ready_agent_pty {
+            Some(pty_id) => pty_id,
+            None => match self.resolve_pty_id(tab_id) {
+                Ok(pty_id) => pty_id,
+                Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
+            },
         };
         let claim = claim
             .filter(|claim| claim.pty_id() == pty_id)
@@ -479,6 +496,19 @@ impl ServiceContext {
         claim: super::submit_transaction::SubmitCycleClaim,
     ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_agent(pty_id);
+        let agent_type = if agent_type.is_some() {
+            let screen = self.screen_state.lock().get_screen_text(pty_id);
+            if screen
+                .as_deref()
+                .is_some_and(crate::pty::screen_state::screen_has_bare_shell_prompt)
+            {
+                None
+            } else {
+                agent_type
+            }
+        } else {
+            agent_type
+        };
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         let text = agent_type
             .as_ref()

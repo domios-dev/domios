@@ -196,7 +196,7 @@ fn recovery_burst_stops_when_update_dialog_appears_after_initial_submit() {
                 }
                 _ => {
                     assert!(!shell_submit);
-                    Err(InjectionError::AgentInputUnavailable {
+                    Err(InjectionError::AgentTuiPresent {
                         pty_id: "same-pty".into(),
                     })
                 }
@@ -241,7 +241,7 @@ fn recovery_burst_stops_on_trust_dialog_after_shell_started_tui() {
                 }
                 _ => {
                     assert!(!shell_submit);
-                    Err(InjectionError::AgentInputUnavailable {
+                    Err(InjectionError::AgentTuiPresent {
                         pty_id: "same-pty".into(),
                     })
                 }
@@ -359,7 +359,8 @@ fn recovery_keys_require_same_pty_proof() {
             initial_key_delay: Duration::from_millis(1),
         },
         opts(),
-        |_| {
+        |allow_initial_key| {
+            assert!(!allow_initial_key);
             Err(InjectionError::AgentInputUnavailable {
                 pty_id: "same-pty".into(),
             })
@@ -372,6 +373,39 @@ fn recovery_keys_require_same_pty_proof() {
     let delivery = crate::service::delivery_error::DeliveryError::from_injection("same-pty", error);
     assert_eq!(delivery.code(), "submit_unconfirmed");
     assert!(delivery.bytes_written());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the ServiceContext harness requires an interactive desktop runtime"
+)]
+fn stale_agent_type_with_a_bare_shell_prompt_routes_as_shell() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::delivery_error::DeliveryError;
+    use crate::service::test_fixture::ServiceFixture;
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let pty_id = "stale-agent-shell";
+    mux.link_pty(&tab_id, pty_id.to_string());
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("codex".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
+    tab.boot_failure_reason = Some("agent exited".into());
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"PS C:\\Users\\Tester>");
+
+    let error = fixture
+        .service
+        .send_text_input_delivery(&tab_id, "codex --no-daemon", true, None)
+        .unwrap_err();
+
+    assert!(matches!(error, DeliveryError::PtyUnavailable { .. }));
+    assert!(!error.bytes_written());
 }
 
 #[test]
