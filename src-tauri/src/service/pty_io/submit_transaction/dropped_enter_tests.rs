@@ -379,8 +379,9 @@ fn recovery_keys_require_same_pty_proof() {
     assert_eq!(&*io.writes.borrow(), &["paste:payload", "enter"]);
     assert_eq!(result.submit_key_writes, 1);
     assert!(!result.submit_observed);
+    let elapsed = result.elapsed;
     let error = result
-        .require_submission(true, result.elapsed, "recovery proof absent".into())
+        .require_submission(true, elapsed, "recovery proof absent".into())
         .unwrap_err();
     let delivery = crate::service::delivery_error::DeliveryError::from_injection("same-pty", error);
     assert_eq!(delivery.code(), "submit_unconfirmed");
