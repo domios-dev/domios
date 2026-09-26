@@ -121,7 +121,14 @@ mod tests {
         assert_eq!(recipient, target);
         assert_eq!(envelope.kind, MessageKind::Report);
         assert_eq!(envelope.from_tab, worker_tab_id);
-        assert_eq!(envelope.from_label, "Worker");
+        let worker_title = fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&worker_tab_id)
+            .map(|tab| tab.title.clone())
+            .unwrap();
+        assert_eq!(envelope.from_label, worker_title);
         assert_eq!(envelope.context.as_deref(), Some("report_refused"));
         assert!(body.contains(reason));
         assert!(body.contains(original));
