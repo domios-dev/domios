@@ -443,13 +443,27 @@ fn host_write_then_read_file_round_trip() {
 #[test]
 fn host_atomic_write_and_exclusive_file_lock_round_trip() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.toml").to_string_lossy().into_owned();
+    let path = dir
+        .path()
+        .join("config.toml")
+        .to_string_lossy()
+        .into_owned();
     let vm = vm_with(
         r#"
             module.exports.default = {
                 lock(p) { return host.lockFile(p); },
                 unlock(id) { return host.unlockFile(id); },
-                write(p, c) { return host.writeFileAtomic(p, c); }
+                lockAndUnlock(p) {
+                    const id = host.lockFile(p);
+                    return id !== null && host.unlockFile(id);
+                },
+                symlink(p) { return host.fs.isSymlink(p); },
+                writeLocked(p, c) {
+                    const id = host.lockFile(p);
+                    if (id === null) return false;
+                    try { return host.writeFileAtomic(p, c); }
+                    finally { host.unlockFile(id); }
+                }
             };
         "#,
     );
@@ -458,26 +472,49 @@ fn host_atomic_write_and_exclusive_file_lock_round_trip() {
     let lock_id = lock_id.expect("lock acquisition returns an opaque handle");
     let contended: Option<String> =
         crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
-    assert!(contended.is_none(), "a held config lock fails without waiting");
+    assert!(
+        contended.is_some(),
+        "a completed plugin call releases leaked lock handles"
+    );
     let ok: bool = crate::js_runtime::vm::call_json(
         &vm,
-        "write",
+        "writeLocked",
         &[json!(path.clone()), json!("model = \"gpt-5.6\"\n")],
     )
     .unwrap();
     assert!(ok);
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "model = \"gpt-5.6\"\n");
-    let unlocked: bool = crate::js_runtime::vm::call_json(&vm, "unlock", &[json!(lock_id)]).unwrap();
-    assert!(unlocked);
-    let reacquired: Option<String> =
-        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
-    assert!(reacquired.is_some(), "the lock can be acquired after release");
-    let _: bool = crate::js_runtime::vm::call_json(
-        &vm,
-        "unlock",
-        &[json!(reacquired.unwrap())],
-    )
-    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "model = \"gpt-5.6\"\n"
+    );
+    let is_symlink: Option<bool> =
+        crate::js_runtime::vm::call_json(&vm, "symlink", &[json!(path.clone())]).unwrap();
+    assert_eq!(is_symlink, Some(false));
+    let unlocked: bool =
+        crate::js_runtime::vm::call_json(&vm, "unlock", &[json!(lock_id)]).unwrap();
+    assert!(
+        !unlocked,
+        "a call-scoped handle cannot outlive the JavaScript call"
+    );
+    let lock_and_unlock: bool =
+        crate::js_runtime::vm::call_json(&vm, "lockAndUnlock", &[json!(path.clone())]).unwrap();
+    assert!(
+        lock_and_unlock,
+        "the normal lock merge remains usable inside one plugin call"
+    );
+    let external_lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    external_lock.try_lock().unwrap();
+    let blocked: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path)]).unwrap();
+    assert!(
+        blocked.is_none(),
+        "another owner keeps the shared lock exclusive"
+    );
+    external_lock.unlock().unwrap();
 }
 
 #[test]

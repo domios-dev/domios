@@ -19,6 +19,7 @@ function makeHost(files: Record<string, string>, unreadableDirectory = false) {
     homeDir: () => "C:\\Users\\test",
     fs: {
       fileExists: (path) => files[path.slice(path.lastIndexOf("\\") + 1)] !== undefined,
+      isSymlink: () => false,
       readDir: () => {
         if (unreadableDirectory) throw new Error("denied");
         return Object.keys(files).map((name) => ({ name, isFile: true }));
