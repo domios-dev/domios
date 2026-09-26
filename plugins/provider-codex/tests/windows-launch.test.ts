@@ -31,7 +31,7 @@ $env:CODETERM_TAB_ID = 'owned-launch-fixture'
 function codex {
   $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
   $profileText = [IO.File]::ReadAllText($profilePath)
-  $lines = $profileText -split "`r?`n"
+  $lines = $profileText -split "\`r?\`n"
   if ($lines[0] -ne '# codeterm-instance: instance-launch-test') { throw 'instance marker is not the first profile line' }
   $assignment = $profileText.Substring($profileText.IndexOf('developer_instructions = ') + 'developer_instructions = '.Length)
   $value = $assignment | ConvertFrom-Json
