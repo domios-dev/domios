@@ -136,6 +136,37 @@ fn dispatched_attempt_records_routed_model_and_effort() {
     assert_eq!(attempt.provider.as_deref(), Some("codex"));
     assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
+
+    store
+        .update_dispatched_attempt_reasoning_effort(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            &attempt_id,
+            Some("high".into()),
+            4,
+        )
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.reasoning_effort.as_deref(), Some("high"));
+
+    let updated_at = store.get(&plan.id).unwrap().updated_at;
+    store
+        .update_dispatched_attempt_reasoning_effort(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            &attempt_id,
+            Some("high".into()),
+            5,
+        )
+        .unwrap();
+    assert_eq!(store.get(&plan.id).unwrap().updated_at, updated_at);
 }
 
 #[test]

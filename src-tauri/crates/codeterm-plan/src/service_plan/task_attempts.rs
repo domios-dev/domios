@@ -659,8 +659,7 @@ impl PlanStore {
                 && attempt.session_model.is_none()
                 && attempt.session_id.as_deref() == Some(session_id)
                 && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
-        })
-        {
+        }) {
             return Ok(false);
         }
         self.with_plan_if_changed(plan_id, now_ms, |plan| {
@@ -682,6 +681,38 @@ impl PlanStore {
             Ok(Some(true))
         })
         .map(|changed| changed.unwrap_or(false))
+    }
+
+    pub fn update_dispatched_attempt_reasoning_effort(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        reasoning_effort: Option<String>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.executor_tab_id == tab_id
+                        && attempt.closed_at.is_none()
+                        && attempt.retired_at.is_none()
+                })
+                .ok_or(PlanError::TaskNotFound)?;
+            if attempt.reasoning_effort == reasoning_effort {
+                return Ok(None);
+            }
+            attempt.reasoning_effort = reasoning_effort;
+            task.updated_at = now_ms;
+            Ok(Some(()))
+        })?;
+        Ok(())
     }
 
     pub fn build_task_compete_drafts(
