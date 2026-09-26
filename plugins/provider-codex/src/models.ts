@@ -4,7 +4,6 @@ declare const host: {
   envGet(name: string): string | null;
   homeDir(): string | null;
   platform(): string;
-  manifestJson(): string;
   fs: {
     fileExists(path: string): boolean;
     readJson<T>(path: string): T | null;
@@ -23,16 +22,9 @@ interface CodexCachedModel {
   priority?: number;
 }
 
-interface CodexManifestModel extends ModelInfo {
-  visibility?: string;
-}
-
-interface CodexManifest {
-  models?: CodexManifestModel[];
-}
-
-export function discoverCodexModels(): ModelInfo[] {
-  return discoverCodexModelsFromCache() || manifestModels();
+// `null` tells the host no genuine discovery ran; the seed is the host's to apply.
+export function discoverCodexModels(): ModelInfo[] | null {
+  return discoverCodexModelsFromCache();
 }
 
 function codexModelsCachePath(): string | null {
@@ -77,22 +69,6 @@ function discoverCodexModelsFromCache(): ModelInfo[] | null {
 
 function priorityOf(m: CodexCachedModel): number {
   return typeof m.priority === "number" ? m.priority : 1e9;
-}
-
-function manifestModels(): ModelInfo[] {
-  try {
-    const m = JSON.parse(host.manifestJson() || "null") as CodexManifest | null;
-    const raw = Array.isArray(m && m.models) ? m!.models! : [];
-    const kept: ModelInfo[] = [];
-    for (let i = 0; i < raw.length; i++) {
-      const item = raw[i];
-      if (item.visibility === "hide") continue;
-      kept.push({ id: item.id, displayName: item.displayName, description: item.description });
-    }
-    return kept;
-  } catch (_) {
-    return [];
-  }
 }
 
 const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];

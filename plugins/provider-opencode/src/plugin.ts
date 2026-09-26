@@ -11,7 +11,6 @@ import {
   isVerticalPrompt,
   verticalPromptHighlightIndex,
   discoverOpencodeModels,
-  manifestModels,
   discoverOpencodeGroupUsage,
   normalizeSessionDirectory,
   parseStructuredCursor,
@@ -127,9 +126,9 @@ const plugin: PluginModule = {
     return events;
   },
 
-  // off hot reads. If the CLI is absent/offline, use the manifest seed.
-  discoverModels(): ModelInfo[] {
-    return discoverOpencodeModels() || manifestModels();
+  // off hot reads. `null` when the CLI cannot answer: the host keeps its seed.
+  discoverModels(): ModelInfo[] | null {
+    return discoverOpencodeModels();
   },
 
   // Cumulative usage per upstream company comes from OpenCode's session store.

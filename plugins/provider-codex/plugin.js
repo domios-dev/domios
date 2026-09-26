@@ -29,7 +29,7 @@ module.exports = __toCommonJS(plugin_exports);
 
 // plugins/provider-codex/src/models.ts
 function discoverCodexModels() {
-  return discoverCodexModelsFromCache() || manifestModels();
+  return discoverCodexModelsFromCache();
 }
 function codexModelsCachePath() {
   const home = host.homeDir();
@@ -67,21 +67,6 @@ function discoverCodexModelsFromCache() {
 }
 function priorityOf(m) {
   return typeof m.priority === "number" ? m.priority : 1e9;
-}
-function manifestModels() {
-  try {
-    const m = JSON.parse(host.manifestJson() || "null");
-    const raw = Array.isArray(m && m.models) ? m.models : [];
-    const kept = [];
-    for (let i = 0; i < raw.length; i++) {
-      const item = raw[i];
-      if (item.visibility === "hide") continue;
-      kept.push({ id: item.id, displayName: item.displayName, description: item.description });
-    }
-    return kept;
-  } catch (_) {
-    return [];
-  }
 }
 var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
 function isNonChatModel(id) {
