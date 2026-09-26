@@ -248,7 +248,8 @@ mod tests {
     fn attempt_records_actual_effort_for_claude_and_codex() {
         use crate::agent::test_provider::MockProvider;
         use crate::plan::{OrchestratorRef, Plan};
-        use crate::service::plan::{AssignmentRuntimeBinding, NewTask};
+        use crate::service::plan::task_assignment::AssignmentRuntimeBinding;
+        use crate::service::plan::NewTask;
 
         let (mut mux, claude_tab) = crate::multiplexer::state::MultiplexerState::new();
         let workspace_id = mux.find_workspace_for_tab(&claude_tab).unwrap();
