@@ -66,6 +66,40 @@ fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {
 }
 
 #[test]
+fn session_start_fallback_retry_is_available_once_per_pending_fallback() {
+    let mut fallbacks = HookBindingFallbacks::new();
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    assert!(take_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+    assert!(!take_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    assert!(!take_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+}
+
+#[test]
 fn binding_fallback_field_survives_non_binding_hooks() {
     let mut fallbacks = HookBindingFallbacks::new();
     update_hook_binding_fallback(

@@ -68,6 +68,7 @@ function profileSweepHost(): ProfileSweepHost {
   return {
     platform: () => host.platform(),
     homeDir: () => host.homeDir(),
+    log: (level, message) => host.log(level, message),
     fs: {
       fileExists: (path) => host.fs.fileExists(path),
       readDir: (path) => host.fs.readDir(path),
@@ -260,6 +261,10 @@ const plugin: PluginModule = {
           + "$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; "
           + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
           + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
+          + "if (Test-Path -LiteralPath $ctProfilePath) { if (-not $env:CODETERM_API_URL -or -not $env:CODETERM_API_TOKEN) { throw 'Existing Codex profile trust could not be persisted'; }; "
+          + "$ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
+          + "$ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
+          + "if ($ctPriorRelease.released -ne $true) { throw 'Existing Codex profile trust could not be persisted'; } }; "
           + `$ctInstanceId = ${quotedInstanceId}; `
           + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); "
           + "try { ";

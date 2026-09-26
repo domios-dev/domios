@@ -14,6 +14,7 @@ if (process.platform !== "win32") {
     const taskPath = path.join(root, "instructions.txt");
     const receiptPath = path.join(root, "receipt.json");
     const releasePath = path.join(root, "release-uri.txt");
+    const releaseLogPath = path.join(root, "release-log.txt");
     fs.writeFileSync(taskPath, token, "utf8");
     fs.mkdirSync(path.join(root, ".codex"));
     const quote = (value: string) => "'" + value.replace(/'/g, "''") + "'";
@@ -35,6 +36,11 @@ function Invoke-RestMethod {
   [CmdletBinding()]
   param($Method, $Uri, $Headers, $ContentType, $Body)
   [IO.File]::WriteAllText((Join-Path $env:USERPROFILE 'release-uri.txt'), $Uri)
+  $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
+  if (Test-Path -LiteralPath $profilePath) {
+    Add-Content -LiteralPath ${quote(releaseLogPath)} -Value ([IO.File]::ReadAllText($profilePath))
+    Remove-Item -LiteralPath $profilePath -Force
+  }
   return @{ released = $true }
 }
 function codex {
@@ -50,6 +56,11 @@ function codex {
 ${command}`;
     for (const shell of ["powershell.exe", "pwsh.exe"]) {
       fs.rmSync(receiptPath, { force: true });
+      fs.rmSync(releaseLogPath, { force: true });
+      fs.writeFileSync(
+        path.join(root, ".codex", "codeterm-owned-launch-fixture.config.toml"),
+        "# codeterm-instance: instance-launch-test\n[projects.'C:\\Previous']\ntrust_level = 'trusted'\n",
+      );
       const result = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8" });
       if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT" && shell === "pwsh.exe") {
         console.log("SKIP PowerShell 7 is not installed");
@@ -62,6 +73,11 @@ ${command}`;
         fs.readFileSync(releasePath, "utf8"),
         "http://127.0.0.1:7686/api/tabs/owned-launch-fixture/launch-artifacts/release",
       );
+      const releasedProfiles = fs.readFileSync(releaseLogPath, "utf8");
+      assert.match(releasedProfiles, /\[projects\.'C:\\Previous'\]/,
+        "an uncarried profile is released before the next launch can overwrite it");
+      assert.equal(releasedProfiles.split("# codeterm-instance:").length - 1, 2,
+        "prior and current profiles both pass through release");
       assert.equal(fs.readFileSync(taskPath, "utf8"), token);
       console.log(`PASS ${shell} exact instruction round trip, retained brief, and owned profile cleanup`);
     }

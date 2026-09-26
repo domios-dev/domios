@@ -350,6 +350,9 @@ fn spawn_reconciliation(
     if let Err(error) = std::thread::Builder::new()
         .name(format!("integration-repair-{id}"))
         .spawn(move || {
+            if let Ok(api_port) = port.as_ref() {
+                provider.ensure_integration_on_startup(*api_port);
+            }
             let status = provider.check_integration();
             let previously_consented = recorded_flag(
                 &consented,

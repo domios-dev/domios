@@ -520,7 +520,7 @@ pub(super) fn install(
             .write(true)
             .open(&path)
             .ok()?;
-        file.lock().ok()?;
+        file.try_lock().ok()?;
         let id = uuid::Uuid::new_v4().to_string();
         held_file_locks().lock().insert(id.clone(), file);
         Some(id)

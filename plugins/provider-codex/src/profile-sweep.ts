@@ -3,6 +3,7 @@ import { carryCodexProjectTrust } from "./trust-carryover";
 export interface ProfileSweepHost {
   platform(): string;
   homeDir(): string | null;
+  log?(level: "warn", message: string): void;
   fs: {
     fileExists(path: string): boolean;
     readDir(path: string): { name: string; isFile: boolean }[];
