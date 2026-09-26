@@ -2322,7 +2322,8 @@ function runAppServerSession(requests, then) {
     const req = { method: requests[i].method, id: requests[i].id };
     if (requests[i].params !== void 0) req.params = requests[i].params;
     requestLines.push(JSON.stringify(req));
-    if (typeof requests[i].id === "number") responseIds.push(requests[i].id);
+    const requestId = requests[i].id;
+    if (typeof requestId === "number") responseIds.push(requestId);
   }
   const opts = {
     bin: "codex",
