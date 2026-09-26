@@ -927,9 +927,6 @@ impl ServiceContext {
             }
             drop(mux);
             self.record_role_transition(tab_id);
-            if let Some(parent) = parent_tab_id {
-                self.record_role_transition(parent);
-            }
         }
         if let Some(parent) = parent_tab_id {
             self.expect_spawn_parent_link(tab_id, parent)?;

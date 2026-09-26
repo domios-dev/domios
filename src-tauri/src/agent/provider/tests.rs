@@ -34,6 +34,7 @@ fn provider_descriptor_round_trip() {
             icon_svg: Some("<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"6\"/></svg>".into()),
             icon_color: Some("#abcdef".into()),
             available_models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "model-1".into(),
                 display_name: "Model One".into(),
                 description: Some("first model".into()),
@@ -199,6 +200,7 @@ impl AgentProvider for StubProvider {
     fn available_models(&self) -> Vec<ModelInfo> {
         vec![
             ModelInfo {
+                default_reasoning_effort: None,
                 id: "offered".into(),
                 display_name: "Offered".into(),
                 description: None,
@@ -210,6 +212,7 @@ impl AgentProvider for StubProvider {
                 reasoning_efforts: None,
             },
             ModelInfo {
+                default_reasoning_effort: None,
                 id: "unsupported".into(),
                 display_name: "Unsupported".into(),
                 description: None,

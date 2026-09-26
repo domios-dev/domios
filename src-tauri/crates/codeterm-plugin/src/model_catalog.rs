@@ -1011,6 +1011,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                         .models
                         .into_iter()
                         .map(|m| ModelInfo {
+                            default_reasoning_effort: None,
                             id: m.id,
                             display_name: m.display_name,
                             description: m.description,
@@ -1070,6 +1071,12 @@ fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo
                 .find(|base| base.id == model.id)
                 .and_then(|base| base.reasoning_efforts.clone());
         }
+        if model.default_reasoning_effort.is_none() {
+            model.default_reasoning_effort = builtin
+                .iter()
+                .find(|base| base.id == model.id)
+                .and_then(|base| base.default_reasoning_effort.clone());
+        }
     }
     merged
 }
@@ -1098,6 +1105,7 @@ fn overlay_only(base: &[ModelInfo], overlay: &[ModelInfo]) -> Vec<ModelInfo> {
                 badge: o.badge.clone().or_else(|| model.badge.clone()),
                 group: o.group.clone().or_else(|| model.group.clone()),
                 reasoning_efforts: model.reasoning_efforts.clone(),
+                default_reasoning_effort: model.default_reasoning_effort.clone(),
             }
         })
         .collect()
@@ -1164,6 +1172,7 @@ pub use readme::{ensure_readme_installed, refresh_example_files};
 #[cfg(test)]
 pub(crate) fn model(id: &str, display: &str) -> ModelInfo {
     ModelInfo {
+        default_reasoning_effort: None,
         id: id.into(),
         display_name: display.into(),
         ..ModelInfo::default()

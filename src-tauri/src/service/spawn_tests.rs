@@ -257,6 +257,7 @@ impl ModelProvider {
             models: model_ids
                 .iter()
                 .map(|id| crate::agent::provider::ModelInfo {
+                    default_reasoning_effort: None,
                     id: (*id).into(),
                     display_name: (*id).into(),
                     description: None,
@@ -502,6 +503,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
     let registry = registry_with(ModelProvider {
         id: "model-test-display",
         models: vec![crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "gpt-5.5".into(),
             display_name: "GPT-5.5".into(),
             description: None,
@@ -574,6 +576,7 @@ fn background_model_ignores_a_model_from_another_provider() {
         provider_id,
         crate::agent::model_catalog::RegisteredDefaults {
             models: vec![crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: "model-a".into(),
                 display_name: "Model A".into(),
                 description: None,
@@ -611,6 +614,7 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
 
     fn model(id: &str) -> ModelInfo {
         ModelInfo {
+            default_reasoning_effort: None,
             id: id.into(),
             display_name: id.into(),
             description: None,

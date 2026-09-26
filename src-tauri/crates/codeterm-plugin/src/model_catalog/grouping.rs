@@ -26,6 +26,7 @@ mod tests {
 
     fn model(id: &str, display: &str) -> ModelInfo {
         ModelInfo {
+            default_reasoning_effort: None,
             id: id.into(),
             display_name: display.into(),
             ..ModelInfo::default()
@@ -36,6 +37,7 @@ mod tests {
     fn override_without_group_inherits_the_provider_group() {
         let provider = vec![
             ModelInfo {
+                default_reasoning_effort: None,
                 group: Some("deepseek".into()),
                 ..model("deepseek-v4-flash", "DeepSeek V4 Flash")
             },
@@ -43,6 +45,7 @@ mod tests {
         ];
         let mut merged = vec![
             ModelInfo {
+                default_reasoning_effort: None,
                 badge: Some("own".into()),
                 ..model("deepseek-v4-flash", "DeepSeek V4 Flash (override)")
             },

@@ -30,6 +30,7 @@ pub struct MockProvider {
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
+    session_reasoning_efforts: std::collections::HashMap<String, String>,
     usage_source: Option<UsageSourceSpec>,
     empty_launch_command: bool,
     empty_launch_command_when_task_present: bool,
@@ -56,6 +57,7 @@ impl MockProvider {
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
+            session_reasoning_efforts: Default::default(),
             usage_source: None,
             empty_launch_command: false,
             empty_launch_command_when_task_present: false,
@@ -92,6 +94,12 @@ impl MockProvider {
     pub fn with_session_model(mut self, session_id: &str, model: &str) -> Self {
         self.session_models
             .insert(session_id.to_string(), model.to_string());
+        self
+    }
+
+    pub fn with_session_reasoning_effort(mut self, session_id: &str, effort: &str) -> Self {
+        self.session_reasoning_efforts
+            .insert(session_id.to_string(), effort.to_string());
         self
     }
 
@@ -151,6 +159,7 @@ impl MockProvider {
     ) -> Self {
         let mut provider = Self::with_reasoning_efforts(id, &["low", "medium", "high", "xhigh"]);
         provider.models = vec![ModelInfo {
+            default_reasoning_effort: None,
             id: model.to_string(),
             display_name: model.to_string(),
             reasoning_efforts: Some(
@@ -339,6 +348,9 @@ impl AgentProvider for MockProvider {
     fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_models.get(session_id).cloned()
     }
+    fn detect_session_reasoning_effort(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        self.session_reasoning_efforts.get(session_id).cloned()
+    }
     fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
         self.sessions.contains(session_id)
     }
@@ -367,5 +379,11 @@ impl AgentProvider for MockProvider {
     }
     fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
         self.parsed_prompt.clone()
+    }
+    fn parse_directory_trust_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
+        self.parsed_prompt.clone()
+    }
+    fn supports_directory_trust_prompt_parsing(&self) -> bool {
+        self.parsed_prompt.is_some()
     }
 }
