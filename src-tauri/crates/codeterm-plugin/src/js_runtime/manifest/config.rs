@@ -44,6 +44,8 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
+    #[serde(default)]
+    pub resume_binds_on_first_user_turn: bool,
     /// Declared hook event roster (event name → core ingestion route).
     /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
     #[serde(default)]

@@ -67,6 +67,7 @@ pub(crate) enum LaunchEvidence {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LaunchSettlement {
     Ready,
+    AwaitingFirstTurn,
     Failed {
         reason: String,
         exit_code: Option<i32>,
@@ -324,6 +325,11 @@ impl ServiceContext {
                 attempt.tab_id,
                 attempt.pty_id
             ),
+            LaunchSettlement::AwaitingFirstTurn => log::info!(
+                "[launch-readiness] Tab {} resume awaiting first turn on PTY {}",
+                attempt.tab_id,
+                attempt.pty_id
+            ),
             LaunchSettlement::Provisional { stage, reason } => match stage {
                 BootStage::LaunchDeadlineElapsed => {
                     self.record_launch_output_deadline(&attempt.tab_id, &attempt.pty_id, reason)
@@ -420,12 +426,34 @@ impl ServiceContext {
         &self,
         attempt: LaunchAttempt,
         deadline: std::time::Duration,
+        resume_binds_on_first_user_turn: bool,
     ) -> std::sync::mpsc::Receiver<LaunchSettlement> {
         let (settled, receiver) = std::sync::mpsc::sync_channel(1);
         let svc = self.clone();
         std::thread::spawn(move || {
             let evidence = match observe(&attempt, Instant::now() + deadline) {
                 LaunchObservation::Evidence(evidence) => evidence,
+                LaunchObservation::Deadline
+                    if resume_binds_on_first_user_turn
+                        && svc.resume_launch_attempt_is_waiting_for_first_turn(&attempt) =>
+                {
+                    let authenticated = {
+                        let mux = svc.mux.read();
+                        mux.get_tab(&attempt.tab_id)
+                            .is_some_and(|tab| tab.launch_session_authenticated())
+                    };
+                    if authenticated {
+                        LaunchEvidence::Acknowledged
+                    } else {
+                        log::info!(
+                            "[launch-readiness] Tab {} resume awaiting first turn on live PTY {}",
+                            attempt.tab_id,
+                            attempt.pty_id
+                        );
+                        let _ = settled.send(LaunchSettlement::AwaitingFirstTurn);
+                        return;
+                    }
+                }
                 LaunchObservation::Deadline => LaunchEvidence::Unobserved {
                     stage: BootStage::LaunchDeadlineElapsed,
                     reason: SPAWN_READINESS_DEADLINE.to_string(),
@@ -449,5 +477,14 @@ impl ServiceContext {
             let _ = settled.send(settlement);
         });
         receiver
+    }
+
+    fn resume_launch_attempt_is_waiting_for_first_turn(&self, attempt: &LaunchAttempt) -> bool {
+        let owns_tab = {
+            let mux = self.mux.read();
+            mux.get_tab(&attempt.tab_id)
+                .is_some_and(|tab| attempt_owns_tab(tab, attempt))
+        };
+        owns_tab && self.pty.lock().get_session(&attempt.pty_id).is_some()
     }
 }

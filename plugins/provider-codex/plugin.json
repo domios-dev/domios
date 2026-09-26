@@ -47,6 +47,7 @@
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
+    "resumeBindsOnFirstUserTurn": true,
     "hookEventRoster": [
       {
         "event": "SessionStart",

@@ -21,6 +21,10 @@ use codeterm_types::pty::{classify_agent_liveness, AgentBacking, AgentLiveness, 
 
 use crate::service::{ServiceContext, ServiceState};
 
+#[cfg(test)]
+#[path = "live_state/tests.rs"]
+mod tests;
+
 /// How often the sweep re-runs the classifier per tab. Fast enough that the
 /// "your turn" indicator appears promptly after a turn settles (DONE_MS = 800),
 /// cheap enough to run over every tracked pty (one grid read + a pure classify).
@@ -123,11 +127,8 @@ impl ServiceContext {
         }
     }
 
-    /// A tab whose record came back but whose agent did not keeps no agent
-    /// state, elapsed timer, status line, session id or model label. The
-    /// existing lifecycle teardown owns every one of those clears, and arming
-    /// the guarded-input refusal with them, so this routes to it rather than
-    /// growing a second path.
+    /// Restore teardown is permitted only when the tab has no live PTY and no
+    /// launch in flight; either fact makes an older wave verdict stale.
     pub(crate) fn reconcile_tab_restored_without_agent(&self, tab_id: &str) -> bool {
         let declares_agent = self
             .mux
@@ -137,9 +138,6 @@ impl ServiceContext {
         if !declares_agent {
             return false;
         }
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-            tab_id,
-            "restored without a live agent",
-        )
+        self.clear_tab_restored_identity_if_absent(tab_id, "restored without a live agent")
     }
 }

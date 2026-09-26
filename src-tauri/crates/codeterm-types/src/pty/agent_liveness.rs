@@ -92,6 +92,9 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
     if evidence.provider_exit_observed {
         return AgentLiveness::Absent;
     }
+    if evidence.boot_in_flight {
+        return AgentLiveness::Unobserved;
+    }
     match evidence.boot_stage {
         // The provider's own TUI frame, and the sealed launch, are direct
         // evidence the process is running.
@@ -104,7 +107,6 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         | Some(BootStage::LaunchBindingUnconfirmed) => AgentLiveness::Unobserved,
         // Everything up to and including `shell_ready` is a shell, not an
         // agent. Absent unless a launch is still running.
-        _ if evidence.boot_in_flight => AgentLiveness::Unobserved,
         None => AgentLiveness::Unobserved,
         Some(_) => AgentLiveness::Absent,
     }
@@ -178,6 +180,13 @@ mod tests {
     #[test]
     fn a_launch_in_flight_is_unobserved_not_absent() {
         let mut e = evidence(Some(BootStage::AgentLaunching));
+        e.boot_in_flight = true;
+        assert_eq!(classify_agent_liveness(e), AgentLiveness::Unobserved);
+    }
+
+    #[test]
+    fn a_live_pty_with_a_failure_stage_stays_unobserved_during_launch() {
+        let mut e = evidence(Some(BootStage::SpawnFailed));
         e.boot_in_flight = true;
         assert_eq!(classify_agent_liveness(e), AgentLiveness::Unobserved);
     }

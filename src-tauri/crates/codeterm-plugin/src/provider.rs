@@ -366,6 +366,12 @@ pub trait AgentProvider: Send + Sync {
         ProviderReadinessStrategy::default()
     }
 
+    /// A resumed interactive session first emits its binding hook after the
+    /// owner's first user turn, so restore may accept that turn at provider-ready.
+    fn resume_binds_on_first_user_turn(&self) -> bool {
+        false
+    }
+
     /// How to verify that submitted text was actually processed. Default is
     /// shell-prompt polling — providers running TUIs or non-observable flows
     /// override (TuiInputDrained / None).
