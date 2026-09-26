@@ -10,6 +10,7 @@ pub struct AssignmentRuntimeBinding {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub session_model: Option<String>,
+    pub reasoning_effort: Option<String>,
 }
 
 impl PlanStore {
@@ -81,6 +82,7 @@ impl PlanStore {
                     attempt.model = Some(model.clone());
                 }
                 attempt.session_model = binding.session_model.clone();
+                attempt.reasoning_effort = binding.reasoning_effort.clone();
                 task.interruption.owner_epoch += 1;
                 task.interruption.owner_tab_id = Some(tab.into());
                 task.interruption.owner_session_id = Some(binding.session_id.clone());

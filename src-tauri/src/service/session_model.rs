@@ -53,25 +53,24 @@ impl ServiceContext {
         });
     }
 
-    /// A session the tab just bound is the current-session event: the commit
-    /// cleared runtime evidence, so re-read it or an unfocused tab keeps none.
-    pub(crate) fn refresh_session_model_after_binding(&self, tab_id: &str) {
-        let agent_id = {
+    pub(crate) fn refresh_session_model_for_current_tab(&self, tab_id: &str) {
+        let binding = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id).and_then(|tab| tab.agent_type.clone())
+            mux.get_tab(tab_id)
+                .and_then(|tab| Some((tab.agent_type.clone()?, tab.cwd.clone()?)))
         };
-        let Some(agent_id) = agent_id else { return };
-        self.refresh_session_model_once(tab_id, &agent_id);
+        let Some((agent_id, cwd)) = binding else { return };
+        self.refresh_session_model(tab_id, &agent_id, &cwd, false);
     }
 
-    pub(crate) fn schedule_session_model_refresh_after_binding(&self, tab_id: &str) {
+    pub(crate) fn schedule_session_model_refresh_for_current_tab(&self, tab_id: &str) {
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         if let Err(error) = std::thread::Builder::new()
-            .name("session-binding-model-refresh".into())
-            .spawn(move || svc.refresh_session_model_after_binding(&tab_id))
+            .name("session-model-event-refresh".into())
+            .spawn(move || svc.refresh_session_model_for_current_tab(&tab_id))
         {
-            log::warn!("[session-model] failed to start post-binding refresh: {error}");
+            log::warn!("[session-model] failed to start event refresh: {error}");
         }
     }
 
@@ -109,52 +108,68 @@ impl ServiceContext {
     }
 
     pub(crate) fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
-        let (cwd, session_id) = {
+        let cwd = {
             let mux = self.mux.read();
             let Some(p) = mux.get_tab(tab_id) else {
                 return;
             };
-            (p.cwd.clone(), p.agent_session_id.clone())
+            p.cwd.clone()
         };
         let Some(cwd) = cwd else { return };
+        self.refresh_session_model(tab_id, agent_id, &cwd, true);
+    }
+
+    fn refresh_session_model(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        cwd: &str,
+        detect_active_session: bool,
+    ) {
+        let session_id = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).and_then(|tab| tab.agent_session_id.clone())
+        };
         // Provider rolled its live session (e.g. opencode /model swap): follow it to the new sid before scanning the model. Provider-owned signal (screen/event), guarded so it never steals a sibling tab's session.
-        if let Some(ref current) = session_id {
-            if let Some(new_sid) = self
-                .agent_registry
-                .with_provider(agent_id, |p| p.detect_active_session(&cwd, current))
-                .flatten()
-            {
-                let claimed = {
-                    let mut mux = self.mux.write();
-                    if new_sid == *current || mux.other_session_ids(tab_id).contains(&new_sid) {
-                        false
-                    } else if let Some(p) = mux.get_tab_mut(tab_id) {
-                        if p.agent_type.as_deref() == Some(agent_id) {
-                            p.archive_context_epoch(agent_id, current);
-                            p.agent_session_id = Some(new_sid.clone());
-                            clear_runtime_model_evidence(p);
-                            true
+        if detect_active_session {
+            if let Some(ref current) = session_id {
+                if let Some(new_sid) = self
+                    .agent_registry
+                    .with_provider(agent_id, |p| p.detect_active_session(cwd, current))
+                    .flatten()
+                {
+                    let claimed = {
+                        let mut mux = self.mux.write();
+                        if new_sid == *current || mux.other_session_ids(tab_id).contains(&new_sid) {
+                            false
+                        } else if let Some(p) = mux.get_tab_mut(tab_id) {
+                            if p.agent_type.as_deref() == Some(agent_id) {
+                                p.archive_context_epoch(agent_id, current);
+                                p.agent_session_id = Some(new_sid.clone());
+                                clear_runtime_model_evidence(p);
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         }
-                    } else {
-                        false
-                    }
-                };
-                if claimed {
-                    log::info!(
-                        "[session-detect] rolled Tab {} from {} → {} ({})",
-                        tab_id,
-                        current,
-                        new_sid,
-                        agent_id,
-                    );
-                    self.emit_state_changed();
-                    if let Err(error) = super::session_persist::persist_session_after_mutation(
-                        self,
-                        super::session_persist::SessionPersistUrgency::Prompt,
-                    ) {
-                        log::warn!("[context-epoch] failed to persist reset boundary: {error}");
+                    };
+                    if claimed {
+                        log::info!(
+                            "[session-detect] rolled Tab {} from {} → {} ({})",
+                            tab_id,
+                            current,
+                            new_sid,
+                            agent_id,
+                        );
+                        self.emit_state_changed();
+                        if let Err(error) = super::session_persist::persist_session_after_mutation(
+                            self,
+                            super::session_persist::SessionPersistUrgency::Prompt,
+                        ) {
+                            log::warn!("[context-epoch] failed to persist reset boundary: {error}");
+                        }
                     }
                 }
             }
@@ -165,7 +180,7 @@ impl ServiceContext {
             mux.get_tab(tab_id).and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
-        self.refresh_session_reasoning_effort_once(tab_id, agent_id, &cwd, &sid);
+        self.refresh_session_reasoning_effort_once(tab_id, agent_id, cwd, &sid);
         let (
             current_model,
             planned_model,

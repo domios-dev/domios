@@ -44,6 +44,7 @@ mod lane_safety;
 mod late_attempt_failure;
 mod qa_pass;
 mod recovery_race;
+mod resolved_effort;
 mod routing;
 mod worker_ack;
 

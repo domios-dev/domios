@@ -982,7 +982,9 @@ pub async fn task_respawn(
         .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
     draft.provider = spawn.agent.clone();
     draft.model = spawn.provider_resolved_model.clone();
-    draft.reasoning_effort = spawn.reasoning_effort.clone();
+    draft.reasoning_effort = state
+        .svc
+        .resolved_worker_launch_effort_for_tab(&spawn.tab_id);
     let created = record_respawn_attempt_and_persist_identity(
         &state,
         &id,

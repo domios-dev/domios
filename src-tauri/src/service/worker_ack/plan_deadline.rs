@@ -690,6 +690,7 @@ impl ServiceContext {
         };
         self.worker_ack
             .acknowledge_task_startup(tab_id, &task_identity, &identity);
+        self.schedule_session_model_refresh_for_current_tab(tab_id);
         acknowledged
     }
 
