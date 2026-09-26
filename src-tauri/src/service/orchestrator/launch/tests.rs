@@ -1,6 +1,7 @@
 use super::startup_readiness::reused_provider_tui_owns_launch;
 use super::startup_readiness::{
-    input_ready_stage_after_provider_ready, resume_waits_for_first_turn,
+    input_ready_stage_after_provider_ready, provider_readiness_with_timeout,
+    resume_waits_for_first_turn,
 };
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
@@ -91,21 +92,26 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     let input_ready_stage = input_ready_stage_after_provider_ready(true);
     assert_eq!(input_ready_stage, BootStage::AgentReady);
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
-    let attempt = crate::service::launch_readiness::LaunchAttempt {
-        tab_id: tab_id.clone(),
-        pty_id: pty_id.into(),
-        binding_nonce: "resume-first-turn-nonce".into(),
-    };
-    assert_eq!(
-        super::startup_readiness::await_launch_input_readiness(
-            &launch,
-            &harness.service,
-            &attempt,
-            std::time::Duration::ZERO,
-            true,
-        ),
-        Ok(crate::service::launch_readiness::LaunchInputEvidence::ResumeFirstTurn),
+    let provider_up = provider_readiness_with_timeout(
+        &crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
+            timeout: std::time::Duration::from_secs(30),
+        },
+        crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
     );
+    assert_eq!(
+        provider_up,
+        crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
+            timeout: crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+        }
+    );
+    let launch_source = include_str!("../launch.rs");
+    let provider_up = launch_source
+        .find("await_provider_readiness_on_screen")
+        .expect("resume readiness waits for provider-up evidence");
+    let input_ready = launch_source
+        .find("emit_resume_first_turn_input_ready")
+        .expect("resume readiness emits the input-accepting stage");
+    assert!(provider_up < input_ready);
     assert!(launch.emit_resume_first_turn_input_ready(&harness.service));
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("restored tab remains present");

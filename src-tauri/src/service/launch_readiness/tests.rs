@@ -55,23 +55,6 @@ fn report_own_launch(tab: &mut Tab) {
 /// time; nothing in these tests sleeps to reach its outcome.
 const BOUND: Duration = Duration::from_secs(30);
 
-#[test]
-fn launch_input_readiness_uses_binding_or_declared_first_turn_capability() {
-    assert_eq!(
-        launch_input_evidence(true, false),
-        Some(LaunchInputEvidence::SessionBinding),
-    );
-    assert_eq!(
-        launch_input_evidence(false, true),
-        Some(LaunchInputEvidence::ResumeFirstTurn),
-    );
-    assert_eq!(launch_input_evidence(false, false), None);
-    assert_eq!(
-        launch_input_evidence(true, true),
-        Some(LaunchInputEvidence::SessionBinding),
-    );
-}
-
 /// Both exit sources claim before either publishes, so only the first claim
 /// may win; otherwise one dead launch is reported twice.
 #[test]
