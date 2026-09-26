@@ -825,7 +825,8 @@ for (const [name, fixture] of [
   assert(files.get(configPath)?.includes("enabled = true") === true, "install expands matching trust");
   eq(files.get(ownershipPath), hooksPath, "owned trust expansion is recorded");
   files.set(configPath, `${files.get(configPath)}foreign_after = "preserve"\n`);
-  assert(p.uninstallIntegration().ok === true, "owned trust uninstall succeeds");
+  const uninstall = p.uninstallIntegration();
+  assert(uninstall.ok === true, "owned trust uninstall succeeds: " + JSON.stringify(uninstall));
   const after = files.get(configPath) || "";
   assert(after.includes("enabled = false"), "uninstall revokes only CodeTerm-owned trust");
   assert(after.includes('foreign_after = "preserve"'), "uninstall preserves later foreign config edits");
@@ -867,7 +868,7 @@ for (const [name, fixture] of [
       },
     }));
     const result = p.installIntegration(7686, { consent: true });
-    assert(result.ok === false, `Codex install fails at write ${failAt}`);
+    assert(result.ok === false, `Codex install fails at write ${failAt}: attempted ${writeAttempt} writes, ${JSON.stringify(result)}`);
     eq([...files.entries()].sort(), [...initial.entries()].sort(), `write ${failAt} restores every exact prior byte`);
   }
 }

@@ -231,9 +231,19 @@ pub fn install_integration_with_trust_grant(
     options: &super::IntegrationInstallOptions,
 ) -> Result<Option<serde_json::Value>, String> {
     provider.install_integration(api_port, options)?;
-    Ok(provider
-        .integration_trust_grant_capability()
-        .map(|capability| provider.grant_integration_trust(&capability.managed_keys)))
+    let Some(capability) = provider.integration_trust_grant_capability() else {
+        return Ok(None);
+    };
+    let outcome = provider.grant_integration_trust(&capability.managed_keys);
+    if outcome.get("granted").and_then(serde_json::Value::as_bool) != Some(true) {
+        let reason = outcome
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .filter(|reason| !reason.trim().is_empty())
+            .unwrap_or("provider did not confirm hook trust");
+        return Err(format!("provider integration trust grant failed: {reason}"));
+    }
+    Ok(Some(outcome))
 }
 
 /// Marker prefix on a provider error meaning the plugin was denied a sandbox

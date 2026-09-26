@@ -130,6 +130,26 @@ fn close_team_removes_chat_backend_member_and_registry() {
 }
 
 #[test]
+fn team_close_retains_provider_ids_for_launch_artifact_release() {
+    let (mut mux, team_id, orchestrator, _, worker) = team_members();
+    let (_plan_dir, plan_store) = isolated_plan_store();
+    mux.get_tab_mut(&worker).unwrap().agent_type = Some("codex".into());
+    let events = crate::api::events::EventBroadcaster::new();
+
+    let (_, cleanup, _) = close_team_with_state_change(
+        &mut mux,
+        &events,
+        &plan_store,
+        &team_id,
+        &TeamMutationCaller::AgentTab(orchestrator),
+        1,
+    )
+    .unwrap();
+
+    assert_eq!(cleanup.agent_providers, vec![(worker, "codex".into())]);
+}
+
+#[test]
 fn close_team_detaches_cartographer_manager_with_every_member_tab() {
     let (mut mux, team_id, orchestrator, _planner, _worker) = team_members();
     let (_plan_dir, plan_store) = isolated_plan_store();

@@ -86,7 +86,7 @@ function appServerResult(sessionHash: string, stopHash: string, trustStatus = "u
   const { plugin, calls } = load(files, () => appServerResult("sha256:current-session", "sha256:current-stop"));
   const initial = plugin.checkIntegration();
   assert.equal(calls(), 0, "status polling never starts codex app-server");
-  assert.equal(initial.hook_trust_state, "trusted", "a recorded trust hash is not marked stale without proof");
+  assert.equal(initial.hook_trust_state, "unknown", "a recorded hash is not trusted without Codex confirmation");
 
   const repair = plugin.ensureIntegrationOnStartup(7686);
   assert.equal(repair.actionable, true, "background reconciliation finds a current-content hash mismatch");
@@ -107,10 +107,10 @@ function appServerResult(sessionHash: string, stopHash: string, trustStatus = "u
   plugin.ensureIntegrationOnStartup(7686);
   files.set(configPath, files.get(configPath)!.replace("recorded-session", "updated-session"));
   unavailable = true;
-  assert.equal(plugin.ensureIntegrationOnStartup(7686).actionable, undefined,
-    "an unavailable app-server does not claim a stale hash after the config fingerprint changes");
-  assert.equal(plugin.checkIntegration().hook_trust_state, "trusted",
-    "an unknown comparison preserves the previous trusted verdict or trusted-if-present");
+  assert.equal(plugin.ensureIntegrationOnStartup(7686).actionable, true,
+    "an unavailable app-server surfaces an unverified hook hash");
+  assert.equal(plugin.checkIntegration().hook_trust_state, "unknown",
+    "a changed config fingerprint is not treated as trusted without Codex confirmation");
 }
 
 {
@@ -124,8 +124,8 @@ function appServerResult(sessionHash: string, stopHash: string, trustStatus = "u
   files.set(configPath, files.get(configPath)!.replace("recorded-session", "changed-session"));
   unavailable = true;
   plugin.ensureIntegrationOnStartup(7686);
-  assert.equal(plugin.checkIntegration().hook_trust_state, "stale",
-    "an unknown comparison preserves a previously stale verdict until Codex proves it current");
+  assert.equal(plugin.checkIntegration().hook_trust_state, "unknown",
+    "a changed config fingerprint remains unknown until Codex proves it stale or trusted");
 }
 
 {
@@ -142,8 +142,8 @@ function appServerResult(sessionHash: string, stopHash: string, trustStatus = "u
   hooks.hooks.SessionStart[0].hooks[0].command += " --data-binary @-";
   files.set(hooksPath, JSON.stringify(hooks));
   hookContentChanged = true;
-  assert.equal(plugin.checkIntegration().hook_trust_state, "stale",
-    "changed hook content with unchanged recorded trust invalidates the old verdict as stale");
+  assert.equal(plugin.checkIntegration().hook_trust_state, "unknown",
+    "changed hook content invalidates the cached verdict until Codex compares hashes");
   plugin.ensureIntegrationOnStartup(7686);
   assert.equal(plugin.checkIntegration().hook_trust_state, "stale",
     "background refresh replaces the verdict after hook content changes");
