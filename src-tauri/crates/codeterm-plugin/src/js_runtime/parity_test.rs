@@ -467,7 +467,7 @@ async fn discover_models_native_js_parity() {
             module.exports.default = {
                 discoverModels() {
                     return [
-                        { id: 'live-a', displayName: 'Live A', group: 'alpha', reasoningEfforts: [
+                        { id: 'live-a', displayName: 'Live A', group: 'alpha', defaultReasoningEffort: 'max', reasoningEfforts: [
                             { id: 'max', displayName: 'Max', description: 'Maximum reasoning' },
                             { id: 'ultra', displayName: 'Ultra' }
                         ] },
