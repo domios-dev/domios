@@ -655,7 +655,7 @@ fn run_with_submit_key<T: SubmitTransport>(
                 break;
             }
         }
-        let allow_initial_key = submit_key_writes == 0 && initial_key_delay.is_zero();
+        let allow_initial_key = submit_key_writes == 0;
         if let Err(error) = key_guard(allow_initial_key) {
             if submit_key_writes > 0 {
                 break;
@@ -770,6 +770,12 @@ pub(crate) fn submit_text_with_key_claimed(
     let submit_cycle = Arc::clone(&claim.cycle);
     let submit_generation = claim.generation;
     let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
+    let initial_agent_id = {
+        let mux = svc.mux.read();
+        mux.tab_id_for_pty(pty_id)
+            .and_then(|tab_id| mux.get_tab(&tab_id))
+            .and_then(|tab| tab.agent_type.clone())
+    };
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
@@ -811,6 +817,9 @@ pub(crate) fn submit_text_with_key_claimed(
                 pty_id: pty_id.to_string(),
             });
         }
+        if allow_initial_key && initial_agent_id.is_none() {
+            return Ok(());
+        }
         let (screen, input) = {
             let screen_state = svc.screen_state.lock();
             (
@@ -819,22 +828,14 @@ pub(crate) fn submit_text_with_key_claimed(
             )
         };
         let Some(agent_id) = agent_id else {
-            return if allow_initial_key {
-                Ok(())
-            } else {
-                Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                })
-            };
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
         };
         let Some(screen) = screen else {
-            return if allow_initial_key {
-                Ok(())
-            } else {
-                Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                })
-            };
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
         };
         let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
             tab_id,
@@ -843,31 +844,27 @@ pub(crate) fn submit_text_with_key_claimed(
             cwd,
             screen_text: screen.clone(),
         };
-        let shell_prompt = crate::pty::screen_state::screen_has_bare_shell_prompt(&screen);
         let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
             use codeterm_plugin::tab_state::TabState;
 
             let provider_tui = provider.screen_has_tui(&screen);
-            let composer_ready =
-                !shell_prompt
-                    && input.as_ref().is_some_and(|state| {
-                        let cursor_ready =
-                            crate::agent::offline_state_classifier::composer_cursor_ready(
-                                state.cursor_visible,
-                                state.cursor_row,
-                                state.rows,
-                            ) || state
-                                .inverse_caret_row
-                                .zip(state.last_nonblank_row)
-                                .is_some_and(|(row, bottom)| {
-                                    crate::agent::offline_state_classifier::composer_cursor_ready(
-                                        true,
-                                        row,
-                                        bottom.saturating_add(1),
-                                    )
-                                });
-                        cursor_ready && (provider_tui || state.alternate_screen)
+            let composer_ready = input.as_ref().is_some_and(|state| {
+                let cursor_ready = crate::agent::offline_state_classifier::composer_cursor_ready(
+                    state.cursor_visible,
+                    state.cursor_row,
+                    state.rows,
+                ) || state
+                    .inverse_caret_row
+                    .zip(state.last_nonblank_row)
+                    .is_some_and(|(row, bottom)| {
+                        crate::agent::offline_state_classifier::composer_cursor_ready(
+                            true,
+                            row,
+                            bottom.saturating_add(1),
+                        )
                     });
+                cursor_ready && (provider_tui || state.alternate_screen)
+            });
             let classification = provider.classify_tab_state(&snapshot);
             let high_confidence = classification.as_ref().is_some_and(|value| {
                 value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
@@ -888,20 +885,16 @@ pub(crate) fn submit_text_with_key_claimed(
             )
         });
         let Some((composer_ready, modal_visible)) = readiness else {
-            return if allow_initial_key {
-                Ok(())
-            } else {
-                Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                })
-            };
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
         };
         if modal_visible {
             return Err(InjectionError::AgentTuiPresent {
                 pty_id: pty_id.to_string(),
             });
         }
-        if allow_initial_key || (!shell_prompt && session_bound) || composer_ready {
+        if allow_initial_key || session_bound || composer_ready {
             Ok(())
         } else {
             Err(InjectionError::AgentInputUnavailable {

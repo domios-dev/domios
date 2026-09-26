@@ -350,7 +350,8 @@ fn empty_enter_guard_refusal_after_initial_key_is_not_a_new_error() {
 #[test]
 fn recovery_keys_require_same_pty_proof() {
     let io = GuardTransport::new();
-    let error = run_with_submit_key(
+    let mut guard_checks = 0;
+    let result = run_with_submit_key(
         &io,
         "payload",
         true,
@@ -360,16 +361,27 @@ fn recovery_keys_require_same_pty_proof() {
         },
         opts(),
         |allow_initial_key| {
-            assert!(!allow_initial_key);
-            Err(InjectionError::AgentInputUnavailable {
-                pty_id: "same-pty".into(),
-            })
+            guard_checks += 1;
+            if guard_checks == 1 {
+                assert!(allow_initial_key);
+                Ok(())
+            } else {
+                assert!(!allow_initial_key);
+                Err(InjectionError::AgentInputUnavailable {
+                    pty_id: "same-pty".into(),
+                })
+            }
         },
     )
-    .unwrap_err();
+    .unwrap();
 
-    assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
-    assert_eq!(&*io.writes.borrow(), &["paste:payload"]);
+    assert_eq!(guard_checks, 2);
+    assert_eq!(&*io.writes.borrow(), &["paste:payload", "enter"]);
+    assert_eq!(result.submit_key_writes, 1);
+    assert!(!result.submit_observed);
+    let error = result
+        .require_submission(true, result.elapsed, "recovery proof absent".into())
+        .unwrap_err();
     let delivery = crate::service::delivery_error::DeliveryError::from_injection("same-pty", error);
     assert_eq!(delivery.code(), "submit_unconfirmed");
     assert!(delivery.bytes_written());
@@ -380,7 +392,7 @@ fn recovery_keys_require_same_pty_proof() {
     not(windows),
     ignore = "the ServiceContext harness requires an interactive desktop runtime"
 )]
-fn stale_agent_type_with_a_bare_shell_prompt_routes_as_shell() {
+fn failed_agent_readiness_is_not_overridden_by_shell_prompt_text() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::delivery_error::DeliveryError;
     use crate::service::test_fixture::ServiceFixture;
@@ -404,7 +416,7 @@ fn stale_agent_type_with_a_bare_shell_prompt_routes_as_shell() {
         .send_text_input_delivery(&tab_id, "codex --no-daemon", true, None)
         .unwrap_err();
 
-    assert!(matches!(error, DeliveryError::PtyUnavailable { .. }));
+    assert!(matches!(error, DeliveryError::TabBusyRefused { .. }));
     assert!(!error.bytes_written());
 }
 
