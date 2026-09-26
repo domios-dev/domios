@@ -106,7 +106,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
         &["claude".into(), "codex".into()],
     );
     let attempt_id = store
-        .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation_and_dispatched_model(
+        .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
             &plan.id,
             &task_id,
             "worker-tab",
@@ -116,12 +116,13 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             None,
             routing.agent.as_deref(),
             "attempt-routed-model",
-            vec![],
+            Some(vec![]),
             crate::plan::WorkerPlacement::IsolatedLane,
             routing.model,
             Some("xhigh".into()),
             None,
             false,
+            true,
             3,
         )
         .unwrap();

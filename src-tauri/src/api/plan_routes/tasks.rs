@@ -679,20 +679,27 @@ pub async fn task_assign(
     } else {
         None
     };
-    {
+    let assignment = {
         let mux = state.svc.mux.read();
-        crate::service::task_assignment::assign_existing_task(
-            &state.svc.plan_store,
+        crate::service::task_assignment::prepare_existing_task_assignment(
             &mux,
-            &id,
-            &tid,
             &body.tab,
             body.peer.as_deref(),
             authority.as_ref(),
-            epoch_ms(),
         )
-        .map_err(plan_err)?;
     }
+    .map_err(plan_err)?;
+    crate::service::task_assignment::persist_existing_task_assignment(
+        &state.svc.plan_store,
+        assignment,
+        &id,
+        &tid,
+        &body.tab,
+        body.peer.as_deref(),
+        authority.as_ref(),
+        epoch_ms(),
+    )
+    .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }

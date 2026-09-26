@@ -305,13 +305,18 @@ impl ServiceContext {
             super::task_assignment::authenticated_tab_binding(tab)
         };
         let Some(binding) = binding else { return None };
-        let Some((plan_id, task_id)) = self.plan_store.open_attempt_task_for_tab(tab_id) else {
+        let Some((plan_id, task_id, attempt_id)) = self.plan_store.open_attempt_task_for_tab(
+            tab_id,
+            &binding.session_id,
+            &binding.session_binding_nonce,
+        ) else {
             return None;
         };
         match self.plan_store.update_attempt_session_model_if_unknown(
             &plan_id,
             &task_id,
             tab_id,
+            &attempt_id,
             &binding.session_id,
             &binding.session_binding_nonce,
             model,

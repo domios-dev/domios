@@ -862,7 +862,7 @@ where
             tab_id: owner.tab_id.clone(),
         })
     } else {
-        store.begin_task_dispatch_with_reserved_attempt_and_gates_and_observation_and_dispatched_model(
+        store.begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
             &plan_id,
             &task_id,
             &reserved_tab_id,
@@ -875,12 +875,13 @@ where
             allowance,
             Some(&resolved_provider),
             &reserved_attempt_id,
-            authorized_gates.clone(),
+            Some(authorized_gates.clone()),
             placement,
             dispatched_model,
             dispatched_reasoning_effort,
             begin_owner,
             begin_owner_is_live,
+            true,
             now,
         )
     };

@@ -4,6 +4,23 @@ use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::NewTask;
 use codeterm_types::agent::ReportStatus;
 
+#[allow(clippy::too_many_arguments)]
+fn assign_existing_task(
+    store: &PlanStore,
+    mux: &MultiplexerState,
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    peer: Option<&str>,
+    authority: Option<&TaskMutationAuthority>,
+    now: u64,
+) -> Result<(), PlanError> {
+    let assignment = prepare_existing_task_assignment(mux, tab_id, peer, authority)?;
+    persist_existing_task_assignment(
+        store, assignment, plan_id, task_id, tab_id, peer, authority, now,
+    )
+}
+
 fn fixture() -> (
     tempfile::TempDir,
     PlanStore,
@@ -145,12 +162,18 @@ fn roundtrip(authorized: bool) {
 #[test]
 fn assignment_captures_model_already_detected_on_its_bound_tab() {
     let (_dir, store, mut mux, plan, task, tab) = fixture();
-    mux.get_tab_mut(&tab).unwrap().agent_session_model = Some("opus".into());
+    let target = mux.get_tab_mut(&tab).unwrap();
+    target.agent_type = Some("codex".into());
+    target.agent_provider_resolved_model = Some("gpt-6-luna".into());
+    target.agent_session_model = Some("opus".into());
 
     assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
 
     let mut task = store.show_task(&task).unwrap().task;
     let attempt = task.execution_attempts.remove(0);
+    assert_eq!(attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(attempt.agent_type.as_deref(), Some("codex"));
+    assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(attempt.session_model.as_deref(), Some("opus"));
     assert_eq!(attempt.session_id.as_deref(), Some("verified-session"));
     assert_eq!(attempt.session_binding_nonce.as_deref(), Some("test-nonce"));
