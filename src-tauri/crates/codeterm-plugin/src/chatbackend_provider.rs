@@ -196,6 +196,7 @@ pub trait ChatBackendProvider: Send + Sync {
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: catalog.models,
+            model_catalogue: crate::provider::ModelCatalogueCapability::default(),
             model_groups: Vec::new(),
             default_model: catalog.default,
             reasoning_efforts: Vec::new(),

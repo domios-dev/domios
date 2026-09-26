@@ -154,7 +154,7 @@ pub struct AgentSpawnSpec {
     pub activate: Option<bool>,
 }
 
-fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
+pub(crate) fn merge_spawn_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
     match (a, b) {
         (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
         (Some(a), None) => Some(a),
@@ -253,11 +253,74 @@ pub(crate) fn validate_agent_model(
     provider_id: &str,
     model: Option<&str>,
 ) -> Result<(), String> {
-    let _ = registry;
-    if model.map(str::trim).is_some_and(|m| !m.is_empty()) {
-        let _ = crate::agent::model_catalog::resolve_model(provider_id, model);
+    let Some(requested) = model.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let capability = registry
+        .with_provider(provider_id, |provider| provider.model_catalogue_capability())
+        .unwrap_or_default();
+    if capability.authority != crate::agent::provider::ModelCatalogueAuthority::Authoritative {
+        return Ok(());
     }
-    Ok(())
+    let models = if capability.live_discovery_required {
+        let Some(models) = crate::agent::model_catalog::resolve_live_models(provider_id) else {
+            return Ok(());
+        };
+        models
+    } else {
+        crate::agent::model_catalog::resolve_models(provider_id)
+    };
+    let resolved = if capability.live_discovery_required {
+        crate::agent::model_catalog::resolve_live_catalog_model(provider_id, requested)
+    } else {
+        crate::agent::model_catalog::resolve_catalog_model(provider_id, requested)
+    };
+    if resolved.is_some() {
+        return Ok(());
+    }
+    let closest = closest_catalogue_ids(&models, requested);
+    let suggestions = if closest.is_empty() {
+        "no model ids are currently advertised".to_string()
+    } else {
+        closest.join(", ")
+    };
+    Err(format!(
+        "model id '{requested}' is not in provider '{provider_id}' authoritative catalogue; closest catalogue ids: {suggestions}"
+    ))
+}
+
+fn closest_catalogue_ids(
+    catalogue: &[crate::agent::provider::ModelInfo],
+    requested: &str,
+) -> Vec<String> {
+    let mut models: Vec<_> = catalogue
+        .iter()
+        .filter(|model| model.available != Some(false))
+        .cloned()
+        .collect();
+    models.sort_by_key(|model| edit_distance(requested, &model.id));
+    models
+        .into_iter()
+        .take(3)
+        .map(|model| model.id)
+        .collect()
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right: Vec<u8> = right.to_ascii_lowercase().into_bytes();
+    let mut row: Vec<usize> = (0..=right.len()).collect();
+    for (left_index, left_byte) in left.to_ascii_lowercase().bytes().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = left_index + 1;
+        for (right_index, right_byte) in right.iter().enumerate() {
+            let previous = row[right_index + 1];
+            row[right_index + 1] = (row[right_index] + 1)
+                .min(previous + 1)
+                .min(diagonal + usize::from(left_byte != *right_byte));
+            diagonal = previous;
+        }
+    }
+    row[right.len()]
 }
 
 /// Structurally validate a requested reasoning effort against the provider's
@@ -316,6 +379,7 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
+        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
@@ -324,7 +388,6 @@ impl ServiceContext {
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
         let launch_model = model_resolution.model.clone();
-        validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
@@ -360,7 +423,10 @@ impl ServiceContext {
         )?;
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
-        let warning = merge_warnings(cwd_warning, cli_warning);
+        let warning = merge_spawn_warnings(
+            merge_spawn_warnings(cwd_warning, cli_warning),
+            model_resolution.warning.clone(),
+        );
 
         let default_chat_view = should_default_agent_tab_to_chat(
             spec.visibility,
@@ -742,6 +808,7 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
+        validate_agent_model(&self.agent_registry, &agent.provider, agent.model.as_deref())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent.provider,
@@ -750,11 +817,6 @@ impl ServiceContext {
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
         let launch_model = model_resolution.model.clone();
-        validate_agent_model(
-            &self.agent_registry,
-            &agent.provider,
-            launch_model.as_deref(),
-        )?;
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent.provider,
@@ -1120,7 +1182,7 @@ impl ServiceContext {
             workspace_id: ws_id,
             description: spec.description,
             worker_id: agent.worker_id.clone(),
-            warning: cli_warning,
+            warning: merge_spawn_warnings(cli_warning, model_resolution.warning.clone()),
             model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })

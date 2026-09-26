@@ -105,6 +105,8 @@ pub struct PluginManifest {
     pub model_groups: Vec<crate::provider::ModelGroup>,
     #[serde(default)]
     pub default_model: Option<String>,
+    #[serde(default)]
+    pub model_catalogue: crate::provider::ModelCatalogueCapability,
 
     // Reasoning-effort levels — camelCase in plugin.json, mapped to the
     // snake_case wire `ReasoningEffortInfo` through a local wrapper.

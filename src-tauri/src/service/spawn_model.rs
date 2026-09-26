@@ -7,6 +7,7 @@ pub(crate) struct FreshAgentModelResolution {
     pub requested_model: Option<String>,
     pub model: Option<String>,
     pub fallback_notice: Option<ModelFallbackNotice>,
+    pub warning: Option<String>,
 }
 
 pub(crate) fn attach_planned_model(
@@ -86,35 +87,34 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         let requested_model = requested
             .and_then(non_empty_model)
             .map(|model| normalize_session_model(&model));
+        let warning = requested_model
+            .as_deref()
+            .filter(|_| live_catalogue_missing(registry, provider_id))
+            .map(|model| unavailable_live_catalogue_warning(provider_id, model));
         return FreshAgentModelResolution {
             model: requested_model.clone(),
             requested_model,
             fallback_notice: None,
+            warning,
         };
     }
     if let Some(model) = requested.and_then(non_empty_model) {
-        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
-        let fallback_notice = if resolved.fell_back {
-            log::warn!(
-                "[spawn] requested model '{}' unavailable for provider '{}'; using '{}'",
-                model,
-                provider_id,
-                resolved.id
-            );
-            Some(ModelFallbackNotice {
-                planned_model: None,
-                requested_model: model.clone(),
-                provider_resolved_model: resolved.id.clone(),
-                actual_model: None,
-                reason: "requested_model_unavailable".into(),
-            })
-        } else {
+        let catalogue_missing = live_catalogue_missing(registry, provider_id);
+        let matched = if catalogue_missing {
             None
+        } else if capability.live_discovery_required {
+            crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &model)
+        } else {
+            crate::agent::model_catalog::resolve_catalog_model(provider_id, &model)
         };
+        let resolved_model = matched.map(|entry| entry.id).unwrap_or_else(|| model.clone());
+        let warning = catalogue_missing
+            .then(|| unavailable_live_catalogue_warning(provider_id, &model));
         return FreshAgentModelResolution {
-            model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
+            model: non_empty_model(resolved_model).map(|id| normalize_session_model(&id)),
             requested_model: Some(normalize_session_model(&model)),
-            fallback_notice,
+            fallback_notice: None,
+            warning,
         };
     }
     if let Some(model) = crate::config::provider_config(provider_id)
@@ -127,6 +127,7 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
                 model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
                 requested_model: None,
                 fallback_notice: None,
+                warning: None,
             };
         }
         log::warn!(
@@ -145,7 +146,24 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
         requested_model: None,
         fallback_notice: None,
+        warning: None,
     }
+}
+
+fn live_catalogue_missing(registry: &AgentRegistry, provider_id: &str) -> bool {
+    registry
+        .with_provider(provider_id, |provider| provider.model_catalogue_capability())
+        .is_some_and(|capability| {
+            capability.authority == crate::agent::provider::ModelCatalogueAuthority::Authoritative
+                && capability.live_discovery_required
+                && !crate::agent::model_catalog::has_live_snapshot(provider_id)
+        })
+}
+
+fn unavailable_live_catalogue_warning(provider_id: &str, model: &str) -> String {
+    format!(
+        "provider '{provider_id}' requires a live model catalogue, but none is available; launching requested model '{model}' unchanged. Run `codeterm agent models {provider_id}` to refresh and inspect the catalogue."
+    )
 }
 
 /// The four short labels the catalog canonicalizes to. A model id outside this

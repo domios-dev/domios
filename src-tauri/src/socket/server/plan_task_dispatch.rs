@@ -535,6 +535,20 @@ where
         now,
     )
     .map_err(plan_rpc_err)?;
+    crate::service::spawn::validate_agent_model(
+        &svc.agent_registry,
+        &resolved_provider,
+        routing.model.as_deref(),
+    )
+    .map_err(|message| JsonRpcError {
+        code: -32602,
+        message: message.clone(),
+        data: Some(json!({
+            "type": "invalid_model",
+            "message": message,
+            "provider": resolved_provider,
+        })),
+    })?;
     let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
         &resolved_provider,
@@ -542,6 +556,9 @@ where
         None,
     );
     let dispatched_model = model_resolution.model.clone();
+    if let Some(warning) = model_resolution.warning.clone() {
+        warnings.push(warning);
+    }
     if let Some(notice) = model_resolution.fallback_notice {
         if let Some(error) = unqualified_model_error(&routing, &resolved_provider, &notice) {
             return Err(error);

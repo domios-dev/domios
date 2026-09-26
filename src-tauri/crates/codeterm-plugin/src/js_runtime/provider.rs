@@ -1028,6 +1028,10 @@ impl AgentProvider for JsProvider {
         crate::model_catalog::resolve_models(&self.manifest.id)
     }
 
+    fn model_catalogue_capability(&self) -> provider::ModelCatalogueCapability {
+        self.manifest.model_catalogue
+    }
+
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
         // `null` is the plugin's honest "no genuine discovery" signal — it must
         // not deserialize-fail into warn noise, and never falls back to a seed.

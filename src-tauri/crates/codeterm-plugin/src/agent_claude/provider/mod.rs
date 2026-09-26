@@ -379,6 +379,10 @@ impl AgentProvider for ClaudeProvider {
         schemas::available_models()
     }
 
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability::authoritative()
+    }
+
     fn default_model(&self) -> Option<String> {
         crate::model_catalog::resolve_default("claude")
     }
