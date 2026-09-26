@@ -176,6 +176,8 @@ fn bind_worker_task_to_tab(
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
     provider: Option<&str>,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
     attempt_id: &str,
     manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
@@ -191,7 +193,7 @@ fn bind_worker_task_to_tab(
         .task
         .lane;
     let attempt_id = store
-        .begin_task_dispatch_with_reserved_attempt(
+        .begin_task_dispatch_with_reserved_attempt_and_dispatched_model(
             &plan_id,
             &task_id,
             tab_id,
@@ -201,6 +203,8 @@ fn bind_worker_task_to_tab(
             allowance,
             provider,
             attempt_id,
+            model,
+            reasoning_effort,
             now_ms,
         )
         .map_err(|error| error.to_string())?;
@@ -287,17 +291,35 @@ impl ServiceContext {
             return Ok(());
         };
         let now_ms = epoch_ms();
-        let (title, session_id, session_binding_nonce) = {
+        let (
+            title,
+            session_id,
+            session_binding_nonce,
+            provider,
+            model,
+            reasoning_effort,
+        ) = {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
             let binding = mux.get_tab(tab_id).map(|tab| {
                 (
                     tab.agent_session_id.clone(),
                     tab.session_binding_nonce.clone(),
+                    tab.agent_type.clone(),
+                    tab.agent_provider_resolved_model.clone(),
+                    tab.reasoning_effort_identity.resolved.clone(),
                 )
             });
-            let (session_id, session_binding_nonce) = binding.unwrap_or_default();
-            (title, session_id, session_binding_nonce)
+            let (session_id, session_binding_nonce, provider, model, reasoning_effort) =
+                binding.unwrap_or_default();
+            (
+                title,
+                session_id,
+                session_binding_nonce,
+                provider,
+                model,
+                reasoning_effort,
+            )
         };
         let binding = self.create_worker_task_binding(
             params,
@@ -306,12 +328,16 @@ impl ServiceContext {
             &title,
             session_id.as_deref(),
             session_binding_nonce.as_deref(),
+            provider.as_deref(),
+            model,
+            reasoning_effort,
             now_ms,
         );
         let binding = match binding {
             Ok(binding) => binding,
             Err(error) => return Err(self.rollback_failed_agent_spawn(tab_id, &error)),
         };
+        self.persist_current_attempt_session_model(tab_id);
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
@@ -332,6 +358,9 @@ impl ServiceContext {
         title: &str,
         session_id: Option<&str>,
         session_binding_nonce: Option<&str>,
+        provider: Option<&str>,
+        model: Option<String>,
+        reasoning_effort: Option<String>,
         now_ms: u64,
     ) -> Result<WorkerTaskBinding, String> {
         let intent = params
@@ -356,7 +385,9 @@ impl ServiceContext {
             session_binding_nonce,
             intent,
             allowance,
-            params.agent.as_deref(),
+            provider,
+            model,
+            reasoning_effort,
             &authority.attempt_id,
             manifest,
             now_ms,
@@ -412,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn bind_sets_executor_and_waits_for_ack() {
+    fn plan_task_binding_records_dispatched_model_and_effort() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         let binding = bind_worker_task_to_tab(
@@ -425,7 +456,9 @@ mod tests {
             Some("nonce-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
             None,
-            None,
+            Some("codex"),
+            Some("gpt-6-luna".into()),
+            Some("xhigh".into()),
             "attempt-prepared",
             vec![crate::plan::PlanSkillManifestEntry {
                 slug: "prepared".into(),
@@ -445,6 +478,10 @@ mod tests {
         assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
         assert_eq!(binding.plan_id, plan_id);
         assert_eq!(binding.task_id, task_id);
+        let attempt = task.execution_attempts.last().unwrap();
+        assert_eq!(attempt.provider.as_deref(), Some("codex"));
+        assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
+        assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
         assert_eq!(
             task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug,
             "prepared"
@@ -737,6 +774,8 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            None,
+            None,
             "attempt-review",
             vec![],
             10,
@@ -764,6 +803,8 @@ mod tests {
             Some("session-worker"),
             Some("nonce-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
             None,
             None,
             "attempt-ack",
@@ -808,6 +849,8 @@ mod tests {
             None,
             None,
             crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
             None,
             None,
             "attempt-rollback",

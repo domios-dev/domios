@@ -41,8 +41,8 @@ pub(crate) fn assign_existing_task(
             return Err(PlanError::Io("task mutation caller rebound".into()));
         }
     }
-    let (binding, role) = if peer.is_some() {
-        (None, None)
+    let (binding, role, session_model) = if peer.is_some() {
+        (None, None, None)
     } else {
         let tab = mux
             .get_tab(tab_id)
@@ -52,7 +52,11 @@ pub(crate) fn assign_existing_task(
         let role = (tab.role == Some(AgentRole::Manager)
             && tab.role_profile.as_deref() == Some("planner"))
         .then_some("planner");
-        (Some(binding), role)
+        (
+            Some(binding),
+            role,
+            tab.agent_session_model.clone(),
+        )
     };
     store.assign_task_with_runtime_binding(
         plan_id,
@@ -63,7 +67,21 @@ pub(crate) fn assign_existing_task(
         binding.as_ref(),
         authority,
         now,
-    )
+    )?;
+    if let (Some(binding), Some(model)) = (binding, session_model) {
+        if let Err(error) = store.update_attempt_session_model_if_unknown(
+            plan_id,
+            task_id,
+            tab_id,
+            &binding.session_id,
+            &binding.session_binding_nonce,
+            &model,
+            now,
+        ) {
+            log::warn!("[task-assignment] failed to persist bound session model: {error}");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

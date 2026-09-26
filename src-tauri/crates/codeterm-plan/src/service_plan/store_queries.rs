@@ -130,6 +130,29 @@ impl PlanStore {
         None
     }
 
+    pub fn open_attempt_task_for_tab(&self, tab_id: &str) -> Option<(String, String)> {
+        if tab_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active {
+                continue;
+            }
+            if let Some(task) = plan.tasks.iter().find(|task| {
+                !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled)
+                    && task.execution_attempts.iter().any(|attempt| {
+                        attempt.executor_tab_id == tab_id
+                            && attempt.closed_at.is_none()
+                            && attempt.retired_at.is_none()
+                    })
+            }) {
+                return Some((plan.id.clone(), task.id.clone()));
+            }
+        }
+        None
+    }
+
     pub fn report_pending_task_binding_for_tab(&self, tab_id: &str) -> Option<(String, String)> {
         if tab_id.trim().is_empty() {
             return None;

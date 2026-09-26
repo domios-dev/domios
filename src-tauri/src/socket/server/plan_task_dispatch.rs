@@ -535,14 +535,14 @@ where
         now,
     )
     .map_err(plan_rpc_err)?;
-    if let Some(notice) = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+    let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
         &resolved_provider,
         routing.model.clone(),
         None,
-    )
-    .fallback_notice
-    {
+    );
+    let dispatched_model = model_resolution.model.clone();
+    if let Some(notice) = model_resolution.fallback_notice {
         if let Some(error) = unqualified_model_error(&routing, &resolved_provider, &notice) {
             return Err(error);
         }
@@ -682,6 +682,7 @@ where
         )?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
+    let dispatched_reasoning_effort = reasoning_effort.clone();
     let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: Some(spawn_cwd),
@@ -861,7 +862,7 @@ where
             tab_id: owner.tab_id.clone(),
         })
     } else {
-        store.begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
+        store.begin_task_dispatch_with_reserved_attempt_and_gates_and_observation_and_dispatched_model(
             &plan_id,
             &task_id,
             &reserved_tab_id,
@@ -876,6 +877,8 @@ where
             &reserved_attempt_id,
             authorized_gates.clone(),
             placement,
+            dispatched_model,
+            dispatched_reasoning_effort,
             begin_owner,
             begin_owner_is_live,
             now,
@@ -1028,6 +1031,7 @@ where
             },
         ));
     }
+    svc.persist_current_attempt_session_model(&tab_id);
     emit_plan_changed(app, &plan_id);
     let startup = DispatchStartup {
         app: app.clone(),

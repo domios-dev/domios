@@ -207,6 +207,7 @@ impl ServiceContext {
         let mismatch_changed = identity_update.mismatch != current_mismatch;
         let fallback_changed = identity_update.fallback != current_fallback;
         if !identity_update.model_changed && !mismatch_changed && !fallback_changed {
+            self.persist_attempt_session_model(tab_id, agent_id, &sid, &model);
             return;
         }
         let should_notify = identity_update.mismatch.is_some() && current_mismatch.is_none();
@@ -237,25 +238,118 @@ impl ServiceContext {
             }
         }
         let model = Some(model);
-        let mut mux = self.mux.write();
-        if let Some(p) = mux.get_tab_mut(tab_id) {
-            if runtime_model_update_matches_session(p, agent_id, &sid) {
-                if identity_update.model_changed {
-                    log::info!(
-                        "[session-model] tab={} {:?} -> {:?}",
-                        tab_id,
-                        p.agent_session_model,
-                        model
-                    );
+        let updated = {
+            let mut mux = self.mux.write();
+            if let Some(tab) = mux.get_tab_mut(tab_id) {
+                if runtime_model_update_matches_session(tab, agent_id, &sid) {
+                    if identity_update.model_changed {
+                        log::info!(
+                            "[session-model] tab={} {:?} -> {:?}",
+                            tab_id,
+                            tab.agent_session_model,
+                            model
+                        );
+                    }
+                    tab.agent_session_model = model.clone();
+                    tab.model_fallback = identity_update.fallback;
+                    tab.model_identity_mismatch = identity_update.mismatch;
+                    true
+                } else {
+                    false
                 }
-                p.agent_session_model = model;
-                p.model_fallback = identity_update.fallback;
-                p.model_identity_mismatch = identity_update.mismatch;
-                drop(mux);
-                self.emit_state_changed();
+            } else {
+                false
+            }
+        };
+        if updated {
+            self.emit_state_changed();
+            if let Some(model) = model.as_deref() {
+                self.persist_attempt_session_model(tab_id, agent_id, &sid, model);
             }
         }
     }
+
+    pub(crate) fn persist_attempt_session_model(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        model: &str,
+    ) {
+        if let Some(plan_id) = self.write_attempt_session_model(tab_id, agent_id, session_id, model) {
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "plan-changed",
+                serde_json::json!({ "plan_id": plan_id }),
+            );
+        }
+    }
+
+    fn write_attempt_session_model(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        model: &str,
+    ) -> Option<String> {
+        let binding = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return None;
+            };
+            if !runtime_model_update_matches_session(tab, agent_id, session_id)
+                || tab.agent_session_model.as_deref() != Some(model)
+            {
+                return None;
+            }
+            super::task_assignment::authenticated_tab_binding(tab)
+        };
+        let Some(binding) = binding else { return None };
+        let Some((plan_id, task_id)) = self.plan_store.open_attempt_task_for_tab(tab_id) else {
+            return None;
+        };
+        match self.plan_store.update_attempt_session_model_if_unknown(
+            &plan_id,
+            &task_id,
+            tab_id,
+            &binding.session_id,
+            &binding.session_binding_nonce,
+            model,
+            session_model_epoch_ms(),
+        ) {
+            Ok(true) => Some(plan_id),
+            Ok(false) => None,
+            Err(error) => {
+                log::warn!(
+                    "[session-model] failed to persist task attempt model tab={tab_id}: {error}"
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn persist_current_attempt_session_model(&self, tab_id: &str) {
+        let identity = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).and_then(|tab| {
+                Some((
+                    tab.agent_type.clone()?,
+                    tab.agent_session_id.clone()?,
+                    tab.agent_session_model.clone()?,
+                ))
+            })
+        };
+        if let Some((agent_id, session_id, model)) = identity {
+            let _ = self.write_attempt_session_model(tab_id, &agent_id, &session_id, &model);
+        }
+    }
+}
+
+fn session_model_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub(crate) fn spawn_startup_model_refresh(

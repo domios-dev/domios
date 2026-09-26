@@ -276,6 +276,113 @@ mod model_refresh_tests {
         );
     }
 
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn attempt_records_session_model_from_its_own_bound_session() {
+        use crate::plan::{OrchestratorRef, Plan};
+        use crate::service::plan::NewTask;
+
+        let (mut mux, tab_id) = seeded_tab(Some("session-owned"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("nonce-owned".into());
+        tab.reported_session_binding_nonce = Some("nonce-owned".into());
+        let fixture = ServiceFixture::new(mux);
+        let workspace_id = fixture
+            .service
+            .mux
+            .read()
+            .find_workspace_for_tab(&tab_id)
+            .unwrap();
+        let unknown_tab = fixture
+            .service
+            .mux
+            .write()
+            .create_tab(&workspace_id)
+            .unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&unknown_tab).unwrap();
+            tab.cwd = Some(CWD.into());
+            tab.agent_type = Some(AGENT.into());
+            tab.agent_type_locked = true;
+            tab.agent_session_id = Some("session-unknown".into());
+            tab.session_binding_nonce = Some("nonce-unknown".into());
+            tab.reported_session_binding_nonce = Some("nonce-unknown".into());
+        }
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(SessionModelProvider::new(&[
+                ("session-owned", "claude-opus-5"),
+                ("foreign-newer", "claude-sonnet-5"),
+            ])));
+        let mut plan = Plan::new(
+            "attempt session models".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orchestrator"),
+        );
+        fixture.service.plan_store.save(&mut plan, 1).unwrap();
+        let add_and_bind = |tab: &str, session: &str, nonce: &str, now_ms| {
+            let task_id = fixture
+                .service
+                .plan_store
+                .add_task(
+                    &plan.id,
+                    NewTask {
+                        name: format!("task for {tab}"),
+                        ..Default::default()
+                    },
+                    now_ms,
+                )
+                .unwrap();
+            fixture
+                .service
+                .plan_store
+                .assign_task(&plan.id, &task_id, tab, None, now_ms + 1)
+                .unwrap();
+            fixture
+                .service
+                .plan_store
+                .update_attempt_executor_identity(
+                    &plan.id,
+                    &task_id,
+                    tab,
+                    None,
+                    Some(session),
+                    Some(nonce),
+                    now_ms + 2,
+                )
+                .unwrap();
+            task_id
+        };
+        let own_task = add_and_bind(&tab_id, "session-owned", "nonce-owned", 2);
+        let unknown_task = add_and_bind(&unknown_tab, "session-unknown", "nonce-unknown", 5);
+
+        fixture.service.refresh_session_model_after_binding(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_after_binding(&unknown_tab);
+
+        let own_attempt = fixture
+            .service
+            .plan_store
+            .list_task_attempts(&plan.id, &own_task)
+            .unwrap()
+            .remove(0);
+        let unknown_attempt = fixture
+            .service
+            .plan_store
+            .list_task_attempts(&plan.id, &unknown_task)
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            own_attempt.attempt.session_model.as_deref(),
+            Some("opus"),
+            "a newer foreign session must not replace the tab's own model"
+        );
+        assert_eq!(unknown_attempt.attempt.session_model, None);
+    }
+
     /// The rejection half: the session rolls between the detector read and the
     /// guarded write, so the answer now describes a retired session.
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

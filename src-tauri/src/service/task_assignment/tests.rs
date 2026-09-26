@@ -143,6 +143,20 @@ fn roundtrip(authorized: bool) {
 }
 
 #[test]
+fn assignment_captures_model_already_detected_on_its_bound_tab() {
+    let (_dir, store, mut mux, plan, task, tab) = fixture();
+    mux.get_tab_mut(&tab).unwrap().agent_session_model = Some("opus".into());
+
+    assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
+
+    let mut task = store.show_task(&task).unwrap().task;
+    let attempt = task.execution_attempts.remove(0);
+    assert_eq!(attempt.session_model.as_deref(), Some("opus"));
+    assert_eq!(attempt.session_id.as_deref(), Some("verified-session"));
+    assert_eq!(attempt.session_binding_nonce.as_deref(), Some("test-nonce"));
+}
+
+#[test]
 fn lifecycle_reassignment_local_assignment_ack_report_bounce() {
     roundtrip(false);
 }

@@ -55,6 +55,7 @@ pub struct TaskRespawnDraft {
     pub provider: String,
     pub planned_model: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
@@ -75,6 +76,7 @@ pub struct TaskCompeteDraft {
     pub provider: String,
     pub planned_model: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
@@ -423,15 +425,11 @@ pub fn new_assignment_attempt_with_id(
     attempt_id: Option<&str>,
     now_ms: u64,
 ) -> TaskExecutionAttempt {
-    let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
         id: attempt_id
             .map(str::to_string)
             .unwrap_or_else(gen_attempt_id),
         executor_tab_id: tab_id.to_string(),
-        provider,
-        agent_type: provider_name_from_model(task.model.as_deref()),
-        model,
         role: role.map(str::to_string),
         mesh_peer: peer.map(str::to_string).or_else(|| task.peer.clone()),
         branch: task.lane.branch.clone(),
@@ -522,10 +520,6 @@ pub fn accept_exact_attempt(attempt: &mut TaskExecutionAttempt, reason: &str, no
     if attempt.closed_at.is_none() {
         attempt.closed_at = Some(now_ms);
     }
-}
-
-fn provider_name_from_model(value: Option<&str>) -> Option<String> {
-    split_provider_model(value).0
 }
 
 pub(super) fn live_attempt_count(task: &Task) -> usize {
@@ -633,6 +627,63 @@ impl PlanStore {
         })
     }
 
+    pub fn update_attempt_session_model_if_unknown(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        model: &str,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let session_id = session_id.trim();
+        let session_binding_nonce = session_binding_nonce.trim();
+        let model = model.trim();
+        if session_id.is_empty() || session_binding_nonce.is_empty() || model.is_empty() {
+            return Ok(false);
+        }
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
+            .ok_or(PlanError::TaskNotFound)?;
+        if !task.execution_attempts.iter().rev().any(|attempt| {
+            attempt.executor_tab_id == tab_id
+                && attempt.closed_at.is_none()
+                && attempt.retired_at.is_none()
+                && attempt.session_model.is_none()
+                && attempt
+                    .session_id
+                    .as_deref()
+                    .is_none_or(|current| current == session_id)
+                && attempt
+                    .session_binding_nonce
+                    .as_deref()
+                    .is_none_or(|current| current == session_binding_nonce)
+        })
+        {
+            return Ok(false);
+        }
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().rev().find(|attempt| {
+                attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+                    && attempt.session_model.is_none()
+                    && attempt.session_id.as_deref() == Some(session_id)
+                    && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+            }) else {
+                return Ok(false);
+            };
+            attempt.session_id = Some(session_id.into());
+            attempt.session_binding_nonce = Some(session_binding_nonce.into());
+            attempt.session_model = Some(model.into());
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
     pub fn build_task_compete_drafts(
         &self,
         plan_id: &str,
@@ -704,6 +755,7 @@ impl PlanStore {
                 provider,
                 planned_model: task.model.clone(),
                 model,
+                reasoning_effort: None,
                 parent_tab_id: request.parent_tab_id.clone().or(plan.owner.tab_id.clone()),
                 workspace_id: request
                     .workspace_id
@@ -790,6 +842,7 @@ impl PlanStore {
             .or(task_provider)
             .unwrap_or_else(|| "claude".into());
         let model = request.model.or(source.model.clone()).or(task_model);
+        let reasoning_effort = source.reasoning_effort.clone();
         let report_command = task_report_command(plan_id, &task.id);
         let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;
         let explicit_title = request.title.is_some();
@@ -815,6 +868,7 @@ impl PlanStore {
             provider,
             planned_model: task.model.clone(),
             model,
+            reasoning_effort,
             parent_tab_id: request
                 .parent_tab_id
                 .or(source.parent_tab_id.clone())
@@ -862,6 +916,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
+            attempt.reasoning_effort = draft.reasoning_effort.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
             attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
@@ -907,6 +962,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
+            attempt.reasoning_effort = draft.reasoning_effort.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
             attempt.competition_group_id = Some(draft.competition_group_id.clone());

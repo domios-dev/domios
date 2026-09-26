@@ -211,6 +211,8 @@ exact command).
 | `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task |
 | `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
 | `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt and record a new live attempt |
+
+Attempt JSON includes the dispatched `provider`, `model`, and `reasoning_effort`, plus `session_model` from the attempt's bound session once detected. An unknown session model remains null.
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -236,4 +238,4 @@ A `team pair` mints its Team together with the two launch attempts it reserves, 
 `team.adopt_agent` and the `agent.spawn` / `tab` creation `{team_id, creator_tab_id}` pair share one membership check: the caller tab must exist, already carry that `team_id`, sit in the Team's workspace, and the Team must have a live anchoring Orchestrator. Failing any of those refuses before the tab is created or mutated. `team.adopt_agent` additionally refuses a missing tab, a tab already bound to a Team, and a role-bearing tab — a role- or plan-task-bound spawn derives its Team from that binding, so `agent.spawn` rejects `team_id` combined with `role` or `plan_task`.
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
-<!-- revision: 23 -->
+<!-- revision: 24 -->
