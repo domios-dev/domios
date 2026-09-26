@@ -33,6 +33,19 @@ fn attempt_of(tab: &Tab) -> LaunchAttempt {
     }
 }
 
+#[test]
+fn provider_exit_evidence_ends_resume_first_turn_waiting() {
+    let mut tab = launching_tab("pty-resume-exit", "nonce-resume-exit");
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_booting = false;
+    let attempt = attempt_of(&tab);
+
+    assert!(resume_attempt_is_waiting_for_first_turn(&tab, &attempt));
+
+    tab.exit_suspected_at = Some(std::time::Instant::now());
+    assert!(!resume_attempt_is_waiting_for_first_turn(&tab, &attempt));
+}
+
 /// The agent naming itself on this launch: its own accepted session plus this
 /// attempt's nonce echoed back.
 fn report_own_launch(tab: &mut Tab) {
@@ -719,7 +732,7 @@ fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
         tab.agent_session_id = Some("saved-session".into());
         tab.session_binding_nonce = Some("resume-nonce".into());
         tab.pty_id = Some(pty_id.into());
-        tab.boot_stage = Some(BootStage::PtyReattached);
+        tab.boot_stage = Some(BootStage::AgentReady);
     }
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness
@@ -743,7 +756,7 @@ fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
     assert_eq!(settlement, LaunchSettlement::AwaitingFirstTurn);
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("restored tab stays present");
-    assert_eq!(tab.boot_stage, Some(BootStage::PtyReattached));
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
     assert_eq!(tab.boot_failure_reason, None);
     assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
     drop(mux);

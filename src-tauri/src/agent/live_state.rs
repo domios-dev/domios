@@ -127,8 +127,7 @@ impl ServiceContext {
         }
     }
 
-    /// Restore teardown is permitted only when the tab has no live PTY and no
-    /// launch in flight; either fact makes an older wave verdict stale.
+    /// Clear stale identity after a caller obtains an absent verdict.
     pub(crate) fn reconcile_tab_restored_without_agent(&self, tab_id: &str) -> bool {
         let declares_agent = self
             .mux

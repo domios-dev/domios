@@ -80,11 +80,10 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
         launching.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
     }
     fixture.service.settle_restore_report();
-    assert!(
-        !fixture
-            .service
-            .reconcile_tab_restored_without_agent(&launching_tab_id),
-        "the stale wave verdict cannot clear an identity with a live PTY"
+    assert_eq!(
+        observe_tab_liveness(&fixture.service, &launching_tab_id),
+        AgentLiveness::Absent,
+        "the failed launch becomes absent only after it stops being in flight"
     );
     assert_eq!(
         fixture

@@ -176,6 +176,13 @@ pub(crate) fn attempt_owns_tab(tab: &Tab, attempt: &LaunchAttempt) -> bool {
         && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
 }
 
+fn resume_attempt_is_waiting_for_first_turn(tab: &Tab, attempt: &LaunchAttempt) -> bool {
+    attempt_owns_tab(tab, attempt)
+        && tab.boot_stage == Some(BootStage::AgentReady)
+        && !tab.agent_booting
+        && tab.exit_suspected_at.is_none()
+}
+
 /// Names the tab and its launch attempt, so a caller or the UI can act on the
 /// failure without reading a byte of terminal output.
 pub(crate) fn exited_before_readiness_reason(
@@ -421,16 +428,14 @@ impl ServiceContext {
             let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
                 let provider_tui = provider.screen_has_tui(&screen);
                 let composer_ready = input.is_some_and(|state| {
-                    launch_composer_input_ready(state)
-                        && (provider_tui || state.alternate_screen)
+                    launch_composer_input_ready(state) && (provider_tui || state.alternate_screen)
                 });
                 let directory_trust_prompt =
                     provider.directory_trust_prompt_response(&screen).is_some();
                 let classification = provider.classify_tab_state(&snapshot);
                 let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
                     value.state == codeterm_plugin::tab_state::TabState::ClarifyingQuestion
-                        && value.confidence
-                            >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                        && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
                 }) && provider.parse_prompt(&screen).is_some();
                 (
                     composer_ready,
@@ -439,12 +444,8 @@ impl ServiceContext {
                     classification,
                 )
             });
-            let (
-                composer_ready,
-                directory_trust_prompt,
-                active_interactive_prompt,
-                classification,
-            ) = provider_observation.unwrap_or((false, false, false, None));
+            let (composer_ready, directory_trust_prompt, active_interactive_prompt, classification) =
+                provider_observation.unwrap_or((false, false, false, None));
             match decide_launch_input(LaunchInputObservation {
                 session_bound,
                 composer_ready,
@@ -646,18 +647,16 @@ impl ServiceContext {
     }
 
     fn resume_launch_attempt_is_waiting_for_first_turn(&self, attempt: &LaunchAttempt) -> bool {
-        let owns_tab = {
+        let awaiting_first_turn = {
             let mux = self.mux.read();
             mux.get_tab(&attempt.tab_id)
-                .is_some_and(|tab| attempt_owns_tab(tab, attempt))
+                .is_some_and(|tab| resume_attempt_is_waiting_for_first_turn(tab, attempt))
         };
-        owns_tab && self.pty.lock().get_session(&attempt.pty_id).is_some()
+        awaiting_first_turn && self.pty.lock().get_session(&attempt.pty_id).is_some()
     }
 }
 
-fn launch_composer_input_ready(
-    input: codeterm_pty::pty::screen_state::ComposerInputState,
-) -> bool {
+fn launch_composer_input_ready(input: codeterm_pty::pty::screen_state::ComposerInputState) -> bool {
     crate::agent::offline_state_classifier::composer_cursor_ready(
         input.cursor_visible,
         input.cursor_row,
