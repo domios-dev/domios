@@ -600,6 +600,16 @@ mod tests {
     }
 
     #[test]
+    fn startup_ack_starter_requires_a_supervised_non_task_launch() {
+        assert_eq!(startup_starter_prompt(false, false), None);
+        assert_eq!(
+            startup_starter_prompt(true, false),
+            Some(crate::agent::provider::StarterPrompt::StartupHandshake)
+        );
+        assert_eq!(startup_starter_prompt(true, true), None);
+    }
+
+    #[test]
     fn pty_only_startup_handshake_still_confirms_the_first_turn() {
         assert_eq!(
             startup_handshake_confirmed_first_turn(false),

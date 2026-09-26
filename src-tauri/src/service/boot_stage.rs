@@ -189,6 +189,29 @@ impl BootStageSink for ServiceContext {
 }
 
 impl ServiceContext {
+    pub(crate) fn record_startup_failure_reason(
+        &self,
+        authority: &crate::service::startup_lease::StartupAuthority,
+        reason: &str,
+    ) -> bool {
+        {
+            let mut mux = self.mux.write();
+            let Some(tab) = mux.get_tab_mut(&authority.child_tab_id) else {
+                return false;
+            };
+            if tab.pty_id.as_deref() != Some(authority.attempt_id.as_str())
+                || tab.agent_session_id != authority.session_id
+                || tab.session_binding_nonce != authority.binding_nonce
+                || tab.launch_session_authenticated()
+            {
+                return false;
+            }
+            tab.boot_failure_reason = Some(reason.to_string());
+        }
+        self.emit_state_changed();
+        true
+    }
+
     /// Set the tab's current boot stage (for late attachers reading the
     /// snapshot) and fan the transition out on the event bridge. Fire-and-forget
     /// — never blocks the launch thread.
