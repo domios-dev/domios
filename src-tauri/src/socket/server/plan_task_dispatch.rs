@@ -974,6 +974,7 @@ where
     reservation_tab.mark_spawned();
     let tab_id = spawn.tab_id.clone();
     drop(dispatch_reservation);
+    // The resolved effort is attempt telemetry; failing to record it must not kill a live Worker.
     if let Err(error) = store.update_dispatched_attempt_reasoning_effort(
         &plan_id,
         &task_id,
@@ -982,32 +983,13 @@ where
         spawn.reasoning_effort.clone(),
         now,
     ) {
-        let cleanup = roll_back_dispatch_attempt(
-            store,
-            &plan_id,
-            &original_task,
-            &original_plan_mode,
-            &tab_id,
-            &attempt_id,
-            provisioned_lane,
-            || close_tab_if_present(svc, &tab_id),
-            now,
-        );
         log::warn!(
-            "[task-dispatch] dispatch_startup_failed plan={} task={} tab={} attempt={} stage=attempt_reasoning_effort cause={error}",
+            "[task-dispatch] attempt_reasoning_effort_not_recorded plan={} task={} tab={} attempt={} cause={error}",
             plan_id,
             task_id,
             tab_id,
             attempt_id
         );
-        emit_plan_changed(app, &plan_id);
-        return Err(dispatch_failed(
-            "attempt_reasoning_effort",
-            match cleanup {
-                Ok(()) => error.to_string(),
-                Err(cleanup) => format!("{error}; {cleanup}"),
-            },
-        ));
     }
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now)
