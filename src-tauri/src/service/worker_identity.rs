@@ -20,7 +20,19 @@ pub(crate) fn persist_attempt_executor_identity(
     title: &str,
     now: u64,
 ) -> Result<(), PlanError> {
-    persist_attempt_executor_identity_for_mux(store, &svc.mux, plan_id, task_id, tab_id, title, now)
+    let result = persist_attempt_executor_identity_for_mux(
+        store,
+        &svc.mux,
+        plan_id,
+        task_id,
+        tab_id,
+        title,
+        now,
+    );
+    if result.is_ok() {
+        svc.persist_current_attempt_session_model(tab_id);
+    }
+    result
 }
 
 pub(crate) fn persist_attempt_executor_identity_for_mux(

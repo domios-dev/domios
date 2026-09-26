@@ -975,12 +975,11 @@ where
     let tab_id = spawn.tab_id.clone();
     drop(dispatch_reservation);
     // The resolved effort is attempt telemetry; failing to record it must not kill a live Worker.
-    if let Err(error) = store.update_dispatched_attempt_reasoning_effort(
+    if let Err(error) = svc.persist_dispatched_attempt_reasoning_effort(
         &plan_id,
         &task_id,
         &tab_id,
         &attempt_id,
-        spawn.reasoning_effort.clone(),
         now,
     ) {
         log::warn!(
