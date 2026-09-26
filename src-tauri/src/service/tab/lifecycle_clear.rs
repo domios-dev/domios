@@ -1,5 +1,4 @@
 use super::clear_agent_identity_for_lifecycle_exit;
-use crate::multiplexer::types::TabBacking;
 use crate::service::ServiceContext;
 
 impl ServiceContext {
@@ -44,33 +43,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn clear_tab_restored_identity_if_absent(&self, tab_id: &str, cause: &str) -> bool {
-        if !self.lifecycle_clear_allowed(
-            tab_id,
-            cause,
-            crate::crash::shutdown::active_shutdown().as_ref(),
-        ) {
-            return false;
-        }
-        let cleared = {
-            let mut mux = self.mux.write();
-            let Some(tab) = mux.get_tab_mut(tab_id) else {
-                return false;
-            };
-            let live_pty = matches!(&tab.backing, TabBacking::Pty)
-                && tab
-                    .pty_id
-                    .as_deref()
-                    .is_some_and(|pty_id| self.pty.lock().get_session(pty_id).is_some());
-            if tab.agent_booting || live_pty {
-                log::info!(
-                    "[agent-lifecycle] restore identity clear skipped: tab={tab_id} boot_in_flight={} live_pty={live_pty}",
-                    tab.agent_booting
-                );
-                return false;
-            }
-            clear_agent_identity_for_lifecycle_exit(tab)
-        };
-        self.finish_agent_identity_clear(tab_id, cause, cleared)
+        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(tab_id, cause)
     }
 
     fn lifecycle_clear_allowed(

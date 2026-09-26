@@ -88,12 +88,14 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
 
     let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
     let input_ready_stage = input_ready_stage_after_provider_ready(true);
-    assert_eq!(input_ready_stage, BootStage::PtyReattached);
-    assert!(launch.emit(&harness.service, input_ready_stage));
+    assert_eq!(input_ready_stage, BootStage::AgentReady);
+    assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
+    assert!(launch.emit_resume_first_turn_input_ready(&harness.service));
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("restored tab remains present");
-    assert_eq!(tab.boot_stage, Some(BootStage::PtyReattached));
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
     assert_eq!(tab.boot_failure_reason, None);
+    assert!(!tab.launch_session_authenticated());
     drop(mux);
     LAUNCH_REGISTRY.lock().finish(&launch);
 }

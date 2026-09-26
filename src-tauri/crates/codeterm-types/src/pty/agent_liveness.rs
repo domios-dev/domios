@@ -230,6 +230,19 @@ mod tests {
     }
 
     #[test]
+    fn proven_launch_stages_are_unobserved_while_launch_is_in_flight() {
+        for stage in [BootStage::ProviderReady, BootStage::AgentReady] {
+            let mut e = evidence(Some(stage));
+            e.boot_in_flight = true;
+            assert_eq!(
+                classify_agent_liveness(e),
+                AgentLiveness::Unobserved,
+                "{stage:?}"
+            );
+        }
+    }
+
+    #[test]
     fn provider_exit_in_a_surviving_shell_is_absent() {
         let mut e = evidence(Some(BootStage::AgentReady));
         e.provider_exit_observed = true;

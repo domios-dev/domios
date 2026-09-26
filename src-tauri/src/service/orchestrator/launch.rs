@@ -926,7 +926,15 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
         let input_ready_stage =
             startup_readiness::input_ready_stage_after_provider_ready(resumes_on_first_turn);
-        if !launch.emit(&svc, input_ready_stage) {
+        if resumes_on_first_turn {
+            set_booting(false);
+        }
+        let input_ready = if resumes_on_first_turn {
+            launch.emit_resume_first_turn_input_ready(&svc)
+        } else {
+            launch.emit(&svc, input_ready_stage)
+        };
+        if !input_ready {
             return;
         }
         delivery_gate.mark_provider_ready();
@@ -1046,6 +1054,8 @@ pub(crate) fn launch_agent_in_background_with_env(
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Ok(()));
                 }
+            } else if let Some(tx) = ready_tx {
+                let _ = tx.send(Err("launch readiness was superseded".into()));
             }
             return;
         }

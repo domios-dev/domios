@@ -33,7 +33,7 @@ pub(super) fn resume_waits_for_first_turn(
 
 pub(super) fn input_ready_stage_after_provider_ready(resumes_on_first_turn: bool) -> BootStage {
     if resumes_on_first_turn {
-        BootStage::PtyReattached
+        BootStage::AgentReady
     } else {
         BootStage::ProviderReady
     }
