@@ -70,7 +70,7 @@ fn agent_models_formats_per_model_efforts_and_provider_fallback() {
     assert!(out.contains("GPT-5.5\n             Reasoning effort: low, medium (default), high, xhigh"));
     assert!(out.contains("Fallback Model\n"));
     assert!(out.contains("Provider fallback reasoning effort:"));
-    assert!(out.contains("xhigh     Extra high"));
+    assert!(out.contains(&format!("{:<10} {}", "xhigh", "Extra high")));
 }
 
 #[test]
