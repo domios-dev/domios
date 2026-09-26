@@ -152,8 +152,7 @@ pub async fn check_hooks_api(
 #[derive(serde::Deserialize)]
 pub struct InstallHooksQuery {
     pub provider: String,
-    #[serde(default)]
-    pub precompact_memory_export: bool,
+    pub precompact_memory_export: Option<bool>,
 }
 
 /// An authenticated install request is the user's consent: it is recorded like

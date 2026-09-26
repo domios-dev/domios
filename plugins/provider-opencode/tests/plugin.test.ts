@@ -495,6 +495,10 @@ console.log("\n--- discoverModels ---\n");
     old.checkIntegration().plugin_file_current === false,
     "pre-nonce opencode plugin reads as not-current",
   );
+  assert(
+    old.checkIntegration().plugin_file_owned === true,
+    "the stale plugin retains its CodeTerm ownership marker",
+  );
   const cur = loadOpencodeWithHost(
     withBody(
       "// codeterm-opencode-session-binding-v2\n" +
@@ -511,6 +515,7 @@ console.log("\n--- discoverModels ---\n");
     cur.checkIntegration().plugin_file_current === true,
     "opencode plugin carrying the nonce reads as current",
   );
+  assert(cur.checkIntegration().plugin_file_owned === true, "current plugin reports marker ownership");
   const stalePane = loadOpencodeWithHost(
     withBody(
       "// codeterm-opencode-session-binding-v2\n" +
@@ -536,6 +541,23 @@ console.log("\n--- discoverModels ---\n");
     ),
   );
   assert(staleInstance.checkIntegration().plugin_file_current === false, "instance-bound helper is stale");
+  const foreign = loadOpencodeWithHost(withBody("const endpoint = process.env.CODETERM_API_URL;"));
+  assert(foreign.checkIntegration().plugin_file_owned === false, "unmarked file is not CodeTerm-owned");
+  const unreadableConfig = loadOpencodeWithHost(
+    ocHost({
+      fs: {
+        fileExists: () => true,
+        readFile: () => "// codeterm-opencode-session-binding-v2",
+        readJson: () => null,
+        writeFile: () => false,
+        writeJson: () => false,
+      },
+    }),
+  );
+  assert(
+    unreadableConfig.checkIntegration().integration_state === "unreadable",
+    "an unreadable config reports a reconciliation state instead of absence",
+  );
 }
 
 console.log("--- permission_request: opencode declared session state ---");

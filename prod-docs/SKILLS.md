@@ -163,8 +163,10 @@ Session binding needs each provider's CodeTerm hooks installed and trusted. No S
 codeterm integration status --provider codex            # read install/trust state
 codeterm integration install --provider codex           # records consent, installs, grants trust
 codeterm integration install --provider claude --mesh PEER   # same on a paired peer
+codeterm integration install --provider claude --precompact-memory-export       # enable memory export
+codeterm integration install --provider claude --no-precompact-memory-export    # disable memory export
 ```
-Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted CodeTerm hook by themselves (reinstall plus trust grant). Foreign hooks are never rewritten or trusted.
+Omitting either PreCompact flag preserves the current CodeTerm hook choice or its recorded setting. Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted CodeTerm hook by themselves (reinstall plus trust grant). An existing CodeTerm-owned install without a consent record is recorded as consent before reconciliation; foreign hooks are never rewritten or trusted.
 
 ### Config Management
 Read/write CodeTerm config at runtime:
@@ -179,4 +181,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
