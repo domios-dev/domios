@@ -56,7 +56,7 @@ impl ServiceContext {
             self.invalidate_guarded_agent_input(tab_id);
         }
         if session_bound {
-            crate::service::general_agent::binding_wait::notify_session_bound();
+            crate::service::general_agent::binding_wait::notify_binding_state_changed();
         }
         if let Some(session_id) = bound_session_id.as_deref() {
             match self
