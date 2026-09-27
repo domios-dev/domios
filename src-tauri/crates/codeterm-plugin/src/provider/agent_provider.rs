@@ -57,6 +57,11 @@ pub trait AgentProvider: Send + Sync {
         ProviderReadinessStrategy::default()
     }
 
+    /// Declared terminal placement of the live composer cursor.
+    fn composer_cursor_position(&self) -> ComposerCursorPosition {
+        ComposerCursorPosition::default()
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         false
     }
@@ -838,6 +843,18 @@ pub trait AgentProvider: Send + Sync {
     /// offers per-tab auto-confirm only where it can ever answer.
     fn supports_permission_auto_confirm(&self) -> bool {
         false
+    }
+
+    fn supports_classified_prompt_auto_response(&self) -> bool {
+        false
+    }
+
+    fn classified_prompt_auto_response(
+        &self,
+        _state: crate::tab_state::TabState,
+        _screen: &str,
+    ) -> Option<crate::provider::ClassifiedPromptOptionRole> {
+        None
     }
 
     /// Build the STRUCTURED pending prompt for an interactive tab, if one is

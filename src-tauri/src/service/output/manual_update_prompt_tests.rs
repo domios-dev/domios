@@ -1,4 +1,7 @@
-use super::parse_manual_update_prompt;
+use super::{
+    claim_manual_update_occurrence, clear_manual_update_occurrence, parse_manual_update_prompt,
+    parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
+};
 use crate::agent::prompt::PromptDecision;
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::state::MultiplexerState;
@@ -46,7 +49,7 @@ fn provider(state: TabState, prompt: PendingPrompt) -> MockProvider {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn codex_update_dialog_is_a_respondable_structured_prompt() {
+fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     let screen = update_frame();
     let visible = menu_options(&screen);
     let parsed = PendingPrompt {
@@ -63,14 +66,12 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
         data: None,
         action: None,
     };
-    let provider = MockProvider::with_directory_trust_response(
-        "fixture",
-        codeterm_plugin::provider::DirectoryTrustPromptResponse::Answer {
-            step: b"\r".to_vec(),
-        },
-    )
-    .with_tab_state(classification)
-    .with_parsed_prompt(parsed.clone());
+    let provider = MockProvider::new("fixture")
+        .with_tab_state(classification)
+        .with_parsed_prompt(parsed.clone())
+        .with_classified_prompt_auto_response(
+            codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
+        );
     let snapshot = TabStateSnapshot {
         tab_id: "update-tab".into(),
         agent_type: "fixture".into(),
@@ -79,8 +80,9 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
         screen_text: screen,
     };
 
-    let pending =
-        parse_manual_update_prompt(&provider, &snapshot).expect("classified manual prompt");
+    let (pending, skip_value) = parse_manual_update_prompt_with_response(&provider, &snapshot)
+        .expect("classified manual prompt and declared Skip response");
+    assert_eq!(skip_value.as_deref(), Some("2"));
 
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).expect("tab");
@@ -91,6 +93,12 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
     tab.auto_approve = true;
     tab.permission_auto_confirm = true;
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some("pty-update".into()), None, None, 80, 24, Default::default())
+        .expect("spawn live shell PTY for structured prompt response");
     fixture
         .service
         .agent_registry
@@ -105,36 +113,82 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
             &snapshot.screen_text,
         )
     );
-    fixture.service.apply_prompt_decision_with_screen(
+    let mut snapshot = snapshot;
+    snapshot.tab_id = tab_id.clone();
+    fixture.service.output_buf.lock().append("pty-update", snapshot.screen_text.as_bytes());
+    let tab_title = fixture.service.mux.read().get_tab(&tab_id).unwrap().title.clone();
+    let occurrence = serde_json::to_string(&pending.options).unwrap();
+    let response = resolve_classified_manual_update_prompt(
+        &fixture.service,
+        &snapshot,
+        pending.clone(),
+        skip_value,
+    );
+    assert_eq!(response, Some(crate::service::tab::RespondPromptOutcome::Sent));
+    assert!(fixture.service.mux.read().get_tab(&tab_id).unwrap().pending_prompt.is_none());
+
+    {
+        let notif = fixture.service.notif.lock();
+        let notifications = notif.list(false);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].title, format!("{tab_title}: update skipped"));
+    }
+
+    let second_render = resolve_classified_manual_update_prompt(
+        &fixture.service,
+        &snapshot,
+        pending,
+        Some("2".into()),
+    );
+    assert_eq!(second_render, None);
+    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    assert!(!claim_manual_update_occurrence(&tab_id, &occurrence));
+    clear_manual_update_occurrence(&tab_id);
+    assert!(claim_manual_update_occurrence(&tab_id, &occurrence));
+    clear_manual_update_occurrence(&tab_id);
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill("pty-update")
+        .expect("stop live shell PTY");
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn codex_update_dialog_is_a_respondable_structured_prompt() {
+    let screen = update_frame();
+    let prompt = PendingPrompt {
+        question: "manual update choice".into(),
+        options: menu_options(&screen),
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = provider(TabState::UpdatePrompt, prompt.clone());
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("fixture".into());
+    tab.pty_id = Some("pty-update-respondable".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture.service.apply_prompt_decision_with_kind_and_notice(
         &PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
-            prompt: pending,
+            prompt: prompt.clone(),
         },
-        Some(&snapshot.screen_text),
-        false,
+        Some(&screen),
+        codeterm_types::pty::PromptKind::ManualUpdate,
+        true,
         true,
     );
 
     let mux = fixture.service.mux.read();
-    let pending = mux
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.pending_prompt.as_ref())
-        .expect("update options remain pending for tab respond");
-
-    assert_eq!(pending.options, visible);
-    assert_eq!(
-        pending
-            .options
-            .iter()
-            .map(|option| option.value.as_str())
-            .collect::<Vec<_>>(),
-        ["1", "2", "3"]
-    );
-    assert_eq!(
-        super::prompt_step_dispatch_count_for_test("pty-update"),
-        0,
-        "manual update prompts must never dispatch PTY keys automatically"
-    );
+    let tab = mux.get_tab(&tab_id).expect("tab");
+    assert_eq!(tab.pending_prompt.as_ref(), Some(&prompt));
+    assert_eq!(tab.pending_prompt_kind, Some(codeterm_types::pty::PromptKind::ManualUpdate));
+    assert_eq!(super::prompt_step_dispatch_count_for_test("pty-update-respondable"), 0);
 }
 
 #[test]

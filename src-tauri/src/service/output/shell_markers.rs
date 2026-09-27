@@ -55,7 +55,10 @@ impl ServiceContext {
                     if let Some(exited) = exited {
                         self.publish_launch_exit(&exited);
                         if note_surviving_shell_exit {
-                            self.notify_surviving_shell_restart_required(\n                                tab_id,\n                                &exited.attempt.pty_id,\n                            );
+                            self.notify_surviving_shell_restart_required(
+                                tab_id,
+                                pty_id,
+                            );
                         } else {
                             self.handoff_launch_exit_after_teardown(&exited);
                         }

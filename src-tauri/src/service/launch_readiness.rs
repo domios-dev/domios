@@ -304,6 +304,7 @@ static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
 
 /// Arm the bounded observation for one launch attempt. Replaces any earlier
 /// observation for the tab: only the newest launch is observable.
+#[cfg(test)]
 pub(crate) fn arm(attempt: LaunchAttempt) {
     arm_inner(attempt, None);
 }
