@@ -238,8 +238,9 @@ fn tab_after_unconfirmed_launch_delivery() -> crate::multiplexer::types::Tab {
 fn record_missing_binding(tab: &mut crate::multiplexer::types::Tab) -> (BootStage, String) {
     let delivery = tab.pending_delivery.as_ref().map(|record| record.state());
     let (stage, reason) = super::missing_binding_provisional(delivery);
-    let latch = crate::service::boot_stage::provisional_launch_for(tab, "pty-a", &reason)
-        .expect("a current launch is latchable while it is unresolved");
+    let latch =
+        crate::service::boot_stage::provisional_launch_for(tab, "pty-a", "nonce-a", &reason)
+            .expect("a current launch is latchable while it is unresolved");
     crate::service::boot_stage::apply_boot_stage(tab, stage, Some(&reason));
     tab.provisional_launch = Some(latch);
     (stage, reason)
@@ -361,10 +362,12 @@ fn general_agent_bootstrap_only_before_first_run_completes() {
         .get("preference_identity")
         .expect("read seeded identity")
         .expect("seeded identity record");
-    assert!(seeded_identity
-        .source
-        .as_deref()
-        .is_some_and(|source| source.starts_with("bundled:")));
+    assert!(
+        seeded_identity
+            .source
+            .as_deref()
+            .is_some_and(|source| source.starts_with("bundled:"))
+    );
 
     let dir = tempfile::tempdir().expect("temporary directory");
     let bootstrap_path = dir.path().join("bootstrap.md");
@@ -395,11 +398,9 @@ fn general_agent_launch_uses_system_prompt_channel_when_available() {
         ..AgentLaunchParams::default()
     };
 
-    assert!(params
-        .task
-        .as_deref()
-        .is_some_and(|task| task.contains("GA_INSTRUCTIONS_SENTINEL")
-            && task.contains("BOOTSTRAP_SENTINEL")));
+    assert!(params.task.as_deref().is_some_and(
+        |task| task.contains("GA_INSTRUCTIONS_SENTINEL") && task.contains("BOOTSTRAP_SENTINEL")
+    ));
     assert_eq!(params.starter_prompt, StarterPrompt::AssignedTask);
     assert!(native.startup_message.is_none());
     assert_eq!(native.prompt_delivery, "cli_flag");
@@ -410,10 +411,12 @@ fn general_agent_launch_uses_system_prompt_channel_when_available() {
         &SystemPromptDelivery::External,
     );
     assert!(fallback.task.is_none());
-    assert!(fallback
-        .startup_message
-        .as_deref()
-        .is_some_and(|message| message.contains("BOOTSTRAP_SENTINEL")));
+    assert!(
+        fallback
+            .startup_message
+            .as_deref()
+            .is_some_and(|message| message.contains("BOOTSTRAP_SENTINEL"))
+    );
     assert_eq!(fallback.starter_prompt, StarterPrompt::NoStarter);
     assert_eq!(fallback.prompt_delivery, "confirmed_fallback");
 }
@@ -594,9 +597,11 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
             assert_eq!(tab.boot_stage, Some(BootStage::PtyStarting));
             tab.boot_stage = Some(BootStage::ProviderReady);
         }
-        assert!(!fixture
-            .service
-            .note_provider_exit_in_surviving_shell(&general_id));
+        assert!(
+            !fixture
+                .service
+                .note_provider_exit_in_surviving_shell(&general_id)
+        );
         let state = fixture.service.mux.read();
         let tab = state.get_tab(&general_id).expect("general Tab");
 
@@ -613,9 +618,11 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
         assert!(!tab.agent_booting);
         assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
     }
-    assert!(fixture
-        .service
-        .note_provider_exit_in_surviving_shell(&general_id));
+    assert!(
+        fixture
+            .service
+            .note_provider_exit_in_surviving_shell(&general_id)
+    );
     let state = fixture.service.mux.read();
     let tab = state.get_tab(&general_id).expect("general Tab");
     assert!(tab.agent_type.is_none());
@@ -734,9 +741,11 @@ fn agent_output_teardown_closes_armed_waiter() {
         )
         .expect("spawn PTY");
     let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-    assert!(screen_state
-        .lock()
-        .bind_pty_generation("pty-1", session.generation));
+    assert!(
+        screen_state
+            .lock()
+            .bind_pty_generation("pty-1", session.generation)
+    );
     let registry = Arc::new(AgentRegistry::new());
     let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
     let signal = subscription.signal.clone();
