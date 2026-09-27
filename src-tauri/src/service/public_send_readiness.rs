@@ -16,6 +16,7 @@ struct LaunchSendGate {
     key: PublicSendGateKey,
     attempt: Option<LaunchAttempt>,
     expected_turn: String,
+    wait_for_turn_completion: bool,
     anchor: Option<SendEvidenceAnchor>,
     bound_session: Option<String>,
     watcher: Option<RecommendedWatcher>,
@@ -97,6 +98,7 @@ impl ReadinessRegistry {
         tab_id: String,
         expected_turn: Option<String>,
         anchor: Option<SendEvidenceAnchor>,
+        wait_for_turn_completion: bool,
     ) -> Option<PublicSendGateKey> {
         let expected_turn = expected_turn.filter(|text| !text.trim().is_empty());
         let mut state = self.state.lock();
@@ -110,6 +112,7 @@ impl ReadinessRegistry {
                     key,
                     attempt: None,
                     expected_turn,
+                    wait_for_turn_completion,
                     anchor,
                     bound_session: None,
                     watcher: None,
@@ -314,6 +317,52 @@ impl ReadinessRegistry {
         );
     }
 
+    fn observe_turn(
+        &self,
+        mux: &crate::MuxState,
+        tab_id: &str,
+        session_id: &str,
+        nonce: &str,
+        key: PublicSendGateKey,
+    ) {
+        let mut state = self.state.lock();
+        let Some(gate) = state.gates.get_mut(tab_id) else {
+            return;
+        };
+        if gate.key != key {
+            return;
+        }
+        let confirm = !gate.wait_for_turn_completion;
+        state.generation = state.generation.wrapping_add(1);
+        self.changed.notify_all();
+        drop(state);
+        if confirm {
+            self.confirm(mux, tab_id, session_id, nonce, key);
+        }
+    }
+
+    fn complete_turn(
+        &self,
+        mux: &crate::MuxState,
+        tab_id: &str,
+        session_id: &str,
+        nonce: &str,
+        key: PublicSendGateKey,
+    ) {
+        let eligible = self.state.lock().gates.get(tab_id).is_some_and(|gate| {
+            gate.key == key
+                && gate.wait_for_turn_completion
+                && gate.bound_session.as_deref() == Some(session_id)
+                && gate
+                    .attempt
+                    .as_ref()
+                    .is_some_and(|attempt| attempt.binding_nonce == nonce)
+        });
+        if eligible {
+            self.confirm(mux, tab_id, session_id, nonce, key);
+        }
+    }
+
     fn inspect(&self, mux: &crate::MuxState, tab_id: &str) -> Option<Result<(), String>> {
         let tab = mux.read().get_tab(tab_id).cloned()?;
         let mut state = self.state.lock();
@@ -503,7 +552,7 @@ impl ReadinessRegistry {
         }) {
             return false;
         }
-        self.confirm(mux, tab_id, session_id, binding_nonce, key);
+        self.observe_turn(mux, tab_id, session_id, binding_nonce, key);
         true
     }
 }
@@ -619,7 +668,7 @@ pub(crate) fn observe_session_binding(
                         &expected,
                         &mut cursor,
                     ) {
-                        READINESS.confirm(&mux, &tab, &session, &binding_nonce, watch_key);
+                        READINESS.observe_turn(&mux, &tab, &session, &binding_nonce, watch_key);
                     }
                 })
             {
@@ -652,6 +701,63 @@ pub(crate) fn note_bootstrap_turn(
     READINESS.note_turn(mux, tab_id, session_id, binding_nonce, messages)
 }
 
+pub(crate) fn observe_bootstrap_turn_idle(
+    svc: &ServiceContext,
+    tab_id: &str,
+    event: &str,
+    event_session_id: &str,
+) {
+    let binding = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        (tab.launch_session_authenticated()
+            && tab.agent_session_id.as_deref() == Some(event_session_id))
+        .then(|| {
+            (
+                tab.agent_type.clone(),
+                tab.cwd.clone().unwrap_or_default(),
+                tab.session_binding_nonce.clone(),
+            )
+        })
+    });
+    let Some((Some(provider_id), cwd, Some(nonce))) = binding else {
+        return;
+    };
+    let roster = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| provider.hook_event_roster())
+        .unwrap_or_default();
+    if crate::agent::provider::declared_state_verdict(&roster, event)
+        != Some(crate::agent::provider::ProviderStateVerdict::Idle)
+    {
+        return;
+    }
+    let Some((expected, key)) = READINESS.expected_text(tab_id, &nonce, event_session_id) else {
+        return;
+    };
+    let anchor = READINESS
+        .state
+        .lock()
+        .gates
+        .get(tab_id)
+        .filter(|gate| gate.key == key)
+        .and_then(|gate| gate.anchor.clone());
+    let Some(anchor) = anchor.filter(|anchor| {
+        anchor.session_id == event_session_id
+            && anchor.provider_id == provider_id
+            && anchor.cwd == cwd
+    }) else {
+        return;
+    };
+    let found = crate::service::chat_send_evidence::contains_exact_user_turn_since(
+        &svc.agent_registry,
+        &anchor,
+        &expected,
+        &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
+    );
+    if found {
+        READINESS.complete_turn(&svc.mux, tab_id, event_session_id, &nonce, key);
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn public_send_launch_guard_for_key(
         &self,
@@ -671,8 +777,14 @@ impl ServiceContext {
         tab_id: &str,
         expected_turn: Option<String>,
         anchor: Option<SendEvidenceAnchor>,
+        wait_for_turn_completion: bool,
     ) -> Option<PublicSendGateKey> {
-        READINESS.arm(tab_id.to_string(), expected_turn, anchor)
+        READINESS.arm(
+            tab_id.to_string(),
+            expected_turn,
+            anchor,
+            wait_for_turn_completion,
+        )
     }
 
     pub(crate) fn bind_public_send_launch_attempt(
