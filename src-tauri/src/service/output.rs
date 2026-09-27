@@ -30,12 +30,11 @@ use prompt_steps::write_prompt_steps;
 mod prompt_notifications;
 use prompt_notifications::should_notify_pending_prompt;
 pub(super) use manual_update::{
-    claim_manual_update_occurrence, clear_manual_update_occurrence,
-    manual_update_prompt_candidate, parse_manual_update_prompt_with_response,
-    resolve_classified_manual_update_prompt,
+    clear_manual_update_occurrence, manual_update_prompt_candidate,
+    parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
 };
 #[cfg(test)]
-pub(super) use manual_update::parse_manual_update_prompt;
+pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
 
 #[cfg(test)]
 fn parse_directory_trust_prompt(

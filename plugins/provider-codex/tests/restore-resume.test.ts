@@ -44,10 +44,12 @@ for (const command of [
   launch({}),
   launch({ task: "task", instanceId: "instance-test" }),
   simpleResume("session-test"),
-  resume({ sessionId: "session-test" }),
+  resume({ sessionId: "session-test", instanceId: "instance-test" }),
 ]) {
   assert.equal((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
 }
+instructionFile = "";
+quoted.length = 0;
 const parsedArguments = (command: string) =>
   Array.from(command.matchAll(/ARG\(([^()]*)\)/g), ([, argument]) => argument);
 const windowsCommand = resume({
