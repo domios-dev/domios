@@ -775,7 +775,7 @@ fn compaction_preserves_latest_verified_session_per_tab() {
                 && matches!(
                     &entry.transition,
                     LifecycleTransition::SessionBound { session_id, binding_nonce, .. }
-                        if session_id == "session-a" && binding_nonce == "nonce-a"
+                        if session_id == "session-a" && binding_nonce == "nonce-1"
                 )
     )));
     assert!(!compacted.iter().any(|record| matches!(
