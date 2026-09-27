@@ -760,6 +760,9 @@ impl ServiceContext {
     ) {
         if let Some(identity) = identity {
             self.answer_prompt_notifications(tab_id, identity, option_index, "tab_respond");
+            if identity.kind == codeterm_types::pty::PromptKind::Structured {
+                self.push_structured_prompt(tab_id, None);
+            }
         }
         if let Some(identity) = self.clear_pending_prompt(tab_id) {
             self.resolve_prompt_notifications(tab_id, &identity);

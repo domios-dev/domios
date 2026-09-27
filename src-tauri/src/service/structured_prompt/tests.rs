@@ -105,17 +105,34 @@ fn structured_respond_records_the_prompt_notification_answer() {
     );
     fixture
         .service
-        .push_structured_prompt(&tab_id, Some(prompt));
-    let notification_id = fixture
-        .service
-        .notif
-        .lock()
-        .list(false)
-        .into_iter()
-        .find(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
-        .unwrap()
-        .id
-        .clone();
+        .push_structured_prompt(&tab_id, Some(prompt.clone()));
+    let identity = codeterm_types::pty::PromptIdentity::new(
+        codeterm_types::pty::PromptKind::Structured,
+        &prompt,
+    );
+    let notification_id = fixture.service.create_prompt_notification_ext(
+        "Prompt".into(),
+        Some("structured prompt".into()),
+        Some("warning"),
+        Some(vec![
+            codeterm_types::notification::NotificationAction::RespondPromptOption {
+                label: "Proceed".into(),
+                value: "yes".into(),
+                identity: identity.clone(),
+            },
+            codeterm_types::notification::NotificationAction::RespondPromptOption {
+                label: "Cancel".into(),
+                value: "no".into(),
+                identity,
+            },
+        ]),
+        Some(true),
+        crate::service::notification::NotificationOrigin::local_tab(tab_id.clone()),
+        crate::service::notification::PushIntent {
+            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+            event_key: Some("structured-prompt-answer-test".into()),
+        },
+    );
 
     assert_eq!(
         fixture.service.respond_prompt(&tab_id, "2"),
