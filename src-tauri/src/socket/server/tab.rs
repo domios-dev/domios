@@ -238,9 +238,9 @@ pub(super) fn dispatch(
                 let envelope =
                     crate::service::messenger::MessageEnvelope::tab(from_label, src.to_string())
                         .model(model);
-                let delivery = svc
+                let (delivery, pad_file) = svc
                     .as_ref()
-                    .gateway_deliver(
+                    .gateway_deliver_with_pad_file(
                         &resolved_target,
                         envelope,
                         &raw_text,
@@ -251,13 +251,26 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
-                gateway_send_response(delivery)
+                gateway_send_response(delivery, pad_file)
             } else {
                 let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
+                let (text, pad_file) = svc
+                    .as_ref()
+                    .substitute_paste_limited_body(
+                        &resolved_target,
+                        raw_text.clone(),
+                        raw_text.len(),
+                    )
+                    .map_err(|message| JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    })?;
                 local_send_response(
                     svc.as_ref()
-                        .send_text_input_delivery(&resolved_target, &raw_text, enter, None),
+                        .send_text_input_delivery(&resolved_target, &text, enter, None),
                     writes_pty,
+                    pad_file,
                 )
             };
             Ok(response)
@@ -378,8 +391,11 @@ pub(super) fn dispatch(
     }
 }
 
-fn gateway_send_response(delivery: crate::service::messenger::Delivery) -> Value {
-    match delivery {
+fn gateway_send_response(
+    delivery: crate::service::messenger::Delivery,
+    pad_file: Option<std::path::PathBuf>,
+) -> Value {
+    let mut value = match delivery {
         crate::service::messenger::Delivery::Pty { .. } => serde_json::json!({
             "ok": true,
             "delivery": "pending",
@@ -389,14 +405,19 @@ fn gateway_send_response(delivery: crate::service::messenger::Delivery) -> Value
             "ok": true,
             "delivery": "sent",
         }),
+    };
+    if let Some(path) = pad_file {
+        value["pad_file"] = serde_json::json!(path.display().to_string());
     }
+    value
 }
 
 fn local_send_response(
     result: Result<(), crate::service::delivery_error::DeliveryError>,
     writes_pty: bool,
+    pad_file: Option<std::path::PathBuf>,
 ) -> Value {
-    match result {
+    let mut value = match result {
         Ok(()) if writes_pty => serde_json::json!({
             "ok": true,
             "delivery": "sent",
@@ -409,7 +430,11 @@ fn local_send_response(
             "bytes_written": true,
         }),
         Err(error) => error.to_json(),
+    };
+    if let Some(path) = pad_file {
+        value["pad_file"] = serde_json::json!(path.display().to_string());
     }
+    value
 }
 
 #[cfg(test)]
@@ -432,7 +457,7 @@ mod tests {
     #[test]
     fn local_send_response_reports_confirmed_pending_and_refused_outcomes() {
         assert_eq!(
-            local_send_response(Ok(()), true),
+            local_send_response(Ok(()), true, None),
             serde_json::json!({
                 "ok": true,
                 "delivery": "sent",
@@ -446,6 +471,7 @@ mod tests {
                     detail: "submit was not confirmed".into(),
                 }),
                 true,
+                None,
             ),
             serde_json::json!({
                 "ok": true,
@@ -459,6 +485,7 @@ mod tests {
                 detail: "provider is not ready".into(),
             }),
             true,
+            None,
         );
         assert_eq!(refused["ok"], false);
         assert_eq!(refused["error"]["code"], "tab_busy_refused");
@@ -468,7 +495,7 @@ mod tests {
     #[test]
     fn chat_backend_send_does_not_claim_pty_bytes() {
         assert_eq!(
-            local_send_response(Ok(()), false),
+            local_send_response(Ok(()), false, None),
             serde_json::json!({ "ok": true, "delivery": "sent" }),
         );
     }
@@ -476,14 +503,64 @@ mod tests {
     #[test]
     fn enveloped_pty_send_remains_pending_until_background_write() {
         assert_eq!(
-            gateway_send_response(Delivery::Pty {
-                text: "body".into()
-            }),
+            gateway_send_response(
+                Delivery::Pty {
+                    text: "body".into()
+                },
+                None
+            ),
             serde_json::json!({
                 "ok": true,
                 "delivery": "pending",
                 "bytes_written": false,
             }),
         );
+    }
+
+    #[test]
+    fn socket_send_responses_return_pad_file_for_local_and_enveloped_sends() {
+        let path = std::path::PathBuf::from("runtime/agent-pads/tab/inbox/token.md");
+        let local = local_send_response(Ok(()), true, Some(path.clone()));
+        assert_eq!(local["pad_file"], path.display().to_string());
+
+        let enveloped = gateway_send_response(
+            Delivery::Pty {
+                text: "pointer".into(),
+            },
+            Some(path.clone()),
+        );
+        assert_eq!(enveloped["pad_file"], path.display().to_string());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tab_send_text_dispatch_returns_written_recipient_pad_file() {
+        use crate::multiplexer::{state::MultiplexerState, types::AgentRole};
+        use crate::service::test_fixture::ServiceFixture;
+
+        let (mut mux, sender) = MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&sender).unwrap();
+        let recipient = mux.create_tab(&workspace).unwrap();
+        mux.set_tab_role(&recipient, AgentRole::Worker, Some(&sender))
+            .unwrap();
+        mux.get_tab_mut(&recipient).unwrap().agent_type = Some("limited-test-provider".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture.service.agent_registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("limited-test-provider")
+                .with_paste_limit_bytes(4096),
+        ));
+
+        let body = "socket payload\nend sentinel".repeat(400);
+        let params = Some(serde_json::json!({ "tab_id": recipient, "text": body.clone() }));
+        let value = super::dispatch(
+            "tab.send_text",
+            &params,
+            &fixture.service.mux,
+            fixture._app.handle(),
+            &std::sync::Arc::new(fixture.service.clone()),
+        )
+        .unwrap();
+        let path = std::path::PathBuf::from(value["pad_file"].as_str().unwrap());
+        assert_eq!(std::fs::read(path).unwrap(), body.as_bytes());
     }
 }
