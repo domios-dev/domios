@@ -176,7 +176,7 @@ impl ServiceContext {
                 "pty_manager_session_absent",
             );
         }
-        let Some(tree) = self.observe_provider_process_tree(tab_id, &pty_id, true) else {
+        let Some(tree) = self.observe_provider_process_tree(tab_id, &pty_id) else {
             return self.refuse_lifecycle_identity_clear(
                 tab_id,
                 cause,

@@ -208,9 +208,10 @@ fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, observed_provider_process());
-    fixture
+    assert!(fixture
         .service
-        .process_pty_output("pty-shell", b"\x1b]633;C\x07");
+        .observe_provider_process_tree(&tab_id, "pty-shell")
+        .is_some());
     fixture
         .service
         .provider_tree_witnesses
@@ -246,9 +247,10 @@ fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, observed_provider_process());
-    fixture
+    assert!(fixture
         .service
-        .process_pty_output("pty-shell", b"\x1b]633;C\x07");
+        .observe_provider_process_tree(&tab_id, "pty-shell")
+        .is_some());
     fixture
         .service
         .provider_tree_witnesses

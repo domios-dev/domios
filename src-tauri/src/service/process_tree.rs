@@ -65,6 +65,7 @@ pub(crate) struct ProviderTreeObservation {
     key: ProviderTreeKey,
     state: ProviderTreeState,
     provider_seen_before: bool,
+    consecutive_absent_observations: usize,
 }
 
 impl ProviderTreeObservation {
@@ -84,6 +85,10 @@ impl ProviderTreeObservation {
         self.state == ProviderTreeState::GoneAfterSeen
     }
 
+    pub(crate) fn has_distinct_absence_observations(&self) -> bool {
+        self.consecutive_absent_observations >= 2
+    }
+
     pub(crate) fn evidence(&self) -> &'static str {
         match self.state {
             ProviderTreeState::Present => "provider_present_in_tab_tree",
@@ -97,6 +102,7 @@ impl ProviderTreeObservation {
 #[derive(Default)]
 struct ProviderTreeHistory {
     seen_processes: HashSet<ProcessIdentity>,
+    consecutive_absent_observations: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -148,6 +154,7 @@ impl ProviderTreeWitnesses {
         self.record(key, ProviderProcessTreeSnapshot::Unknown)
     }
 
+    #[cfg(test)]
     pub(crate) fn has_seen(&self, key: &ProviderTreeKey) -> bool {
         self.observations
             .lock()
@@ -166,19 +173,28 @@ impl ProviderTreeWitnesses {
         let provider_seen_before = !history.seen_processes.is_empty();
         let state = match observation {
             ProviderProcessTreeSnapshot::Present(processes) => {
+                history.consecutive_absent_observations = 0;
                 history.seen_processes.extend(processes);
                 ProviderTreeState::Present
             }
-            ProviderProcessTreeSnapshot::Absent if !provider_seen_before => {
-                ProviderTreeState::AbsentBeforeSeen
+            ProviderProcessTreeSnapshot::Absent => {
+                history.consecutive_absent_observations += 1;
+                if provider_seen_before {
+                    ProviderTreeState::GoneAfterSeen
+                } else {
+                    ProviderTreeState::AbsentBeforeSeen
+                }
             }
-            ProviderProcessTreeSnapshot::Absent => ProviderTreeState::GoneAfterSeen,
-            ProviderProcessTreeSnapshot::Unknown => ProviderTreeState::Unknown,
+            ProviderProcessTreeSnapshot::Unknown => {
+                history.consecutive_absent_observations = 0;
+                ProviderTreeState::Unknown
+            }
         };
         ProviderTreeObservation {
             key: key.clone(),
             state,
             provider_seen_before,
+            consecutive_absent_observations: history.consecutive_absent_observations,
         }
     }
 

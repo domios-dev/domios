@@ -5,6 +5,7 @@ use crate::service::process_tree::{ProviderTreeKey, ProviderTreeObservation, Pro
 pub(super) fn finished_event_proves_provider_exit(
     event: &CommandLifecycle,
     tree: &ProviderTreeObservation,
+    may_have_named_process: Option<bool>,
 ) -> bool {
     match event {
         CommandLifecycle::Finished {
@@ -19,6 +20,9 @@ pub(super) fn finished_event_proves_provider_exit(
                         .is_some_and(|line| !line.trim().is_empty()));
             tree.proves_exit_from_finished_marker()
                 || (finished_command && tree.state() == ProviderTreeState::AbsentBeforeSeen)
+                || (tree.state() == ProviderTreeState::AbsentBeforeSeen
+                    && tree.has_distinct_absence_observations()
+                    && may_have_named_process == Some(false))
         }
         CommandLifecycle::Started { .. } => false,
     }
@@ -56,14 +60,8 @@ impl super::super::ServiceContext {
         &self,
         tab_id: &str,
         pty_id: &str,
-        force: bool,
     ) -> Option<ProviderTreeObservation> {
-        let Some(key) = self.provider_tree_key_for_tab(tab_id, pty_id) else {
-            return None;
-        };
-        if !force && self.provider_tree_witnesses.has_seen(&key) {
-            return None;
-        }
+        let key = self.provider_tree_key_for_tab(tab_id, pty_id)?;
         let root_pid = {
             let pty = self.pty.lock();
             let Some(session) = pty.get_session(pty_id) else {
@@ -83,6 +81,19 @@ impl super::super::ServiceContext {
         )
     }
 
+    fn provider_may_have_named_process(&self, key: &ProviderTreeKey) -> Option<bool> {
+        let root_pid = {
+            let pty = self.pty.lock();
+            let session = pty.get_session(&key.pty_id)?;
+            let child = session.child.lock().ok()?;
+            child.process_id()?
+        };
+        Some(crate::service::process_tree::may_have_named_process(
+            root_pid,
+            &key.executable_name,
+        ))
+    }
+
     pub(super) fn command_finished_proves_provider_exit(
         &self,
         tab_id: &str,
@@ -98,11 +109,57 @@ impl super::super::ServiceContext {
         else {
             return None;
         };
-        if !finished_event_proves_provider_exit(event, tree) {
+        let shell_exit_is_explicit = exit_code.is_some_and(|code| code != 0)
+            || (exit_code.is_some()
+                && command_line
+                    .as_deref()
+                    .is_some_and(|line| !line.trim().is_empty()));
+        let may_have_named_process = (tree.state() == ProviderTreeState::AbsentBeforeSeen
+            && tree.has_distinct_absence_observations()
+            && !shell_exit_is_explicit)
+            .then(|| self.provider_may_have_named_process(tree.key()))
+            .flatten();
+        if !finished_event_proves_provider_exit(event, tree, may_have_named_process) {
+            let fallback_evidence = match may_have_named_process {
+                Some(true) => "+may_have_named_process_present_or_unknown",
+                Some(false) => "+may_have_named_process_absent",
+                None if tree.has_distinct_absence_observations() => "+tab_tree_scan_unavailable",
+                None => "",
+            };
+            log::info!(
+                "[launch-readiness] refused verdict_source=finished-marker tree_evidence={}{} tab={} pty={}",
+                tree.evidence(),
+                fallback_evidence,
+                tab_id,
+                pty_id,
+            );
             return None;
         }
-        let attempt = LaunchAttempt::current(&self.mux, tab_id, pty_id)?;
-        LaunchExitProof::from_finished_marker(&attempt, tree, *exit_code, command_line.as_deref())
+        let Some(attempt) = LaunchAttempt::current(&self.mux, tab_id, pty_id) else {
+            log::info!(
+                "[launch-readiness] refused verdict_source=finished-marker tree_evidence={} attempt_unavailable tab={} pty={}",
+                tree.evidence(),
+                tab_id,
+                pty_id,
+            );
+            return None;
+        };
+        let proof = LaunchExitProof::from_finished_marker(
+            &attempt,
+            tree,
+            *exit_code,
+            command_line.as_deref(),
+            may_have_named_process,
+        );
+        if proof.is_none() {
+            log::info!(
+                "[launch-readiness] refused verdict_source=finished-marker tree_evidence={} attempt_mismatch tab={} pty={}",
+                tree.evidence(),
+                tab_id,
+                pty_id,
+            );
+        }
+        proof
     }
 }
 
@@ -165,6 +222,18 @@ mod tests {
         witnesses.record_for_test(&key, snapshot)
     }
 
+    fn absent_twice() -> ProviderTreeObservation {
+        let witnesses = ProviderTreeWitnesses::default();
+        let key = ProviderTreeKey {
+            tab_id: "tab-finished-marker".into(),
+            pty_id: "pty-finished-marker".into(),
+            binding_nonce: Some("nonce-finished-marker".into()),
+            executable_name: "opencode".into(),
+        };
+        witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+        witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent)
+    }
+
     #[test]
     fn finished_marker_exit_uses_process_tree_for_real_shell_marker_shapes() {
         let powershell = finished(None, None);
@@ -173,35 +242,58 @@ mod tests {
         let gone = tree(ProviderTreeState::GoneAfterSeen);
 
         for marker in [&powershell, &unix_spawn_wrapper] {
-            assert!(finished_event_proves_provider_exit(marker, &gone));
+            assert!(finished_event_proves_provider_exit(marker, &gone, None));
             assert!(!finished_event_proves_provider_exit(
                 marker,
-                &tree(ProviderTreeState::Present)
+                &tree(ProviderTreeState::Present),
+                None
             ));
             assert!(!finished_event_proves_provider_exit(
                 marker,
-                &tree(ProviderTreeState::AbsentBeforeSeen)
+                &tree(ProviderTreeState::AbsentBeforeSeen),
+                None
             ));
         }
         assert!(finished_event_proves_provider_exit(
             &failed_command,
-            &tree(ProviderTreeState::AbsentBeforeSeen)
+            &tree(ProviderTreeState::AbsentBeforeSeen),
+            None
         ));
         assert!(!finished_event_proves_provider_exit(
             &failed_command,
-            &tree(ProviderTreeState::Present)
+            &tree(ProviderTreeState::Present),
+            None
         ));
         assert!(!finished_event_proves_provider_exit(
             &failed_command,
-            &tree(ProviderTreeState::Unknown)
+            &tree(ProviderTreeState::Unknown),
+            None
         ));
         assert!(!finished_event_proves_provider_exit(
             &finished(None, Some(0)),
-            &tree(ProviderTreeState::AbsentBeforeSeen)
+            &tree(ProviderTreeState::AbsentBeforeSeen),
+            None
         ));
         assert!(finished_event_proves_provider_exit(
             &finished(Some("opencode"), Some(0)),
-            &tree(ProviderTreeState::AbsentBeforeSeen)
+            &tree(ProviderTreeState::AbsentBeforeSeen),
+            None
+        ));
+        let absent_twice = absent_twice();
+        assert!(!finished_event_proves_provider_exit(
+            &powershell,
+            &absent_twice,
+            None
+        ));
+        assert!(!finished_event_proves_provider_exit(
+            &powershell,
+            &absent_twice,
+            Some(true)
+        ));
+        assert!(finished_event_proves_provider_exit(
+            &powershell,
+            &absent_twice,
+            Some(false)
         ));
         assert!(!finished_event_proves_provider_exit(
             &CommandLifecycle::Started {
@@ -209,6 +301,7 @@ mod tests {
                 cwd: None,
             },
             &gone,
+            None,
         ));
     }
 }

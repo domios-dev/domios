@@ -73,10 +73,13 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    fixture.service.process_pty_output(
-        &pty_id,
-        b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D;0\x07",
-    );
+    assert!(fixture
+        .service
+        .observe_provider_process_tree(&tab_id, &pty_id)
+        .is_some());
+    fixture
+        .service
+        .process_pty_output(&pty_id, b"PS C:\\workspace> opencode");
     assert!(launch_readiness::take_published_failure(&attempt).is_none());
     assert_opencode_identity(&fixture, &tab_id);
 
@@ -90,14 +93,11 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
     assert!(!fixture.service.provider_tree_witnesses.has_seen(&key));
     fixture
         .service
-        .process_pty_output(&pty_id, b"\x1b]633;C\x07");
-    fixture
-        .service
         .provider_tree_witnesses
         .script_snapshot(&key, live_opencode_process());
     fixture.service.process_pty_output(
         &pty_id,
-        b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D;0\x07",
+        b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07",
     );
     assert!(launch_readiness::take_published_failure(&attempt).is_none());
     assert_opencode_identity(&fixture, &tab_id);
@@ -183,7 +183,47 @@ fn lifecycle_identity_clear_requires_provider_gone_from_tab_tree() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn provider_never_seen_finished_marker_with_exit_code_finalises_launch() {
+fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
+    let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    assert!(fixture
+        .service
+        .observe_provider_process_tree(&tab_id, &pty_id)
+        .is_some());
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    fixture.service.process_pty_output(
+        &pty_id,
+        b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07",
+    );
+
+    assert!(launch_readiness::take_published_failure(&attempt)
+        .is_some_and(|reason| reason.contains("exit_code=unknown")));
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.agent_type.is_none()));
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(&pty_id)
+        .expect("stop the tab's PTY shell");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn bash_finished_marker_exit_code_finalises_launch_before_provider_seen() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     fixture
         .service
@@ -191,8 +231,8 @@ fn provider_never_seen_finished_marker_with_exit_code_finalises_launch() {
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
     fixture.service.process_pty_output(
-            &pty_id,
-            b"\x1b]633;A\x07\x1b]633;E;opencode;restored-opencode-shell\x07\x1b]633;C\x07\x1b]633;D;7\x07",
+        &pty_id,
+        b"\x1b]633;C\x07\x1b]633;E;opencode;restored-opencode-shell\x07\x1b]633;D;7\x07",
     );
 
     assert!(launch_readiness::take_published_failure(&attempt)
