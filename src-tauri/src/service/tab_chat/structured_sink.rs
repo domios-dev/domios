@@ -71,6 +71,14 @@ impl StructuredSink for TauriStructuredSink {
             self.session_binding_nonce.as_deref(),
             &messages,
         );
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone());
+        if let Some(pty_id) = pty_id {
+            crate::service::pty_io::submit_transaction::wake_submit_cycle(&pty_id);
+        }
         emit_chat_msgs(
             &self.app,
             tab_id,
