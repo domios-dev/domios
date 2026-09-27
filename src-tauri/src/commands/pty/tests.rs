@@ -207,6 +207,7 @@ mod restored_fresh_launch_tests {
                 .trim()
                 .trim_matches(['\'', '"']);
             let delivered = std::fs::read_to_string(path).expect("prompt file the command names");
+            let delivered = delivered.strip_prefix('\u{feff}').unwrap_or(&delivered);
             assert_eq!(delivered, RESTORED_INSTRUCTIONS);
             assert!(!delivered.contains(HISTORICAL_TASK));
             assert!(command.contains("--model "));
@@ -303,17 +304,10 @@ mod spawn_pty_restore_tests {
                 .with_resume_context_log(resume_context.clone()),
         ));
 
-        let pty_id = spawn_pty_core(
-            &fixture.service,
-            None,
-            None,
-            80,
-            24,
-            None,
-            Some(tab_id.clone()),
-        )
-        .await
-        .expect("restore PTY spawn succeeds");
+        let service = Arc::new(fixture.service.clone());
+        let pty_id = spawn_pty_core(&service, None, None, 80, 24, None, Some(tab_id.clone()))
+            .await
+            .expect("restore PTY spawn succeeds");
         let built = resume_context
             .lock()
             .first()

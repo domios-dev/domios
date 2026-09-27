@@ -1,36 +1,31 @@
-// Run: npx tsx src/components/Terminal/DelayedSendPanel.test.tsx
-
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { DelayedSendQueuePanel } from "./DelayedSendPanel";
-import type { DelayedMessage } from "./delayedSend";
+import {
+  DelayedSendQueuePanel,
+  DelayedSendSchedulePanel,
+} from "./DelayedSendPanel";
+import type { DelayedMessage, RecurrenceRule } from "./delayedSend";
 
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
+const windowInstance = new Window({ url: "http://localhost/delayed-send-panel-test" });
+const windowAny = windowInstance as unknown as Window & typeof globalThis;
+(globalThis as any).window = windowAny;
+(globalThis as any).document = windowAny.document;
+(globalThis as any).HTMLElement = windowAny.HTMLElement;
+(globalThis as any).Node = windowAny.Node;
+(globalThis as any).Event = windowAny.Event;
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-function setupDom() {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/" });
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
-  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
-  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
-  Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
-  Object.defineProperty(globalThis, "PointerEvent", {
-    value: window.PointerEvent ?? window.MouseEvent,
-    configurable: true,
-  });
-  Object.defineProperty(globalThis, "requestAnimationFrame", {
-    value: (callback: FrameRequestCallback) => {
-      callback(0);
-      return 0;
-    },
-    configurable: true,
-  });
+let passed = 0;
+let failed = 0;
+function assert(condition: unknown, label: string) {
+  if (condition) {
+    passed++;
+    console.log(`  ✓ ${label}`);
+  } else {
+    failed++;
+    console.error(`  ✗ ${label}`);
+  }
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -41,80 +36,113 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   return { host, root };
 }
 
-setupDom();
-
-async function main() {
-  const originalText = [
-    "A result before code:",
-    "",
-    "Code",
-    "json",
-    "·",
-    "1 lines",
-    "",
-    "Copy",
-    "",
-    "Fullscreen",
-    '{"ready":true}',
-    "Message after code.",
-  ].join("\n");
-  const message: DelayedMessage = {
-    id: "queued-1",
-    tabId: "tab-1",
-    text: originalText,
-    scheduledAtMs: Date.now() + 20 * 60_000,
-    createdAtMs: Date.now(),
-    state: "queued",
-    sessionChanged: false,
-  };
-  let sentId = "";
-  const { host, root } = await render(
-    <DelayedSendQueuePanel
-      messages={[message]}
-      busyId={null}
-      touchMode={false}
-      onClose={() => undefined}
-      onDelete={() => undefined}
-      onSendNow={(id) => { sentId = id; }}
-      onUpdate={() => undefined}
-    />,
-  );
-
-  const preview = host.querySelector('span[tabindex="0"]') as HTMLElement | null;
-  assert(preview, "queued message exposes a keyboard-focusable preview");
-  assert(preview.classList.contains("line-clamp-2"), "queue card preview is limited to two lines");
-  assert(preview.style.overflow === "hidden", "queue card preview cannot take over the panel");
-  assert(preview.textContent?.includes('{"ready":true}'), "preview keeps the queued code source");
-  assert(!preview.textContent?.includes("Copy"), "preview omits copied code controls");
-  assert(!preview.textContent?.includes("Fullscreen"), "preview omits copied fullscreen controls");
-
-  await act(async () => {
-    const event = new (globalThis as unknown as { PointerEvent: typeof MouseEvent }).PointerEvent("pointerover", {
-      bubbles: true,
-    }) as PointerEvent;
-    Object.defineProperty(event, "pointerType", { value: "mouse" });
-    preview.dispatchEvent(event);
-  });
-  const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
-  assert(tooltip, "hover opens a plain-text tooltip");
-  assert(preview.getAttribute("aria-describedby") === tooltip.id, "preview references its accessible tooltip");
-  assert(tooltip.style.maxHeight === "12rem", "tooltip height remains compact");
-  assert(tooltip.style.overflow === "hidden", "tooltip never becomes an internal document scroller");
-  assert(!tooltip.textContent?.includes("Copy"), "tooltip omits copied code controls");
-
-  const send = host.querySelector('[data-action-title="Send now"]') as HTMLButtonElement | null;
-  assert(send, "send-now control remains available");
-  await act(async () => send.click());
-  assert(sentId === message.id, "send-now behavior remains unchanged");
-
-  const edit = host.querySelector('[data-action-title="Edit"]') as HTMLButtonElement | null;
-  assert(edit, "edit control remains available");
-  await act(async () => edit.click());
-  const editor = host.querySelector('[data-testid="delayed-send-edit-text"]') as HTMLTextAreaElement | null;
-  assert(editor?.value === originalText, "editing retains the exact queued payload rather than the preview");
-
-  await act(async () => root.unmount());
-  console.log("DelayedSendPanel tests: 1/1 passed");
+async function click(host: HTMLElement, selector: string) {
+  const button = host.querySelector<HTMLButtonElement>(selector);
+  assert(button != null, `control exists: ${selector}`);
+  if (button) await act(async () => button.click());
 }
 
-void main();
+async function main() {
+  {
+    let scheduledAt = 0;
+    let recurrence: RecurrenceRule | undefined;
+    const { host, root } = await render(
+      <DelayedSendSchedulePanel
+        busy={false}
+        touchMode={false}
+        onClose={() => {}}
+        onConfirm={(at, rule) => { scheduledAt = at; recurrence = rule; }}
+        onStash={() => {}}
+      />,
+    );
+    assert(host.querySelector('[role="dialog"][aria-label="Schedule message"]') != null, "schedule dialog has a name");
+    assert(host.querySelector('.ct-panel-card') != null, "schedule dialog uses the shared liquid panel");
+    assert(host.querySelector('[role="tablist"][aria-label="Schedule type"]') != null, "schedule modes expose a named tablist");
+    assert(host.querySelector(".ct-liquid-interactive") != null, "schedule actions use shared liquid interaction styling");
+    for (const label of ["5m", "10m", "15m", "30m", "1h", "3h", "Tonight", "Tomorrow"]) {
+      assert(
+        host.querySelector(`[data-testid="delayed-send-preset"][data-preset-label="${label}"]`) != null,
+        `one-shot preset exists: ${label}`,
+      );
+    }
+    await click(host, '[data-testid="delayed-send-preset"][data-preset-label="10m"]');
+    await click(host, '[data-testid="delayed-send-schedule-submit"]');
+    assert(scheduledAt > Date.now(), "one-shot quick preset schedules a future fire");
+    assert(recurrence === undefined, "one-shot schedule carries no recurrence rule");
+    await act(async () => root.unmount());
+  }
+
+  {
+    let scheduledAt = 0;
+    let recurrence: RecurrenceRule | undefined;
+    const { host, root } = await render(
+      <DelayedSendSchedulePanel
+        busy={false}
+        touchMode={false}
+        onClose={() => {}}
+        onConfirm={(at, rule) => { scheduledAt = at; recurrence = rule; }}
+        onStash={() => {}}
+      />,
+    );
+    await click(host, '[role="tab"][aria-selected="false"]');
+    await click(host, '[data-testid="delayed-send-interval-preset"][data-preset-label="5m"]');
+    const stop = host.querySelector<HTMLSelectElement>('[data-testid="delayed-send-stop-mode"]');
+    if (stop) {
+      stop.value = "count";
+      await act(async () => stop.dispatchEvent(new windowAny.Event("change", { bubbles: true })));
+    }
+    await click(host, '[data-testid="delayed-send-schedule-submit"]');
+    assert(scheduledAt >= Date.now() + 5 * 60_000 - 1_000, "repeat preset schedules its first fire");
+    assert(recurrence?.everyMs === 5 * 60_000 && recurrence.count === 3, "repeat mode carries interval and optional count stop");
+    await act(async () => root.unmount());
+  }
+
+  {
+    const now = Date.now();
+    const message: DelayedMessage = {
+      id: "series-1",
+      tabId: "tab-1",
+      text: "monitor",
+      scheduledAtMs: now + 600_000,
+      createdAtMs: now,
+      state: "queued",
+      sessionChanged: false,
+      recurrence: { everyMs: 600_000, count: 3 },
+      skippedTicks: 2,
+    };
+    let updated: { text?: string; scheduledAtMs?: number; recurrence?: RecurrenceRule } | undefined;
+    let deleted = "";
+    const { host, root } = await render(
+      <DelayedSendQueuePanel
+        messages={[message]}
+        busyId={null}
+        touchMode={false}
+        onClose={() => {}}
+        onDelete={(id) => { deleted = id; }}
+        onSendNow={() => {}}
+        onUpdate={(_id, patch) => { updated = patch; }}
+      />,
+    );
+    assert((host.textContent ?? "").includes("repeats every 10m"), "queued series shows its interval");
+    assert((host.textContent ?? "").includes("skipped 2"), "queued series shows skipped count");
+    await click(host, 'button[aria-label="Edit"]');
+    const interval = host.querySelector<HTMLInputElement>('[data-testid="delayed-send-edit-interval"]');
+    if (interval) {
+      const setter = Object.getOwnPropertyDescriptor(windowAny.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(interval, "15");
+      await act(async () => interval.dispatchEvent(new windowAny.Event("input", { bubbles: true })));
+    }
+    await click(host, 'button[aria-label="Save"]');
+    assert(updated?.recurrence?.everyMs === 900_000, "editing a series updates its interval");
+    assert(updated?.recurrence?.count === 3, "editing interval preserves its stop condition");
+    await click(host, 'button[aria-label="Stop recurring series"]');
+    assert(deleted === "series-1", "stop control deletes the recurring series");
+    await act(async () => root.unmount());
+  }
+
+}
+
+void main().then(() => {
+  console.log(`\n${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+});

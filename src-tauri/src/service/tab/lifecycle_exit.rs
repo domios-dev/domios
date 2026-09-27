@@ -36,6 +36,7 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab.reported_session_binding_nonce = None;
     tab.agent_state = None;
     tab.pending_prompt = None;
+    tab.pending_prompt_kind = None;
     tab.exit_suspected_at = None;
     // Provider and model are one identity; clearing only the provider leaves a
     // stale model label attached to the tab.

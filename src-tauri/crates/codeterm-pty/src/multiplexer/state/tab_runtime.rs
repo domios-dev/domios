@@ -63,6 +63,7 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: None,
             auto_approve: false,
             permission_auto_confirm: false,

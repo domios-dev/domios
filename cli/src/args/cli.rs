@@ -178,7 +178,7 @@ pub enum Commands {
         /// delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3).
         /// With --actions, text is inserted first but not auto-submitted;
         /// include enter when you want to submit it.
-        #[arg(long, conflicts_with_all = ["delay", "at"])]
+        #[arg(long, conflicts_with_all = ["delay", "at", "every", "until", "count"])]
         actions: Option<String>,
 
         /// Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d.
@@ -191,6 +191,18 @@ pub enum Commands {
         /// Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM.
         #[arg(long, conflicts_with = "delay")]
         at: Option<String>,
+
+        /// Repeat delivery to this existing tab at an anchored interval (minimum 1m).
+        #[arg(long)]
+        every: Option<String>,
+
+        /// Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time.
+        #[arg(long, conflicts_with = "count")]
+        until: Option<String>,
+
+        /// Stop after this many delivered or skipped ticks.
+        #[arg(long, conflicts_with = "until")]
+        count: Option<u32>,
 
         /// Refuse unless the target tab has an agent attached. Guards task
         /// dispatch so prose never lands in a raw shell (issue #8).

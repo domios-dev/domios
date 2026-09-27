@@ -194,9 +194,8 @@ fn restored_team_member_resume_carries_bypass_only_when_granted() {
 fn legacy_snapshot_restore_uses_current_policy_bypass() {
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    let authorization = crate::service::permission_policy::authorize_permission_bypass(
-        &registry, "claude", true,
-    );
+    let authorization =
+        crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true);
     let input = restored_snapshot_launch_input(
         &registry,
         RestoredLaunch {

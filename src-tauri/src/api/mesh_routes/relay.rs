@@ -867,7 +867,12 @@ async fn close_workspace_from_mesh_peer(
         service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force)
     })
     .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Workspace close task failed: {error}"),
+        )
+    })?;
     match result {
         Ok(()) => Ok(crate::mesh::types::RelayResponse {
             ok: true,

@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use codeterm_types::notification::{AnswerSlot, NotificationAction};
+use codeterm_types::pty::PromptIdentity;
 
 use super::answer::{self, AnswerAdmission};
 use super::answer_delivery::{self, AnswerDeliveryPlan};
@@ -118,6 +119,14 @@ impl PushAdmission {
 pub struct Ask {
     pub actions: Option<Vec<NotificationAction>>,
     pub offer: Option<SurfaceOffer>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PromptOptionAnswer {
+    pub to_tab: String,
+    pub value: String,
+    pub identity: PromptIdentity,
+    pub delivered: bool,
 }
 
 impl Ask {
@@ -470,6 +479,29 @@ impl NotificationStore {
             .find(|n| n.id == id)?
             .answer
             .as_ref()
+    }
+
+    pub fn prompt_option_answer(&self, id: &str, label: &str) -> Option<PromptOptionAnswer> {
+        let notification = self.notifications.iter().find(|item| item.id == id)?;
+        let answer = notification.answer.as_ref()?;
+        let to_tab = answer.asked_from_tab.clone()?;
+        let action = notification
+            .actions
+            .as_deref()?
+            .iter()
+            .find(|action| action.answer_label() == Some(label))?;
+        let NotificationAction::RespondPromptOption {
+            value, identity, ..
+        } = action
+        else {
+            return None;
+        };
+        Some(PromptOptionAnswer {
+            to_tab,
+            value: value.clone(),
+            identity: identity.clone(),
+            delivered: answer.delivered,
+        })
     }
 
     /// Whether this record still stands as a question.
