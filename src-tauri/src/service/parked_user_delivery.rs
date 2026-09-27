@@ -5,10 +5,12 @@ use crate::multiplexer::types::{
 fn take_parked_user_send(
     pending: &mut Option<PendingDeliveryRecord>,
     record_id: &str,
+    send_id: Option<&str>,
 ) -> Option<PendingDeliveryRecord> {
     let record = pending.as_ref()?;
     if record.channel != PendingDeliveryChannel::InteractiveInput
         || record.record_id() != record_id
+        || record.send_id() != send_id
         || record.state() != PendingDeliveryState::Pending
     {
         return None;
@@ -64,17 +66,17 @@ impl super::ServiceContext {
                     && record.state() == PendingDeliveryState::Pending
             })
             .map(|record| {
-                let delivery_id = record
-                    .send_id()
-                    .unwrap_or_else(|| record.record_id())
-                    .to_string();
+                let record_id = record.record_id().to_string();
+                let send_id = record.send_id().map(str::to_string);
+                let delivery_id = send_id.as_deref().unwrap_or(&record_id).to_string();
                 (
-                    record.record_id().to_string(),
+                    record_id,
+                    send_id,
                     delivery_id,
                     record.content_digest.clone(),
                 )
             });
-        let Some((record_id, delivery_id, digest)) = parked else {
+        let Some((record_id, send_id, delivery_id, digest)) = parked else {
             return;
         };
         let text = match self.pending_delivery_payloads.resolve(&digest) {
@@ -92,7 +94,7 @@ impl super::ServiceContext {
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return;
             };
-            take_parked_user_send(&mut tab.pending_delivery, &record_id)
+            take_parked_user_send(&mut tab.pending_delivery, &record_id, send_id.as_deref())
         };
         let Some(record) = record else {
             return;
@@ -194,7 +196,9 @@ mod tests {
                 let record_id = record_id.clone();
                 std::thread::spawn(move || {
                     ready.wait();
-                    if take_parked_user_send(&mut pending.lock(), &record_id).is_some() {
+                    if take_parked_user_send(&mut pending.lock(), &record_id, Some("send-1"))
+                        .is_some()
+                    {
                         writes.fetch_add(1, Ordering::SeqCst);
                     }
                 })
@@ -217,8 +221,9 @@ mod tests {
         );
         let record_id = pending.as_ref().unwrap().record_id().to_string();
 
-        assert!(take_parked_user_send(&mut pending, "other-record").is_none());
-        assert!(take_parked_user_send(&mut pending, &record_id).is_some());
+        assert!(take_parked_user_send(&mut pending, "other-record", Some("send-1")).is_none());
+        assert!(take_parked_user_send(&mut pending, &record_id, Some("send-2")).is_none());
+        assert!(take_parked_user_send(&mut pending, &record_id, Some("send-1")).is_some());
     }
 
     #[test]
@@ -231,7 +236,7 @@ mod tests {
         let record_id = pending.as_ref().unwrap().record_id().to_string();
 
         assert_eq!(pending.as_ref().unwrap().send_id(), None);
-        assert!(take_parked_user_send(&mut pending, &record_id).is_some());
+        assert!(take_parked_user_send(&mut pending, &record_id, None).is_some());
         assert!(pending.is_none());
     }
 
@@ -259,7 +264,7 @@ mod tests {
         pending.as_mut().unwrap().mark_unconfirmed();
         let record_id = pending.as_ref().unwrap().record_id().to_string();
 
-        assert!(take_parked_user_send(&mut pending, &record_id).is_none());
+        assert!(take_parked_user_send(&mut pending, &record_id, Some("send-1")).is_none());
         assert!(pending.is_some());
     }
 }
