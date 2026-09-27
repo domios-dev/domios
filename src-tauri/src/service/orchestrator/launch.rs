@@ -37,6 +37,8 @@ mod failure;
 #[path = "launch/generation.rs"]
 mod generation;
 mod startup_readiness;
+#[cfg(test)]
+pub(crate) use startup_readiness::launch_waits_for_first_turn_binding;
 pub(crate) use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service,
@@ -448,11 +450,13 @@ pub(crate) fn launch_agent_in_background_with_env(
     let has_startup_task_turn = task.is_some() || fallback_spec.is_some();
     let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_binding(
         &svc,
+        &tab_id,
         &agent_cmd,
         has_startup_task_turn,
+        origin,
     );
     let launch_started = std::time::Instant::now();
-    let (role, role_profile) = svc
+    let (role, role_profile, model, reasoning_effort) = svc
         .mux
         .read()
         .get_tab(&tab_id)
@@ -461,6 +465,14 @@ pub(crate) fn launch_agent_in_background_with_env(
                 tab.role
                     .map(|role| agent_role_label(role, tab.role_profile.as_deref()).to_string()),
                 tab.role_profile.clone(),
+                tab.restorable_launch
+                    .model
+                    .clone()
+                    .or_else(|| tab.agent_provider_resolved_model.clone()),
+                tab.restorable_launch
+                    .resolved_reasoning_effort
+                    .clone()
+                    .or_else(|| tab.reasoning_effort_identity.resolved.clone()),
             )
         })
         .unwrap_or_default();
@@ -473,7 +485,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
         })
         .unwrap_or("unknown");
-    crate::service::launch_diagnostics::log_launch(
+    crate::service::launch_diagnostics::log_launch_with_parameters(
         origin,
         &tab_id,
         &agent_cmd,
@@ -482,6 +494,8 @@ pub(crate) fn launch_agent_in_background_with_env(
         role.as_deref(),
         role_profile.as_deref(),
         prompt_delivery,
+        model.as_deref(),
+        reasoning_effort.as_deref(),
     );
     // thread spawns: callers get the tab id immediately and may send right away.
     if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {

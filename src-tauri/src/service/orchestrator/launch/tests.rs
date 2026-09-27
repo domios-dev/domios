@@ -1,6 +1,6 @@
 use super::startup_readiness::reused_provider_tui_owns_launch;
 use super::startup_readiness::{
-    first_turn_binding_without_startup_task, input_ready_stage_after_provider_ready,
+    first_turn_binding_required, input_ready_stage_after_provider_ready,
     launch_waits_for_first_turn_binding,
 };
 use super::{
@@ -72,18 +72,52 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     }
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness.service.agent_registry.register_provider(Box::new(
-        MockProvider::new("resume-first-turn-fixture").with_session_starts_on_first_user_turn(),
+        MockProvider::new("resume-first-turn-fixture")
+            .with_session_starts_on_first_user_turn()
+            .with_provider_readiness_strategy(
+                crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
+                    timeout: std::time::Duration::from_secs(30),
+                },
+            ),
     ));
+    assert!(harness
+        .service
+        .agent_registry
+        .with_provider("resume-first-turn-fixture", |provider| {
+            provider.provider_readiness_strategy().requires_composer()
+        })
+        .unwrap());
 
     assert!(launch_waits_for_first_turn_binding(
         &harness.service,
+        &tab_id,
         "resume-first-turn-fixture",
         false,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+    ));
+    assert!(launch_waits_for_first_turn_binding(
+        &harness.service,
+        &tab_id,
+        "resume-first-turn-fixture",
+        true,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     ));
     assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
+        &tab_id,
         "resume-first-turn-fixture",
         true,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
+    ));
+    harness.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("claude-like-resume-fixture"),
+    ));
+    assert!(!launch_waits_for_first_turn_binding(
+        &harness.service,
+        &tab_id,
+        "claude-like-resume-fixture",
+        true,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     ));
 
     let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
@@ -145,8 +179,24 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
 
     assert!(launch_waits_for_first_turn_binding(
         &harness.service,
+        &tab_id,
         "lazy-session-fixture",
         false,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
+    ));
+    assert!(!launch_waits_for_first_turn_binding(
+        &harness.service,
+        &tab_id,
+        "lazy-session-fixture",
+        true,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
+    ));
+    assert!(!launch_waits_for_first_turn_binding(
+        &harness.service,
+        &tab_id,
+        "lazy-session-fixture",
+        true,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     ));
     let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
     assert_eq!(
@@ -176,7 +226,7 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
 }
 
 #[test]
-fn first_turn_on_lazy_session_spawn_is_delivered_once_and_binds() {
+fn restored_lazy_session_first_turn_is_delivered_once_and_binds() {
     let mut driver = LaunchRegistry::default();
     let launch = driver.begin("lazy-first-turn", "lazy-first-turn-pty".into());
     bind(&mut driver, &launch, "lazy-first-turn-nonce");
@@ -192,8 +242,8 @@ fn first_turn_on_lazy_session_spawn_is_delivered_once_and_binds() {
         )
     };
 
-    assert!(first_turn_binding_without_startup_task(true, false));
-    assert!(!first_turn_binding_without_startup_task(true, true));
+    assert!(first_turn_binding_required(true, true, true));
+    assert!(!first_turn_binding_required(false, true, true));
     assert!(deliver_first_turn());
     assert_eq!(payload_writes.get(), 1);
     assert!(launch.await_provider_ack(std::time::Duration::ZERO));

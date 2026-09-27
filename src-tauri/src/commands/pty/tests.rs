@@ -267,7 +267,7 @@ mod spawn_pty_restore_tests {
 
     #[tokio::test]
     #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-    async fn spawn_pty_core_restore_branch_builds_from_tab_launch_record() {
+    async fn spawn_pty_core_restore_branch_builds_record_and_selects_first_turn_readiness() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some(PROVIDER.into());
@@ -291,6 +291,7 @@ mod spawn_pty_restore_tests {
         fixture.service.agent_registry.register_provider(Box::new(
             MockProvider::with_session(PROVIDER, SESSION)
                 .with_session_config_delivery()
+                .with_session_starts_on_first_user_turn()
                 .with_models(vec![crate::agent::provider::ModelInfo {
                     id: "gpt-6-luna".into(),
                     display_name: "gpt-6-luna".into(),
@@ -342,6 +343,13 @@ mod spawn_pty_restore_tests {
             Some("xhigh")
         );
         assert!(!tab.auto_approve);
+        assert!(crate::service::orchestrator::launch_waits_for_first_turn_binding(
+            &fixture.service,
+            &tab_id,
+            PROVIDER,
+            true,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        ));
 
         let mut pty = fixture.service.pty.lock();
         kill_pty_idempotent(&mut pty, &pty_id).expect("test PTY cleanup");
