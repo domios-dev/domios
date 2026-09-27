@@ -130,21 +130,39 @@ pub(super) fn dispatch(
 
         "workspace.close" => {
             let workspace_id = get_string_param(params, "workspace_id")?;
-            let caller_tab_id = opt_string_param(params, "caller_tab_id");
+            let caller_tab_id = opt_string_param(params, "caller_tab_id")
+                .filter(|tab_id| !tab_id.trim().is_empty());
             let force = params
                 .as_ref()
                 .and_then(|params| params.get("force"))
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
-            crate::dispatch::dispatch(
-                &crate::dispatch::Command::WorkspaceClose {
-                    workspace_id,
-                    caller_tab_id,
-                    force,
-                },
-                svc.as_ref(),
-            )
-            .map(|r| r.into_json())
+            let confirm = params
+                .as_ref()
+                .and_then(|params| params.get("confirm"))
+                .and_then(|value| value.as_str());
+            let result = tauri::async_runtime::block_on(async {
+                match caller_tab_id {
+                    Some(caller_tab_id) => {
+                        svc.close_workspace_guarded_async(
+                            Some(&caller_tab_id),
+                            &workspace_id,
+                            force,
+                        )
+                        .await
+                    }
+                    None if confirm == Some(workspace_id.as_str()) => {
+                        svc.close_workspace_as_confirmed_headerless_human(&workspace_id, force)
+                            .await
+                    }
+                    None => {
+                        svc.close_workspace_guarded_async(None, &workspace_id, force)
+                            .await
+                    }
+                }
+            });
+            result
+            .map(|()| serde_json::json!({ "ok": true }))
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
