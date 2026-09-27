@@ -9,6 +9,7 @@ struct FakeSeam {
     batches: RefCell<Vec<(String, usize)>>,
     keys: RefCell<Vec<(String, String, Vec<KeyStroke>)>>,
     error: Option<String>,
+    pad_file: Option<std::path::PathBuf>,
 }
 
 impl FakeSeam {
@@ -45,6 +46,16 @@ impl DeliverySeam for FakeSeam {
         })
     }
 
+    fn deliver_enveloped_with_path(
+        &self,
+        to_tab: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        self.deliver_enveloped(to_tab, envelope, body)
+            .map(|delivery| (delivery, self.pad_file.clone()))
+    }
+
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
         self.texts
             .borrow_mut()
@@ -65,6 +76,31 @@ impl DeliverySeam for FakeSeam {
             .push((tab.to_string(), text.to_string(), strokes.to_vec()));
         self.guard()
     }
+}
+
+#[test]
+fn delivery_receipt_keeps_enveloped_pad_file_path() {
+    let path = std::path::PathBuf::from("runtime/agent-pads/tab/inbox/token.md");
+    let seam = FakeSeam {
+        pad_file: Some(path.clone()),
+        ..Default::default()
+    };
+    let receipt = MessageGateway::new()
+        .submit(
+            &seam,
+            OutboundMessage {
+                target: "tab".into(),
+                body: MessageBody::Text {
+                    body: "body".into(),
+                },
+                envelope: Some(MessageEnvelope::tab("sender", "source")),
+                class: DeliveryClass::AgentTraffic,
+                origin: MessageOrigin::LocalTab,
+                idempotency_key: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(receipt.pad_file, Some(path));
 }
 
 fn msg_with_class(target: &str, class: DeliveryClass) -> OutboundMessage {
@@ -386,6 +422,7 @@ fn idempotency_store_evicts_beyond_capacity() {
     let ok = |t: &str| {
         Ok(DeliveryReceipt {
             delivery: None,
+            pad_file: None,
             dedup_hit: false,
             idempotency_key: Some(t.to_string()),
         })
