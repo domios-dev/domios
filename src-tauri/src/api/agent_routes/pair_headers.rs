@@ -7,7 +7,7 @@ use axum::{
 use crate::api::routes::{check_auth, AppState};
 
 /// Paired creation (task_7e5f9354): REST identity comes from authenticated caller context.
-pub(super) async fn create_orchestration_pair(
+pub(crate) async fn create_orchestration_pair(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<crate::service::OrchestrationPairParams>,

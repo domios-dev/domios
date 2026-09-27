@@ -593,8 +593,18 @@ mod tests {
             named_entry(40, 1, "powershell.exe"),
         ];
 
-        assert!(tree_has_named_process(10, &entries, |pid| Some(pid.into()), "codex"));
-        assert!(!tree_has_named_process(40, &entries, |pid| Some(pid.into()), "codex"));
+        assert!(tree_has_named_process(
+            10,
+            &entries,
+            |pid| Some(pid.into()),
+            "codex"
+        ));
+        assert!(!tree_has_named_process(
+            40,
+            &entries,
+            |pid| Some(pid.into()),
+            "codex"
+        ));
     }
 
     #[test]

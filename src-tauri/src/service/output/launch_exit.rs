@@ -111,12 +111,7 @@ impl super::super::ServiceContext {
         event: &CommandLifecycle,
         tree: &ProviderTreeObservation,
     ) -> Option<LaunchExitProof> {
-        let CommandLifecycle::Finished {
-            command_line,
-            exit_code,
-            ..
-        } = event
-        else {
+        let CommandLifecycle::Finished { exit_code, .. } = event else {
             return None;
         };
         let finished_event_proves_exit_before_first_seen =
