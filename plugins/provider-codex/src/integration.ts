@@ -95,6 +95,10 @@ export function checkIntegration(): unknown {
   const trustState = codexHookTrustState(path);
   const trustReason = trustState === "unknown" ? codexHookTrustReason(path) : undefined;
   const trustOk = trustState === "trusted";
+  const trustVerificationSource = codexHookTrustVerificationSource(path, trustState);
+  const trustVerifiedCurrent = trustState === "trusted" && trustVerificationSource === "hash_verified";
+  const proposedChanges = ["SessionStart hook", "Stop hook"];
+  if (!trustOk) proposedChanges.push("hook trust");
   const integrationState = !installed
     ? CODEX_INTEGRATION_STATE_ABSENT
     : (trustState === "disabled" || trustState === "stale"
@@ -113,13 +117,15 @@ export function checkIntegration(): unknown {
     hook_trust_state: trustState,
     hook_trust_reason: trustReason,
     hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
+    hook_trust_verification_source: trustVerificationSource,
+    hook_trust_verified_current: trustVerifiedCurrent,
     integration_state: integrationState,
     repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED,
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
     backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
-    proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"],
+    proposed_changes: proposedChanges,
   };
 }
 
@@ -156,6 +162,8 @@ function emptyIntegrationStatus(path: string | null, fileExists: boolean): unkno
     stop_hook: false,
     hook_trust_state: "missing",
     hook_trust_enabled: null,
+    hook_trust_verification_source: "missing",
+    hook_trust_verified_current: false,
     integration_state: CODEX_INTEGRATION_STATE_ABSENT,
     repair_requires_consent: true,
     hooks_owned: false,
@@ -632,6 +640,19 @@ function codexHookTrustReason(hooksPath: string): string {
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint === context.fingerprint && cached.reason) return cached.reason;
   return "Codex has not confirmed the current hook hash";
+}
+
+function codexHookTrustVerificationSource(
+  hooksPath: string,
+  state: string,
+): "hash_verified" | "cached" | "unverified" | "disabled" | "missing" {
+  if (state === "disabled") return "disabled";
+  if (state === "missing") return "missing";
+  const context = codexHookTrustContext(hooksPath);
+  if (!context || !context.labels.includes("session_start")) return "unverified";
+  const cached = codexHookTrustCache.get(hooksPath);
+  if (cached?.fingerprint !== context.fingerprint) return "unverified";
+  return cached.verdict === "trusted" ? "hash_verified" : "cached";
 }
 
 function invalidateCodexHookTrust(hooksPath: string): void {

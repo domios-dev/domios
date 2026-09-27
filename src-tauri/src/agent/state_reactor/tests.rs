@@ -3,6 +3,8 @@ use crate::agent::status::TabStatus;
 use crate::agent::tab_state::{
     DelayedResume, Surface, TabState, TabStateAction, TabStateClassification,
 };
+use crate::agent::test_provider::MockProvider;
+use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 fn classification(
     state: TabState,
@@ -171,4 +173,76 @@ fn rfc3339_reset_time_parses_to_epoch_ms() {
 #[test]
 fn garbage_reset_time_is_rejected() {
     assert_eq!(parse_iso_to_ms("4:20pm (Europe/Riga)"), None);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt");
+    let screen = std::fs::read_to_string(fixture_path).expect("captured Codex folder trust frame");
+    let options = screen
+        .lines()
+        .filter_map(|line| {
+            let row = line.trim().strip_prefix('›').unwrap_or(line.trim()).trim_start();
+            let digits = row.chars().take_while(char::is_ascii_digit).count();
+            let value = row.get(..digits)?.parse::<usize>().ok()?;
+            let label = row.get(digits..)?.trim_start().strip_prefix('.')?.trim_start();
+            (!label.is_empty()).then(|| PromptOption {
+                label: label.to_string(),
+                value: value.to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let prompt = PendingPrompt {
+        question: "folder access choice".into(),
+        options,
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::new("trust-fixture")
+        .with_tab_state(TabStateClassification {
+            state: TabState::ClarifyingQuestion,
+            confidence: 1.0,
+            data: None,
+            action: Some(TabStateAction {
+                keys: None,
+                delayed_resume: None,
+                surface: Some(Surface {
+                    kind: "clarifying_question".into(),
+                    payload: serde_json::json!({"questions": ["folder access choice"]}),
+                }),
+            }),
+        })
+        .with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-live-trust-frame";
+    mux.link_pty(&tab_id, pty_id.into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("trust-fixture".into());
+    tab.cwd = Some("C:\\Users\\dev\\workspace".into());
+    tab.auto_approve = true;
+    tab.permission_auto_confirm = true;
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, screen.as_bytes());
+    let service = std::sync::Arc::new(fixture.service.clone());
+
+    react(&service, pty_id, TabStatus::Waiting);
+
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.clone())
+        .expect("the state reactor routes provider choices into tab prompt state");
+    assert_eq!(pending, prompt);
 }

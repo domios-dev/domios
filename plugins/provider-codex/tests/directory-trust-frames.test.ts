@@ -66,11 +66,16 @@ console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\
   );
 
   const userDir = fs.readFileSync(path.join(dir, "trust-folder-access-0.157.1.txt"), "utf8");
-  const trustPrompt = plugin.parseDirectoryTrustPrompt!(userDir);
   const trustOptions = userDir
     .split(/\r?\n/)
     .map((line) => /^[ \t]*[>❯▶➤›]?[ \t]*\d+[.)][ \t]+(.+?)[ \t]*$/.exec(line)?.[1] ?? null)
     .filter((label): label is string => label !== null);
+  const genericTrustPrompt = plugin.parsePrompt!(userDir);
+  eq(genericTrustPrompt?.options?.map(([label]) => label), trustOptions,
+    "provider parsePrompt exposes the active trust frame as a structured prompt");
+  eq(genericTrustPrompt?.options?.map(([, value]) => value), ["1", "2"],
+    "provider parsePrompt keeps both trust option values in screen order");
+  const trustPrompt = plugin.parseDirectoryTrustPrompt!(userDir);
   eq(trustPrompt?.options?.map(([label]) => label), trustOptions, "folder trust prompt preserves option labels and order");
   eq(trustPrompt?.options?.map(([, value]) => value), ["1", "2"], "folder trust prompt retains both visible option values");
   eq(plugin.buildPromptResponse!(1, userDir), ["G1tC", "DQ=="], "tab respond can select the second trust option");

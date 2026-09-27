@@ -171,8 +171,48 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
     match decide(status, classification.as_ref()) {
         ReactorDecision::Ignore => {}
         ReactorDecision::Surface(surface) => surface_to_user(svc, &tab_id, surface),
-        ReactorDecision::Act(action) => execute_action(svc, &tab_id, action),
+        ReactorDecision::Act(action) => {
+            if !surface_classified_prompt(
+                svc,
+                &tab_id,
+                &agent_type,
+                &snapshot.screen_text,
+                classification.as_ref(),
+            ) {
+                execute_action(svc, &tab_id, action);
+            }
+        }
     }
+}
+
+fn surface_classified_prompt(
+    svc: &ServiceState,
+    tab_id: &str,
+    agent_type: &str,
+    screen: &str,
+    classification: Option<&TabStateClassification>,
+) -> bool {
+    if !classification.is_some_and(|value| value.state == TabState::ClarifyingQuestion) {
+        return false;
+    }
+    let prompt = svc
+        .agent_registry
+        .with_provider(agent_type, |provider| provider.parse_prompt(screen))
+        .flatten();
+    let Some(prompt) = prompt else {
+        return false;
+    };
+    let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
+        tab_id,
+        true,
+        true,
+        Some(crate::agent::prompt::ResolvedPrompt {
+            prompt,
+            explicit: false,
+        }),
+    );
+    svc.apply_prompt_decision_with_screen(&decision, Some(screen), true, true);
+    true
 }
 
 fn execute_action(svc: &ServiceState, tab_id: &str, action: TabStateAction) {
