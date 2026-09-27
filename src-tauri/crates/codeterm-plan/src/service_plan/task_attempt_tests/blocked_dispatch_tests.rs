@@ -14,7 +14,9 @@ fn failed_blocked_respawn_restores_reason_and_marks_unblock_stride_rolled_back()
         })
         .unwrap();
     let plan = store.get(&plan_id).unwrap();
-    let snapshot = crate::plan::task_key::find_task(&plan.tasks, &task_id).unwrap().clone();
+    let snapshot = crate::plan::task_key::find_task(&plan.tasks, &task_id)
+        .unwrap()
+        .clone();
     let draft = store
         .build_task_respawn_draft(
             &plan_id,
@@ -53,7 +55,9 @@ fn failed_blocked_respawn_restores_reason_and_marks_unblock_stride_rolled_back()
     assert_eq!(restored.status_label.as_deref(), Some(block_reason));
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
         stride.links.iter().any(|link| link == &task_id)
-            && stride.text.contains("startup rolled back; task remains blocked")
+            && stride
+                .text
+                .contains("startup rolled back; task remains blocked")
             && stride.text.contains(block_reason)
     }));
 }
@@ -76,7 +80,9 @@ fn failed_blocked_dispatch_restores_reason_and_marks_unblock_stride_rolled_back(
         })
         .unwrap();
     let plan = store.get(&plan_id).unwrap();
-    let snapshot = crate::plan::task_key::find_task(&plan.tasks, &task_id).unwrap().clone();
+    let snapshot = crate::plan::task_key::find_task(&plan.tasks, &task_id)
+        .unwrap()
+        .clone();
     let attempt_id = store
         .begin_task_dispatch(
             &plan_id,
@@ -105,7 +111,9 @@ fn failed_blocked_dispatch_restores_reason_and_marks_unblock_stride_rolled_back(
     assert_eq!(restored.status_label.as_deref(), Some(block_reason));
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
         stride.links.iter().any(|link| link == &task_id)
-            && stride.text.contains("startup rolled back; task remains blocked")
+            && stride
+                .text
+                .contains("startup rolled back; task remains blocked")
             && stride.text.contains(block_reason)
     }));
 }
@@ -141,7 +149,9 @@ fn reverted_blocked_dispatch_restores_reason_and_annotates_unblock_stride() {
     assert_eq!(restored.status_label.as_deref(), Some(block_reason));
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
         stride.links.iter().any(|link| link == &task_id)
-            && stride.text.starts_with("dispatch rolled back; task remains blocked:")
+            && stride
+                .text
+                .starts_with("dispatch rolled back; task remains blocked:")
             && stride.text.contains(block_reason)
     }));
 }

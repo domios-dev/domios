@@ -223,8 +223,8 @@ fn repeated_verified_hook_reports_skip_side_effects_until_the_session_changes() 
     let registry = registry(&["codex"]);
     let mut binding_side_effects = 0;
 
-    let first = bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-a", Some("nonce-1"))
-        .unwrap();
+    let first =
+        bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-a", Some("nonce-1")).unwrap();
     assert!(!first.changed);
     assert!(first.nonce_verified);
     assert!(!first.nonce_already_acknowledged);
@@ -243,7 +243,11 @@ fn repeated_verified_hook_reports_skip_side_effects_until_the_session_changes() 
         assert!(can_short_circuit_session_start(&repeated, true, false));
         let mut unverified_duplicate = repeated.clone();
         unverified_duplicate.nonce_verified = false;
-        assert!(!can_short_circuit_session_start(&unverified_duplicate, true, true));
+        assert!(!can_short_circuit_session_start(
+            &unverified_duplicate,
+            true,
+            true
+        ));
         if !can_short_circuit_session_start(&repeated, false, false) {
             binding_side_effects += 1;
         }
@@ -251,8 +255,7 @@ fn repeated_verified_hook_reports_skip_side_effects_until_the_session_changes() 
     assert_eq!(binding_side_effects, 1);
 
     let changed =
-        bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-b", Some("nonce-1"))
-            .unwrap();
+        bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-b", Some("nonce-1")).unwrap();
     assert!(changed.changed);
     assert!(changed.nonce_verified);
     assert!(changed.nonce_already_acknowledged);

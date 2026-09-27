@@ -95,8 +95,8 @@ impl ServiceContext {
             let owned_actual = (tab.agent_type.as_deref() == Some(agent_id)
                 && tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.reasoning_effort_identity.actual_source.as_deref() == Some(SESSION_OWNED))
-                .then(|| tab.reasoning_effort_identity.actual.clone())
-                .flatten();
+            .then(|| tab.reasoning_effort_identity.actual.clone())
+            .flatten();
             (identity_changed, owned_actual)
         };
         if identity_changed {
@@ -138,9 +138,8 @@ impl ServiceContext {
         if binding.session_id != session_id {
             return;
         }
-        let Some((plan_id, task_id, attempt_id)) = self
-            .plan_store
-            .open_attempt_task_for_effort_for_tab(
+        let Some((plan_id, task_id, attempt_id)) =
+            self.plan_store.open_attempt_task_for_effort_for_tab(
                 tab_id,
                 &binding.session_id,
                 &binding.session_binding_nonce,

@@ -11,8 +11,8 @@ fn prior_catalog_schema_cache_is_rejected_before_discovery() {
     register(id, seed.clone());
     put_live(id, vec![model("live", "Live")], Some("live".into()));
 
-    let mut previous_schema = serde_json::to_value(read_cache(id).expect("cache written"))
-        .expect("cache serializes");
+    let mut previous_schema =
+        serde_json::to_value(read_cache(id).expect("cache written")).expect("cache serializes");
     previous_schema
         .as_object_mut()
         .expect("cache object")

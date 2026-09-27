@@ -10,7 +10,7 @@ use std::io::Read;
 mod agent_models;
 use agent_models::{format_agent_models, format_agent_models_json, provider_availability_marker};
 #[cfg(test)]
-use agent_models::{AVAILABILITY_UNKNOWN, AVAILABILITY_UNAVAILABLE};
+use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
 
 fn absolute_spawn_base(
     spawn_cwd: Option<&str>,

@@ -28,14 +28,11 @@ mod spawn_model;
 mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    attach_planned_model, normalize_session_model,
-    persist_model_launch_identity, resolve_fresh_agent_model,
-    resolve_fresh_agent_model_with_notice, unrequested_substitution_severity,
-    CatalogBackgroundModelPort,
+    attach_planned_model, normalize_session_model, persist_model_launch_identity,
+    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
+    unrequested_substitution_severity, CatalogBackgroundModelPort,
 };
-pub(crate) use spawn_model_catalogue::{
-    validate_agent_model, InvalidModelError,
-};
+pub(crate) use spawn_model_catalogue::{validate_agent_model, InvalidModelError};
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;

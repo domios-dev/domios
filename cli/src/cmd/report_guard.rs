@@ -4,6 +4,7 @@ use std::process::Command;
 
 use crate::args::agent::ReportStatusArg;
 use crate::client::RpcClient;
+#[cfg(test)]
 use codeterm_types::agent::ReportOutcomeClass;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +71,7 @@ pub struct ReportRefusal {
 
 const UNRESOLVED_LANE_REFUSAL_PREFIX: &str =
     "readiness report refused: cannot locate your lane worktree";
+#[cfg(test)]
 const MISSING_LANE_WORKTREE_REFUSAL_PREFIX: &str = "readiness report refused: lane worktree";
 const CANONICAL_DIRTY_REFUSAL_PREFIX: &str =
     "readiness report refused: this canonical checkout has uncommitted changes.";
@@ -100,6 +102,7 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
 ];
 
 impl ReportRefusal {
+    #[cfg(test)]
     pub fn report_outcome(&self) -> Option<ReportOutcomeClass> {
         (self.reason.starts_with(UNRESOLVED_LANE_REFUSAL_PREFIX)
             || self

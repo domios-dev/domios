@@ -11,12 +11,12 @@
 //! `AgentRegistry` to the right provider implementation. Adding a new
 //! provider requires zero changes here.
 
-use serde_json::Value as Json;
 use codeterm_types::notification::NotifyLevel;
+use serde_json::Value as Json;
 use tauri::State;
 
-use crate::service::ServiceState;
 use crate::service::notification::{NotificationOrigin, PushIntent};
+use crate::service::ServiceState;
 
 fn runtime_api_port() -> Result<u16, String> {
     let value = std::env::var("CODETERM_API_PORT")
@@ -323,10 +323,7 @@ fn recorded_flag(consented: &ProviderConfigs, id: &str, key: &str) -> Option<boo
         .and_then(toml::Value::as_bool)
 }
 
-fn has_unowned_plugin_file(
-    kind: crate::agent::provider::IntegrationKind,
-    status: &Json,
-) -> bool {
+fn has_unowned_plugin_file(kind: crate::agent::provider::IntegrationKind, status: &Json) -> bool {
     kind == crate::agent::provider::IntegrationKind::PluginFile
         && status.get("plugin_file_exists").and_then(Json::as_bool) == Some(true)
         && status.get("plugin_file_owned").and_then(Json::as_bool) != Some(true)
@@ -729,7 +726,7 @@ fn repair_integration_on_startup(
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 #[path = "hooks/owner_notice_tests.rs"]
 mod owner_notice_tests;
+#[cfg(test)]
+mod tests;
