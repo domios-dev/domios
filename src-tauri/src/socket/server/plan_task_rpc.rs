@@ -580,8 +580,15 @@ pub(super) fn dispatch(
         "plan.task.split" => {
             let (plan_id, parent_id) = plan_refs::resolve_task(store, params)?;
             let parent = store.show_task(&parent_id).ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-            if parent.task.parent_task_id.is_some() || matches!(&parent.task.status, codeterm_types::plan::TaskStatus::Done | codeterm_types::plan::TaskStatus::Cancelled) {
-                return Err(plan_rpc_err(PlanError::BadMode));
+            if parent.task.parent_task_id.is_some() {
+                return Err(plan_rpc_err(PlanError::InvalidSplitParent {
+                    reason: crate::service::plan::SplitParentReason::ChildParent,
+                }));
+            }
+            if matches!(&parent.task.status, codeterm_types::plan::TaskStatus::Done | codeterm_types::plan::TaskStatus::Cancelled) {
+                return Err(plan_rpc_err(PlanError::InvalidSplitParent {
+                    reason: crate::service::plan::SplitParentReason::TerminalParent,
+                }));
             }
             let children = p.and_then(|value| value.get("children")).and_then(Value::as_array).ok_or(JsonRpcError {
                 code: -32602, message: "children must be a non-empty array".into(), data: Some(json!({"type":"invalid_task_split"})),

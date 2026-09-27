@@ -29,10 +29,15 @@ impl PlanStore {
                 .iter()
                 .find(|task| task.id == parent_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if parent.parent_task_id.is_some()
-                || matches!(&parent.status, TaskStatus::Done | TaskStatus::Cancelled)
-            {
-                return Err(PlanError::BadMode);
+            if parent.parent_task_id.is_some() {
+                return Err(PlanError::InvalidSplitParent {
+                    reason: super::SplitParentReason::ChildParent,
+                });
+            }
+            if matches!(&parent.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                return Err(PlanError::InvalidSplitParent {
+                    reason: super::SplitParentReason::TerminalParent,
+                });
             }
             if plan.status == PlanStatus::Archived
                 || matches!(&plan.mode, PlanMode::Paused | PlanMode::Complete)
