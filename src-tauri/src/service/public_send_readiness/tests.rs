@@ -1,13 +1,13 @@
 use super::*;
 use crate::agent::chat_types::ChatMsg;
+use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
+use crate::agent::provider::AgentProvider;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::boot_stage::BootStage;
 use crate::service::test_fixture::ServiceFixture;
-use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
-use crate::agent::provider::AgentProvider;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, mpsc};
 use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Arc};
 
 const STARTER: &str = "opaque startup token 8871";
 
@@ -50,12 +50,7 @@ impl AgentProvider for LaunchEvidenceProvider {
         Some(self.root.join(format!("{session_id}.jsonl")))
     }
 
-    fn detect_session_id(
-        &self,
-        _: &str,
-        _: &[String],
-        _: Option<Duration>,
-    ) -> Option<String> {
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
         None
     }
 
@@ -121,8 +116,8 @@ fn launch_fixture() -> (ServiceFixture, String, LaunchAttempt) {
 }
 
 fn arm(readiness: &ReadinessRegistry, tab_id: &str, attempt: LaunchAttempt) {
-    readiness.arm(tab_id.to_string(), Some(STARTER.into()), None);
-    readiness.bind_attempt(attempt);
+    let key = readiness.arm(tab_id.to_string(), Some(STARTER.into()), None);
+    readiness.bind_attempt(attempt, key);
     assert!(readiness.bound(tab_id, "launch-nonce", "launch-session"));
 }
 
@@ -130,7 +125,7 @@ fn arm(readiness: &ReadinessRegistry, tab_id: &str, attempt: LaunchAttempt) {
 fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = Arc::new(ReadinessRegistry::default());
-    readiness.arm(tab_id.clone(), Some(STARTER.into()), None);
+    let key = readiness.arm(tab_id.clone(), Some(STARTER.into()), None);
     let events = Arc::new(Mutex::new(Vec::new()));
     let (started_tx, started_rx) = mpsc::channel();
     let wait_readiness = readiness.clone();
@@ -148,7 +143,7 @@ fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
 
     started_rx.recv().unwrap();
     assert!(events.lock().is_empty());
-    readiness.bind_attempt(attempt);
+    readiness.bind_attempt(attempt, key);
     assert!(readiness.bound(&tab_id, "launch-nonce", "launch-session"));
     events.lock().push("bootstrap");
     let turn = [ChatMsg {
@@ -174,7 +169,10 @@ fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
         tab.session_binding_nonce = Some("cleared-nonce".into());
         tab.reported_session_binding_nonce = Some("cleared-nonce".into());
     }
-    assert!(readiness.inspect(&fixture.service.mux, &tab_id).unwrap().is_ok());
+    assert!(readiness
+        .inspect(&fixture.service.mux, &tab_id)
+        .unwrap()
+        .is_ok());
     assert!(readiness
         .await_ready(&fixture.service.mux, &tab_id, Duration::ZERO)
         .is_ok());
@@ -196,7 +194,10 @@ fn public_send_before_readiness_never_reports_success_without_a_turn() {
     assert_eq!(payload_writes, 0);
     assert!(readiness.state.lock().gates.contains_key(&tab_id));
     readiness.retire(&tab_id);
-    assert!(readiness.inspect(&fixture.service.mux, &tab_id).unwrap().is_ok());
+    assert!(readiness
+        .inspect(&fixture.service.mux, &tab_id)
+        .unwrap()
+        .is_ok());
 }
 
 #[test]
@@ -236,6 +237,30 @@ fn launch_without_startup_turn_retires_previous_gate() {
 }
 
 #[test]
+fn old_launch_guard_cannot_retire_new_launch_gate() {
+    let (fixture, tab_id, _) = launch_fixture();
+    let old_key = fixture
+        .service
+        .arm_public_send_launch(&tab_id, Some("old starter turn".into()), None)
+        .unwrap();
+    let old_guard = fixture
+        .service
+        .public_send_launch_guard_for_key(&tab_id, Some(old_key));
+    let new_key = fixture
+        .service
+        .arm_public_send_launch(&tab_id, Some("new starter turn".into()), None)
+        .unwrap();
+
+    drop(old_guard);
+
+    assert!(fixture.service.has_public_send_launch_gate(&tab_id));
+    fixture
+        .service
+        .retire_public_send_launch_key(&tab_id, new_key);
+    assert!(!fixture.service.has_public_send_launch_gate(&tab_id));
+}
+
+#[test]
 fn nonmatching_user_turn_does_not_satisfy_armed_gate() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
@@ -263,8 +288,13 @@ fn failed_launch_retires_armed_gate() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
     arm(&readiness, &tab_id, attempt);
-    fixture.service.mux.write().get_tab_mut(&tab_id).unwrap().boot_stage =
-        Some(BootStage::SpawnFailed);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .boot_stage = Some(BootStage::SpawnFailed);
     assert!(readiness
         .await_ready(&fixture.service.mux, &tab_id, Duration::ZERO)
         .is_ok());
@@ -282,7 +312,7 @@ fn session_rotation_retires_armed_gate() {
         tab.session_binding_nonce = Some("rotated-nonce".into());
         tab.reported_session_binding_nonce = Some("rotated-nonce".into());
     }
-    readiness.retire_changed_session(&fixture.service.mux, &tab_id);
+    readiness.retire_changed_session(&fixture.service.mux, &tab_id, "rotated-nonce");
     assert!(readiness
         .await_ready(&fixture.service.mux, &tab_id, Duration::ZERO)
         .is_ok());
@@ -310,18 +340,24 @@ fn headless_launch_confirms_from_bound_session_evidence() {
         .get_tab_mut(&tab_id)
         .unwrap()
         .cwd = Some(root.to_string_lossy().into_owned());
-    fixture.service.agent_registry.register_provider(Box::new(
-        LaunchEvidenceProvider { root: root.clone() },
-    ));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(LaunchEvidenceProvider { root: root.clone() }));
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: "launch-pty".into(),
         binding_nonce: "launch-nonce".into(),
     };
     let service = fixture.service.clone();
-    service.arm_public_send_launch(&tab_id, Some(STARTER.into()), None);
-    service.bind_public_send_launch_attempt(attempt);
-    crate::service::public_send_readiness::observe_session_binding(&service, &tab_id);
+    let key = service.arm_public_send_launch(&tab_id, Some(STARTER.into()), None);
+    service.bind_public_send_launch_attempt(attempt, key);
+    crate::service::public_send_readiness::observe_session_binding(
+        &service,
+        &tab_id,
+        "launch-session",
+        "launch-nonce",
+    );
 
     let (started_tx, started_rx) = mpsc::channel();
     let waiting_service = service.clone();

@@ -39,8 +39,7 @@ pub(crate) fn has_startup_task_turn(
     assigned_task: Option<&str>,
     fallback_spec: Option<&FallbackDeliverySpec>,
 ) -> bool {
-    assigned_task.is_some_and(|task| !task.trim().is_empty())
-        || fallback_spec.is_some()
+    assigned_task.is_some_and(|task| !task.trim().is_empty()) || fallback_spec.is_some()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -943,7 +943,17 @@ pub(crate) async fn finish_session_binding(
     crate::service::general_agent::binding_wait::notify_binding_state_changed();
     let launch_identity =
         acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);
-    crate::service::public_send_readiness::observe_session_binding(svc, tab_id);
+    if let Some(nonce) = report_nonce {
+        let service = svc.clone();
+        let tab = tab_id.to_string();
+        let session = sid.to_string();
+        let nonce = nonce.to_string();
+        drop(tokio::task::spawn_blocking(move || {
+            crate::service::public_send_readiness::observe_session_binding(
+                &service, &tab, &session, &nonce,
+            )
+        }));
+    }
     // Ordering: the identity above is read from state the nonce check already
     // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {

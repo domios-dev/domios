@@ -60,7 +60,9 @@ pub(super) fn finish_waiting_for_first_turn(
         return None;
     }
     let finished = LAUNCH_REGISTRY.lock().finish(launch);
-    svc.retire_public_send_launch(&launch.tab_id);
+    if let Some(attempt) = launch.attempt() {
+        svc.retire_public_send_launch_attempt(&attempt);
+    }
     if finished {
         log::info!(
             "[launch-readiness] Tab {} remains available for its first turn",
@@ -90,7 +92,9 @@ pub(super) fn emit_agent_ready(
 ) -> Result<(), String> {
     let session_authenticated = launch.await_provider_ack(Duration::ZERO);
     if !settlement.authorizes_agent_ready(session_authenticated) {
-        svc.retire_public_send_launch(&launch.tab_id);
+        if let Some(attempt) = launch.attempt() {
+            svc.retire_public_send_launch_attempt(&attempt);
+        }
         return Err(match settlement {
             LaunchSettlement::Failed { reason, .. } => {
                 LAUNCH_REGISTRY.lock().finish(launch);
