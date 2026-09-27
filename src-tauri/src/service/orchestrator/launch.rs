@@ -528,9 +528,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         reasoning_effort.as_deref(),
     );
     // thread spawns: callers get the tab id immediately and may send right away.
-    if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
-        p.agent_booting = true;
-    }
+    mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
@@ -1177,6 +1175,16 @@ pub(crate) fn launch_agent_in_background_with_env(
             let _ = tx.send(Ok(()));
         }
     });
+}
+
+pub(crate) fn mark_tab_agent_launch_started(
+    mux: &crate::multiplexer::commands::MuxState,
+    tab_id: &str,
+) {
+    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+        tab.restored_from_snapshot = false;
+        tab.agent_booting = true;
+    }
 }
 
 fn agent_role_label(

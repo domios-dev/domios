@@ -416,6 +416,34 @@ mod spawn_pty_restore_tests {
 
     #[tokio::test]
     #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    async fn unobserved_liveness_then_ensure_pty_activation_schedules_restore_relaunch() {
+        let (fixture, tab_id, resume_context) = restored_fixture();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.pty_id = None;
+            tab.boot_stage = None;
+        }
+        assert_eq!(
+            crate::agent::live_state::observe_tab_liveness(&fixture.service, &tab_id),
+            codeterm_types::pty::AgentLiveness::Unobserved
+        );
+
+        fixture
+            .service
+            .ensure_tab_pty_for_send(&tab_id)
+            .expect("ensure-pty activates and materializes the restored agent");
+
+        assert_eq!(resume_context.lock().len(), 1);
+        let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+        assert!(!tab.restored_from_snapshot);
+        let mut pty = fixture.service.pty.lock();
+        kill_pty_idempotent(&mut pty, tab.pty_id.as_deref().unwrap())
+            .expect("test PTY cleanup");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn restored_agent_relaunches_once_when_frontend_attaches_first() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         let backend_pty_id = "backend-materialized-restored-pty";
@@ -459,6 +487,98 @@ mod spawn_pty_restore_tests {
         assert_eq!(resume_context.lock().len(), 1);
         let mut pty = fixture.service.pty.lock();
         kill_pty_idempotent(&mut pty, &pty_id).expect("test PTY cleanup");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    async fn manual_restart_claim_prevents_frontend_remount_restore_launch() {
+        let (fixture, tab_id, resume_context) = restored_fixture();
+        let pty_id = "manual-restart-restored-pty";
+        fixture
+            .service
+            .pty
+            .lock()
+            .spawn_with_id(
+                Some(pty_id.into()),
+                None,
+                None,
+                80,
+                24,
+                Default::default(),
+            )
+            .expect("manual restart owns a live PTY");
+        {
+            let mut mux = fixture.service.mux.write();
+            mux.link_pty(&tab_id, pty_id.into());
+        }
+        crate::service::orchestrator::mark_tab_agent_launch_started(&fixture.service.mux, &tab_id);
+
+        let attached = spawn_pty_core(
+            &Arc::new(fixture.service.clone()),
+            None,
+            None,
+            80,
+            24,
+            None,
+            Some(tab_id.clone()),
+        )
+        .await
+        .expect("frontend remount reuses the manual-restart PTY");
+
+        assert_eq!(attached, pty_id);
+        assert!(resume_context.lock().is_empty());
+        let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap();
+        assert!(!tab.restored_from_snapshot);
+        assert!(tab.agent_booting);
+        let mut pty = fixture.service.pty.lock();
+        kill_pty_idempotent(&mut pty, pty_id).expect("test PTY cleanup");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    async fn frontend_attach_keeps_live_pty_when_restore_materialization_fails() {
+        let (fixture, tab_id, resume_context) = restored_fixture();
+        let pty_id = "failed-materialization-live-pty";
+        fixture
+            .service
+            .pty
+            .lock()
+            .spawn_with_id(
+                Some(pty_id.into()),
+                None,
+                None,
+                80,
+                24,
+                Default::default(),
+            )
+            .expect("backend already owns a live PTY");
+        {
+            let mut mux = fixture.service.mux.write();
+            mux.link_pty(&tab_id, pty_id.into());
+            mux.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(
+                crate::multiplexer::types::PendingDeliveryRecord::new(
+                    "missing-payload-digest".into(),
+                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                ),
+            );
+        }
+
+        let attached = spawn_pty_core(
+            &Arc::new(fixture.service.clone()),
+            None,
+            None,
+            80,
+            24,
+            None,
+            Some(tab_id),
+        )
+        .await
+        .expect("restore failure must not discard a live PTY attachment");
+
+        assert_eq!(attached, pty_id);
+        assert!(resume_context.lock().is_empty());
+        let mut pty = fixture.service.pty.lock();
+        kill_pty_idempotent(&mut pty, pty_id).expect("test PTY cleanup");
     }
 }
 

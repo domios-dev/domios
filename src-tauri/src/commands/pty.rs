@@ -73,11 +73,19 @@ pub async fn spawn_pty_core(
                 if restored {
                     let restore_service = svc.clone();
                     let restore_tab = pid.clone();
-                    tokio::task::spawn_blocking(move || {
+                    match tokio::task::spawn_blocking(move || {
                         restore_service.materialize_restored_agent_for_send(&restore_tab)
                     })
                     .await
-                    .map_err(|error| format!("restore launch join error: {error}"))??;
+                    {
+                        Ok(Ok(())) => {}
+                        Ok(Err(error)) => log::error!(
+                            "[spawn_pty] restored launch materialization failed for Tab {pid}: {error}"
+                        ),
+                        Err(error) => log::error!(
+                            "[spawn_pty] restored launch materialization task failed for Tab {pid}: {error}"
+                        ),
+                    }
                 }
                 return Ok(selected.pty_id);
             }
@@ -159,6 +167,7 @@ pub async fn spawn_pty_core(
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);
         };
+        crate::service::orchestrator::mark_tab_agent_launch_started(mux_state, pid);
         let session_id = restore.session_id;
         let tab_cwd = restore.cwd;
         let stored_agent_type = restore.provider_id;
@@ -312,7 +321,6 @@ pub async fn spawn_pty_core(
                             BootStage::ShellReady,
                             None,
                         );
-                        svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
                         svc_for_launch.emit_boot_stage(
                             &tab_id_for_boot,
                             BootStage::AgentLaunching,
@@ -488,7 +496,6 @@ pub async fn spawn_pty_core(
                         cmd
                     );
                     svc_for_launch.emit_boot_stage(&tab_id_for_boot, BootStage::ShellReady, None);
-                    svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
                     svc_for_launch.emit_boot_stage(
                         &tab_id_for_boot,
                         BootStage::AgentLaunching,
