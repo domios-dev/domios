@@ -391,8 +391,8 @@ fn is_recurring_delayed_relay(method: &str, path: &str, body: &serde_json::Value
     let is_create = method.eq_ignore_ascii_case("POST")
         && bare.starts_with("/api/tabs/")
         && bare.ends_with("/delayed-messages");
-    let is_edit = method.eq_ignore_ascii_case("PATCH")
-        && bare.starts_with("/api/delayed-messages/");
+    let is_edit =
+        method.eq_ignore_ascii_case("PATCH") && bare.starts_with("/api/delayed-messages/");
     (is_create || is_edit)
         && body
             .get("recurrence")
@@ -498,8 +498,7 @@ pub async fn mesh_relay_to_peer(
             &peer_name,
             identify.as_ref(),
             peer_version.as_deref(),
-        )
-        {
+        ) {
             return Ok(Json(refusal));
         }
     }

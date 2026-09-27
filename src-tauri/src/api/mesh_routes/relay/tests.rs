@@ -35,15 +35,25 @@ fn service_mesh_delayed_recurrence_refused_for_incapable_peer() {
     .expect("missing feature must refuse before relay dispatch");
     assert!(!refusal.ok);
     assert_eq!(refusal.status, 426);
+    assert!(
+        refusal
+            .data
+            .as_ref()
+            .and_then(|data| data.get("error"))
+            .and_then(|error| error.get("bytes_written"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+    );
     assert!(refusal
-        .data
-        .as_ref()
-        .and_then(|data| data.get("error"))
-        .and_then(|error| error.get("bytes_written"))
-        .and_then(serde_json::Value::as_bool)
-        == Some(false));
-    assert!(refusal.error.as_deref().unwrap_or_default().contains("old-peer"));
-    assert!(refusal.error.as_deref().unwrap_or_default().contains("1.11.9"));
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("old-peer"));
+    assert!(refusal
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("1.11.9"));
     assert!(super::recurrence_capability_refusal_response(
         "current-peer",
         Some(&serde_json::json!({"features": ["delayed_recurrence"]})),
@@ -56,7 +66,11 @@ fn service_mesh_delayed_recurrence_refused_for_incapable_peer() {
         Some("1.11.8"),
     )
     .expect("failed identify must refuse with cached peer version");
-    assert!(no_identify.error.as_deref().unwrap_or_default().contains("1.11.8"));
+    assert!(no_identify
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("1.11.8"));
 }
 
 #[test]
@@ -65,12 +79,10 @@ fn mesh_send_every_proceeds_when_peer_advertises_recurrence() {
         "version": "1.11.10",
         "features": ["rest-api", "delayed_recurrence"]
     });
-    assert!(super::recurrence_capability_refusal_response(
-        "current-peer",
-        Some(&identify),
-        None,
-    )
-    .is_none());
+    assert!(
+        super::recurrence_capability_refusal_response("current-peer", Some(&identify), None,)
+            .is_none()
+    );
 }
 
 #[test]
