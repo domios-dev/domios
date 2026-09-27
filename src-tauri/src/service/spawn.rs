@@ -30,7 +30,9 @@ pub(crate) use spawn_model::{
     resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
     unrequested_substitution_severity, CatalogBackgroundModelPort,
 };
-pub(crate) use spawn_model_catalogue::{validate_agent_model, InvalidModelError};
+pub(crate) use spawn_model_catalogue::{
+    resolve_agent_model_selection, validate_agent_model, AgentModelSelection, InvalidModelError,
+};
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
@@ -257,11 +259,15 @@ impl ServiceContext {
         }
 
         let default_provider = crate::config::default_agent_provider();
-        let agent_cmd = if agent.provider.is_empty() {
-            default_provider
-        } else {
-            agent.provider.clone()
-        };
+        let model_selection = resolve_agent_model_selection(
+            &self.agent_registry,
+            (!agent.provider.trim().is_empty()).then_some(agent.provider.as_str()),
+            agent.model.as_deref(),
+            &default_provider,
+        )
+        .map_err(|error| error.to_string())?;
+        let agent_cmd = model_selection.provider_id;
+        let requested_model = model_selection.model;
         let permission_bypass_authorization =
             super::permission_policy::configured_permission_bypass(
                 &self.agent_registry,
@@ -276,12 +282,10 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
-        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())
-            .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
-            agent.model.clone(),
+            requested_model,
             agent.resume_session_id.as_deref(),
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());

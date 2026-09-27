@@ -1,5 +1,15 @@
 use super::*;
 
+fn registry_with_models(
+    entries: &[(&'static str, &[&'static str])],
+) -> crate::agent::registry::AgentRegistry {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    for (provider_id, model_ids) in entries {
+        registry.register_provider(Box::new(ModelProvider::new(*provider_id, *model_ids)));
+    }
+    registry
+}
+
 #[test]
 fn validate_agent_model_accepts_advertised_id() {
     let provider = ModelProvider::new(
@@ -25,17 +35,183 @@ fn validate_agent_model_accepts_advertised_id() {
 
 #[test]
 fn free_form_provider_keeps_unknown_model_ids() {
-    let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
+    let provider_id = "free-form-no-live-fixture";
+    let registry = registry_with(ModelProvider::new(provider_id, &["opencode/big-pickle"]));
 
-    assert!(validate_agent_model(&registry, "opencode", Some("does-not-exist")).is_ok());
+    assert!(validate_agent_model(&registry, provider_id, Some("does-not-exist")).is_ok());
     let resolved = resolve_fresh_agent_model_with_notice(
         &registry,
-        "opencode",
+        provider_id,
         Some("does-not-exist".into()),
         None,
     );
     assert_eq!(resolved.model.as_deref(), Some("does-not-exist"));
+    assert_eq!(resolved.provider_resolved_model, None);
     assert!(resolved.fallback_notice.is_none());
+}
+
+#[test]
+fn free_form_provider_refuses_unknown_ids_when_live_models_are_published() {
+    let provider_id = "opencode";
+    let registry = registry_with(ModelProvider::new(provider_id, &[]));
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![crate::agent::provider::ModelInfo {
+            id: "opencode/deepseek-v4-flash-free".into(),
+            display_name: "OpenCode DeepSeek Flash".into(),
+            ..Default::default()
+        }],
+        None,
+    );
+    let error = validate_agent_model(&registry, provider_id, Some("sonnet"))
+        .expect_err("a live provider model list constrains free-form ids");
+    assert!(
+        error
+            .to_string()
+            .contains("opencode/deepseek-v4-flash-free"),
+        "{error}"
+    );
+    assert!(validate_agent_model(
+        &registry,
+        provider_id,
+        Some("opencode/deepseek-v4-flash-free")
+    )
+    .is_ok());
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
+fn spawn_model_validation_refuses_a_foreign_provider_alias() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(ModelProvider::new("claude", &["sonnet", "opus"])));
+    registry.register_provider(Box::new(ModelProvider::new("opencode", &[])));
+
+    let error = validate_agent_model(&registry, "opencode", Some("sonnet"))
+        .expect_err("Claude alias cannot be passed to a different provider");
+    assert!(error.to_string().contains("claude"), "{error}");
+    assert!(validate_agent_model(&registry, "claude", Some("sonnet")).is_ok());
+}
+
+#[test]
+fn claude_alias_never_routes_to_another_provider() {
+    let registry = registry_with_models(&[
+        ("claude", &["sonnet", "opus"]),
+        ("opencode", &["opencode/deepseek-v4-flash-free"]),
+    ]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("sonnet"),
+        "opencode",
+    )
+    .expect("a unique advertised alias selects its provider");
+
+    assert_eq!(selected.provider_id, "claude");
+    assert_eq!(selected.model.as_deref(), Some("sonnet"));
+}
+
+#[test]
+fn explicit_provider_accepts_a_model_it_shares_with_another_provider() {
+    let registry = registry_with_models(&[
+        ("provider-x", &["shared-model"]),
+        ("provider-y", &["shared-model"]),
+    ]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        Some("provider-x"),
+        Some("shared-model"),
+        "provider-y",
+    )
+    .expect("the selected provider advertises the requested id");
+
+    assert_eq!(selected.provider_id, "provider-x");
+    assert_eq!(selected.model.as_deref(), Some("shared-model"));
+}
+
+#[test]
+fn qualified_model_selects_its_provider_and_normalizes_its_id() {
+    let registry = registry_with_models(&[("claude", &["opus"]), ("codex", &["gpt-6-luna"])]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("codex:gpt-6-luna"),
+        "claude",
+    )
+    .expect("qualified model selects its registered provider");
+
+    assert_eq!(selected.provider_id, "codex");
+    assert_eq!(selected.model.as_deref(), Some("gpt-6-luna"));
+}
+
+#[test]
+fn bare_provider_name_selects_that_providers_default() {
+    let registry = registry_with_models(&[("claude", &["opus"]), ("codex", &["gpt-6-luna"])]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("codex"),
+        "claude",
+    )
+    .expect("provider name selects its own default model");
+
+    assert_eq!(selected.provider_id, "codex");
+    assert_eq!(selected.model, None);
+}
+
+#[test]
+fn ambiguous_bare_model_requires_an_explicit_provider() {
+    let registry = registry_with_models(&[
+        ("provider-x", &["shared-model"]),
+        ("provider-y", &["shared-model"]),
+    ]);
+    let error = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("shared-model"),
+        "provider-x",
+    )
+    .expect_err("an ambiguous id must not fall through to the default provider");
+
+    assert_eq!(
+        error.ambiguous_providers,
+        vec!["provider-x".to_string(), "provider-y".to_string()]
+    );
+    assert_eq!(error.rpc_data()["type"], "ambiguous_model");
+    assert!(error.to_string().contains("ambiguous model id"), "{error}");
+    assert!(error.to_string().contains("pass --agent"), "{error}");
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn spawn_refuses_model_absent_from_free_form_providers_live_list() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        ModelProvider::new("opencode", &[]).with_cli("cmd.exe", "cmd.exe"),
+    ));
+    crate::agent::model_catalog::put_live(
+        "opencode",
+        vec![crate::agent::provider::ModelInfo {
+            id: "opencode/deepseek-v4-flash-free".into(),
+            display_name: "OpenCode DeepSeek Flash".into(),
+            ..Default::default()
+        }],
+        None,
+    );
+    let before = fixture.service.mux.read().snapshot().tabs.len();
+    let params = SpawnAgentParams {
+        agent: Some("opencode".into()),
+        model: Some("sonnet".into()),
+        ..Default::default()
+    };
+    let error = fixture
+        .service
+        .spawn_visible_agent_impl(SpawnTabSpec::from_agent_params(params), None)
+        .expect_err("spawn must refuse a model missing from the live list");
+
+    assert!(error.contains("opencode/deepseek-v4-flash-free"), "{error}");
+    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+    crate::agent::model_catalog::unregister("opencode");
 }
 
 #[test]
@@ -192,14 +368,15 @@ fn restore_with_removed_authoritative_model_posts_notification() {
 
 #[test]
 fn free_form_provider_preserves_shortened_unknown_ids() {
+    let provider_id = "free-form-short-id-fixture";
     let registry = registry_with(ModelProvider::new(
-        "opencode",
+        provider_id,
         &["opencode/big-pickle", "opencode/ring-2.6-1t"],
     ));
 
-    assert!(validate_agent_model(&registry, "opencode", Some("big-pickle")).is_ok());
+    assert!(validate_agent_model(&registry, provider_id, Some("big-pickle")).is_ok());
     assert_eq!(
-        resolve_fresh_agent_model(&registry, "opencode", Some("big-pickle".into()), None)
+        resolve_fresh_agent_model(&registry, provider_id, Some("big-pickle".into()), None)
             .as_deref(),
         Some("big-pickle")
     );
@@ -303,9 +480,7 @@ fn authoritative_live_catalogue_rejects_seed_only_models() {
     let error = validate_agent_model(&registry, provider_id, Some("gpt-6-sol"))
         .expect_err("a static seed is not part of a live authoritative catalogue");
     assert!(
-        error
-            .to_string()
-            .ends_with("closest catalogue ids: gpt-6-astra"),
+        error.to_string().ends_with("valid model ids: gpt-6-astra"),
         "{error}"
     );
     crate::agent::model_catalog::unregister(provider_id);

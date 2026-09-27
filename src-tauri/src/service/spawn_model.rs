@@ -116,6 +116,7 @@ impl ServiceContext {
 pub(crate) struct FreshAgentModelResolution {
     pub requested_model: Option<String>,
     pub model: Option<String>,
+    pub provider_resolved_model: Option<String>,
     pub fallback_notice: Option<ModelFallbackNotice>,
     pub restore_notification: Option<String>,
     pub warning: Option<String>,
@@ -144,7 +145,7 @@ pub(crate) fn persist_model_launch_identity(
         .filter(|model| !model.is_empty())
         .map(str::to_string);
     tab.agent_requested_model = resolution.requested_model.clone();
-    tab.agent_provider_resolved_model = resolution.model.clone();
+    tab.agent_provider_resolved_model = resolution.provider_resolved_model.clone();
     tab.agent_session_model = None;
     tab.agent_session_model_identity = None;
     tab.model_fallback = resolution.fallback_notice.clone();
@@ -230,6 +231,21 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
                     authoritative_catalogue_default(provider_id, capability, models)
                 })
             });
+        let provider_resolved_model = matched
+            .as_ref()
+            .map(|entry| {
+                preserve_context_suffix(
+                    entry.id.clone(),
+                    requested_model.as_deref().unwrap_or_default(),
+                )
+            })
+            .or_else(|| {
+                (capability.authority
+                    == crate::agent::provider::ModelCatalogueAuthority::Authoritative
+                    && !catalogue_missing)
+                    .then(|| model.clone())
+                    .flatten()
+            });
         let restore_notification = requested_model.as_deref().and_then(|requested| {
             (!catalogue_missing
                 && capability.authority
@@ -246,6 +262,7 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         });
         return FreshAgentModelResolution {
             model,
+            provider_resolved_model,
             requested_model,
             fallback_notice: None,
             restore_notification,
@@ -267,10 +284,14 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         let resolved_model = matched
             .map(|entry| preserve_context_suffix(entry.id, &model))
             .unwrap_or_else(|| model.clone());
+        let provider_resolved_model = matched
+            .as_ref()
+            .map(|entry| preserve_context_suffix(entry.id.clone(), &model));
         let warning =
             catalogue_missing.then(|| unavailable_live_catalogue_warning(provider_id, &model));
         return FreshAgentModelResolution {
             model: non_empty_model(resolved_model),
+            provider_resolved_model,
             requested_model: Some(model),
             fallback_notice: None,
             restore_notification: None,
@@ -287,7 +308,8 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
         if !resolved.fell_back {
             return FreshAgentModelResolution {
-                model: non_empty_model(resolved.id),
+                model: non_empty_model(resolved.id.clone()),
+                provider_resolved_model: (!resolved.fell_back).then_some(resolved.id),
                 requested_model: None,
                 fallback_notice: None,
                 restore_notification: None,
@@ -306,8 +328,10 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         .and_then(non_empty_model);
     let resolved =
         crate::agent::model_catalog::resolve_model(provider_id, provider_default.as_deref());
+    let resolved_model = resolved.id;
     FreshAgentModelResolution {
-        model: non_empty_model(resolved.id),
+        model: non_empty_model(resolved_model.clone()),
+        provider_resolved_model: (!resolved.fell_back).then_some(resolved_model),
         requested_model: None,
         fallback_notice: None,
         restore_notification: None,
@@ -425,6 +449,7 @@ fn resolve_authoritative_live_default(
         };
         return Some(FreshAgentModelResolution {
             model: selected,
+            provider_resolved_model: None,
             requested_model: None,
             fallback_notice: None,
             restore_notification: None,
@@ -479,7 +504,8 @@ fn resolve_authoritative_live_default(
         None
     };
     Some(FreshAgentModelResolution {
-        model: selected,
+        model: selected.clone(),
+        provider_resolved_model: selected,
         requested_model: None,
         fallback_notice: None,
         restore_notification: None,

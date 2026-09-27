@@ -191,6 +191,7 @@ fn bind_worker_task_to_tab(
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
     provider: Option<&str>,
+    requested_model: Option<String>,
     model: Option<String>,
     reasoning_effort: Option<String>,
     attempt_id: &str,
@@ -221,6 +222,8 @@ fn bind_worker_task_to_tab(
             attempt_id,
             authorized_gates,
             crate::plan::WorkerPlacement::IsolatedLane,
+            model.clone(),
+            requested_model,
             model,
             reasoning_effort,
             None,
@@ -341,7 +344,15 @@ impl ServiceContext {
             return Ok(());
         };
         let now_ms = epoch_ms();
-        let (title, session_id, session_binding_nonce, provider, model, reasoning_effort) = {
+        let (
+            title,
+            session_id,
+            session_binding_nonce,
+            provider,
+            requested_model,
+            model,
+            reasoning_effort,
+        ) = {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
             let binding = mux.get_tab(tab_id).map(|tab| {
@@ -349,17 +360,25 @@ impl ServiceContext {
                     tab.agent_session_id.clone(),
                     tab.session_binding_nonce.clone(),
                     tab.agent_type.clone(),
+                    tab.agent_requested_model.clone(),
                     tab.agent_provider_resolved_model.clone(),
                     resolved_worker_launch_effort(&tab.reasoning_effort_identity),
                 )
             });
-            let (session_id, session_binding_nonce, provider, model, reasoning_effort) =
-                binding.unwrap_or_default();
+            let (
+                session_id,
+                session_binding_nonce,
+                provider,
+                requested_model,
+                model,
+                reasoning_effort,
+            ) = binding.unwrap_or_default();
             (
                 title,
                 session_id,
                 session_binding_nonce,
                 provider,
+                requested_model,
                 model,
                 reasoning_effort,
             )
@@ -372,6 +391,7 @@ impl ServiceContext {
             session_id.as_deref(),
             session_binding_nonce.as_deref(),
             provider.as_deref(),
+            requested_model,
             model,
             reasoning_effort,
             now_ms,
@@ -408,6 +428,7 @@ impl ServiceContext {
         session_id: Option<&str>,
         session_binding_nonce: Option<&str>,
         provider: Option<&str>,
+        requested_model: Option<String>,
         model: Option<String>,
         reasoning_effort: Option<String>,
         now_ms: u64,
@@ -437,6 +458,7 @@ impl ServiceContext {
             intent,
             allowance,
             provider,
+            requested_model,
             model,
             reasoning_effort,
             &authority.attempt_id,
@@ -514,6 +536,7 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             Some("codex"),
+            Some("gpt-6-luna".into()),
             Some("gpt-6-luna".into()),
             resolved_worker_launch_effort(&effort_identity),
             "attempt-prepared",
@@ -876,6 +899,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             "attempt-review",
             None,
             vec![],
@@ -904,6 +928,7 @@ mod tests {
             Some("session-worker"),
             Some("nonce-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
+            None,
             None,
             None,
             None,
@@ -970,6 +995,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             "attempt-respawn",
             None,
             vec![],
@@ -1007,6 +1033,7 @@ mod tests {
             None,
             None,
             crate::plan::ExecutionIntent::ReadOnly,
+            None,
             None,
             None,
             None,
