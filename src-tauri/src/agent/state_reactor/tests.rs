@@ -224,6 +224,10 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         submit_available: Some(false),
         selected_values: Some(vec!["1".into()]),
     };
+    let generic_prompt = PendingPrompt {
+        question: "wrapped screen tail question".into(),
+        ..prompt.clone()
+    };
     let provider = MockProvider::with_directory_trust_response(
         "trust-fixture",
         codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
@@ -241,7 +245,8 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
             }),
         }),
     })
-    .with_parsed_prompt(prompt.clone());
+    .with_parsed_prompt(generic_prompt.clone())
+    .with_directory_trust_prompt(prompt.clone());
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "pty-live-trust-frame";
     mux.link_pty(&tab_id, pty_id.into());
@@ -273,6 +278,15 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .and_then(|tab| tab.pending_prompt.clone())
         .expect("the state reactor routes provider choices into tab prompt state");
     assert_eq!(pending, prompt);
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt_kind),
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+    );
 
     let tab_notifications = || {
         fixture
@@ -313,6 +327,21 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     );
     assert_eq!(
         notification
+            .actions
+            .as_ref()
+            .expect("choice actions are offered")
+            .iter()
+            .filter_map(|action| match action {
+                codeterm_types::notification::NotificationAction::RespondPromptOption {
+                    value, ..
+                } => Some(value.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        vec!["1", "2"]
+    );
+    assert_eq!(
+        notification
             .answer
             .as_ref()
             .and_then(|answer| answer.asked_from_tab.as_deref()),
@@ -321,25 +350,27 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
 
     react(&service, pty_id, TabStatus::Waiting);
     assert_eq!(tab_notifications().len(), 1);
-    fixture.service.apply_prompt_decision_with_screen(
+    let mut wrapped_prompt = prompt.clone();
+    wrapped_prompt.question = "wrapped screen tail question".into();
+    fixture.service.apply_prompt_decision_with_kind(
         &crate::agent::prompt::PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
-            prompt: prompt.clone(),
+            prompt: wrapped_prompt,
         },
         Some(&screen),
-        false,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
     assert_eq!(tab_notifications().len(), 1);
     let mut selected_prompt = prompt.clone();
     selected_prompt.selected_values = Some(vec!["2".into()]);
-    fixture.service.apply_prompt_decision_with_screen(
+    fixture.service.apply_prompt_decision_with_kind(
         &crate::agent::prompt::PromptDecision::PromptUpdated {
             tab_id: tab_id.clone(),
             prompt: selected_prompt,
         },
         Some(&screen),
-        false,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
     assert_eq!(tab_notifications().len(), 1);
@@ -354,6 +385,13 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .get_tab_mut(&tab_id)
         .expect("tab")
         .pending_prompt = None;
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .expect("tab")
+        .pending_prompt_kind = None;
     fixture.service.agent_registry.register_provider(Box::new(
         MockProvider::with_directory_trust_response(
             "trust-fixture",
@@ -372,7 +410,8 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
                 }),
             }),
         })
-        .with_parsed_prompt(next_prompt.clone()),
+        .with_parsed_prompt(generic_prompt)
+        .with_directory_trust_prompt(next_prompt.clone()),
     ));
     react(&service, pty_id, TabStatus::Waiting);
     let notifications = tab_notifications();
@@ -381,6 +420,235 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .body
         .as_deref()
         .is_some_and(|body| body.contains(&next_prompt.question))));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_output() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
+    );
+    let screen = std::fs::read_to_string(fixture_path)
+        .expect("captured Codex command approval frame");
+    let options = screen
+        .lines()
+        .filter_map(|line| {
+            let row = line
+                .trim()
+                .strip_prefix('›')
+                .unwrap_or(line.trim())
+                .trim_start();
+            let digits = row.chars().take_while(char::is_ascii_digit).count();
+            let value = row.get(..digits)?.parse::<usize>().ok()?;
+            let label = row
+                .get(digits..)?
+                .trim_start()
+                .strip_prefix('.')?
+                .trim_start();
+            (!label.is_empty()).then(|| PromptOption {
+                label: label.to_string(),
+                value: value.to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(options.len(), 3);
+    let prompt = PendingPrompt {
+        question: "captured command approval".into(),
+        options,
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::new("command-approval-fixture")
+        .with_tab_state(classification(
+            TabState::ClarifyingQuestion,
+            1.0,
+            Some(keys_action(&["enter"])),
+        ))
+        .with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-live-command-approval-frame";
+    mux.link_pty(&tab_id, pty_id.into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("command-approval-fixture".into());
+    tab.pty_id = Some(pty_id.into());
+    tab.auto_approve = false;
+    tab.permission_auto_confirm = false;
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, screen.as_bytes());
+    let service = std::sync::Arc::new(fixture.service.clone());
+
+    react(&service, pty_id, TabStatus::Waiting);
+
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.clone())
+        .expect("the reactor routes the three command choices into tab prompt state");
+    assert_eq!(
+        pending
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        vec!["1", "2", "3"]
+    );
+    let tab_notifications = || {
+        fixture
+            .service
+            .notif
+            .lock()
+            .list(false)
+            .into_iter()
+            .filter(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let notifications = tab_notifications();
+    assert_eq!(notifications.len(), 1);
+    assert_eq!(
+        notifications[0]
+            .actions
+            .as_ref()
+            .expect("pending command choices are answerable")
+            .iter()
+            .filter_map(|action| match action {
+                codeterm_types::notification::NotificationAction::RespondPromptOption {
+                    value, ..
+                } => Some(value.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        vec!["1", "2", "3"]
+    );
+
+    let mut output_prompt = prompt;
+    output_prompt.question = "wrapped command detail from output".into();
+    fixture.service.apply_prompt_decision_with_kind(
+        &crate::agent::prompt::PromptDecision::PromptUpdated {
+            tab_id: tab_id.clone(),
+            prompt: output_prompt,
+        },
+        Some(&screen),
+        codeterm_types::pty::PromptKind::Provider,
+        false,
+    );
+    assert_eq!(tab_notifications().len(), 1);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
+    );
+    let screen = std::fs::read_to_string(fixture_path)
+        .expect("captured Codex command approval frame");
+    let prompt = PendingPrompt {
+        question: "opaque command approval".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, proceed".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Yes, remember this".into(),
+                value: "2".into(),
+            },
+            PromptOption {
+                label: "No".into(),
+                value: "3".into(),
+            },
+        ],
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::new("command-approval-fixture")
+        .with_tab_state(classification(
+            TabState::ClarifyingQuestion,
+            1.0,
+            Some(keys_action(&["enter"])),
+        ))
+        .with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-command-approval-auto-approve";
+    mux.link_pty(&tab_id, pty_id.into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("command-approval-fixture".into());
+    tab.pty_id = Some(pty_id.into());
+    tab.agent_session_id = Some("authenticated-session".into());
+    tab.session_binding_nonce = Some("current-nonce".into());
+    tab.reported_session_binding_nonce = Some("current-nonce".into());
+    tab.auto_approve = true;
+    assert!(tab.launch_session_authenticated());
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, screen.as_bytes());
+    let service = std::sync::Arc::new(fixture.service.clone());
+
+    react(&service, pty_id, TabStatus::Waiting);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .is_none());
+
+    let decision = fixture
+        .service
+        .prompt_detector
+        .lock()
+        .evaluate_pty_output_parsed(
+            &tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt,
+                explicit: false,
+            }),
+        );
+    assert!(matches!(
+        &decision,
+        crate::agent::prompt::PromptDecision::NewPrompt { .. }
+    ));
+    fixture.service.apply_prompt_decision_with_kind(
+        &decision,
+        Some(&screen),
+        codeterm_types::pty::PromptKind::Provider,
+        false,
+    );
+
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .is_none());
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 }
 
 #[test]
