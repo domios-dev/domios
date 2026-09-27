@@ -25,6 +25,7 @@ import {
   opencodeSessionRecord,
   partToChatMsg,
   scanMessagesForModel,
+  scanMessagesForQualifiedModel,
   safeJson,
   OpencodePart,
   OpencodeConfig,
@@ -229,8 +230,15 @@ const plugin: PluginModule = {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
     const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = String(args[i]);
+      if (arg === "-m" || arg === "--model") {
+        parts.push(arg, host.shell.quoteFor(String(args[i + 1] || ""), platform));
+        i++;
+      } else {
+        parts.push(arg.startsWith("-") ? arg : host.shell.quoteFor(arg, platform));
+      }
     }
     const systemPrompt = p.systemPrompt;
     if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
@@ -501,5 +509,29 @@ const plugin: PluginModule = {
     return { messages: messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
+
+function resumeLaunchArgs(args: string[], sessionId: string): string[] {
+  const retained: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = String(args[i]);
+    if (arg === "--variant") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--variant=")) continue;
+    if (arg === "-m" || arg === "--model") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-m=") || arg.startsWith("--model=")) continue;
+    retained.push(arg);
+  }
+  const db = opencodeDbPath();
+  const model = db && host.fs.fileExists(db)
+    ? scanMessagesForQualifiedModel(db, sessionId)
+    : null;
+  if (model) retained.push("-m", model);
+  return retained;
+}
 
 export default plugin;

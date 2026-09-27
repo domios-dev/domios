@@ -356,6 +356,47 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
+console.log("\n--- restored TUI command keeps its session model and supported options ---\n");
+{
+  const dbPath = "C:\\Users\\tester\\opencode-profile\\restored.db";
+  const savedSession = "ses_saved";
+  const queries: Array<{ sql: string; params: unknown[] }> = [];
+  const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    envGet: (name: string) => name === "OPENCODE_DB" ? dbPath : null,
+    fs: {
+      fileExists: (candidate: string) => candidate === dbPath,
+      sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        if (sql.startsWith("SELECT data FROM message") && params[0] === savedSession) {
+          return [{ data: JSON.stringify({ role: "assistant", providerID: "opencode", modelID: "big-pickle" }) }];
+        }
+        return [];
+      },
+    },
+    shell: {
+      quoteFor: (value: unknown, platform?: unknown) => `Q(${platform}:${String(value)})`,
+      quote: (value: unknown) => `BAD(${String(value)})`,
+    },
+  }));
+  eq(
+    p.buildResumeCommandWithContext({
+      sessionId: savedSession,
+      args: ["-m", "big-pickle", "--variant", "high"],
+    }),
+    "opencode --session Q(windows:ses_saved) -m Q(windows:opencode/big-pickle)",
+    "resume uses the exact session's qualified model and omits the unsupported TUI variant flag",
+  );
+  eq(
+    queries,
+    [{
+      sql: "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      params: [savedSession],
+    }],
+    "resume model lookup is scoped to the tab's saved session id",
+  );
+}
+
 {
   const p = loadOpencodeWithHost(ocHost({
     platform: () => "windows",
