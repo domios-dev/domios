@@ -134,6 +134,7 @@ impl ChatSendLedger {
         self.try_start_scoped(tab_id, text, anchor, live_binding)
     }
 
+    #[cfg(test)]
     pub(crate) fn try_start_scoped(
         &self,
         tab_id: &str,
@@ -872,7 +873,7 @@ mod tests {
                 normalization,
             )
             .unwrap();
-        ledger.finish(&pending.send_id, Ok()).unwrap();
+        ledger.finish(&pending.send_id, Ok(())).unwrap();
 
         let confirmed = ledger
             .confirm_delivered_user_turn_scoped(
