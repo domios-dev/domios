@@ -139,6 +139,17 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
     assert_eq!(task.name, "unplanned: urgent probe");
     assert_eq!(task.body, "Run the urgent probe.");
     assert_eq!(task.acceptance_criteria, vec!["Run the urgent probe."]);
+    assert_eq!(task.correctness.as_deref(), Some("Run the urgent probe."));
+    assert_eq!(task.section_ids.len(), 1);
+    assert!(harness
+        .fixture
+        .service
+        .plan_store
+        .get(&harness.plan_id)
+        .is_some_and(|plan| plan
+            .sections
+            .iter()
+            .any(|section| section.id == task.section_ids[0])));
     assert!(task
         .test_plan
         .as_deref()
