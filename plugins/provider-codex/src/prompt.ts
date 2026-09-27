@@ -169,16 +169,22 @@ export function parseMenuOptions(screen: string): MenuOption[] {
     for (let j = i + 1; j < lines.length; j++) {
       if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
       if (leadingIndent(lines[j]) <= indent) break;
-      wrapped.push(lines[j].trim());
+      wrapped.push(lines[j]);
     }
     options.push({
       highlighted: !!m[1],
-      label: [m[3].trim(), ...wrapped].join(" "),
+      label: wrapped.reduce(joinWrappedLabel, m[3].trim()),
       value: m[2],
       line: i,
     });
   }
   return options;
+}
+
+function joinWrappedLabel(label: string, row: string): string {
+  const continuation = row.trim();
+  const pathBoundary = /[\\/]$/.test(label);
+  return `${label}${pathBoundary ? "" : " "}${continuation}`;
 }
 
 export function parseActiveTerminalChoice(screen: string): ActiveTerminalChoice | null {

@@ -358,7 +358,7 @@ fn peer_name_no_online_record_error(
 fn resolve_relay_peer(
     mesh: &crate::mesh::MeshManager,
     target: &str,
-) -> Result<(crate::mesh::transport::PeerClient, String), (StatusCode, String)> {
+) -> Result<(crate::mesh::transport::PeerClient, String, Option<String>), (StatusCode, String)> {
     let peer = crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, target)
         .map_err(|error| match error {
             crate::mesh::paired_resolve::ResolvePairedError::NotFound => {
@@ -379,10 +379,63 @@ fn resolve_relay_peer(
         ));
     }
     let name = peer.instance_name.clone();
+    let version = peer.version.clone();
     let client = mesh
         .client_for(&peer.instance_id)
         .ok_or_else(|| peer_unroutable_error(&name))?;
-    Ok((client, name))
+    Ok((client, name, version))
+}
+
+fn is_recurring_delayed_relay(method: &str, path: &str, body: &serde_json::Value) -> bool {
+    let bare = path.split('?').next().unwrap_or(path);
+    let is_create = method.eq_ignore_ascii_case("POST")
+        && bare.starts_with("/api/tabs/")
+        && bare.ends_with("/delayed-messages");
+    let is_edit =
+        method.eq_ignore_ascii_case("PATCH") && bare.starts_with("/api/delayed-messages/");
+    (is_create || is_edit)
+        && body
+            .get("recurrence")
+            .is_some_and(|recurrence| !recurrence.is_null())
+}
+
+fn recurrence_capability_refusal(peer_name: &str, version: Option<&str>) -> String {
+    format!(
+        "Peer '{}' (version {}) does not advertise delayed_recurrence; update the peer or send a one-shot explicitly",
+        peer_name,
+        version.filter(|version| !version.trim().is_empty()).unwrap_or("unknown")
+    )
+}
+
+fn identify_supports_delayed_recurrence(identify: &serde_json::Value) -> bool {
+    identify
+        .get("features")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|features| {
+            features
+                .iter()
+                .any(|feature| feature.as_str() == Some("delayed_recurrence"))
+        })
+}
+
+fn recurrence_capability_refusal_response(
+    peer_name: &str,
+    identify: Option<&serde_json::Value>,
+    cached_version: Option<&str>,
+) -> Option<crate::mesh::types::RelayResponse> {
+    if identify.is_some_and(identify_supports_delayed_recurrence) {
+        return None;
+    }
+    let version = identify
+        .and_then(|identify| identify.get("version"))
+        .and_then(serde_json::Value::as_str)
+        .or(cached_version);
+    Some(relay_failure(
+        StatusCode::UPGRADE_REQUIRED.as_u16(),
+        "peer_lacks_delayed_recurrence",
+        Some(false),
+        recurrence_capability_refusal(peer_name, version),
+    ))
 }
 
 /// Parse a successful relayed `agent spawn` into a remote-worker registration
@@ -435,10 +488,20 @@ pub async fn mesh_relay_to_peer(
     Json(req): Json<PeerRelayCommand>,
 ) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let (client, peer_name) = {
+    let (client, peer_name, peer_version) = {
         let mesh = state.mesh.lock();
         resolve_relay_peer(&mesh, &req.target_peer_id)?
     };
+    if is_recurring_delayed_relay(&req.method, &req.path, &req.body) {
+        let identify = client.auth_get_json("/api/identify").await.ok();
+        if let Some(refusal) = recurrence_capability_refusal_response(
+            &peer_name,
+            identify.as_ref(),
+            peer_version.as_deref(),
+        ) {
+            return Ok(Json(refusal));
+        }
+    }
     crate::api::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &req.body)
         .await
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
