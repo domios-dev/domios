@@ -4,32 +4,47 @@ use super::*;
 #[test]
 fn split_creates_children_with_parent_and_inherited_routing() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
-    let parent_id = fixture.service.plan_store.add_task(
-        &plan_id,
-        NewTask {
-            name: "Split parent".into(),
-            kind: "implement".into(),
-            model: Some("codex:gpt-6-sol".into()),
-            model_rationale: Some("precise edits".into()),
-            personality: Some("Nova".into()),
-            role_guidance: Some("Own the Rust layer.".into()),
-            executor_role: Some("rust-backend-dev".into()),
-            assigned_tab_id: Some("tab-parent-worker".into()),
-            lane: TaskLaneMetadata { tab_id: Some("tab-parent-worker".into()), ..Default::default() },
-            body: "Shared context".into(),
-            acceptance_criteria: vec!["works".into()],
-            test_plan: Some("focused test".into()),
-            correctness: Some("preserve isolation".into()),
-            ..Default::default()
-        },
-        5,
-    ).unwrap();
-    fixture.service.plan_store.with_plan(&plan_id, 6, |plan| {
-        let parent = plan.tasks.iter_mut().find(|task| task.id == parent_id).unwrap();
-        parent.status = TaskStatus::InProgress;
-        parent.status_changed_at = 6;
-        Ok(())
-    }).unwrap();
+    let parent_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Split parent".into(),
+                kind: "implement".into(),
+                model: Some("codex:gpt-6-sol".into()),
+                model_rationale: Some("precise edits".into()),
+                personality: Some("Nova".into()),
+                role_guidance: Some("Own the Rust layer.".into()),
+                executor_role: Some("rust-backend-dev".into()),
+                assigned_tab_id: Some("tab-parent-worker".into()),
+                lane: TaskLaneMetadata {
+                    tab_id: Some("tab-parent-worker".into()),
+                    ..Default::default()
+                },
+                body: "Shared context".into(),
+                acceptance_criteria: vec!["works".into()],
+                test_plan: Some("focused test".into()),
+                correctness: Some("preserve isolation".into()),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .with_plan(&plan_id, 6, |plan| {
+            let parent = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == parent_id)
+                .unwrap();
+            parent.status = TaskStatus::InProgress;
+            parent.status_changed_at = 6;
+            Ok(())
+        })
+        .unwrap();
     let service = Arc::new(fixture.service.clone());
     let mut params = serde_json::Value::Object(owner_params(&owner));
     params["plan_id"] = json!(plan_id.clone());
@@ -45,7 +60,8 @@ fn split_creates_children_with_parent_and_inherited_routing() {
         &fixture.service.app_handle,
         &service,
         10,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(response["parent_task_id"], parent_id);
     let children = response["children"].as_array().unwrap();
     assert_eq!(children.len(), 2);
@@ -79,15 +95,50 @@ fn split_creates_children_with_parent_and_inherited_routing() {
 #[test]
 fn split_invalid_second_child_is_atomic() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
-    let parent_id = fixture.service.plan_store.add_task(&plan_id, NewTask { name: "Parent".into(), executor_role: Some("rust-backend-dev".into()), ..Default::default() }, 5).unwrap();
-    let before = fixture.service.plan_store.get(&plan_id).unwrap().tasks.len();
+    let parent_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Parent".into(),
+                executor_role: Some("rust-backend-dev".into()),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    let before = fixture
+        .service
+        .plan_store
+        .get(&plan_id)
+        .unwrap()
+        .tasks
+        .len();
     let service = Arc::new(fixture.service.clone());
     let mut params = serde_json::Value::Object(owner_params(&owner));
     params["plan_id"] = json!(plan_id.clone());
     params["task_id"] = json!(parent_id);
-    params["children"] = json!([{"name":"Valid"}, {"name":"Invalid", "sections":"missing-section"}]);
-    assert!(dispatch("plan.task.split", &Some(params), &fixture.service.app_handle, &service, 10).is_err());
-    assert_eq!(fixture.service.plan_store.get(&plan_id).unwrap().tasks.len(), before);
+    params["children"] =
+        json!([{"name":"Valid"}, {"name":"Invalid", "sections":"missing-section"}]);
+    assert!(dispatch(
+        "plan.task.split",
+        &Some(params),
+        &fixture.service.app_handle,
+        &service,
+        10
+    )
+    .is_err());
+    assert_eq!(
+        fixture
+            .service
+            .plan_store
+            .get(&plan_id)
+            .unwrap()
+            .tasks
+            .len(),
+        before
+    );
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -95,22 +146,61 @@ fn split_invalid_second_child_is_atomic() {
 fn split_rejects_terminal_and_child_parents() {
     for status in [Some(TaskStatus::Done), Some(TaskStatus::Cancelled), None] {
         let (fixture, plan_id, _, _, _, owner) = update_fixture();
-        let parent_id = fixture.service.plan_store.add_task(&plan_id, NewTask { name: "Parent".into(), executor_role: Some("rust-backend-dev".into()), ..Default::default() }, 5).unwrap();
+        let parent_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan_id,
+                NewTask {
+                    name: "Parent".into(),
+                    executor_role: Some("rust-backend-dev".into()),
+                    ..Default::default()
+                },
+                5,
+            )
+            .unwrap();
         let target_id = if let Some(status) = status {
-            fixture.service.plan_store.with_plan(&plan_id, 6, |plan| {
-                plan.tasks.iter_mut().find(|task| task.id == parent_id).unwrap().status = status;
-                Ok(())
-            }).unwrap();
+            fixture
+                .service
+                .plan_store
+                .with_plan(&plan_id, 6, |plan| {
+                    plan.tasks
+                        .iter_mut()
+                        .find(|task| task.id == parent_id)
+                        .unwrap()
+                        .status = status;
+                    Ok(())
+                })
+                .unwrap();
             parent_id
         } else {
-            fixture.service.plan_store.add_task(&plan_id, NewTask { name: "Child".into(), parent_task_id: Some(parent_id), ..Default::default() }, 6).unwrap()
+            fixture
+                .service
+                .plan_store
+                .add_task(
+                    &plan_id,
+                    NewTask {
+                        name: "Child".into(),
+                        parent_task_id: Some(parent_id),
+                        ..Default::default()
+                    },
+                    6,
+                )
+                .unwrap()
         };
         let service = Arc::new(fixture.service.clone());
         let mut params = serde_json::Value::Object(owner_params(&owner));
         params["plan_id"] = json!(plan_id);
         params["task_id"] = json!(target_id);
         params["children"] = json!([{"name":"Nested"}]);
-        assert!(dispatch("plan.task.split", &Some(params), &fixture.service.app_handle, &service, 10).is_err());
+        assert!(dispatch(
+            "plan.task.split",
+            &Some(params),
+            &fixture.service.app_handle,
+            &service,
+            10
+        )
+        .is_err());
     }
 }
 
@@ -118,16 +208,65 @@ fn split_rejects_terminal_and_child_parents() {
 #[test]
 fn draft_split_children_remain_locked_until_plan_approval() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
-    let parent_id = fixture.service.plan_store.add_task(&plan_id, NewTask { name: "Parent".into(), executor_role: Some("rust-backend-dev".into()), ..Default::default() }, 5).unwrap();
+    let parent_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Parent".into(),
+                executor_role: Some("rust-backend-dev".into()),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
     let service = Arc::new(fixture.service.clone());
     let mut params = serde_json::Value::Object(owner_params(&owner));
     params["plan_id"] = json!(plan_id.clone());
     params["task_id"] = json!(parent_id);
     params["children"] = json!([{"name":"Child"}]);
-    let response = dispatch("plan.task.split", &Some(params), &fixture.service.app_handle, &service, 10).unwrap();
+    let response = dispatch(
+        "plan.task.split",
+        &Some(params),
+        &fixture.service.app_handle,
+        &service,
+        10,
+    )
+    .unwrap();
     let child_id = response["children"][0]["task_id"].as_str().unwrap();
-    let lane = TaskLaneMetadata { tab_id: Some("child-worker".into()), ..Default::default() };
-    assert!(fixture.service.plan_store.begin_task_dispatch(&plan_id, child_id, "child-worker", "Nova", lane.clone(), 11).is_err());
-    fixture.service.plan_store.set_mode(&plan_id, crate::plan::PlanMode::Approved, 12).unwrap();
-    assert!(fixture.service.plan_store.begin_task_dispatch(&plan_id, child_id, "child-worker", "Nova", lane, 13).is_ok());
+    let caller = crate::service::AuthenticatedPlanCaller {
+        tab_id: Some(owner),
+        session_id: Some("owner-session".into()),
+        binding_nonce: Some("owner-nonce".into()),
+    };
+    assert!(fixture
+        .service
+        .authorize_execution_action(&plan_id, &caller)
+        .is_err());
+    fixture
+        .service
+        .plan_store
+        .set_planning_state(
+            &plan_id,
+            crate::plan::PlanningState::Approved,
+            crate::plan::PlanningAuthor::User,
+            Some("approve split children"),
+            12,
+        )
+        .unwrap();
+    assert!(fixture
+        .service
+        .authorize_execution_action(&plan_id, &caller)
+        .is_ok());
+    assert_eq!(
+        fixture
+            .service
+            .plan_store
+            .show_task(child_id)
+            .unwrap()
+            .task
+            .status,
+        TaskStatus::Pending
+    );
 }

@@ -1,8 +1,8 @@
 use super::*;
-use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskLaneMetadata, TaskStatus};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanningState, TaskLaneMetadata, TaskStatus};
 use tempfile::TempDir;
 
-fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, String, String) {
+fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, String, String, String) {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let mut plan = Plan::new(
@@ -11,29 +11,46 @@ fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, Strin
         OrchestratorRef::from_tab("owner"),
     );
     plan.mode = PlanMode::Approved;
+    plan.planning_state = PlanningState::Approved;
     store.save(&mut plan, 1).unwrap();
     let parent_id = store
         .add_task(
             &plan.id,
             NewTask {
                 name: "Parent".into(),
-                assigned_tab_id: Some("parent-worker".into()),
-                lane: TaskLaneMetadata {
-                    tab_id: Some("parent-worker".into()),
-                    ..Default::default()
-                },
                 ..Default::default()
             },
             2,
         )
         .unwrap();
+    let parent_lane = TaskLaneMetadata {
+        tab_id: Some("parent-worker".into()),
+        worktree_path: Some("parent-lane".into()),
+        branch: Some("parent-branch".into()),
+        base: Some("canonical-base".into()),
+        ..Default::default()
+    };
+    let parent_attempt_id = store
+        .begin_task_dispatch(
+            &plan.id,
+            &parent_id,
+            "parent-worker",
+            "Nova",
+            parent_lane.clone(),
+            3,
+        )
+        .unwrap();
     store
-        .with_plan(&plan.id, 3, |plan| {
-            let parent = plan.tasks.iter_mut().find(|task| task.id == parent_id).unwrap();
-            parent.status = TaskStatus::InProgress;
-            parent.status_changed_at = 3;
-            Ok(())
-        })
+        .finish_task_dispatch(
+            &plan.id,
+            &parent_id,
+            "parent-worker",
+            &parent_attempt_id,
+            "parent-session",
+            "parent-nonce",
+            parent_lane,
+            4,
+        )
         .unwrap();
     let child_id = store
         .add_child_tasks_atomic(
@@ -43,10 +60,11 @@ fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, Strin
                 name: "Child".into(),
                 ..Default::default()
             }],
-            4,
+            5,
         )
-        .unwrap().remove(0);
-    (root, store, plan.id, parent_id, child_id)
+        .unwrap()
+        .remove(0);
+    (root, store, plan.id, parent_id, child_id, parent_attempt_id)
 }
 
 fn dispatch_child(store: &PlanStore, plan_id: &str, child_id: &str) {
@@ -76,7 +94,8 @@ fn dispatch_child(store: &PlanStore, plan_id: &str, child_id: &str) {
 
 #[test]
 fn child_of_in_progress_task_dispatches_into_its_own_lane() {
-    let (_root, store, plan_id, parent_id, child_id) = approved_plan_with_in_progress_parent();
+    let (_root, store, plan_id, parent_id, child_id, parent_attempt_id) =
+        approved_plan_with_in_progress_parent();
     let parent_before = store.show_task(&parent_id).unwrap().task;
 
     dispatch_child(&store, &plan_id, &child_id);
@@ -86,6 +105,14 @@ fn child_of_in_progress_task_dispatches_into_its_own_lane() {
     assert_eq!(parent_after.status, TaskStatus::InProgress);
     assert_eq!(parent_after.assigned_tab_id, parent_before.assigned_tab_id);
     assert_eq!(parent_after.lane, parent_before.lane);
+    assert_eq!(
+        parent_after.execution_attempts,
+        parent_before.execution_attempts
+    );
+    assert!(parent_after
+        .execution_attempts
+        .iter()
+        .any(|attempt| attempt.id == parent_attempt_id));
     assert_eq!(child.parent_task_id.as_deref(), Some(parent_id.as_str()));
     assert_eq!(child.status, TaskStatus::InProgress);
     assert_eq!(child.lane.tab_id.as_deref(), Some("child-worker"));
@@ -94,12 +121,20 @@ fn child_of_in_progress_task_dispatches_into_its_own_lane() {
 
 #[test]
 fn children_of_approved_task_are_dispatchable_without_replan() {
-    let (_root, store, plan_id, _, child_id) = approved_plan_with_in_progress_parent();
-    assert_eq!(store.get(&plan_id).unwrap().mode, PlanMode::Approved);
+    let (_root, store, plan_id, _, child_id, _) = approved_plan_with_in_progress_parent();
+    assert_eq!(store.get(&plan_id).unwrap().mode, PlanMode::Execution);
+    assert_eq!(
+        store.get(&plan_id).unwrap().planning_state,
+        PlanningState::Approved
+    );
 
     dispatch_child(&store, &plan_id, &child_id);
 
     let plan = store.get(&plan_id).unwrap();
-    assert_eq!(plan.mode, PlanMode::Approved);
-    assert_eq!(store.show_task(&child_id).unwrap().task.status, TaskStatus::InProgress);
+    assert_eq!(plan.mode, PlanMode::Execution);
+    assert_eq!(plan.planning_state, PlanningState::Approved);
+    assert_eq!(
+        store.show_task(&child_id).unwrap().task.status,
+        TaskStatus::InProgress
+    );
 }
