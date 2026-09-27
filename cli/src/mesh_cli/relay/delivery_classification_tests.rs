@@ -219,3 +219,32 @@ fn a_json_http_refusal_is_not_misread_as_null_success() {
 
     assert!(failure.reason.contains("peer unavailable"));
 }
+
+#[test]
+fn mesh_send_every_refuses_peer_without_recurrence_capability() {
+    let refusal = serde_json::json!({
+        "ok": false,
+        "status": 426,
+        "error": "peer_lacks_delayed_recurrence: Peer 'old-peer' (version 1.11.9) does not advertise delayed_recurrence; update the peer or send a one-shot explicitly",
+        "data": {
+            "ok": false,
+            "error": {
+                "code": "peer_lacks_delayed_recurrence",
+                "message": "Peer 'old-peer' (version 1.11.9) does not advertise delayed_recurrence; update the peer or send a one-shot explicitly",
+                "bytes_written": false
+            }
+        }
+    });
+    let failure = classify_relay_response(
+        "old-peer",
+        ("POST", "/api/tabs/tab-1/delayed-messages"),
+        reqwest::StatusCode::OK,
+        refusal.to_string().as_bytes(),
+    )
+    .expect_err("capability refusal must fail the CLI request");
+
+    assert!(failure.reason.contains("old-peer"));
+    assert!(failure.reason.contains("1.11.9"));
+    assert!(!failure.bytes_written.unwrap_or(true));
+    assert_eq!(failure.retry_hint, "update the peer or send a one-shot explicitly");
+}
