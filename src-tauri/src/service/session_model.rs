@@ -261,6 +261,17 @@ impl ServiceContext {
             provider_resolved_model.as_deref(),
             current_fallback.clone(),
             &model,
+            requested_model.as_deref().is_none_or(|requested| {
+                models_match(requested, &model)
+                    || crate::service::spawn::normalize_session_model(requested)
+                        .eq_ignore_ascii_case(&model)
+                    || crate::service::spawn::catalogue_models_match(
+                        &self.agent_registry,
+                        &agent_id,
+                        requested,
+                        &model,
+                    )
+            }),
         );
         let mismatch_changed = identity_update.mismatch != current_mismatch;
         let fallback_changed = identity_update.fallback != current_fallback;
@@ -502,6 +513,7 @@ fn model_identity_update(
     provider_resolved_model: Option<&str>,
     current_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
     actual_model: &str,
+    requested_matches_actual: bool,
 ) -> ModelIdentityUpdate {
     let actual = actual_model.trim().to_string();
     let planned = planned_model
@@ -514,14 +526,12 @@ fn model_identity_update(
         .map(str::trim)
         .filter(|requested| !requested.is_empty())
         .and_then(|requested| {
-            (!models_match(requested, &actual)).then(|| {
-                crate::multiplexer::types::ModelIdentityMismatch {
-                    planned_model: planned.map(str::to_string),
-                    requested_model: requested.to_string(),
-                    provider_resolved_model: provider_resolved.map(str::to_string),
-                    actual_model: actual.clone(),
-                    reason: "runtime_session_model_mismatch".to_string(),
-                }
+            (!requested_matches_actual).then(|| crate::multiplexer::types::ModelIdentityMismatch {
+                planned_model: planned.map(str::to_string),
+                requested_model: requested.to_string(),
+                provider_resolved_model: provider_resolved.map(str::to_string),
+                actual_model: actual.clone(),
+                reason: "runtime_session_model_mismatch".to_string(),
             })
         });
     let fallback = current_fallback
