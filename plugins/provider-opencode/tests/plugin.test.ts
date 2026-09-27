@@ -392,7 +392,7 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
       sessionId: savedSession,
       args: ["-m", "big-pickle", "--variant", "high"],
     }),
-    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) -m Q(windows:opencode/big-pickle)",
+    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) --variant Q(windows:high) -m Q(windows:opencode/big-pickle)",
     "resume selects the saved project and exact session in the full TUI",
   );
   eq(
