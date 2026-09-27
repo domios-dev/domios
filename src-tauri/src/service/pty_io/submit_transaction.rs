@@ -797,7 +797,7 @@ pub(crate) fn submit_text_with_key_claimed(
     let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
     let (initial_tab_id, initial_agent_id) = {
         let mux = svc.mux.read();
-        let tab_id = mux.tab_id_for_pty(pty_id).cloned();
+        let tab_id = mux.tab_id_for_pty(pty_id);
         let agent_id = tab_id
             .as_deref()
             .and_then(|tab_id| mux.get_tab(tab_id))

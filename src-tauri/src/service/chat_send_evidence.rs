@@ -60,6 +60,7 @@ fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> V
     }
 }
 
+#[cfg(test)]
 pub(crate) fn contains_exact_user_turn(
     registry: &AgentRegistry,
     anchor: &SendEvidenceAnchor,
