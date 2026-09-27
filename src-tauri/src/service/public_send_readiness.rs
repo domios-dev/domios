@@ -17,6 +17,7 @@ struct LaunchSendGate {
     attempt: Option<LaunchAttempt>,
     expected_turn: String,
     wait_for_turn_completion: bool,
+    turn_observed: bool,
     anchor: Option<SendEvidenceAnchor>,
     bound_session: Option<String>,
     watcher: Option<RecommendedWatcher>,
@@ -113,6 +114,7 @@ impl ReadinessRegistry {
                     attempt: None,
                     expected_turn,
                     wait_for_turn_completion,
+                    turn_observed: false,
                     anchor,
                     bound_session: None,
                     watcher: None,
@@ -332,6 +334,7 @@ impl ReadinessRegistry {
         if gate.key != key {
             return;
         }
+        gate.turn_observed = true;
         let confirm = !gate.wait_for_turn_completion;
         state.generation = state.generation.wrapping_add(1);
         self.changed.notify_all();
@@ -352,6 +355,7 @@ impl ReadinessRegistry {
         let eligible = self.state.lock().gates.get(tab_id).is_some_and(|gate| {
             gate.key == key
                 && gate.wait_for_turn_completion
+                && gate.turn_observed
                 && gate.bound_session.as_deref() == Some(session_id)
                 && gate
                     .attempt
@@ -687,7 +691,7 @@ pub(crate) fn observe_session_binding(
         &expected_turn,
         &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
     ) {
-        READINESS.confirm(&svc.mux, tab_id, &session_id, &nonce, gate_key);
+        READINESS.observe_turn(&svc.mux, tab_id, &session_id, &nonce, gate_key);
     }
 }
 
@@ -733,27 +737,35 @@ pub(crate) fn observe_bootstrap_turn_idle(
     let Some((expected, key)) = READINESS.expected_text(tab_id, &nonce, event_session_id) else {
         return;
     };
-    let anchor = READINESS
+    let (anchor, already_observed) = READINESS
         .state
         .lock()
         .gates
         .get(tab_id)
         .filter(|gate| gate.key == key)
-        .and_then(|gate| gate.anchor.clone());
-    let Some(anchor) = anchor.filter(|anchor| {
-        anchor.session_id == event_session_id
-            && anchor.provider_id == provider_id
-            && anchor.cwd == cwd
-    }) else {
-        return;
-    };
-    let found = crate::service::chat_send_evidence::contains_exact_user_turn_since(
-        &svc.agent_registry,
-        &anchor,
-        &expected,
-        &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
-    );
-    if found {
+        .map(|gate| (gate.anchor.clone(), gate.turn_observed))
+        .unwrap_or_default();
+    let exact_turn_observed = already_observed
+        || anchor
+            .filter(|anchor| {
+                anchor.session_id == event_session_id
+                    && anchor.provider_id == provider_id
+                    && anchor.cwd == cwd
+            })
+            .is_some_and(|anchor| {
+                crate::service::chat_send_evidence::contains_exact_user_turn_since(
+                    &svc.agent_registry,
+                    &anchor,
+                    &expected,
+                    &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(
+                        &anchor,
+                    )),
+                )
+            });
+    if exact_turn_observed {
+        if !already_observed {
+            READINESS.observe_turn(&svc.mux, tab_id, event_session_id, &nonce, key);
+        }
         READINESS.complete_turn(&svc.mux, tab_id, event_session_id, &nonce, key);
     }
 }
