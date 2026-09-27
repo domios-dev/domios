@@ -706,8 +706,10 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
 fn compaction_preserves_latest_verified_session_per_tab() {
     let (journal, _dir) = new_journal();
     let original = key("tab-a", 1, "op-a");
-    commit_full_launch(&journal, &original, "session-a");
-    let restored = key("tab-a", 2, "op-b");
+    commit_full_launch(&journal, &original, "session-old");
+    let latest = key("tab-a", 2, "op-b");
+    commit_full_launch(&journal, &latest, "session-a");
+    let restored = key("tab-a", 3, "op-c");
     journal
         .append(restored.clone(), LifecycleTransition::EpochOpened)
         .unwrap();
@@ -735,6 +737,7 @@ fn compaction_preserves_latest_verified_session_per_tab() {
         record,
         JournalRecord::Checkpoint { checkpoint }
             if checkpoint.authority.session_id == "session-a"
+                || checkpoint.authority.session_id == "session-old"
     )));
     assert!(compacted.iter().any(|record| matches!(
         record,
@@ -745,6 +748,15 @@ fn compaction_preserves_latest_verified_session_per_tab() {
                     LifecycleTransition::SessionBound { session_id, binding_nonce, .. }
                         if session_id == "session-a" && binding_nonce == "nonce-a"
                 )
+    )));
+    assert!(!compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Transition { entry }
+            if matches!(
+                &entry.transition,
+                LifecycleTransition::SessionBound { session_id, .. }
+                    if session_id == "session-old"
+            )
     )));
 }
 
