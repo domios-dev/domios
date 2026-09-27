@@ -39,6 +39,7 @@ pub(crate) fn normalize_optional_tab_description(
 
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
 mod rename_guard;
 mod scrollback;
 
@@ -160,11 +161,8 @@ impl ServiceContext {
         false
     }
 
-    /// Close a tab on behalf of `caller_tab_id`. Refuses a coordinator closing
-    /// its OWN tab; Workers self-close on report+exit and closing any other
-    /// tab is unaffected. Fail-safe: an absent caller against a coordinator
-    /// target is refused (we cannot prove it is not the target closing itself),
-    /// while non-coordinator targets close normally.
+    /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close
+    /// and requires caller attribution before closing a coordinator Tab.
     pub fn close_tab_guarded(
         &self,
         caller_tab_id: Option<&str>,
@@ -178,17 +176,24 @@ impl ServiceContext {
             let caller = caller_tab_id.and_then(|c| mux.resolve_tab_id(c));
             (target, caller)
         };
-        // Absent (or unresolvable) caller is treated as self — fail-safe.
-        let is_self = canon_caller
-            .as_deref()
-            .map(|c| c == canon_target.as_str())
-            .unwrap_or(true);
-        if is_self && self.is_self_close_protected(&canon_target) {
-            return Err(format!(
-                "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own Tab \
-                 ({canon_target}) — have your parent or another Tab close it, or move first. \
-                 Workers self-close on report+exit."
-            ));
+        if self.is_self_close_protected(&canon_target) {
+            match canon_caller.as_deref() {
+                Some(caller) if caller == canon_target => {
+                    return Err(format!(
+                        "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own Tab \
+                         ({canon_target}) — have your parent or another Tab close it, or move first. \
+                         Workers self-close on report+exit."
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "{UNATTRIBUTED_CLOSE_REFUSAL_PREFIX}: caller attribution is required to \
+                         close coordinator Tab ({canon_target}); close it through its Team or \
+                         provide an attributed caller Tab."
+                    ));
+                }
+                Some(_) => {}
+            }
         }
         self.close_tab(target_tab_id)
     }
@@ -1049,6 +1054,28 @@ pub(crate) fn focus_tab_hot_path(
 #[cfg(test)]
 mod self_close_tests {
     use super::*;
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn unattributed_close_of_coordinator_reports_missing_attribution() {
+        let (mut mux, coordinator) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&coordinator).expect("initial Tab");
+        tab.role = Some(AgentRole::Manager);
+        tab.role_profile = Some("orchestrator".into());
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+        let error = fixture
+            .service
+            .close_tab_guarded(None, &coordinator)
+            .expect_err("an unattributed close of a coordinator must be refused");
+
+        assert!(error.starts_with(UNATTRIBUTED_CLOSE_REFUSAL_PREFIX));
+        assert!(!error.starts_with(SELF_CLOSE_REFUSAL_PREFIX));
+        assert!(fixture.service.mux.read().get_tab(&coordinator).is_some());
+    }
 
     #[test]
     fn orchestrator_is_coordinator() {
