@@ -610,6 +610,64 @@ fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
     assert!(fixture.service.plan_store.list_index().is_empty());
 }
 
+// WHAT: an Orchestrator launch failure preserves the caller's claimed picker Tab.
+// WHY: the pair rollback owns restoring the pre-claim state after spawn returns an error.
+// ORACLE: the claimed Tab is unchanged and the pair-created Planner Tab, Team, and Plan are gone.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let picker_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let picker_before = mux.get_tab(&picker_tab_id).unwrap().clone();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command(
+            "pair-empty-orchestrator-claimed",
+        ),
+    ));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("pair-valid-planner-claimed"),
+    ));
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(
+            fixture
+                .service
+                .create_orchestration_pair(OrchestrationPairParams {
+                    orchestrator_agent: "pair-empty-orchestrator-claimed".into(),
+                    planner_agent: "pair-valid-planner-claimed".into(),
+                    workspace_id: Some(workspace_id),
+                    existing_tab_id: Some(picker_tab_id.clone()),
+                    ..Default::default()
+                }),
+        )
+        .expect_err("the Orchestrator provider passes preflight but fails at launch");
+
+    assert!(error.contains("Failed to spawn Orchestrator"), "{error}");
+    assert!(
+        error.contains("did not resolve a launch command"),
+        "{error}"
+    );
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.snapshot().tabs.len(), tabs_before);
+    assert_eq!(mux.team_count(), teams_before);
+    let restored = mux
+        .get_tab(&picker_tab_id)
+        .expect("the caller's claimed picker Tab must remain");
+    assert_eq!(
+        serde_json::to_value(restored).unwrap(),
+        serde_json::to_value(&picker_before).unwrap()
+    );
+    assert!(fixture.service.plan_store.list_index().is_empty());
+}
+
 // WHAT: Planner launch failure restores a claimed picker Tab and removes the created Planner Tab.
 // WHY: rollback owns the new pair member but must preserve a Tab supplied by the user.
 // ORACLE: the original Tab remains blank and no pair-created Tab or Team remains.

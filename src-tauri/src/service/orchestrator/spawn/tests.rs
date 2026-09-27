@@ -130,6 +130,8 @@ fn task_specific_empty_provider_command_is_refused_before_task_binding_and_clean
         error.contains("did not resolve a launch command"),
         "{error}"
     );
+    assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
+    fixture.service.rollback_failed_agent_spawn(&tab_id, &error);
     let mux = fixture.service.mux.read();
     assert!(mux.get_tab(&tab_id).is_none());
     assert_eq!(mux.all_tabs().count(), 1);
@@ -375,6 +377,8 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     )
     .unwrap_err();
     assert!(error.contains("SessionState not registered"), "{error}");
+    assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
+    fixture.service.rollback_failed_agent_spawn(&tab_id, &error);
     let mux = fixture.service.mux.read();
     assert!(mux.get_tab(&tab_id).is_none());
     assert_eq!(mux.all_tabs().count(), 1);
