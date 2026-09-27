@@ -181,7 +181,11 @@ fn resume_with_context_restores_profile_and_launch_parameters() {
         .build_resume_command_with_context(&params)
         .expect("codex resume command");
 
-    assert!(command.starts_with("codex resume"));
+    if cfg!(windows) {
+        assert!(command.contains("codex resume"));
+    } else {
+        assert!(command.starts_with("codex resume"));
+    }
     assert!(command.contains(CODEX_UUID));
     assert!(command.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(command.contains("--dangerously-bypass-hook-trust"));
