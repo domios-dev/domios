@@ -525,16 +525,21 @@ function parseMenuOptions(screen) {
     for (let j = i + 1; j < lines.length; j++) {
       if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
       if (leadingIndent(lines[j]) <= indent) break;
-      wrapped.push(lines[j].trim());
+      wrapped.push(lines[j]);
     }
     options.push({
       highlighted: !!m[1],
-      label: [m[3].trim(), ...wrapped].join(" "),
+      label: wrapped.reduce(joinWrappedLabel, m[3].trim()),
       value: m[2],
       line: i
     });
   }
   return options;
+}
+function joinWrappedLabel(label, row2) {
+  const continuation = row2.trim();
+  const pathBoundary = /[\\/]$/.test(label);
+  return `${label}${pathBoundary ? "" : " "}${continuation}`;
 }
 function parseActiveTerminalChoice(screen) {
   const lines = normalizeLines(screen);
@@ -3347,8 +3352,7 @@ var plugin = {
   },
   buildLaunchCommand(params) {
     const p = params || {};
-    const parts = [];
-    parts.push("codex");
+    const parts = ["codex", "-c", "check_for_update_on_startup=false"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -3384,7 +3388,7 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["codex", "resume"];
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -3396,7 +3400,7 @@ var plugin = {
   buildResumeCommandWithContext(params) {
     const p = params || {};
     const platform = host.platform();
-    const parts = ["codex", "resume"];
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -3757,6 +3761,12 @@ var plugin = {
   },
   classifyTabState(snapshot) {
     return classifyCodexTabState(snapshot, host.unixNowMs());
+  },
+  classifiedPromptAutoResponse(state, screen) {
+    if (state !== "update_prompt") return null;
+    const options = parseMenuOptions(screen);
+    if (!options.some((option) => /\bupdate\b/i.test(option.label))) return null;
+    return options.filter((option) => option.label === "Skip").length === 1 ? "skip" : null;
   }
 };
 var commandPairingSessions = /* @__PURE__ */ new Map();

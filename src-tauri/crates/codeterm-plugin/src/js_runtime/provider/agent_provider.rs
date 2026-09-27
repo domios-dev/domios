@@ -97,6 +97,10 @@ impl AgentProvider for JsProvider {
         (&self.manifest.spawn.provider_readiness).into()
     }
 
+    fn composer_cursor_position(&self) -> crate::provider::ComposerCursorPosition {
+        self.manifest.spawn.composer_cursor_position
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         self.manifest.spawn.session_starts_on_first_user_turn
             || self
@@ -699,6 +703,30 @@ impl AgentProvider for JsProvider {
 
     fn supports_permission_auto_confirm(&self) -> bool {
         self.has_js("permissionPromptResponse")
+    }
+
+    fn supports_classified_prompt_auto_response(&self) -> bool {
+        self.has_js("classifiedPromptAutoResponse")
+            || self
+                .native()
+                .is_some_and(|native| native.supports_classified_prompt_auto_response())
+    }
+
+    fn classified_prompt_auto_response(
+        &self,
+        state: crate::tab_state::TabState,
+        screen: &str,
+    ) -> Option<crate::provider::ClassifiedPromptOptionRole> {
+        if self.has_js("classifiedPromptAutoResponse") {
+            self.try_call::<Option<crate::provider::ClassifiedPromptOptionRole>>(
+                "classifiedPromptAutoResponse",
+                &[json!(state), json!(screen)],
+            )
+            .flatten()
+        } else {
+            self.native()
+                .and_then(|native| native.classified_prompt_auto_response(state, screen))
+        }
     }
 
     fn supports_structured_prompts(&self) -> bool {

@@ -25,6 +25,7 @@ pub struct MockProvider {
     status_bar_rows: u16,
     update_command: Option<String>,
     directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
+    classified_prompt_auto_response: Option<codeterm_plugin::provider::ClassifiedPromptOptionRole>,
     tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
     parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
     parsed_directory_trust_prompt: Option<codeterm_types::pty::PendingPrompt>,
@@ -55,6 +56,7 @@ impl MockProvider {
             status_bar_rows: 0,
             update_command: None,
             directory_trust_response: None,
+            classified_prompt_auto_response: None,
             tab_state_classification: None,
             parsed_prompt: None,
             parsed_directory_trust_prompt: None,
@@ -221,6 +223,14 @@ impl MockProvider {
 
     pub fn with_parsed_prompt(mut self, prompt: codeterm_types::pty::PendingPrompt) -> Self {
         self.parsed_prompt = Some(prompt);
+        self
+    }
+
+    pub fn with_classified_prompt_auto_response(
+        mut self,
+        role: codeterm_plugin::provider::ClassifiedPromptOptionRole,
+    ) -> Self {
+        self.classified_prompt_auto_response = Some(role);
         self
     }
 
@@ -416,6 +426,18 @@ impl AgentProvider for MockProvider {
         _snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
     ) -> Option<codeterm_plugin::tab_state::TabStateClassification> {
         self.tab_state_classification.clone()
+    }
+    fn supports_classified_prompt_auto_response(&self) -> bool {
+        self.classified_prompt_auto_response.is_some()
+    }
+    fn classified_prompt_auto_response(
+        &self,
+        state: codeterm_plugin::tab_state::TabState,
+        _screen: &str,
+    ) -> Option<codeterm_plugin::provider::ClassifiedPromptOptionRole> {
+        (state == codeterm_plugin::tab_state::TabState::UpdatePrompt)
+            .then_some(self.classified_prompt_auto_response)
+            .flatten()
     }
     fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
         self.parsed_prompt.clone()
