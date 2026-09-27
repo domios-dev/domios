@@ -8,6 +8,8 @@ use super::opencode_sse::{
 use super::*;
 use crate::multiplexer::types::PendingPrompt;
 use serde_json::Value;
+use std::io::Write;
+use std::net::TcpListener;
 
 fn dummy_prompt(q: &str) -> PendingPrompt {
     PendingPrompt {
@@ -57,6 +59,105 @@ fn allocate_server_returns_loopback_port() {
 #[test]
 fn pending_for_unknown_tab_is_none() {
     assert!(pending_for_tab("test-tab-sp-never-registered").is_none());
+}
+
+#[test]
+fn structured_respond_records_the_prompt_notification_answer() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .unwrap();
+    });
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let prompt = PendingPrompt {
+        question: "Proceed?".into(),
+        options: vec![
+            crate::multiplexer::types::PromptOption {
+                label: "Proceed".into(),
+                value: "yes".into(),
+            },
+            crate::multiplexer::types::PromptOption {
+                label: "Cancel".into(),
+                value: "no".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    register_endpoint(&tab_id, format!("http://{address}"), "/work".into());
+    ACTIVE.lock().insert(
+        tab_id.clone(),
+        Active {
+            prompt: prompt.clone(),
+            route: ResponseRoute {
+                session_id: "session".into(),
+                request_id: "request".into(),
+                kind: PromptKind::Question,
+                option_labels: vec!["Proceed".into(), "Cancel".into()],
+            },
+        },
+    );
+    fixture
+        .service
+        .push_structured_prompt(&tab_id, Some(prompt.clone()));
+    let identity = codeterm_types::pty::PromptIdentity::new(
+        codeterm_types::pty::PromptKind::Structured,
+        &prompt,
+    );
+    let notification_id = fixture.service.create_prompt_notification_ext(
+        "Prompt".into(),
+        Some("structured prompt".into()),
+        Some("warning"),
+        Some(vec![
+            codeterm_types::notification::NotificationAction::RespondPromptOption {
+                label: "Proceed".into(),
+                value: "yes".into(),
+                identity: identity.clone(),
+            },
+            codeterm_types::notification::NotificationAction::RespondPromptOption {
+                label: "Cancel".into(),
+                value: "no".into(),
+                identity,
+            },
+        ]),
+        Some(true),
+        crate::service::notification::NotificationOrigin::local_tab(tab_id.clone()),
+        crate::service::notification::PushIntent {
+            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+            event_key: Some("structured-prompt-answer-test".into()),
+        },
+    );
+
+    assert_eq!(
+        fixture.service.respond_prompt(&tab_id, "2"),
+        Ok(crate::service::tab::RespondPromptOutcome::Structured)
+    );
+    server.join().unwrap();
+    let store = fixture.service.notif.lock();
+    let notification = store.notification(&notification_id).unwrap();
+    assert_eq!(
+        notification.answer.as_ref().unwrap().answered.as_deref(),
+        Some("Cancel")
+    );
+    assert_eq!(
+        notification
+            .answer
+            .as_ref()
+            .unwrap()
+            .answered_via
+            .as_deref(),
+        Some("tab_respond")
+    );
+    assert!(notification.resolved);
+    assert!(notification.read);
+    assert!(notification.actions.is_none());
+    clear_tab(&tab_id);
 }
 
 #[test]

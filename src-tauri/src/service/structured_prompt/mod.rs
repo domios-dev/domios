@@ -163,13 +163,12 @@ pub fn ensure_for_spawn(
 /// Answer a pending structured prompt over HTTP. Returns `Some(result)` when the
 /// tab has a structured route (the PTY send-back must then be skipped), or
 /// `None` when there is no structured handle (caller falls back to PTY).
-pub fn respond(svc: &ServiceContext, tab_id: &str, value: &str) -> Option<Result<(), String>> {
+pub fn respond(_svc: &ServiceContext, tab_id: &str, value: &str) -> Option<Result<(), String>> {
     let route = route_for_tab(tab_id)?;
     let base_url = ENDPOINTS.lock().get(tab_id).map(|e| e.base_url.clone())?;
     let result = send_reply(&base_url, &route, value);
     if result.is_ok() {
         ACTIVE.lock().remove(tab_id);
-        svc.push_structured_prompt(tab_id, None);
     }
     Some(result)
 }
