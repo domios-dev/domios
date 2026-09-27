@@ -50,6 +50,7 @@ mod orchestration_pair;
 mod orchestrator;
 mod parked_user_delivery;
 mod process_tree;
+mod prompt_resolution;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::{build_agent_command_for_service, provider_launch_task};
@@ -193,7 +194,8 @@ pub use inject_verify::{
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(test)]
 pub(crate) use orchestrator::{
-    arm_provider_session_for_test, spawn_onboarding_task, LaunchGeneration,
+    arm_provider_session_for_test, launch_waits_for_first_turn_binding, spawn_onboarding_task,
+    LaunchGeneration,
 };
 pub(crate) use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, ProviderSessionBinding,

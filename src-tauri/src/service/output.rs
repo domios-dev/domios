@@ -13,6 +13,8 @@ use crate::agent::classify_input::{ClassifyParts, StatusBarRows};
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
+#[path = "output/agent_idle.rs"]
+mod agent_idle;
 #[path = "output/launch_exit.rs"]
 mod launch_exit;
 #[path = "output/prompt_steps.rs"]
@@ -128,42 +130,6 @@ impl ServiceContext {
                 false
             }
             None => false,
-        }
-    }
-
-    fn force_agent_idle_for_pty(&self, pty_id: &str) {
-        let tab_id = self.mux.read().tab_id_for_pty(pty_id);
-        if let Some(tab_id) = tab_id {
-            self.force_agent_idle_for_tab(&tab_id);
-        }
-    }
-
-    fn force_agent_idle_for_tab(&self, tab_id: &str) {
-        use crate::agent::offline_state_classifier::{AgentLiveState, TabVerdict, TimelineState};
-
-        let idle_state: AgentLiveState = TabVerdict {
-            state: TimelineState::Idle,
-            subtype: None,
-        }
-        .into();
-        let changed = {
-            let mut mux = self.mux.write();
-            match mux.get_tab_mut(tab_id) {
-                Some(tab) if tab.agent_type.is_some() => {
-                    let changed = tab.agent_state.as_ref() != Some(&idle_state)
-                        || tab.pending_prompt.is_some();
-                    tab.agent_state = Some(idle_state);
-                    tab.pending_prompt = None;
-                    tab.pending_prompt_kind = None;
-                    changed
-                }
-                _ => false,
-            }
-        };
-        if changed {
-            self.emit_state_changed();
-            self.schedule_planner_replay(&tab_id);
-            self.heal_recovery_state_if_ready();
         }
     }
 
@@ -955,6 +921,7 @@ impl ServiceContext {
                 let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
+                        let previous_identity = tab.prompt_identity();
                         let notify = should_notify_pending_prompt(
                             decision,
                             tab.pending_prompt.as_ref(),
@@ -963,14 +930,16 @@ impl ServiceContext {
                         );
                         tab.pending_prompt = Some(prompt.clone());
                         tab.pending_prompt_kind = Some(prompt_kind);
-                        Some(notify)
+                        Some((notify, previous_identity))
                     } else {
                         None
                     }
                 };
-                let Some(notify_prompt) = notify_prompt else {
+                let Some((notify_prompt, previous_identity)) = notify_prompt else {
                     return;
                 };
+                let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
+                self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -985,12 +954,9 @@ impl ServiceContext {
                 }
             }
             PromptDecision::PromptCleared { tab_id } => {
-                let mut mux = self.mux.write();
-                if let Some(tab) = mux.get_tab_mut(tab_id) {
-                    tab.pending_prompt = None;
-                    tab.pending_prompt_kind = None;
+                if let Some(identity) = self.clear_pending_prompt(tab_id) {
+                    self.resolve_prompt_notifications(tab_id, &identity);
                 }
-                drop(mux);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",

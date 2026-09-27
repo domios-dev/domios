@@ -1,0 +1,5 @@
+? Choose an item
+› 1. alpha
+    /beta
+  2. other
+  Press enter to confirm or esc to cancel

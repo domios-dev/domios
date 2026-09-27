@@ -195,6 +195,12 @@ and normalizes the response back to the current tab contract. The preflight and
 operation use distinct signed nonces. This adapter does not invent endpoints or
 features absent from the older peer.
 
+Recurring delayed-message create and edit operations require `delayed_recurrence`
+in the target's advertised identify `features`. The origin refuses when the
+feature is missing or no feature list is advertised, naming the peer and its
+reported version and directing the user to update the peer or send a one-shot.
+One-shot delays remain available to older peers.
+
 ## Bridge migration
 
 Moving a Telegram bridge between peers (CLI, orchestration steps, secret locality, flags, exit codes): see `codeterm docs MESH-BRIDGE`.
@@ -217,4 +223,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

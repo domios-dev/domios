@@ -441,12 +441,8 @@ pub async fn hook_stop(
 
     // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&tab_id);
-    {
-        let mut mux = state.svc.mux.write();
-        if let Some(tab) = mux.get_tab_mut(&tab_id) {
-            tab.pending_prompt = None;
-            tab.pending_prompt_kind = None;
-        }
+    if let Some(identity) = state.svc.clear_pending_prompt(&tab_id) {
+        state.svc.resolve_prompt_notifications(&tab_id, &identity);
     }
     state.svc.emit_state_changed();
 
