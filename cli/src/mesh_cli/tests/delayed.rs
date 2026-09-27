@@ -69,3 +69,26 @@ fn delayed_edit_maps_recurrence_and_stop_through_mesh() {
         })
     );
 }
+
+#[test]
+fn mesh_one_shot_delay_to_old_peer_still_works() {
+    let cmd = Commands::Delayed {
+        action: DelayedAction::Create {
+            text: Some("one shot".into()),
+            tab: Some("tab-1".into()),
+            delay: Some("1m".into()),
+            at: None,
+            every: None,
+            until: None,
+            count: None,
+            from_file: None,
+            from_pad: None,
+            stdin: false,
+        },
+    };
+    let (method, path, body) = cli_command_to_api(&cmd);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/tab-1/delayed-messages");
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+    assert!(body.get("recurrence").is_none());
+}
