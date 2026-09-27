@@ -304,9 +304,20 @@ impl PlanStore {
         let mut expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
             if let Some(parent_id) = task.parent_task_id.as_deref() {
-                let parent = p.tasks.iter().find(|candidate| candidate.id == parent_id).ok_or(PlanError::TaskNotFound)?;
-                if parent.parent_task_id.is_some() || matches!(&parent.status, TaskStatus::Done | TaskStatus::Cancelled) {
-                    return Err(PlanError::BadMode);
+                let parent = p
+                    .tasks
+                    .iter()
+                    .find(|candidate| candidate.id == parent_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                if parent.parent_task_id.is_some() {
+                    return Err(PlanError::InvalidSplitParent {
+                        reason: super::SplitParentReason::ChildParent,
+                    });
+                }
+                if matches!(&parent.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    return Err(PlanError::InvalidSplitParent {
+                        reason: super::SplitParentReason::TerminalParent,
+                    });
                 }
             }
             let resolved_depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
