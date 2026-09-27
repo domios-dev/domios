@@ -129,17 +129,19 @@ impl ServiceContext {
             mux.get_tab_mut(tab_id)
                 .map_or((false, None), clear_agent_identity_with_prompt)
         };
-        if let Some(exit) = exit {
-            self.publish_launch_exit(&exit);
-        }
-        self.finish_agent_identity_clear(
+        let finished = self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
             prompt_identity,
             "pty-exit",
             tree_evidence,
-        )
+        );
+        if let Some(exit) = exit {
+            self.publish_launch_exit(&exit);
+            self.handoff_launch_exit_after_teardown(&exit);
+        }
+        finished
     }
 
     pub(crate) fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
@@ -233,17 +235,19 @@ impl ServiceContext {
             mux.get_tab_mut(tab_id)
                 .map_or((false, None), clear_agent_identity_with_prompt)
         };
-        if let Some(exited) = exited {
-            self.publish_launch_exit(&exited);
-        }
-        self.finish_agent_identity_clear(
+        let finished = self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
             prompt_identity,
             "lifecycle-clear",
             tree.evidence(),
-        )
+        );
+        if let Some(exited) = exited {
+            self.publish_launch_exit(&exited);
+            self.handoff_launch_exit_after_teardown(&exited);
+        }
+        finished
     }
 
     pub(crate) fn clear_tab_agent_identity_after_exit_with_proof(

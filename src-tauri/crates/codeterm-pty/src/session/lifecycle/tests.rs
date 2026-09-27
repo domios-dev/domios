@@ -714,47 +714,29 @@ fn compaction_preserves_latest_verified_session_per_tab() {
     journal
         .append(
             restored.clone(),
-            LifecycleTransition::ProviderIdentityCommitted {
-                provider: "claude".into(),
-            },
-        )
-        .unwrap();
-    journal
-        .append(
-            restored.clone(),
-            LifecycleTransition::SessionBound {
-                session_id: "session-a".into(),
-                binding_nonce: "nonce-a".into(),
-                source: Default::default(),
-            },
-        )
-        .unwrap();
-    journal
-        .append(restored.clone(), LifecycleTransition::LaunchReady)
-        .unwrap();
-    journal
-        .append(
-            restored.clone(),
-            LifecycleTransition::RestoreAwaitingAgentRestart {
-                session_id: "session-a".into(),
+            LifecycleTransition::RolledBack {
+                reason: "restored without a live agent".into(),
             },
         )
         .unwrap();
     journal
         .append(
             restored,
-            LifecycleTransition::RoleBinding {
-                role: None,
-                role_profile: None,
-                can_spawn: false,
-                depth: 0,
+            LifecycleTransition::RestoreAwaitingAgentRestart {
+                session_id: "session-a".into(),
             },
         )
         .unwrap();
 
     journal.compact().unwrap();
 
-    assert!(journal.load().records.iter().any(|record| matches!(
+    let compacted = journal.load().records;
+    assert!(!compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Checkpoint { checkpoint }
+            if checkpoint.authority.session_id == "session-a"
+    )));
+    assert!(compacted.iter().any(|record| matches!(
         record,
         JournalRecord::Transition { entry }
             if entry.key.tab_id == "tab-a"
