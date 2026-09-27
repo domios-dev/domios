@@ -27,16 +27,11 @@ pub async fn chat_send_text(
     ) {
         return Err(error.into());
     }
+    let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
     let (text, pad_file) = state
         .svc
-        .substitute_paste_limited_body(&tab_id, body.text.unwrap_or_default())
+        .prepare_chat_send_text(&tab_id, body.text.unwrap_or_default(), run_stages)
         .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-    let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
-    let text = if run_stages && pad_file.is_none() {
-        state.svc.run_outbound_stages(&tab_id, text)
-    } else {
-        text
-    };
     let submit_claim = state.svc.claim_chat_submit_cycle(&tab_id);
     let client_token = body.client_token;
     let svc = state.svc.clone();
@@ -479,15 +474,12 @@ pub async fn send_text(
         }
 
         let raw_text = body.text.clone().unwrap_or_default();
+        let raw_text = stage(raw_text);
+        let text = prepend(&raw_text);
         let (raw_text, pad_file) = state
             .svc
-            .substitute_paste_limited_body(&tab_id, raw_text)
+            .substitute_paste_limited_body(&tab_id, raw_text, text.len())
             .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-        let raw_text = if pad_file.is_some() {
-            raw_text
-        } else {
-            stage(raw_text)
-        };
         let text = prepend(&raw_text);
         if transport == TabInputTransport::ChatBackend {
             if !raw_text.is_empty() {
@@ -669,9 +661,11 @@ pub async fn send_text(
         let mut pad_files = Vec::new();
         let mut items = Vec::with_capacity(batch.len());
         for chunk in batch {
+            let staged = stage(chunk.text);
+            let wrapped = prepend(&staged);
             let (text, pad_file) = state
                 .svc
-                .substitute_paste_limited_body(&tab_id, chunk.text)
+                .substitute_paste_limited_body(&tab_id, staged, wrapped.len())
                 .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
             if let Some(path) = pad_file {
                 pad_files.push(path.display().to_string());
@@ -732,9 +726,11 @@ pub async fn send_text(
             .is_some_and(|peer| !peer.is_empty())
         && transport == TabInputTransport::Pty
     {
+        let raw_text = stage(raw_text);
+        let wrapped = prepend(&raw_text);
         let (raw_text, pad_file) = state
             .svc
-            .substitute_paste_limited_body(&tab_id, raw_text)
+            .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
             .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
         let text = prepend(&raw_text);
         state.svc.send_text_when_ready(&tab_id, &text).await?;
@@ -747,12 +743,11 @@ pub async fn send_text(
         })));
     }
     if let Some(envelope) = source_envelope {
-        let (raw_text, pad_file) = state
-            .svc
-            .substitute_paste_limited_body(&tab_id, raw_text)
-            .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-        crate::service::messenger::Messenger::deliver(&state.svc, &tab_id, envelope, &raw_text)
-            .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+        let raw_text = stage(raw_text);
+        let (_delivery, pad_file) = crate::service::messenger::Messenger::deliver_with_pad_file(
+            &state.svc, &tab_id, envelope, &raw_text,
+        )
+        .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
@@ -761,15 +756,12 @@ pub async fn send_text(
         })));
     }
 
+    let raw_text = stage(raw_text);
+    let wrapped = prepend(&raw_text);
     let (raw_text, pad_file) = state
         .svc
-        .substitute_paste_limited_body(&tab_id, raw_text)
+        .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
         .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-    let raw_text = if pad_file.is_some() {
-        raw_text
-    } else {
-        stage(raw_text)
-    };
     let text = prepend(&raw_text);
     // A plain text send always submits — no-Enter/keystroke cases go through
     // `actions` or `raw`.

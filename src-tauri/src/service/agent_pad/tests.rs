@@ -197,7 +197,8 @@ fn substitution_pointer_is_single_line_and_carries_the_supplied_path() {
     let path_token = supplied.to_str().unwrap().to_string();
     let body = "x".repeat(4097);
     let (delivered, path) =
-        super::substitute_body_with_limit(body, Some(4096), |_| Ok(supplied.clone())).unwrap();
+        super::substitute_body_with_limit(body, 4097, Some(4096), |_| Ok(supplied.clone()))
+            .unwrap();
     assert_eq!(path.as_deref(), Some(supplied.as_path()));
     assert_eq!(delivered.lines().count(), 1);
     assert!(delivered.contains(&path_token));
@@ -206,10 +207,11 @@ fn substitution_pointer_is_single_line_and_carries_the_supplied_path() {
 #[test]
 fn short_body_is_sent_unchanged() {
     let body = "under limit".to_string();
-    let (delivered, path) = super::substitute_body_with_limit(body.clone(), Some(4096), |_| {
-        panic!("short payload must not write an inbox file")
-    })
-    .unwrap();
+    let (delivered, path) =
+        super::substitute_body_with_limit(body.clone(), body.len(), Some(4096), |_| {
+            panic!("short payload must not write an inbox file")
+        })
+        .unwrap();
     assert_eq!(delivered, body);
     assert_eq!(path, None);
 }
@@ -217,10 +219,11 @@ fn short_body_is_sent_unchanged() {
 #[test]
 fn providers_without_paste_limit_are_unchanged() {
     let body = "x".repeat(8193);
-    let (delivered, path) = super::substitute_body_with_limit(body.clone(), None, |_| {
-        panic!("undeclared capability must not write an inbox file")
-    })
-    .unwrap();
+    let (delivered, path) =
+        super::substitute_body_with_limit(body.clone(), body.len(), None, |_| {
+            panic!("undeclared capability must not write an inbox file")
+        })
+        .unwrap();
     assert_eq!(delivered, body);
     assert_eq!(path, None);
 }
@@ -228,7 +231,7 @@ fn providers_without_paste_limit_are_unchanged() {
 #[test]
 fn paste_limit_counts_utf8_bytes() {
     let body = "Ж".repeat(2049);
-    let (delivered, path) = super::substitute_body_with_limit(body, Some(4096), |bytes| {
+    let (delivered, path) = super::substitute_body_with_limit(body, 4098, Some(4096), |bytes| {
         assert_eq!(bytes.len(), 4098);
         Ok(PathBuf::from("recipient/inbox/body.md"))
     })
@@ -239,54 +242,112 @@ fn paste_limit_counts_utf8_bytes() {
 
 #[test]
 fn pad_write_failure_refuses_the_send() {
-    let result = super::substitute_body_with_limit("x".repeat(4097), Some(4096), |_| {
+    let body = "x".repeat(4097);
+    let result = super::substitute_body_with_limit(body.clone(), body.len(), Some(4096), |_| {
         Err("disk unavailable".into())
     });
     assert!(result.is_err());
 }
 
 #[test]
-fn chat_send_and_gateway_deliveries_substitute_too() {
-    for _entry in ["chat_send", "gateway_deliver"] {
-        let temp = tempfile::tempdir().unwrap();
-        let recipient =
-            AgentPad::create(temp.path(), "recipient-tab", AgentPadRole::General).unwrap();
-        let original = "x".repeat(8193);
-        let expected = original.as_bytes().to_vec();
-        let (pointer, path) = super::substitute_body_with_limit(original, Some(4096), |bytes| {
-            assert_eq!(bytes, expected.as_slice());
-            recipient.write_inbox_body(bytes)
-        })
-        .unwrap();
-        let path = path.unwrap();
-        let envelope = crate::service::messenger::MessageEnvelope::tab("Sender", "source-tab");
-        let delivered = crate::service::messenger::Messenger::from(envelope.clone()).wrap(&pointer);
-        assert_eq!(fs::read(path).unwrap(), expected);
-        assert!(delivered.contains(&path.display().to_string()));
-        assert!(delivered.contains(&crate::service::messenger::Messenger::pty_prefix(&envelope)));
-        assert!(delivered.contains("codeterm send"));
-        assert_eq!(pointer.lines().count(), 1);
-    }
+fn enveloped_limit_boundary_measures_final_paste_bytes() {
+    let supplied = PathBuf::from("pad/inbox/token.md");
+    let envelope_bytes = 200;
+    let body = "x".repeat(4096 - envelope_bytes + 1);
+    let (delivered, path) = super::substitute_body_with_limit(
+        body.clone(),
+        body.len() + envelope_bytes,
+        Some(4096),
+        |bytes| {
+            assert_eq!(bytes, body.as_bytes());
+            Ok(supplied.clone())
+        },
+    )
+    .unwrap();
+    assert_eq!(path, Some(supplied.clone()));
+    assert!(delivered.contains(supplied.to_str().unwrap()));
 }
 
+#[cfg(windows)]
+#[test]
+fn chat_send_and_gateway_deliveries_substitute_too() {
+    use crate::multiplexer::{state::MultiplexerState, types::AgentRole};
+    use crate::service::{
+        messenger::{MessageEnvelope, Messenger},
+        test_fixture::ServiceFixture,
+    };
+
+    let (mut mux, sender) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&sender).unwrap();
+    let recipient = mux.create_tab(&workspace).unwrap();
+    mux.set_tab_role(&recipient, AgentRole::Worker, Some(&sender))
+        .unwrap();
+    mux.get_tab_mut(&recipient).unwrap().agent_type = Some("limited-test-provider".into());
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("limited-test-provider")
+            .with_paste_limit_bytes(4096),
+    ));
+
+    let chat_body = "chat content\nend marker".repeat(400);
+    let (chat_pointer, chat_file) = fixture
+        .service
+        .prepare_chat_send_text(&recipient, chat_body.clone(), false)
+        .unwrap();
+    let chat_file = chat_file.unwrap();
+    assert_eq!(fs::read(&chat_file).unwrap(), chat_body.as_bytes());
+    assert!(chat_pointer.contains(chat_file.to_str().unwrap()));
+    assert_eq!(chat_pointer.lines().count(), 1);
+
+    let gateway_body = "gateway content\nend marker".repeat(400);
+    let envelope = MessageEnvelope::tab("Sender", sender);
+    let (delivery, gateway_file) =
+        Messenger::deliver_with_pad_file(&fixture.service, &recipient, envelope, &gateway_body)
+            .unwrap();
+    let gateway_file = gateway_file.unwrap();
+    assert_eq!(fs::read(&gateway_file).unwrap(), gateway_body.as_bytes());
+    let crate::service::messenger::Delivery::Pty { text } = delivery else {
+        panic!("PTY delivery expected")
+    };
+    assert!(text.contains(gateway_file.to_str().unwrap()));
+}
+
+#[cfg(windows)]
 #[test]
 fn mesh_received_long_send_lands_in_local_recipient_pad() {
-    let temp = tempfile::tempdir().unwrap();
-    let recipient =
-        AgentPad::create(temp.path(), "local-recipient", AgentPadRole::General).unwrap();
+    use crate::multiplexer::{state::MultiplexerState, types::AgentRole};
+    use crate::service::{
+        messenger::{MessageEnvelope, Messenger},
+        test_fixture::ServiceFixture,
+    };
+
+    let (mut mux, sender) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&sender).unwrap();
+    let recipient = mux.create_tab(&workspace).unwrap();
+    mux.set_tab_role(&recipient, AgentRole::Worker, Some(&sender))
+        .unwrap();
+    mux.get_tab_mut(&recipient).unwrap().agent_type = Some("limited-test-provider".into());
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("limited-test-provider")
+            .with_paste_limit_bytes(4096),
+    ));
     let original = "mesh payload\nend sentinel".repeat(400);
-    let expected = original.as_bytes().to_vec();
-    let (pointer, path) = super::substitute_body_with_limit(original, Some(4096), |bytes| {
-        recipient.write_inbox_body(bytes)
-    })
-    .unwrap();
-    let path = path.unwrap();
-    let envelope = crate::service::messenger::MessageEnvelope::tab("Remote", "remote-tab")
-        .mesh(Some("peer-token".into()));
-    let delivered = crate::service::messenger::Messenger::from(envelope.clone()).wrap(&pointer);
-    assert_eq!(fs::read(&path).unwrap(), expected);
-    assert!(delivered.contains(&path.display().to_string()));
-    assert!(delivered.contains("peer-token"));
-    assert!(delivered.contains("remote-tab"));
-    assert_eq!(pointer.lines().count(), 1);
+    let envelope = MessageEnvelope::tab("Remote", sender.clone()).mesh(Some("peer-token".into()));
+    let delivery =
+        Messenger::deliver(&fixture.service, &recipient, envelope.clone(), &original).unwrap();
+    let pad = AgentPad::open(fixture.temp.path(), &recipient).unwrap();
+    let files = pad.list().unwrap();
+    let inbox_file = files.iter().find(|file| file.starts_with("inbox")).unwrap();
+    let path_token = pad.path().join(inbox_file).to_str().unwrap().to_string();
+    let crate::service::messenger::Delivery::Pty { text } = delivery else {
+        panic!("PTY delivery expected")
+    };
+    assert_eq!(
+        pad.read_utf8(inbox_file).unwrap().as_bytes(),
+        original.as_bytes()
+    );
+    assert!(text.contains(&path_token));
+    assert!(text.contains(&crate::service::messenger::Messenger::pty_prefix(&envelope)));
+    assert!(text.contains("peer-token"));
 }

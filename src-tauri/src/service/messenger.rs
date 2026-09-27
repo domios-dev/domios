@@ -265,9 +265,17 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        let (body, _pad_file) = svc.substitute_paste_limited_body(to_tab, body.to_string())?;
+        Self::deliver_with_pad_file(svc, to_tab, envelope, body).map(|(delivery, _)| delivery)
+    }
+
+    pub fn deliver_with_pad_file(
+        svc: &super::ServiceContext,
+        to_tab: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         let kind = envelope.kind;
-        let result = Self::deliver_inner(svc, to_tab, envelope, &body);
+        let result = Self::deliver_inner(svc, to_tab, envelope, body);
         if result.is_ok() {
             svc.record_kpi_delivery(to_tab, kind, body.len());
         }
@@ -279,7 +287,7 @@ impl Messenger {
         to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
-    ) -> Result<Delivery, String> {
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         if svc.tab_chat_backing(to_tab).is_some() {
             svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc
@@ -298,7 +306,8 @@ impl Messenger {
                     )
                 },
                 || unreachable!(),
-            );
+            )
+            .map(|delivery| (delivery, None));
         }
 
         let (resolved_target, should_prefix, pty_agent_target) = {
@@ -326,9 +335,20 @@ impl Messenger {
         };
         let entry = pty_submit_entry(envelope.kind);
         let text = if should_prefix {
-            Self::from(envelope).wrap(body)
+            Self::from(envelope.clone()).wrap(body)
         } else {
             body.to_string()
+        };
+        let (body, pad_file) =
+            svc.substitute_paste_limited_body(&resolved_target, body.to_string(), text.len())?;
+        let text = if pad_file.is_some() {
+            if should_prefix {
+                Self::from(envelope).wrap(&body)
+            } else {
+                body
+            }
+        } else {
+            text
         };
         dispatch_delivery(
             DeliveryTransport::Pty,
@@ -342,7 +362,7 @@ impl Messenger {
                     }
                     Ok::<(), String>(())
                 })?;
-                Ok(Delivery::Pty { text })
+                Ok((Delivery::Pty { text }, pad_file))
             },
         )
     }
@@ -386,7 +406,14 @@ impl Messenger {
             tab.backing.clone()
         };
         if matches!(backing, crate::multiplexer::types::TabBacking::Pty) {
-            let text = Self::from(envelope).wrap(body);
+            let wrapped = Self::from(envelope.clone()).wrap(body);
+            let (body, pad_file) =
+                svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
+            let text = if pad_file.is_some() {
+                Self::from(envelope).wrap(&body)
+            } else {
+                wrapped
+            };
             crate::service::pty_io::submit_transaction::submit_entry(
                 crate::service::pty_io::submit_transaction::PtySubmitEntry::Planner,
                 &text,

@@ -805,6 +805,7 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                agent_pad_data_dir: crate::paths::data_dir(),
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
                 output_buf: states.output_buffer.clone(),
