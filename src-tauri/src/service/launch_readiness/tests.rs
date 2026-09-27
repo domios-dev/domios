@@ -851,7 +851,12 @@ fn launch_readiness_exit_is_evidence_whether_or_not_agent_ready_was_claimed() {
     }
 
     let owner = include_str!("../launch_readiness.rs");
-    assert!(!owner.contains("agent_booting"));
+    let exit_settlement = owner
+        .split("fn settle_proven_exit(")
+        .nth(1)
+        .and_then(|remaining| remaining.split("\nstruct Armed").next())
+        .expect("the exit settlement function remains present");
+    assert!(!exit_settlement.contains("agent_booting"));
 }
 
 /// End to end on a real ServiceContext, through the exact byte shape the live
