@@ -730,9 +730,38 @@ fn compaction_preserves_latest_verified_session_per_tab() {
         )
         .unwrap();
 
-    journal.compact().unwrap();
+    // The journal API cannot emit a sessionless checkpoint, so seed the reducer
+    // input with the reported compacted shape.
+    let mut history = journal.load().records;
+    let checkpoint_seq = journal.load().last_seq() + 1;
+    history.push(JournalRecord::Checkpoint {
+        checkpoint: LifecycleCheckpoint {
+            key: key("tab-a", 4, "identity-cleared"),
+            committed_through: checkpoint_seq,
+            authority: CommittedAuthority {
+                provider: "codex".into(),
+                session_id: String::new(),
+                binding_nonce: String::new(),
+                role: None,
+                role_profile: None,
+                team_id: None,
+                parent_tab_id: None,
+                can_spawn: false,
+                depth: 0,
+            },
+            agent_type_write: None,
+            prior_checkpoints: Vec::new(),
+            sealed_at: String::new(),
+        },
+    });
+    history.sort_by_key(JournalRecord::seq);
 
-    let compacted = journal.load().records;
+    let compacted = super::reduce::compact_records(&history);
+    assert!(compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Checkpoint { checkpoint }
+            if checkpoint.authority.session_id.is_empty()
+    )));
     assert!(!compacted.iter().any(|record| matches!(
         record,
         JournalRecord::Checkpoint { checkpoint }
