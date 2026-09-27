@@ -64,14 +64,14 @@ impl AgentProvider for LaunchEvidenceProvider {
 
     fn parse_session_delta(&self, path: &Path, from_offset: u64) -> SessionDelta {
         let Ok(mut file) = std::fs::File::open(path) else {
-            return SessionDelta::default();
+            return SessionDelta { new_offset: from_offset, messages: Vec::new() };
         };
         if file.seek(SeekFrom::Start(from_offset)).is_err() {
-            return SessionDelta::default();
+            return SessionDelta { new_offset: from_offset, messages: Vec::new() };
         }
         let mut bytes = Vec::new();
         if file.read_to_end(&mut bytes).is_err() {
-            return SessionDelta::default();
+            return SessionDelta { new_offset: from_offset, messages: Vec::new() };
         }
         let messages = bytes
             .split(|byte| *byte == b'\n')
@@ -180,7 +180,7 @@ fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
 
 #[test]
 fn public_send_before_readiness_never_reports_success_without_a_turn() {
-    let (fixture, tab_id, attempt) = launch_fixture();
+    let (fixture, tab_id, _attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
     readiness.arm(tab_id.clone(), Some(STARTER.into()), None);
     let mut payload_writes = 0;
