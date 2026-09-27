@@ -50,7 +50,8 @@ const windowsCommand = resume({
 });
 
 assert.equal(instructionFile, "");
-assert(windowsCommand.includes("codex resume"));
+assert(windowsCommand.includes(" resume"));
+assert.equal((windowsCommand.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
 assert(windowsCommand.includes("--profile $ctProfileName"));
 assert(windowsCommand.includes("launch-artifacts/release"));
 assert(windowsCommand.includes("instance-restored-test"));
@@ -75,7 +76,8 @@ for (const argument of args) {
 platform = "linux";
 quoted.length = 0;
 const unixCommand = resume({ sessionId: uuid, args, systemPrompt: instructions });
-assert(unixCommand.startsWith("codex resume"));
+assert(unixCommand.includes(" resume"));
+assert.equal((unixCommand.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
 assert(unixCommand.includes("--no-daemon"));
 assert(!unixCommand.includes("--profile"));
 assert(!unixCommand.includes(instructions));
