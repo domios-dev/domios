@@ -47,13 +47,26 @@ fn strip_fenced_code_blocks(text: &str) -> String {
 #[derive(Debug, PartialEq, Eq)]
 pub enum SendTextOutcome {
     Success(String),
-    Pending(String),
+    Pending {
+        message: String,
+        bytes_written: bool,
+    },
     Error { msg: String, exit_code: i32 },
     Other,
 }
 
 pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome {
     if let Some(err) = value.get("error") {
+        if err
+            .get("bytes_written")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            return SendTextOutcome::Pending {
+                message: "OK (pending)".to_string(),
+                bytes_written: true,
+            };
+        }
         let message = err
             .as_str()
             .or_else(|| err.get("message").and_then(serde_json::Value::as_str))
@@ -67,7 +80,13 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         return match value.get("delivery").and_then(serde_json::Value::as_str) {
             Some("sent") => SendTextOutcome::Success("OK (sent)".to_string()),
-            _ => SendTextOutcome::Pending("OK (pending)".to_string()),
+            _ => SendTextOutcome::Pending {
+                message: "OK (pending)".to_string(),
+                bytes_written: value
+                    .get("bytes_written")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+            },
         };
     }
     SendTextOutcome::Other
@@ -91,7 +110,17 @@ pub fn handle_send_text_result(
                         println!("{}", resolved_text_echo(text));
                     }
                 }
-                SendTextOutcome::Pending(msg) => println!("{}", msg),
+                SendTextOutcome::Pending {
+                    message,
+                    bytes_written,
+                } => {
+                    println!("{}", message);
+                    if bytes_written {
+                        if let Some(text) = resolved_text {
+                            println!("{}", resolved_text_echo(text));
+                        }
+                    }
+                }
                 SendTextOutcome::Error { msg, exit_code } => {
                     eprintln!("Error: {}", msg);
                     std::process::exit(exit_code);
@@ -262,6 +291,7 @@ fn send_text_to_targets(
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut delivered: Vec<String> = Vec::new();
     let mut pending: Vec<String> = Vec::new();
+    let mut pending_written: Vec<String> = Vec::new();
     let source_tab = std::env::var("CODETERM_TAB_ID")
         .ok()
         .filter(|t| !t.is_empty());
@@ -293,7 +323,12 @@ fn send_text_to_targets(
         match result {
             Ok(value) => match analyze_send_text_response(&value) {
                 SendTextOutcome::Success(_) => delivered.push(tab_id.clone()),
-                SendTextOutcome::Pending(_) => pending.push(tab_id.clone()),
+                SendTextOutcome::Pending { bytes_written, .. } => {
+                    pending.push(tab_id.clone());
+                    if bytes_written {
+                        pending_written.push(tab_id.clone());
+                    }
+                }
                 SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
                 SendTextOutcome::Other => failures.push((
                     tab_id.clone(),
@@ -310,6 +345,7 @@ fn send_text_to_targets(
                 "ok": failures.is_empty(),
                 "delivered": delivered,
                 "pending": pending,
+                "pending_written": pending_written,
                 "failed": failures
                     .iter()
                     .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
@@ -334,7 +370,7 @@ fn send_text_to_targets(
             failures.len(),
             targets.len()
         );
-        if failures.is_empty() && pending.is_empty() {
+        if !delivered.is_empty() || !pending_written.is_empty() {
             println!("{}", resolved_text_echo(resolved_text));
         }
     }
@@ -924,7 +960,13 @@ mod tests {
     fn send_reports_pending_or_refused_never_sent_when_nothing_written() {
         let v = serde_json::json!({ "ok": true });
         match analyze_send_text_response(&v) {
-            SendTextOutcome::Pending(message) => assert_eq!(message, "OK (pending)"),
+            SendTextOutcome::Pending {
+                message,
+                bytes_written,
+            } => {
+                assert_eq!(message, "OK (pending)");
+                assert!(!bytes_written);
+            }
             other => panic!("expected Pending, got {:?}", other),
         }
 
@@ -949,10 +991,45 @@ mod tests {
 
     #[test]
     fn pending_route_result_is_not_rendered_as_sent() {
-        let pending = serde_json::json!({ "ok": true, "delivery": "pending" });
+        let pending = serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "bytes_written": false
+        });
         assert_eq!(
             analyze_send_text_response(&pending),
-            SendTextOutcome::Pending("OK (pending)".into()),
+            SendTextOutcome::Pending {
+                message: "OK (pending)".into(),
+                bytes_written: false,
+            },
+        );
+    }
+
+    #[test]
+    fn unconfirmed_write_stays_pending_but_preserves_written_evidence() {
+        let pending = serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "bytes_written": true
+        });
+        assert_eq!(
+            analyze_send_text_response(&pending),
+            SendTextOutcome::Pending {
+                message: "OK (pending)".into(),
+                bytes_written: true,
+            },
+        );
+
+        let unconfirmed = serde_json::json!({
+            "ok": false,
+            "error": { "code": "submit_unconfirmed", "bytes_written": true }
+        });
+        assert_eq!(
+            analyze_send_text_response(&unconfirmed),
+            SendTextOutcome::Pending {
+                message: "OK (pending)".into(),
+                bytes_written: true,
+            },
         );
     }
 

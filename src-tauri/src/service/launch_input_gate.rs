@@ -56,7 +56,7 @@ fn decide_launch_input(
 ) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
     let refusal = if observation.directory_trust_prompt {
         Some(LaunchInputRefusal::DirectoryTrustPrompt)
-    } else if observation.pending_prompt {
+    } else if mode == LaunchInputMode::LazySessionStart && observation.pending_prompt {
         Some(LaunchInputRefusal::PendingPrompt)
     } else {
         observation
@@ -67,10 +67,7 @@ fn decide_launch_input(
                         TabState::WaitingOnAuth
                         | TabState::UpdatePrompt
                         | TabState::RateLimited => true,
-                        TabState::ClarifyingQuestion => {
-                            mode == LaunchInputMode::LazySessionStart
-                                || observation.active_interactive_prompt
-                        }
+                        TabState::ClarifyingQuestion => observation.active_interactive_prompt,
                         TabState::Working | TabState::IdleStuck | TabState::Unknown => false,
                     }
             })
@@ -108,7 +105,7 @@ fn provider_composer_is_ready(
     terminal_input_ready
         && match mode {
             LaunchInputMode::Standard => tui_evidence,
-            LaunchInputMode::LazySessionStart => declares_structural_composer,
+            LaunchInputMode::LazySessionStart => declares_structural_composer && tui_evidence,
         }
 }
 
@@ -211,9 +208,8 @@ impl ServiceContext {
             };
             let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
                 let terminal_input_ready = input.as_ref().is_some_and(launch_composer_input_ready);
-                let tui_evidence = mode == LaunchInputMode::Standard
-                    && (provider.screen_has_tui(&screen)
-                        || input.as_ref().is_some_and(|state| state.alternate_screen));
+                let tui_evidence = provider.screen_has_tui(&screen)
+                    || input.as_ref().is_some_and(|state| state.alternate_screen);
                 let composer_ready = provider_composer_is_ready(
                     mode,
                     declares_structural_composer,

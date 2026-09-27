@@ -19,16 +19,16 @@ pub async fn chat_send_text(
 ) -> Result<Json<crate::service::chat_send_transaction::ChatSendStatus>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    let has_agent_identity = state.svc.tab_has_agent_identity(&tab_id);
     if let Some(error) = chat_send_target_refusal(
         &tab_id,
-        state.svc.tab_has_agent(&tab_id),
+        has_agent_identity,
         state.svc.tab_chat_backing(&tab_id).is_some(),
     ) {
         return Err(error.into());
     }
     let text = body.text.unwrap_or_default();
-    let run_stages =
-        crate::chatpipeline::is_user_turn_send(false, false, state.svc.tab_has_agent(&tab_id));
+    let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
     let text = if run_stages {
         state.svc.run_outbound_stages(&tab_id, text)
     } else {
@@ -56,15 +56,15 @@ pub async fn chat_send_text(
 
 fn chat_send_target_refusal(
     tab_id: &str,
-    has_live_agent: bool,
+    has_agent_identity: bool,
     has_chat_backend: bool,
 ) -> Option<DeliveryError> {
-    if has_live_agent || has_chat_backend {
+    if has_agent_identity || has_chat_backend {
         return None;
     }
     Some(DeliveryError::TabBusyRefused {
         tab: tab_id.to_string(),
-        detail: "tab has no live agent identity; refusing to send prose to a shell".into(),
+        detail: "tab has no agent identity; refusing to send prose to a shell".into(),
     })
 }
 
@@ -786,7 +786,7 @@ mod delivery_classification_tests {
     }
 
     #[test]
-    fn chat_send_to_tab_without_live_agent_refuses_without_writing() {
+    fn chat_send_to_shell_without_agent_identity_refuses_without_writing() {
         let error = chat_send_target_refusal("shell-tab", false, false).unwrap();
         let rejection = SendRejection::from(error);
 
@@ -801,8 +801,8 @@ mod delivery_classification_tests {
     }
 
     #[test]
-    fn chat_send_target_guard_allows_live_agent_or_chat_backend() {
-        assert!(chat_send_target_refusal("agent-tab", true, false).is_none());
+    fn chat_send_target_guard_allows_booting_agent_identity_or_chat_backend() {
+        assert!(chat_send_target_refusal("booting-agent-tab", true, false).is_none());
         assert!(chat_send_target_refusal("backend-tab", false, true).is_none());
     }
 }

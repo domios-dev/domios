@@ -125,7 +125,7 @@ exact command).
 | `tab.list` | — | List tabs |
 | `tab.focus` | `{tab_id}` | Focus tab |
 | `tab.close` | `{tab_id}` | Close tab |
-| `tab.send_text` | `{tab_id, text}` | Send a text message to PTY; submission is mandatory |
+| `tab.send_text` | `{tab_id, text}` | Send text; returns sent only after confirmed delivery, pending when accepted in background or written without submit confirmation, and a structured pre-write refusal with `bytes_written:false` |
 | `tab.get_output` | `{tab_id, max_bytes?}` | Read terminal output |
 | `tab.rename` | `{tab_id, title}` | Rename tab (pinned) |
 | `mem.stats` | — | Return memory item, vector, entity, and relation counts over the daemon socket. |
@@ -235,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Plan writes still
 require the live bound session; pending status does not authorize the mutation.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->

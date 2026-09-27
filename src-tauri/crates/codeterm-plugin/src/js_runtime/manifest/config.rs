@@ -45,7 +45,7 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
-    #[serde(default)]
+    #[serde(default, alias = "resumeBindsOnFirstUserTurn")]
     pub session_starts_on_first_user_turn: bool,
     /// Declared hook event roster (event name → core ingestion route).
     /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
@@ -589,6 +589,21 @@ pub struct PermissionsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spawn_config_accepts_previous_lazy_session_field_name() {
+        let parsed: SpawnConfig = serde_json::from_value(serde_json::json!({
+            "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+            "taskDelivery": "pty_input",
+            "verifySubmit": { "kind": "none" },
+            "resumeBindsOnFirstUserTurn": true,
+        }))
+        .expect("previous installed manifest field remains accepted");
+
+        assert!(parsed.session_starts_on_first_user_turn);
+        let serialized = serde_json::to_value(parsed).expect("config serializes");
+        assert_eq!(serialized["sessionStartsOnFirstUserTurn"], true);
+    }
 
     #[test]
     fn serde_model_info_carries_featured_and_badge_into_model_info() {

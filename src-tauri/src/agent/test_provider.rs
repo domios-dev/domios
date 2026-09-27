@@ -12,8 +12,7 @@ use parking_lot::Mutex;
 use super::provider::{
     usage_sources_from_session_file, AgentLaunchParams, AgentProvider, LaunchArtifactSweepReport,
     LaunchArtifactSweepRequest, ModelInfo, ProviderReadinessStrategy, ReadinessStrategy,
-    ReasoningEffortInfo,
-    SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
+    ReasoningEffortInfo, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
 pub struct MockProvider {
@@ -244,10 +243,7 @@ impl MockProvider {
         self
     }
 
-    pub fn with_provider_readiness_strategy(
-        mut self,
-        strategy: ProviderReadinessStrategy,
-    ) -> Self {
+    pub fn with_provider_readiness_strategy(mut self, strategy: ProviderReadinessStrategy) -> Self {
         self.provider_readiness_strategy = strategy;
         self
     }
