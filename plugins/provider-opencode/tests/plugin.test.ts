@@ -378,19 +378,25 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   const windowsFresh = windows.buildLaunchCommand({});
   const windowsRestore = windows.buildResumeCommand("ses_restore");
   const windowsResume = windows.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
+  const windowsPermission = (name: string, command: string) => {
+    assert(command.includes("([string]$env:CODETERM_PAD_DIR).TrimEnd"), `Windows ${name} reads the tab pad environment`);
+    assert(command.includes("$ct_pad = $ct_pad_native -replace"), `Windows ${name} normalizes the pad path`);
+    assert(command.includes("if ($ct_pad_native)"), `Windows ${name} grants nothing for an empty pad`);
+    const configText = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
+    assert(!!configText, `Windows ${name} embeds a quoted config`);
+    const config = JSON.parse(configText || "{}") as { permission: { external_directory: Record<string, string> } };
+    eq(config.permission.external_directory["*"], "ask", `Windows ${name} leaves other external paths at ask`);
+    const patternAdds = [...command.matchAll(/Add-Member -NotePropertyName \((\$ct_pad_native|\$ct_pad) \+ '([^']+)'\) -NotePropertyValue 'allow' -Force/g)];
+    eq(patternAdds.map((m) => [m[1], m[2]]), [["$ct_pad_native", "\\*"], ["$ct_pad", "/*"]], `Windows ${name} adds exactly the native and forward-slash pad patterns`);
+    assert(command.includes("-replace '\\\\', '/'"), `Windows ${name} produces OpenCode's forward-slash path form`);
+  };
   for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore], ["resume", windowsResume]] as const) {
-    assert(command.includes("$env:CODETERM_PAD_DIR -replace"), `Windows ${name} normalizes its tab pad path`);
-    assert(command.includes("$ct_pad.TrimEnd('/') + '/*'"), `Windows ${name} grants exactly the pad subtree`);
-    assert(command.includes("$ct_pad_native + '\\*'"), `Windows ${name} grants the native path.join pattern too`);
-    assert(command.includes("if ($ct_pad_native)"), `Windows ${name} grants nothing when the pad environment value is empty`);
-    assert(command.includes('"*":"ask"'), `Windows ${name} keeps other external paths at ask`);
+    windowsPermission(name, command);
     assert(command.includes("Remove-Item Env:OPENCODE_CONFIG_CONTENT"), `Windows ${name} clears the per-launch config after OpenCode exits`);
     assert(!command.includes(".config/opencode") && !command.includes("opencode.json"), `Windows ${name} does not write a global config path`);
   }
   const windowsConfigText = windowsResume.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
-  assert(!!windowsConfigText, "Windows resume embeds a quoted inline config");
-  const parsedWindows = JSON.parse(windowsConfigText || "{}") as { permission: { external_directory: Record<string, string> }; instructions?: string[] };
-  eq(parsedWindows.permission.external_directory, { "*": "ask" }, "Windows base config keeps unmatched paths at ask before adding the pad patterns");
+  const parsedWindows = JSON.parse(windowsConfigText || "{}") as { instructions?: string[] };
   eq(parsedWindows.instructions, [".codeterm/context.md"], "Windows resume config retains its instruction path");
   assert(windowsResume.includes("Copy-Item -LiteralPath 'C:\\Temp\\context.md' -Destination '.codeterm/context.md' -Force; opencode"), "Windows resume executes opencode after staging instructions");
   for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore]] as const) {
@@ -431,13 +437,14 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
       quote: (value: unknown) => `BAD(${String(value)})`,
     },
   }));
-  eq(
-    p.buildResumeCommandWithContext({
+  const plainResume = p.buildResumeCommandWithContext({
       sessionId: savedSession,
       args: ["-m", "big-pickle", "--variant", "high"],
-    }),
+    });
+  eq(
+    plainResume.match(/try \{ (opencode .+?) \} finally/)?.[1],
     "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) --variant Q(windows:high) -m Q(windows:opencode/big-pickle)",
-    "resume selects the saved project and exact session in the full TUI",
+    "resume selects the saved project and exact session in the full TUI inside the config wrapper",
   );
   eq(
     queries,
