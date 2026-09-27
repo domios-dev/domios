@@ -5,6 +5,7 @@ mod merge;
 mod permission_auto_confirm;
 #[path = "tests/restore_verbatim_cwd.rs"]
 mod restore_verbatim_cwd;
+mod restored_agent_boot_stage;
 mod role_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
